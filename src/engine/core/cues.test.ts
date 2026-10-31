@@ -155,7 +155,8 @@ describe('§S.3 sources', () => {
     clearPause();
   });
 
-  it('a charter leg passing 60 min late with a penalty chimes delayPenalty once; past 6 h, cancelRisk', () => {
+  // v0.12.1 the chime is at the contract's own line (latePolicy: a charter compensates over 3 h), not at 60 min.
+  it('a charter leg passing 3 h late (its compensation line) chimes delayPenalty once; past 6 h, cancelRisk', () => {
     const g = fixtureGame(64);
     const acId = Object.keys(g.fleet)[0];
     const ac = g.fleet[acId];
@@ -167,11 +168,13 @@ describe('§S.3 sources', () => {
     takeCues();
     delayFlight(g, f.id, 30, 'Technical: APU');
     expect(takeCues()).not.toContain('delayPenalty');
+    delayFlight(g, f.id, 120, 'Technical: APU');
+    expect(takeCues()).not.toContain('delayPenalty');
     delayFlight(g, f.id, 40, 'Technical: APU');
     expect(takeCues()).toContain('delayPenalty');
     delayFlight(g, f.id, 30, 'Technical: APU');
     expect(takeCues()).not.toContain('delayPenalty');
-    delayFlight(g, f.id, 5 * 60, 'Technical: APU');
+    delayFlight(g, f.id, 3 * 60, 'Technical: APU');
     expect(takeCues()).toContain('cancelRisk');
     clearPause();
   });

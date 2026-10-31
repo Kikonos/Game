@@ -2,25 +2,28 @@
 // read and follows its ref. DESIGN.md §6.3. v0.7.1: a 'Problems only' filter, a severity badge on every warning
 // (money / passengers / lateness) and an Explain button that unfolds the four-line card in place.
 
-import { CheckCheck, ChevronRight, HelpCircle, Hourglass, Inbox as InboxIcon, PencilLine, ShieldAlert, TimerOff, Trophy, Users, X } from 'lucide-react';
+import { CheckCheck, ChevronRight, HelpCircle, History, Hourglass, Inbox as InboxIcon, PencilLine, ShieldAlert, TimerOff, Trophy, Users, X } from 'lucide-react';
 import { HEAD_DEFS } from '../../data/heads';
 import type { HeadId } from '../../engine/core/types';
 import { NamedIcon } from '../components/NamedIcon';
-import { useMemo, useState } from 'react';
-import { fmtDateTime } from '../../engine/core/time';
+import { useEffect, useMemo, useState } from 'react';
+import { fmtDateTime, fmtTime } from '../../engine/core/time';
 import type { GameState, Message } from '../../engine/core/types';
 import { hurtBadges, messageBadges, problemAt, problemFor, problems, usdShort } from '../../engine/problems';
 import { reopenLatePayment } from '../../engine/ops';
 import { HurtBadges, ProblemCardView } from '../components/ProblemCard';
 import { Empty, Tabs } from '../components/ui';
-import { store, useGame } from '../store';
+import { store, useGame, useStore } from '../store';
+import { openToast } from '../game/Toasts';
+import type { ToastLogEntry } from '../toastLogic';
 import { Dot, ScreenHead, useRenderCount } from './common';
 import { expiryLabel, filterMessages, isOpportunity, isProblemMessage, MSG_CATS, PROBLEM_RECENT, refTarget, type MsgFilter } from './screenLogic';
 import { ScreenHint } from '../components/ScreenHint';
 
 const PAGE = 80;
 
-function open(g: GameState, m: Message) {
+/** Marks a message read and follows its ref (v0.12.1 exported: a toast and its log line open the same way). */
+export function openMessage(g: GameState, m: Message) {
   if (!m.read) store.update((gg) => {
     const x = gg.messages.find((y) => y.id === m.id);
     if (x) x.read = true;
@@ -82,7 +85,9 @@ function Decisions({ g }: { g: GameState }) {
           <button key={d.id} className="card sc-decision-card" onClick={() => store.openModal({ kind: 'decision', decisionId: d.id })}>
             <Hourglass className="sc-ico warn" />
             <span className="grow col gap-4" style={{ minWidth: 0 }}>
-              <span className="row gap-8 wrap"><b className="ellipsis">{d.title}</b>{card && <HurtBadges badges={card.hurt.badges} level={card.hurt.level} />}</span>
+              {/* v0.12.1 the title on its own line: the badges no longer squeeze it to one letter on iPad. */}
+              <b className="sc-tile-title">{d.title}</b>
+              {card && <span className="row gap-8 wrap"><HurtBadges badges={card.hurt.badges} level={card.hurt.level} /></span>}
               <span className="small muted sc-clamp">{d.body}</span>
               <span className="tiny dim">{expiryLabel(g.now, d.expires)}{def ? ` · then: ${def.label}` : ''}</span>
             </span>
@@ -136,7 +141,7 @@ function ProblemsNow({ g }: { g: GameState }) {
       {list.slice(0, 12).map((c) => (
         <button key={`${c.subject.kind}:${c.subject.ref.id}`} className={`pc pc-compact pc-now ${c.severity}`} onClick={() => store.openModal({ kind: 'problem', subject: c.subject })}>
           <ShieldAlert className={`sc-ico-s ${c.severity === 'red' ? 'bad' : 'warn'}`} />
-          <b className="pc-what-s grow ellipsis">{c.what}</b>
+          <b className="pc-what-s grow sc-tile-title">{c.what}</b>
           <HurtBadges badges={c.hurt.badges} level={c.hurt.level} />
           <ChevronRight className="sc-ico-s dim" />
         </button>
@@ -146,10 +151,43 @@ function ProblemsNow({ g }: { g: GameState }) {
   );
 }
 
+/**
+ * v0.12.1 Recent pop-ups: the toasts of this session, newest first (UI state, not the save), each with its time in UTC
+ * and at the home base; a tap opens what it was about, as the toast would have.
+ */
+function PopupLog({ g, log }: { g: GameState; log: ToastLogEntry[] }) {
+  if (!log.length) return <Empty icon={<History />} title="No pop-ups yet">The notes that pop up at the lower right land here too, so you can read them again.</Empty>;
+  const home = g.company.homeBase;
+  return (
+    <div className="card sc-list">
+      {log.map((t) => (
+        <div key={t.id} className="sc-msg-wrap">
+          <div className="sc-msg-line">
+            <button className="sc-msg read" onClick={() => openToast(t)} disabled={!t.ref && !t.msgId}>
+              <Dot tone={t.kind === 'achievement' ? 'good' : t.kind} />
+              <span className="grow col gap-4" style={{ minWidth: 0 }}>
+                <b className="sc-clamp">{t.title}</b>
+                <span className="tiny dim sc-popup-time">{fmtDateTime(t.at)} UTC · {fmtTime(t.at, home)} {home}</span>
+                {t.body && <span className="small muted sc-clamp">{t.body}</span>}
+              </span>
+              {(t.ref || t.msgId) && <ChevronRight className="sc-ico-s dim" />}
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function InboxScreen() {
   useRenderCount('inbox');
   const g = useGame();
-  const [cat, setCat] = useState<MsgFilter>('all');
+  const st = useStore();
+  // v0.12.1 the toast stack's clock button opens the pop-up log (nav view 'popups').
+  const [cat, setCat] = useState<MsgFilter>(st.nav.view === 'popups' ? 'popups' : 'all');
+  useEffect(() => {
+    if (st.nav.view === 'popups') setCat('popups');
+  }, [st.nav]);
   const [more, setMore] = useState(false);
   const [explain, setExplain] = useState<string | null>(null);
   // v0.7: market alerts off hides their messages (they stay in the save).
@@ -177,6 +215,7 @@ export function InboxScreen() {
     ...MSG_CATS.slice(1).filter((c) => msgs.some((m) => m.cat === c.id)),
     ...(msgs.some((m) => m.topic === 'market') ? [{ id: 'market' as const, label: 'Market' }] : []),
     ...(msgs.some((m) => m.topic === 'world') ? [{ id: 'world' as const, label: 'World' }] : []),
+    { id: 'popups' as const, label: 'Recent pop-ups' },
   ];
   return (
     <div className="screen sc-inbox">
@@ -189,7 +228,7 @@ export function InboxScreen() {
         <Tabs<MsgFilter> value={cat} onChange={(v) => { setCat(v); setMore(false); }} tabs={cats.map((c) => ({ id: c.id, label: c.label, count: c.id === 'all' ? unread || undefined : counts.get(c.id) }))} />
       </div>
       {cat === 'problems' && <ProblemsNow g={g} />}
-      {!list.length ? (
+      {cat === 'popups' ? <PopupLog g={g} log={st.toastLog} /> : !list.length ? (
         cat === 'problems' && problems(g).length > 0 ? null : <Empty icon={<InboxIcon />} title={cat === 'problems' ? 'No problems' : 'No messages'}>{cat === 'problems' ? 'Open problems and the bad news of the last week land here with their story.' : 'Operations, crew, commercial and finance news land here.'}</Empty>
       ) : (
         <div className="card sc-list">
@@ -200,10 +239,12 @@ export function InboxScreen() {
             return (
               <div key={m.id} className={`sc-msg-wrap ${on ? 'on' : ''}`}>
                 <div className="sc-msg-line">
-                  <button className={`sc-msg ${m.read ? 'read' : ''}`} onClick={() => open(g, m)}>
+                  <button className={`sc-msg ${m.read ? 'read' : ''}`} onClick={() => openMessage(g, m)}>
                     <MsgIcon m={m} />
                     <span className="grow col gap-4" style={{ minWidth: 0 }}>
-                      <span className="row gap-8"><b className="ellipsis">{m.title}</b><MsgBadges m={m} /><span className="tiny dim nowrap">{fmtDateTime(m.t)}</span></span>
+                      {/* v0.12.1 title on its own line, badges and the date below it (iPad tiles showed 'C.'). */}
+                      <b className="sc-tile-title">{m.title}</b>
+                      <span className="row gap-8 wrap"><MsgBadges m={m} /><span className="tiny dim nowrap">{fmtDateTime(m.t)}</span></span>
                       <span className="small muted sc-clamp">{m.body}</span>
                     </span>
                     {m.ref && <ChevronRight className="sc-ico-s dim" />}

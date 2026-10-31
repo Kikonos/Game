@@ -8,7 +8,7 @@ import { typeOf } from '../../engine/core/perf';
 import { fmtDate } from '../../engine/core/time';
 import type { ApprovalId } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
-import { APPROVALS, applyApproval, approvalBlocker, approvalReqs, etopsMxBlocker, ladder, setUpEtopsMx } from '../../engine/ops';
+import { APPROVALS, applyApproval, atRiskLine, approvalBlocker, approvalReqs, etopsMxBlocker, ladder, setUpEtopsMx } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { Bar, Modal } from '../components/ui';
 import { money } from '../format';
@@ -66,7 +66,9 @@ export function ApprovalModal({ id }: { id: ApprovalId }) {
           <div className="row between small"><b>In progress</b><span className="dim">filed {fmtDate(p.started)} · due {fmtDate(p.done)}</span></div>
           <Bar value={prog} size="thin" />
           {!!p.findings && <div className="small warn">{p.findings} authority finding{p.findings > 1 ? 's' : ''}: +{p.findings * 30} days</div>}
-          {p.waiting && <div className="small warn">{p.waiting}</div>}
+          {p.waiting && <div className="small warn">Stuck: {p.waiting.replace(/^Needs /, 'needs ')}</div>}
+          {/* v0.12.1 the signed jobs that can't fly until the grant. */}
+          {atRiskLine(g, id) && <div className="small bad">{atRiskLine(g, id)}. Those legs can't fly until it is granted.</div>}
         </div>
       )}
       {!held && (

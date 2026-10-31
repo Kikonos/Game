@@ -135,6 +135,15 @@ export const WORLD_NAMES: Record<string, NameKit> = {
   LATAM: kit(LATAM_F, LATAM_M, 'González, Rodríguez, Martínez, Hernández, López, García, Pérez, Sánchez, Ramírez, Torres, Castillo, Morales', ['es']),
   CARIB: kit('Shanice, Kimberly, Tamika, Keisha, Danielle, Simone, Ashley, Kerry-Ann', 'Andre, Marlon, Dwayne, Kemar, Ricardo, Jermaine, Damian, Shane', 'Rolle, Ferguson, Knowles, Johnson, Smith, Brown, Campbell, Thompson, Williams, Clarke, Francis, Grant'),
   AW: kit('Natasha, Jennifer, Maria, Giselle, Evelyn, Sharon, Melissa, Jacqueline', 'Ricardo, Juan, Edwin, Mike, Richard, Ryan, Glenbert, Eric', 'Croes, Kock, Maduro, Geerman, Tromp, Werleman, Wever, Arends, Lacle, Dijkhoff', ['pap', 'nl', 'es']),
+  // v0.12.1 the new airports' countries.
+  SR: kit('Sharon, Priya, Sandra, Anjali, Natasja, Shanti, Romy, Kavita', 'Ravi, Ashwin, Romano, Dennis, Glenn, Rishi, Marciano, Sunil', 'Ramdin, Sewnarain, Pinas, Jessurun, Monsels, Kartosen, Mungra, Doekhie, Sitaldin, Wijngaarde', ['nl', 'srn']),
+  GL: kit('Aviaja, Naja, Paninnguaq, Ivalo, Nivi, Ane, Pipaluk, Malu', 'Aqqaluk, Kunuk, Hans, Inunnguaq, Nuka, Pavia, Malik, Kaali', 'Lynge, Kleist, Petersen, Olsen, Motzfeldt, Berthelsen, Kristiansen, Heilmann, Rosing, Egede', ['kl', 'da']),
+  UZ: kit('Dilnoza, Nodira, Malika, Gulnora, Shahnoza, Madina, Zarina, Nigora', 'Aziz, Jasur, Sardor, Bekzod, Rustam, Timur, Akmal, Sherzod', 'Karimov, Rakhimov, Yusupov, Tursunov, Abdullayev, Nazarov, Saidov, Ismoilov, Sultanov, Khodjayev', ['uz', 'ru'], 'Karimova, Rakhimova, Yusupova, Tursunova, Abdullayeva, Nazarova, Saidova, Ismoilova, Sultanova, Khodjayeva'),
+  MN: kit('Anu, Saraa, Nomin, Oyuna, Solongo, Khulan, Enkhjin, Tsetseg', 'Batbayar, Ganbold, Temuulen, Enkhbold, Tömör, Bold, Erdene, Sükh', 'Batbayar, Ganbaatar, Enkhbayar, Tsogt, Gantulga, Dorj, Bat-Ochir, Pürev, Nyamdorj, Altankhuyag', ['mn']),
+  LA: kit('Souksavanh, Vilayphone, Manivanh, Phonevilay, Keo, Noy, Davone, Chanthaly', 'Somphone, Khamphay, Souksakhone, Bounmy, Vilay, Thongsavanh, Phouvong, Sengdao', 'Phommachanh, Sisavath, Vongsa, Keomany, Inthavong, Souvannavong, Chanthavong, Siharath, Phanthavong, Sengsouly', ['lo']),
+  TO: kit('Mele, Salote, Losaline, Ana, Lesieli, Seini, Vika, Kalolaine', 'Sione, Viliami, Tevita, Siosaia, Sitani, Pita, Feleti, Taniela', 'Taufa, Fifita, Vaipulu, Moala, Havili, Tupou, Funaki, Vake, Latu, Mahe', ['to']),
+  MICRO: kit('Maria, Eleanor, Rosemary, Lorraine, Faustina, Jennifer, Iris, Kathleen', 'Ioanes, Benjamin, Joseph, Wesley, Tommy, Marvin, Johnny, Kalani', 'Ngirmang, Etpison, Ngiraingas, Kabua, Heine, Panuelo, Moses, Ehsa, Anjain, Tamana', ['en']),
+  MEL: kit('Mary, Ruth, Grace, Esther, Lily, Anna, Hilda, Rose', 'John, Peter, Jimmy, Moses, Ralph, Charlie, Joe, Edward', 'Kalsakau, Natapei, Tabimasmas, Molisa, Lini, Kenilorea, Wale, Fono, Tausinga, Hilly', ['bi', 'pis']),
 };
 
 /** The kits a country's people are drawn from (one kit per name, never mixed). A country with its own kit uses it. */
@@ -147,4 +156,7 @@ export const CALLER_KITS: Record<string, string[]> = {
   PR: ['LATAM'], DO: ['LATAM'], CU: ['LATAM'], EC: ['LATAM'], PA: ['LATAM'], CR: ['LATAM'], SV: ['LATAM'], GT: ['LATAM'],
   VE: ['LATAM'], BO: ['LATAM'], UY: ['LATAM'], PY: ['LATAM'],
   BS: ['CARIB'], JM: ['CARIB'],
+  // v0.12.1
+  CW: ['AW'], BQ: ['AW'], SX: ['CARIB'], FK: ['GB'], SH: ['GB'], RE: ['FR'], NF: ['AU'], CC: ['AU'], CX: ['AU'], MP: ['GU'],
+  PW: ['MICRO'], FM: ['MICRO'], MH: ['MICRO'], KI: ['MICRO'], VU: ['MEL'], SB: ['MEL'],
 };

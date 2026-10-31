@@ -6,13 +6,13 @@ import type { SimModule } from '../core/module';
 import { schedule } from '../core/queue';
 import { DAY, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Flight, GameState, Minute, SimEvent } from '../core/types';
-import { cancelConversion, classOf, dailyClasses } from './conversion';
+import { cancelConversion, classOf, dailyClasses, restoreCcqRatings } from './conversion';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { afterDiversion, deletePairing, dutyLegality as dutyLevel, pairingSeats, planAircraft, refreshPairing } from './duties';
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
-import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
+import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
-import { autoRoster, closedWait, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, removeCrew, sendStrandedHome, stayOn } from './roster';
+import { autoRoster, closedWait, recheckBuyBacks, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, removeCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets } from './roster';
 import { localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, v09Stats } from './dayPlan';
@@ -28,11 +28,11 @@ export {
   AUG_FDP, CABIN_REST, cabinInflightRest, checkAssignment, crewWindows, daysOffInMonth, DISCRETION, FDP_BANDS, LIMITS, maxFdp, minRest, restAfter,
   acclimState, referenceTime, type Acclim, type CrewWindows, type FdpInput, type IssueCode, type LegalityIssue, type LegalityReport, type RestInput,
 } from './ftl';
-export { crewName, makeCrewMember, salaryFor } from './generate';
+export { crewName, crewPay, makeCrewMember, payFor, salaryFor } from './generate';
 export { crewPeakCard, gapWords, hireLeadDays, monthPlan, PEAK, peakForecast, peakGroups, peakId, peakLine, warnDays, type PeakForecast, type PeakGap, type PeakMonth } from './forecast';
 export { crewAvailability, hireBatch, hireCrew, hireFamilies, hireQuote, ratedMarket, staffing, staffingAssign, trainCrew, type Availability, type HireRequest, type RatedMarket, type RoleCapacity, type StaffingLine } from './hr';
 export {
-  applyDiscretion, autoRoster, discretionCheck, discretionMax, plannedFdpOf, boardCrew, dropStraySpares, promoteSpares, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, setClosedWaitHook, setRestDelayHook,
+  applyDiscretion, autoRoster, discretionCheck, discretionMax, plannedFdpOf, boardCrew, dropStraySpares, promoteSpares, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, seatRiders, setClosedWaitHook, setRestDelayHook,
   type FlightCrewStatus, type RosterResult,
 } from './roster';
 export { crewIssuesFor } from './check';
@@ -40,11 +40,11 @@ export {
   assignCrew, dutyCandidates, dutyCrew, dutyLegality, dutyOf, swapCrew, unassignCrew, unlockCrew,
   type DutyCandidate, type DutyCrewView, type DutyLegalityView, type DutyLegalityWarning, type RosterOpts, type RosterSlotView,
 } from './rosterActions';
-export { salaryBill } from './costs';
-export { crewRev, ticketPrice } from './timeline';
+export { paidShare, salaryBill } from './costs';
+export { crewRev, rideRoom, rideSeats, ridersText, ridesAllowed, revenueRide, ticketPrice } from './timeline';
 export { dropTargets, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from './board';
 export {
-  cancelConversion, ccqPartner, classOf, conversionClasses, conversionEarliest, conversionPlan, courseOf, familyLabel, refundShare, startConversion,
+  cancelConversion, ccqKeeps, ccqPartner, ccqPartners, classOf, conversionClasses, conversionEarliest, conversionPlan, courseOf, courseText, familyLabel, ratingsLost, refundShare, startConversion,
   type ConversionClassPlan, type ConversionPlan, type ConversionRequest,
 } from './conversion';
 export {
@@ -59,8 +59,9 @@ export {
   applyCrewFix, cancelTrip, charterJet, crewControl, crewGauges, crewShortCard, escalateShortages, FIX_LABEL, jetQuote, previewCopy, reachFor, ROLE_WORD, rootReason, seatsText, shortFlights,
   type ApplyOpts, type CrewControlView, type CrewSolution, type FixOption, type FixPreview, type JetQuote, type Reason, type ReasonCode, type SeatNeed,
 } from './control';
-import { escalateShortages } from './control';
+import { closureTicketsOnLoad, escalateShortages } from './control';
 import { migrateRanks } from './migrate';
+import { payBuyBack } from './buyBack';
 export { migrateRanks } from './migrate';
 // v0.7.2 (UPDATE-0.7.2.md §12).
 export { crewAway, type CrewAway } from './away';
@@ -161,6 +162,8 @@ function onDutyReport(g: GameState, ev: SimEvent): void {
     }
     const own = dutySegs(g, c, p, d, out, null).find((x) => x.kind === 'duty')?.start ?? d.report;
     noteRecovery(c, Math.min(d.report, own), g);
+    // v0.12.1 a day off bought back for this trip is paid now that they report for it.
+    if (s.buyBack) payBuyBack(g, s);
     c.status = 'onDuty';
     if (c.awaySince === null && (dep !== c.base || d.restAt !== c.base)) c.awaySince = g.now;
   }
@@ -313,7 +316,12 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     // A ticket from somewhere the crew member is not was never boarded (a re-plan left it behind): their next
     // trip is re-checked now (they are not where it expects them). Debug round (26 Oct 2026): nor one that left
     // before they landed there (their own leg arrived late: seed 1, a DH at 18:00 'boarded' off a leg on blocks 18:10).
-    if (c.loc !== f.from || (late ??= landedAfter(g, f.from, (f.atd ?? f.std) - 15)).has(id)) {
+    // v0.12.1 round D: nor by someone on leave, sick or not joined at its departure (they stay home: a captain placed
+    // by hand while on annual leave rode our aircraft out to her trip).
+    // v0.12.1 a flight home is the exception: sick, or with leave begun while away, they fly home as passengers (seed
+    // 6: a captain sick at Düsseldorf 'missed' his ride home every morning for a week, a new ticket bought each day).
+    const off = f.to !== c.base && c.blocks?.some((b) => b.why !== 'training' && b.from <= (f.atd ?? f.std) && b.to > (f.atd ?? f.std));
+    if (off || c.loc !== f.from || (late ??= landedAfter(g, f.from, (f.atd ?? f.std) - 15)).has(id)) {
       missed.push(id);
       continue;
     }
@@ -339,6 +347,9 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     }
   }
   if (pax.length) touchCrewState(g);
+  // v0.12.1 riders of our own flight diverted to an alternate: their next trip is re-planned from there now.
+  const landed = f.div && f.kind !== 'deadhead' ? pax.filter((id) => g.crew[id] && !missed.includes(id)) : [];
+  if (landed.length) recheckNext(g, landed, d && !d.done ? g.pairings[d.pairingId] : undefined);
   if (missed.length) {
     // v0.10.1 never boarded: they come off the ticket, so no timeline (the roster's, the duty log's) moves them with
     // it; the trip it was for is re-checked from where they really are (re-ticketed or re-crewed, or the shortage
@@ -514,6 +525,8 @@ function daily(g: GameState) {
   refreshStatuses(g);
   prune(g);
   dailyCrewCosts(g);
+  // v0.12.1 B757/767 pay follows the fleet (widebody scale while a 767 is in it).
+  dailyPay(g);
   for (const c of Object.values(g.crew)) if (c.status !== 'onDuty') c.fatigue = Math.max(0, c.fatigue - 6);
   dailySickness(g);
   dailyMorale(g);
@@ -608,6 +621,8 @@ function queueAlert(g: GameState): void {
 function onCrewAlert(g: GameState): void {
   // Leftover-breach round: crew away with a leave (or their last day) starting within 3 h go home first.
   homeBeforeLeave(g);
+  // v0.12.1 nobody waits on duty at the gate past their limit: a duty held past a night's rest ends at its last landing.
+  splitOverlong(g);
   // The hourly check re-rosters a freshly short aircraft before warning (a roster not yet run is not a shortage).
   escalateShortages(g, { reroster: true });
   hourlyHook?.(g);
@@ -625,6 +640,7 @@ export const crewModule: SimModule = {
   init(g) {
     // The same defaults load sets (a fresh game and a reloaded one serialise alike).
     g.stats.crewFixes ??= {};
+    g.company.policies.buyBack ??= 'auto';
     for (const c of Object.values(g.crew)) c.twoDays ??= { 0: monthKey(g.now) };
     // v0.9 roster planning from the first day (leave, days off and standby for the published 14 days).
     dayPlanInit(g);
@@ -634,6 +650,10 @@ export const crewModule: SimModule = {
     // v0.7.2: CSD/SCC → PUR before anything reads roles.
     migrateRanks(g);
     g.classes ??= {};
+    // v0.12.1 pilots who lost the A320 on an A330 conversion before the CCQ get it back (both kept now).
+    restoreCcqRatings(g);
+    // v0.12.1 Settings › Buy back days off: automatically.
+    g.company.policies.buyBack ??= 'auto';
     const y = yearOf(g.now);
     for (const c of Object.values(g.crew)) c.blockYearOf ??= y;
     // v0.7.3 two local days twice a month: tracked from the load month (that month counts as satisfied).
@@ -646,15 +666,26 @@ export const crewModule: SimModule = {
     // v0.9 old saves keep their published roster; the v0.9 planner takes over from the first unpublished day.
     dayPlanLoad(g);
     repairMissedTickets(g);
+    // v0.12.1 open duties no longer list rides on legs already gone (a relinked positioning leg removed with crew on it).
+    for (const d of Object.values(g.duties)) if (!d.done && d.deadheadIds.some((id) => !g.flights[id])) d.deadheadIds = d.deadheadIds.filter((id) => g.flights[id]);
     repairCutStandby(g);
     repairDiverted(g);
     repairMixedTrips(g);
+    // v0.12.1 (review) crew tickets through an airport closed now: dropped and re-planned.
+    closureTicketsOnLoad(g);
+    // v0.12.1 legs a load repair moved or removed (ops: a closure's held legs, orphan out-and-backs): duties follow now.
+    for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
     const rev = flightsRev(g);
     if (lastFlightsRev.get(g) !== rev) {
+      // v0.12.1 riders whose flight was cancelled, removed or filled up are re-planned first; tickets gone come off duties.
+      settleRides(g);
+      forgetGoneTickets(g);
       rosterNewFlights(g);
+      // v0.12.1 (review) a trip a day off was bought for that moved off that day gives it back.
+      recheckBuyBacks(g);
       lastFlightsRev.set(g, flightsRev(g));
     }
     const h = Math.floor(g.now / 60);

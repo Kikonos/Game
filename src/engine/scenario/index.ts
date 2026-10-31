@@ -6,6 +6,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { invoice, statementTotals } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
+import { onTimeLeg } from '../ops/latePolicy';
 import { DAY, fmtDay, fromUTC } from '../core/time';
 import type { GameState, Minute, ScenarioResult, ScenarioState, ScenarioTally } from '../core/types';
 import { createGame } from '../newGame';
@@ -176,7 +177,8 @@ function scan(g: GameState): void {
         continue;
       }
       const block = Math.max(0, when - (f.atd ?? f.std)) / 60;
-      const onTime = (f.atd ?? f.std) - f.std <= 15;
+      // v0.12.1 against the original schedule, not the retimed one.
+      const onTime = onTimeLeg(f);
       t.legs++;
       if (onTime) t.onTime++;
       t.pax += f.pax ?? 0;

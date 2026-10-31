@@ -13,7 +13,7 @@ import { DAY, daysInMonth, fmtDay, fromUTC, monthKey, monthStart, yearOf } from 
 import type { CrewMember, Duty, GameState, Minute, MonthKey, StandbyKind, StatsRoster09, StatsV09 } from '../core/types';
 import { hash } from '../core/util';
 import { moraleShock } from './morale';
-import { evalSegs, offsetAt, type LegalityIssue, type Seg } from './rules';
+import { evalSegs, offsetAt, tzDeltaH, type LegalityIssue, type Seg } from './rules';
 import { noteRecovery, onStandby, pruneStandby } from './standby';
 import { crewIx, ctxOf, locAt, segsOf, standbySeg, touchCrewState, typeIdOf } from './timeline';
 
@@ -78,6 +78,20 @@ function removeOff(c: CrewMember, days: number[]): void {
   if (!c.off) return;
   const s = new Set(days);
   c.off = c.off.filter((k) => !s.has(k));
+}
+
+/**
+ * v0.12.1 a buy-back undone before it was worked (the crew member swapped off, the trip gone): the days bought go back
+ * to being days off and the days given in return, still to come, go back to work days. Only days not yet begun.
+ */
+export function restoreOffDays(g: GameState, c: CrewMember, days: number[], repay: number[]): void {
+  const today = dayIndex(c.base, g.now);
+  removeOff(c, repay.filter((k) => k > today));
+  const back = days.filter((k) => k >= today);
+  addOff(c, back);
+  // v0.12.1 (review) a standby planned on a day given back gives way to it (S1027: a home standby put on 28 Oct).
+  for (const k of back) clearDays(g, c, k, k + 1);
+  touchCrewState(g);
 }
 
 /** Is crew member `crewId` rostered OFF on t's base-local day. Pure. */
@@ -522,7 +536,7 @@ export function offBreak(g: GameState, crewId: string, from: Minute, to: Minute)
  * go, each published one costs morale −6 (Stats offBroken), and each is re-planned on the first free unpublished day of
  * its month (the next month when none is left). Returns the moves as [from, to | null] day indices.
  */
-export function takeOffDays(g: GameState, c: CrewMember, segs: Seg[], planner = false): [number, number | null][] {
+export function takeOffDays(g: GameState, c: CrewMember, segs: Seg[], planner: boolean | 'bought' = false): [number, number | null][] {
   const hits = hitsOf(c, segs);
   if (!hits.length) return [];
   const pub = dayIndex(c.base, publishedTo(g));
@@ -536,7 +550,11 @@ export function takeOffDays(g: GameState, c: CrewMember, segs: Seg[], planner = 
     // The planner's own move (a tour crewed over its days off: the day moves to a free one, no morale); a player's or
     // a call-in's break of a published day costs morale. A published day the planner moves for a detachment is never
     // silent: the crew member is asked to swap it (morale −3, once a change).
-    if (planner) {
+    // v0.12.1 a day bought back (crew/buyBack.ts): asked and paid, no morale; the day is repaid below as any other.
+    if (planner === 'bought') {
+      if (!broke) rosterStats(g).offBought = (rosterStats(g).offBought ?? 0) + 1;
+      broke = true;
+    } else if (planner) {
       rosterStats(g).offMoved = (rosterStats(g).offMoved ?? 0) + 1;
       if (k < pub && !broke) {
         broke = true;
@@ -558,6 +576,34 @@ export function takeOffDays(g: GameState, c: CrewMember, segs: Seg[], planner = 
   }
   touchCrewState(g);
   return moves;
+}
+
+/**
+ * v0.12.1 a day-off buy-back (crew/buyBack.ts): the days off the fresh work in `segs` takes, where each is repaid
+ * (replacementDay, as takeOffDays will: a free day of the same month, a standby day of the published roster included,
+ * else the next month) and how many of them the work itself falls on (the paid days; a report before 06:00 only clips
+ * the eve). Worked out on a copy of the crew member: null when the work takes no day off, or when even with the days
+ * repaid a month or the year it touches would fall under its legal floor (7 a month, 96 a year: Directive 2000/79/EC,
+ * never bought). Pure.
+ */
+export interface BuyBackDays { days: number[]; repay: [number, number | null][]; paid: number; month: MonthKey; worked: number; /** No work on the day itself: an early report cuts its night short. */ clip: boolean; /** The work's first minute. */ start: Minute }
+export function buyBackDays(g: GameState, c: CrewMember, base: Seg[], segs: Seg[]): BuyBackDays | null {
+  const fresh = segs.filter((x) => x.fresh && isWorkSeg(x));
+  const hits = hitsOf(c, fresh);
+  if (!hits.length) return null;
+  const cc: CrewMember = { ...c, off: [...(c.off ?? [])] };
+  removeOff(cc, hits);
+  const all = mergeSorted(base, segs);
+  const repay: [number, number | null][] = [];
+  for (const k of hits) {
+    const to = replacementDay(g, cc, hits, monthOfDay(k), all);
+    if (to !== null) addOff(cc, [to]);
+    repay.push([k, to]);
+  }
+  if (monthFloorIssue(g, cc, base, fresh)) return null;
+  const on = (k: number) => fresh.some((x) => dayIndex(c.base, x.start) <= k && k <= dayIndex(c.base, x.end - 1));
+  const worked = hits.filter(on);
+  return { days: hits, repay, paid: Math.max(1, worked.length), month: monthOfDay(worked[0] ?? hits[0]), worked: worked[0] ?? hits[hits.length - 1], clip: !worked.length, start: Math.min(...fresh.map((x) => x.start)) };
 }
 
 /** Two seg lists as one, by start (the work just placed may not be in the timeline index yet). */
@@ -1437,6 +1483,19 @@ export function fitStandby(g: GameState, ids: Iterable<string>): void {
 
 // ---------- daily ----------
 
+/** v0.12.1 windows still to come inside the time-zone recovery nights at home (or otherwise illegal now) go. */
+export const fitTzStandby = (g: GameState): void => fitStandby(g, tzReturning(g));
+
+/** v0.12.1 crew with standby still to come and work in the last or next 5 days 4 h or more from their base's clock. */
+function tzReturning(g: GameState): string[] {
+  const out: string[] = [];
+  for (const c of Object.values(g.crew)) {
+    if (!c.standby?.some((w) => w.calledAt === undefined && w.from > g.now)) continue;
+    if (segsOf(g, c).some((x) => x.kind !== 'sby' && x.end > g.now - 5 * DAY && x.start < g.now + 5 * DAY && [x.from, x.at].some((a) => a && tzDeltaH(c.base, a, x.start) >= 4))) out.push(c.id);
+  }
+  return out;
+}
+
 /** Recovery bookkeeping for standby windows that started since yesterday (standby is not rest). */
 function noteStarted(g: GameState): void {
   for (const c of Object.values(g.crew)) {
@@ -1492,6 +1551,10 @@ export function dayPlanBefore(g: GameState): void {
 export function dayPlanAfter(g: GameState): void {
   if (!g.dayPlan) return;
   topUpOffs(g);
+  // v0.12.1 a window inside the local nights owed at home after a trip across time zones goes (CS FTL.1.235(b)(3)):
+  // a trip or ticket home changed after the window was planned left it there (v0.7.2 save: an FO home from Nadi at
+  // 08:30, on standby from 12:00 the next day). planStandby refills the day.
+  fitTzStandby(g);
   planStandby(g);
   // v0.9 fix: after planStandby, so a window it starts right now (a hotel standby from 06:00 local = the daily tick)
   // is noted too; before, it was neither today's (not planned yet) nor tomorrow's (not after a day ago).

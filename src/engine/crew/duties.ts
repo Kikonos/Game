@@ -5,7 +5,7 @@
 import { dropClientSeats } from './clientCrew';
 import { BAL } from '../core/balance';
 import { flightsOf, nextId, removeFlights } from '../core/entities';
-import { cabinMinimum, reportMinutes, typeOf } from '../core/perf';
+import { cabinMinimum, extraCabinRoom, isPilot, reportMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { DAY, dayStart, yearOf } from '../core/time';
 import type { AcRest, Contract, CrewMember, CrewSlot, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Requirements, Role } from '../core/types';
@@ -14,8 +14,11 @@ import {
   splitFdp, tzDeltaH, woclMinutes, worst, type Seg, type TimelineCtx,
 } from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
+import { farBase, farTourBase, patternSets, reserveRoles } from './farBase';
 import { bestSlip } from './slip';
-import { cabinEarly, cabinEarlyOf, crewCount, crewIx, dhBlock, dutyBlock, dutyFlights, onBlocks, touchCrew } from './timeline';
+import { dropStandby } from './standby';
+import { aboard, cabinEarly, cabinEarlyOf, crewCount, crewIx, ctxOf, dhBlock, dutyBlock, dutyFlights, dutySegs, onBlocks, planHome, segsOf, touchCrew } from './timeline';
+import { mergeSegs, openDuties } from './check';
 import { pilotsOnlyTrip, planRest, restOf, type RestLeg, type RestPlan } from './restPlan';
 
 // ---------- duty measures ----------
@@ -282,7 +285,8 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
     }
   }
   d.report = sh.report;
-  d.release = sh.release;
+  // v0.12.1 (review) a duty split late keeps the time its crew really left the gate.
+  d.release = Math.max(sh.release, d.heldTo ?? 0);
   d.fdp = sh.fdp;
   d.sectors = sh.sectors;
   applyPick(d, pa);
@@ -322,7 +326,7 @@ export function queueDuty(g: GameState, d: Duty): void {
  * (own report, FDP and rest), not one duty stretched over days. Tickets home move to the new duty. The caller
  * re-sorts the pairing (refreshPairing). The new duty, or null.
  */
-export function splitUnderWay(g: GameState, p: Pairing, d: Duty): Duty | null {
+export function splitUnderWay(g: GameState, p: Pairing, d: Duty, force = false): Duty | null {
   if (d.done || d.report > g.now) return null;
   const fl = dutyFlights(g, d).filter((f) => f.status !== 'cancelled');
   const typeId = (p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo';
@@ -335,7 +339,9 @@ export function splitUnderWay(g: GameState, p: Pairing, d: Duty): Duty | null {
     if ((a.status !== 'done' && a.status !== 'enroute') || b.status !== 'scheduled') continue;
     const landed = onBlocks(a);
     const need = minRest({ dutyMin: landed - d.report + cabinEarly(g, p, d), atHome: a.to === g.company.homeBase, augmented: d.augment > 0, tzShift: tzDeltaH(g.company.homeBase, a.to, landed), extended: !!d.ext }) + rm.report + rm.post;
-    if (b.std - landed < need) continue;
+    // v0.12.1 (review, CREW-8) `force` (the hourly guard: a crew past their limit): split even when the next leg is
+    // closer than a night's rest. Seed 9: Louis Durand waited at the Gatwick gate from 16:12 to 03:42 for EI4023.
+    if (!force && b.std - landed < need) continue;
     const later = fl.slice(i);
     const d2: Duty = {
       id: nextId(g, 'du'), pairingId: p.id, report: Number.MAX_SAFE_INTEGER, release: 0, flightIds: later.map((f) => f.id), deadheadIds: [], sectors: 0,
@@ -348,6 +354,12 @@ export function splitUnderWay(g: GameState, p: Pairing, d: Duty): Duty | null {
     d.deadheadIds = d.deadheadIds.filter((id) => !d2.deadheadIds.includes(id));
     p.dutyIds.push(d2.id);
     syncDuty(g, d, p);
+    // v0.12.1 (review, CREW-8) a split that comes after the crew should have been released: the duty and the rest
+    // after it start now, not back at the last landing (the rest "ended" before the split and they flew 5 h later).
+    if (g.now > d.release && crewCount(p) > 0) {
+      d.heldTo = g.now;
+      d.release = g.now;
+    }
     syncDuty(g, d2, p);
     if (crewCount(p) > 0) {
       queueDuty(g, d);
@@ -385,11 +397,40 @@ export function pairingSeats(g: GameState, p: Pairing): Seat[] {
     }
   }
   const c: Contract | undefined = p.contractId ? g.contracts[p.contractId] : undefined;
+  // v0.12.1 a world tour (a held job) flies one augmented crew all the way round: the most pilots any of its duties
+  // needs on every leg (the same seats whichever part of the tour a pairing holds), a spare pilot when none needs more
+  // than two; its service crew above the minimum ride as spares (a sick one never grounds the tour: promoteSpares).
+  const tour = !empty && c?.pattern.kind === 'legs' && !!c.pattern.hold && !!p.aircraftId;
+  if (tour) {
+    for (const f of flightsOf(g, p.aircraftId!)) {
+      const d = f.contractId === c!.id && f.dutyId ? g.duties[f.dutyId] : undefined;
+      if (!d || d.augment <= augment) continue;
+      augment = d.augment;
+      restCabin = Math.max(restCabin, d.restExtra ?? 0);
+    }
+  }
   let x = crewExtraFor(g, p.aircraftId, p.contractId);
   // v0.8 mixed crew: the client staffs part of the cabin (no company extra on top); we fill only our share.
   const cc = clientCabinOf(g, p);
   if (cc && cc.n > 0) x = { ...x, cabin: Math.min(x.cabin, c?.requirements.extraCabin ?? 0) };
-  const seats = dropClientSeats(seatsFor(typeId, ac?.cabin.total ?? 180, x, c?.requirements.extraCabin ?? 0, { augment, restCabin, pilotsOnly: empty }), empty ? undefined : cc);
+  const req = tour ? 0 : c?.requirements.extraCabin ?? 0;
+  if (tour) x = { ...x, cabin: Math.max(x.cabin, c!.requirements.extraCabin), pilot: augment === 0 ? 1 : x.pilot };
+  const seats = dropClientSeats(seatsFor(typeId, ac?.cabin.total ?? 180, x, req, { augment, restCabin, pilotsOnly: empty }), empty ? undefined : cc);
+  // ... one of them a second purser, who takes the purser's seat if the purser falls ill far from home (a cabin crew
+  // member may not: seed 4's tour lost its last two legs at Kathmandu for want of one).
+  if (tour) {
+    const spare = seats.find((x) => x.above && x.role === 'CC');
+    if (spare) spare.role = 'PUR';
+  }
+  // v0.12.1 a crew set at a far base carries its reserve (crew/farBase.ts): a spare captain and purser (a cabin crew
+  // more on a widebody), the cabin ones only while the crew seats have room for them.
+  if (!empty && farTourBase(g, p)) {
+    let room = extraCabinRoom(typeId, ac?.cabin.total ?? 180, seats.filter((x) => !isPilot(x.role)).length - Math.max(cabinMinimum(typeId, ac?.cabin.total ?? 180), 1));
+    for (const role of reserveRoles(typeId)) {
+      if (!isPilot(role) && room-- <= 0) continue;
+      seats.push({ role, above: true, reserve: true });
+    }
+  }
   const rank = (s: Seat) => (s.above ? 10 : 0) + ROLE_ORDER.indexOf(s.role);
   return seats.sort((a, b) => rank(a) - rank(b));
 }
@@ -448,7 +489,7 @@ export function aboveMinimum(g: GameState, p: Pairing): { pilots: number; cabin:
 /** Roles of the pairing's seats (required, then above the minimum). */
 export const pairingRoles = (g: GameState, p: Pairing): Role[] => pairingSeats(g, p).map((s) => s.role);
 
-const seatKey = (s: { role: Role; above?: boolean }) => (s.above ? `${s.role}+` : s.role);
+const seatKey = (s: { role: Role; above?: boolean; reserve?: boolean }) => (s.reserve ? `${s.role}R` : s.above ? `${s.role}+` : s.role);
 
 /**
  * Start/end, slots and duty measures of a pairing. Slots follow the complement: assigned crew keep a slot of
@@ -482,7 +523,7 @@ export function refreshPairing(g: GameState, p: Pairing): string[] {
   if (seats.map(seatKey).join() !== core.map(seatKey).join()) {
     const old = core;
     const used = new Set<number>();
-    const next: CrewSlot[] = seats.map((seat) => (seat.above ? { role: seat.role, crewId: null, above: true } : { role: seat.role, crewId: null }));
+    const next: CrewSlot[] = seats.map((seat) => (seat.above ? { role: seat.role, crewId: null, above: true, ...(seat.reserve ? { reserve: true as const } : {}) } : { role: seat.role, crewId: null }));
     // Same seat kind first, then the same role across kinds (a spare takes a required seat; a required holder an above one).
     for (const loose of [false, true]) {
       next.forEach((slot, j) => {
@@ -492,11 +533,17 @@ export function refreshPairing(g: GameState, p: Pairing): string[] {
         used.add(i);
         slot.crewId = old[i].crewId;
         if (old[i].locked) slot.locked = true;
+        // v0.12.1 (review) a day-off buy-back still to be paid goes with the crew member to the new seat.
+        if (old[i].buyBack) slot.buyBack = old[i].buyBack;
         next[j] = slot;
       });
     }
     old.forEach((s, k) => {
-      if (!used.has(k) && s.crewId) dropped.push(s.crewId);
+      if (!used.has(k) && s.crewId) {
+        dropped.push(s.crewId);
+        // v0.12.1 (review) ... and a crew member who loses the seat gets the day off back, unpaid (crew/buyBack.ts).
+        if (s.buyBack) dropBuyBackHook(g, s);
+      }
     });
     p.slots = [...next, ...extras];
   }
@@ -552,6 +599,12 @@ export function splitPairing(g: GameState, p: Pairing, t: Minute): Pairing | nul
   for (const id of refreshPairing(g, q)) releaseHook(g, q, id);
   touchCrew(g);
   return q;
+}
+
+/** v0.12.1 (review) roster.ts: undoBuyBack for a crew member whose seat a re-measured complement dropped. */
+let dropBuyBackHook: (g: GameState, slot: CrewSlot) => void = () => {};
+export function setDropBuyBackHook(f: (g: GameState, slot: CrewSlot) => void): void {
+  dropBuyBackHook = f;
 }
 
 let releaseHook: (g: GameState, p: Pairing, crewId: string) => void = () => {};
@@ -767,7 +820,10 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
     const c = contractOfDuties(g, [d]);
     // v0.5.2: an empty leg into a deployment from an outstation is a pilots-only ferry: the tour's cabin crew
     // deadhead straight to the base instead of first flying out to the aircraft (from home they ride along).
-    const remoteIn = isDeploymentContract(g, c) && emptyDuty(g, d) && g.flights[d.flightIds[0]]?.from !== home && !specs.some((x) => x.flights[0].std < s.flights[0].std && x.flights.some((f) => f.contractId === c.id && f.kind !== 'positioning' && f.kind !== 'ferry'));
+    // v0.12.1 at a far base only on the way in, before the programme starts: an empty leg back to base from an outstation
+    // later (its legs handed to a rival) is the tour's to fly, never a ferry crew's from home (seed 1: PER–SGN planned
+    // again every day as a trip from Lisbon, nobody could reach it, and each next rotation went to Air Atlanta).
+    const remoteIn = isDeploymentContract(g, c) && emptyDuty(g, d) && g.flights[d.flightIds[0]]?.from !== home && (s.flights[0].std < c!.start || (c!.pattern.kind === 'base' && !farBase(home, c!.pattern.base, c!.start))) && !specs.some((x) => x.flights[0].std < s.flights[0].std && x.flights.some((f) => f.contractId === c!.id && f.kind !== 'positioning' && f.kind !== 'ferry'));
     if (isDeploymentContract(g, c) && !remoteIn) {
       const l = byDep.get(c.id) ?? [];
       l.push(d);
@@ -858,14 +914,22 @@ export function afterDiversion(g: GameState, f: Flight, x: Flight | null): void 
     if (d.legality === 'illegal') return false;
     for (const s of p.slots) {
       const c = s.crewId ? g.crew[s.crewId] : undefined;
-      if (c && crewTrailOkHook && !crewTrailOkHook(g, p, c)) return false;
+      if (c && !ownTrailOk(g, p, c, d)) return false;
     }
     return true;
   };
   let rest: string[] = tail;
+  // v0.12.1 the onward leg after the crew's rest (hotels at the alternate) is theirs too: it heads the duty split off
+  // below when they can fly it then (seed 9: BT4062 RIX–VAR the next night left uncrewed, a red shortage, and the
+  // trip's other legs cancelled waiting for a crew while its own crew rested in Riga with two free days).
+  let after = false;
   if (x && fits([...head, x.id, ...tail])) rest = [];
   else if (!(x && fits([...head, x.id]))) {
-    if (x) x.dutyId = null;
+    if (x) {
+      x.dutyId = null;
+      rest = [x.id, ...tail];
+      after = true;
+    }
     fits(head);
   }
   if (rest.length) {
@@ -880,12 +944,83 @@ export function afterDiversion(g: GameState, f: Flight, x: Flight | null): void 
     d.deadheadIds = d.deadheadIds.filter((id) => !d2.deadheadIds.includes(id));
     p.dutyIds.push(d2.id);
     syncDuty(g, d2, p);
-    queueDuty(g, d2);
+    // A crew member who still can't fly it (no 36 h recovery this week) is replaced by the roster; when none can, or the
+    // day is too long, the onward leg goes to the roster (another crew), as before.
+    if (after && x && (d2.legality === 'illegal' || p.slots.every((s) => !s.crewId || !g.crew[s.crewId] || !ownTrailOk(g, p, g.crew[s.crewId], d2)))) {
+      x.dutyId = null;
+      d2.flightIds = tail;
+      if (tail.length) syncDuty(g, d2, p);
+      else {
+        d.deadheadIds.push(...d2.deadheadIds);
+        p.dutyIds = p.dutyIds.filter((id) => id !== d2.id);
+        delete g.duties[d2.id];
+      }
+    }
+    if (g.duties[d2.id]) queueDuty(g, d2);
   }
   queueDuty(g, d);
   refreshPairing(g, p);
   retickHook(g, p);
   touchCrew(g);
+}
+
+/**
+ * v0.12.1 can crew member c fly pairing p up to duty `upto` as it now stands, judged against the work before it
+ * (cumulative limits, the rest before it) and the way home after it? Their later duties and trips are not asked:
+ * built for where the aircraft was going (seed 6: a positioning BHX–FRA after DBB393 had gone on to Dublin), they
+ * read "At DUB, not BHX" and left the onward leg uncrewed with a red shortage. The roster re-checks them when the
+ * flights change, and splits off and re-crews a later duty its crew can no longer reach.
+ */
+function ownTrailOk(g: GameState, p: Pairing, c: CrewMember, upto: Duty): boolean {
+  const duties = openDuties(g, p).filter((x) => x === upto || x.report <= upto.report);
+  if (!duties.length) return false;
+  const first = duties[0];
+  const last = duties[duties.length - 1];
+  let out: Flight | null = null;
+  for (const fid of first.deadheadIds) {
+    const f = g.flights[fid];
+    if (f && f.status !== 'cancelled' && aboard(f, c.id) && f.sta <= first.report) out = f;
+  }
+  const home = last.restAt !== c.base ? planHome(last, c.base, cabinEarly(g, p)) : null;
+  const own: Seg[] = [];
+  for (const d of duties) own.push(...dutySegs(g, c, p, d, d === first ? out : null, d === last ? home : null, true));
+  const before = segsOf(g, c, p.id).filter((s) => s.end <= first.report);
+  return !evalSegs({ ...ctxOf(g, c), slack: BAL.rosterSlack }, mergeSegs(before, own)).some((i) => i.level === 'illegal' && i.code !== 'fdp');
+}
+
+/**
+ * v0.12.1 the onward card's "Same crew, within their day": diverted leg f's duty, flying on from where it landed to
+ * its destination at `std` for `block` minutes, stays under its limit (discretion already on record counts). The
+ * same limit afterDiversion keeps the onward leg in the duty by. Pure.
+ */
+export function continuationFits(g: GameState, f: Flight, std: Minute, block: number): boolean {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  if (!d || !p || d.done || crewCount(p) === 0) return false;
+  const i = d.flightIds.indexOf(f.id);
+  if (i < 0) return false;
+  const head = d.flightIds.slice(0, i + 1).map((id) => g.flights[id]).filter((x) => !!x && x.status !== 'cancelled');
+  const x: Flight = { ...f, id: '', from: f.to, to: f.div?.to0 ?? f.to, std, sta: std + block, block, status: 'scheduled', delay: 0, atd: undefined, ata: undefined, eta: undefined };
+  const typeId = (p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo';
+  const sh = shape(typeId, [...head, x], d.report);
+  const r = referenceTime(p.base, sh.dep, Math.min(p.start, sh.report), sh.report);
+  const pa = keepMode(d, sh, { reportLocal: r.reportLocal, acclimatised: r.state !== 'X', tz: r.tz }, restOf(g, p.aircraftId));
+  return sh.fdp <= pa.max + (d.discretion ?? 0);
+}
+
+/**
+ * v0.12.1 the earliest departure f's crew can fly again after their minimum rest where f landed (ORO.FTL.235: the
+ * duty's length, at least 12 h at their base or 10 h away; 14 h augmented): release, rest, report. null without a
+ * duty. Pure.
+ */
+export function restedDeparture(g: GameState, f: Flight): Minute | null {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  if (!d || !p) return null;
+  const rm = reportMinutes((p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo');
+  const release = onBlocks(f) + rm.post;
+  const rest = minRest({ dutyMin: release - d.report, atHome: f.to === p.base, augmented: d.augment > 0, tzShift: 0 });
+  return release + rest + rm.report;
 }
 
 /** Hook (roster.ts): can crew member c fly pairing p as it now stands (its tickets home will be re-planned)? */
@@ -920,6 +1055,14 @@ function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
   const dayOf = (t: Minute) => Math.floor((t + offsetAt(home, t)) / DAY);
   let cur: Duty[] = [];
   const empty = (d: Duty) => emptyDuty(g, d);
+  /** v0.12.1 the held job (a world tour) the duty flies for, positioning to it included; null for any other. */
+  const heldBy = (d: Duty): string | null => {
+    for (const id of d.flightIds) {
+      const c = g.contracts[g.flights[id]?.contractId ?? ''];
+      if (c?.pattern.kind === 'legs' && c.pattern.hold) return c.id;
+    }
+    return null;
+  };
   /** The cabin crew's earlier report (absent: the type's default, as timeline.cabinEarly reads it). */
   const early = (d: Duty) => d.cabinEarly ?? cabinEarlyOf(g.fleet[acId]?.typeId ?? '');
   // v0.5.2: empty duties after the trip's last revenue duty are their own pilots-only trip (a ferry: the cabin
@@ -948,7 +1091,10 @@ function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
       // (Code review: the cabin crew's earlier report counts at both ends: their day is longer and their next one
       // starts sooner. A widebody's days 10:05 apart read 'Rest 9:50 < 10:00' for every cabin crew member.)
       const need = minRest({ dutyMin: last.release - last.report + early(last), atHome: false, augmented: last.augment > 0, tzShift: tzDeltaH(home, last.restAt, last.release), extended: !!last.ext });
-      const cont = last.restAt !== home && firstDep === last.restAt && gap <= 3 * DAY && gap - early(d) >= need && days.size <= LIMITS.blockDays && d.release + homeLeg(d, home) - anchor <= TRIP_SPAN;
+      // v0.12.1 a held job (a world tour): one crew all the way round, its days on the ground the rest (the 168 h,
+      // the cumulative limits and the days off are the crew check's to judge, as on any trip).
+      const tour = heldBy(last) !== null && heldBy(last) === heldBy(d);
+      const cont = last.restAt !== home && firstDep === last.restAt && gap - early(d) >= need && (tour || (gap <= 3 * DAY && days.size <= LIMITS.blockDays && d.release + homeLeg(d, home) - anchor <= TRIP_SPAN));
       if (!cont) close();
     }
     if (!cur.length) anchor = d.report;
@@ -1111,6 +1257,33 @@ export function setRetickHook(f: (g: GameState, p: Pairing) => void): void {
   retickHook = f;
 }
 
+/** Sets on station for a deployment's duties: max(peak duties/day × 8/6, BH per 28 days / 85), +1 while chaining can't cover the days. */
+function sizeSets(g: GameState, dep: Deployment, duties: Duty[], start: Minute, R: number): number {
+  const perDay = new Map<number, number>();
+  let bh = 0;
+  for (const d of duties) {
+    const k = Math.floor((d.report + offsetAt(dep.base, d.report)) / DAY);
+    perDay.set(k, (perDay.get(k) ?? 0) + 1);
+    if (d.report < start + 28 * DAY) bh += dutyBlock(g, d);
+  }
+  const span = Math.min(28, Math.max(14, (duties[duties.length - 1].release - start) / DAY));
+  const peak = Math.max(...perDay.values());
+  const sets = Math.max(1, Math.ceil((peak * 8) / 6), Math.ceil((bh / 60) * (28 / span) / BAL.cabinBHMonth));
+  // v0.9 fix: more sets only while they take more duties (a duty no set can take, a stray one far out, sized a
+  // HAM base at 10 sets on station and the fleet at 17 crews a seat); the strays fly as trips.
+  let best = { sets, taken: -1 };
+  for (let n = sets; n <= BAL.maxSetsOnStation; n++) {
+    const trial: Deployment = { ...dep, start, anchors: anchorsFor(start, n, R), pairingIds: [] };
+    const ch = chainer(g, trial, () => 2, undefined, true);
+    let taken = 0;
+    for (const d of duties) if (ch.take(d)) taken++;
+    if (taken > best.taken) best = { sets: n, taken };
+    // One more set may still help (anchors stagger differently); two in a row that do not, never.
+    if (taken === duties.length || n >= best.sets + 2) break;
+  }
+  return best.sets;
+}
+
 /**
  * Places free deployment duties into tours (creating the deployment and sizing its sets on first use).
  * Returns the duties no set can legally take (they become trips).
@@ -1121,36 +1294,21 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
   const R = rotation(g);
   duties.sort((a, b) => a.report - b.report || (a.id < b.id ? -1 : 1));
   let dep = Object.values(g.deployments).find((x) => x.contractId === c.id && x.aircraftId === acId);
-  if (!dep) {
-    const start = dayStart(duties[0].report);
-    dep = { id: nextId(g, 'dp'), contractId: c.id, aircraftId: acId, base, start, end: Math.max(c.end, duties[duties.length - 1].release), setsOnStation: 0, pairingIds: [] };
-    // setsOnStation = max(peak duties/day × 8/6, BH per 28 days / 85), +1 while chaining can't cover the days.
-    const perDay = new Map<number, number>();
-    let bh = 0;
-    for (const d of duties) {
-      const k = Math.floor((d.report + offsetAt(base, d.report)) / DAY);
-      perDay.set(k, (perDay.get(k) ?? 0) + 1);
-      if (d.report < start + 28 * DAY) bh += dutyBlock(g, d);
-    }
-    const span = Math.min(28, Math.max(14, (duties[duties.length - 1].release - start) / DAY));
-    const peak = Math.max(...perDay.values());
-    let sets = Math.max(1, Math.ceil((peak * 8) / 6), Math.ceil((bh / 60) * (28 / span) / BAL.cabinBHMonth));
-    // v0.9 fix: more sets only while they take more duties (a duty no set can take, a stray one far out, sized a
-    // HAM base at 10 sets on station and the fleet at 17 crews a seat); the strays fly as trips.
-    let best = { sets, taken: -1 };
-    for (let n = sets; n <= BAL.maxSetsOnStation; n++) {
-      const trial: Deployment = { ...dep, anchors: anchorsFor(start, n, R), pairingIds: [] };
-      const ch = chainer(g, trial, () => 2, undefined, true);
-      let taken = 0;
-      for (const d of duties) if (ch.take(d)) taken++;
-      if (taken > best.taken) best = { sets: n, taken };
-      // One more set may still help (anchors stagger differently); two in a row that do not, never.
-      if (taken === duties.length || n >= best.sets + 2) break;
-    }
-    sets = best.sets;
+  // v0.12.1 a base signed more than the schedule horizon ahead was sized on its positioning duty alone (the programme's
+  // flights roll in 28 days ahead): 2 sets for a 747 slipping crews at Cairns, Perth and Chennai, the rest flown as trips
+  // from Lisbon (bot seed 1). Every base (v0.12.1: was far bases only; seed 1's A320 base at Riyadh flew 19 duties as
+  // trips from Lisbon, every base started at 2 sets) is sized again on the programme's own duties when they come, while
+  // no tour is planned yet and before the programme starts (an older save's deployment under way keeps its sizing).
+  const work = duties.some((d) => !emptyDuty(g, d));
+  if (!dep || (!dep.work && work && !dep.pairingIds.length && g.now < c.start)) {
+    const start = dep?.start ?? dayStart(duties[0].report);
+    dep ??= { id: nextId(g, 'dp'), contractId: c.id, aircraftId: acId, base, start, end: Math.max(c.end, duties[duties.length - 1].release), setsOnStation: 0, pairingIds: [] };
+    // ... and until they come, on its pattern (crew/farBase.ts patternSets), so the crew are hired in time.
+    const sets = Math.max(sizeSets(g, dep, duties, start, R), patternSets(c.pattern, g.fleet[acId]?.typeId));
     dep.setsOnStation = sets;
     dep.sized = sets;
     dep.anchors = anchorsFor(start, sets, R);
+    if (work) dep.work = true;
     g.deployments[dep.id] = dep;
   }
   dep.sized ??= dep.setsOnStation;
@@ -1158,11 +1316,15 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
   dep.end = Math.max(dep.end, duties[duties.length - 1].release);
   const ch = chainer(g, dep, (p, d) => crewOkHook(g, p, d), (p, d) => crewTakeHook(g, p, d));
   const left: Duty[] = [];
+  // v0.12.1 two at a far base: a stray flown from home there is two long-haul tickets for a whole crew, and the first
+  // days of a programme slipping crews at its outstations need a crew already at each (seed 1: Perth's first morning
+  // flew from Lisbon).
+  const grow = farBase(g.company.homeBase, base, dep.start) ? 2 : 1;
   for (const d of duties) {
     if (ch.take(d)) continue;
     // One extra set at most beyond the sizing (a whole tour of crew for a stray duty is waste: it flies as a
     // trip from base instead); a duty before the deployment's start can't join any set.
-    if (d.report >= dep.start && dep.anchors.length < Math.min(BAL.maxSetsOnStation, dep.sized + 1)) {
+    if (d.report >= dep.start && dep.anchors.length < Math.min(BAL.maxSetsOnStation, dep.sized + grow)) {
       dep.anchors.push(dayStart(d.report) + R);
       dep.setsOnStation = dep.anchors.length;
       if (ch.take(d)) continue;
@@ -1180,6 +1342,12 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
       refreshPairing(g, p);
       if (crewCount(p) > 0) {
         for (const d of fresh) queueDuty(g, d);
+        // v0.12.1 the tour's crew take its new days: a standby planned on one gives way (seed 6: a whole crew at Riyadh
+        // flew a duty that grew into their 00:00-12:00 hotel standby, never called from it).
+        for (const x of p.slots) {
+          const c = x.crewId ? g.crew[x.crewId] : undefined;
+          if (c?.standby?.length) for (const d of fresh) dropStandby(g, c, d.report - 60, d.release);
+        }
         // Duties past the old ends: the crew stay on (tickets out/home move with the tour).
         if (fresh.some((d) => d.report < from || d.release > to)) retickHook(g, p);
       }

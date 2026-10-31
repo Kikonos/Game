@@ -1,11 +1,11 @@
 // Pure helpers for the B5 screens (labels, sorting, filtering, deep links). No React, no writes.
 
 import type { RatingFamily } from '../../data/acmiTypes';
-import { BAL } from '../../engine/core/balance';
-import { statementTotals } from '../../engine/core/ledger';
+import { COST_CATS, REVENUE_CATS, statementTotals } from '../../engine/core/ledger';
 import { problemFor } from '../../engine/problems';
 import { DAY, HOUR, fmtDay, monthKey, toLocal } from '../../engine/core/time';
-import { mghInMonth, mghLabel } from '../../engine/contracts/pricing';
+import { mghLabel } from '../../engine/contracts/pricing';
+import { wetMonthLines } from '../../engine/contracts/billing';
 import { maxPax, seatNeedText } from '../../engine/contracts/plan';
 import type { IdleWindow } from '../../engine/contracts/offers';
 import type { FeasibilityReport } from '../../engine/contracts/feasibility';
@@ -20,6 +20,8 @@ export const ARCH_LABEL: Record<Archetype, string> = {
   tourSeries: 'Tour series', troopRotation: 'Troop rotation', capacityLease: 'Capacity lease', hajj: 'Hajj', unRotation: 'UN rotation', vip: 'VIP charter',
   deportation: 'Deportation', evacuation: 'Evacuation', humanitarian: 'Humanitarian', subcharterIn: 'Sub-charter', dryLeaseOut: 'Dry lease out',
   medical: 'Medical airbridge', musicTour: 'Music tour', antarctic: 'Antarctica',
+  // v0.12.1
+  worldTour: 'World tour',
 };
 
 /** Category label; a season base of 120 days or more is long-term, as its title says. */
@@ -221,11 +223,9 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   disruption: 'Disruptions', compliance: 'Safety & compliance', delivery: 'Ferry companies',
 };
 
-const REVENUE: LedgerCat[] = ['acmiRevenue', 'charterRevenue', 'otherRevenue', /** v0.8 */ 'leaseIncome', 'assetSale'];
-const COSTS: LedgerCat[] = [
-  'fuel', 'airportFees', 'rent', 'reserves', 'salaries', 'perDiem', 'hotels', 'deadhead', 'maintenance', 'checks', 'paint', 'insurance', 'overhead',
-  'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex', 'refit', 'leaseReturn', /** v0.8 */ 'warRisk', /** v0.11 */ 'disruption', 'compliance', 'delivery',
-];
+// v0.12.1 the engine's lists (statementTotals splits the same way).
+const REVENUE: readonly LedgerCat[] = REVENUE_CATS;
+const COSTS: readonly LedgerCat[] = COST_CATS;
 
 export interface StatementRow {
   cat: LedgerCat;
@@ -247,7 +247,7 @@ export function statementView(current: MonthStatement, history: MonthStatement[]
 }
 
 /** v0.7: 'market' filters by topic (aircraft market alerts). v0.7.1: 'problems' = messages about a problem still open, and bad news of the last week. */
-export type MsgFilter = MessageCat | 'all' | 'market' | 'problems' | /** v0.8 world events */ 'world';
+export type MsgFilter = MessageCat | 'all' | 'market' | 'problems' | /** v0.8 world events */ 'world' | /** v0.12.1 the toast log (UI only) */ 'popups';
 
 /** Bad news stays under 'Problems only' this long. */
 export const PROBLEM_RECENT = 7 * DAY;
@@ -265,6 +265,8 @@ export function filterMessages(list: Message[], cat: MsgFilter, g?: GameState): 
   if (cat === 'all') return list;
   if (cat === 'market') return list.filter((m) => m.topic === 'market');
   if (cat === 'world') return list.filter((m) => m.topic === 'world');
+  // v0.12.1 the pop-up log is not messages (InboxScreen lists store.toastLog).
+  if (cat === 'popups') return [];
   if (cat === 'problems') return g ? list.filter((m) => isProblemMessage(m, g)) : list.filter((m) => !!m.problem || m.tone === 'bad');
   return list.filter((m) => m.cat === cat);
 }
@@ -345,22 +347,16 @@ export function counterSteps(asking: number, wet: boolean): number[] {
 }
 
 /**
- * Wet-lease money earned this month but invoiced only at month end: per contract, max(flown BH, MGH pro rata
- * to today) × rate, plus short-cycle fees, minus the broker commission. Display-only estimate (pure).
+ * Wet-lease money earned this month but invoiced only at month end: per contract, the month's invoice lines with
+ * the MGH pro rata to today (billing.ts wetMonthLines). Display-only (pure).
  */
 export function earnedUnbilled(g: GameState): number {
   const k = monthKey(g.now);
   let sum = 0;
   for (const c of Object.values(g.contracts)) {
-    const p = c.product;
-    if (p.kind !== 'wet' || (c.status !== 'signed' && c.status !== 'active') || c.billedMonths.includes(k)) continue;
-    const u = c.use[k];
-    const flown = (u?.blockMin ?? 0) / 60;
-    const end = Math.min(c.end, c.cancelledAt ?? Infinity, g.now);
-    const mgh = end > c.start ? mghInMonth(p.mghPerMonth, c.start, end, k) * c.aircraftIds.length : 0;
-    let v = p.ratePerBH * Math.max(flown, mgh) + (u?.shortCycles && p.cycleFee ? u.shortCycles * p.cycleFee : 0);
-    if (c.broker) v *= 1 - BAL.brokerCommission;
-    sum += v;
+    if (c.product.kind !== 'wet' || (c.status !== 'signed' && c.status !== 'active') || c.billedMonths.includes(k)) continue;
+    // v0.12.1 the invoice's own lines up to now (cancelled hours, excess rate, Hajj phases, broker), not a copy.
+    sum += wetMonthLines(c, k, g.now).reduce((s, l) => s + l.amount, 0);
   }
   return Math.round(sum);
 }

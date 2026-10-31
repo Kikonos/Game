@@ -7,7 +7,7 @@ import { WEATHER_CAUSES } from '../../data/opsData';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import type { GameState, Minute, Ref } from '../../engine/core/types';
 import { hashUnit } from '../../engine/core/util';
-import { curfewEnd, inCurfew } from '../../engine/ops/disrupt';
+import { curfewEnd, inCurfew } from '../../engine/core/curfew';
 import { eventsOf, isLive } from '../../engine/ops/world';
 
 export type WxKind = 'storm' | 'cloud' | 'curfew' | 'closed';

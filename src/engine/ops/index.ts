@@ -3,13 +3,13 @@
 import { airframeVariant, variantsOf } from '../../data/variants';
 import type { SimModule } from '../core/module';
 import type { GameState } from '../core/types';
-import { onRefitEnd, onRestFitEnd } from './cabin';
+import { loadRefits, onRefitEnd, onRestFitEnd } from './cabin';
 setRestFitHook(onRestFitEnd);
 import { dailyApprovals, loadApprovals, onApprovalDone, setGrantHook } from './company';
 import { dailyEvents, onDecisionExpire, paceDecisions } from './events';
 import { dailyFinance, onMonthEnd, onPayment, settleDeparture } from './finance';
 import { checkAchievements, loadAchievements, ON_ARRIVAL, ON_DEPARTURE } from './achievements';
-import { announceBackfill, dailyHeads, loadHeads, monthlyHeads } from './heads';
+import { announceBackfill, dailyHeads, dropMootFerries, loadHeads, monthlyHeads } from './heads';
 import { onFlightArr, onFlightDep, pruneFlights } from './flights';
 import { checkGoals, ladderGrant, syncGoals } from './goals';
 import { onMaintEnd, onMaintStart, planChecks, setMaintHooks, setRestFitHook } from './maintenance';
@@ -21,9 +21,12 @@ import { loadRest, loadRest074, rollRestFor } from '../crew/restPlan';
 import { dailyClientCabin } from './clientCabin';
 import { DAY } from '../core/time';
 import { dailyDryLeases, onLeaseBack, onLeaseFerryHome, onLeaseOut } from './dryLease';
-import { dailyWorld, loadWorld, onWorldEnd } from './world';
+import { dailyWorld, healStranded, loadWorld, onWorldEnd } from './world';
+import { relinkPositioning } from '../contracts/schedule';
 import { retireTypes } from './retired';
 import { registerResolvers } from './events';
+import { dailyApprovalGate, resolveApprovalLate } from './approvalGate';
+export { atRiskLine, gateMisses, jobsAtRisk, legApprovals, legsAtRisk } from './approvalGate';
 import { DISRUPT_RESOLVERS, holdingForDecision, onDivertedArrival, onOpsEvent, opsState, rollBirdStrike, rollSickAway } from './disrupt';
 import { dailyDirector, newDirector } from './director';
 import { rollRamp } from './ramp';
@@ -32,6 +35,8 @@ import { DAY as DAY_MIN } from '../core/time';
 
 // v0.11 Operations: the disruption cards' resolvers join the decision table (wired here, after every module loaded).
 registerResolvers(DISRUPT_RESOLVERS);
+// v0.12.1 a leg that needs an approval we won't hold by its departure.
+registerResolvers({ approvalLate: resolveApprovalLate }, 'company');
 
 /** v0.11 load / init: the director and the operations record (older saves: a first audit at least 60 days off). */
 function loadOps(g: GameState): void {
@@ -57,7 +62,7 @@ export {
   setUpEtopsMx, waitingFor, type EtopsMxState,
   type AircraftGate, type ApprovalDef, type ApprovalReq, type LadderNode, type LadderRung, type NodeState,
 } from './company';
-export { addRestToCCheck, bookRefit, bookRestRefit, bookRestSeats, cabinOptions, refitKindText, refitQuote, refitSlots, refitStations, refitTerms, restAfterRefit, restRefitLabel, restRefitOptions, restRefitQuote, restSeatsQuote, type RefitKind, type RefitQuote, type RefitSlot, type RestRefitOption } from './cabin';
+export { addRestToCCheck, bookRefit, bookRestRefit, bookRestSeats, cabinOptions, refitKindText, refitQuote, refitSlots, refitParts, refitStations, refitTerms, twoClassInstead, restAfterRefit, restRefitLabel, restRefitOptions, restRefitQuote, restSeatsQuote, type RefitKind, type RefitQuote, type RefitSlot, type RefitTerms, type RestRefitOption } from './cabin';
 export { clientCabinSlot, dailyClientCabin } from './clientCabin';
 // v0.7.2 (UPDATE-0.7.2.md §12).
 export { opsStripFacts, type OpsStripFacts } from './strip';
@@ -70,10 +75,11 @@ export { deliveryQuote, deliveryStatus, ferryRoute, ticketPurpose, type Delivery
 export { approvalName, capText, etopsFixText, etopsLine } from './etops';
 export { chooseLease, earlyReturnQuote, leaseView, returnEarly, returnQuote, type EarlyReturnQuote, type LeaseChoice, type LeaseView, type ReturnQuote } from './leaseReturn';
 export { reopenLatePayment, resolveDecision } from './events';
-export { cashForecast, fixedCosts, monthProfit, newStatement } from './finance';
+export { cashForecast, fixedCosts, forecastItems, monthEndBill, monthProfit, newStatement, type ForecastItem, type MonthEndBill } from './finance';
 export { delayFlight, delayOf, schedSta } from './flights';
+export { excusedLate, isOurDelay, latePenalty, NOT_OURS, onTimeLeg } from './latePolicy';
 export { GOALS, type GoalDef } from './goals';
-export { aogChance, cancelCheck, checkAirportOk, checkStatus, checkUsedAt, groundGaps, scheduleCheck, type CheckStatus } from './maintenance';
+export { aogChance, cancelCheck, checkAirportOk, checkCostOf, checkStatus, checkUsedAt, groundGaps, scheduleCheck, type CheckStatus } from './maintenance';
 export { acquireAircraft, eligibleTypes, marketView, renameAircraft, returnSiteOf, type MarketOfferView } from './market';
 export { checkRegistration, cleanAircraftName, cleanRegInput, NAME_MAX, regCountry, regFormat, suggestRegistration } from './registration';
 export {
@@ -121,6 +127,8 @@ function daily(g: GameState) {
   dailyEvents(g);
   dailyFinance(g);
   dailyApprovals(g);
+  // v0.12.1 legs that need an approval we won't hold by their departure: the card and the decision ahead of time.
+  dailyApprovalGate(g);
   dailyMarket(g);
   dailyDelivery(g);
   dailyLeases(g);
@@ -166,6 +174,11 @@ export const opsModule: SimModule = {
     loadMarket(g);
     // v0.11 delivery ferries planned straight across an ocean before the ETOPS rule: the legal way from the next leg.
     loadEtopsFerries(g);
+    // v0.12.1 VIP refits booked at the old flat price: priced by the seats fitted (a refund when already paid).
+    loadRefits(g);
+    // v0.12.1 legs a closure no longer holds are released, orphan out-and-backs dropped; one way out planned from now.
+    for (const id of healStranded(g)) relinkPositioning(g, id);
+    dropMootFerries(g);
     syncGoals(g);
     g.finance.negSince ??= null;
     // v0.5.1 liveries: client paint of a contract no longer in the save is gone; the company livery normalised (idempotent).

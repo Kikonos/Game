@@ -114,6 +114,8 @@ const RULES: Record<AchievementId, Rule> = {
   hajj: { earned: (g) => (v9(g).hajjDone ?? 0) >= 1, progress: (g) => once(v9(g).hajjDone, 'Not yet') },
   homeSafe: { earned: (g) => (v9(g).homeSafe ?? 0) >= 1, progress: (g) => once(v9(g).homeSafe, 'Not yet') },
   blueIce: { earned: (g) => (v9(g).antarctic ?? 0) >= 1, progress: (g) => once(v9(g).antarctic, 'Not yet') },
+  // v0.12.1 a world tour completed with every leg flown (accept.ts completeContract).
+  aroundWorld: { earned: (g) => (v9(g).tourDone ?? 0) >= 1, progress: (g) => once(v9(g).tourDone, 'Not yet') },
   widebody: { earned: (g) => ownsWide(g), progress: () => ({ have: 0, need: 1, label: 'Not yet' }) },
   queen: { earned: (g) => (v9(g).queenSectors ?? 0) >= 1, progress: (g) => once(v9(g).queenSectors, 'Not yet') },
   // v0.9 fix (§5.7 pacing): Reliable 90 held for 30 days (reliableHeld keeps the clock; the bar in BAL).

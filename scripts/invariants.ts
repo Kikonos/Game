@@ -16,7 +16,9 @@
 //   cumulative duty / block limits (ORO.FTL.210, standby counted 25 % home / 100 % airport), recurrent extended
 //   recovery rest at most 168 h apart (ORO.FTL.235(d)), every flight leaving from where the crew are (no teleporting),
 //   no flying while sick, on leave, training or joining, pilots ≥ 2 with a captain, cabin crew ≥ the certified
-//   minimum on passenger legs, type ratings held;
+//   minimum on passenger legs, type ratings held; v0.12.1 crew riding our passenger flights never more than the seats
+//   free at departure (cabin less passengers, a typical 85 % load when none are booked, and crew in passenger seats),
+//   and never on leave, sick or not yet joined;
 // - aircraft: flown legs chain by airport and never overlap, one leg en route at a time, maintenance never overlaps
 //   a flown leg and starts where the aircraft is, ETOPS within the airframe and the company approval;
 // - money: no NaN / Infinity anywhere, statements chain (cash end → next cash start), cash moved only by the ledger
@@ -26,7 +28,7 @@
 
 import { readFileSync } from 'node:fs';
 import { DAY, fmtDateTime } from '../src/engine/core/time';
-import { cabinMinimum, etopsNeeded, typeOf } from '../src/engine/core/perf';
+import { cabinMinimum, crewInPaxSeats, etopsNeeded, typeOf } from '../src/engine/core/perf';
 import type { GameState, Minute, Role } from '../src/engine/core/types';
 import { offsetAt } from '../src/engine/crew/rules';
 
@@ -133,6 +135,9 @@ export function createChecker(opts: CheckerOpts = {}) {
   const crew = new Map<string, CrewHist>();
   const lastStd = new Map<string, { std: Minute; n: number; first: Minute }>();
   const fdpSeen = new Set<string>();
+  /** v0.12.1 passenger flights whose riders were checked; crew rides on them seen. */
+  const ridesSeen = new Set<string>();
+  const rides = { n: 0 };
   const regOf = new Map<string, string>();
   const typeOfAc = new Map<string, string>();
   const maint = new Map<string, { aircraftId: string; at: string; start: Minute; end: Minute; status: string; kind: string }>();
@@ -205,6 +210,25 @@ export function createChecker(opts: CheckerOpts = {}) {
     const enrouteBy = new Map<string, string>();
     const onBoard = new Map<string, string>();
     for (const f of Object.values(g.flights)) {
+      // v0.12.1 riders on a passenger flight, first seen off blocks: within the seats free, nobody unavailable.
+      if ((f.status === 'enroute' || f.status === 'done') && (f.kind === 'revenue' || f.kind === 'techstop') && f.riders?.length && !ridesSeen.has(f.id)) {
+        ridesSeen.add(f.id);
+        rides.n += f.riders.length;
+        const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
+        const atd = f.atd ?? f.std;
+        if (!ac || f.operatedBy) err('ride-seats', atd, `${f.no} ${f.from}–${f.to} carries ${f.riders.length} riders but is not flown by our aircraft`);
+        else {
+          const pax = f.pax ?? Math.round(ac.cabin.total * 0.85);
+          const free = ac.cabin.total - pax - crewInPaxSeats(ac.typeId, f.crewIds.filter((id) => g.crew[id]).map((id) => g.crew[id].role));
+          if (f.riders.length > free) err('ride-seats', atd, `${f.no} ${f.from}–${f.to} ${fmtDateTime(atd)}: ${f.riders.length} crew riding, ${Math.max(0, free)} seats free (${ac.cabin.total} seats, ${pax} passengers)`);
+        }
+        for (const id of f.riders) {
+          const c = g.crew[id];
+          // v0.12.1 riding home sick, or with leave begun while away, is a flight home, not work.
+          const bl = f.to === c?.base ? undefined : c?.blocks?.find((b) => b.why !== 'training' && b.from <= atd && b.to > atd);
+          if (bl) (f.status === 'done' ? err : warn)('ride-blocked', atd, `${c!.first} ${c!.last} (${c!.role}) ${f.status === 'done' ? 'rode' : 'boarded'} ${f.no} ${f.from}–${f.to} ${fmtDateTime(atd)} while ${bl.why === 'joining' ? 'not yet joined' : bl.why}`);
+        }
+      }
       if (f.status === 'enroute') {
         if (f.aircraftId && f.kind !== 'deadhead') {
           const o = enrouteBy.get(f.aircraftId);
@@ -300,6 +324,22 @@ export function createChecker(opts: CheckerOpts = {}) {
     if (g.now - lastScan >= (opts.scanDays ?? 1) * DAY_MS) {
       lastScan = g.now;
       for (const p of badNumbers(g)) err('nan', g.now, `non-finite ${p}`);
+      // v0.12.1 round D: planned legs of one aircraft should not overlap either (the Schedule drew BLU1565 over an FNC
+      // leg): a warning (a schedule recovery can leave one for a while; the gate sorts it out).
+      const live = new Map<string, { no: string; kind: string; from: string; to: string; s: Minute; e: Minute }[]>();
+      for (const f of Object.values(g.flights)) {
+        if (!f.aircraftId || f.operatedBy || (f.status !== 'scheduled' && f.status !== 'enroute')) continue;
+        const s = f.status === 'enroute' ? f.atd ?? f.std : f.std + f.delay;
+        (live.get(f.aircraftId) ?? live.set(f.aircraftId, []).get(f.aircraftId)!).push({ no: f.no, kind: f.kind, from: f.from, to: f.to, s, e: f.status === 'enroute' ? f.eta ?? f.sta : f.sta + f.delay });
+      }
+      for (const [acId, fl] of live) {
+        fl.sort((a, b) => a.s - b.s);
+        for (let i = 1; i < fl.length; i++) {
+          const a = fl[i - 1];
+          const b = fl[i];
+          if (b.s < a.e) warn('ac-plan-overlap', b.s, `${g.fleet[acId]?.reg ?? acId}: ${b.no} ${b.kind} ${b.from}–${b.to} ${fmtDateTime(b.s)} planned before ${a.no} ${a.kind} ${a.from}–${a.to} lands ${fmtDateTime(a.e)}`, `ac-plan-overlap|${acId}|${a.no}|${b.no}|${a.s}`);
+        }
+      }
     }
   }
 
@@ -351,7 +391,7 @@ export function createChecker(opts: CheckerOpts = {}) {
         if (!a && b.from !== h.loc0 && b.atd > h.t0) err('teleport', b.atd, `${h.name}: was at ${h.loc0} ${fmtDateTime(h.t0)}, first leg ${b.no} left ${b.from}`);
         if (a && b.atd < a.ata) err('crew-twice', b.atd, `${h.name}: ${b.no} left ${fmtDateTime(b.atd)} before ${a.no} landed ${fmtDateTime(a.ata)}`);
         // Unavailable windows.
-        for (const bl of h.blocks.values()) if (b.atd >= bl.from && b.atd < bl.to && bl.why !== 'joining' && !(bl.why === 'sick' && b.kind === 'deadhead')) err('blocked', b.atd, `${h.name} flew ${b.no} ${fmtDateTime(b.atd)} while ${bl.why} (${fmtDateTime(bl.from)}–${fmtDateTime(bl.to)})`);
+        for (const bl of h.blocks.values()) if (b.atd >= bl.from && b.atd < bl.to && bl.why !== 'joining' && !(bl.why === 'sick' && b.kind === 'deadhead') && !((bl.why === 'sick' || bl.why === 'leave') && b.to === h.base && (b.kind === 'deadhead' || b.riders.includes(h.id)))) err('blocked', b.atd, `${h.name} flew ${b.no} ${fmtDateTime(b.atd)} while ${bl.why} (${fmtDateTime(bl.from)}–${fmtDateTime(bl.to)})`);
         if (b.unrated?.includes(h.id)) {
           const typeId = typeOfAc.get(b.aircraftId ?? '') ?? 'a320ceo';
           err('rating', b.atd, `${h.name} operated ${b.no} on ${typeOf(typeId).short} without the ${typeOf(typeId).family} rating`);
@@ -503,15 +543,15 @@ export function createChecker(opts: CheckerOpts = {}) {
         if (cabin < min) err('crew-min', f.atd, `${f.no} ${f.from}–${f.to} flew with ${cabin} cabin crew (minimum ${min} for ${ac.cabin.total} seats)`);
       }
     }
-    summary = { restChecked: etc.restChecked, restShort: etc.rest, restUnknown: etc.unknown, flights: flights.size, crew: crew.size, steps, from: firstT ?? 0, to: lastT };
+    summary = { restChecked: etc.restChecked, restShort: etc.rest, restUnknown: etc.unknown, flights: flights.size, crew: crew.size, steps, from: firstT ?? 0, to: lastT, rides: rides.n, rideLegs: ridesSeen.size };
   }
 
-  let summary = { restChecked: 0, restShort: 0, restUnknown: 0, flights: 0, crew: 0, steps: 0, from: 0, to: 0 };
+  let summary = { restChecked: 0, restShort: 0, restUnknown: 0, flights: 0, crew: 0, steps: 0, from: 0, to: 0, rides: 0, rideLegs: 0 };
 
   function print(label = 'invariants', max = 25): void {
     const by = new Map<string, Issue[]>();
     for (const e of errors) (by.get(e.code) ?? by.set(e.code, []).get(e.code)!).push(e);
-    console.log(`\n== ${label}: ${errors.length} errors, ${warns.length} warnings (${summary.flights} legs, ${summary.crew} crew, ${summary.restChecked} rests checked (${summary.restUnknown} without legs on record), ${summary.steps} steps, ${fmtDateTime(summary.from)} → ${fmtDateTime(summary.to)})`);
+    console.log(`\n== ${label}: ${errors.length} errors, ${warns.length} warnings (${summary.flights} legs, ${summary.crew} crew, ${summary.restChecked} rests checked (${summary.restUnknown} without legs on record), ${summary.rides} crew rides on ${summary.rideLegs} passenger flights, ${summary.steps} steps, ${fmtDateTime(summary.from)} → ${fmtDateTime(summary.to)})`);
     for (const [code, list] of [...by].sort()) {
       console.log(`  ERROR ${code} × ${list.length}`);
       for (const e of list.slice(0, max)) console.log(`    ${fmtDateTime(e.t)}  ${e.text}`);

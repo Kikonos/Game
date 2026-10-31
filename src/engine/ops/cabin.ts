@@ -8,6 +8,7 @@ import { cabinPresets } from '../../data/cabins';
 import { MRO_STATIONS } from '../../data/market';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
+import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { cabinMinimum, etopsCap, typeOf } from '../core/perf';
 import { DAY, fmtDate, fmtDay, fmtDayRange } from '../core/time';
@@ -35,6 +36,8 @@ export interface RefitQuote {
   /** v0.7.4 the crew's rest before and after (the curtained seats follow the cabin: business seats appear or go). */
   restFrom?: AcRest;
   restTo?: AcRest;
+  /** v0.12.1 a premium retrofit's breakdown (seats × price, engineering, days), refitParts. */
+  parts?: string[];
 }
 
 /** v0.7.4 a quick reconfiguration (seats we hold: convertible seats, moved rows and class divider, curtains) or a full retrofit with new premium seats. */
@@ -61,9 +64,53 @@ export const cabinOf = (p: CabinPreset): Cabin => ({ j: p.j, w: p.w, y: p.y, tot
  * standard layouts are a QUICK reconfiguration (about 48 h, tens of thousands); VIP is a full retrofit with new
  * premium seats (weeks, millions).
  */
-export function refitTerms(typeId: string, layout: CabinLayout): { days: number; cost: number; kind: RefitKind } | null {
-  const t = BAL.refit[typeOf(typeId).body === 'wide' ? 'wb' : 'nb'][layout];
-  return t ? { days: t[0], cost: t[1], kind: layout === 'vip' ? 'full' : 'quick' } : null;
+export function refitTerms(typeId: string, layout: CabinLayout, cabin?: Pick<Cabin, 'j' | 'w'>): RefitTerms | null {
+  const wide = typeOf(typeId).body === 'wide';
+  if (layout === 'vip') {
+    // v0.12.1 new premium seats × their installed price + the fixed engineering; days by the seats (was flat).
+    const P = BAL.refit.premium[wide ? 'wb' : 'nb'];
+    const c = cabin ?? cabinPresets(typeId).find((p) => p.layout === 'vip');
+    if (!c) return null;
+    const seats = c.j + c.w;
+    const extraDays = Math.ceil(seats / P.seatsPerDay);
+    return {
+      days: P.baseDays + extraDays, cost: seats * P.seat + P.engineering, kind: 'full',
+      parts: { seats, seatWord: wide ? 'lie-flat' : 'business', perSeat: P.seat, engineering: P.engineering, baseDays: P.baseDays, extraDays, seatsPerDay: P.seatsPerDay },
+    };
+  }
+  const t = BAL.refit[wide ? 'wb' : 'nb'][layout];
+  return t ? { days: t[0], cost: t[1], kind: 'quick' } : null;
+}
+
+/** v0.12.1 a refit's days and cost, with the premium retrofit's breakdown (seats × price + engineering). */
+export interface RefitTerms {
+  days: number; cost: number; kind: RefitKind;
+  parts?: { seats: number; seatWord: string; perSeat: number; engineering: number; baseDays: number; extraDays: number; seatsPerDay: number };
+}
+
+/** v0.12.1 the breakdown in words: ['24 business seats × $30K = $720K', 'Engineering, LOPA and approval $120K', '5 days + 4 (1 per 6 seats)']. */
+export function refitParts(t: RefitTerms): string[] {
+  const p = t.parts;
+  if (!p) return [];
+  return [
+    `${p.seats} ${p.seatWord} seats × ${usd(p.perSeat)} = ${usd(p.seats * p.perSeat)}`,
+    `Engineering, LOPA and approval ${usd(p.engineering)}`,
+    `${p.baseDays} days + ${p.extraDays} (1 per ${p.seatsPerDay} seats)`,
+  ];
+}
+
+/**
+ * v0.12.1 the cheaper cabin a premium need may take instead of the VIP retrofit: the two-class preset (European
+ * business: economy seats with the middle one blocked, no new seats, about 48 h) when it meets the work's rules
+ * (none given: always worth a mention). Null when there is none or the work needs more. Pure.
+ */
+export function twoClassInstead(typeId: string, req?: Pick<Requirements, 'layout' | 'layouts' | 'minPremium'> & Partial<Pick<Requirements, 'minSeats' | 'maxSeats'>>): { label: string; days: number; cost: number } | null {
+  const p = cabinPresets(typeId).find((x) => x.layout === 'two-class');
+  const t = p ? refitTerms(typeId, 'two-class') : null;
+  if (!p || !t) return null;
+  const n = p.j + p.w + p.y;
+  if (req && (!cabinFits(p, req) || n < (req.minSeats ?? 0) || (req.maxSeats && n > req.maxSeats))) return null;
+  return { label: p.label, days: t.days, cost: t.cost };
 }
 
 /** v0.7.4 'Quick reconfiguration · 2 days' / 'Full retrofit, new seats · 28 days'. */
@@ -134,7 +181,7 @@ export function refitQuote(g: GameState, aircraftId: string, label: string, stat
   const preset = cabinOptions(ac.typeId).find((p) => p.label === label);
   if (!preset) return { ...base, why: `No ${label} layout for the ${typeOf(ac.typeId).short}` };
   const cabin = cabinOf(preset);
-  const terms = refitTerms(ac.typeId, preset.layout);
+  const terms = refitTerms(ac.typeId, preset.layout, preset);
   if (!terms) return { ...base, why: `No ${layoutName(preset.layout)} refit for the ${typeOf(ac.typeId).short}` };
   const end = start + terms.days * DAY;
   const fromW = workOf(ac.typeId, ac.cabin);
@@ -149,7 +196,7 @@ export function refitQuote(g: GameState, aircraftId: string, label: string, stat
   else if (better(restTo, restFrom)) closes.push(`crew rest in ${restShort(restFrom.cc)} (now ${restShort(restTo.cc)})`);
   const q: RefitQuote = {
     ...base, cabin, days: terms.days, cost: terms.cost, end, seatsTo: cabin.total, cabinMinTo: cabinMinimum(ac.typeId, cabin.total),
-    opens, closes, reinstateAtReturn: reinstateCost(ac, preset.layout), kind: terms.kind, restFrom, restTo,
+    opens, closes, reinstateAtReturn: reinstateCost(ac, preset.layout), kind: terms.kind, restFrom, restTo, parts: refitParts(terms),
   };
   const why = (w: string) => ({ ...q, why: w });
   if (ac.cabin.label === label) return why(`Already ${label}`);
@@ -383,7 +430,9 @@ export function cabinBreak(c: Cabin, req: Pick<Requirements, 'minSeats' | 'maxSe
   if (c.total < req.minSeats) return `needs ${req.minSeats}+ seats (refit gives ${c.total})`;
   if (req.maxSeats && c.total > req.maxSeats) return `wants at most ${req.maxSeats} seats (refit gives ${c.total})`;
   const ls = layoutsOf(req);
-  if (ls && !ls.includes(c.layout)) return `needs a ${ls.map(layoutName).join(' or ')} cabin (refit gives ${c.label})`;
+  // v0.12.1 'an all-economy cabin' (the article follows the first word).
+  const names = ls?.map(layoutName).join(' or ') ?? '';
+  if (ls && !ls.includes(c.layout)) return `needs ${/^[aeiou]/i.test(names) ? 'an' : 'a'} ${names} cabin (refit gives ${c.label})`;
   if (req.minPremium && c.j + c.w < req.minPremium) return `needs ${req.minPremium}+ premium seats (refit gives ${c.j + c.w})`;
   return null;
 }
@@ -405,7 +454,7 @@ export function refitTip(g: GameState, ac: Aircraft, req: Pick<Requirements, 'la
     // v0.8 fix pack: only a cabin that also seats the passengers (never a refit that still can't fly the job).
     const n = p.j + p.w + p.y;
     if (p.label === ac.cabin.label || !cabinFits(p, req) || n < (req.minSeats ?? 0) || (req.maxSeats && n > req.maxSeats)) continue;
-    const t = refitTerms(ac.typeId, p.layout);
+    const t = refitTerms(ac.typeId, p.layout, p);
     if (t && (!best || t.cost < best.cost)) best = { p, ...t };
   }
   if (!best) return null;
@@ -413,6 +462,47 @@ export function refitTip(g: GameState, ac: Aircraft, req: Pick<Requirements, 'la
   const st = stationsFor(ac).map((s) => ({ s, b: route(ac.typeId, home, s.code) })).filter((x) => x.b).sort((a, b) => routeMinutes(a.b!) - routeMinutes(b.b!))[0]?.s;
   void st;
   return { layout: best.p.layout, label: best.p.label, text: `${best.days <= 3 ? 'Quick reconfiguration' : 'Refit'} to ${best.p.label} in our hangar: ${best.days} day${best.days === 1 ? '' : 's'}, ${usd(best.cost)}` };
+}
+
+/**
+ * v0.12.1 load: VIP retrofits booked at the old flat price (21 days / $1.6M narrow, 28 / $4M wide) take the price by
+ * seats. Not started: the new cost and length. In work (already paid): the end comes forward when the new length is
+ * shorter, never later (the work runs on its own clock), and the difference is refunded on the refit line with a
+ * message saying why. Idempotent (once re-priced, the terms match).
+ */
+export function loadRefits(g: GameState): void {
+  for (const m of Object.values(g.maintenance)) {
+    if (m.kind !== 'refit' || !m.refit || m.restFit || m.refit.restSeats !== undefined || m.refit.cabin.layout !== 'vip') continue;
+    if (m.status !== 'planned' && m.status !== 'inWork') continue;
+    const ac = g.fleet[m.aircraftId];
+    const t = ac ? refitTerms(ac.typeId, 'vip', m.refit.cabin) : null;
+    if (!ac || !t || t.cost >= m.cost) continue;
+    const was = { cost: m.cost, end: m.end };
+    if (m.status === 'planned') {
+      m.cost = t.cost;
+      m.end = m.start + t.days * DAY;
+      pushMessage(g, {
+        tone: 'good', cat: 'tech', title: `${ac.reg} refit re-priced: ${usd(t.cost)}, ${t.days} days`,
+        body: `VIP refits are now priced by the seats fitted: ${refitParts(t).join('; ')}. Was ${usd(was.cost)} and ${Math.round((was.end - m.start) / DAY)} days. Still paid when the work starts.`,
+        ref: { kind: 'maint', id: m.id },
+      });
+      continue;
+    }
+    const refund = m.cost - t.cost;
+    const end = Math.max(g.now + 60, m.start + t.days * DAY);
+    m.cost = t.cost;
+    post(g, 'refit', refund);
+    if (end < m.end) {
+      m.end = end;
+      m.ev++;
+      schedule(g, m.end, 'maint.end', m.id, m.ev);
+    }
+    pushMessage(g, {
+      tone: 'good', cat: 'tech', title: `${ac.reg} refit re-priced: ${usd(refund)} refunded`,
+      body: `VIP refits are now priced by the seats fitted: ${refitParts(t).join('; ')}. The ${usd(refund)} paid over that came back on the refit line${m.end < was.end ? `, and ${ac.reg} leaves the hangar ${fmtDay(m.end)} instead of ${fmtDay(was.end)}` : ''}.`,
+      ref: { kind: 'maint', id: m.id },
+    });
+  }
 }
 
 /** "after the refit 1 Jun". */

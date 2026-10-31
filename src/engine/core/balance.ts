@@ -116,6 +116,12 @@ export const BAL = {
   holdMax: 360,
   /** Trips (charters, rotations) run at most this late before recovery cancels a leg (minutes). */
   tripHoldMax: 1440,
+  /**
+   * v0.12.1 an evacuation, a repatriation, a relief or medical flight waits a day longer before recovery or crew control
+   * drops it (a ministry would rather its citizens leave late than not at all): its lateness cap and the window in
+   * which a delay that gets a legal crew always beats a cancellation (minutes).
+   */
+  missionHoldExtra: 1440,
   /** Rival price for sub-chartered legs × contract rate (RESEARCH §4.3, §5.7). */
   subcharterFactor: [1.2, 2.0] as [number, number],
   /** A-check calendar limit (days); auto-planning starts at this share used or this many days before due. */
@@ -191,11 +197,13 @@ export const BAL = {
   // ---------- crew v0.6 (ENGINE; UPDATE-0.6.md §6) ----------
   /** Bulk type-rating conversion: course days and cost per head, class size, staggering, refunds, pilot bond. */
   conv: {
-    pilotDays: 42, pilotCost: { narrow: 38_000, wide: 52_000 }, pilotCcqDays: 14, pilotCcqCost: 15_000,
+    // v0.12.1 a pilot CCQ (cross crew qualification onto a common type) takes 10 days (was 14).
+    pilotDays: 42, pilotCost: { narrow: 38_000, wide: 52_000 }, pilotCcqDays: 10, pilotCcqCost: 15_000,
     cabinDays: 8, cabinCost: 1_800, cabinCcqDays: 3, cabinCcqCost: 600,
     classMax: 20, pilotStaggerDays: 14, cabinParallel: 2, leadDays: 2, maxAheadDays: 120,
     refundFull: 14, bondMonths: 24, bondFactor: 0.3,
-    ccq: [['A330/340', 'A350'], ['B777', 'B787']] as [string, string][],
+    // v0.12.1 Airbus Mixed Fleet Flying: the A320 family and the A330/340 are common types too (CCQ, both ratings kept).
+    ccq: [['A330/340', 'A350'], ['B777', 'B787'], ['A320', 'A330/340']] as [string, string][],
   },
   /** Morale: target and drift, daily drivers, shocks, sickness slope, resignations, service quality. */
   morale: {
@@ -249,8 +257,19 @@ export const BAL = {
   refit: {
     /** v0.7.2: 0, a refit starts as soon as the aircraft is free (at home base). */
     leadDays: 0,
-    nb: { 'all-economy': [2, 30_000], 'two-class': [2, 40_000], vip: [21, 1_600_000] } as Record<string, [number, number]>,
-    wb: { 'all-economy': [2, 80_000], 'two-class': [2, 95_000], 'three-class': [3, 140_000], vip: [28, 4_000_000] } as Record<string, [number, number]>,
+    nb: { 'all-economy': [2, 30_000], 'two-class': [2, 40_000] } as Record<string, [number, number]>,
+    wb: { 'all-economy': [2, 80_000], 'two-class': [2, 95_000], 'three-class': [3, 140_000] } as Record<string, [number, number]>,
+    /**
+     * v0.12.1 the VIP cabin (new premium seats) scales with the seats installed (was a flat 21 days / $1.6M narrow,
+     * 28 days / $4M wide, whatever the layout). Per seat installed: a narrowbody recliner business seat $25–35K, a
+     * widebody lie-flat $70–100K (seat, track and PSU work, wiring, dressing); fixed: engineering, the LOPA, weight and
+     * balance and the authority's approval (about $120K narrow, $300K wide); days: 5 + 1 per 6 seats narrow, 10 + 1 per
+     * 4 wide. Taking them out again is a quick reconfiguration (the table above). RESEARCH.md §13.
+     */
+    premium: {
+      nb: { seat: 30_000, engineering: 120_000, baseDays: 5, seatsPerDay: 6 },
+      wb: { seat: 85_000, engineering: 300_000, baseDays: 10, seatsPerDay: 4 },
+    },
   },
   /** v0.7.4 client cabin requests (CabinTerms): chances by archetype and term, required share, client share weights, decline cut, change back. */
   clientCabin: {
@@ -269,6 +288,8 @@ export const BAL = {
     findingDays: 30, maxFindings: 2, incidentKeepDays: 365,
     tech: { lateMin: 15, minDeps: 30, keepDays: 366, target: { etops120: 97, widebody: 97, etops180: 98, etops240: 98, ulr: 98.5 } as Partial<Record<string, number>> },
     etopsMx: { cost: 90_000, days: 45 },
+    /** v0.12.1 legs that need an approval we won't hold by their departure get the card this many days ahead; red inside redH hours. */
+    gateWarnDays: 14, gateRedH: 48,
   },
   /** C4 quiet-week floor: days since the last gap-fit offer, idle-window days, open-offer cap. */
   quietFloor: { days: 5, idleDays: 2, maxOpen: 5 },
@@ -451,6 +472,26 @@ export const BAL = {
        * out the roster may still find someone without a change).
        */
       swap: { morale: -3, minMorale: 50, everyDays: 14, noticeH: 12, horizonH: 72 },
+      /**
+       * v0.12.1 a day off bought back (crew/buyBack.ts): worked for twice a day's pay (salary / 21; Portuguese and most
+       * EU cabin and flight crew agreements pay a worked day off at 200 %), the day repaid on a free day of the month;
+       * only for work reporting within 72 h, at most once a month a person, never from crew whose morale is under 35.
+       */
+      buyBack: { pay: 2, horizonH: 72, minMorale: 35 },
+    },
+  },
+
+  // ---------- v0.12.1 world tours (contracts/missions.ts worldTour) ----------
+  v0121: {
+    /**
+     * A round-the-world private-jet tour (Les Voyages de TMR's 51st: 21 days, 20 nights, from €21,900 a guest): a day's
+     * chance once we fly a widebody with ETOPS 180 (Established, Respected), offered 90–180 days ahead; the archetype
+     * multiplier, block-hour equivalents per day the aircraft is held, catering × (five-star), extra cabin crew [min,
+     * max], the business-seat bonus (+pctPerJ per J seat above fromJ, capped) and the guests on board [min, max].
+     */
+    tour: {
+      perDay: { 1: 1 / 365, 2: 2.5 / 365 } as Record<number, number>, lead: [90, 180] as [number, number], expires: [10, 21] as [number, number],
+      mult: 1.4, idleBH: 3, catering: 4, extraCabin: [2, 4] as [number, number], bizFromJ: 16, bizPctPerJ: 0.004, bizMax: 0.12, pax: [80, 150] as [number, number],
     },
   },
 } as const;

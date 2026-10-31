@@ -6,7 +6,7 @@ export type AchievementId =
   | 'cleanSheet' | 'clockwork' | 'outstationFix' | 'ninetyClean'
   | 'fullCover' | 'bunkTime' | 'slipCrew' | 'standby' | 'goodPlace'
   | 'cOnTime' | 'noOverdue'
-  | 'fiveFlown' | 'paidInTheEnd' | 'partner' | 'firstCall' | 'hajj' | 'homeSafe' | 'blueIce'
+  | 'fiveFlown' | 'paidInTheEnd' | 'partner' | 'firstCall' | 'hajj' | 'homeSafe' | 'blueIce' | /** v0.12.1 */ 'aroundWorld'
   | 'widebody' | 'queen'
   | 'reliable' | 'cleanRecord' | 'inTheBlack' | 'rainyDay';
 
@@ -38,6 +38,8 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'hajj', group: 'commercial', icon: 'Moon', title: 'Hajj airlift', text: 'A Hajj contract completed' },
   { id: 'homeSafe', group: 'commercial', icon: 'Home', title: 'Bring them home', text: 'An evacuation or repatriation completed' },
   { id: 'blueIce', group: 'commercial', icon: 'Snowflake', title: 'Blue ice', text: 'A landing on an Antarctic ice runway' },
+  // v0.12.1
+  { id: 'aroundWorld', group: 'commercial', icon: 'Earth', title: 'Around the world', text: 'A world tour flown all the way round' },
   { id: 'widebody', group: 'fleet', icon: 'Plane', title: 'Widebody', text: 'The first widebody joins the fleet', head: 'fleetPlanner' },
   { id: 'queen', group: 'fleet', icon: 'Crown', title: 'Queen of the Skies', text: 'A 747-400 revenue sector flown' },
   { id: 'reliable', group: 'company', icon: 'BadgeCheck', title: 'Reliable', text: 'Reliable reputation 90 or more for 30 days', head: 'watch' },

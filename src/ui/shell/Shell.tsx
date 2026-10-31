@@ -158,7 +158,7 @@ function CashBlock() {
   const hour = Math.floor(g.now / 60);
   const rate = useMemo(() => profitPerDay(g), [g, hour]); // eslint-disable-line react-hooks/exhaustive-deps
   const rateText = rate ? `${moneyDelta(Math.round(rate.perDay))}/day` : '';
-  const rateWhy = rate ? (rate.basis === 'lastMonth' ? 'Profit per day last month' : 'Profit per day this month, with rent, insurance, overhead and salaries spread over the month') : '';
+  const rateWhy = rate ? (rate.basis === 'lastMonth' ? 'Profit per day last month' : 'Profit per day this month, with rent, insurance, overhead, salaries and one-off costs (approvals, checks, refits, hiring, compensation) spread over the month') : '';
   return (
     <button className="tb-cash" onClick={() => store.navigate('finance')} aria-label={`Cash ${money(cash)}${rate ? `, ${rateText}` : ''}: finance`} title={rateWhy || undefined}>
       {/* v0.12 '$2.97M cash' on one line; the profit-per-day pill under the amount, right edges aligned */}

@@ -7,6 +7,7 @@
 //
 // Not re-exported from ops/index: it settles the copy through sim.ts, which imports the ops module.
 
+import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { flightsOf, flightsRev, reassignFlights, retimeFlight, touchFlights } from '../core/entities';
 import { distance } from '../core/geo';
@@ -22,7 +23,9 @@ import { settle } from '../sim';
 import { cabinAt, fullLoadReq, layoutName, layoutsOf } from './cabin';
 import { aircraftGate } from './company';
 import { paysFuel } from './flights';
+import { excusedLate, latePenalty } from './latePolicy';
 import { isGrounded, relinkCheckFerries } from './maintenance';
+import { closedAirport, closedUntil } from './world';
 import { ageOf, an, bodyText, isRevenue, typeWord } from './util';
 
 /** Legs of a trip are on the ground at most this long between them (an overnight stop at most). */
@@ -301,6 +304,20 @@ function planMove(g: GameState, flightId: string, targetId: string): Plan | { er
   };
   // Busy then (its own flying, a check, its programme) comes first: that is the real reason.
   if (overlap()) return plan;
+  // v0.12.1 (B5) its empty legs there and back need open airports at both ends, as the offer's feasibility does: a
+  // world closure stops them unless it is the trip's own event (its permit).
+  const permit = trip.contractId ? g.contracts[trip.contractId]?.eventId : undefined;
+  const shut = (legs: { from: string; to: string; std: Minute; sta: Minute }[] | null): boolean => {
+    for (const l of legs ?? []) {
+      const out = closedAirport(g, l.from, l.std, permit);
+      const e = out ?? closedAirport(g, l.to, l.sta, permit);
+      if (!e) continue;
+      const code = out ? l.from : l.to;
+      reasons.push(`${tgt.reg} can't fly ${l.from}–${l.to} empty: ${AIRPORT_BY_CODE[code]?.city ?? code} is closed (${e.title}) until about ${fmtDay(closedUntil(e))}`);
+      return true;
+    }
+    return false;
+  };
   let prev: Anchor | null = null;
   for (const a of anchors) if (a.std < first.std && (!prev || a.sta > prev.sta)) prev = a;
   let shift = 0;
@@ -309,9 +326,11 @@ function planMove(g: GameState, flightId: string, targetId: string): Plan | { er
     const earliest = prev.kind === 'start' ? prev.sta : prev.sta + turn;
     if (X !== first.from) {
       const back = chainBackward(tgt.typeId, X, first.from, earliest, first.std - turn, cap);
+      if (back && shut(back)) return plan;
       if (!back) {
         const fwd = chainForward(tgt.typeId, X, first.from, earliest, cap);
         if (!fwd) reasons.push(`${tgt.reg} can't fly from ${X} to ${first.from} (range or runway)`);
+        else if (shut(fwd)) return plan;
         else {
           const arr = fwd[fwd.length - 1].sta;
           shift = Math.ceil((arr + turn - first.std) / 5) * 5;
@@ -333,6 +352,7 @@ function planMove(g: GameState, flightId: string, targetId: string): Plan | { er
   const next = anchors.find((a) => a.kind !== 'start' && a.std >= e);
   if (next && next.from !== last.to) {
     const ch = chainForward(tgt.typeId, last.to, next.from, e + turn, cap);
+    if (ch && shut(ch)) return plan;
     if (!ch || ch[ch.length - 1].sta + turn > next.std) {
       const what = next.kind === 'flight' ? `${next.from}–${next.to} at ${fmtTime(next.std)}${Math.floor(next.std / DAY) === Math.floor(e / DAY) ? '' : ` on ${fmtDay(next.std)}`}` : next.kind === 'maint' ? `its ${g.maintenance[next.id]?.kind ?? ''}-check at ${next.from} on ${fmtDay(next.std)}` : `its programme at ${next.from}`;
       reasons.push(`${tgt.reg} couldn't be back at ${next.from} for ${what}`);
@@ -380,13 +400,13 @@ function legMoney(g: GameState, f: Flight, ac: Aircraft, charterBlock = f.block)
   }
   const wide = t.body === 'wide' ? 1 : 0;
   const pays = paysFuel(g, f);
-  const late = (f.std - (f.schedStd ?? f.std)) > 180;
   return {
     revenue: Math.round(revenue),
     fuel: pays ? -Math.round(t.fuelTBH * bh * g.market.fuelPrice) : 0,
     maintenance: -Math.round(t.maintBH * (1 + BAL.maintAgeFactor * Math.max(0, ageOf(g, ac) - 12)) * bh),
     fees: pays ? -(BAL.airportFees[wide] + (isRevenue(f) ? BAL.catering[wide] : 0)) : 0,
-    penalties: c?.product.kind === 'charter' && isRevenue(f) && late ? -c.penalties.perDelay : 0,
+    // v0.12.1 the late-leg rule in one place (latePolicy): ours and over the limit (VIP: 30 min, × 3), else nothing.
+    penalties: c && isRevenue(f) ? -latePenalty(c, f, excusedLate(f)).money : 0,
   };
 }
 
@@ -738,7 +758,8 @@ function fullQuote(g: GameState, plan: Plan, q: TripMoveQuote): void {
   if (gone.length) notes.push(`No longer needed: ${gone.map((x) => `${x.reg} ${x.from}–${x.to}`).join(', ')}.`);
   const addS = q.positioning.filter((x) => x.added && x.aircraftId === src.id);
   if (addS.length) notes.push(`${src.reg} flies empty ${addS.map((x) => `${x.from}–${x.to} (${fmtDateTime(x.std)})`).join(' and ')} instead.`);
-  if (q.crewOff.length || q.crewOn.length) notes.push(`Crew: ${q.crewOff.length} come off, ${q.crewOn.length} go on.`);
+  // v0.12.1 'Crew: 1 off, none on' (not '1 come off, 0 go on').
+  if (q.crewOff.length || q.crewOn.length) notes.push(`Crew: ${q.crewOff.length || 'none'} off, ${q.crewOn.length || 'none'} on.`);
   else if (!was.size && !now.size) notes.push(`Crew: not picked yet; the roster names ${/^[AEIOU8]/i.test(typeWord(tgt.typeId)) ? 'an' : 'a'} ${typeWord(tgt.typeId)} crew nearer the day.`);
   else if (unrostered === moved.length) notes.push(`Crew: not rostered yet (the roster plans ${BAL.rosterHorizonDays} days ahead); ${typeWord(tgt.typeId)}-rated crew will be picked.`);
   else notes.push('Crew: the same crew fly it.');

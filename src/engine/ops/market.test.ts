@@ -13,7 +13,8 @@ import { leased, newGame } from '../contracts/testkit';
 import { advanceTo } from '../sim';
 import { aircraftGate, devGrantApproval } from './company';
 import { itinerary, ticketBlock } from './commercial';
-import { acquireAircraft, addShock, dailyMarket, demandFactor, devMarketOffer, eligibleTypes, marketOutlook, marketView, onDelivery, onLeaseEnd, refreshMarket, returnSiteOf, segIndex, setPhase } from './market';
+import { acquireAircraft, addShock, dailyMarket, demandFactor, devMarketOffer, eligibleTypes, marketOutlook, marketView, onDelivery, onLeaseEnd, postFilingType, refreshMarket, returnSiteOf, segIndex, setPhase } from './market';
+import { makeCrewMember } from '../crew/generate';
 
 const REAL_LESSORS = ['AerCap', 'Avolon', 'SMBC Aviation Capital', 'BOC Aviation', 'Carlyle Aviation Partners', 'Air Lease Corporation', 'Aviation Capital Group'];
 const ev = (g: GameState, type: SimEvent['type'], id: string): SimEvent => ({ t: g.now, seq: 0, type, id, v: 0 });
@@ -279,6 +280,14 @@ describe('onLeaseEnd (holdover)', () => {
     ac.ownership.deposit = 456_000;
     ac.status = 'available';
     ac.at = g.company.homeBase;
+    // v0.12.1 a lease with return conditions is never handed back free: with no return booked it rolls on +10%.
+    const rent = ac.ownership.rentPerMonth;
+    onLeaseEnd(g, ev(g, 'lease.end', ac.id));
+    expect(g.fleet[ac.id]).toBe(ac);
+    expect(ac.ownership.rentPerMonth).toBe(Math.round(rent * 1.1));
+    // A lease from before return conditions (no return site) goes back at base as before.
+    ac.ownership.leaseEnd = g.now;
+    delete ac.ownership.returnSite;
     const cash = g.company.cash;
     onLeaseEnd(g, ev(g, 'lease.end', ac.id));
     expect(g.fleet[ac.id]).toBeUndefined();
@@ -394,5 +403,41 @@ describe('market cycle (v0.8 §4)', () => {
     expect(g.market.cycle!.phase).toBe('slump');
     expect(g.messages.length).toBe(n + 1);
     expect(g.messages[0].title).toBe('The ACMI market is in a slump');
+  });
+});
+
+describe('v0.12.1 the post-filing lessor offer follows our widebody pilots', () => {
+  it('A330 pilots: an A330-200; 767 pilots: a 767-300ER; none (or a tie): the coin', () => {
+    const g = newGame(3);
+    expect(postFilingType(g)).toBeNull();
+    const add = (family: 'A330/340' | 'B757/767', n: number) => {
+      for (const role of ['CPT', 'FO'] as const) for (let i = 0; i < n; i++) {
+        const c = makeCrewMember(g, role, family, g.company.homeBase);
+        g.crew[c.id] = c;
+      }
+    };
+    add('A330/340', 4);
+    expect(postFilingType(g)).toBe('a332');
+    add('B757/767', 5);
+    expect(postFilingType(g)).toBe('b763');
+    // Posted after filing with no unlocked widebody on offer: the 767 for these pilots, over many seeds.
+    let found = 0;
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const { seen } = market(seed, 60, (h) => {
+        for (const role of ['CPT', 'FO'] as const) for (let i = 0; i < 4; i++) {
+          const c = makeCrewMember(h, role, 'B757/767', h.company.homeBase);
+          h.crew[c.id] = c;
+        }
+        h.company.pendingApprovals.push({ id: 'widebody', started: h.now, done: h.now + 120 * DAY, cost: 300_000 });
+        h.market.aircraft = h.market.aircraft.filter((o) => typeOf(o.typeId).body !== 'wide');
+      });
+      // The lessor's offer: one month's deposit.
+      const lessor = seen.find((x) => typeOf(x.o.typeId).body === 'wide' && x.o.kind === 'dryLeaseIn' && x.o.deposit === x.o.rentPerMonth);
+      if (lessor) {
+        expect(lessor.o.typeId, `seed ${seed}`).toBe('b763');
+        found++;
+      }
+    }
+    expect(found).toBeGreaterThan(0);
   });
 });

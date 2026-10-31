@@ -5,9 +5,9 @@ import { ArrowRightLeft, CalendarClock, ChevronLeft, ChevronRight, Clock, FileSi
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../../engine/core/balance';
-import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
+import { DAY, fmtDateTime, fmtDay, fmtDayRel, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { Aircraft, Duty, Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
-import { clientCrewOf, crewAlertKind, crewName, dutyCrew, slipOfFlight, dutyLegality, flightCrewStatus, restOf, restPlanForFlight, restSeatsBlocked, restShort, restVerdict } from '../../engine/crew';
+import { clientCrewOf, crewAlertKind, crewName, dutyCrew, slipOfFlight, dutyLegality, flightCrewStatus, restOf, restPlanForFlight, restSeatsBlocked, restShort, restVerdict, ridersText } from '../../engine/crew';
 import { seatLabel, typeOf } from '../../engine/core/perf';
 import { cabinOptions, cancelCheck, checkStatus, delayFlight, dryLeaseView, flightCrewAboard, flightType, flightZone, refitSlots } from '../../engine/ops';
 import { ClientCrewRow } from './v08Bits';
@@ -126,7 +126,8 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   const rows: [ReactNode, ReactNode][] = [
     ['Aircraft', rival ? `Sub-chartered to ${rival}` : ac ? `${ac.reg}${ac.name ? ` · ${ac.name}` : ''}` : '—'],
     ['Type', <span className="row gap-8 sc-ft-row"><FlightTypeChip type={type} />{f.kind === 'techstop' && <span className="small muted">fuel stop</span>}</span>],
-    ['Status', `${STATUS[f.status]}${f.delay ? ` · ${fmtDuration(f.delay)} late${f.delayReason ? ` (${f.delayReason})` : ''}` : ''}`],
+    // v0.12.1 a move the client asked for, said as theirs (no penalty, not late).
+    ['Status', `${STATUS[f.status]}${f.delay ? ` · ${fmtDuration(f.delay)} late${f.delayReason ? ` (${f.delayReason})` : ''}` : ''}${f.asked ? ` · moved ${fmtDuration(f.asked.min)} later at ${f.asked.by}'s request, no penalty` : ''}`],
     ['Departs', both(f.atd ?? f.std + f.delay, f.from)],
     ['Arrives', both(f.ata ?? f.eta ?? f.sta + f.delay, f.to)],
     ['Block', fmtDuration(f.block)],
@@ -138,7 +139,10 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   if (blocked && ac) rows.push(['Seats', <span className="warn">{ac.cabin.total} · {ac.cabin.total - blocked} sellable ({blocked} {restSeatWord(restOf(g, ac.id)) ?? 'seats'} blocked for crew rest)</span>]);
   if (type === 'ferry') rows.push(['Crew aboard', 'Pilots only · cabin crew travel separately']);
   else if (type === 'positioning') rows.push(['Crew aboard', 'Full crew · cabin crew needed at the destination']);
-  if (aboard.riding.length) rows.push(['Riding', aboard.riding.filter((id) => g.crew[id]).map((id) => `${g.crew[id].role} ${crewName(g.crew[id])}`).join(', ')]);
+  // v0.12.1 our crew riding a passenger flight: how many and the seats still free.
+  const riding = ridersText(g, f);
+  if (riding) rows.push(['Our crew riding', riding]);
+  if (aboard.riding.length) rows.push([riding ? 'Riders' : 'Riding', aboard.riding.filter((id) => g.crew[id]).map((id) => `${g.crew[id].role} ${crewName(g.crew[id])}`).join(', ')]);
   // v0.8: a world event holds, reroutes or charges war-risk cover on this leg (tap: the event).
   const zone = f.status === 'scheduled' ? flightZone(g, f.id) : null;
   if (zone) rows.push(['World event', <button className={`chip sc-chip ${zone.effect === 'held' ? 'bad' : 'warn'}`} onClick={() => store.openModal({ kind: 'worldEvent', eventId: zone.eventId })}>{zone.text}</button>]);
@@ -355,8 +359,8 @@ function DryLeaseDetail({ g, contractId }: { g: GameState; contractId: string })
       <div className="small muted">{ac?.reg ?? 'Aircraft'} with {v.lessee} at {AIRPORT_BY_CODE[v.site]?.city ?? v.site} · {PHASE[v.phase]}</div>
       <KV rows={[
         ['Ferry out', `${fmtDay(v.out[0])} – ${fmtDay(v.out[1])} · our pilots, then home by deadhead`],
-        ['Lease', `${fmtDay(v.lease[0])} – ${fmtDay(v.lease[1])}${v.late ? ` (${v.late} days late)` : ''}`],
-        ['Ferry back', `${fmtDay(v.back[0])} – ${fmtDay(v.back[1])} · return inspection 2 days at base`],
+        ['Lease', `${fmtDay(v.lease[0])} – ${fmtDayRel(v.lease[1], g.now)}${v.late ? ` (${v.late} days late)` : ''}`],
+        ['Ferry back', `${fmtDayRel(v.back[0], g.now)} – ${fmtDayRel(v.back[1], g.now)} · return inspection 2 days at base`],
         ['Rent', `${money(v.rent)} a month, in advance`],
         ['Reserves', `$${v.reservesPerFH.toLocaleString('en-US')} per FH, monthly in arrears`],
         ['Their hours', `${v.fhSoFar.toLocaleString('en-US')} FH so far of about ${v.fhExpected.toLocaleString('en-US')}`],

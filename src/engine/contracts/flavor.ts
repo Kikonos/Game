@@ -2,6 +2,7 @@
 
 import type { Airport } from '../../data/airports';
 import { next, type RngHolder } from '../core/rng';
+import { toDate, toLocal } from '../core/time';
 
 export const AOG_CAUSES = [
   'an engine borescope finding', 'a bird strike on the climb-out', 'a cracked windshield', 'a hard-landing inspection',
@@ -146,7 +147,9 @@ export function groupDestOk(group: AdhocGroup, a: Airport): boolean {
 }
 
 export interface GroupBlurb { client: string; what: string; pax: number; from: string; to: string; day: string; back: number | null }
-const groupBack = (x: GroupBlurb, oneWay: string, ret: string) => (x.back === null ? oneWay : ret.replace('{n}', String(x.back)));
+/** v0.12.1 '3 days later', 'the next day' for one. */
+export const later = (n: number): string => (n === 1 ? 'the next day' : `${n} days later`);
+const groupBack = (x: GroupBlurb, oneWay: string, ret: string) => (x.back === null ? oneWay : ret.replace('{n} days later', later(x.back)));
 export const ADHOC_BLURBS: ((x: GroupBlurb) => string)[] = [
   (x) => `${x.client} has ${x.what} of ${x.pax} to fly ${x.from}–${x.to} on ${x.day}${groupBack(x, ', one way (we come back empty)', ', back {n} days later')}. All-in price: we buy the fuel and pay the fees.`,
   (x) => `${x.client} is moving ${x.what} of ${x.pax} from ${x.from} to ${x.to} on ${x.day}${groupBack(x, '; one way, we ferry back empty', ', home {n} days later')}. They want one all-in price: fuel, fees and handling on us.`,
@@ -155,9 +158,9 @@ export const ADHOC_BLURBS: ((x: GroupBlurb) => string)[] = [
 
 export interface DiasporaBlurb { client: string; dest: string; reason: string; day: string; back: number }
 export const DIASPORA_BLURBS: ((x: DiasporaBlurb) => string)[] = [
-  (x) => `${x.client} has a full load of families flying home to ${x.dest} ${x.reason}, with heavy bags. Out ${x.day}, back ${x.back} days later.`,
-  (x) => `${x.client} sold every seat to ${x.dest} ${x.reason} in a weekend: families, gifts and boxes of food. Out ${x.day}, back ${x.back} days later; the bags will weigh out before the seats do.`,
-  (x) => `${possessive(x.client)} ${x.dest} charter ${x.reason}: grandparents, children and a hold full of presents. Out ${x.day}, back ${x.back} days later.`,
+  (x) => `${x.client} has a full load of families flying home to ${x.dest} ${x.reason}, with heavy bags. Out ${x.day}, back ${later(x.back)}.`,
+  (x) => `${x.client} sold every seat to ${x.dest} ${x.reason} in a weekend: families, gifts and boxes of food. Out ${x.day}, back ${later(x.back)}; the bags will weigh out before the seats do.`,
+  (x) => `${possessive(x.client)} ${x.dest} charter ${x.reason}: grandparents, children and a hold full of presents. Out ${x.day}, back ${later(x.back)}.`,
 ];
 
 /** Diaspora routes and reasons per agency; DIASPORA is the fallback. */
@@ -261,9 +264,12 @@ const CANARIES = ['TFS', 'LPA', 'FUE', 'ACE'];
 const MARKETS = ['SZG', 'INN', 'PRG', 'VIE', 'BUD', 'NUE', 'STR', 'KRK', 'ZRH', 'BSL'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-/** The season of a programme by its first month (ski when Dec–Mar to a ski airport). */
-export function seasonOf(startUtc: number, to: string): Season {
-  const m = new Date(startUtc * 60_000).getUTCMonth();
+/** v0.12.1 the calendar month (0–11) of a game minute, local at `airport` when given (a local-midnight start). */
+const monthIx = (t: number, airport?: string): number => toDate(airport ? toLocal(airport, t) : t).getUTCMonth();
+
+/** The season of a programme by its first month (ski when Dec–Mar to a ski airport). v0.12.1 `from`: local there. */
+export function seasonOf(startUtc: number, to: string, from?: string): Season {
+  const m = monthIx(startUtc, from);
   if ((m === 11 || m <= 2) && RESORTS_SKI.includes(to)) return 'ski';
   if (m === 11) return 'christmas';
   if (m === 2 || m === 3) return 'easter';
@@ -271,7 +277,7 @@ export function seasonOf(startUtc: number, to: string): Season {
   if (m === 9 || m === 10) return 'autumn';
   return 'winter';
 }
-export const monthOf = (startUtc: number) => MONTHS[new Date(startUtc * 60_000).getUTCMonth()];
+export const monthOf = (startUtc: number, airport?: string) => MONTHS[monthIx(startUtc, airport)];
 
 const SEASON_WORD: Record<Season, string> = { winter: 'Winter', ski: 'Ski', easter: 'Easter', summer: 'Summer', autumn: 'Autumn', christmas: 'Christmas' };
 

@@ -10,6 +10,8 @@ import { crewIssuesFor, flightCrewStatus } from '../crew';
 import { addCrew } from '../crew/fixtures';
 import { deserialize, serialize } from '../save';
 import { advanceTo, settle } from '../sim';
+import { TPL_BY_ID } from '../../data/worldEvents';
+import { startEvent } from './world';
 import { MONEY_LINES, moneyTotal, moveTrip, quoteTripMove, tripOf, tripTargets } from './tripMove';
 
 const state = (g: GameState) => JSON.stringify((JSON.parse(serialize(g)) as { state: unknown }).state);
@@ -119,6 +121,18 @@ describe('quoteTripMove', () => {
     expect(q.crewOff.length + q.crewOn.length).toBeGreaterThan(0);
     expect(q.sourceFree).toMatch(new RegExp(`^${b.reg} is free at DUB`));
     expect(q.notes.some((n) => n.startsWith(`${a.reg} flies empty LIS–DUB`))).toBe(true);
+    // v0.12.1 D17 'Crew: 2 off, none on', never '1 come off, 0 go on'.
+    const crew = q.notes.find((n) => n.startsWith('Crew: '))!;
+    expect(crew).not.toMatch(/come off|go on|\b0\b/);
+    expect(crew).toBe(`Crew: ${q.crewOff.length || 'none'} off, ${q.crewOn.length || 'none'} on.`);
+  });
+
+  it('v0.12.1 (B5) refuses a ferry out of an airport a world event has closed, in plain words', () => {
+    const { g, a, rev } = dubBase();
+    startEvent(g, { ...TPL_BY_ID.airspaceIraq, id: 'lisShut', kind: 'strike', at: 'LIS', country: 'PT', zoneId: undefined, closeP: 0, airportDays: [9, 9], days: [9, 9], title: 'Strike closes Lisbon', body: '' });
+    const q = quoteTripMove(g, rev.id, a.id);
+    expect(q.ok).toBe(false);
+    expect(q.reasons.join(' ')).toMatch(/LIS–DUB empty: Lisbon is closed \(Strike closes Lisbon\)/);
   });
 
   it('refuses an overlap with the target’s own flying, in plain words', () => {
@@ -153,10 +167,11 @@ describe('quoteTripMove', () => {
     const a = owned(g);
     const c = addAircraft(g, 'a321ceo');
     c.reg = 'CS-TQB';
-    const legs = charter(g, a.id, [['LIS', 'AMM', g.now + 3 * DAY + 8 * 60], ['AMM', 'LIS', g.now + 3 * DAY + 15 * 60]]);
+    // v0.12.1 the A321 reaches Amman now (2,600 nm with 220 seats); Libreville is within the A320's reach, not the A321's.
+    const legs = charter(g, a.id, [['LIS', 'LBV', g.now + 3 * DAY + 8 * 60], ['LBV', 'LIS', g.now + 3 * DAY + 17 * 60]]);
     const q = quoteTripMove(g, legs[0].id, c.id);
     expect(q.ok).toBe(false);
-    expect(q.reasons[0]).toMatch(/^An A321 can't fly this [\d,]+ km leg \(LIS–AMM\) without a fuel stop$/);
+    expect(q.reasons[0]).toMatch(/^An A321 can't fly this [\d,]+ km leg \(LIS–LBV\) without a fuel stop$/);
   });
 
   it('refuses a cabin the client did not ask for', () => {

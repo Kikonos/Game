@@ -1,13 +1,16 @@
 // Statements, receivables, solvency and the cash forecast (B3). DESIGN.md §5.7, BUILD-PLAN B3 acceptance.
 
-import { dailyFinance } from './finance';
+import { dailyFinance, forecastItems, headsBill, monthEndBill, settleDeparture } from './finance';
+import { bookRefit } from './cabin';
+import { cashLowCard } from '../problems/money';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
-import { invoice, statementTotals } from '../core/ledger';
+import { COST_CATS, invoice, REVENUE_CATS, statementTotals } from '../core/ledger';
+import { LEDGER_LABEL } from '../../ui/screens/screenLogic';
 import { typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
-import { DAY, fromUTC, monthKey, monthStart } from '../core/time';
+import { DAY, daysInMonth, fromUTC, monthKey, monthStart } from '../core/time';
 import type { Client, Contract, Flight, GameState, LedgerCat, Minute } from '../core/types';
 import { acceptOffer } from '../contracts';
 import { mghInMonth } from '../contracts/pricing';
@@ -15,7 +18,7 @@ import { addAircraft, hamBase, leased, legsOffer, newGame, owned, run } from '..
 import { salaryBill } from '../crew';
 import { advanceTo } from '../sim';
 import { cashForecast, fixedCosts, resolveDecision } from '.';
-import { paysFuel, subcharterCost, subcharterLegs } from './flights';
+import { legCostEstimate, paysFuel, subcharterCost, subcharterLegs } from './flights';
 
 /** Advances with no auto-pause honoured (decisions expire into their defaults). */
 const skip = (g: GameState, t: Minute) => advanceTo(g, t, new Set());
@@ -126,6 +129,8 @@ describe('month end', () => {
     const rent = l.ownership.rentPerMonth;
     const end = Math.min(g.now + 10 * DAY, monthStart(k + 1) - DAY);
     l.ownership.leaseEnd = end;
+    // A lease with no return conditions (handed back at the lease end; v0.12.1 one with them rolls on instead).
+    delete l.ownership.returnSite;
     schedule(g, end, 'lease.end', l.id);
     const share = (end - Math.max(monthStart(k), l.deliveredAt)) / (days * DAY);
     const fc = fixedCosts(g, k); // still counts the leased aircraft, pro-rated to its last day
@@ -220,9 +225,10 @@ describe('receivables', () => {
     skip(g, a.due + 8 * DAY);
     expect(a.nudged).toBe(7);
     expect(a.paid).toBeNull();
+    // v0.12.1 one reminder per client and day: both invoices in one note.
     const reminders = g.messages.filter((m) => m.title === `Invoice overdue: ${gov.name}`);
-    expect(reminders).toHaveLength(2);
-    expect(reminders[0].body).toMatch(/7 days past due\. Reminder sent/);
+    expect(reminders).toHaveLength(1);
+    expect(reminders[0].body).toMatch(/^2 invoices, \$400K, a week or more past due\. Reminder sent/);
     skip(g, a.due + 30 * DAY + 60);
     expect(a.nudged).toBe(30);
     const dA = g.decisions.find((d) => d.kind === 'latePayment' && d.data?.receivableId === a.id)!;
@@ -449,5 +455,140 @@ describe('flying costs and billing', () => {
     expect(legs.every((f) => f.status === 'done')).toBe(true);
     const k = monthKey(legs[1].sta);
     expect(c.use[k].blockMin).toBeGreaterThanOrEqual(legs[0].block + legs[1].block);
+  });
+});
+
+describe('v0.12.1 cash forecast: money on the day it moves', () => {
+  it('a refit is paid at its start: once in work it is not counted again; planned 5 days out the drop is on day 5', () => {
+    const g = newGame(5);
+    const ac = owned(g);
+    const start = g.now + 5 * DAY + 60;
+    const r = bookRefit(g, ac.id, '24J/90Y', 'LIS', start);
+    if (!r.ok) throw new Error(r.error);
+    const m = g.maintenance[r.data!.maintId];
+    const fc = cashForecast(g, 30);
+    const cost = m.cost;
+    m.cost = 0;
+    const free = cashForecast(g, 30);
+    m.cost = cost;
+    expect(fc[4].cash).toBe(free[4].cash);
+    expect(free[5].cash - fc[5].cash).toBe(cost);
+    // In work: already paid (onMaintStart), so the forecast matches one without the cost.
+    run(g, start + 60);
+    expect(m.status).toBe('inWork');
+    const inWork = cashForecast(g, 30);
+    m.cost = 0;
+    expect(cashForecast(g, 30)).toEqual(inWork);
+    m.cost = cost;
+  });
+  it("the month-end drop is the month-end bill, heads included, and the cash really moves by it", () => {
+    const g = newGame(27);
+    const k = monthKey(g.now);
+    const h = Object.values(g.heads ?? {})[0];
+    expect(h).toBeTruthy();
+    h.hired = { name: 'Ana Costa', skill: 3, salary: 9_000, since: monthStart(k) - DAY };
+    const bill = monthEndBill(g, k);
+    expect(bill.heads).toBe(9_000);
+    expect(bill.total).toBe(bill.rent + bill.insurance + bill.overhead + salaryBill(g) + 9_000);
+    const t = monthStart(k + 1);
+    const fc = cashForecast(g, Math.ceil((t - g.now) / DAY) + 1);
+    const d = Math.floor((t - g.now) / DAY);
+    const checks = Object.values(g.maintenance).filter((m) => (m.status === 'planned' || m.status === 'inWork') && Math.floor((m.end - g.now) / DAY) === d).reduce((s, m) => s + m.cost, 0);
+    expect(fc[d - 1].cash - fc[d].cash).toBe(bill.total + checks);
+    skip(g, t - 1);
+    const before = g.company.cash;
+    skip(g, t + 1);
+    expect(before - g.company.cash).toBe(bill.total + checks);
+  });
+  it('v0.12.1 (C12) crew who joined mid-month are billed from the day they joined, as the month-end run pays them', () => {
+    const g = newGame(27);
+    const k = monthKey(g.now);
+    const a = monthStart(k), b = monthStart(k + 1);
+    const c = Object.values(g.crew).find((x) => x.status !== 'joining')!;
+    const full = monthEndBill(g, k).salaries;
+    c.payFrom = a + Math.round((b - a) / 2);
+    const half = monthEndBill(g, k).salaries;
+    expect(full - half).toBeCloseTo(c.salary * 0.5 * (1 + BAL.onCosts), -1);
+    expect(monthEndBill(g, k + 1).salaries).toBe(full);
+    skip(g, b - 1);
+    const before = g.company.cash;
+    const bill = monthEndBill(g, k);
+    skip(g, b + 1);
+    const checks = Object.values(g.maintenance).filter((m) => m.end > b - 1 && m.end <= b + 1).reduce((s, m) => s + m.cost, 0);
+    expect(before - g.company.cash).toBe(bill.total + checks);
+  });
+  it('a head hired mid-month is paid from the day they joined', () => {
+    const g = newGame(27);
+    const k = monthKey(g.now);
+    const h = Object.values(g.heads ?? {})[0];
+    const a = monthStart(k), b = monthStart(k + 1);
+    h.hired = { name: 'Ana Costa', skill: 3, salary: 9_000, since: a + Math.round((b - a) / 2) };
+    expect(headsBill(g, k)).toBeCloseTo(4_500, -1);
+    expect(headsBill(g, k + 1)).toBe(9_000);
+  });
+  it('scheduled flying costs (fuel, fees, maintenance) come off on the day the leg lands', () => {
+    const g = newGame(42);
+    const dep = g.now + 3 * DAY;
+    const o = legsOffer(g, [['LIS', 'PMI', dep], ['PMI', 'LIS', dep + DAY]]);
+    o.payment = { basis: 'onCompletion', dueDays: 7, depositPct: 0 };
+    const res = acceptOffer(g, o.id, [owned(g).id]);
+    if (!res.ok) throw new Error(res.error);
+    const legs = Object.values(g.flights).filter((f) => f.contractId === res.data!.contractId && f.aircraftId);
+    const items = forecastItems(g, 10).filter((x) => x.what.startsWith('flying costs'));
+    const want = legs.reduce((s, f) => { const x = legCostEstimate(g, f, g.fleet[f.aircraftId!]); return s + Math.round(x.maint + x.reserves + x.fuel + x.fees); }, 0);
+    expect(items.reduce((s, x) => s + x.amount, 0)).toBe(-want);
+    expect(want).toBeGreaterThan(0);
+  });
+});
+
+describe('v0.12.1 the cash card names what pulls cash under', () => {
+  it('a big refit before the month end: the WHY names the refit', () => {
+    const g = newGame(5);
+    const ac = owned(g);
+    const r = bookRefit(g, ac.id, '24J/90Y', 'LIS', g.now + 3 * DAY);
+    if (!r.ok) throw new Error(r.error);
+    g.company.cash = 500_000;
+    const card = cashLowCard(g);
+    expect(card?.why).toContain(`${ac.reg}'s cabin refit`);
+  });
+});
+
+describe('v0.12.1 fixed costs by the days the aircraft is ours', () => {
+  it('a sale on day 22 pays 22 days of insurance and overhead, not the month', () => {
+    const g = newGame(27);
+    const k = monthKey(g.now);
+    const ac = owned(g);
+    const days = daysInMonth(k);
+    g.now = monthStart(k) + 22 * DAY;
+    const before = { ...g.finance.current.lines };
+    settleDeparture(g, ac);
+    const share = (g.now - Math.max(monthStart(k), ac.deliveredAt)) / (days * DAY);
+    expect((g.finance.current.lines.insurance ?? 0) - (before.insurance ?? 0)).toBe(-Math.round(typeOf(ac.typeId).insuranceMonth * share));
+    expect((g.finance.current.lines.overhead ?? 0) - (before.overhead ?? 0)).toBe(-Math.round(BAL.overheadPerAircraft * share));
+  });
+  it('leased out from day 3: our insurance for the first days only; back on day 27: those days again', () => {
+    const g = newGame(27);
+    const k = monthKey(g.now) + 1;
+    const ac = owned(g);
+    ac.deliveredAt = Math.min(ac.deliveredAt, monthStart(k - 1));
+    const a = monthStart(k), len = monthStart(k + 1) - a;
+    const ins = typeOf(ac.typeId).insuranceMonth;
+    const others = fixedCosts(g, k).insurance - ins;
+    g.contracts.kx = { id: 'kx', aircraftIds: [ac.id], dry: { leasedAt: a + 2 * DAY } } as never;
+    expect(fixedCosts(g, k).insurance - others).toBe(Math.round(ins * (2 * DAY) / len));
+    g.contracts.kx.dry!.returnedAt = a + 26 * DAY;
+    expect(fixedCosts(g, k).insurance - others).toBe(Math.round(ins * (len - 24 * DAY) / len));
+  });
+});
+
+describe('v0.12.1 statement totals by category', () => {
+  it('a loss on a sale is negative revenue; insurance and overhead are costs', () => {
+    expect(statementTotals({ assetSale: -1_040_000, insurance: -42_000, overhead: -60_000 })).toEqual({ revenue: -1_040_000, costs: -102_000, profit: -1_142_000 });
+    // A refund lowers costs instead of counting as revenue.
+    expect(statementTotals({ charterRevenue: 100_000, refit: 5_000, fuel: -20_000 })).toEqual({ revenue: 100_000, costs: -15_000, profit: 85_000 });
+  });
+  it('every ledger category is a revenue or a cost row (crew jets included)', () => {
+    for (const cat of Object.keys(LEDGER_LABEL) as LedgerCat[]) expect(REVENUE_CATS.includes(cat) !== COST_CATS.includes(cat)).toBe(true);
+    expect(COST_CATS).toContain('crewJet');
   });
 });

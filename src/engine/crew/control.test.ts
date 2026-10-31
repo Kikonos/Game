@@ -56,15 +56,16 @@ function shortOfCaptain(dep = 'DUS', dest = 'FNC', hoursBefore = 40, seed = 5) {
 }
 
 describe('Crew Control view', () => {
-  it('lists nine solutions, the missing seat and a card whose WHY reads the place template 2 h before report', () => {
+  it('lists ten solutions (v0.12.1: nine and the buy-back), the missing seat and a card whose WHY reads the place template 2 h before report', () => {
     const { g, flightId, was } = shortOfCaptain('DUS', 'FNC', 2);
     // Everyone else who could take the seat is on leave; the released captain is at LIS (free, but can't reach DUS).
     for (const c of Object.values(g.crew)) if (c.role === 'CPT' && c.id !== was) { c.blocks = [{ from: g.now - DAY, to: g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
     const v = crewControl(g, flightId)!;
     expect(v).not.toBeNull();
-    expect(v.solutions).toHaveLength(9);
-    expect(new Set(v.solutions.map((s) => s.id)).size).toBe(9);
-    expect(v.solutions.map((s) => s.rank)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
+    // v0.12.1 ten: the day-off buy-back joined them.
+    expect(v.solutions).toHaveLength(10);
+    expect(new Set(v.solutions.map((s) => s.id)).size).toBe(10);
+    expect(v.solutions.map((s) => s.rank)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     expect(v.missing).toEqual([{ role: 'CPT', n: 1 }]);
     expect(v.stage).toBe('red');
     expect(v.card.what).toBe('AW816 is missing 1 captain');
@@ -326,6 +327,44 @@ describe('previews and apply', () => {
     expect(r.ok).toBe(true);
     expect(g.flights[flightId].std).toBeGreaterThan(std);
     expect(flightCrewStatus(g, flightId).level).not.toBe('missing');
+  });
+});
+
+describe('v0.12.1 what a delay costs (Round F, C3 and C10)', () => {
+  /** Spend posted now on the categories a crew fix touches. */
+  const spent = (g: GameState) => -['deadhead', 'crewJet', 'salaries', 'subcharter', 'penalties'].reduce((n, k) => n + (g.finance.current.lines[k as 'deadhead'] ?? 0), 0);
+
+  it("its own tickets and pay are its cost: the chip is never 'free' and equals what applying it spends, with the late-leg penalty", () => {
+    const { g, flightId, was } = shortOfCaptain('DUS', 'FNC', 2);
+    for (const c of Object.values(g.crew)) if (c.role === 'CPT' && c.id !== was) { c.blocks = [{ from: g.now - DAY, to: g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
+    const f = g.flights[flightId];
+    const delay = crewControl(g, flightId)!.solutions.find((x) => x.id === 'delay')!;
+    expect(delay.available).toBe(true);
+    expect(delay.preview.changes.some((c) => /takes the captain seat \(deadhead/.test(c))).toBe(true);
+    expect(delay.cost).toBeGreaterThan(0);
+    expect(delay.chips[0]).toMatch(/^\$/);
+    // Nothing of it is shown as "tickets for other trips".
+    expect(delay.consequences.some((c) => /for other trips/.test(c))).toBe(false);
+    const late = delay.newDeparture! - (f.schedStd ?? f.std);
+    const penalty = late > 180 ? 2_500 : 0;
+    const before = spent(g);
+    expect(applyCrewFix(g, flightId, 'delay', { confirmed: true }).ok).toBe(true);
+    expect(spent(g) - before + penalty).toBe(delay.cost + (delay.preview.extraCost ?? 0));
+  });
+
+  it('a presidential charter pays 3× compensation from 30 min late (the arrival rule), not the plain one from 3 h', () => {
+    const { g, flightId, was } = shortOfCaptain('DUS', 'FNC', 2);
+    for (const c of Object.values(g.crew)) if (c.role === 'CPT' && c.id !== was) { c.blocks = [{ from: g.now - DAY, to: g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
+    const k = g.contracts[g.flights[flightId].contractId!];
+    k.requirements.standards = 'vip';
+    k.penalties.perDelay = 3_750;
+    const delay = crewControl(g, flightId)!.solutions.find((x) => x.id === 'delay')!;
+    expect(delay.available).toBe(true);
+    const f = g.flights[flightId];
+    expect(delay.newDeparture! - (f.schedStd ?? f.std)).toBeGreaterThan(30);
+    const before = spent(g);
+    expect(applyCrewFix(g, flightId, 'delay', { confirmed: true }).ok).toBe(true);
+    expect(delay.cost + (delay.preview.extraCost ?? 0) - (spent(g) - before)).toBe(11_250);
   });
 });
 
@@ -593,5 +632,30 @@ describe('crewReadyAt on the real timetable', () => {
     expect(t2).toBeGreaterThanOrEqual(first + dhBlock('LIS', 'DUS') + OUT_CONNECT + report);
     expect(t2).toBeGreaterThan(f.std);
     expect(t2).toBeGreaterThanOrEqual(g.now + 60);
+  });
+});
+
+describe('v0.12.1 Crew Control lists each crew member once', () => {
+  it('a captain who may sit as FO is one call-in or fly-in option, not one per seat', () => {
+    const t = trip('LIS', 'FNC');
+    const { g } = t;
+    autoRoster(g);
+    const { p } = live(g, t.flightId);
+    // Both pilots off the trip: a CPT and an FO seat to fill, and captains may take either.
+    for (const role of ['CPT', 'FO'] as const) {
+      const sl = p.slots.find((s) => s.role === role && s.crewId)!;
+      releaseCrew(g, p, sl.crewId!);
+    }
+    setFlightsCrew(g, p);
+    // One captain free at Lisbon, no first officer: the same captain is the pick for both seats.
+    const free = Object.values(g.crew).find((c) => c.role === 'CPT' && !p.slots.some((s) => s.crewId === c.id))!;
+    for (const c of Object.values(g.crew)) if (c.id !== free.id && (c.role === 'CPT' || c.role === 'FO') && !p.slots.some((s) => s.crewId === c.id)) c.blocks = [{ from: g.now, to: g.now + 10 * DAY, why: 'leave' }];
+    touchCrew(g);
+    const v = crewControl(g, t.flightId)!;
+    expect(v.solutions.find((s) => s.id === 'callIn')?.options?.map((o) => o.id)).toContain(free.id);
+    for (const s of v.solutions) {
+      const ids = (s.options ?? []).map((o) => o.id);
+      expect(new Set(ids).size, s.id).toBe(ids.length);
+    }
   });
 });

@@ -16,8 +16,22 @@ export const TECH_STOP_MIN = 60;
 export const RANGE_RESERVE = 0.95;
 /** Runways shorter than this share of the type's minimum are prohibited; between it and 1, payload-limited. */
 export const RUNWAY_LIMITED = 0.7;
-/** Sector length allowed from/to a payload-limited runway, as a share of range. */
-export const LIMITED_RANGE_SHARE = 0.45;
+/**
+ * v0.12.1 range lost to a short or high take-off runway: about RUNWAY_RANGE_NM × ln(needed / available) nm.
+ * Take-off distance grows with weight to about the power 2.2 (the textbook W², the Airbus and Boeing airport planning
+ * charts 2–2.3), so a runway r × the type's need lets it lift r^(1/2.2) of its full-payload, full-range weight. With
+ * full seats the weight given up is fuel, and by Breguet range = K × ln(take-off / landing weight), K ≈ 12,000 nm
+ * for today's jets (speed × L/D over fuel burn; it matches the A320's 2,700 nm and the A330-200's 6,000 nm full
+ * charter payloads), so the loss is K / 2.2 × ln(need / runway), the same nm on every type. 2% short: ~110 nm;
+ * 10% short: ~580 nm; at the RUNWAY_LIMITED floor: ~1,960 nm (most of a narrowbody's range, a third of an A330's).
+ */
+export const RUNWAY_RANGE_NM = 5500;
+/**
+ * v0.12.1 landing distance at maximum landing weight is roughly 60–70% of the type's take-off length at maximum
+ * take-off weight (A330-200 ~1,850 m factored vs ~2,750 m), so any runway the type may use at all (≥ RUNWAY_LIMITED
+ * of its need) is long enough to land on: the arrival end never shortens the range.
+ */
+export const LANDING_SHARE = 0.65;
 /** An airport counts as an ETOPS/en-route alternate with at least this runway. */
 export const ADEQUATE_RUNWAY_M = 2400;
 
@@ -48,18 +62,78 @@ export function blockMinutes(typeId: string, from: string, to: string): number {
 
 export type RunwayFit = 'ok' | 'limited' | 'no';
 
-export function runwayFit(typeId: string, airport: string): RunwayFit {
-  const r = AIRPORT_BY_CODE[airport]?.runwayM ?? 0;
-  const need = typeOf(typeId).minRunwayM;
-  if (r >= need) return 'ok';
-  return r >= need * RUNWAY_LIMITED ? 'limited' : 'no';
+/**
+ * v0.12.1 how much longer a take-off run is at the airport's elevation than at sea level (ISA, still air): lift-off
+ * speed (true airspeed) grows as 1/σ and the engines give thrust in proportion to the pressure ratio δ, so the
+ * distance grows as 1/(σ·δ). v0.12.1 round D: up to 2,600 m (the high big-jet hubs: Mexico City, Bogotá, Addis Ababa,
+ * Quito) to the power 0.65 only: flat-rated engines keep much of their take-off thrust there and the published MTOW
+ * runway charts of the 787 and A350 grow by about 35–40 %, not the bare 64–67 % (the full figure made Mexico City–Tokyo
+ * on a 787-9 stop in Anchorage; Aeroméxico flies it nonstop). Above it the full 1/(σ·δ) returns by 4,000 m (La Paz,
+ * Lhasa: big jets only on short hops). +12% at 1,000 m, +38% at Mexico City, +40% at Addis Ababa, ×2.5 at La Paz. Pure.
+ */
+export const ALT_EXP = 0.65;
+const ALT_SOFT_TO = 2600;
+const ALT_FULL_AT = 4000;
+export function altitudeFactor(elevM: number): number {
+  if (elevM <= 0) return 1;
+  const theta = 1 - 2.2558e-5 * elevM;
+  const delta = theta ** 5.2559;
+  const k = elevM <= ALT_SOFT_TO ? ALT_EXP : Math.min(1, ALT_EXP + ((1 - ALT_EXP) * (elevM - ALT_SOFT_TO)) / (ALT_FULL_AT - ALT_SOFT_TO));
+  return (1 / ((delta / theta) * delta)) ** k;
 }
 
-/** Longest sector (nm) the type may fly between two airports given runway limits. */
-export function maxSectorNm(typeId: string, from: string, to: string): number {
+/** v0.12.1 the take-off run the airport offers, as if at sea level (its runway over the altitude factor). */
+export function takeoffRunwayM(airport: string): number {
+  const a = AIRPORT_BY_CODE[airport];
+  return a ? a.runwayM / altitudeFactor(a.elevM ?? 0) : 0;
+}
+
+/**
+ * Runway fit of a type at an airport. 'no': the runway is shorter than RUNWAY_LIMITED of the type's need, or the
+ * airport takes narrowbodies only (v0.12.1: width, strength or terrain); 'limited': the take-off is weight-limited
+ * (v0.12.1: a short runway, or a long one high up), so the range from there is shorter (rangeFromNm); else 'ok'.
+ */
+export function runwayFit(typeId: string, airport: string): RunwayFit {
+  const a = AIRPORT_BY_CODE[airport];
   const t = typeOf(typeId);
-  const limited = runwayFit(typeId, from) === 'limited' || runwayFit(typeId, to) === 'limited';
-  return t.rangeNm * RANGE_RESERVE * (limited ? LIMITED_RANGE_SHARE : 1);
+  const r = a?.runwayM ?? 0;
+  const need = t.minRunwayM;
+  if (r < need * RUNWAY_LIMITED || (a?.narrow && t.body === 'wide')) return 'no';
+  return takeoffRunwayM(airport) >= need ? 'ok' : 'limited';
+}
+
+/**
+ * v0.12.1 a field the type lands on with room to spare (diversions): its full length or more and not narrowbody-only.
+ * The altitude does not count against it (a landing is far shorter than the take-off: LANDING_SHARE). Pure.
+ */
+export function fullLength(typeId: string, airport: string): boolean {
+  return runwayFit(typeId, airport) !== 'no' && (AIRPORT_BY_CODE[airport]?.runwayM ?? 0) >= typeOf(typeId).minRunwayM;
+}
+
+/** v0.12.1 the type's usable full-payload range (nm): the published figure less the reserves. Pure. */
+export const usableRangeNm = (typeId: string): number => typeOf(typeId).rangeNm * RANGE_RESERVE;
+
+/**
+ * v0.12.1 the longest full-payload sector (nm) the type can fly taking off from `from`: its usable range less what a
+ * short or high runway costs (RUNWAY_RANGE_NM: graded, a runway 1–2% short costs about 100 nm). Pure.
+ */
+export function rangeFromNm(typeId: string, from: string): number {
+  const usable = usableRangeNm(typeId);
+  const have = takeoffRunwayM(from);
+  const need = typeOf(typeId).minRunwayM;
+  if (have >= need) return usable;
+  return Math.max(0, usable - RUNWAY_RANGE_NM * Math.log(need / Math.max(1, have)) * RANGE_RESERVE);
+}
+
+/**
+ * Longest sector (nm) the type may fly from → to given runway limits. v0.12.1 only the take-off end counts (graded,
+ * rangeFromNm); the arrival only has to be usable at all (LANDING_SHARE: a runway that passes runwayFit is long
+ * enough to land on), so a short runway at the far end no longer cuts the range.
+ */
+export function maxSectorNm(typeId: string, from: string, to?: string): number {
+  // v0.12.1 a leg into an isolated aerodrome carries two hours' holding fuel instead of an alternate (ISOLATED): its
+  // range is shorter on the nonstop check too (A320 FCO–SFJ, 2,507 nm, flew nonstop).
+  return rangeFromNm(typeId, from) - (to && ISOLATED.has(to) ? typeOf(typeId).cruiseKt : 0);
 }
 
 export interface SectorLeg {
@@ -98,30 +172,61 @@ export function planSector(typeId: string, from: string, to: string): SectorPlan
 /** Countries no operator picks for a fuel stop (war zones). */
 export const NO_STOP_COUNTRY: ReadonlySet<string> = new Set(['YE', 'SY', 'LY', 'SD', 'SS', 'SO', 'AF']);
 
+/** v0.12.1 nor in a sanctioned state or behind closed airspace (Iran, North Korea, Russia, Belarus, Ukraine), as ferries. */
+const SANCTIONED: ReadonlySet<string> = new Set(['IR', 'KP', 'RU', 'BY', 'UA']);
+/** v0.12.1 the furthest a fuel stop may lie back from the destination than the point before it (nm). */
+const BACK_NM = 150;
+/** v0.12.1 nm added to a routing's length per nm of unevenness (its halves, its legs: see viaStopsAt). */
+const UNEVEN = 0.1;
+/** v0.12.1 nm taken off a routing's length per size step of its stops (Dubai before Ashgabat on the way to Singapore). */
+const HUB_NM = 30;
+
 function viaStops(typeId: string, from: string, to: string): SectorPlan {
-  // Fuel stops at proper airports first; small strips (size 1: diversion-only desert fields) only as a last resort.
-  return viaStopsAt(typeId, from, to, 2) ?? viaStopsAt(typeId, from, to, 1) ?? { ok: false, legs: [], techStops: [], reason: 'range' };
+  // Fuel stops at proper airports and the en-route fields first (Keflavík, Gander, Shannon, the Azores, Bermuda);
+  // small strips (size 1: diversion-only desert fields) only as a last resort.
+  return viaStopsAt(typeId, from, to, true) ?? viaStopsAt(typeId, from, to, false) ?? { ok: false, legs: [], techStops: [], reason: 'range' };
 }
 
-function viaStopsAt(typeId: string, from: string, to: string, minSize: number): SectorPlan | null {
+/**
+ * v0.12.1 one or two fuel stops: every stop makes progress towards the destination (never more than BACK_NM back),
+ * and among the routings that fit, the shortest wins, with uneven halves counted against it (UNEVEN) and big airports
+ * for it (HUB_NM): the stop lies on the way and near the middle (Gander, the Azores, Sal, Dubai) rather than a short
+ * hop and a long leg; a hop to a long runway still wins when the short or high runway at the start leaves no other
+ * way (London City–Shannon).
+ */
+function viaStopsAt(typeId: string, from: string, to: string, proper: boolean): SectorPlan | null {
+  // A leg into an isolated aerodrome carries two hours' holding fuel instead of an alternate (ISOLATED).
   const fits = (a: string, b: string) => runwayFit(typeId, b) !== 'no' && distanceNm(a, b) <= maxSectorNm(typeId, a, b);
+  const left0 = distanceNm(from, to);
   // v0.8 never a fuel stop on the ice (no fuel in Antarctica) or in a war zone insurers won't cover.
-  const cands = AIRPORTS.filter((x) => x.code !== from && x.code !== to && x.size >= minSize && !x.ice && !NO_STOP_COUNTRY.has(x.country) && runwayFit(typeId, x.code) === 'ok');
+  const cands = AIRPORTS.filter((x) => x.code !== from && x.code !== to && (proper ? x.size >= 2 || !!x.enroute : x.size >= 1) && !x.ice && !NO_STOP_COUNTRY.has(x.country) && !SANCTIONED.has(x.country)
+    && runwayFit(typeId, x.code) === 'ok' && distanceNm(x.code, to) <= left0 + BACK_NM);
+  // A bigger airport breaks near-ties (fuel, handling, hotels for a crew change): HUB_NM per size step.
+  const score = (pts: string[]) => {
+    const legs = pts.slice(1).map((b, i) => distanceNm(pts[i], b));
+    const size = pts.slice(1, -1).reduce((s, c) => s + AIRPORT_BY_CODE[c].size, 0);
+    const total = legs.reduce((s, x) => s + x, 0);
+    // Uneven: the halves at the most even stop (where a fresh crew could take over: crew/slip.ts) and the longest
+    // leg against the shortest (no short hop), averaged; with one stop both are the difference of its two legs.
+    let run = 0, even = Infinity;
+    for (const x of legs.slice(0, -1)) even = Math.min(even, Math.abs(total - 2 * (run += x)));
+    return total + (UNEVEN * (even + Math.max(...legs) - Math.min(...legs))) / 2 - HUB_NM * size;
+  };
   let best: { stops: string[]; d: number } | null = null;
-  for (const x of cands) {
-    if (!fits(from, x.code)) continue;
-    if (fits(x.code, to)) {
-      const d = distanceNm(from, x.code) + distanceNm(x.code, to);
-      if (!best || d < best.d) best = { stops: [x.code], d };
-    }
+  const firsts = cands.filter((x) => fits(from, x.code));
+  for (const x of firsts) {
+    if (!fits(x.code, to)) continue;
+    const d = score([from, x.code, to]);
+    if (!best || d < best.d) best = { stops: [x.code], d };
   }
   if (!best) {
-    // Two stops: greedy on the first hop's progress towards the destination.
-    const firsts = cands.filter((x) => fits(from, x.code)).sort((p, q) => distanceNm(p.code, to) - distanceNm(q.code, to)).slice(0, 12);
-    for (const x of firsts) {
+    // Two stops: the first hops that leave the least to go, then every second stop closer still.
+    const near = [...firsts].sort((p, q) => distanceNm(p.code, to) - distanceNm(q.code, to) || (p.code < q.code ? -1 : 1)).slice(0, 16);
+    for (const x of near) {
+      const left = distanceNm(x.code, to);
       for (const y of cands) {
-        if (y.code === x.code || !fits(x.code, y.code) || !fits(y.code, to)) continue;
-        const d = distanceNm(from, x.code) + distanceNm(x.code, y.code) + distanceNm(y.code, to);
+        if (y.code === x.code || distanceNm(y.code, to) >= left || !fits(x.code, y.code) || !fits(y.code, to)) continue;
+        const d = score([from, x.code, y.code, to]);
         if (!best || d < best.d) best = { stops: [x.code, y.code], d };
       }
     }
@@ -296,8 +401,8 @@ function searchRoute(typeId: string, from: string, to: string, cap: number, opts
   const N: Airport[] = [AIRPORT_BY_CODE[from], ...stops, AIRPORT_BY_CODE[to]];
   const n = N.length;
   const T = n - 1;
-  const limited = N.map((x) => runwayFit(typeId, x.code) === 'limited');
-  const full = t.rangeNm * RANGE_RESERVE;
+  // v0.12.1 each node's reach from its own runway (graded; the arrival end never cuts it).
+  const reach = N.map((x) => rangeFromNm(typeId, x.code));
   // Great-circle nm as distanceNm gives it (whole km), without its pair cache (a search touches every pair).
   const nm = (i: number, j: number) => Math.round(haversine(N[i].lat, N[i].lon, N[j].lat, N[j].lon)) / 1.852;
   const block = (i: number, j: number) => roundUp5(((nm(i, j) * ROUTE_FACTOR) / t.cruiseKt) * 60 * windFactor(N[i], N[j]) + TAXI_CLIMB_MIN);
@@ -322,7 +427,7 @@ function searchRoute(typeId: string, from: string, to: string, cap: number, opts
     for (let j = 1; j < n; j++) {
       if (done[j] || j === cur) continue;
       const d = nm(cur, j);
-      if (d > full * (limited[cur] || limited[j] ? LIMITED_RANGE_SHARE : 1) - (ISOLATED.has(N[j].code) ? t.cruiseKt : 0)) continue;
+      if (d > reach[cur] - (ISOLATED.has(N[j].code) ? t.cruiseKt : 0)) continue;
       const blk = block(cur, j);
       if (blk > opts.maxBlock) continue;
       const g1 = best[cur] + blk + (j === T ? 0 : TECH_STOP_MIN);

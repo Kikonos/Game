@@ -3,7 +3,7 @@ import { acceptOffer, feasibility, generateOffer } from '../../engine/contracts'
 import { leased, legsOffer, newGame } from '../../engine/contracts/testkit';
 import { DAY, HOUR, dayStart } from '../../engine/core/time';
 import {
-  axisTicks, blockText, chooseHits, dayPills, idleAt, idleGaps, paintLabel, pickBlocks, ppmOf, pressFlight, rowBlocks, textW, timelineSpan, visibleWindow, type GanttBlock,
+  axisTicks, blockText, chooseHits, dayPills, idleAt, idleGaps, layoutRow, paintLabel, pickBlocks, ppmOf, pressFlight, rowBlocks, textW, timelineSpan, visibleWindow, type GanttBlock,
 } from './scheduleLogic';
 
 const blk = (key: string, start: number, end: number, kind: GanttBlock['kind'] = 'flight', color: number | null = 0): GanttBlock => ({
@@ -220,5 +220,46 @@ describe('blockText', () => {
   it('keeps the long one-line label of idle and maintenance blocks', () => {
     expect(blockText({ kind: 'idle', label: 'idle 15h' }, 80).lines).toEqual(['idle 15h']);
     expect(blockText({ kind: 'maint', label: 'C-check LIS', short: 'C' }, 30).lines).toEqual(['C']);
+  });
+});
+
+describe('v0.12.1 round D: blocks close together stay legible', () => {
+  const blk = (key: string, kind: GanttBlock['kind'], start: number, end: number, label: string, no?: string): GanttBlock => ({ key, kind, start, end, color: 1, label, short: label.slice(-3), refs: [], no, route: no ? label.slice(no.length + 1) : undefined });
+  const ppm = ppmOf(3);
+
+  it('an empty leg overlapping the next leg takes a lane of its own: none is drawn over another', () => {
+    const a = blk('a', 'pos', 0, 240, 'BLU1565 FRA-FNC', 'BLU1565');
+    const b = blk('b', 'flight', 180, 420, 'BLU923 FNC-DUS', 'BLU923');
+    const c = blk('c', 'flight', 600, 800, 'BLU924 DUS-FNC', 'BLU924');
+    const [pa, pb, pc] = layoutRow([a, b, c], ppm);
+    expect(pa.lanes).toBe(2);
+    expect(pb.lanes).toBe(2);
+    expect(pa.lane).not.toBe(pb.lane);
+    expect(pc).toMatchObject({ lane: 0, lanes: 1 });
+  });
+
+  it('a label only gets the room up to the next block: it is shortened or dropped, never spilled into its neighbour', () => {
+    // Touching blocks (a 10 min turn at 3-day zoom = 4 px).
+    const a = blk('a', 'pos', 0, 40, 'BLU1565 FRA-FNC', 'BLU1565');
+    const b = blk('b', 'flight', 50, 300, 'BLU923 FNC-DUS', 'BLU923');
+    const [pa, pb] = layoutRow([a, b], ppm);
+    expect(pa.room).toBeLessThanOrEqual(50 * ppm - 4 + 0.001);
+    const t = blockText(a, pa.room);
+    for (const line of t.lines) expect(textW(line, 12) + 8, line).toBeLessThanOrEqual(pa.room + 12);
+    expect(pb.room).toBe(250 * ppm);
+    // Too narrow for anything but nothing: the label goes.
+    const tiny = blk('t', 'pos', 0, 15, 'BLU1565 FRA-FNC', 'BLU1565');
+    expect(blockText(tiny, layoutRow([tiny, b], ppm)[0].room).lines).toEqual([]);
+  });
+});
+
+describe('v0.12.1 paint block label', () => {
+  it('D16 a dark label on a light livery, a light one on a dark livery', async () => {
+    const { paintInk } = await import('./scheduleLogic');
+    expect(paintInk('#ffffff')).not.toBe('#ffffff');
+    expect(paintInk('#fff')).not.toBe('#ffffff');
+    expect(paintInk('#f4d03f')).not.toBe('#ffffff');
+    expect(paintInk('#0b1f4d')).toBe('#ffffff');
+    expect(paintInk('#c8102e')).toBe('#ffffff');
   });
 });

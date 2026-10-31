@@ -120,7 +120,16 @@ describe('the early heads-up', () => {
     const std = g.now + 20 * H;
     const f = addFlight(g, { no: 'AW900', aircraftId: ac.id, contractId: null, kind: 'positioning', from: 'LIS', to: 'MAD', std, sta: std + 75 });
     expect(f.born).toBe(g.now);
-    expect(lateChangeNote(g, f)).toMatch(/^Late change: this leg was only added on .+ UTC \(a schedule change at short notice\)\. $/);
+    // v0.12.1 (review) named by its real cause: an empty leg planned when the aircraft's schedule changed.
+    expect(lateChangeNote(g, f)).toMatch(/^Late change: this empty leg was planned on .+ UTC, when the aircraft's schedule changed\. $/);
+    const job = addFlight(g, { no: 'AW901', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'MAD', to: 'LIS', std: std + 3 * H, sta: std + 3 * H + 75 });
+    expect(lateChangeNote(g, job)).toMatch(/^Late change: this leg was only added on .+ UTC \(a new or moved job at short notice\)\. $/);
+    // The onward leg after a diversion says so (BT4062 after the diversion to Riga).
+    const dv = addFlight(g, { no: 'AW903', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'MAD', to: 'BCN', std: std - 2 * H, sta: std - H });
+    dv.div = { to0: 'BCN' } as never;
+    const on = addFlight(g, { no: 'AW903', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'MAD', to: 'BCN', std: std + 6 * H, sta: std + 7 * H });
+    on.contOf = dv.id;
+    expect(lateChangeNote(g, on)).toMatch(/^Late change: this is the onward leg after the diversion to Madrid, added on .+ UTC\. $/);
     const far = addFlight(g, { no: 'AW902', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'MAD', std: g.now + 5 * DAY, sta: g.now + 5 * DAY + 75 });
     expect(far.born).toBeUndefined();
     expect(lateChangeNote(g, far)).toBe('');

@@ -5,6 +5,7 @@ import { BAL } from '../core/balance';
 import { dayStart, fmtDay } from '../core/time';
 import { hashUnit } from '../core/util';
 import type { ActionResult, Flight, GameState, Rival } from '../core/types';
+import { brokerCut } from '../contracts/accept';
 import { levelOf } from '../contracts/relations';
 import { type RivalStyle } from '../contracts/rivals';
 import { cancelCost, noticeText, positioningCost, rivalsFor, subcharterCost, subcharterLegs, subHit, unitOf, type SubHit } from './flights';
@@ -69,8 +70,10 @@ function legRevenue(g: GameState, legs: Flight[]): number {
   for (const f of legs) {
     if (!isRevenue(f)) continue;
     const c = contractOf(g, f);
-    if (c?.product.kind === 'wet') s += c.product.ratePerBH * (f.block / 60);
-    else if (c?.product.kind === 'charter') s += (c.product.price * f.block) / Math.max(f.block, c.planRevMin ?? f.block * 4);
+    // v0.12.1 net of a broker's commission, as the invoice is.
+    const net = c ? 1 - brokerCut(c) : 1;
+    if (c?.product.kind === 'wet') s += c.product.ratePerBH * (f.block / 60) * net;
+    else if (c?.product.kind === 'charter') s += ((c.product.price * f.block) / Math.max(f.block, c.planRevMin ?? f.block * 4)) * net;
   }
   return Math.round(s);
 }

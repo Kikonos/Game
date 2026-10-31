@@ -47,6 +47,8 @@ export interface RosterSlotView {
   extra: boolean;
   /** v0.6: seat above the legal minimum (crew-extra settings): optional, amber when empty. */
   above: boolean;
+  /** v0.12.1 a far base's reserve seat (with `above`; never warns when empty). */
+  reserve?: true;
   /** This crew member's legality on the pairing (null when the seat is empty). */
   level: Legality | null;
 }
@@ -80,7 +82,7 @@ export function dutyCrew(g: GameState, dutyOrFlightId: string): DutyCrewView | n
       for (const i of plan.issues) if (i.code !== 'fdp') level = worst(level ?? 'legal', issueLevelFor(g, p, d, i));
       level ??= 'legal';
     }
-    return { index, role: s.role, crewId: s.crewId, name: c ? crewName(c) : null, locked: !!s.locked, extra: !!s.extra, above: !!s.above, level };
+    return { index, role: s.role, crewId: s.crewId, name: c ? crewName(c) : null, locked: !!s.locked, extra: !!s.extra, above: !!s.above, ...(s.reserve ? { reserve: true as const } : {}), level };
   });
   return {
     dutyId: d.id, pairingId: p.id, aircraftId: p.aircraftId, contractId: p.contractId, kind: p.tour ? 'tour' : 'trip',
@@ -157,14 +159,18 @@ export function dutyCandidates(g: GameState, dutyOrFlightId: string, role: Role)
     const issues = plan.issues.filter((i) => i.code !== 'fdp');
     const level = levelOf(issues);
     const loc = locAt(c, segs, first.report);
-    const ticket = wet ? 0 : ticketPrice(loc, dep);
+    const o = plan.out;
+    // A ride on our own flight (planned, or already booked: a Flight that is not a commercial ticket).
+    const ride = !!o && (!!o.rideId || ((o as Partial<Flight>).kind ?? 'deadhead') !== 'deadhead');
+    // v0.12.1 a ride costs no ticket.
+    // v0.12.1 plus a later trip's ticket out bought again from where this one leaves them (CrewPlan.retick).
+    const ticket = (wet || ride ? 0 : ticketPrice(loc, dep)) + (wet ? 0 : plan.retickCost ?? 0);
     const b28 = block28(segs, first.report) / 60;
     const reasons = [...new Set(issues.filter((i) => i.level !== 'legal').map((i) => i.text))];
-    const o = plan.out;
     const lost = issues.some((i) => i.code === 'location' && i.level === 'illegal');
-    // A ride on our own empty leg (planned, or already booked: a Flight that is not a commercial ticket).
-    const ride = !!o && (!!o.rideId || ((o as Partial<Flight>).kind ?? 'deadhead') !== 'deadhead');
-    const travel = o && !lost ? `${ride ? 'Rides our flight' : 'Deadhead'} ${o.from} ${fmtTime(o.std)} → ${o.to} ${fmtTime(o.sta)} UTC${ride ? '' : viaText(o.from, o.to, o.std, o.sta)}` : undefined;
+    // v0.12.1 the flight number of our own flight ridden ('Flies out on our own BLU123 …, no ticket').
+    const rideNo = ride ? (o!.rideId ? g.flights[o!.rideId]?.no : (o as Partial<Flight>).no) : undefined;
+    const travel = o && !lost ? `${ride ? `Flies out on our own${rideNo ? ` ${rideNo}` : ' flight'}` : 'Deadhead'} ${o.from} ${fmtTime(o.std)} → ${o.to} ${fmtTime(o.sta)} UTC${ride ? ', no ticket' : viaText(o.from, o.to, o.std, o.sta)}` : undefined;
     // v0.7.2 a captain for a first officer's seat: their own group 'Captain flying as FO', after the first officers
     // of the same legality (the UI groups by asFo).
     const asFo = c.role === 'CPT' && (role === 'FO' || role === 'CRP');
@@ -214,8 +220,8 @@ export function dutyLegality(g: GameState, dutyOrFlightId: string): DutyLegality
   const missing = p.slots.filter((s) => !s.crewId && !s.above).map((s) => s.role);
   if (missing.length) warnings.push({ level: 'illegal', code: 'missing', text: `No ${seatWords(missing)} yet` });
   let level: Legality = worst(d.legality, missing.length ? 'illegal' : 'legal');
-  // v0.6: optional seats above the legal minimum only warn when empty.
-  const spare = p.slots.filter((s) => !s.crewId && s.above);
+  // v0.6: optional seats above the legal minimum only warn when empty (v0.12.1 a far base's reserve seat does not).
+  const spare = p.slots.filter((s) => !s.crewId && s.above && !s.reserve);
   if (spare.length && !d.done) {
     const cab = spare.filter((s) => s.role !== 'CRP').length;
     const pil = spare.length - cab;

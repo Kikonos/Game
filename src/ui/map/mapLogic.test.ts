@@ -163,6 +163,20 @@ describe('selection data', () => {
     expect(chipInfo(g, b, g.now).tone).toBe('bad');
   });
 
+  it('v0.12.1 D10 a crew alert for a flight on another day names the day', () => {
+    const g = game();
+    const a = Object.values(g.fleet)[0];
+    const row = (std: number, kind: 'short' | 'hours') => ({ flightId: 'f', aircraftId: a.id, stage: 'amber' as const, hoursLeft: 30, std, kind });
+    const today = chipInfo(g, a, g.now, row(g.now + 60, 'short'));
+    expect(today.line).toBe(`CREW SHORT ${fmtTime(g.now + 60)}`);
+    const later = g.now + 30 * 60;
+    const c = chipInfo(g, a, g.now, row(later, 'short'));
+    expect(c.line).toMatch(/^CREW (Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d\d:\d\d$/);
+    expect(c.line.length).toBeLessThanOrEqual(18);
+    expect(c.short.length).toBeLessThanOrEqual(10);
+    expect(chipInfo(g, a, g.now, row(later, 'hours')).line).toMatch(/^HRS (Mon|Tue|Wed|Thu|Fri|Sat|Sun) /);
+  });
+
   it('groups open offers into pins, urgent first, and widens the fit to them', () => {
     const g = game();
     g.offers = {};

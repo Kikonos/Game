@@ -141,9 +141,18 @@ function whereAt(g: GameState, ac: Aircraft, t: Minute): string {
 export function dryPlan(g: GameState, o: Pick<ContractOffer, 'start' | 'end' | 'dry'>, ac: Aircraft): { out: FerryLeg[]; back: FerryLeg[]; from: string } | null {
   const site = o.dry?.site;
   if (!site) return null;
-  const from = whereAt(g, ac, o.start - 3 * DAY);
-  const out = ferryLegs(ac.typeId, from, site, { arriveBy: o.start - DAY }, etopsCap(g.company.approvals, ac.typeId));
-  const back = ferryLegs(ac.typeId, site, g.company.homeBase, { leave: o.end + DAY + 8 * 60 }, etopsCap(g.company.approvals, ac.typeId));
+  // v0.12.1 the ferry leaves from where the aircraft is when it departs (a leg landing after start − 3 days counts):
+  // planned once from 3 days before, then again from the place at that ferry's own departure.
+  const cap = etopsCap(g.company.approvals, ac.typeId);
+  let from = whereAt(g, ac, o.start - 3 * DAY);
+  let out = ferryLegs(ac.typeId, from, site, { arriveBy: o.start - DAY }, cap);
+  for (let i = 0; i < 2 && out?.length; i++) {
+    const at = whereAt(g, ac, out[0].std - typeOf(ac.typeId).turnMin);
+    if (at === from) break;
+    from = at;
+    out = at === site ? [] : ferryLegs(ac.typeId, from, site, { arriveBy: o.start - DAY }, cap);
+  }
+  const back = ferryLegs(ac.typeId, site, g.company.homeBase, { leave: o.end + DAY + 8 * 60 }, cap);
   if (!out || !back) return null;
   return { out, back, from };
 }

@@ -33,6 +33,7 @@ const SET: Record<AchievementId, (g: GameState) => void> = {
   hajj: (g) => { v09Stats(g).hajjDone = 1; },
   homeSafe: (g) => { v09Stats(g).homeSafe = 1; },
   blueIce: (g) => { v09Stats(g).antarctic = 1; },
+  aroundWorld: (g) => { v09Stats(g).tourDone = 1; },
   widebody: (g) => { devAddType(g, 'a332'); },
   queen: (g) => { v09Stats(g).queenSectors = 1; },
   reliable: (g) => { g.company.reputation.reliable = 90; v09Stats(g).reliableSince = g.now - 31 * DAY; },
@@ -164,7 +165,8 @@ describe('§14.1 backfill and progress', () => {
     v09Stats(g).legalStreak = 18;
     expect(achievementProgress(g, 'cleanSheet')!.label).toBe('18 of 25 sectors');
     const v = achievementsView(g);
-    expect(v.length).toBe(24);
+    // v0.12.1 25 with Around the world.
+    expect(v.length).toBe(25);
     expect(v.find((x) => x.id === 'fiveFlown')!.progress!.have).toBe(3);
     SET.fiveFlown(g);
     checkAchievements(g);

@@ -3,9 +3,10 @@
 import { BAL } from '../core/balance';
 import { accrue, invoice } from '../core/ledger';
 import { DAY, fmtMonth, monthKey, monthStart } from '../core/time';
-import type { Contract, Flight, GameState, LedgerCat, MonthKey, SimEvent } from '../core/types';
-import { mghInMonth } from './pricing';
+import type { Contract, Flight, GameState, LedgerCat, Minute, MonthKey, SimEvent } from '../core/types';
+import { mghInMonth, mghTotal } from './pricing';
 import { bumpClient } from './relations';
+import { excusedLate, onTimeLeg } from '../ops/latePolicy';
 
 export interface BillingLine {
   contractId: string;
@@ -49,14 +50,17 @@ export function onFlightArrivedContracts(g: GameState, ev: SimEvent): void {
     }
   }
   if (rev) {
-    const onTime = (f.atd ?? f.std) - f.std <= 15;
+    // v0.12.1 against the original schedule (ops retimes keep schedStd; a client's move re-bases it).
+    // v0.12.1 (review) a delay the client forgave (Trusted / Partner, up to 3 h) counts as on time for them.
+    const onTime = onTimeLeg(f) || (!!f.forgiven && excusedLate(f) <= 15);
     c.legsFlown = (c.legsFlown ?? 0) + 1;
     if (onTime) c.legsOnTime = (c.legsOnTime ?? 0) + 1;
     g.stats.blockMin += block;
     // v0.8 the month's on-time share (wet: the relation at month close).
     const u = (c.use[monthKey(g.now)] ??= { blockMin: 0, cycles: 0, shortCycles: 0 });
     u.legs = (u.legs ?? 0) + 1;
-    if (onTime) u.onTime = (u.onTime ?? 0) + 1;
+    // The client's month judges only our lateness (world waits and its own slots are excused).
+    if (excusedLate(f) <= 15) u.onTime = (u.onTime ?? 0) + 1;
     // v0.8 deportation: the press notices every flight with returnees (clean −2, capped −10 a contract).
     if (c.archetype === 'deportation' && (f.pax ?? 0) > 0) {
       const D = BAL.v08.deport;
@@ -96,16 +100,36 @@ export function noteLostLegs(g: GameState, legs: Flight[]): void {
   }
 }
 
-/** Guaranteed hours of a wet contract-month, all aircraft: MGH pro-rated to the active days (Hajj: inside `terms`). */
-export function mghFor(c: Contract, month: MonthKey): number {
+/**
+ * Guaranteed hours of a wet contract-month, all aircraft: MGH pro-rated to the active days (Hajj: inside `terms`).
+ * v0.12.1 `upTo` caps the term at that minute (what is earned so far this month).
+ */
+export function mghFor(c: Contract, month: MonthKey, upTo?: Minute): number {
+  if (c.product.kind !== 'wet') return 0;
+  const m = c.product.mghPerMonth;
+  const end = Math.min(c.end, c.cancelledAt ?? Infinity, upTo ?? Infinity);
+  // v0.8 terms (Hajj phases): MGH only inside them.
+  const one = c.terms?.length
+    ? c.terms.reduce((s, [a, b]) => s + (Math.min(b, end) > a ? mghInMonth(m, a, Math.min(b, end), month) : 0), 0)
+    : end > c.start ? mghInMonth(m, c.start, end, month) : 0;
+  return one * c.aircraftIds.length;
+}
+
+/**
+ * v0.12.1 guaranteed hours still to come from `from` to the end, all aircraft (Hajj: inside the phases only, so the
+ * gap between them counts nothing). The cancellation penalty and the cash forecast use it. Pure.
+ */
+export function mghRemaining(c: Contract, from: Minute): number {
   if (c.product.kind !== 'wet') return 0;
   const m = c.product.mghPerMonth;
   const end = Math.min(c.end, c.cancelledAt ?? Infinity);
-  // v0.8 terms (Hajj phases): MGH only inside them.
-  const one = c.terms?.length
-    ? c.terms.reduce((s, [a, b]) => s + mghInMonth(m, a, Math.min(b, end), month), 0)
-    : mghInMonth(m, c.start, end, month);
-  return one * c.aircraftIds.length;
+  const spans = c.terms?.length ? c.terms : [[c.start, end] as [Minute, Minute]];
+  let s = 0;
+  for (const [a0, b0] of spans) {
+    const a = Math.max(a0, from), b = Math.min(b0, end);
+    if (b > a) s += mghTotal(m, a, b);
+  }
+  return s * c.aircraftIds.length;
 }
 
 const fmtUSD = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
@@ -114,21 +138,25 @@ const fmtUSD = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
  * Invoice lines for a wet contract-month (DESIGN §5.1.10): MGH per aircraft pro-rated to the active days;
  * rate × MGH when flown ≤ MGH, plus excess hours at excessRate; short-cycle fees; minus the broker commission.
  * Months outside the term (positioning before the start or after the end) bill flown hours at the full rate.
- * Marks the month billed. Charter money is invoiced by the lifecycle instead.
+ * v0.12.1 pure (billContractMonth marks the month billed); `asOf` gives what is earned so far in an open month
+ * (Finance 'earned', the profit pill), with the MGH counted up to that minute.
  */
-export function billContractMonth(_g: GameState, c: Contract, month: MonthKey): BillingLine[] {
-  if (c.product.kind !== 'wet' || c.billedMonths.includes(month)) return [];
+export function wetMonthLines(c: Contract, month: MonthKey, asOf?: Minute): BillingLine[] {
+  if (c.product.kind !== 'wet') return [];
   const p = c.product;
   const line = (desc: string, amount: number): BillingLine => ({ contractId: c.id, clientId: c.clientId, desc, amount: Math.round(amount), cat: 'acmiRevenue' });
   const u = c.use[month] ?? { blockMin: 0, cycles: 0, shortCycles: 0 };
   const flown = u.blockMin / 60;
-  const full = mghFor(c, month);
-  // Hours we failed to fly (our cancellations) are not guaranteed to us.
+  const full = mghFor(c, month, asOf);
+  // Hours we failed to fly (our cancellations) are not guaranteed to us; v0.12.1 nor hours a world event stopped
+  // (force majeure frees both sides). Never below what was flown.
   const lost = (u.lostMin ?? 0) / 60;
-  const mgh = full > 0.05 ? Math.max(Math.min(flown, full), full - lost) : full;
+  const lostFm = (u.lostFmMin ?? 0) / 60;
+  const mgh = full > 0.05 ? Math.max(Math.min(flown, full), full - lost - lostFm) : full;
   const lines: BillingLine[] = [];
   if (full > 0.05) {
-    const less = lost > 0.05 && mgh < full ? `, less ${lost.toFixed(1)} BH we cancelled` : '';
+    const ours = Math.min(lost, full - mgh), fm = Math.min(lostFm, full - mgh - ours);
+    const less = (ours > 0.05 ? `, less ${ours.toFixed(1)} BH we cancelled` : '') + (fm > 0.05 ? `, less ${fm.toFixed(1)} BH cancelled by force majeure` : '');
     lines.push(line(flown < mgh ? `MGH ${mgh.toFixed(1)} BH (flown ${flown.toFixed(1)}${less}) × ${fmtUSD(p.ratePerBH)}` : `${mgh.toFixed(1)} BH × ${fmtUSD(p.ratePerBH)}`, p.ratePerBH * mgh));
     if (flown > mgh) lines.push(line(`Excess ${(flown - mgh).toFixed(1)} BH × ${Math.round(p.excessRate * 100)}%`, (flown - mgh) * p.excessRate * p.ratePerBH));
   } else if (flown > 0) {
@@ -139,6 +167,13 @@ export function billContractMonth(_g: GameState, c: Contract, month: MonthKey): 
     const gross = lines.reduce((s, l) => s + l.amount, 0);
     lines.push(line(`${c.broker} commission ${Math.round(BAL.brokerCommission * 100)}%`, -gross * BAL.brokerCommission));
   }
+  return lines;
+}
+
+/** The month's invoice lines (wetMonthLines), and marks the month billed. Charter money is invoiced by the lifecycle. */
+export function billContractMonth(_g: GameState, c: Contract, month: MonthKey): BillingLine[] {
+  if (c.product.kind !== 'wet' || c.billedMonths.includes(month)) return [];
+  const lines = wetMonthLines(c, month);
   c.billedMonths.push(month);
   return lines;
 }

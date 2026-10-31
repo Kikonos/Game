@@ -12,12 +12,12 @@ import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, next, pick, range } from '../core/rng';
 import { DAY, fmtDuration, fmtTime, monthKey } from '../core/time';
-import type { ActionResult, Aircraft, Contract, Duty, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, Rival, SimEvent } from '../core/types';
+import type { ActionResult, Aircraft, Contract, Duty, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, Rival, SimEvent, WorldEvent } from '../core/types';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { distance } from '../core/geo';
 import { noteLostLegs } from '../contracts/billing';
-import { isSoft } from '../contracts/plan';
-import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, crewSeatsBlocked, restSeatsBlocked, setClosedWaitHook, setRestDelayHook } from '../crew';
+import { isSoft, route, routeMinutes } from '../contracts/plan';
+import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, seatRiders, crewSeatsBlocked, restSeatsBlocked, setClosedWaitHook, setRestDelayHook } from '../crew';
 import { fdpLimitAt } from '../crew/timeline';
 import { dutyLegality } from '../crew/duties';
 import { cue } from '../core/cues';
@@ -27,14 +27,16 @@ import { requestPause } from '../core/pause';
 import { problemFor } from '../problems';
 import { hurtProse } from '../problems/types';
 import { noteIncident } from './company';
+import { noApprovalAtGate } from './approvalGate';
 import { deliveryWaitDay } from './delivery';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, forgiveDelay, LEVEL_NAME, levelOf, statsV08 } from '../contracts/relations';
-import { closedAirport, closedAtDeparture, closedUntil, payWarRisk, strikeDelay, waitAtGate, whiteout } from './world';
+import { cancelForceMajeure, closedAirport, closedAtDeparture, closedUntil, closureCause, payWarRisk, permitOf, rerouteAtDeparture, strandedAsk, strikeDelay, waitAtGate, whiteout } from './world';
 import { isActive, noteHiredThem } from '../contracts/rivals';
 import { atGate, delayCard, rollEnRoute } from './disrupt';
+import { delayOf, excusedLate, latePenalty } from './latePolicy';
 
 /** v0.7.1: the problem ref and hurt snapshot of a message about legs lost or handed over (after the fact). */
 function penaltyMeta(g: GameState, rev: Flight[], money: number): Pick<Message, 'problem' | 'hurt'> {
@@ -45,11 +47,8 @@ function penaltyMeta(g: GameState, rev: Flight[], money: number): Pick<Message, 
 
 // ---------- schedule changes ----------
 
-/** Minutes a flight runs (or ran) behind its original schedule (UI). */
-export function delayOf(f: Flight): number {
-  const off = f.atd ?? f.std + f.delay;
-  return Math.max(0, off - (f.schedStd ?? f.std));
-}
+// v0.12.1 delayOf lives in latePolicy.ts (with the late-leg rule); re-exported for the callers.
+export { delayOf };
 
 /** Original scheduled arrival (before ops delays). */
 export const schedSta = (f: Flight): Minute => f.sta - (f.std - (f.schedStd ?? f.std));
@@ -65,15 +64,62 @@ export function settleOverlaps(g: GameState, ac: Aircraft): number {
   const legs = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled').sort((a, b) => a.std - b.std);
   const turn = turnOf(ac);
   let n = 0;
-  for (let i = 1; i < legs.length; i++) {
-    const prev = legs[i - 1];
-    const f = legs[i];
-    const ready = prev.sta + turn;
-    if (f.std >= ready) continue;
-    moveFlight(g, f, ready, 'Late inbound aircraft');
-    n++;
+  let prev: Flight | undefined;
+  const here = ac.flightId ? null : ac.at;
+  let fromHere = false;
+  for (const f of legs) {
+    if (!prev) {
+      prev = f;
+      fromHere = f.from === here;
+      continue;
+    }
+    // v0.12.1 the empty leg that takes the aircraft from where it stands, behind legs that leave from where it is not
+    // (they wait for it at their gate): it leads, nothing pushes it behind them.
+    if (!fromHere && here && f.from === here && f.kind === 'positioning') {
+      prev = f;
+      fromHere = true;
+      continue;
+    }
+    // v0.12.1 by place as well as time (seed 9: RIX–BUD pushed behind a landing at Varna; seed 2: four copies of one
+    // LHR–LGW empty leg stacked end to end, the passengers' leg behind them). An empty leg that repeats the one before
+    // it is a copy: relink removes it, it pushes nothing. Any other leg leaving from elsewhere waits for the empty
+    // move relink puts in between (its block and two turns).
+    const broken = prev.to !== f.from;
+    if (broken && f.kind === 'positioning' && f.from === prev.from && f.to === prev.to) continue;
+    const ready = prev.sta + turn + (broken ? emptyMoveMin(ac.typeId, prev.to, f.from) + turn : 0);
+    if (f.std < ready) {
+      moveFlight(g, f, ready, 'Late inbound aircraft');
+      n++;
+    }
+    prev = f;
   }
   return n;
+}
+
+/** v0.12.1 the lateness each leg gained since `before` (a wait that is not ours, and its knock-on) is excused. */
+export function excuseGrowth(before: Map<Flight, number>): void {
+  for (const [x, was] of before) {
+    const more = delayOf(x) - was;
+    if (more > 0 && x.status === 'scheduled') x.excused = (x.excused ?? 0) + more;
+  }
+}
+
+/** v0.12.1 block minutes of the empty move from → to (fuel stops included; the great-circle block without a route). Pure. */
+function emptyMoveMin(typeId: string, from: string, to: string): number {
+  const r = route(typeId, from, to);
+  return r ? routeMinutes(r) : blockMinutes(typeId, from, to);
+}
+
+/**
+ * v0.12.1 a leg moved `shift` minutes later by its own client (a favour asked, their late change): the schedule moves
+ * with it, so the lateness is theirs: no delay penalty or compensation, not late for on-time or reliability. It reads
+ * "Client's request (name)" on the flight card.
+ */
+export function clientMoved(f: Flight, shift: number, name: string): void {
+  if (shift <= 0) return;
+  f.schedStd = (f.schedStd ?? f.std) + shift;
+  f.asked = { min: (f.asked?.min ?? 0) + shift, by: name };
+  f.delayReason = `Client's request (${name})`;
 }
 
 /** Moves a scheduled leg to `std` (block kept), remembering the original STD. */
@@ -119,8 +165,17 @@ function plannedChecks(g: GameState, acId: string, from: Minute): MaintenanceEve
 /** How late (vs the original STD) a rotation may start before recovery drops it instead: base waves 6 h, trips 24 h. */
 export function lateCap(g: GameState, f: Flight): number {
   if (!isRevenue(f)) return Infinity;
-  return isBaseLeg(g, f) ? BAL.holdMax : BAL.tripHoldMax;
+  if (isBaseLeg(g, f)) return BAL.holdMax;
+  // v0.12.1 an evacuation or repatriation waits a day longer: late beats not at all for the people waiting.
+  // v0.12.1 a world tour waits three days: its stops absorb a late leg, and dropping one ends the tour for its guests.
+  const k = contractOf(g, f);
+  if (k?.archetype === 'worldTour') return 3 * BAL.tripHoldMax;
+  return waitsFirst(k) ? BAL.tripHoldMax + BAL.missionHoldExtra : BAL.tripHoldMax;
 }
+
+/** v0.12.1 work whose passengers would rather leave late than not at all: evacuations, repatriations, relief, medical. */
+const WAIT_FIRST = new Set<string>(['evacuation', 'repatriation', 'humanitarian', 'medical']);
+export const waitsFirst = (c: Contract | undefined): boolean => !!c && WAIT_FIRST.has(c.archetype);
 
 /** Where the aircraft's crews are based for this leg: the client base of a base programme, else our home base. */
 export function stationOf(g: GameState, f: Flight): string {
@@ -155,6 +210,9 @@ function unitAt(g: GameState, legs: Flight[], i: number): Unit {
     out.push(legs[j]);
   }
   if (j >= legs.length || (out.length && legs[j].from !== out[out.length - 1].to)) return { legs: out, rev: null };
+  // v0.12.1 empty legs days before the revenue leg are no part of it (a positioning on 15 Nov read "498 passengers,
+  // $80K penalty" for a trip on 19 Dec): they move, or wait, on their own.
+  if (out.length && legs[j].std - out[out.length - 1].sta > 2 * DAY) return { legs: out, rev: null };
   const rev = legs[j];
   const station = stationOf(g, rev);
   out.push(rev);
@@ -243,7 +301,14 @@ function recover(g: GameState, ac: Aircraft, legs: Flight[], at: string, ready: 
   for (let i = 0; i < legs.length; ) {
     const x = legs[i];
     shiftChecks(x.std);
-    if (x.from !== loc || (x.std >= ready && !x.delay)) break;
+    // v0.12.1 where the chain breaks (the aircraft is not where x leaves), the empty move relink puts in is counted
+    // (its block and a turn), so the legs it can no longer reach are dropped now, as the card said (S1027: an AOG card
+    // promised "4 legs cancelled", the answer cancelled none and the trip was cancelled at the gate a day later).
+    if (x.from !== loc) {
+      ready += emptyMoveMin(ac.typeId, loc, x.from) + turn;
+      loc = x.from;
+    }
+    if (x.std >= ready && !x.delay) break;
     const u = unitAt(g, legs, i);
     // Away from the station, the leg continuing the one that brought the aircraft here (a wave's return, a tour)
     // brings the aircraft and its passengers home: it is never dropped for lateness.
@@ -284,20 +349,44 @@ function shiftCheck(g: GameState, m: MaintenanceEvent, start: Minute): void {
   schedule(g, m.start, 'maint.start', m.id, m.ev);
 }
 
+// v0.12.1 (Goma) the world closure behind the hold or cancellation under way (underClosure), else null.
+let fmCause: WorldEvent | null = null;
+/** v0.12.1 (Goma) the closure under way, for messages: ' Force majeure (…): no compensation and no reliability hit.' */
+const fmText = (e: WorldEvent, named = true) => ` Force majeure${named ? ` (${e.title})` : ''}: no compensation and no reliability hit.`;
+
+/**
+ * v0.12.1 (Goma, designer) runs `fn` with the closure that is the real cause for `f` (world.ts closureCause, or `e`):
+ * legs cancelled meanwhile are force majeure (no compensation, no relation or reliability hit, off the MGH as
+ * lostFmMin) and the lateness it adds to the aircraft's legs is excused. Without such a closure `fn` runs as usual.
+ */
+export function underClosure<T>(g: GameState, f: Flight, fn: () => T, e: WorldEvent | null = fmCause ?? closureCause(g, f)): T {
+  if (!e) return fn();
+  const was = fmCause;
+  const before = new Map(f.aircraftId ? flightsOf(g, f.aircraftId).filter((x) => x.status === 'scheduled').map((x) => [x, delayOf(x)] as const) : []);
+  fmCause = e;
+  try {
+    return fn();
+  } finally {
+    fmCause = was;
+    if (!was) excuseGrowth(before);
+  }
+}
+
 /**
  * Applies a recovery plan; dropped revenue legs are compensated and messaged once (with `subAc`, a crew wait:
- * sub-chartered instead when cheaper). Returns legs moved.
+ * sub-chartered instead when cheaper). Returns legs moved. v0.12.1 (Goma) under a closure: force majeure, no sub-charter.
  */
 export function applyHold(g: GameState, plan: HoldPlan, reason: string, moveReason?: string, cancelReason = reason, subAc?: Aircraft): number {
-  if (subAc && subcharterInstead(g, subAc, plan.cancels, `${reason}: the aircraft can't make these on time.`, false)) plan.cancels = [];
+  const fm = fmCause;
+  if (subAc && !fm && subcharterInstead(g, subAc, plan.cancels, `${reason}: the aircraft can't make these on time.`, false)) plan.cancels = [];
   const rev = plan.cancels.filter((f) => f.status === 'scheduled' && isRevenue(f));
   const pen = cancelLegs(g, plan.cancels, cancelReason, 0);
   if (rev.length) {
     const f = rev[0];
     const cap = lateCap(g, f) / 60;
     pushMessage(g, {
-      tone: 'bad', cat: 'ops', title: `${rev.length} leg${rev.length > 1 ? 's' : ''} cancelled: ${f.no}${rev.length > 1 ? '…' : ''}`,
-      body: `${reason}: ${rev.map((x) => `${x.no} ${x.from}–${x.to}`).slice(0, 4).join(', ')}${rev.length > 4 ? '…' : ''} would leave more than ${cap} h late, so ${rev.length > 1 ? 'they were' : 'it was'} dropped to keep the rest of the schedule.${pen ? ` Compensation ${usd(pen)}.` : ''}`,
+      tone: 'bad', cat: 'ops', title: `${rev.length} leg${rev.length > 1 ? 's' : ''} cancelled${fm ? ' (force majeure)' : ''}: ${f.no}${rev.length > 1 ? '…' : ''}`,
+      body: `${fm ? fm.title : reason}: ${rev.map((x) => `${x.no} ${x.from}–${x.to}`).slice(0, 4).join(', ')}${rev.length > 4 ? '…' : ''} would leave more than ${cap} h late, so ${rev.length > 1 ? 'they were' : 'it was'} dropped to keep the rest of the schedule.${fm ? fmText(fm, false) : pen ? ` Compensation ${usd(pen)}.` : ''}`,
       ref: { kind: 'flight', id: f.id }, ...penaltyMeta(g, rev, pen),
     });
   }
@@ -331,16 +420,21 @@ export function delayChain(g: GameState, f: Flight, std: Minute, reason: string,
 }
 
 /**
- * §S.3: a revenue leg passing 60 min late with a penalty risk (charter compensation, presidential standards) and a
- * leg held past 6 h (it may have to be cancelled) each chime once, as the delay crosses the line.
+ * §S.3: a revenue leg crossing its contract's delay-penalty line (charter compensation, presidential standards) and
+ * a leg held past 6 h (it may have to be cancelled) each chime once, as the delay crosses the line.
  */
 function delayCues(g: GameState, f: Flight, was: number): void {
   if (f.status !== 'scheduled') return;
   const now = delayOf(f);
   if (was < 6 * 60 && now >= 6 * 60) cue('cancelRisk', { title: `${f.no} ${fmtDuration(now)} late: it may have to be cancelled`, body: `${f.from}–${f.to}. Open the flight to recover it.`, tone: 'bad', ref: { kind: 'flight', id: f.id } });
-  else if (was < 60 && now >= 60 && isRevenue(f)) {
+  else if (isRevenue(f)) {
+    // v0.12.1 as the delay crosses the line the contract charges at (latePolicy: charter over 3 h, presidential
+    // standards over 30 min) and only when it is ours: a world wait or ATC never chimes "delay penalty".
     const c = contractOf(g, f);
-    if (c && ((c.product.kind === 'charter' && c.penalties.perDelay > 0) || c.requirements.standards === 'vip')) cue('delayPenalty', { title: `${f.no} over an hour late: delay penalty`, body: `${c.title}: the client's delay terms apply.`, tone: 'warn', ref: { kind: 'flight', id: f.id } });
+    if (!c) return;
+    const line = c.requirements.standards === 'vip' ? 30 : 180;
+    const exc = f.excused ?? 0;
+    if (was - exc <= line && now - exc > line && latePenalty(c, f, now - exc).money > 0) cue('delayPenalty', { title: `${f.no} ${fmtDuration(now)} late: delay penalty`, body: `${c.title}: the client's delay terms apply.`, tone: 'warn', ref: { kind: 'flight', id: f.id } });
   }
 }
 
@@ -453,6 +547,11 @@ export function cancelLegs(g: GameState, legs: Flight[], reason: string, repPerL
   // v0.7: a delivery ferry is never cancelled (it waits at the site instead).
   const live = legs.filter((f) => f.status === 'scheduled' && f.purpose !== 'delivery');
   if (!live.length) return 0;
+  // v0.12.1 (Goma) a world closure is the cause (underClosure): force majeure, recorded as such (lostFmMin).
+  if (fmCause && !agreed) {
+    cancelForceMajeure(g, live, `Cancelled: ${fmCause.title}`);
+    return 0;
+  }
   const pen = agreed ? 0 : cancelCost(g, live);
   if (!agreed) noteLostLegs(g, live);
   let rev = 0;
@@ -696,6 +795,10 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
     return quietHold(g, f, 60);
   }
   if (whiteout(g, f)) return;
+  // v0.12.1 around a closed zone (a leg planned since the day's pass), once.
+  rerouteAtDeparture(g, f);
+  // v0.12.1 an approval the leg needs (Widebody operations, ETOPS) not held now: it does not leave.
+  if (noApprovalAtGate(g, f, ac)) return;
   // Grounded past the check tolerance: revenue legs stay on the ground; empty legs fly on a ferry permit.
   if (isRevenue(f) && isGrounded(g, ac)) {
     return dropUnit(g, ac, f, 'Aircraft grounded: check overdue', `${ac.reg} is grounded: a check is overdue (book it on the Fleet screen).`, 'tech');
@@ -847,6 +950,8 @@ export function offloadRestSeats(g: GameState, f: Flight, ac: Aircraft): void {
 function depart(g: GameState, f: Flight, ac: Aircraft): void {
   offloadRestSeats(g, f, ac);
   boardCrew(g, f);
+  // v0.12.1 crew riding as passengers only in seats left once the passengers are aboard (the others are re-planned).
+  seatRiders(g, f);
   f.status = 'enroute';
   f.atd = g.now;
   ac.flightId = f.id;
@@ -911,29 +1016,34 @@ function departStats(g: GameState, f: Flight, ac: Aircraft, duty: Duty | undefin
   if (ac.typeId === 'b744') v.queenSectors = (v.queenSectors ?? 0) + 1;
 }
 
-/** Delays nobody at our end controls (ATC, weather, the client, the world). */
-const NOT_OURS = /^(ATC|Weather|Late passengers|Airport congestion|Client|Landing permit|Waiting:|Closed:|Whiteout|Moved to|Medical|Night stop|Bird strike)/;
-
 /**
  * v0.8 (§1.3, §1.4, §2.3) a revenue leg leaving late by our fault: over 3 h, charter compensation and relation −1
  * (at most −4 a contract-month), unless a Trusted / Partner client forgives it (n a month); presidential standards:
  * over 30 min costs compensation × 3 and relation −3.
  */
 function lateLeg(g: GameState, f: Flight, c: Contract): void {
+  // v0.12.1 one rule (latePolicy.ts): a delay that is not ours (a world wait, ATC, weather, the client) costs nothing.
+  const lateMin = excusedLate(f);
+  const pen = latePenalty(c, f, lateMin);
+  if (!pen.ours) return;
   const late = delayOf(f);
   const vip = c.requirements.standards === 'vip';
-  if (late <= (vip ? 30 : 180)) return;
-  const ours = !NOT_OURS.test(f.delayReason ?? '');
-  const pen = c.product.kind === 'charter' ? c.penalties.perDelay * (vip ? 3 : 1) : 0;
-  if (ours && !vip && forgiveDelay(g, c.clientId)) {
-    pushMessage(g, { tone: 'info', cat: 'commercial', title: `${g.clients[c.clientId]?.name ?? 'The client'} let it go`, body: `${f.no} left ${fmtDuration(late)} late; they forgave it (${LEVEL_NAME[levelOf(g, g.clients[c.clientId])]} client): no compensation, no harm done.`, ref: { kind: 'flight', id: f.id } });
+  // v0.12.1 (designer, UPDATE-0.8 §1.4) a Trusted / Partner client lets a small delay of ours go: 15 min to 3 h, n a
+  // month (forgiven minutes count as excused, not held against us). Over 3 h they always charge and mind it (BLU886:
+  // 22 h late, forgiven).
+  if (!vip && lateMin > 15 && lateMin <= 180) {
+    if (!forgiveDelay(g, c.clientId)) return;
+    f.excused = (f.excused ?? 0) + lateMin;
+    // v0.12.1 (review) and it counts as on time on their job (completion and the month score), so the perk matters.
+    f.forgiven = true;
+    pushMessage(g, { tone: 'info', cat: 'commercial', cue: null, title: `${g.clients[c.clientId]?.name ?? 'The client'} let it go`, body: `${f.no} left ${fmtDuration(late)} late; they forgave it (${LEVEL_NAME[levelOf(g, g.clients[c.clientId])]} client): it counts as on time.`, ref: { kind: 'flight', id: f.id } });
     return;
   }
-  if (pen) post(g, 'penalties', -pen);
-  if (!ours) return;
+  if (!pen.relation) return;
+  if (pen.money) post(g, 'penalties', -pen.money);
   const k = monthKey(g.now);
   const used = c.lateHits && c.lateHits[0] === k ? c.lateHits[1] : 0;
-  const d = vip ? -3 : Math.max(BAL.v08.rel.lateCap - used, BAL.v08.rel.lateLeg);
+  const d = vip ? pen.relation : Math.max(BAL.v08.rel.lateCap - used, pen.relation);
   if (d >= 0) return;
   c.lateHits = [k, used + d];
   bumpClient(g, c.clientId, d, `${f.no} left ${fmtDuration(late)} late`);
@@ -1054,11 +1164,12 @@ export function subcharterInstead(g: GameState, ac: Aircraft, legs: Flight[], wh
 function dropUnit(g: GameState, ac: Aircraft, f: Flight, reason: string, why: string, cat: MessageCat): void {
   const legs = unitOf(g, ac, f);
   const rev = legs.filter(isRevenue);
+  const fm = fmCause;
   const pen = cancelLegs(g, legs, reason, 0);
   if (rev.length) {
     pushMessage(g, {
-      tone: 'bad', cat, title: `${rev[0].no} cancelled${rev.length > 1 ? ` with ${rev.length - 1} more` : ''}`,
-      body: `${why} ${rev.map((x) => `${x.no} ${x.from}–${x.to}`).join(', ')} cancelled.${pen ? ` Compensation ${usd(pen)}.` : ''}`,
+      tone: 'bad', cat, title: `${rev[0].no} cancelled${rev.length > 1 ? ` with ${rev.length - 1} more` : ''}${fm ? ' (force majeure)' : ''}`,
+      body: `${why} ${rev.map((x) => `${x.no} ${x.from}–${x.to}`).join(', ')} cancelled.${fm ? fmText(fm) : pen ? ` Compensation ${usd(pen)}.` : ''}`,
       ref: { kind: 'flight', id: rev[0].id }, ...penaltyMeta(g, rev, pen),
     });
   }
@@ -1177,13 +1288,14 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
     const tries = (f.crewTries ?? 0) + 1;
     f.crewTries = tries;
     const away = f.from !== stationOf(g, f);
+    // v0.12.1 (Goma) at an airport a closure keeps crew out of, the waits and the drop are force majeure.
     if (away ? delayOf(f) < 2 * DAY : tries <= 2) {
-      delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + Math.min(6, tries) * 60), away ? 'Waiting for a rescue crew' : 'Waiting for a legal crew', true, true);
+      underClosure(g, f, () => delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + Math.min(6, tries) * 60), away ? 'Waiting for a rescue crew' : 'Waiting for a legal crew', true, true));
       rerosterFrom(g, ac.id, g.now);
       return;
     }
     const why = `No legal crew after ${fmtDuration(heldFor(g, f))} on the ground:`;
-    if (!subcharterInstead(g, ac, unitOf(g, ac, f), why)) dropUnit(g, ac, f, 'No legal crew', why, 'crew');
+    underClosure(g, f, () => (fmCause || !subcharterInstead(g, ac, unitOf(g, ac, f), why)) && dropUnit(g, ac, f, 'No legal crew', why, 'crew'));
     return;
   }
   askCrewShort(g, f, ac);
@@ -1221,7 +1333,8 @@ function emptyLegCrew(g: GameState, f: Flight, ac: Aircraft): void {
     else cancelLegs(g, [f], 'No crew for the ferry', 0);
     return;
   }
-  delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + tries * 120), 'Waiting for crew', true, true);
+  // v0.12.1 (Goma) an empty leg out of an airport a closure keeps crew out of: the jobs it drops are force majeure.
+  underClosure(g, f, () => delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + tries * 120), 'Waiting for crew', true, true));
   rerosterFrom(g, ac.id, g.now);
 }
 
@@ -1266,6 +1379,27 @@ export function paysFuel(g: GameState, f: Flight): boolean {
   return false;
 }
 
+/**
+ * v0.12.1 what one leg costs us to fly (pure): maintenance (after reserves), maintenance reserves (dry-leased in),
+ * fuel and airport fees with catering (only when we pay them: paysFuel). `blockMin` is the block time (the arrival
+ * passes the flown one; a forecast the planned f.block).
+ */
+export function legCostEstimate(g: GameState, f: Flight, ac: Aircraft, blockMin = f.block): { maint: number; reserves: number; fuel: number; fees: number } {
+  const bh = blockMin / 60;
+  const fh = Math.max(0, blockMin - 20) / 60;
+  const t = typeOf(ac.typeId);
+  const wide = t.body === 'wide' ? 1 : 0;
+  const all = t.maintBH * (1 + BAL.maintAgeFactor * Math.max(0, ageOf(g, ac) - 12)) * bh;
+  const reserves = ac.ownership.kind === 'dryLeaseIn' ? Math.min(all, ac.ownership.reservesPerFH * fh) : 0;
+  const pays = paysFuel(g, f);
+  return {
+    maint: all - reserves,
+    reserves,
+    fuel: pays ? t.fuelTBH * bh * g.market.fuelPrice : 0,
+    fees: pays ? BAL.airportFees[wide] + (isRevenue(f) ? BAL.catering[wide] : 0) : 0,
+  };
+}
+
 /** 'flight.arr': on-blocks; aircraft parked; hours and cycles; costs; on-time stats and reliability. */
 export function onFlightArr(g: GameState, ev: SimEvent): void {
   const f = g.flights[ev.id];
@@ -1306,25 +1440,24 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
   ac.maint.fhSinceA += fh;
   ac.maint.fhSinceC += fh;
   ac.maint.deferred = Math.min(1, ac.maint.deferred + 0.0005 * ageF(g, ac));
-  // Costs.
-  const t = typeOf(ac.typeId);
-  const wide = t.body === 'wide' ? 1 : 0;
-  const maint = t.maintBH * (1 + BAL.maintAgeFactor * Math.max(0, ageOf(g, ac) - 12)) * bh;
-  if (ac.ownership.kind === 'dryLeaseIn') {
-    const res = Math.min(maint, ac.ownership.reservesPerFH * fh);
-    post(g, 'reserves', -Math.round(res));
-    post(g, 'maintenance', -Math.round(maint - res));
-  } else post(g, 'maintenance', -Math.round(maint));
+  // Costs (v0.12.1 legCostEstimate: the same sums the cash forecast reads).
+  const cost = legCostEstimate(g, f, ac, block);
+  if (ac.ownership.kind === 'dryLeaseIn') post(g, 'reserves', -Math.round(cost.reserves));
+  post(g, 'maintenance', -Math.round(cost.maint));
   if (paysFuel(g, f)) {
-    post(g, 'fuel', -Math.round(t.fuelTBH * bh * g.market.fuelPrice));
+    post(g, 'fuel', -Math.round(cost.fuel));
     // v0.9 §Y.2 fuel at cost: a jumbo charter's revenue legs re-bill the actual burn to the client.
+    // v0.12.1 accrued now (not deferred): the re-bill is revenue of the month it is flown, on the statement.
     const fc = contractOf(g, f);
     if (fc && fc.product.kind === 'charter' && fc.product.fuelAtCost && isRevenue(f)) {
-      invoice(g, { clientId: fc.clientId, contractId: fc.id, desc: `Fuel re-billed: ${f.no}`, amount: Math.round(t.fuelTBH * bh * g.market.fuelPrice), cat: 'otherRevenue', dueDays: fc.payment.basis === 'arrears' ? fc.payment.dueDays : 7, deferred: true });
+      invoice(g, { clientId: fc.clientId, contractId: fc.id, desc: `Fuel re-billed: ${f.no}`, amount: Math.round(cost.fuel), cat: 'otherRevenue', dueDays: fc.payment.basis === 'arrears' ? fc.payment.dueDays : 7 });
     }
-    post(g, 'airportFees', -(BAL.airportFees[wide] + (isRevenue(f) ? BAL.catering[wide] : 0)));
+    post(g, 'airportFees', -cost.fees);
   }
   g.finance.current.bh = Math.round((g.finance.current.bh + bh) * 100) / 100;
+  // v0.12.1 one cabin crew short (ORO.CC.205(c)) covers the sector in hand only: the seat is required again for the
+  // next leg (bot seed 4: LH2081 KGS–FRA flew back with 3 cabin crew and a full load).
+  if (f.reducedCabin) cabinSeatBack(g, f, ac);
   // Stats and reliability (revenue legs).
   const s = stats(g);
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
@@ -1337,6 +1470,16 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
     else s.delayed++;
     legOutcome(g, onTime ? 100 : 60);
   }
+}
+
+/** v0.12.1 after a leg flown one cabin crew short: the seat it left empty is a required seat again (the roster fills it). */
+function cabinSeatBack(g: GameState, f: Flight, ac: Aircraft): void {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  const s = p?.slots.find((x) => x.above && !x.crewId && x.role === 'CC');
+  if (!s) return;
+  delete s.above;
+  rerosterFrom(g, ac.id, g.now);
 }
 
 // ---------- player action ----------
@@ -1366,8 +1509,18 @@ export function delayFlight(g: GameState, flightId: string, minutes: number, rea
  */
 export function pruneFlights(g: GameState): void {
   const ids: string[] = [];
+  // v0.12.1 (review) each aircraft's last leg flown stays: it says how the aircraft got where it stands (permitOf: an
+  // event's permit lets it out; S1027: CS-TCS's permit out of closed Goma lapsed when its inbound leg was pruned).
+  const lastOf = new Map<string, Flight>();
+  for (const f of Object.values(g.flights)) {
+    if (f.status !== 'done' || f.kind === 'deadhead' || !f.aircraftId) continue;
+    const x = lastOf.get(f.aircraftId);
+    if (!x || f.std > x.std || (f.std === x.std && f.id > x.id)) lastOf.set(f.aircraftId, f);
+  }
+  const keep = new Set(lastOf.values());
   for (const f of Object.values(g.flights)) {
     if (f.status !== 'done' && f.status !== 'cancelled') continue;
+    if (keep.has(f)) continue;
     if ((f.ata ?? f.sta) < g.now - (f.kind === 'deadhead' ? 2 : 7) * DAY) ids.push(f.id);
   }
   if (ids.length) removeFlights(g, ids);
@@ -1378,13 +1531,19 @@ export function pruneFlights(g: GameState): void {
 setClosedWaitHook((g, id) => {
   const f = g.flights[id];
   if (!f || f.status !== 'scheduled' || !f.aircraftId) return false;
-  const own = f.contractId ? g.contracts[f.contractId]?.eventId : undefined;
-  const e = closedAirport(g, f.from, f.std, own) ?? closedAirport(g, f.to, f.std, own);
+  const own = permitOf(g, f);
+  // v0.12.1 the destination is read at the landing, not the departure (BLU1117 FRA–PUJ, landing after Punta Cana
+  // reopened, was held for nothing).
+  const e = closedAirport(g, f.from, f.std, own) ?? closedAirport(g, f.to, f.std + f.block, own);
   if (!e) return false;
   const at = closedUntil(e) + 3 * 60;
   if (at <= f.std) return false;
   f.closedBy = e.id;
-  delayChain(g, f, at, `Waiting: ${e.title}`, false);
+  // v0.12.1 never drops another job's legs without asking (waitAtGate's card): it waits for the answer instead.
+  if (strandedAsk(g, f, e, at)) return false;
+  // v0.12.1 the wait and its knock-on on the aircraft's later legs are not ours: excused (no delay penalty); (Goma)
+  // a leg it drops past its cap is force majeure.
+  underClosure(g, f, () => delayChain(g, f, at, `Waiting: ${e.title}`, false), e);
   return f.status === 'scheduled' && f.std >= at;
 });
 

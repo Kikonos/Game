@@ -16,6 +16,11 @@ export interface WorldEventTpl {
   zoneId?: string;
   /** Chance the zone's airspace closes (0 = never, 1 = always). */
   closeP?: number;
+  /**
+   * v0.12.1 airports inside the closed zone that stay open (the evacuation hub the text names): flights in and out of
+   * them run, routed over open airspace (half the zone's detour); everything else in the zone stays closed.
+   */
+  openAirports?: string[];
   /** The focus airport closes for [min, max] days (disasters, national strikes). */
   airportDays?: [number, number];
   warRisk?: 1 | 2 | 3;
@@ -43,6 +48,11 @@ export interface WorldEventTpl {
   open?: { title: string; body: string };
   /** Reopening message (closures only). */
   reopen?: string;
+  /**
+   * v0.12.1 only while one of our world tours is due at `at` in the next 30 days (its remote stops): a game without a
+   * tour never sees it, and its world keeps the events it had (ops/world.ts allowed).
+   */
+  ours?: true;
 }
 
 export const WORLD_EVENT_TPLS: WorldEventTpl[] = [
@@ -122,6 +132,37 @@ export const WORLD_EVENT_TPLS: WorldEventTpl[] = [
     title: 'Wildfires on Rhodes: holidaymakers evacuated',
     body: "Wildfires have forced hotels in the south of Rhodes to evacuate until at least {until}. The airport stays open; tour operators want extra flights to bring their guests home.",
   },
+  // ---------- v0.12.1 the world tours' remote stops (only while we fly there) ----------
+  {
+    id: 'cyclonePolynesia', kind: 'disaster', at: 'PPT', country: 'PF', airportDays: [1, 3], days: [2, 4], months: [10, 11, 0, 1, 2, 3], work: [], ours: true,
+    title: 'Cyclone near Tahiti: Papeete closed', reopen: 'Papeete has reopened',
+    body: 'A tropical cyclone passing the Society Islands has closed Faa\'a airport until about {until}. Flights to French Polynesia wait or go elsewhere.',
+  },
+  {
+    id: 'protestsPeru', kind: 'unrest', at: 'LIM', country: 'PE', airportDays: [2, 4], days: [4, 8], work: [], ours: true,
+    title: 'Protests in Peru: Machu Picchu shut, Lima flights stopped', reopen: 'Flights to Lima have resumed',
+    body: 'Road blockades and protests have closed Machu Picchu and stopped flights at Lima until about {until}, as in the protests of 2023. Tour groups are being re-routed.',
+  },
+  {
+    id: 'cycloneQueensland', kind: 'disaster', at: 'CNS', country: 'AU', airportDays: [1, 2], days: [2, 3], months: [11, 0, 1, 2], work: [], ours: true,
+    title: 'Cyclone warning closes Cairns airport', reopen: 'Cairns airport has reopened',
+    body: 'A severe tropical cyclone off the Queensland coast has closed Cairns airport until about {until}. The reef islands are being evacuated.',
+  },
+  {
+    id: 'typhoonTonkin', kind: 'disaster', at: 'VDO', country: 'VN', airportDays: [1, 3], days: [2, 4], months: [6, 7, 8, 9], work: [], ours: true,
+    title: 'Typhoon in the Gulf of Tonkin: Van Don closed', reopen: 'Van Don has reopened',
+    body: 'A typhoon making landfall near Ha Long Bay has closed Van Don and Hai Phong airports until about {until}, as Typhoon Yagi did in 2024. Ha Long Bay cruises are suspended.',
+  },
+  {
+    id: 'unrestNepal', kind: 'unrest', at: 'KTM', country: 'NP', airportDays: [1, 3], days: [3, 6], work: [], ours: true,
+    title: 'Unrest in Kathmandu: the airport closes', reopen: 'Kathmandu airport has reopened',
+    body: 'Street protests and a curfew in Kathmandu have closed Tribhuvan airport until about {until}, as in September 2025. Trekking groups wait in their hotels.',
+  },
+  {
+    id: 'stormRapaNui', kind: 'disaster', at: 'IPC', country: 'CL', airportDays: [1, 2], days: [1, 3], months: [4, 5, 6, 7], work: [], ours: true,
+    title: 'Storm over Easter Island: Mataveri closed', reopen: 'Easter Island has reopened',
+    body: 'A winter storm over Rapa Nui has closed Mataveri, the most remote airport in the world, until about {until}. The next alternate is 2,000 km away.',
+  },
   // ---------- ash ----------
   {
     id: 'ashReykjanes', kind: 'ash', at: 'KEF', country: 'IS', zoneId: 'iceland', closeP: 1, work: ['acmi'], coverFor: ['SAS Scandinavian Airlines', 'Aer Lingus'],
@@ -180,13 +221,13 @@ export const WORLD_EVENT_TPLS: WorldEventTpl[] = [
   },
   // ---------- wars ----------
   {
-    id: 'warSudan', kind: 'war', at: 'PZU', country: 'SD', zoneId: 'sudan', closeP: 0.5, warRisk: 3, work: ['evacuation'],
+    id: 'warSudan', kind: 'war', at: 'PZU', country: 'SD', zoneId: 'sudan', closeP: 0.5, warRisk: 3, work: ['evacuation'], openAirports: ['PZU'],
     title: 'Fighting reaches Khartoum: Sudan closes its airspace', reopen: "Sudan's airspace has reopened",
     body: "Heavy fighting has spread from Khartoum. Sudan's airspace is closed to overflights until at least {until}; foreign ministries are evacuating through Port Sudan to Jeddah.",
     open: { title: "Fighting reaches Khartoum: insurers pull cover for Sudan", body: "Heavy fighting has spread from Khartoum. Sudan's airspace stays open, but war-risk insurers list the whole country until at least {until}; foreign ministries are evacuating through Port Sudan to Jeddah." },
   },
   {
-    id: 'warLebanon', kind: 'war', at: 'BEY', country: 'LB', zoneId: 'levant', closeP: 0.3, warRisk: 3, work: ['evacuation'],
+    id: 'warLebanon', kind: 'war', at: 'BEY', country: 'LB', zoneId: 'levant', closeP: 0.3, warRisk: 3, work: ['evacuation'], openAirports: ['TLV'],
     title: 'Israel–Lebanon escalation: Lebanese airspace closes', reopen: 'Beirut and Tel Aviv airspace has reopened',
     body: "Strikes and rocket fire across the border: Lebanon's airspace is closed until at least {until} and war-risk insurers have re-priced Beirut and Tel Aviv. Foreign ministries want their citizens out via Larnaca.",
     open: { title: 'Israel–Lebanon escalation: insurers re-price Beirut', body: "Strikes and rocket fire across the border: war-risk insurers have re-priced Beirut and Tel Aviv until at least {until}. Foreign ministries want their citizens out via Larnaca." },

@@ -29,7 +29,7 @@ import { SIL_COLOURS, silhouette } from './silhouettes';
 import { nextDeparture, SPOT_SECONDS, spotList, spotNext } from './spotter';
 import { wxMarks, type WxMark } from './weather';
 import { MapPanel, TypeKey } from './MapPanels';
-import { ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, parseSlipId, pickNearest, placeEventPins, placeSlipMarks, selectedLegs, shortIndex, slipArcs, slipWindow, upNextRows } from './mapLogic';
+import { ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, parseSlipId, pickNearest, placeEventPins, placeSlipMarks, selectedLegs, shortIndex, slipArcs, slipWindow, tourRoutes, upNextRows } from './mapLogic';
 import { EventPinsLayer, hatchUnit, ZoneGround, ZoneLabels } from './WorldLayer';
 import { type FocusAt, type MapAirport, type MapLayerCtx, type Pad, type View, WorldMap } from './WorldMap';
 import { HintNote } from '../components/ScreenHint';
@@ -281,14 +281,16 @@ export function OpsMap() {
     for (const cf of commercialFlightsBetween(g, h0, h0 + 60)) for (const c of [cf.leg.from, cf.leg.to]) out.set(c, (out.get(c) ?? false) || cf.id === selCm);
     return out;
   }, [g, hour, v, selCm]); // eslint-disable-line react-hooks/exhaustive-deps
+  // v0.12.1 a world tour's route line while it runs (its stops labelled).
+  const tours = useMemo(() => safe(() => tourRoutes(g), []), [g, hour, v]); // eslint-disable-line react-hooks/exhaustive-deps
   const airports: MapAirport[] = useMemo(() => {
-    const legAps = new Set([...legs.flatMap((l) => [l.from, l.to]), ...slipLegs.flatMap((l) => [l.from, l.to]), ...slipMarks.map((m) => m.at)]);
+    const legAps = new Set([...legs.flatMap((l) => [l.from, l.to]), ...slipLegs.flatMap((l) => [l.from, l.to]), ...slipMarks.map((m) => m.at), ...tours.flatMap((r) => [r.from, r.to])]);
     const out: MapAirport[] = apList.map((a) => ({ code: a.code, state: a.hub ? 'hub' : 'served', label: a.label || legAps.has(a.code) || !!cmAps.get(a.code) }));
     for (const c of legAps) if (!apList.some((a) => a.code === c)) out.push({ code: c, state: 'served', label: true });
     for (const [c, lab] of cmAps) if (AIRPORT_BY_CODE[c] && !out.some((a) => a.code === c)) out.push({ code: c, state: 'served', label: lab });
     if (selAp && !out.some((a) => a.code === selAp)) out.push({ code: selAp, state: 'served', label: true });
     return out;
-  }, [apList, legs, selAp, cmAps, slipLegs, slipMarks]);
+  }, [apList, legs, selAp, cmAps, slipLegs, slipMarks, tours]);
 
   /** Airports and projection shared.aps was built for (rebuilt only when they change). */
   const apsFor = useRef<{ a: MapAirport[] | null; proj: MapLayerCtx['proj'] | null }>({ a: null, proj: null });
@@ -436,7 +438,7 @@ export function OpsMap() {
   return (
     <div className={`ops-map ${panelOpen ? 'panel-open' : ''}`}>
       <WorldMap
-        routes={[]}
+        routes={tours}
         airports={airports}
         fitFn={fitFn}
         fitCentre={fitCentre}

@@ -280,6 +280,26 @@ describe('saves', () => {
     expect(loaded.queue.length).toBeLessThan(g.queue.length);
     expect(loaded.queue.filter((e) => e.id === f.id)).toHaveLength(1);
   });
+
+  it('v0.12.1 the Round F optional fields round-trip and old saves load without them', () => {
+    const g = newGame();
+    demoFlights(g, undefined, 2);
+    const f = flightsOf(g, Object.keys(g.fleet)[0])[0];
+    const ac = g.fleet[Object.keys(g.fleet)[0]];
+    const cm = Object.values(g.crew)[0];
+    expect(f.excused).toBeUndefined();
+    expect(cm.payFrom).toBeUndefined();
+    const plain = deserialize(serialize(g));
+    expect(plain.flights[f.id].excused).toBeUndefined();
+    f.excused = 90;
+    f.div = { to0: 'FAO', at: g.now, eta0: g.now + 60, cause: 'technical', what: 'Hydraulic leak', settled: true };
+    cm.payFrom = g.now + DAY;
+    ac.returning = { site: 'LIS', maintId: 'm1', ferryIds: [], quote: 0, wasEnd: g.now + 30 * DAY };
+    const back = deserialize(serialize(g));
+    expect(back.flights[f.id]).toMatchObject({ excused: 90, div: { what: 'Hydraulic leak', settled: true } });
+    expect(back.crew[cm.id].payFrom).toBe(g.now + DAY);
+    expect(back.fleet[ac.id].returning?.wasEnd).toBe(g.now + 30 * DAY);
+  });
 });
 
 describe('v0.8 read APIs are pure (UPDATE-0.8.md §14)', () => {

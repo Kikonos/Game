@@ -4,11 +4,11 @@
 import type { ReachSpec } from '../../engine/problems/types';
 import { legText, reachLayout, reachTone, reachVerdict, tickTimes, type BarTick } from './problemLogic';
 
-export function BarTicks({ ticks, airport, side }: { ticks: BarTick[]; airport: string; side: 'above' | 'below' }) {
+export function BarTicks({ ticks, airport, side, now }: { ticks: BarTick[]; airport: string; side: 'above' | 'below'; /** v0.12.1 dates on labels off this day */ now?: number }) {
   return (
     <div className={`rb-labels ${side}`}>
       {ticks.filter((t) => t.side === side).map((t) => {
-        const [utc, local] = tickTimes(t.t, airport);
+        const [utc, local] = tickTimes(t.t, airport, now);
         const lx = t.lx ?? t.x;
         const edge = lx < 8 ? 'left' : lx > 92 ? 'right' : '';
         return (
@@ -27,14 +27,14 @@ export function ReachBar({ spec, limited }: { spec: ReachSpec; /** the day after
   const lay = reachLayout(spec);
   return (
     <div className="reach" role="img" aria-label={reachVerdict(spec, limited)}>
-      <BarTicks ticks={lay.ticks} airport={spec.to} side="above" />
+      <BarTicks ticks={lay.ticks} airport={spec.to} side="above" now={spec.now} />
       <div className="rb-track">
         {lay.gap && <span className="rb-gap" style={{ left: `${lay.gap.x0}%`, width: `${lay.gap.x1 - lay.gap.x0}%` }} />}
         {lay.ticks.map((t) => <span key={t.key} className={`rb-tick ${t.tone ?? ''}`} style={{ left: `${t.x}%` }} />)}
       </div>
-      <BarTicks ticks={lay.ticks} airport={spec.to} side="below" />
+      <BarTicks ticks={lay.ticks} airport={spec.to} side="below" now={spec.now} />
       <div className={`rb-verdict small ${reachTone(spec, limited)}`}>{reachVerdict(spec, limited)}</div>
-      {spec.legs.length > 0 && <div className="tiny dim">{spec.legs.map(legText).join(' · ')}</div>}
+      {spec.legs.length > 0 && <div className="tiny dim">{spec.legs.map((l) => legText(l, spec.now)).join(' · ')}</div>}
     </div>
   );
 }

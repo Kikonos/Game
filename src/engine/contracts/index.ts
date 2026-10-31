@@ -10,16 +10,16 @@ import { dailyOffers, lapseCues, loadCounters, onOfferExpire, onOfferReply, onOf
 import { extendBaseSchedules, relinkPositioning } from './schedule';
 import { dailyRelations, loadRelations, monthlyRelationDrift } from './relations';
 import { loadRivals, onRivalBid, refreshRivals } from './rivals';
-import { dailyDryLease, dailyRepeats, dailySubIn } from './missions';
+import { dailyDryLease, dailyRepeats, dailySubIn, dailyWorldTour } from './missions';
 
-export { acceptOffer, askingPrice, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, leadDays, type ContractProgress, type SignOpts } from './accept';
+export { acceptOffer, askingPrice, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, leadDays, setPrice, type ContractProgress, type SignOpts } from './accept';
 export { paintQuote, paintTermsText, paintWindow, type PaintSlot } from './paintTerms';
 export { cabinQuote, cabinTarget, cabinTermsText, rollCabin, termsProduct } from './cabinTerms';
 export { billContractMonth, type BillingLine } from './billing';
 export { feasibility, feasibilityAll, marketFit, offerRestLine, type MarketFit, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningLeg } from './feasibility';
 export { fmtPrice, generateOffer, idleWindows, type IdleWindow, type OfferOpts } from './offers';
 export { maxPax, seatNeedText } from './plan';
-export { counterOdds, counterView, type CounterOdds, type CounterView } from './counter';
+export { counterLift, counterOdds, counterView, type CounterOdds, type CounterView } from './counter';
 export { mghLabel, priceProduct, productValue, rateMultiplier } from './pricing';
 export { generateFlights, planPositioning, relinkPositioning } from './schedule';
 // v0.8 (UPDATE-0.8.md §12).
@@ -28,7 +28,8 @@ export {
   type ClientLevel, type ClientView, type LevelPerks, type Standing,
 } from './relations';
 export { markOfferSeen, offerCompetition, rivalList, rivalSummary, rivalView, STYLE_NAME, type RivalStyle, type RivalView } from './rivals';
-export { deportationCleanHit, hajjTender } from './missions';
+export { deportationCleanHit, hajjTender, tourAlternates, tourCrew, tourReady, tourSight, tourStops, WORLD_TOURS } from './missions';
+export { tourBizPct } from './pricing';
 export { warRiskCost } from './missionChecks';
 export { answerCall, CALL_MARGIN_X, callPlan, callScore, callScript, declineCall, isCallOffer, whenSaid, type CallPlan, type CallScript } from './call';
 
@@ -42,6 +43,8 @@ function daily(g: GameState) {
     dailySubIn(g);
     dailyDryLease(g);
     dailyRepeats(g);
+    // v0.12.1 a round-the-world tour now and then, once we fly a widebody with ETOPS 180.
+    dailyWorldTour(g);
   }
 }
 

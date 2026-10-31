@@ -1,0 +1,39 @@
+/* v0.12.1 toasts that wait for the reader: a close button, a held one keeps a ring while hovered or touched, the
+   urgent ones (until closed) carry a bad edge, one that opens something shows a pointer; the clock button above the
+   stack opens Inbox › Recent pop-ups. */
+.toast { position: relative; }
+.toast .grow { flex: 1; min-width: 0; }
+.toast.linked { cursor: pointer; }
+.toast.held { box-shadow: var(--shadow), 0 0 0 2px rgba(var(--accent-rgb), 0.35); }
+.toast.sticky { border-left: 3px solid var(--bad); }
+.toast-x {
+  flex-shrink: 0; display: grid; place-items: center; width: 26px; height: 26px; margin: -4px -6px -4px 0; border: 0; border-radius: 8px;
+  background: transparent; color: var(--text-3); cursor: pointer;
+}
+.toast-x:hover { background: rgba(var(--accent-rgb), 0.1); color: var(--text); }
+.toast .toast-x svg { width: 15px; height: 15px; margin: 0; color: inherit; }
+.toast-log-btn {
+  pointer-events: auto; align-self: flex-end; display: grid; place-items: center; width: 32px; height: 32px; border-radius: 10px;
+  background: rgba(var(--panel-rgb), 0.96); border: 1px solid var(--border-strong); box-shadow: var(--shadow); color: var(--text-2); cursor: pointer;
+}
+.toast-log-btn svg { width: 16px; height: 16px; }
+.touch .toast-x { width: 34px; height: 34px; }
+.touch .toast-log-btn { width: 38px; height: 38px; }
+.toasts.over-modal .toast-log-btn { display: none; }
+/* Inbox › Recent pop-ups: the log line's time in UTC and local. */
+.sc-popup-time { white-space: nowrap; }
+/* A phone on its side: two toasts at most (Toasts.tsx; the rest wait in the log), their text in two lines, so the clock
+   button stays below the top bar. */
+@media (max-height: 500px) {
+  .toast .t-body { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+}
+/* v0.12.1 a world tour's route (offer panel, TourMap.tsx): the legs solid in the accent, flown ones dimmer; the stops
+   with their nights. */
+.tour-panel .tourmap { margin: 6px 0 4px; height: auto; }
+.minimap .tm-leg { stroke: var(--accent); stroke-width: 1.6; stroke-dasharray: none; opacity: 0.9; }
+.minimap .tm-leg.done { opacity: 0.4; }
+.minimap .tm-code { font-size: 9.5px; }
+.tour-panel .tour-stops { margin: 2px 0 6px; }
+.tour-panel .tour-stops .chip { font-size: 11px; }
+/* A phone on its side: the route map no taller than a third of the screen's width. */
+@media (max-height: 500px) { .tour-panel .tourmap { max-height: 200px; } }

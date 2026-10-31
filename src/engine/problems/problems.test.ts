@@ -80,7 +80,8 @@ describe('crew WHY (v0.7.1 fixes 4 and 16)', () => {
     other.log.push({ start: d.report - 14 * 60, end: d.report - 8 * 60, fdp: 6 * 60, block: 300, sectors: 2, augmented: false, disruptive: false });
     for (const c of Object.values(g.crew)) if (c.role === 'CPT' && c.id !== was && c.id !== other.id) { c.blocks = [{ from: g.now - DAY, to: g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
     const card = crewShortCard(g, f1.id)!;
-    expect(card.why).toMatch(/^Your free captains are in Lisbon and the earliest they can land in Düsseldorf is/);
+    // v0.12.1 who is at the departure comes first (BLU1570), then the place story of those away.
+    expect(card.why).toMatch(/^In Düsseldorf: \S+ \S+ is resting until 19:00\. Your free captains are in Lisbon and the earliest they can land in Düsseldorf is/);
     expect(card.why).not.toMatch(/Düsseldorf and|and Düsseldorf/);
     expect(card.visuals.minimap!.crew.every((c) => c.at !== 'DUS')).toBe(true);
     expect(card.visuals.reach!.legs.length).toBeGreaterThan(0);

@@ -5,7 +5,8 @@
 
 import { AlertTriangle, Plane, TimerOff, Users, Wrench } from 'lucide-react';
 import { type ReactNode, useLayoutEffect, useRef, useState } from 'react';
-import { CLOCK_STEP, fmtTime } from '../../engine/core/time';
+import { CLOCK_STEP, fmtDuration } from '../../engine/core/time';
+import { dated } from '../components/problemLogic';
 import { countdown, fitStrip, type StripId } from './opsStripLogic';
 import type { GameState } from '../../engine/core/types';
 import { shortFlights } from '../../engine/crew';
@@ -50,7 +51,8 @@ export function stripItems(g: GameState, shown: number): StripItem[] {
     const word = kind === 'hours' ? 'Out of hours' : 'Crew short';
     out.push({
       id: kind === 'hours' ? 'crewHours' : 'crewShort', warn: true, tone: red ? 'bad' : 'warn', label: list.length > 1 ? `${word} · ${list.length}` : word,
-      value: `${sf.no} ${fmtTime(sf.std)}`, aria: `${kind === 'hours' ? 'Crew out of hours' : 'Crew shortage'}: ${sf.no} at ${fmtTime(sf.std)}. Open Crew Control`,
+      // v0.12.1 with the day when it is not today (alerts reach 48 h ahead).
+      value: `${sf.no} ${dated(sf.std, g.now)}`, aria: `${kind === 'hours' ? 'Crew out of hours' : 'Crew shortage'}: ${sf.no} at ${dated(sf.std, g.now)} UTC. Open Crew Control`,
       go: () => store.openModal({ kind: 'crewControl', flightId: sf.id }),
     });
   }
@@ -80,9 +82,11 @@ export function stripItems(g: GameState, shown: number): StripItem[] {
     const n = f.next;
     const when = countdown(n.dep, shown);
     const reg = n.aircraftId ? g.fleet[n.aircraftId]?.reg : undefined;
+    // v0.12.1 a late leg shows how late it runs ('in 40m (+31m)').
+    const late = n.late > 15 ? ` (+${fmtDuration(n.late)})` : '';
     out.push({
-      id: 'next', warn: false, tone: '', label: 'Next', sub: when, value: `${n.no} ${n.from}→${n.to}`,
-      aria: `Next departure ${n.no}${reg ? ` (${reg})` : ''} ${n.from} to ${n.to}, ${when}. Open the flight`,
+      id: 'next', warn: false, tone: n.late > 15 ? 'warn' : '', label: 'Next', sub: `${when}${late}`, value: `${n.no} ${n.from}→${n.to}`,
+      aria: `Next departure ${n.no}${reg ? ` (${reg})` : ''} ${n.from} to ${n.to}, ${when}${late ? `, ${fmtDuration(n.late)} late` : ''}. Open the flight`,
       go: () => {
         store.navigate('schedule', n.aircraftId ? { sel: { kind: 'aircraft', id: n.aircraftId } } : {});
         store.openModal({ kind: 'sheet', refs: [{ kind: 'flight', id: n.flightId }] });

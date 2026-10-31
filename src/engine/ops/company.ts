@@ -410,6 +410,8 @@ export function setPolicies(g: GameState, patch: Partial<Policies>): ActionResul
   p.perDiemPct = clamp(Math.round(p.perDiemPct), 80, 150);
   p.hotelTier = ([3, 4, 5].includes(p.hotelTier) ? p.hotelTier : 4) as HotelTier;
   p.rotationWeeks = ([4, 5, 6].includes(p.rotationWeeks) ? p.rotationWeeks : 5) as Policies['rotationWeeks'];
+  // v0.12.1
+  p.buyBack = p.buyBack === 'ask' || p.buyBack === 'never' ? p.buyBack : 'auto';
   g.company.policies = p;
   return { ok: true };
 }

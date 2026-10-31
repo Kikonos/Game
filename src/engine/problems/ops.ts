@@ -6,7 +6,8 @@ import { fmtDate, fmtDuration } from '../core/time';
 import type { Decision, GameState, Message, Ref } from '../core/types';
 import { mkHurt, usdShort, type Hurt, type ProblemCard } from './types';
 
-const DISRUPT = new Set(['ctot', 'turnaround', 'curfew', 'diversion', 'medical', 'divertOnward', 'birdStrike', 'sickAway']);
+// v0.12.1 'tourStop': a world tour's stop closed (ops/tourStop.ts).
+const DISRUPT = new Set(['ctot', 'turnaround', 'curfew', 'diversion', 'medical', 'divertOnward', 'birdStrike', 'sickAway', 'tourStop']);
 const RED = new Set(['diversion', 'medical', 'sickAway', 'divertOnward']);
 export const isDisruption = (d: Pick<Decision, 'kind'>) => DISRUPT.has(d.kind);
 

@@ -4,7 +4,7 @@
 // trips) and Apply (two taps where the engine asks for a confirm). After a fix the view is re-read; crewed → Close.
 // Engine: crew/control.ts (crewControl, applyCrewFix). Calm: nothing animates.
 
-import { ArrowLeftRight, CalendarRange, Check, CircleSlash, Clock, Handshake, Hourglass, PhoneCall, PlaneTakeoff, Ticket, TimerOff, Users, Wand2 } from 'lucide-react';
+import { ArrowLeftRight, CalendarPlus, CalendarRange, Check, CircleSlash, Clock, Handshake, Hourglass, PhoneCall, PlaneTakeoff, Ticket, TimerOff, Users, Wand2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { flightsRev } from '../../engine/core/entities';
 import { fmtTime } from '../../engine/core/time';
@@ -24,6 +24,8 @@ import { HintButton, ScreenHint } from '../components/ScreenHint';
 const FIX_ICON: Record<CrewFix, ReactNode> = {
   autoFix: <Wand2 />, deadhead: <Ticket />, delay: <Clock />, jet: <PlaneTakeoff />, callIn: <PhoneCall />, discretion: <Hourglass />,
   swap: <ArrowLeftRight />, subcharter: <Handshake />, cancel: <CircleSlash />,
+  // v0.12.1
+  buyBack: <CalendarPlus />,
 };
 const MULTI: CrewFix[] = ['deadhead', 'callIn'];
 const LEVEL_TONE = { legal: 'good', tight: 'warn', illegal: 'bad' } as const;
@@ -77,7 +79,10 @@ function Row({ s, open, onOpen, children }: { s: CrewSolution; open: boolean; on
   const timing = s.chips.find((c) => /^leaves|^lands|^arrives|^wheels/i.test(c)) ?? (s.newDeparture !== null ? `leaves ${fmtTime(s.newDeparture)}` : undefined);
   // The engine's chips carry the price when there is one; our own cost chip only says 'free'.
   const chips = s.chips.filter((c) => c !== timing);
-  const priced = chips.some((c) => /^[−-]?\$/.test(c));
+  // v0.12.1 (Goma) a force-majeure cancel says so instead of 'free'.
+  const priced = chips.some((c) => /^[−-]?\$/.test(c) || c === 'Force majeure');
+  // v0.12.1 'free' only when neither the fix nor the re-roster around it spends anything.
+  const spend = s.cost + (s.preview.extraCost ?? 0);
   return (
     <div className={`cc-row ${s.available ? '' : 'off'} ${open ? 'open' : ''}`} data-fix={s.id}>
       <button className="cc-row-head" onClick={onOpen} aria-expanded={open} disabled={!s.available && !open && !s.why}>
@@ -88,7 +93,7 @@ function Row({ s, open, onOpen, children }: { s: CrewSolution; open: boolean; on
             <b>{s.label}</b>
             {s.available ? (
               <>
-                {!priced && <span className={`chip sc-chip ${s.cost > 0 ? '' : 'good'}`}>{s.cost > 0 ? money(s.cost) : 'free'}</span>}
+                {!priced && <span className={`chip sc-chip ${spend > 0 ? '' : 'good'}`}>{spend > 0 ? money(spend) : 'free'}</span>}
                 {timing && <span className="chip sc-chip">{timing}</span>}
                 {keepHurt(chips, 3).map((c) => <span key={c} className={`chip sc-chip ${hurtTone(c) ?? (/−|Morale|Fatigue|Reliab/.test(c) ? 'warn' : '')}`}>{c}</span>)}
               </>
@@ -183,7 +188,7 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
   return (
     <Modal size="xwide" className="cc-modal" title={<>{title}<HintButton id="crewControl" align="left" /></>} icon={icon} onClose={close} footer={
       <>
-        <span className="small dim grow cc-foot-note">{done ? `Applied: ${done[0]}` : 'Tap a solution to see what it changes, then Apply.'}</span>
+        <span className="small dim grow cc-foot-note" title={done ? `Applied: ${done[0]}` : undefined}>{done ? `Applied: ${done[0]}` : 'Tap a solution to see what it changes, then Apply.'}</span>
         <button className="btn" onClick={() => f.dutyId && store.openModal({ kind: 'duty', id: f.id })} disabled={!f.dutyId}><Users /> Adjust crew</button>
         <button className="btn btn-primary" onClick={close}>Close</button>
       </>

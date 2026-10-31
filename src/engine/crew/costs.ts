@@ -2,7 +2,8 @@
 
 import { BAL } from '../core/balance';
 import { post } from '../core/ledger';
-import type { CrewMember, GameState, Pairing } from '../core/types';
+import { monthKey, monthStart } from '../core/time';
+import type { CrewMember, GameState, Minute, Pairing } from '../core/types';
 import { salariesLate } from './morale';
 import { crewIx } from './timeline';
 
@@ -13,7 +14,7 @@ function currentPairing(g: GameState, c: CrewMember): Pairing | undefined {
   return best;
 }
 
-/** Per diem (BAL rate × perDiemPct) per crew member away, and hotel nights at outstations (client pays on wet leases). */
+/** Per diem (BAL rate × perDiemPct) per crew member away, and hotel nights at outstations (client pays on wet leases, v0.12.1 not for a far base's reserve). */
 export function dailyCrewCosts(g: GameState): void {
   const pct = g.company.policies.perDiemPct / 100;
   const night = BAL.hotelPerNight[g.company.policies.hotelTier] ?? BAL.hotelPerNight[4];
@@ -25,20 +26,45 @@ export function dailyCrewCosts(g: GameState): void {
     if (c.loc === c.base || c.status === 'onDuty') continue;
     const p = currentPairing(g, c);
     const k = p?.contractId ? g.contracts[p.contractId] : undefined;
-    if (k?.product.kind !== 'wet') hotels += night;
+    // v0.12.1 a far base's reserve is ours to house, on a wet lease too (the client pays for the crew it asked for).
+    if (k?.product.kind !== 'wet' || p?.slots.some((s) => s.crewId === c.id && s.reserve)) hotels += night;
   }
   post(g, 'perDiem', -Math.round(perDiem));
   post(g, 'hotels', -Math.round(hotels));
 }
 
-/** Month end: salaries × (1 + BAL.onCosts) under 'salaries' (crew still joining are not paid yet). */
+/**
+ * v0.12.1 the share of the month [a, b) a crew member is on the payroll: from the day they joined (payFrom), so a joiner
+ * on the 30th is paid a day, not the month (April paid a whole $11,750 for crew who joined at its end). Pure.
+ */
+export function paidShare(c: CrewMember, a: Minute, b: Minute): number {
+  const from = Math.max(a, c.payFrom ?? a);
+  return b > a ? Math.max(0, Math.min(1, (b - from) / (b - a))) : 0;
+}
+
+/** Month end: salaries × (1 + BAL.onCosts) under 'salaries' (crew still joining are not paid yet; v0.12.1 joiners pro rata). */
 export function monthlySalaries(g: GameState): void {
   let total = 0;
-  for (const c of Object.values(g.crew)) if (c.status !== 'joining') total += c.salary;
+  // (The month handler runs on the new month's first minute: the month paid is the one just ended.)
+  const a = monthStart(monthKey(g.now - 1));
+  for (const c of Object.values(g.crew)) if (c.status !== 'joining') total += c.salary * paidShare(c, a, g.now);
   post(g, 'salaries', -Math.round(total * (1 + BAL.onCosts)));
   for (const c of Object.values(g.crew)) c.discretion = 0;
   // v0.6: paid out of a negative balance, salaries are late.
   if (total > 0 && g.company.cash < 0) salariesLate(g);
+}
+
+/**
+ * v0.12.1 a crew member leaving the company is paid the part of the month they worked (with on-costs) before their record
+ * goes (they were paid nothing for it: the month-end run no longer finds them).
+ */
+export function payLeaver(g: GameState, c: CrewMember): void {
+  if (c.status === 'joining') return;
+  const a = monthStart(monthKey(g.now));
+  const b = monthStart(monthKey(g.now) + 1);
+  const worked = Math.max(0, g.now - Math.max(a, c.payFrom ?? a)) / (b - a);
+  const pay = Math.round(c.salary * worked * (1 + BAL.onCosts));
+  if (pay > 0) post(g, 'salaries', -pay);
 }
 
 /** Monthly salary bill including on-costs (for forecasts). */

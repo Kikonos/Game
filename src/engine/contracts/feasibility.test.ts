@@ -6,6 +6,8 @@ import { DAY } from '../core/time';
 import type { CheckId, FeasibilityReport } from '.';
 import { acceptOffer, feasibility, feasibilityAll } from '.';
 import { A_CHECK_DAYS } from './plan';
+import { TPL_BY_ID } from '../../data/worldEvents';
+import { startEvent } from '../ops/world';
 import { addAircraft, hamBase, leased, legsOffer, newGame, offer, owned } from './testkit';
 
 const check = (r: FeasibilityReport, id: CheckId) => r.checks.find((c) => c.id === id)!;
@@ -146,9 +148,12 @@ describe('feasibility', () => {
 
   it('rest: long duties need the augmented approval and in-flight rest on the aircraft (v0.7.3)', () => {
     const g = newGame(30);
-    const wb = addAircraft(g, 'b772');
+    // v0.12.1 an A350 Lisbon–Bangkok nonstop. The 777's Lisbon–Hong Kong now stops midway at Tashkent, where a fresh
+    // crew can take over, so it no longer needs the augmented crew this test is about. v0.12.1 (review) the empty leg
+    // home is checked too (Bangkok–Lisbon, a 15:05 day, the longest); Jakarta's (17:30) needs a 4th pilot even in bunks.
+    const wb = addAircraft(g, 'a359');
     g.company.approvals.push('etops120', 'etops180');
-    const o = legsOffer(g, [['LIS', 'HKG', g.now + 8 * DAY]], 250);
+    const o = legsOffer(g, [['LIS', 'BKK', g.now + 8 * DAY]], 250);
     const r = check(feasibility(g, o.id, wb.id), 'rest');
     expect(r.level).toBe('no');
     expect(r.label).toMatch(/augmented/);
@@ -164,12 +169,15 @@ describe('feasibility', () => {
     // v0.7.4 nothing fitted: the business seats of its cabin are always there (class 2), the same day
     wb.rest = { fc: null, cc: null };
     expect(check(feasibility(g, o.id, wb.id), 'rest').label).toMatch(/^Business seats \(class 2\) → 3 pilots, 16 h limit ✓/);
-    // all economy: curtained economy seats (class 3): a 4th pilot, or no when even that is too short; recliners as the fix
+    // all economy: curtained economy seats (class 3): 3 pilots for the 11:30 revenue leg. v0.12.1 the empty leg home
+    // (13:35, a 15:05 day: a 4th pilot before) is longer than 3 pilots fly in class 3 seats: a night at a crew-change
+    // stop on the way (schedule.ts emptyDay), so the job's own day decides.
     wb.cabin = { j: 0, w: 0, y: 400, total: 400, label: '400Y', layout: 'all-economy' };
-    const y = check(feasibility(g, o.id, wb.id), 'rest');
-    expect(y.level).not.toBe('ok');
+    const yr = feasibility(g, o.id, wb.id);
+    const y = check(yr, 'rest');
     expect(y.label).toMatch(/conomy seats/);
-    if (y.level === 'no') expect(y.action).toEqual({ kind: 'restRefit', option: 'recliners' });
+    expect(yr.positionOut.length).toBe(2);
+    expect(yr.positionOut[1].std - yr.positionOut[0].sta).toBeGreaterThanOrEqual(10 * 60);
     wb.cabin = { j: 30, w: 24, y: 239, total: 293, label: '30J/24W/239Y', layout: 'three-class' };
     // ULR work needs class 1 for both pilots and cabin crew (C6)
     o.requirements.approvals.push('ulr');
@@ -179,6 +187,32 @@ describe('feasibility', () => {
     expect(ulr.label).toMatch(/^ULR needs bunks for pilots and cabin crew \(class 1\)/);
     wb.rest = { fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ccrc', places: 8 } };
     expect(check(feasibility(g, o.id, wb.id), 'rest').level).toBe('ok');
+  });
+
+  it('v0.12.1 (review) rest: a positioning flown as a duty of its own is checked too (seed 1 --wide meltdown)', () => {
+    // A 747 at Lisbon for short hops out of Ho Chi Minh City: the job's own days are short (2 pilots), but LIS–SGN
+    // (12:55 of block, a 14:25 day) and SGN–LIS home are empty legs our own crew must fly. Read 'Longest day 8:05'
+    // before: signed, no crew could fly the positioning, and two months of the job were sub-chartered.
+    const g = newGame(30);
+    const jumbo = addAircraft(g, 'b744');
+    const t0 = g.now + 20 * DAY;
+    const o = legsOffer(g, [['SGN', 'BKK', t0 + 3 * 60], ['BKK', 'SGN', t0 + 6 * 60], ['SGN', 'BKK', t0 + DAY + 3 * 60], ['BKK', 'SGN', t0 + DAY + 6 * 60]], 300);
+    // v0.12.1 the empty-move planner now splits a leg longer than one crew's day (schedule.ts emptyDay: 11:00 for two
+    // pilots) at a crew-change stop, a night there: the positioning is two short days, and no longer a 'no'.
+    const rep = feasibility(g, o.id, jumbo.id);
+    expect(check(rep, 'rest').level).not.toBe('no');
+    expect(rep.positionIn.length).toBeGreaterThanOrEqual(2);
+    expect(rep.positionIn.every((l) => l.sta - l.std <= 11 * 60)).toBe(true);
+    expect(check(rep, 'positioning').label).toMatch(/a night at [A-Z]{3} for the crew/);
+    // With augmented crews and the 747's bunks the roster flies LIS–SGN in one day with 3 pilots (14:30 of block).
+    g.company.approvals.push('augmented');
+    const aug = feasibility(g, o.id, jumbo.id);
+    expect(check(aug, 'rest').level).not.toBe('no');
+    expect(aug.positionIn.length).toBe(1);
+    // An aircraft already out there flies the job without the long empty legs: the job's own short days only.
+    g.company.approvals.pop();
+    const o2 = legsOffer(g, [['LIS', 'MAD', t0 + 3 * 60], ['MAD', 'LIS', t0 + 6 * 60]], 300);
+    expect(check(feasibility(g, o2.id, jumbo.id), 'rest').level).toBe('ok');
   });
 
   it('rest: the real Table 2 limit for the report time (C7)', () => {
@@ -252,5 +286,25 @@ describe('short-notice crew reach (v0.9.1)', () => {
     cm.loc = g.company.homeBase;
     const later = legsOffer(g, [['DXB', 'MCT', g.now + 3 * DAY]], 150);
     expect(check(feasibility(g, later.id, ac.id), 'crew').label).not.toMatch(/^No crew can reach/);
+  });
+});
+
+describe('v0.12.1 empty legs and world closures', () => {
+  it("an ash closure at the aircraft's station: a job elsewhere inside it is 'no' and can't be signed; after it reopens, ok", () => {
+    const g = newGame(21);
+    const ac = owned(g);
+    // Ash closes Lisbon (the aircraft's station) for 6 days.
+    const e = startEvent(g, { ...TPL_BY_ID.ashEtna, id: 'ashTest', at: ac.at, zoneId: undefined, closeP: 0, airportDays: [6, 6], days: [6, 6] });
+    expect(e.airportClosedUntil).toBe(g.now + 6 * DAY);
+    const soon = legsOffer(g, [['HAM', 'PMI', g.now + DAY], ['PMI', 'HAM', g.now + DAY + 6 * 60]]);
+    const r = feasibility(g, soon.id, ac.id);
+    expect(r.positionIn[0]?.from).toBe(ac.at);
+    const pos = r.checks.filter((c) => c.id === 'positioning');
+    expect(pos.map((c) => c.level)).toEqual(['no']);
+    expect(pos[0].label).toContain(`${ac.reg} can't leave`);
+    expect(acceptOffer(g, soon.id, [ac.id]).ok).toBe(false);
+    const later = legsOffer(g, [['HAM', 'PMI', g.now + 9 * DAY], ['PMI', 'HAM', g.now + 9 * DAY + 6 * 60]]);
+    const r2 = feasibility(g, later.id, ac.id);
+    expect(r2.checks.filter((c) => c.id === 'positioning').map((c) => c.level)).toEqual(['ok']);
   });
 });

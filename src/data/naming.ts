@@ -246,6 +246,15 @@ export const CLIENT_SEEDS_V08: ClientSeed[] = [
   { name: 'Antarctic Logistics & Expeditions', kind: 'agency', country: 'US', base: 'PUQ', role: 'polar' },
 ];
 
+/**
+ * v0.12.1 world tours: Les Voyages de TMR (Marseille; its 'Tour du monde en avion privé' leaves from Paris CDG, 51 tours
+ * so far). Added to a game the first time one of its tours is offered (contracts/clients.ts ensureClient), so a game
+ * that never sees one keeps the client list it started with.
+ */
+export const CLIENT_SEEDS_V0121: ClientSeed[] = [
+  { name: 'Les Voyages de TMR', kind: 'tourOperator', country: 'FR', base: 'CDG' },
+];
+
 export const RIVALS_B1: RivalSeed[] = [
   { name: 'Heston Airlines', country: 'LT', base: 'VNO', fleet: F(['a320ceo', 6]), personality: 'cheap' },
   { name: 'KlasJet', country: 'LT', base: 'VNO', fleet: F(['b738', 3], ['a320ceo', 2]), personality: 'premium' },

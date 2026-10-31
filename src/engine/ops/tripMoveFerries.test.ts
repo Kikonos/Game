@@ -73,8 +73,10 @@ describe('v0.7.2.2 the player’s save (Astor Airlines, 23 Sep 2027)', () => {
     const ids = Object.keys(g.flights).filter((id) => g.flights[id].kind !== 'deadhead');
     const c = { ...g.maintenance.mxitg };
     advanceTo(g, g.now + 5);
-    expect(ids.filter((id) => !g.flights[id])).toEqual(['f7t2', 'f7t4']);
-    expect(Object.keys(g.flights).filter((id) => g.flights[id].kind !== 'deadhead' && !ids.includes(id))).toEqual([]);
+    // v0.12.1 and the DUS–TMS ferry (fn20/fn22, by Abuja) re-plans by its new fuel stop, Algiers: same aircraft, same ends.
+    expect(ids.filter((id) => !g.flights[id])).toEqual(['f7t2', 'f7t4', 'fn20', 'fn22']);
+    const added = Object.keys(g.flights).filter((id) => g.flights[id].kind !== 'deadhead' && !ids.includes(id)).map((id) => g.flights[id]);
+    expect(added.map((f) => `${f.from}-${f.to} ${f.aircraftId} ${f.kind}`)).toEqual(['DUS-ALG a5kf positioning', 'ALG-TMS a5kf positioning']);
     // CS-THF lands at LIS on 14 Oct and waits there for its C-check at LIS (19 Oct): no flying in between.
     const thf = g.fleet.a1;
     expect(calls(g, thf.id, g.flights.fn02.sta, c.end)).toEqual([]);
@@ -109,7 +111,10 @@ describe('v0.7.2.2 the player’s save (Astor Airlines, 23 Sep 2027)', () => {
 });
 
 describe('v0.7.2.2 moving a trip removes the old aircraft’s ferries for it', () => {
-  /** LAD–ACC–LAD on the owned A320: the way out and back is LIS–LBV–LAD and LAD–LBV–LIS (a fuel stop at LBV). */
+  /**
+   * LAD–ACC–LAD on the owned A320: the way out and back is LIS–NIM–LAD and LAD–NIM–LIS (a fuel stop at Niamey; v0.12.1
+   * the stop midway, before: Libreville near the end).
+   */
   function lad(later: boolean) {
     const g = newGame(3);
     const a = owned(g);
@@ -119,26 +124,26 @@ describe('v0.7.2.2 moving a trip removes the old aircraft’s ferries for it', (
     if (later) charter(g, a.id, [['LIS', 'DUS', d + 4 * DAY], ['DUS', 'LIS', d + 4 * DAY + 5 * 60]]);
     return { g, a, b, legs };
   }
-  const away = (g: GameState, acId: string) => live(g, acId).filter((f) => ['LBV', 'LAD', 'ACC'].includes(f.from) || ['LBV', 'LAD', 'ACC'].includes(f.to));
+  const away = (g: GameState, acId: string) => live(g, acId).filter((f) => ['NIM', 'LAD', 'ACC'].includes(f.from) || ['NIM', 'LAD', 'ACC'].includes(f.to));
 
   for (const later of [true, false]) {
     it(`ferries before and after, with a fuel stop, ${later ? 'with more work after' : 'at the end of the schedule'}; and back again`, () => {
       const { g, a, b, legs } = lad(later);
-      expect(away(g, a.id).map((f) => `${f.from}-${f.to}`)).toEqual(['LIS-LBV', 'LBV-LAD', 'LAD-ACC', 'ACC-LAD', 'LAD-LBV', 'LBV-LIS']);
+      expect(away(g, a.id).map((f) => `${f.from}-${f.to}`)).toEqual(['LIS-NIM', 'NIM-LAD', 'LAD-ACC', 'ACC-LAD', 'LAD-NIM', 'NIM-LIS']);
       // The contract planned its positioning (contractId set).
       expect(away(g, a.id).filter((f) => f.kind === 'positioning').every((f) => f.contractId === legs[0].contractId)).toBe(true);
       const q = moveAndAgree(g, legs[0].id, b.id);
       expect(q.positioning.filter((p) => !p.added && p.aircraftId === a.id).length).toBe(4);
       settle(g);
       expect(away(g, a.id)).toEqual([]);
-      expect(away(g, b.id).map((f) => `${f.from}-${f.to}`)).toEqual(['LIS-LBV', 'LBV-LAD', 'LAD-ACC', 'ACC-LAD', 'LAD-LBV', 'LBV-LIS']);
+      expect(away(g, b.id).map((f) => `${f.from}-${f.to}`)).toEqual(['LIS-NIM', 'NIM-LAD', 'LAD-ACC', 'ACC-LAD', 'LAD-NIM', 'NIM-LIS']);
       settled(g, a.id);
       // Back to the first aircraft: the second one's ferries (planned by the move: no contract) go too.
       expect(away(g, b.id).filter((f) => f.kind === 'positioning').some((f) => f.contractId === null)).toBe(true);
       moveAndAgree(g, legs[0].id, a.id);
       settle(g);
       expect(away(g, b.id)).toEqual([]);
-      expect(away(g, a.id).map((f) => `${f.from}-${f.to}`)).toEqual(['LIS-LBV', 'LBV-LAD', 'LAD-ACC', 'ACC-LAD', 'LAD-LBV', 'LBV-LIS']);
+      expect(away(g, a.id).map((f) => `${f.from}-${f.to}`)).toEqual(['LIS-NIM', 'NIM-LAD', 'LAD-ACC', 'ACC-LAD', 'LAD-NIM', 'NIM-LIS']);
       settled(g, b.id);
     }, 60_000);
   }

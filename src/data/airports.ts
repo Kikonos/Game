@@ -23,6 +23,15 @@ export interface Airport {
   ice?: true;
   /** v0.11 an en-route field (ferry fuel stop, ETOPS alternate): never a job destination or a market. */
   enroute?: true;
+  /** v0.12.1 elevation in metres (hot-and-high take-offs: perf.altitudeFactor); 0 when not listed (near sea level). */
+  elevM?: number;
+  /** v0.12.1 narrowbodies only (runway width or strength, terrain): no widebody may use it. */
+  narrow?: true;
+  /**
+   * v0.12.1 a remote, late-game destination (Easter Island, Svalbard, St Helena, the Pacific atolls): left out of the
+   * usual offer pools (offers.airportsWithin), drawn only by the jobs that ask for it, rarely, once we are Respected.
+   */
+  remote?: true;
 }
 
 // code, airport name, city, country, lat, lon, pop, size, biz, tour
@@ -607,6 +616,100 @@ const EXTRA_V08: Record<string, Row[]> = {
   ],
 };
 const RUNWAY_V08: Record<string, number> = { MJI: 3350, DAM: 3600, BGW: 4000, EBL: 4800, NJF: 3000, SAH: 3250, ADE: 3100, PAP: 3040, KIV: 3590, UPG: 3100, WFR: 3000, TRL: 3000, UGL: 3000 };
+// v0.12.1 the Dutch Caribbean and Suriname (KLM, TUI and Corendon country: A330s, 787s and 777s from Amsterdam),
+// Réunion, Aqaba for Petra, Siem Reap–Angkor (SAI, opened 2023; REP is closed), Samarkand, Ulaanbaatar and other
+// real places, and remote late-game destinations (remote: Easter Island, Svalbard, the Falklands, Ascension, St Helena,
+// the Pacific atolls). Published positions and longest runways (AIP / operator data); `narrow`: narrowbodies only.
+const EXTRA_V0121: Record<string, Row[]> = {
+  MXC: [
+    ['CUR', 'Hato', 'Curaçao', 'CW', 12.189, -68.960, 0.16, 2, 0.3, 0.95],
+    ['BON', 'Flamingo', 'Bonaire', 'BQ', 12.131, -68.268, 0.02, 1, 0.1, 0.95],
+    ['SXM', 'Princess Juliana', 'Sint Maarten', 'SX', 18.041, -63.109, 0.07, 2, 0.15, 1.0],
+  ],
+  SAN: [
+    ['PBM', 'Johan Adolf Pengel', 'Paramaribo', 'SR', 5.453, -55.188, 0.6, 2, 0.3, 0.4],
+    ['GPS', 'Seymour', 'Galápagos', 'EC', -0.454, -90.266, 0.03, 1, 0.05, 1.0],
+  ],
+  BRA: [['IGU', 'Cataratas', 'Foz do Iguaçu', 'BR', -25.600, -54.485, 0.3, 2, 0.1, 1.0]],
+  SCO: [
+    ['IPC', 'Mataveri', 'Easter Island', 'CL', -27.165, -109.422, 0.008, 1, 0.05, 1.0],
+    ['MPN', 'Mount Pleasant', 'Falkland Islands', 'FK', -51.823, -58.447, 0.003, 1, 0.1, 0.6],
+    ['FTE', 'Comandante Armando Tola', 'El Calafate', 'AR', -50.280, -72.053, 0.02, 1, 0.05, 1.0],
+  ],
+  NOR: [['LYR', 'Svalbard', 'Longyearbyen', 'NO', 78.246, 15.466, 0.003, 1, 0.1, 0.85]],
+  CAN: [['GOH', 'Nuuk', 'Nuuk', 'GL', 64.191, -51.678, 0.02, 1, 0.3, 0.6]],
+  LEV: [['AQJ', 'King Hussein', 'Aqaba', 'JO', 29.612, 35.018, 0.2, 2, 0.1, 0.9]],
+  WEA: [
+    ['ASI', 'Wideawake', 'Ascension Island', 'SH', -7.970, -14.394, 0.001, 1, 0.1, 0.4],
+    ['HLE', 'St Helena', 'St Helena', 'SH', -15.958, -5.646, 0.004, 1, 0.1, 0.8],
+  ],
+  SAF: [
+    ['RUN', 'Roland Garros', 'Réunion', 'RE', -20.887, 55.510, 0.9, 2, 0.3, 0.85],
+    ['NOS', 'Fascene', 'Nosy Be', 'MG', -13.312, 48.315, 0.1, 1, 0.05, 1.0],
+    ['MUB', 'Maun', 'Maun', 'BW', -19.973, 23.431, 0.06, 1, 0.05, 0.95],
+  ],
+  SAS: [
+    ['SKD', 'Samarkand Intl', 'Samarkand', 'UZ', 39.701, 66.984, 0.5, 2, 0.2, 0.9],
+    ['IXL', 'Kushok Bakula Rimpochee', 'Leh', 'IN', 34.136, 77.547, 0.03, 1, 0.05, 0.9],
+    ['GAN', 'Gan Intl', 'Addu City', 'MV', -0.693, 73.156, 0.03, 1, 0.05, 1.0],
+  ],
+  SEA: [
+    ['SAI', 'Siem Reap–Angkor', 'Siem Reap', 'KH', 13.370, 104.224, 0.3, 2, 0.1, 1.0],
+    ['VDO', 'Van Don', 'Ha Long Bay', 'VN', 21.118, 107.414, 0.2, 1, 0.1, 0.95],
+    ['LPQ', 'Luang Prabang', 'Luang Prabang', 'LA', 19.898, 102.161, 0.06, 1, 0.05, 0.95],
+  ],
+  CHN: [
+    ['LXA', 'Gonggar', 'Lhasa', 'CN', 29.298, 90.912, 0.9, 2, 0.1, 0.9],
+    ['UBN', 'Chinggis Khaan', 'Ulaanbaatar', 'MN', 47.647, 106.820, 1.6, 2, 0.35, 0.6],
+  ],
+  AUS: [
+    ['AYQ', 'Connellan', 'Uluru', 'AU', -25.186, 130.976, 0.003, 1, 0.05, 1.0],
+    ['BME', 'Broome Intl', 'Broome', 'AU', -17.945, 122.232, 0.015, 1, 0.1, 0.9],
+    ['CCK', 'Cocos (Keeling) Islands', 'Cocos Islands', 'CC', -12.189, 96.834, 0.001, 1, 0.05, 0.8],
+    ['XCH', 'Christmas Island', 'Christmas Island', 'CX', -10.451, 105.690, 0.002, 1, 0.05, 0.7],
+  ],
+  PAC: [
+    ['ROR', 'Roman Tmetuchl', 'Palau', 'PW', 7.367, 134.544, 0.02, 1, 0.1, 0.95],
+    ['SPN', 'Saipan Intl', 'Saipan', 'MP', 15.119, 145.729, 0.05, 1, 0.1, 0.9],
+    ['TBU', "Fua'amotu", "Nuku'alofa", 'TO', -21.241, -175.150, 0.1, 1, 0.1, 0.8],
+    ['CXI', 'Cassidy Intl', 'Kiritimati', 'KI', 1.986, -157.350, 0.007, 1, 0.05, 0.7],
+    ['VLI', 'Bauerfield', 'Port Vila', 'VU', -17.699, 168.320, 0.05, 1, 0.1, 0.9],
+    ['HIR', 'Honiara Intl', 'Honiara', 'SB', -9.428, 160.055, 0.1, 1, 0.1, 0.5],
+    ['MAJ', 'Amata Kabua', 'Majuro', 'MH', 7.065, 171.272, 0.03, 1, 0.1, 0.5],
+    ['PNI', 'Pohnpei Intl', 'Pohnpei', 'FM', 6.985, 158.209, 0.04, 1, 0.1, 0.6],
+    ['NLK', 'Norfolk Island', 'Norfolk Island', 'NF', -29.042, 167.939, 0.002, 1, 0.1, 0.8],
+  ],
+};
+const RUNWAY_V0121: Record<string, number> = {
+  CUR: 3410, BON: 2880, SXM: 2300, PBM: 3480, GPS: 2400, IGU: 2800, IPC: 3318, MPN: 2590, FTE: 2550, LYR: 2483, GOH: 2200,
+  AQJ: 3000, ASI: 3054, HLE: 1950, RUN: 3200, NOS: 2200, MUB: 3700, SKD: 3100, IXL: 2755, GAN: 2650, SAI: 3600, VDO: 3600,
+  LPQ: 2200, LXA: 4000, UBN: 3600, AYQ: 2600, BME: 2461, CCK: 2441, XCH: 2103, ROR: 2195, SPN: 2652, TBU: 2725, CXI: 2103,
+  VLI: 2600, HIR: 2200, MAJ: 2407, PNI: 1829, NLK: 1950,
+  // Published lengths for the high airports that had a size estimate (their altitude now shortens the take-off).
+  MEX: 3952, BOG: 3800, UIO: 4100, LPB: 4000, CUZ: 3400, MDE: 3500, GUA: 2987, SJO: 3012, DEN: 4877, SLC: 3658, LAS: 4424,
+  YYC: 4267, HRE: 4725, LUN: 3964, WDH: 4532, GBE: 3000, VFA: 4000, TNR: 3100, BSB: 3300, CNF: 3600, MDZ: 2835, BRC: 2348,
+  COR: 3200, AMM: 3660, ESB: 3750, EVN: 3850, TBS: 3000, KMG: 4500, CTU: 3600, XIY: 3800, BLR: 4000, HYD: 4260, RUH: 4205,
+  SOF: 3600, INN: 2000, MUC: 4000, ZRH: 3700, GVA: 3900, SZG: 2750, RAK: 3100,
+};
+/** v0.12.1 remote, late-game destinations (Airport.remote). */
+const REMOTE = new Set(['IPC', 'MPN', 'FTE', 'GPS', 'LYR', 'GOH', 'ASI', 'HLE', 'NOS', 'MUB', 'IXL', 'GAN', 'LXA', 'AYQ', 'BME', 'CCK', 'XCH', 'ROR', 'SPN', 'TBU', 'CXI', 'VLI', 'HIR', 'MAJ', 'PNI', 'NLK']);
+/**
+ * v0.12.1 narrowbodies only: St Helena (1,950 m and wind shear: E-jets and 737s), Kiritimati, Galápagos, Leh (military
+ * field), Norfolk, Cocos, Christmas Island, Pohnpei, Queenstown (terrain), Jersey, Inverness, London City (steep approach).
+ */
+const NARROW = new Set(['HLE', 'CXI', 'GPS', 'IXL', 'NLK', 'CCK', 'XCH', 'PNI', 'ZQN', 'JER', 'INV', 'LCY']);
+/**
+ * v0.12.1 elevations (m) of the airports above ~400 m, where a hot-and-high take-off matters (AIP). Unlisted: 0.
+ */
+const ELEV: Record<string, number> = {
+  JNB: 1694, NBO: 1624, ADD: 2334, MEX: 2230, BOG: 2548, UIO: 2400, LPB: 4061, CUZ: 3310, MDE: 2142, GUA: 1509, SJO: 921,
+  DEN: 1656, SLC: 1288, LAS: 665, YYC: 1084, KTM: 1338, KBL: 1791, SAH: 2206, HRE: 1490, LUN: 1154, WDH: 1719, GBE: 1005,
+  VFA: 1065, TNR: 1279, GOM: 1551, KGL: 1491, EBB: 1155, JRO: 891, BSB: 1066, CNF: 827, MDZ: 704, BRC: 846, COR: 489,
+  AMM: 722, ESB: 953, EVN: 865, TBS: 495, MHD: 999, IKA: 1007, DYU: 790, TAS: 432, KMG: 2103, CTU: 495, XIY: 479, BLR: 915,
+  HYD: 617, ISB: 508, RUH: 625, MED: 654, MAD: 610, SOF: 531, INN: 581, MUC: 448, ZRH: 432, GVA: 430, SZG: 430, RAK: 466,
+  TMR: 1377, DJG: 968, AJY: 501, ELF: 733, KAN: 476, GHA: 461, JUB: 461, KUF: 417,
+  SKD: 677, IXL: 3256, LXA: 3570, UBN: 1330, MUB: 945, AYQ: 496, HLE: 305,
+};
 // v0.11 ETOPS ferries: the North Atlantic's 60-minute stepping stones (fuel stops and adequate alternates real
 // operators use to ferry twins without ETOPS approval: Keflavík, Kangerlussuaq, Narsarsuaq, Iqaluit, Goose Bay,
 // Gander, St. John's), Bermuda and the Chilean coast. Published positions and longest runways (AIP; Chicago Midway's
@@ -634,8 +737,8 @@ const ENROUTE = new Set(Object.values(EXTRA_ETOPS).flat().map((r) => r[0]));
 const ICE = new Set(['WFR', 'TRL', 'UGL']);
 const CONTINENT_OF: Record<string, ContinentId> = { UGL: 'SA' };
 
-for (const extra of [EXTRA, EXTRA_B1, EXTRA_B3, EXTRA_V08, EXTRA_ETOPS]) for (const [region, rows] of Object.entries(extra)) (DATA[region] ??= []).push(...rows);
-Object.assign(RUNWAY, RUNWAY_B1, RUNWAY_B3, RUNWAY_V08, RUNWAY_ETOPS);
+for (const extra of [EXTRA, EXTRA_B1, EXTRA_B3, EXTRA_V08, EXTRA_ETOPS, EXTRA_V0121]) for (const [region, rows] of Object.entries(extra)) (DATA[region] ??= []).push(...rows);
+Object.assign(RUNWAY, RUNWAY_B1, RUNWAY_B3, RUNWAY_V08, RUNWAY_ETOPS, RUNWAY_V0121);
 
 export const AIRPORTS: Airport[] = Object.entries(DATA).flatMap(([region, rows]) =>
   rows.map(([code, name, city, country, lat, lon, pop, size, biz, tour]) => ({
@@ -654,6 +757,9 @@ export const AIRPORTS: Airport[] = Object.entries(DATA).flatMap(([region, rows])
     runwayM: RUNWAY[code] ?? RUNWAY_BY_SIZE[size],
     ...(ICE.has(code) ? { ice: true as const } : {}),
     ...(ENROUTE.has(code) ? { enroute: true as const } : {}),
+    ...(ELEV[code] ? { elevM: ELEV[code] } : {}),
+    ...(NARROW.has(code) ? { narrow: true as const } : {}),
+    ...(REMOTE.has(code) ? { remote: true as const } : {}),
   })),
 );
 

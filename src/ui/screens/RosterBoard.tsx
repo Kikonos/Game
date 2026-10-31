@@ -734,7 +734,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
         <span className="grow" />
         <Seg<BoardZoom> value={zoom} onChange={setZoom} options={[{ value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }]} />
         <span className="row gap-4 rb-scope"><span className="tiny dim nowrap">Drag moves</span><Seg<MoveScope> value={scope} onChange={setScope} options={[{ value: 'duty', label: 'Duty' }, { value: 'trip', label: 'Trip' }]} /></span>
-        <button className="btn" onClick={goToday}><CalendarDays /> Today</button>
+        <button className="btn rb-today" onClick={goToday} aria-label="Today" title="Today"><CalendarDays /> <span className="rb-today-t">Today</span></button>
       </div>
       <div className={`rb-scroll ${drag ? 'dragging' : ''} z-${zoom}`} ref={scroller} onScroll={() => { sync(); if (pop) setPop(null); }} onClick={onClick}>
         <div className="rb-canvas" style={{ width: W }}>

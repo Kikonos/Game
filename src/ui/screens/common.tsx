@@ -3,7 +3,7 @@
 import { HintButton } from '../components/ScreenHint';
 import type { ScreenHintId } from '../screenHints';
 import {
-  Briefcase, CalendarClock, Flag as FlagIcon, Globe2, HeartHandshake, Medal, Music, Plane, PlaneLanding, Shield, Ship, Snowflake, Stethoscope, Trophy, Users, Wrench,
+  Briefcase, CalendarClock, Earth, Flag as FlagIcon, Globe2, HeartHandshake, Medal, Music, Plane, PlaneLanding, Shield, Ship, Snowflake, Stethoscope, Trophy, Users, Wrench,
 } from 'lucide-react';
 import { useEffect, type ReactNode } from 'react';
 import type { Archetype } from '../../engine/core/types';
@@ -23,6 +23,8 @@ const ARCH_ICON: Partial<Record<Archetype, ReactNode>> = {
   tourSeries: <Globe2 />, troopRotation: <Shield />, hajj: <Users />, unRotation: <Shield />, vip: <Medal />, humanitarian: <HeartHandshake />,
   evacuation: <FlagIcon />, deportation: <Ship />, capacityLease: <Briefcase />, subcharterIn: <Plane />, dryLeaseOut: <Briefcase />,
   medical: <Stethoscope />, musicTour: <Music />, antarctic: <Snowflake />,
+  // v0.12.1
+  worldTour: <Earth />,
 };
 
 export function ArchIcon({ a }: { a: Archetype }) {

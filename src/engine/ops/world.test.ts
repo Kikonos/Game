@@ -7,7 +7,7 @@ import { TPL_BY_ID, WORLD_EVENT_TPLS } from '../../data/worldEvents';
 import { ZONE_BY_ID } from '../../data/worldZones';
 import { BAL } from '../core/balance';
 import { takeCues } from '../core/cues';
-import { DAY } from '../core/time';
+import { DAY, fmtDay } from '../core/time';
 import type { GameState } from '../core/types';
 import { acceptOffer } from '../contracts';
 import { feasibility } from '../contracts/feasibility';
@@ -15,7 +15,10 @@ import { warRiskCost } from '../contracts/missionChecks';
 import { hamBase, leased, legsOffer, newGame, owned } from '../contracts/testkit';
 import { resolveDecision } from './events';
 import { advanceTo } from '../sim';
-import { crosses, dailyWorld, flightZone, isLive, onWorldEnd, payWarRisk, startEvent, warRiskAt, worldEvent, worldEventPins, worldEvents, worldZones } from './world';
+import { sweepOffersForClosure } from '../contracts/offers';
+import { cancelForceMajeure, closedAtDeparture, resolveAirspace, resolveUninsurable, closureHits, crosses, dailyWorld, flightZone, isLive, onWorldEnd, payWarRisk, permitOf, setClosureOfferHook, startEvent, warRiskAt, worldEvent, worldEventPins, worldEvents, worldZones } from './world';
+import { flightsOf } from '../core/entities';
+import { blockMinutes, typeOf } from '../core/perf';
 
 const iraq = ZONE_BY_ID.iraq;
 
@@ -65,17 +68,43 @@ describe('closures (§5.4)', () => {
     expect(into.fl[0].std).toBe(e.end + 3 * 60);
     expect(into.fl[1].std).toBeGreaterThan(into.fl[0].std);
     expect(g.clients[into.c.clientId].relation).toBe(rel0);
-    // A leg of the same programme caught later follows that answer: no second question.
+    // A leg of the same programme caught later follows that answer: no second question. v0.12.1 once Wait has moved
+    // the legs past the reopening they are no longer held (the label and the card's count follow the closure).
     delete into.fl[1].closedBy;
     dailyWorld(g);
     expect(g.decisions.some((x) => x.kind === 'airspace' && x.data?.contractId === into.c.id)).toBe(false);
-    expect(into.fl[1].closedBy).toBe(e.id);
+    expect(into.fl[1].closedBy).toBeUndefined();
     // Views for the UI and map.
     expect(worldEvent(g, e.id)?.active).toBe(true);
     expect(worldEvents(g, { active: true }).map((x) => x.id)).toContain(e.id);
     expect(worldZones(g).some((z) => z.eventId === e.id && z.style === 'closed')).toBe(true);
     expect(worldZones(g)).toBe(worldZones(g));
     expect(worldEventPins(g).some((p) => p.eventId === e.id)).toBe(true);
+  });
+
+  it('v0.12.1 the closure-offers hook runs when a closure starts and when it is extended, not for an open event', () => {
+    const seen: string[] = [];
+    setClosureOfferHook((_g, e) => seen.push(e.id));
+    try {
+      const g0 = newGame(1);
+      const open = startEvent(g0, { ...TPL_BY_ID.airspaceIraq, closeP: 0, airportDays: undefined });
+      expect(open.closed).toBeUndefined();
+      expect(seen).toEqual([]);
+      for (let seed = 1; seed < 40; seed++) {
+        seen.length = 0;
+        const g = newGame(seed);
+        const e = startEvent(g, { ...TPL_BY_ID.airspaceIraq, closeP: 1 });
+        expect(seen).toEqual([e.id]);
+        g.now = e.end;
+        onWorldEnd(g, { t: g.now, seq: 0, type: 'world.end', id: e.id, v: e.ev ?? 0 });
+        if (!e.extended) continue;
+        expect(seen).toEqual([e.id, e.id]);
+        return;
+      }
+      throw new Error('no extension in 40 seeds');
+    } finally {
+      setClosureOfferHook(sweepOffersForClosure);
+    }
   });
 
   it('an extension re-retimes the waiting legs to the new reopening', () => {
@@ -293,5 +322,146 @@ describe('v0.8 fix round 1: event text and work', () => {
     const r = g.rivals.find((x) => x.id === e.rivalId)!;
     expect(e.at).toBe(r.base);
     expect(e.country).toBe(AIRPORT_BY_CODE[r.base].country);
+  });
+});
+
+// ---------- v0.12.1 Round F lane D ----------
+
+describe('v0.12.1 airport closures follow the reopening', () => {
+  /** A 1-day Brussels closure inside a 9-day event; one trip in it, one landing just after it, one a week later. */
+  function bru() {
+    const g = newGame(31);
+    const t = g.now;
+    const tp = trip(g, owned(g).id, [
+      ['LIS', 'BRU', t + 8 * 60], ['BRU', 'LIS', t + 12 * 60],
+      ['LIS', 'BRU', t + DAY - 60], ['BRU', 'LIS', t + DAY + 3 * 60],
+      ['LIS', 'BRU', t + 7 * DAY], ['BRU', 'LIS', t + 7 * DAY + 4 * 60],
+    ]);
+    const e = startEvent(g, { ...TPL_BY_ID.strikeBelgium, days: [9, 9], airportDays: [1, 1] });
+    return { g, e, ...tp };
+  }
+
+  it('D1 only legs leaving before the reopening, or landing before it, are held; Cancel leaves next week alone', () => {
+    const { g, e, fl } = bru();
+    const until = e.airportClosedUntil!;
+    expect(e.end - until).toBe(8 * DAY);
+    expect(fl.slice(0, 2).every((f) => f.closedBy === e.id)).toBe(true);
+    // Lands an hour and a half after the reopening: not held; nor anything a week later.
+    expect(fl[2].sta).toBeGreaterThan(until);
+    for (const f of fl.slice(2)) expect(f.closedBy).toBeUndefined();
+    const d = g.decisions.find((x) => x.kind === 'airspace')!;
+    expect(d.title).toContain('2 legs');
+    const r = resolveDecision(g, d.id, 'cancel');
+    expect(r.ok && r.msg).toBe('2 legs cancelled (force majeure)');
+    expect(fl.slice(0, 2).every((f) => f.status === 'cancelled')).toBe(true);
+    expect(fl.slice(2).every((f) => f.status === 'scheduled')).toBe(true);
+  });
+
+  it('D1/D18 Wait moves the held legs after the reopening as the world\'s minutes (no penalty even if a later reason is ours)', async () => {
+    const { latePenalty } = await import('./latePolicy');
+    const { g, e, c, fl } = bru();
+    const d = g.decisions.find((x) => x.kind === 'airspace')!;
+    resolveDecision(g, d.id, 'wait');
+    const until = e.airportClosedUntil!;
+    expect(fl[0].std).toBe(until + 3 * 60);
+    expect(fl[0].excused).toBeGreaterThan(0);
+    fl[0].delayReason = 'Late inbound aircraft';
+    expect(latePenalty(c, fl[0]).money).toBe(0);
+    // Asking again moves nothing and says so.
+    const again = resolveAirspace(g, d, 'wait');
+    expect(again.ok && again.msg).toMatch(/Nothing had to move/);
+  });
+
+  it('D1 a leg landing at the airport after the reopening leaves on time (destination checked at arrival)', () => {
+    const { g, e, fl } = bru();
+    g.now = fl[2].std;
+    expect(closedAtDeparture(g, fl[2])).toBeNull();
+    g.now = fl[0].std;
+    expect(closedAtDeparture(g, fl[0])?.id).toBe(e.id);
+  });
+
+  it('D2 the news says the airport\'s reopening, and "has reopened" comes then, once', () => {
+    const { g, e } = bru();
+    const until = e.airportClosedUntil!;
+    expect(e.body).toContain(`closed until ${fmtDay(until)}`);
+    for (const d of [...g.decisions]) resolveDecision(g, d.id, d.defaultOption);
+    advanceTo(g, until + 30, new Set());
+    const reopen = g.messages.filter((m) => m.ref?.id === e.id && /has reopened/.test(m.title));
+    expect(reopen).toHaveLength(1);
+    expect(reopen[0].t).toBe(until);
+    expect(Object.values(g.flights).some((f) => f.closedBy === e.id && f.status === 'scheduled')).toBe(false);
+    advanceTo(g, e.end + 60, new Set());
+    expect(g.messages.filter((m) => m.ref?.id === e.id && /has reopened/.test(m.title))).toHaveLength(1);
+  });
+
+  it('D5 the event\'s ACMI cover waits for the airport like anyone; only rescue work flies on a permit', () => {
+    const { g, e, c, fl } = bru();
+    c.eventId = e.id;
+    c.archetype = 'aogCover';
+    expect(permitOf(g, fl[0])).toBeUndefined();
+    expect(closureHits(g, e).held).toContain(fl[0]);
+    c.archetype = 'evacuation';
+    expect(permitOf(g, fl[0])).toBe(e.id);
+    expect(closureHits(g, e).held).not.toContain(fl[0]);
+  });
+
+  it('D5 the airline cover a strike creates is offered once the airport reopens, starting after it', () => {
+    const g = newGame(31);
+    const e = startEvent(g, { ...TPL_BY_ID.strikeBelgium, days: [3, 3], airportDays: [1, 1] });
+    expect(e.offerIds).toHaveLength(0);
+    expect(e.workLeft).toContain('aogCover');
+    advanceTo(g, e.airportClosedUntil! + 60, new Set());
+    expect(e.offerIds.length).toBe(1);
+    const o = g.offers[e.offerIds[0]];
+    expect(o.start).toBeGreaterThanOrEqual(e.airportClosedUntil!);
+  });
+
+  it('D12 the card counts our legs hit so far and never says "none" next to it', () => {
+    const { g, e } = bru();
+    const v = worldEvent(g, e.id)!;
+    expect(v.flightsHit).toBe(2);
+    expect(v.effects.some((x) => x === '2 of our legs were affected so far')).toBe(true);
+  });
+
+  it('D4 a world closure on a wet leg comes off the MGH as force majeure, not as "we cancelled"', () => {
+    const g = newGame(21);
+    const o = hamBase(g, g.now + 2 * DAY, 30);
+    const r = acceptOffer(g, o.id, [owned(g).id]);
+    if (!r.ok) throw new Error(r.error);
+    const c = g.contracts[r.data!.contractId];
+    const f = Object.values(g.flights).filter((x) => x.contractId === c.id && x.kind === 'revenue').sort((a, b) => a.std - b.std)[0];
+    cancelForceMajeure(g, [f], 'Closed: test');
+    const u = Object.values(c.use)[0];
+    expect(u.lostFmMin).toBe(f.block);
+    expect(u.lostMin ?? 0).toBe(0);
+  });
+});
+
+describe('v0.12.1 a reroute moves the next legs', () => {
+  it('D3 the leg after a rerouted one leaves a turn after it lands; every later pair keeps the turn', () => {
+    const g = newGame(31);
+    const ac = owned(g);
+    const t = g.now + 3 * DAY;
+    const block = blockMinutes(ac.typeId, 'IST', 'DXB');
+    const turn = typeOf(ac.typeId).turnMin;
+    const { fl } = trip(g, ac.id, [['IST', 'DXB', t], ['DXB', 'IST', t + block + turn + 5]]);
+    startEvent(g, { ...TPL_BY_ID.airspaceIraq, closeP: 1 });
+    expect(fl[0].detour).toBe(iraq.detourMin);
+    expect(fl[1].std).toBeGreaterThanOrEqual(fl[0].sta + turn);
+    const legs = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled').sort((a, b) => a.std - b.std);
+    for (let i = 1; i < legs.length; i++) expect(legs[i].std).toBeGreaterThanOrEqual(legs[i - 1].sta + turn);
+    expect(fl[1].excused ?? 0).toBeGreaterThan(0);
+  });
+});
+
+describe('v0.12.1 war-risk wait is not our delay', () => {
+  it('D18 "Wait a day" for cover moves the legs with the minutes excused', async () => {
+    const { latePenalty } = await import('./latePolicy');
+    const g = newGame(31);
+    const { c, fl } = trip(g, owned(g).id, [['LIS', 'FAO', g.now + 2 * DAY], ['FAO', 'LIS', g.now + 2 * DAY + 3 * 60]]);
+    resolveUninsurable(g, { id: 'dx', t: g.now, kind: 'uninsurable', title: '', body: '', options: [], defaultOption: 'wait', expires: g.now + 60, data: { flightId: fl[0].id } }, 'wait');
+    expect(fl[0].std - (fl[0].schedStd ?? fl[0].std)).toBe(DAY);
+    fl[0].delayReason = 'Late inbound aircraft';
+    expect(latePenalty(c, fl[0]).money).toBe(0);
   });
 });

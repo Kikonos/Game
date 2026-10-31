@@ -77,7 +77,10 @@ export function charterOffer(g: GameState, s: CharterSpec): ContractOffer | null
     pin: s.pin ?? legs[0].to,
     ...(s.mult ? { mult: s.mult } : {}),
   };
-  return finalizeDraft(g, d);
+  const o = finalizeDraft(g, d);
+  // v0.12.1 a scenario's hand-made job is one-off: no repeat business from it (contracts/missions.ts rollRepeat).
+  if (o && g.scen) (g.scen.mem ??= {})[`oneOff:${o.id}`] = 1;
+  return o;
 }
 
 /** A departure at a local time on the day `days` after today (the scenario's clock). */

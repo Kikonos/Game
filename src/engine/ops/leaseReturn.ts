@@ -12,7 +12,7 @@ import { pushDecision, pushMessage } from '../core/messages';
 import { cardMeta, leaseReturnCard } from '../problems';
 import { etopsCap, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
-import { DAY, fmtDate, fmtDay, fmtDayRange } from '../core/time';
+import { DAY, fmtDate, fmtDay, fmtDayRange, fmtDayRel } from '../core/time';
 import type { ActionResult, Aircraft, GameState, MaintenanceEvent, Minute } from '../core/types';
 import { route, routeSpan, timeChain } from '../contracts/plan';
 import { layoutName, reinstateCost } from './cabin';
@@ -103,6 +103,8 @@ export function returnEarly(g: GameState, aircraftId: string, end: Minute): Acti
     return r;
   }
   ac.returning!.earlyFee = q.fee;
+  // v0.12.1 kept so a return check that falls through puts the lease back as it was (rent, notice, lease end).
+  ac.returning!.wasEnd = was;
   own.noticeGiven = true;
   const dec = openDecision(g, aircraftId);
   if (dec) g.decisions.splice(g.decisions.indexOf(dec), 1);
@@ -208,8 +210,23 @@ function unbook(g: GameState, ac: Aircraft): ActionResult {
     const ferries = (m.ferryIds ?? []).filter((id) => g.flights[id]?.status === 'scheduled');
     if (ferries.length) removeFlights(g, ferries);
   }
-  delete ac.returning;
+  dropReturn(ac);
   return { ok: true };
+}
+
+/**
+ * v0.12.1 a booked return that is off (unbooked, or its check fell through): an early return's lease end goes back
+ * to the original date (no fee, the rent runs again), and the lease-end choice comes round again in its notice
+ * window. True when an early return was undone.
+ */
+function dropReturn(ac: Aircraft): boolean {
+  const was = ac.returning?.wasEnd;
+  delete ac.returning;
+  if (ac.ownership.kind !== 'dryLeaseIn') return false;
+  ac.ownership.noticeGiven = false;
+  if (was === undefined || was <= ac.ownership.leaseEnd) return false;
+  ac.ownership.leaseEnd = was;
+  return true;
 }
 
 /** Extend 12 or 36 months, or book the return. Also the 'leaseEnd' decision's resolver. */
@@ -272,8 +289,11 @@ export function dailyLeases(g: GameState): void {
     if (ac.returning) {
       const m = g.maintenance[ac.returning.maintId];
       if (!m || m.status === 'cancelled') {
-        delete ac.returning;
-        pushMessage(g, { tone: 'warn', cat: 'company', title: `Lease return slipped: ${ac.reg}`, body: `The return check at ${siteCity(own.returnSite ?? g.company.homeBase)} fell through. Book the return again or extend; at the lease end it rolls on a month at +10%.`, ref: { kind: 'aircraft', id: ac.id }, ...cardMeta(leaseReturnCard(g, ac.id)) });
+        const early = dropReturn(ac);
+        const body = early
+          ? `The return check at ${siteCity(own.returnSite ?? g.company.homeBase)} fell through, so the early return is off: the lease runs to ${fmtDate(own.leaseEnd)} again at ${usd(own.rentPerMonth)}/month, with no early-return fee. Book the return again or extend.`
+          : `The return check at ${siteCity(own.returnSite ?? g.company.homeBase)} fell through. Book the return again or extend; at the lease end it rolls on a month at +10%.`;
+        pushMessage(g, { tone: 'warn', cat: 'company', title: `Lease return slipped: ${ac.reg}`, body, ref: { kind: 'aircraft', id: ac.id }, ...cardMeta(leaseReturnCard(g, ac.id)) });
       }
       continue;
     }
@@ -282,7 +302,7 @@ export function dailyLeases(g: GameState): void {
     const v = leaseView(g, ac.id)!;
     const [e12, e36, ret] = v.options;
     pushDecision(g, {
-      kind: 'leaseEnd', title: `Lease of ${ac.reg} ends ${fmtDay(own.leaseEnd)}`,
+      kind: 'leaseEnd', title: `Lease of ${ac.reg} ends ${fmtDayRel(own.leaseEnd, g.now)}`,
       body: `${v.lessor} offers 12 months at ${usd(e12.rent!)} (${pct(e12.rent!, own.rentPerMonth)}) or 36 months at ${usd(e36.rent!)} (${pct(e36.rent!, own.rentPerMonth)}). Returning costs about ${usd(ret.cost!)} at ${siteCity(v.returnSite)} (check, half-life, cabin, paint) and frees ${usd(own.deposit ?? 0)} deposit.`,
       options: v.options.map((o) => ({ id: o.id, label: o.label, desc: o.id === 'return' ? `Ferry to ${siteCity(v.returnSite)} and a ${BAL.leaseReturn.checkDays[wideOf(ac)]}-day return check ending ${fmtDay(own.leaseEnd)}.` : `Keep ${ac.reg} flying; the next notice comes 120 days before the new end.`, chips: o.chips, tone: o.id === 'return' ? 'warn' as const : 'good' as const })),
       defaultOption: 'extend12', expires: g.now + L.decisionDays * DAY, ref: { kind: 'aircraft', id: ac.id }, data: { aircraftId: ac.id },

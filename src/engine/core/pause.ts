@@ -16,6 +16,11 @@ export function requestPause(reason: PauseReason): void {
   pending.add(reason);
 }
 
+/** v0.12.1 withdraws one pending request (a decision that was applied by operations before anyone saw it). */
+export function dropPause(reason: PauseReason): void {
+  pending.delete(reason);
+}
+
 /** Drops stale requests (start of every advance and every player action). */
 export function clearPause(): void {
   pending.clear();

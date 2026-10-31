@@ -13,6 +13,8 @@ import { clamp, hash } from '../core/util';
 import { aboveMinimum } from './duties';
 import { crewName } from './generate';
 import { crewIx, touchCrew } from './timeline';
+import { payLeaver } from './costs';
+import { notOursCancel } from '../ops/latePolicy';
 
 export interface MoraleDriverView {
   key: MoraleDriver;
@@ -178,7 +180,12 @@ export function settleService(g: GameState, k: Contract): number | null {
 export function onContractDoneMorale(g: GameState, k: Contract): void {
   const mean = settleService(g, k);
   const flown = k.legsFlown ?? 0;
-  const onTime = flown ? (k.legsOnTime ?? 0) / flown : 0;
+  // v0.12.1 legs we cancelled count against the score (a job with legs cut was recognised as flown on time; nothing
+  // with none flown). Cancellations that were not ours (the client, the world) do not: the completion rule's test
+  // (contracts/accept.ts), so a client's own cancellation never costs the crews their thanks.
+  let ours = 0;
+  for (const f of Object.values(g.flights)) if (f.contractId === k.id && f.status === 'cancelled' && (f.kind === 'revenue' || f.kind === 'techstop') && !notOursCancel(f.delayReason)) ours++;
+  const onTime = flown ? (k.legsOnTime ?? 0) / (flown + ours) : 0;
   if (mean === null || mean < 0 || onTime < 0.85) return;
   const who = new Set<string>();
   for (const f of Object.values(g.flights)) if (f.contractId === k.id && f.status === 'done' && f.kind !== 'deadhead') for (const id of f.crewIds) who.add(id);
@@ -357,6 +364,8 @@ export function dailyMorale(g: GameState): void {
     // (Three days on, they go wherever they are: a ticket that never came.)
     if (c.loc !== c.base && g.now - c.notice!.leaves < 3 * DAY) continue;
     leaveHook?.(g, c);
+    // v0.12.1 paid for the part of the month worked.
+    payLeaver(g, c);
     delete g.crew[c.id];
     g.stats.resigned = (g.stats.resigned ?? 0) + 1;
   }

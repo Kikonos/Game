@@ -39,7 +39,10 @@ import { cardMeta, checkCard, checkClashCard } from '../problems';
 import { achievementProgress, setHeadUnlockHook } from './achievements';
 import { applyDecisionOption, crewReadyAt, setReceivableHook } from './events';
 import { cancelCheck, checkCostOf, checkStatus, nextPlanned, planA, suggestC } from './maintenance';
+import { headsBill } from './finance';
 import { usd } from './util';
+import { closedAirport } from './world';
+import { curfewShift } from '../core/curfew';
 
 const H = () => BAL.v09.heads;
 
@@ -286,9 +289,34 @@ export function dismissProposal(g: GameState, id: HeadId, proposalId: string): A
   return { ok: true, msg: `Dismissed until ${fmtDay(until)}` };
 }
 
+/** v0.12.1 load: ferry-home proposals a planned way out has overtaken are withdrawn. */
+export function dropMootFerries(g: GameState): void {
+  for (const h of Object.values(g.heads ?? {})) h.proposals = h.proposals.filter((p) => !(p.kind === 'ferryHome' && ferryMoot(g, p)));
+}
+
+/** v0.12.1 a ferry-home proposal overtaken: the aircraft is gone or home, or a way out is planned now. */
+function ferryMoot(g: GameState, p: HeadProposal): boolean {
+  const ac = g.fleet[String(p.data.aircraftId)];
+  return !ac || ac.at === String(p.data.to) || ac.at !== String(p.data.at) || moveOutPlanned(g, ac);
+}
+
+/** v0.12.1 an empty move out of where the aircraft is on the ground (a ferry or positioning) is planned already. */
+export function moveOutPlanned(g: GameState, ac: Aircraft): boolean {
+  return !ac.flightId && flightsOf(g, ac.id).some((f) => f.status === 'scheduled' && f.from === ac.at && (f.kind === 'ferry' || f.kind === 'positioning'));
+}
+
 function runProposal(g: GameState, p: HeadProposal): ActionResult {
   switch (p.kind) {
-    case 'ferryHome':
+    case 'ferryHome': {
+      // v0.12.1 accepting works or says why: a way home planned since (the schedule's own) is kept, not doubled.
+      const ac = g.fleet[String(p.data.aircraftId)];
+      if (!ac) return { ok: false, error: 'Aircraft not found' };
+      if (ac.at === String(p.data.to)) return { ok: true, msg: `${ac.reg} is home already` };
+      const out = moveOutPlanned(g, ac) ? flightsOf(g, ac.id).find((f) => f.status === 'scheduled' && f.from === ac.at) : undefined;
+      if (out) return { ok: true, msg: `${ac.reg} already leaves ${ac.at}: ${out.no} ${out.from}–${out.to} ${fmtDay(out.std)} ${fmtTime(out.std)}` };
+      const r = ferryAircraft(g, ac.id, String(p.data.to));
+      return r.ok ? { ok: true, msg: r.msg } : r;
+    }
     case 'position': {
       const r = ferryAircraft(g, String(p.data.aircraftId), String(p.data.to), typeof p.data.arriveBy === 'number' ? p.data.arriveBy : undefined, p.data.contractId ? String(p.data.contractId) : undefined);
       return r.ok ? { ok: true, msg: r.msg } : r;
@@ -505,7 +533,7 @@ export function dailyHeads(g: GameState): void {
     } else if (h.firedAt !== undefined && g.now >= h.firedAt + H().rehireDays * DAY && !h.candidates?.length) {
       h.candidates = rollCandidates(g, h.id, Math.floor(h.firedAt));
     }
-    h.proposals = h.proposals.filter((p) => p.expires > g.now && !(p.kind === 'cSlot' && nextPlanned(g, String(p.data.aircraftId), 'C')));
+    h.proposals = h.proposals.filter((p) => p.expires > g.now && !(p.kind === 'cSlot' && nextPlanned(g, String(p.data.aircraftId), 'C')) && !(p.kind === 'ferryHome' && ferryMoot(g, p)));
   }
   acting = true;
   try {
@@ -520,8 +548,8 @@ export function dailyHeads(g: GameState): void {
 /** Month end (before the statement closes): salaries under 'salaries'; the crew desk's hire proposal. */
 export function monthlyHeads(g: GameState): void {
   if (!g.heads) return;
-  let pay = 0;
-  for (const h of Object.values(g.heads)) if (h.hired) pay += h.hired.salary;
+  // The closing month (this runs before onMonthEnd opens the next statement).
+  const pay = headsBill(g, g.finance.current.month);
   if (pay) post(g, 'salaries', -pay);
   acting = true;
   try {
@@ -608,22 +636,33 @@ function creditChase(g: GameState): void {
   const h = active(g, 'credit');
   if (!h) return;
   const C = H().credit;
+  // v0.12.1 one reminder a client a day (all its late invoices in one call), one chance to get the tone wrong.
+  const byClient = new Map<string, { n: number; amount: number; over: number; ref?: Ref }>();
   for (const r of g.finance.receivables) {
     if (r.paid !== null) continue;
     const over = Math.floor((g.now - r.due) / DAY);
     const step = C.remind.filter((d) => over >= d && (r.chased ?? 0) < d).pop();
     if (step === undefined) continue;
     r.chased = step;
-    const cl = g.clients[r.clientId];
     const rr = sideRng(g, `chase:${r.id}:${step}`);
     if (r.payAt > g.now + 7 * DAY && chance(rr, C.base + C.perSkill * (h.hired?.skill ?? 0.7))) {
       r.payAt = g.now + int(rr, 1, 7) * DAY;
       schedule(g, r.payAt, 'payment', r.id);
     }
+    const x = byClient.get(r.clientId) ?? { n: 0, amount: 0, over: 0 };
+    x.n++;
+    x.amount += r.amount;
+    x.over = Math.max(x.over, over);
+    x.ref ??= r.contractId ? { kind: 'contract', id: r.contractId } : undefined;
+    byClient.set(r.clientId, x);
+  }
+  for (const [clientId, x] of byClient) {
+    const cl = g.clients[clientId];
     // §5.3 any client may be chased a little early (the mistake roll on every reminder).
     const early = !!cl && slips(g, h);
-    if (early) bumpClient(g, r.clientId, -2, 'Chased an invoice a little early');
-    done(g, h, 'finance', `Credit control reminded ${cl?.name ?? 'a client'}`, `${usd(r.amount)} for ${r.desc}, ${over} days late.`, r.contractId ? { kind: 'contract', id: r.contractId } : undefined,
+    if (early) bumpClient(g, clientId, -2, 'Chased an invoice a little early');
+    const what = x.n === 1 ? `${usd(x.amount)}, ${x.over} days late.` : `${x.n} invoices, ${usd(x.amount)}, up to ${x.over} days late.`;
+    done(g, h, 'finance', `Credit control reminded ${cl?.name ?? 'a client'}`, what, x.n === 1 ? x.ref : undefined,
       early ? `${firstName(h)} chased a ${LEVEL_NAME[levelOf(g, cl)]} client too early (relation −2).` : undefined);
   }
 }
@@ -691,7 +730,8 @@ function positionPlans(g: GameState, h: Head): void {
     const margin = need.mode === 'none' ? 0 : need.max - need.fdp;
     if (margin >= F.marginMin) continue;
     if (h.proposals.some((p) => p.kind === 'position' && p.data.contractId === c.id && p.data.aircraftId === ac.id)) continue;
-    const arriveBy = f0.std - F.arriveBeforeMin;
+    // v0.12.1 never into a night curfew: land before it starts.
+    const arriveBy = curfewShift(f0.from, f0.std - F.arriveBeforeMin, 'before');
     const data = { aircraftId: ac.id, to: f0.from, arriveBy, contractId: c.id };
     if (dismissedNow(g, h, { kind: 'position', data })) continue;
     const chain = chainBackward(ac.typeId, pos[0].from, f0.from, g.now + BAL.ferryLeadMin, arriveBy, etopsCap(g.company.approvals, ac.typeId));
@@ -729,6 +769,9 @@ function fleetPlanner(g: GameState): void {
     if (!(g.now - last >= F.idleH * 60)) continue;
     if (fs.some((f) => f.status === 'scheduled' && f.std < g.now + F.freeH * 60)) continue;
     if (Object.values(g.maintenance).some((m) => m.aircraftId === ac.id && m.status !== 'done' && m.status !== 'cancelled' && m.start < g.now + F.freeH * 60)) continue;
+    // v0.12.1 one way home: none when a ferry or positioning out is planned already (held or not), nor while the
+    // airport is closed (a ferry there could not leave either). Ana proposed CS-TTL's ferry home three times.
+    if (moveOutPlanned(g, ac) || closedAirport(g, ac.at)) continue;
     const blk = emptyBlock(ac.typeId, ac.at, home);
     if (!blk) continue;
     let cost = legsCost(g, ac.typeId, [{ std: 0, sta: blk }]);
@@ -800,6 +843,9 @@ function crewDeskHires(g: GameState): void {
 /** The roster re-runs itself every hour (auto-fix); the desk adds a ticket, a call-in and (within its limit) a jet. */
 const DESK_FIXES = ['deadhead', 'callIn', 'jet'] as const;
 
+/** v0.12.1 the crew desk's note: the fix's own line, its cost added only when the line does not already say it ('($671 overtime, morale −4) ($671)'). Pure. */
+export const deskFixBody = (msg: string, cost: number): string => `${msg}${cost && !msg.includes(usd(cost)) ? ` (${usd(cost)})` : ''}.`;
+
 /** Crew desk (every 6 h): the cheapest Crew Control fix within the limit on amber flights (at most 3 a round). */
 export function crewDeskHour(g: GameState): number {
   const h = active(g, 'crewDesk');
@@ -822,7 +868,7 @@ export function crewDeskHour(g: GameState): number {
     const f = g.flights[row.flightId];
     const mistake = slips(g, h);
     if (mistake) post(g, 'deadhead', -1_900);
-    done(g, h, 'crew', `The crew desk fixed ${f?.no ?? 'a flight'}: ${best.label.toLowerCase()}`, `${r.msg ?? ''}${best.cost ? ` (${usd(best.cost)})` : ''}.`, { kind: 'flight', id: row.flightId },
+    done(g, h, 'crew', `The crew desk fixed ${f?.no ?? 'a flight'}: ${best.label.toLowerCase()}`, deskFixBody(r.msg ?? '', best.cost), { kind: 'flight', id: row.flightId },
       mistake ? 'They bought a $1,900 ticket where a standby was free.' : undefined);
   }
   return n;
@@ -1039,7 +1085,10 @@ export function ferryAircraft(g: GameState, aircraftId: string, to: string, arri
   if (ac.status !== 'available' || ac.flightId) return { ok: false, error: `${ac.reg} is not free to ferry now` };
   if (ac.at === to) return { ok: false, error: `${ac.reg} is already at ${to}` };
   const blk = emptyBlock(ac.typeId, ac.at, to);
-  const by = arriveBy ?? g.now + BAL.ferryLeadMin + blk + 6 * 60;
+  // v0.12.1 the arrival stays out of a night curfew at `to` (lands before it, or after it ends when that is too soon).
+  const by0 = arriveBy ?? g.now + BAL.ferryLeadMin + blk + 6 * 60;
+  const early = curfewShift(to, by0, 'before');
+  const by = early >= g.now + BAL.ferryLeadMin + blk ? early : arriveBy !== undefined ? early : curfewShift(to, by0, 'after');
   // v0.9 round 4: positioning for a contract (billable on a wet lease) replaces that contract's later same-day legs,
   // once a plan is known to fit (tried on a copy, no cues).
   const old = contractId ? flightsOf(g, aircraftId).filter((f) => f.contractId === contractId && f.kind === 'positioning' && f.status === 'scheduled' && f.std >= by && f.std < by + DAY).map((f) => f.id) : [];

@@ -25,7 +25,8 @@ describe('v0.9 load: heads, achievements, roster planning, stats (UPDATE-0.9.md 
       expect(g.achievements).toBeDefined();
       expect(g.dayPlan).toBeDefined();
       expect(headsView(g).length).toBe(7);
-      expect(achievementsView(g).length).toBe(24);
+      // v0.12.1 25 with Around the world.
+      expect(achievementsView(g).length).toBe(25);
       // At most one message each: achievements earned before, heads available, roster planning changed.
       const titles = g.messages.slice(0, 6).map((m) => m.title);
       expect(titles.filter((t) => /achievements already earned$/.test(t)).length).toBeLessThanOrEqual(1);

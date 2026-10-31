@@ -8,6 +8,7 @@ import type { Flight, GameState, MaintenanceEvent, Minute, Ref } from '../../eng
 import { crewRev, dutyLegality, flightCrewStatus } from '../../engine/crew';
 import { flightType, type FlightType } from '../../engine/ops/flightType';
 import { dryLeaseView } from '../../engine/ops/dryLease';
+import { tourSight } from '../../engine/contracts/missions';
 
 export type ZoomDays = 3 | 7 | 28;
 /** Pixels per hour at each zoom preset when the view width is unknown (the screen fits the preset to the width). */
@@ -91,6 +92,65 @@ export function blockText(b: Pick<GanttBlock, 'kind' | 'label' | 'short' | 'no' 
   if (b.kind === 'flight' && b.route && w >= PAD2 + Math.max(textW(b.no, FS2), textW(b.route, FS2))) return { lines: [b.no, b.route], tag: null };
   if (w >= PAD + textW(b.no, FS)) return { lines: [b.no], tag: null };
   return { lines: fitsShort ? [b.short!] : [], tag: null };
+}
+
+/**
+ * v0.12.1 round D (the player: "it was all clumped together": a positioning block drawn over the next leg, labels
+ * mashed into 'BLU15 FNC'): where each block of a row goes. Blocks that overlap in time (an empty leg planned beside
+ * the leg it duplicates, a check over a flight) take lanes, one above the other, so none is drawn over another; and
+ * each label gets only the room up to the next block's start (less a 4 px gap), so a narrow block drops or shortens its
+ * label instead of spilling into its neighbour. Idle, continuing and band blocks are background: no lane, no limit. Pure.
+ */
+export interface BlockPlace { lane: number; lanes: number; room: number }
+const BACKGROUND = new Set<BlockKind>(['idle', 'cont', 'band', 'pill']);
+export function layoutRow(blocks: GanttBlock[], ppm: number): BlockPlace[] {
+  const out: BlockPlace[] = blocks.map((b) => ({ lane: 0, lanes: 1, room: Math.max(0, (b.end - b.start) * ppm) }));
+  const fg = blocks.map((b, i) => ({ b, i })).filter((x) => !BACKGROUND.has(x.b.kind)).sort((x, y) => x.b.start - y.b.start || x.b.end - y.b.end);
+  // Clusters of blocks that overlap one another; inside one, each block takes the first lane free at its start.
+  let cluster: typeof fg = [];
+  let clusterEnd = -Infinity;
+  const close = () => {
+    const ends: number[] = [];
+    for (const x of cluster) {
+      let lane = ends.findIndex((e) => e <= x.b.start);
+      if (lane < 0) lane = ends.length;
+      ends[lane] = x.b.end;
+      out[x.i].lane = lane;
+    }
+    for (const x of cluster) out[x.i].lanes = Math.max(1, ends.length);
+    cluster = [];
+  };
+  for (const x of fg) {
+    if (cluster.length && x.b.start >= clusterEnd) close();
+    clusterEnd = cluster.length ? Math.max(clusterEnd, x.b.end) : x.b.end;
+    cluster.push(x);
+  }
+  if (cluster.length) close();
+  // Label room: up to the next block in the same lane (or any lane when the rows are shared), less a small gap.
+  for (const x of fg) {
+    const p = out[x.i];
+    let next = Infinity;
+    for (const y of fg) if (y !== x && y.b.start >= x.b.start && y.b.start < next && (y.b.start > x.b.start || y.i > x.i) && out[y.i].lane === p.lane) next = y.b.start;
+    const w = (x.b.end - x.b.start) * ppm;
+    p.room = Math.max(0, Math.min(w, next === Infinity ? w : (next - x.b.start) * ppm - 4));
+  }
+  return out;
+}
+
+/**
+ * v0.12.1 the label colour on a paint block: dark on a light livery (white on a white Corendon fill was unreadable),
+ * light on a dark one. Relative luminance of the fill (sRGB), threshold 0.5. Pure.
+ */
+export function paintInk(fill: string): string {
+  const m = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(fill.trim());
+  if (!m) return '#ffffff';
+  const hex = m[1].length === 3 ? m[1].split('').map((c) => c + c).join('') : m[1];
+  const lin = (i: number) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const l = 0.2126 * lin(0) + 0.7152 * lin(2) + 0.0722 * lin(4);
+  return l > 0.5 ? '#0b1220' : '#ffffff';
 }
 
 /** 'Paint · Saudia' (paint-in), 'Repaint' (strip after full paint), 'Decals off'. */
@@ -203,6 +263,12 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
   const end = Math.max(to, opts.until ?? to);
   for (const gap of idleGaps(busy, g.now, end, ac?.at ?? '')) {
     if (gap.to < from || gap.from > to) continue;
+    // v0.12.1 a gap inside a world tour is the tour: the aircraft and its crew stay at the stop (never 'idle').
+    const tour = tourStay(g, aircraftId, gap.from, gap.to);
+    if (tour) {
+      out.push({ key: `tour-${gap.from}`, kind: 'cont', start: gap.from, end: gap.to, color: tour.color, label: tour.label, short: 'TOUR', refs: [{ kind: 'contract', id: tour.contractId }], at: gap.at });
+      continue;
+    }
     // v0.8: a gap past the generated days of a base programme still running is the programme continuing.
     const cont = continuing(g, aircraftId, gap.from);
     if (cont) {
@@ -233,6 +299,23 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
   }
   const sorted = out.sort((a, b) => a.start - b.start || a.end - b.end);
   return opts.pills ? dayPills(sorted) : sorted;
+}
+
+/**
+ * v0.12.1 the world tour whose stop this ground gap [from, to) is: between two of its legs on this aircraft, the guests
+ * ashore and the crew at the hotel ('Easter Island: 2 nights ashore · Around the world…'). Null otherwise. Pure.
+ */
+export function tourStay(g: GameState, aircraftId: string, from: Minute, to: Minute): { color: number; label: string; contractId: string } | null {
+  for (const c of Object.values(g.contracts)) {
+    if (c.archetype !== 'worldTour' || (c.status !== 'active' && c.status !== 'signed') || !c.aircraftIds.includes(aircraftId) || c.pattern.kind !== 'legs') continue;
+    const legs = [...c.pattern.legs].sort((a, b) => a.dep - b.dep);
+    const i = legs.findIndex((l, k) => k > 0 && l.dep >= to - 6 * 60 && legs[k - 1].dep < from);
+    if (i <= 0) continue;
+    const at = legs[i].from;
+    const nights = Math.max(1, Math.round((to - from) / DAY));
+    return { color: c.color, contractId: c.id, label: `${tourSight(at)}: ${nights} night${nights === 1 ? '' : 's'} ashore · ${c.title}` };
+  }
+  return null;
 }
 
 /** v0.8 the base programme flying on this aircraft whose flights are generated day by day past `t`, if any. */

@@ -7,9 +7,10 @@ import { blockMinutes, typeOf } from '../core/perf';
 import { DAY, localMinuteOfDay } from '../core/time';
 import type { Aircraft, Contract, Flight, GameState, LedgerCat, Minute } from '../core/types';
 import { acceptOffer } from '../contracts';
-import { hamBase, leased, legsOffer, newGame, owned } from '../contracts/testkit';
+import { dubBase, hamBase, leased, legsOffer, newGame, owned } from '../contracts/testkit';
 import { demoFlights } from '../dev';
 import { advanceTo } from '../sim';
+import { moveMaint } from './maintMove';
 import { resolveDecision } from '.';
 import { cancelCheck, checkCostOf, checkStatus, groundGaps, isGrounded, onMaintEnd, onMaintStart, planA, planChecks, scheduleCheck } from './maintenance';
 
@@ -201,8 +202,9 @@ describe('auto-planning', () => {
     calm();
     const g = newGame(8);
     const ac = leased(g);
-    // A dense base (every wave flown): the only long nights are the weekly maintenance nights.
-    const o = hamBase(g, g.now + 2 * DAY, 30, 3);
+    // A dense base (every wave flown): the only long nights are the weekly maintenance nights. v0.12.1 (A7) Dublin:
+    // Hamburg's night ban now trims the third wave, which leaves a night long enough for the check.
+    const o = dubBase(g, g.now + 2 * DAY, 30, 3);
     if (o.pattern.kind === 'base') o.pattern.targetBH = 100_000;
     const c = sign(g, o.id, ac);
     skip(g, c.start + 3 * DAY + 60);
@@ -215,11 +217,11 @@ describe('auto-planning', () => {
     const st = checkStatus(g, ac);
     expect(st.nextA).toBeTruthy();
     const m = g.maintenance[st.nextA!];
-    expect(m.at).toBe('HAM');
+    expect(m.at).toBe('DUB');
     expect(m.start).toBeGreaterThanOrEqual(g.now + BAL.maintNotice);
     expect(m.end).toBeLessThanOrEqual(due);
     const dropped = flightsOf(g, ac.id).filter((f) => f.status === 'cancelled' && f.delayReason === 'A-check');
-    expect(dropped.map((f) => [f.from, f.to])).toEqual([['HAM', 'PMI'], ['PMI', 'HAM']]);
+    expect(dropped.map((f) => [f.from, f.to])).toEqual([['DUB', 'PMI'], ['PMI', 'DUB']]);
     expect(line(g, 'penalties')).toBe(pen0);
     for (const f of live(g, ac)) expect(f.sta <= m.start || f.std >= m.end).toBe(true);
   });
@@ -326,5 +328,22 @@ describe('v0.9 round 4 (audit): heavy check on time, line-station A-checks', () 
     const mh = Object.values(h.maintenance).find((x) => x.aircraftId === ah.id && x.kind === 'A' && x.status === 'planned')!;
     expect(mh.at).toBe(h.company.homeBase);
     expect(mh.cost).toBe(checkCostOf(ah, 'A'));
+  });
+});
+
+describe('v0.12.1 the outstation A-check premium on every booking', () => {
+  it('an A-check booked at a major airport away from base costs +20 %; moving it keeps the price; at base it does not', () => {
+    const g = newGame(23);
+    const ac = owned(g);
+    ac.at = 'MAD';
+    const away = scheduleCheck(g, ac.id, 'A', g.now + 3 * DAY, 'MAD');
+    if (!away.ok) throw new Error(away.error);
+    const m = g.maintenance[away.data!.maintId];
+    const base = Math.round(BAL.checkCost.A[0]);
+    expect(m.cost).toBe(Math.round(base * (1 + BAL.v09.heads.maint.outstation)));
+    const mv = moveMaint(g, m.id, m.start + DAY);
+    if (!mv.ok) throw new Error(mv.error);
+    expect(g.maintenance[mv.data!.maintId].cost).toBe(m.cost);
+    expect(checkCostOf(ac, 'A', g.company.homeBase, g.company.homeBase)).toBe(base);
   });
 });

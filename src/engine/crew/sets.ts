@@ -7,11 +7,13 @@ import { ACMI_TYPES, type RatingFamily } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { isPilot, typeOf } from '../core/perf';
 import { DAY } from '../core/time';
-import type { Aircraft, GameState, Role } from '../core/types';
+import type { Aircraft, Contract, GameState, Role } from '../core/types';
 import { dropClientSeats } from './clientCrew';
-import { conversionClasses } from './conversion';
+import { restOf } from './restPlan';
+import { conversionClasses, ratingsLost } from './conversion';
 import { crewExtraFor, rolesWithExtra } from './extraSeats';
-import { salaryFor } from './generate';
+import { farBase, reserveRoles } from './farBase';
+import { payFor } from './generate';
 import { hireQuote, type HireRequest } from './hr';
 
 export const SET_ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
@@ -103,29 +105,68 @@ export const familyName = (f: RatingFamily) => LABEL[f];
 
 const count = (roles: Role[]) => roles.reduce<Partial<Record<Role, number>>>((m, r) => ((m[r] = (m[r] ?? 0) + 1), m), {});
 
-/** Augmented share of an aircraft's duties over the next 30 days and the most pilots any of them needs (1 → 3 pilots, 2 → 4). */
+/**
+ * Augmented share of an aircraft's duties over the next 30 days and the most pilots any of them needs (1 → 3 pilots, 2 → 4).
+ * v0.12.1 by pairing: a crew whose trip or tour has one augmented duty carries its relief pilots on every duty of it (the
+ * seats are the pairing's), so all its duties count. Seed 4 --b744 --aug: four 747 sets at Jeddah, each with two
+ * captains for its Bangalore days, were counted as 40 % augmented: 7 captains needed for the 8 on station, the tours
+ * short and the legs sub-chartered or cancelled.
+ */
 function augOf(g: GameState, aircraftId: string): { share: number; level: 0 | 1 | 2 } {
   let n = 0;
   let a = 0;
   let level: 0 | 1 | 2 = 0;
   const to = g.now + 30 * DAY;
+  // v0.12.1 a base signed ahead flies its relief pilots on every tour from its first day, but its duties roll in only
+  // 28 days ahead: until then its programme says (rated widebody pilots take 40–60 days to hire; seed 4's 747 at Jeddah
+  // hired its second captains the day the base started).
+  const ac = g.fleet[aircraftId];
+  let based = false;
+  for (const k of Object.values(g.contracts)) {
+    if ((k.status !== 'signed' && k.status !== 'active') || k.pattern.kind !== 'base' || k.end <= g.now || k.start > g.now + WINDOW || !k.aircraftIds.includes(aircraftId) || !ac) continue;
+    const lv = baseAug(g, k, ac);
+    if (lv > level) level = lv;
+    if (lv) based = true;
+  }
   for (const p of Object.values(g.pairings)) {
     if (p.aircraftId !== aircraftId || p.status === 'done' || p.status === 'broken') continue;
+    let k = 0;
+    let lv = 0;
     for (const id of p.dutyIds) {
       const d = g.duties[id];
-      if (!d || d.done || d.report > to) continue;
-      n++;
-      if (d.augment > 0) {
-        a++;
-        if (d.augment > level) level = d.augment as 1 | 2;
-      }
+      if (!d) continue;
+      lv = Math.max(lv, d.augment);
+      if (!d.done && d.report <= to) k++;
+    }
+    n += k;
+    if (lv > 0 && k) {
+      a += k;
+      if (lv > level) level = lv as 1 | 2;
     }
   }
-  return { share: n ? a / n : 0, level };
+  return { share: based ? 1 : n ? a / n : 0, level };
 }
 
 /** The planning window: signed work over the next 60 days shapes each aircraft's crew. */
 const WINDOW = 60 * DAY;
+
+/** v0.12.1 the relief pilots a base programme's longest days need on an aircraft (0–2), memoised per game. */
+const baseAugMemo = new WeakMap<GameState, Map<string, 0 | 1 | 2>>();
+function baseAug(g: GameState, k: Contract, ac: Aircraft): 0 | 1 | 2 {
+  const rest = restOf(g, ac.id);
+  const key = `${k.id}:${ac.id}:${ac.typeId}:${g.company.approvals.includes('augmented')}:${JSON.stringify(rest)}`;
+  let m = baseAugMemo.get(g);
+  if (!m) baseAugMemo.set(g, (m = new Map()));
+  let lv = m.get(key);
+  if (lv === undefined) m.set(key, (lv = programmeAugHook(g, k, ac)));
+  return lv;
+}
+
+/** Hook (contracts/offers.ts: the programme's longest chains through dutyNeed): the relief pilots a contract's days need. */
+let programmeAugHook: (g: GameState, k: Contract, ac: Aircraft) => 0 | 1 | 2 = () => 0;
+export function setProgrammeAugHook(f: typeof programmeAugHook): void {
+  programmeAugHook = f;
+}
 
 /**
  * v0.8 an aircraft away on a dry lease out: from its delivery ferry's departure until the lease ends (status
@@ -175,9 +216,12 @@ function clientSeatsOf(g: GameState, aircraftId: string, roles: Role[]): Partial
  */
 export function familyNeeds(g: GameState) {
   const onStation = new Map<string, number>();
+  // v0.12.1 crew sets on station at a far base, each with its reserve (crew/farBase.ts).
+  const farSets = new Map<string, number>();
   for (const dp of Object.values(g.deployments)) {
     if (dp.end < g.now || dp.start > g.now + WINDOW) continue;
     onStation.set(dp.aircraftId, Math.max(onStation.get(dp.aircraftId) ?? 0, dp.setsOnStation));
+    if (farBase(g.company.homeBase, dp.base, dp.start)) farSets.set(dp.aircraftId, Math.max(farSets.get(dp.aircraftId) ?? 0, dp.setsOnStation));
   }
   // v0.11.2 `full`: the need with the client's cabin crew seats as ours (whole sets for the round-up).
   const fams = new Map<RatingFamily, { aircraft: number; sets: number; need: Partial<Record<Role, number>>; full: Partial<Record<Role, number>>; types: Map<string, TypeSet>; aug: boolean; client: number; dry: number }>();
@@ -226,6 +270,11 @@ export function familyNeeds(g: GameState) {
       }
       f.aug = true;
     }
+    // v0.12.1 a far base's reserve: its roles once per set on station.
+    for (const r of farSets.has(ac.id) ? reserveRoles(ac.typeId) : []) {
+      f.need[r] = (f.need[r] ?? 0) + farSets.get(ac.id)!;
+      f.full[r] = (f.full[r] ?? 0) + farSets.get(ac.id)!;
+    }
     const ts = f.types.get(ac.typeId) ?? { typeId: ac.typeId, short: t.short, aircraft: 0, set: per };
     ts.aircraft++;
     f.types.set(ac.typeId, ts);
@@ -270,7 +319,8 @@ export function crewSupply(g: GameState, fams: Map<RatingFamily, { need: Partial
     for (const id of k.crewIds) {
       const c = g.crew[id];
       if (!c) continue;
-      const lost = k.group === 'pilot' ? (k.course === 'full' ? c.ratings.filter((f) => f !== k.family) : []) : k.drop?.[id] ? [k.drop[id]] : [];
+      // v0.12.1 one rule for what a course ends (a CCQ keeps the old type).
+      const lost = ratingsLost(c, k);
       if (lost.length) losing.set(id, [...(losing.get(id) ?? []), ...lost]);
     }
   }
@@ -506,7 +556,7 @@ export function roundUpQuote(g: GameState, p: FamilyPlan, target: number, cabinT
   for (const m of roundUpRoles(p, target)) {
     const req: HireRequest = isPilot(m.role) ? { role: m.role, family: p.family, base: g.company.homeBase, count: m.count } : { role: m.role, family: p.family, base: g.company.homeBase, count: m.count, families: fams };
     const q = hireQuote(g, req);
-    const payroll = Math.round(salaryFor(m.role, p.family) * m.count * (1 + BAL.onCosts));
+    const payroll = Math.round(payFor(g, m.role, p.family) * m.count * (1 + BAL.onCosts));
     lines.push({ req, cost: q.cost, readyAt: q.readyAt, payroll, beyondPool: q.beyondPool });
   }
   return { lines, cost: lines.reduce((s, l) => s + l.cost, 0), payroll: lines.reduce((s, l) => s + l.payroll, 0) };

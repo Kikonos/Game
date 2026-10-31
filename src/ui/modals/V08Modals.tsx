@@ -230,7 +230,8 @@ export function WorldEventModal({ eventId }: { eventId: string }) {
             })}
           </div>
         )}
-        {!e.flights.length && !e.offers.length && <div className="small dim"><Globe2 className="sc-ico-s" /> None of our flights are affected.</div>}
+        {/* v0.12.1 never "none" next to "N of our legs were affected so far". */}
+        {!e.flights.length && !e.offers.length && <div className="small dim"><Globe2 className="sc-ico-s" /> {e.flightsHit ? 'No more of our flights are affected.' : 'None of our flights are affected.'}</div>}
       </div>
     </Modal>
   );

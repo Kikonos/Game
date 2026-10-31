@@ -39,6 +39,8 @@ export interface PriceInput {
   fuelAtCostBH?: number;
   /** v0.8 a wet product on a legs pattern (Hajj, sub-charter in). */
   wet?: boolean;
+  /** v0.12.1 catering × (a world tour's five-star service); 1 when absent. */
+  cateringX?: number;
 }
 
 /** Archetype multipliers on the reference type's ACMI rate (DESIGN §5.1.2, RESEARCH §3). */
@@ -49,6 +51,8 @@ export const ARCH_MULT: Partial<Record<Archetype, number>> = {
   // v0.8 (UPDATE-0.8.md §2; RESEARCH §3): the builders may override (Hajj in June, presidential, sub-charter in).
   hajj: BAL.v08.arch.hajj[0], unRotation: BAL.v08.arch.un * (1 + BAL.v08.arch.unLong), deportation: BAL.v08.arch.deportation, evacuation: BAL.v08.arch.evacuation,
   medical: BAL.v08.arch.medical, musicTour: BAL.v08.arch.music, antarctic: BAL.v08.arch.antarctic, humanitarian: BAL.v08.arch.humanitarian,
+  // v0.12.1 the builder sets it (BAL.v0121.tour.mult).
+  worldTour: BAL.v0121.tour.mult,
   capacityLease: BAL.v08.arch.capacity, subcharterIn: BAL.v08.arch.subIn[0],
 };
 
@@ -109,7 +113,7 @@ export function priceProduct(g: GameState, p: PriceInput): Product {
   const pass =
     (p.estBH - fac) * t.fuelTBH * g.market.fuelPrice +
     (p.departures ?? 2) * BAL.airportFees[wide ? 1 : 0] +
-    (p.revDepartures ?? 1) * BAL.catering[wide ? 1 : 0] +
+    (p.revDepartures ?? 1) * BAL.catering[wide ? 1 : 0] * (p.cateringX ?? 1) +
     (p.roomNights ?? 0) * hotel +
     (p.crewDays ?? 0) * perDiem +
     (p.tickets ?? 0);
@@ -172,6 +176,16 @@ export function productValue(product: Product, estBH: number, start: Minute, end
   if (mgh <= 0) return Math.round(product.ratePerBH * estBH);
   const excess = Math.max(0, estBH - mgh);
   return Math.round(product.ratePerBH * mgh + product.excessRate * product.ratePerBH * excess);
+}
+
+/**
+ * v0.12.1 a world tour's business-seat bonus on the aircraft that flies it: +0.4 % of the price per business seat above
+ * 16, at most +12 % (the guests buy the front cabin: an A330-300's 24 J +3 %, a 777-300ER's 42 J +10 %). 0 otherwise. Pure.
+ */
+export function tourBizPct(archetype: Archetype, j: number): number {
+  if (archetype !== 'worldTour') return 0;
+  const T = BAL.v0121.tour;
+  return Math.min(T.bizMax, Math.max(0, j - T.bizFromJ) * T.bizPctPerJ);
 }
 
 /** Seats of a type's default cabin. */

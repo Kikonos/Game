@@ -187,6 +187,23 @@ describe('§T Crew Control replaces crew out of hours (fix round 1)', () => {
   });
 });
 
+describe('v0.12.1 (C11) the crew desk says why the crew member comes off', () => {
+  it("a captain gone on leave comes off '(on leave)', not '(out of hours)'", async () => {
+    const { crewControl } = await import('.');
+    const { g, f, d, p, cpt } = trip();
+    const c = g.crew[cpt];
+    c.blocks = [{ from: d.report - 2 * DAY, to: d.report + 5 * DAY, why: 'leave' }];
+    c.status = 'leave';
+    touchCrewState(g);
+    recheckPairing(g, p);
+    g.now = d.report - 8 * 60;
+    const v = crewControl(g, f.id)!;
+    const lines = v.solutions.filter((s) => s.available).flatMap((s) => s.preview.changes).filter((l) => /comes off/.test(l));
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) expect(l).toMatch(/comes off \(on leave\)/);
+  });
+});
+
 describe('Crew Control beside an Auto-fix that replaces crew out of hours (code review)', () => {
   it('Delay is not offered and says Auto-fix crews it on time, never "nobody can take it"', async () => {
     const { crewControl } = await import('.');

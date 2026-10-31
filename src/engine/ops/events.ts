@@ -9,7 +9,8 @@ import type { RatingFamily } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { addFlight, flightsOf, reassignFlights } from '../core/entities';
 import { cashOnly, invoice, post } from '../core/ledger';
-import { pushDecision, pushMessage } from '../core/messages';
+import { pushDecision, pushMessage, setPaceHook } from '../core/messages';
+import { dropPause, isolatePauses } from '../core/pause';
 import { blockMinutes, canFill, complement, reportMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, pick, range } from '../core/rng';
@@ -23,14 +24,16 @@ import { calledNow } from '../crew/standby';
 import { type IssueCode } from '../crew/rules';
 import { dhBlock, OUT_CONNECT, outTicket, segsOf } from '../crew/timeline';
 import { distance } from '../core/geo';
-import { applyHold, cancelCost, cancelLegs, crewBlocked, delayChain, liveOver, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, stationOf, subcharterCost, subcharterLegs, subHit, windowLegs, type SubHit } from './flights';
+import { applyHold, cancelCost, cancelLegs, clientMoved, crewBlocked, delayChain, delayOf, liveOver, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, settleOverlaps, stationOf, subcharterCost, subcharterLegs, subHit, underClosure, unitOf, windowLegs, type SubHit } from './flights';
+import { excusedLate, latePenalty } from './latePolicy';
 import { setAogEnd } from './maintenance';
 import { ticketBlock } from './commercial';
-import { bumpReliable, isRevenue, stats, turnOf, usd } from './util';
+import { bumpReliable, contractOf, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, favourChip, levelOf, statsV08 } from '../contracts/relations';
 import { mghFor } from '../contracts/billing';
-import { cancelForceMajeure, resolveAirspace, resolveUninsurable } from './world';
+import { cancelForceMajeure, closureCause, resolveAirspace, resolveStranded, resolveUninsurable, setFindSwap } from './world';
 import { optionalFactor } from './director';
+import { resolveTourStop } from './tourStop';
 
 type Data = Record<string, string | number | boolean>;
 const num = (d: Data | undefined, k: string) => Number(d?.[k] ?? 0);
@@ -65,6 +68,8 @@ const CAT: Record<string, MessageCat> = {
   aog: 'tech', crewShort: 'crew', sickCrew: 'crew', latePayment: 'finance', rescue: 'finance', changeRequest: 'commercial', leaseEnd: 'company',
   // v0.8
   clientFee: 'commercial', airspace: 'ops', uninsurable: 'ops',
+  // v0.12.1
+  stranded: 'ops',
   // v0.11
   sickAway: 'crew', birdStrike: 'tech',
 };
@@ -118,8 +123,22 @@ export function paceDecisions(g: GameState): void {
     }
     g.decisions.splice(g.decisions.indexOf(d), 1);
     autoApply(g, d);
+    // v0.12.1 its pause request goes with it, unless another card posted this minute still wants the clock stopped.
+    if (!g.decisions.some((x) => x.t === g.now)) dropPause('decision');
   }
 }
+
+// v0.12.1 the same budget, applied the moment a decision is posted straight to the inbox (messages.ts pushDecision):
+// over it, the default is applied before any chime, toast or pause.
+setPaceHook((g, d) => {
+  d.data = { ...d.data, paced: true };
+  if (g.decisions.length < BAL.maxOpenDecisions && recentAsks(g).length < BAL.maxDecisionsWeek - 1) {
+    recentAsks(g).push(d.t);
+    return false;
+  }
+  autoApply(g, d);
+  return true;
+});
 
 // ---------- AOG ----------
 
@@ -160,6 +179,8 @@ function findSwap(g: GameState, ac: Aircraft, legs: Flight[], at: string): Swap 
   return best;
 }
 
+setFindSwap(findSwap);
+
 const holdChips = (g: GameState, h: ReturnType<typeof planHold>): string[] => {
   const n = revCount(h.cancels);
   return n ? [`${plural(n, 'leg')} cancelled`, usd(-cancelCost(g, h.cancels))] : h.moves.length ? [`${plural(h.moves.length, 'leg')} delayed`] : [];
@@ -181,8 +202,9 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
   const swap = findSwap(g, ac, win, m.at);
   const hrs = (t: Minute) => `~${fmtDuration(t - g.now)}`;
   const options: DecisionOption[] = [
-    { id: 'courier', label: 'Wait for the part', desc: `A spare comes by courier. Legs wait; base legs held over ${BAL.holdMax / 60} h are cancelled.`, tone: 'warn', chips: [hrs(m.end), usd(-m.cost), ...holdChips(g, holdC)] },
-    { id: 'team', label: 'Fly in an AOG team', desc: 'Engineers and the part on the next flight: faster, dearer.', tone: 'warn', chips: [hrs(teamEnd), usd(-(m.cost + teamCost)), ...holdChips(g, holdT)] },
+    // v0.12.1 the repair is paid whatever we choose (said once in the body): the chips show only what each option adds.
+    { id: 'courier', label: 'Wait for the part', desc: `A spare comes by courier. Legs wait; base legs held over ${BAL.holdMax / 60} h are cancelled.`, tone: 'warn', chips: [hrs(m.end), ...holdChips(g, holdC)] },
+    { id: 'team', label: 'Fly in an AOG team', desc: 'Engineers and the part on the next flight: faster, dearer.', tone: 'warn', chips: [hrs(teamEnd), `Team ${usd(-teamCost)}`, ...holdChips(g, holdT)] },
     swap
       ? { id: 'swap', label: `Swap in ${swap.ac.reg}`, desc: swap.from === m.at ? `${swap.ac.reg} is here and free: it takes over the legs.` : `${swap.ac.reg} ferries ${swap.from}–${m.at} and takes over the legs.`, tone: 'good', chips: [swap.from === m.at ? 'No ferry' : `Ferry ${fmtDuration(blockMinutes(swap.ac.typeId, swap.from, m.at))}`, `First leg ${fmtTime(swap.moves[0]?.std ?? swap.arrive)} UTC`, legsChip(win)] }
       : { id: 'swap', label: 'Swap aircraft', desc: 'No other aircraft of this type is free to take over now.', tone: 'bad', chips: ['Unavailable'] },
@@ -194,10 +216,16 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
   const def = waitPen > 0 && sub < waitPen ? 'subcharter' : 'courier';
   ask(g, {
     kind: 'aog', title: `AOG: ${ac.reg} at ${city(m.at)}`,
-    body: `${m.cause}. ${f.no} ${f.from}–${f.to} can't leave. With a part by courier the aircraft is back in about ${Math.round((m.end - g.now) / 60)} h.`,
+    body: `${m.cause}. ${f.no} ${f.from}–${f.to} can't leave. With a part by courier the aircraft is back in about ${Math.round((m.end - g.now) / 60)} h. The repair costs about ${usd(m.cost)} whichever you choose.`,
     options, defaultOption: def, expires: g.now + BAL.aogDecisionMin, ref: { kind: 'aircraft', id: ac.id },
-    data: { aircraftId: ac.id, maintId: m.id, flightId: f.id, teamEnd, teamCost, factor, rivalId },
+    data: { aircraftId: ac.id, maintId: m.id, flightId: f.id, teamEnd, teamCost, factor, rivalId, cutC: revCount(holdC.cancels), cutT: revCount(holdT.cancels) },
   }, true);
+}
+
+/** v0.12.1 the card's count of cancelled legs no longer holds (the schedule changed since): the result says what happened. */
+function changedText(n: number, data: Data | undefined, key: string): string {
+  if (data?.[key] === undefined || num(data, key) === n) return '';
+  return n ? `. ${plural(n, 'leg')} cancelled after all (the card said ${num(data, key)})` : `. No leg had to be cancelled (the card said ${num(data, key)})`;
 }
 
 function resolveAog(g: GameState, d: Decision, opt: string): ActionResult {
@@ -206,16 +234,22 @@ function resolveAog(g: GameState, d: Decision, opt: string): ActionResult {
   if (!ac || !m || m.status !== 'inWork') return { ok: true, msg: 'The aircraft is already fixed' };
   const fix = () => m.end + 30;
   switch (opt) {
-    case 'courier':
+    case 'courier': {
       m.fix = 'courier';
-      applyHold(g, planHold(g, ac, m.at, fix()), 'AOG: waiting for parts');
-      return { ok: true, msg: `${ac.reg}: part on its way, back about ${fmtDateTime(m.end)}` };
-    case 'team':
+      const h = planHold(g, ac, m.at, fix());
+      const said = changedText(revCount(h.cancels), d.data, 'cutC');
+      applyHold(g, h, 'AOG: waiting for parts');
+      return { ok: true, msg: `${ac.reg}: part on its way, back about ${fmtDateTime(m.end)}${said}` };
+    }
+    case 'team': {
       m.fix = 'team';
       setAogEnd(g, m, num(d.data, 'teamEnd'));
       m.cost += num(d.data, 'teamCost');
-      applyHold(g, planHold(g, ac, m.at, fix()), 'AOG: engineering team');
-      return { ok: true, msg: `AOG team flying to ${city(m.at)}, ${ac.reg} back about ${fmtDateTime(m.end)}` };
+      const h = planHold(g, ac, m.at, fix());
+      const said = changedText(revCount(h.cancels), d.data, 'cutT');
+      applyHold(g, h, 'AOG: engineering team');
+      return { ok: true, msg: `AOG team flying to ${city(m.at)}, ${ac.reg} back about ${fmtDateTime(m.end)}${said}` };
+    }
     case 'swap': {
       const win = windowLegs(g, ac, m.at, fix());
       const sw = findSwap(g, ac, win, m.at);
@@ -405,6 +439,7 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
   const later = planRecovery(g, ac, f.from, ready, Math.min(f.std, g.now));
   const sub = subcharterCost(g, legs, factor);
   const pen = cancelCost(g, legs);
+  const fm = closureCause(g, f);
   // v0.7.1: the options read as Crew Control's solutions (the engine's pick, delay, jet, sub-charter, cancel).
   const view = crewControl(g, f.id);
   const avail = view ? view.solutions.filter((s) => s.available) : [];
@@ -420,7 +455,10 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
         tone: 'warn', chips: [`Delay ~${fmtDuration(wait)}`, ...holdChips(g, later)],
       };
     }
-    if (id === 'cancel' && !s) return { id, label: 'Cancel the trip', desc: 'Compensation and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legsChip(legs)] };
+    // v0.12.1 (Goma) a closure keeps crew out (or bars the leg): cancelling is force majeure.
+    if (id === 'cancel' && !s) return fm
+      ? { id, label: 'Cancel the trip', desc: `Force majeure (${fm.title}): no compensation and no reliability hit.`, tone: 'bad', chips: ['Force majeure', legsChip(legs)] }
+      : { id, label: 'Cancel the trip', desc: 'Compensation and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legsChip(legs)] };
     return { id, label: s!.label, desc: s!.desc, tone: tone(id), chips: s!.chips.length ? s!.chips : id === 'delay' ? [`Delay ~${fmtDuration(wait)}`, ...holdChips(g, later)] : [] };
   });
   if (canDisc && !options.some((o) => o.id === 'discretion')) options.splice(1, 0, { id: 'discretion', label: "Commander's discretion", desc: `The captain extends the duty by ${fmtDuration(over)} (up to 2 h, 3 h with an augmented crew).`, tone: 'warn', chips: ['Morale −3', `FDP +${fmtDuration(over)}`] });
@@ -467,7 +505,8 @@ function waitForCrew(g: GameState, f: Flight, ac: Aircraft): boolean {
   let t = crewReadyAt(g, f, ac);
   for (let i = 0; i < 2; i++) {
     // The first wait is the player's (its chips showed what it drops); on a second, ops sub-charter dropped waves when cheaper.
-    delayChain(g, f, t, 'Waiting for a legal crew', true, i > 0);
+    // v0.12.1 (Goma) at an airport a closure keeps crew out of, what the wait drops is force majeure.
+    underClosure(g, f, () => delayChain(g, f, t, 'Waiting for a legal crew', true, i > 0));
     rerosterFrom(g, ac.id, g.now);
     if (f.status !== 'scheduled' || !crewBlocked(g, f)) return true;
     const next = crewReadyAt(g, f, ac);
@@ -507,8 +546,8 @@ function resolveCrewShort(g: GameState, d: Decision, opt: string): ActionResult 
     case 'cancel': {
       const r = applyCrewFix(g, f.id, 'cancel', { confirmed: true });
       if (r.ok) return { ok: true, msg: r.msg };
-      const pen = cancelLegs(g, legs, 'Crew shortage', 3);
-      return { ok: true, msg: `${plural(revCount(legs), 'leg')} cancelled, ${usd(pen)} compensation` };
+      const pen = underClosure(g, f, () => cancelLegs(g, legs, 'Crew shortage', 3));
+      return { ok: true, msg: `${plural(revCount(legs), 'leg')} cancelled, ${pen ? `${usd(pen)} compensation` : 'no compensation'}` };
     }
     case 'autoFix':
     case 'deadhead':
@@ -728,10 +767,15 @@ function extraRotation(g: GameState, c: Contract): boolean {
 }
 
 function retimeRequest(g: GameState, c: Contract): boolean {
-  const f = Object.values(g.flights)
-    .filter((x) => x.contractId === c.id && x.status === 'scheduled' && x.kind === 'revenue' && x.aircraftId && x.std >= g.now + 2 * DAY)
-    .sort((a, b) => a.std - b.std)[0];
-  if (!f) return false;
+  // v0.12.1 a leg they have not already moved, nor one with a request open, 2–10 days out, picked on a side stream
+  // (the same flight was asked again four days later and the retimes stacked).
+  const asked = new Set(g.decisions.filter((d) => d.kind === 'changeRequest').map((d) => str(d.data, 'flightId')));
+  const pool = Object.values(g.flights)
+    .filter((x) => x.contractId === c.id && x.status === 'scheduled' && x.kind === 'revenue' && x.aircraftId && x.std >= g.now + 2 * DAY && x.std <= g.now + 10 * DAY)
+    .filter((x) => !x.asked && !x.delayReason?.startsWith("Client's request") && !asked.has(x.id))
+    .sort((a, b) => a.std - b.std || a.id.localeCompare(b.id));
+  if (!pool.length) return false;
+  const f = pick({ rng: hash(`${g.seed}:retime:${c.id}:${Math.floor(g.now / DAY)}`) | 0 }, pool);
   const min = pick(g, [60, 90, 120, 180]);
   const fee = int(g, 15, 50) * 100;
   const cl = g.clients[c.clientId];
@@ -741,11 +785,15 @@ function retimeRequest(g: GameState, c: Contract): boolean {
   const over = !!d && d.fdp + min > lim;
   const tight = !!d && !over && d.fdp + min > lim - 30;
   const duty = d ? (over ? `Crew duty over its limit: a fresh crew` : `Crew duty ${fmtDuration(d.fdp + min)} of ${fmtDuration(lim)}`) : 'Crew re-rostered';
+  // v0.12.1 the knock-on, said up front: their own later legs move at no cost to us, other clients' legs are our delay.
+  const knock = retimeKnockOn(g, c, f, min);
+  const pen = knock.reduce((n, k) => n + (k.own ? 0 : k.pen), 0);
+  const knockText = knockLine(knock, cl?.name ?? 'the client');
   ask(g, {
     kind: 'changeRequest', title: `${cl?.name ?? 'Client'} wants to move ${f.no}`,
     body: `${f.from}–${f.to} on ${fmtDay(f.std)}: depart ${fmtDuration(min)} later (${fmtTime(f.std + min, f.from)} local) for a late group. They pay a change fee; later legs move with it.`,
     options: [
-      { id: 'accept', label: 'Agree', desc: over ? "The crew's duty would run past its limit: the roster swaps in a fresh crew, if one is free." : 'Later legs of the aircraft shift if needed. A favour they remember.', tone: over || tight ? 'warn' : 'good', chips: [`+${usd(fee)}`, `+${fmtDuration(min)}`, duty, `Relation +${BAL.v08.rel.retime}`, favourChip(g, c.clientId, BAL.v08.rel.retime)] },
+      { id: 'accept', label: 'Agree', desc: `${knockText ? `${knockText} ` : ''}${over ? "The crew's duty would run past its limit: the roster swaps in a fresh crew, if one is free." : 'A favour they remember.'}`, tone: over || tight || pen ? 'warn' : 'good', chips: [`+${usd(fee)}`, `+${fmtDuration(min)}`, ...(pen ? [`${usd(-pen)} penalty on other clients' legs`] : []), duty, `Relation +${BAL.v08.rel.retime}`, favourChip(g, c.clientId, BAL.v08.rel.retime)] },
       { id: 'decline', label: 'Decline', desc: 'Keep the schedule; the client notes it.', chips: [`Relation ${BAL.v08.rel.decline}`] },
     ],
     defaultOption: over ? 'decline' : 'accept', expires: g.now + DAY, ref: { kind: 'flight', id: f.id },
@@ -754,8 +802,76 @@ function retimeRequest(g: GameState, c: Contract): boolean {
   return true;
 }
 
+/** v0.12.1 a leg a client's change request moves: theirs (`own`: no penalty, their request) or another client's (our delay). */
+export interface KnockOn { id: string; no: string; client: string; own: boolean; late: number; pen: number; cancelled?: boolean }
+
+/**
+ * v0.12.1 Moves `f` `min` later at the client's request and ripples the aircraft's later legs as before. Every leg of the
+ * same client it moves (this contract or another of theirs) is re-based: its schedule moves with the request, so the
+ * lateness is theirs (no delay penalty or compensation, no on-time or reliability hit) and it reads "Client's request".
+ * Other clients' legs it pushes keep their schedule and read 'Late inbound aircraft': those delays are ours, as before.
+ * Returns the revenue legs it moved besides f.
+ */
+export function moveForClient(g: GameState, c: Contract, f: Flight, min: number): KnockOn[] {
+  const name = g.clients[c.clientId]?.name ?? 'the client';
+  const before = new Map<string, Minute>();
+  for (const x of f.aircraftId ? flightsOf(g, f.aircraftId) : [f]) if (x.status === 'scheduled') before.set(x.id, x.std + x.delay);
+  delayChain(g, f, f.std + f.delay + min, `Client's request (${name})`);
+  const out: KnockOn[] = [];
+  for (const [id, t0] of before) {
+    const x = g.flights[id];
+    if (!x) continue;
+    const k = contractOf(g, x);
+    const own = x === f || (!!k && k.clientId === c.clientId);
+    const who = k ? g.clients[k.clientId]?.name ?? 'a client' : '';
+    if (x.status === 'cancelled') {
+      if (isRevenue(x)) out.push({ id, no: x.no, client: who, own, late: 0, pen: 0, cancelled: true });
+      continue;
+    }
+    const shift = x.status === 'scheduled' ? x.std + x.delay - t0 : 0;
+    if (shift <= 0) continue;
+    if (own) clientMoved(x, shift, name);
+    else if (x.delayReason?.startsWith("Client's request")) x.delayReason = 'Late inbound aircraft';
+    if (x === f || !isRevenue(x)) continue;
+    const late = delayOf(x);
+    // v0.12.1 the late-leg rule in one place (latePolicy): not ours, or within the limit, costs nothing.
+    const pen = own || !k ? 0 : latePenalty(k, x, excusedLate(x)).money;
+    out.push({ id, no: x.no, client: who, own, late: own ? shift : late, pen });
+  }
+  return out;
+}
+
+/** v0.12.1 the knock-on of a change request, tried on a copy (no cue or pause reaches the game). Pure. */
+export function retimeKnockOn(g: GameState, c: Contract, f: Flight, min: number): KnockOn[] {
+  return isolatePauses(() => {
+    const h = structuredClone(g);
+    const hf = h.flights[f.id];
+    const hc = h.contracts[c.id];
+    return hf && hc ? moveForClient(h, hc, hf, min) : [];
+  });
+}
+
+/** v0.12.1 'Moving it later also delays BLU1202 of Corendon (their request: no penalty) and BLU1310 of TUI (up to 3h 10m late: $6K penalty).' */
+export function knockLine(ks: KnockOn[], client: string): string {
+  const nos = (xs: KnockOn[]) => `${[...new Set(xs.map((k) => k.no))].slice(0, 3).join(', ')}${new Set(xs.map((k) => k.no)).size > 3 ? ' and more' : ''}`;
+  const parts: string[] = [];
+  const own = ks.filter((k) => k.own && !k.cancelled);
+  if (own.length) parts.push(`${nos(own)} of ${client} (their request: no penalty)`);
+  const byClient = new Map<string, KnockOn[]>();
+  for (const k of ks) if (!k.own && !k.cancelled) byClient.set(k.client, [...(byClient.get(k.client) ?? []), k]);
+  for (const [who, xs] of byClient) {
+    const pen = xs.reduce((n, k) => n + k.pen, 0);
+    parts.push(`${nos(xs)} of ${who} (up to ${fmtDuration(Math.max(...xs.map((k) => k.late)))} late: ${pen ? `${usd(pen)} penalty` : 'our delay, no penalty under 3 h'})`);
+  }
+  const lost = ks.filter((k) => k.cancelled);
+  const out = parts.length ? `Moving it later also delays ${parts.slice(0, -1).join(', ')}${parts.length > 1 ? ' and ' : ''}${parts[parts.length - 1]}.` : '';
+  return `${out}${lost.length ? `${out ? ' ' : ''}${nos(lost)} would be cancelled.` : ''}`;
+}
+
 /** A client change request for this contract: an extra rotation on a base programme, a later departure on a trip. */
 export function changeRequestFor(g: GameState, c: Contract): boolean {
+  // v0.12.1 never on a world tour: its hotels, guides and the guests' days ashore are booked months ahead.
+  if (c.archetype === 'worldTour') return false;
   return c.pattern.kind === 'base' ? extraRotation(g, c) : retimeRequest(g, c);
 }
 
@@ -770,11 +886,11 @@ function resolveChange(g: GameState, d: Decision, opt: string): ActionResult {
   if (str(d.data, 'kind') === 'retime') {
     const f = g.flights[str(d.data, 'flightId')];
     if (!f || f.status !== 'scheduled') return { ok: true, msg: 'The flight has already left' };
-    // v0.9 round 3: lateness the client asked for never counts against the recovery's cap (it dropped their own legs).
-    f.lateOk = Math.max(f.lateOk ?? 0, f.std + num(d.data, 'minutes') - (f.schedStd ?? f.std));
-    delayChain(g, f, f.std + num(d.data, 'minutes'), 'Client request');
+    const knock = moveForClient(g, c, f, num(d.data, 'minutes'));
     post(g, 'otherRevenue', num(d.data, 'fee'));
     bumpClient(g, c.clientId, BAL.v08.rel.retime, `Moved ${f.no} as they asked`);
+    const line = knockLine(knock, g.clients[c.clientId]?.name ?? 'the client');
+    if (line) pushMessage(g, { tone: knock.some((k) => !k.own) ? 'warn' : 'info', cat: 'ops', title: `${f.no} moved at ${g.clients[c.clientId]?.name ?? 'the client'}'s request`, body: line, ref: { kind: 'flight', id: f.id } });
     return { ok: true, msg: `${f.no} moved to ${fmtTime(f.std)} UTC` };
   }
   const ac = g.fleet[str(d.data, 'aircraftId')];
@@ -866,7 +982,9 @@ export function seasonNudge(g: GameState): boolean {
 /**
  * A Known+ client cancels a rotation within 12 h (its slot, crew or passenger problem) or moves a charter a day;
  * the contract allows a late-change fee: bill it (relation −1) or waive it (+4, default for Trusted and Partner).
- * The legs go as force majeure (off the month's MGH, no reliability effect).
+ * v0.12.1 their cancellation is theirs: no compensation and no reliability effect, and the hours they guaranteed stay
+ * on the month's MGH (they still pay them; the invoice never says "we cancelled"). A moved charter moves alone:
+ * that trip, not the rest of the series.
  */
 export function clientFeeFor(g: GameState, c: Contract): boolean {
   const cl = g.clients[c.clientId];
@@ -888,16 +1006,29 @@ export function clientFeeFor(g: GameState, c: Contract): boolean {
     if (!f || !back) return false;
     legs = [f, back];
     what = `cancels ${f.no}/${back.no.slice(-2)} ${f.from}–${f.to}–${back.to}`;
-    cancelForceMajeure(g, legs, `${cl.name} cancelled`);
+    cancelForceMajeure(g, legs, `${cl.name} cancelled`, { client: true });
   } else {
     const f = mine.find((x) => x.std > g.now + 2 * DAY && x.std <= g.now + 10 * DAY);
-    if (!f) return false;
-    legs = mine.filter((x) => x.std >= f.std);
-    what = `moves ${f.no} ${f.from}–${f.to} by a day`;
+    const fac = f?.aircraftId ? g.fleet[f.aircraftId] : undefined;
+    if (!f || !fac) return false;
+    // v0.12.1 the trip f starts (its legs of this job until the aircraft is back), not every later leg of the series.
+    legs = unitOf(g, fac, f).filter((x) => x.contractId === c.id && isRevenue(x));
+    if (!legs.includes(f)) legs = [f];
+    const nos = legs.length > 1 ? `${f.no}–${legs[legs.length - 1].no.slice(-2)} ${[f.from, ...legs.map((x) => x.to)].join('–')}` : `${f.no} ${f.from}–${f.to}`;
+    what = `moves ${nos} by a day`;
+    const before = new Map(flightsOf(g, fac.id).filter((x) => x.status === 'scheduled').map((x) => [x, x.std] as const));
     for (const x of [...legs].reverse()) {
       // v0.9 round 3: the day the client moved it is not lateness of ours (recovery's cap counts on top of it).
-      x.lateOk = Math.max(x.lateOk ?? 0, x.std + DAY - (x.schedStd ?? x.std));
+      // v0.12.1 nor a delay we pay for: the schedule moves with it (it paid the delay penalty at departure).
       moveFlight(g, x, x.std + DAY, 'Client request');
+      clientMoved(x, DAY, cl.name);
+    }
+    // v0.12.1 a leg the moved trip now runs into follows it; theirs re-based like the trip, another client's is our delay.
+    settleOverlaps(g, fac);
+    for (const [x, std] of before) {
+      if (legs.includes(x) || x.std <= std) continue;
+      const k = contractOf(g, x);
+      if (k?.clientId === c.clientId) clientMoved(x, x.std - std, cl.name);
     }
   }
   const why = pick(r, ['their crew shortage', 'a slot problem at their end', 'their passengers were rebooked', 'a change in their programme']);
@@ -933,7 +1064,8 @@ function resolveClientFee(g: GameState, d: Decision, opt: string): ActionResult 
 
 function clientFees(g: GameState): void {
   for (const c of Object.values(g.contracts)) {
-    if (c.status !== 'active' || c.dry || !chance({ rng: hash(`${g.seed}:feeday:${c.id}:${Math.floor(g.now / DAY)}`) | 0 }, (BAL.v08.rel.clientFeeWeekly / 7) * optionalFactor(g))) continue;
+    // v0.12.1 nor a day's move of a world tour (changeRequestFor).
+    if (c.status !== 'active' || c.dry || c.archetype === 'worldTour' || !chance({ rng: hash(`${g.seed}:feeday:${c.id}:${Math.floor(g.now / DAY)}`) | 0 }, (BAL.v08.rel.clientFeeWeekly / 7) * optionalFactor(g))) continue;
     clientFeeFor(g, c);
   }
 }
@@ -962,6 +1094,10 @@ const RESOLVERS: Record<string, Resolver> = {
   // v0.8: closed airspace (wait / cancel), war-risk cover withdrawn, a client's late change (bill / waive the fee).
   airspace: (g, d, opt) => resolveAirspace(g, d, opt),
   uninsurable: (g, d, opt) => resolveUninsurable(g, d, opt),
+  // v0.12.1 an aircraft held by a closure that a later job needs (sub-charter, swap or cancel those legs).
+  stranded: (g, d, opt) => resolveStranded(g, d, opt),
+  // v0.12.1 a world tour's stop closed: another stop, or skip it (ops/tourStop.ts).
+  tourStop: (g, d, opt) => resolveTourStop(g, d, opt),
   clientFee: (g, d, opt) => resolveClientFee(g, d, opt),
 };
 

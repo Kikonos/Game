@@ -13,14 +13,15 @@ import { cardMeta, offerFitCard } from '../problems';
 import { requestPause } from '../core/pause';
 import { blockMinutes, complement, etopsNeeded, planSector, typeOf } from '../core/perf';
 import { dutyNeed } from '../crew/duties';
-import { bunksFor, seatRest } from '../crew/restPlan';
+import { bunksFor, restOf, seatRest } from '../crew/restPlan';
+import { setProgrammeAugHook } from '../crew/sets';
 import { bestSlip, slipCost, type SlipPlan } from '../crew/slip';
 import { cabinPresets } from '../../data/cabins';
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
 import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, localMinuteOfDay, toDate, toLocal } from '../core/time';
 import type {
-  AcRest, ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent,
+  AcRest, ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent, WorldEvent,
 } from '../core/types';
 import { acceptOffer, closeOffer, setPrice } from './accept';
 import { isCallOffer } from './call';
@@ -30,12 +31,14 @@ import { adhocGroupClients, clientPrefix, clientsOf, isBigClub, isCruiseLine, is
 import * as F from './flavor';
 import { paintTermsText, rollPaint, sideRng } from './paintTerms';
 import { cabinTarget, cabinTermsText, rollCabin } from './cabinTerms';
-import { anchorsOf, computeWaves, localToUTC, maxPax, programmeOf, route, routeMinutes, seatNeed, type ChainShape } from './plan';
+import { anchorsOf, computeWaves, flownRotations, localToUTC, longestChains, maxPax, programmeOf, route, routeMinutes, seatNeed, type ChainShape } from './plan';
 export { maxPax, seatNeed };
 import { ARCH_MULT, defaultSeats, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
-import { inWarZone, warRiskLandings } from '../ops/world';
+import { closedAirport, closedUntil, closurePlanned, inWarZone, permitEvent, setClosureOfferHook, warRiskLandings } from '../ops/world';
+import { setClosurePlannedHook, setOpenFromHook } from './schedule';
+import { curfewOk, curfewShift } from '../core/curfew';
 import type { HajjDates } from '../../data/worldCalendar';
 import { demandFactor } from '../ops/market';
 import { afterOfferDays, isQuiet } from '../ops/director';
@@ -240,8 +243,15 @@ export function pickN<T>(g: GameState, xs: T[], n: number, weight: (x: T) => num
   return out;
 }
 
-export function airportsWithin(from: string, minKm: number, maxKm: number, pred: (a: Airport) => boolean): Airport[] {
-  return AIRPORTS.filter((a) => a.code !== from && !a.enroute && a.runwayM >= 2000 && pred(a) && km(from, a.code) >= minKm && km(from, a.code) <= maxKm);
+/**
+ * v0.12.1 a remote destination's weight in a pool that admits them (a rare pick). A later 'world tour' job can draw
+ * on them directly: AIRPORTS.filter((a) => a.remote), widebody-capable where !a.narrow.
+ */
+export const REMOTE_PULL = 0.25;
+
+/** v0.12.1 `remote`: also the remote, late-game destinations (Airport.remote), which the usual pools leave out. */
+export function airportsWithin(from: string, minKm: number, maxKm: number, pred: (a: Airport) => boolean, remote = false): Airport[] {
+  return AIRPORTS.filter((a) => a.code !== from && !a.enroute && (remote || !a.remote) && a.runwayM >= 2000 && pred(a) && km(from, a.code) >= minKm && km(from, a.code) <= maxKm);
 }
 
 /** v0.8 a destination an airline client would really send our aircraft to: never a war zone, inside its market when listed. Pure. */
@@ -514,12 +524,40 @@ const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${St
 function oddWaves(g: GameState, base: string, dests: string[], ref: string, waves: number[]): number[] {
   const r = sideRng(g, `oddw:${g.seq}:${g.now}`);
   const shift = 360 - (300 + 5 * int(r, 0, 6));
-  const out = waves.map((w) => w - shift);
   const turn = typeOf(ref).turnMin;
+  // v0.12.1 a wave flies only outside the night curfews at both ends (out, the turn, back), strict.
+  const day = g.now + 7 * DAY;
+  const clear = (local: number) => dests.every((d) => {
+    const dep = atLocal(base, day, local), arr = dep + blockMinutes(ref, base, d), back = arr + turn, home = back + blockMinutes(ref, d, base);
+    return curfewOk(base, dep) && curfewOk(d, arr) && curfewOk(d, back) && curfewOk(base, home);
+  });
+  const early = waves.map((w) => w - shift);
+  const out = clear(early[0]) ? early : [...waves];
   const rot = Math.max(...dests.map((d) => blockMinutes(ref, base, d) + turn + blockMinutes(ref, d, base)));
   const late = 1380 + 5 * int(r, 0, 9);
   // The late rotation must be back and turned before the next morning's first wave.
-  if (out[out.length - 1] + rot + turn <= late && late + rot + turn <= out[0] + 1440) out.push(late);
+  if (out[out.length - 1] + rot + turn <= late && late + rot + turn <= out[0] + 1440 && clear(late)) out.push(late);
+  return out;
+}
+
+/**
+ * v0.12.1 job legs out of the night curfews (strict) at both ends: a leg that would leave or land inside one moves to
+ * the nearest legal time, earlier or later, when that still leaves a turn on either side. Pure.
+ */
+function curfewLegs(legs: LegTemplate[], ref: string): LegTemplate[] {
+  const turn = typeOf(ref).turnMin;
+  const out = legs.map((l) => ({ ...l }));
+  for (let i = 0; i < out.length; i++) {
+    const l = out[i];
+    const block = blockMinutes(ref, l.from, l.to);
+    if (curfewOk(l.from, l.dep) && curfewOk(l.to, l.dep + block)) continue;
+    const before = Math.floor(Math.min(curfewShift(l.from, l.dep, 'before'), curfewShift(l.to, l.dep + block, 'before') - block) / 5) * 5;
+    const after = Math.ceil(Math.max(curfewShift(l.from, l.dep, 'after'), curfewShift(l.to, l.dep + block, 'after') - block) / 5) * 5;
+    const prev = out[i - 1], next = out[i + 1];
+    const fits = (t: number) => curfewOk(l.from, t) && curfewOk(l.to, t + block) && (!prev || t >= prev.dep + blockMinutes(ref, prev.from, prev.to) + turn) && (!next || t + block + turn <= next.dep);
+    const pick = [before, after].filter(fits).sort((a, b) => Math.abs(a - l.dep) - Math.abs(b - l.dep))[0];
+    if (pick !== undefined) l.dep = pick;
+  }
   return out;
 }
 
@@ -567,7 +605,7 @@ function adhoc(ctx: Ctx): Draft | null {
     if (!shrine || back < 2) return null;
     legs = roundTrip(g, from, shrine.code, s, back, pax);
     title = `Pilgrimage ${city(from)}–${shrine.place}`;
-    blurb = `${client.name} is bringing a parish group from ${city(from)} to ${shrine.place}, ${shrine.note}. Out ${fmtDay(legs[0].dep)}, home ${back} days later.`;
+    blurb = `${client.name} is bringing a parish group from ${city(from)} to ${shrine.place}, ${shrine.note}. Out ${fmtDay(legs[0].dep)}, home ${F.later(back)}.`;
   } else if (variant === 'music') {
     client = nearClient(ctx, clientsOf(g, ['music']));
     if (!client || maxBack < 7) return null;
@@ -617,10 +655,12 @@ function adhoc(ctx: Ctx): Draft | null {
     client = nearClient(ctx, adhocGroupClients(g, group));
     if (!client) return null;
     if (group.pax && !wide) pax = int(g, ...group.pax);
+    // v0.12.1 once we are Respected, a leisure group now and then picks a remote place (Easter Island, Svalbard…).
+    const far = standingOf(g) >= 2 && group.dest === 'leisure';
     const pool = wide
-      ? airportsWithin(client.base, 5000, 9000, (a) => a.tour >= 0.7 && F.groupDestOk(group, a))
-      : airportsWithin(client.base, 600, 3500, (a) => (a.tour >= 0.6 || a.size >= 4 || !!group.dests) && F.groupDestOk(group, a));
-    const dest = o.airport ?? weightedPick(g, pool, (a) => a.tour + (standingOf(g) === 0 ? (6 - a.size) / 5 : a.size / 5))?.code;
+      ? airportsWithin(client.base, 5000, 9000, (a) => a.tour >= 0.7 && F.groupDestOk(group, a), far)
+      : airportsWithin(client.base, 600, 3500, (a) => (a.tour >= 0.6 || a.size >= 4 || !!group.dests) && F.groupDestOk(group, a), far);
+    const dest = o.airport ?? weightedPick(g, pool, (a) => (a.tour + (standingOf(g) === 0 ? (6 - a.size) / 5 : a.size / 5)) * (a.remote ? REMOTE_PULL : 1))?.code;
     if (!dest) return null;
     const oneWay = chance(g, 0.2) || maxBack < 1;
     const back = Math.max(1, Math.min(int(g, ...(group.back ?? [2, 6])), maxBack));
@@ -767,7 +807,8 @@ function sportsBase(ctx: Ctx): Draft | null {
 function repatriation(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
   if (ctx.window && ctx.window.from > g.now + 60 * 60) return null;
-  const client = (o.client && g.clients[o.client]) || ministry(g, 'Foreign Affairs');
+  // v0.12.1 a government brings its citizens home (a tour operator never asks for a war-zone repatriation).
+  const client = (o.client && g.clients[o.client]?.kind === 'government' ? g.clients[o.client] : undefined) || ministry(g, 'Foreign Affairs');
   if (!client) return null;
   const home = g.company.homeBase;
   const crisis = o.airport ?? pick(g, F.CRISIS_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home));
@@ -814,7 +855,7 @@ function repatriation(ctx: Ctx): Draft | null {
 export function titleFor(ctx: Ctx, arch: string, client: Client, x: Omit<F.TitleCtx, 'client' | 'brand' | 'fromCity' | 'toCity' | 'season' | 'month'> & { start: Minute }, fallback: string): string {
   const { g } = ctx;
   const tc: F.TitleCtx = {
-    ...x, client: client.name, brand: F.brandOf(client.name), fromCity: city(x.from), toCity: city(x.to), season: F.seasonOf(x.start, x.to), month: F.monthOf(x.start),
+    ...x, client: client.name, brand: F.brandOf(client.name), fromCity: city(x.from), toCity: city(x.to), season: F.seasonOf(x.start, x.to, x.from), month: F.monthOf(x.start, x.from),
     nation: x.nation ?? F.NATIONS[client.country],
   };
   return F.pickTitle(sideRng(g, `title:${g.seq}:${g.now}:${arch}`), F.TITLES[arch], tc, g.clients[client.id]?.lastTitle, fallback);
@@ -1101,6 +1142,22 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   const ref = referenceType(d.req, sectors, p.kind === 'base', d.req.approvals.includes('ulr'));
   if (!ref) return null;
   const airports = [...new Set(sectors.flat())];
+  // v0.12.1 job legs keep out of night curfews (moved to the nearest legal time where they can).
+  if (p.kind === 'legs') {
+    const was = p.legs;
+    p.legs = curfewLegs(p.legs, ref);
+    // The job's window follows a first leg moved earlier or a last one moved later.
+    d.start = Math.min(d.start, p.legs[0]?.dep ?? d.start);
+    const moved = (p.legs[p.legs.length - 1]?.dep ?? 0) - (was[was.length - 1]?.dep ?? 0);
+    if (moved > 0) d.end += moved;
+  }
+  // v0.12.1 never into an airport a world event already closes when the job flies there: mission work (an
+  // evacuation, a repatriation, relief) is that event's work and flies under its permit; anything else is dropped.
+  const shut = closureOn(g, p.kind === 'base' ? airports.map((code) => [code, d.start] as [string, Minute]) : p.legs.flatMap((l) => [[l.from, l.dep], [l.to, l.dep]] as [string, Minute][]), d.eventId);
+  if (shut) {
+    if (!ADOPTS.has(d.archetype)) return null;
+    d.eventId = shut.id;
+  }
   const requirements: Requirements = {
     // v0.8 fix pack: `body` only when the client asks for one (a widebody base, Hajj, Antarctica); seats decide the rest.
     minSeats: d.req.minSeats, maxSeats: d.req.maxSeats, layout: d.req.layout, families: d.req.families,
@@ -1156,7 +1213,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     roomNights += crewN * nights;
     crewDays += crewN * Math.max(1, Math.ceil(span / DAY));
     const far = t.legs.reduce((m, l) => (distanceNm(home, l.to) > distanceNm(home, m) ? l.to : m), t.from);
-    tickets += tripTickets(home, far, crewN, span + 90, span);
+    // v0.12.1 a held job (a world tour) keeps its crew with the aircraft: no tickets home and back during the stays.
+    if (!(p.kind === 'legs' && p.hold)) tickets += tripTickets(home, far, crewN, span + 90, span);
   }
   // v0.9 §W crew changes at fuel stops: tickets in and out, the hotel and the extra crew-days, priced in.
   const slips = programmeSlips(g, ref, prog.chains);
@@ -1177,6 +1235,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     archetype: d.archetype, typeId: ref, estBH: wet ? revBH : revBH + emptyMin / 60 + (d.extraBH ?? 0), start: d.start, end: d.end, lead: d.start - g.now,
     mult: d.mult, departures: deps, revDepartures: revDeps, roomNights, crewDays, tickets: tickets + (d.passThrough ?? 0), government: gov, mghPerMonth: d.mghPerMonth,
     loyalty: (1 + levelPct) * (1 + standingPct) - 1, wet: d.wet, ...((d.jumbo || bigFull(d)) && !wet ? { fuelAtCostBH: revBH } : {}),
+    // v0.12.1 a world tour's five-star catering.
+    ...(d.archetype === 'worldTour' ? { cateringX: BAL.v0121.tour.catering } : {}),
   });
   // v0.7.3 heavy crews cost more: a wet rate +3 % when the longest chain needs 3 pilots on the type it was sized
   // for, +6 % for 4 (that type's usual rest facilities).
@@ -1222,6 +1282,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   };
   if (d.terms) o.terms = d.terms;
   if (d.jumbo) o.jumbo = true;
+  if (shut && !shut.offerIds.includes(o.id)) shut.offerIds.push(o.id);
   if (isWideJob(requirements)) {
     const v = v09Stats(g);
     v.offersWide = (v.offersWide ?? 0) + 1;
@@ -1277,7 +1338,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // v0.7.2 F4: never the same title twice in a row for a client (builders without a pool: the month appended).
   const cl = g.clients[o.clientId];
   if (cl) {
-    if (cl.lastTitle === o.title) o.title = `${o.title} (${F.monthOf(o.start)})`;
+    if (cl.lastTitle === o.title) o.title = `${o.title} (${F.monthOf(o.start, p.kind === 'base' ? p.base : p.kind === 'legs' ? p.legs[0]?.from : undefined)})`;
     cl.lastTitle = o.title;
   }
   g.offers[o.id] = o;
@@ -1324,7 +1385,8 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
   const tries: Archetype[] = [];
   if (archetype) tries.push(archetype, archetype, archetype);
   else {
-    const ws = weights(g).filter(([a]) => !window || fitsWindow(a, window, g.now));
+    // v0.12.1 only archetypes with a weight: every weight 0 made weightedPick return nothing and the [0] throw.
+    const ws = weights(g).filter(([a, w]) => w > 0 && (!window || fitsWindow(a, window, g.now)));
     for (let i = 0; i < 3 && ws.length; i++) {
       const a = weightedPick(g, ws, ([, w]) => w)![0];
       tries.push(a);
@@ -1349,7 +1411,7 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     }
     // v0.8 fix pack: drafts dropped as impossible (or never flyable by a Newcomer) don't thin the market: two more picks.
     if (i === tries.length - 1 && tries.length === 3 && !archetype && fixDropped) {
-      const ws = weights(g);
+      const ws = weights(g).filter(([, w]) => w > 0);
       for (let k = 0; k < 2 && ws.length; k++) tries.push(weightedPick(g, ws, ([, w]) => w)![0]);
     }
   }
@@ -1416,7 +1478,7 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
   // False when no workable time is left: the client takes a rival and the offer closes.
   const reopen = (): boolean => {
     o.status = 'open';
-    o.expires = Math.min(g.now + leftOf(o), answerBy(g, o, k.aircraftIds ?? [], k.paint !== false));
+    o.expires = Math.min(g.now + leftOf(o), answerBy(g, o, k.aircraftIds ?? [], k.paint !== false, k.cabin));
     if (o.expires > g.now + 10) {
       schedule(g, o.expires, 'offer.expire', o.id);
       return true;
@@ -1441,7 +1503,8 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
     setPrice(o, noPaint && o.paint!.required ? k.price * (1 - o.paint!.declinePct) : k.price);
     o.status = 'open';
     o.expires = Math.max(o.expires, g.now + 1);
-    const res = acceptOffer(g, o.id, k.aircraftIds ?? [], { paint: !noPaint, priced: true });
+    // v0.12.1 signed as countered: the cabin choice and the extra crew (a client-paid crew lifts the rate as shown).
+    const res = acceptOffer(g, o.id, k.aircraftIds ?? [], { paint: !noPaint, cabin: k.cabin, crewExtra: k.crewExtra, priced: true });
     if (res.ok) {
       pushMessage(g, { tone: 'good', cat: 'commercial', title: `Counter accepted: ${o.title}`, body: `${client} agreed to ${fmtPrice(o.product)}${noPaint ? ', without their colours on the aircraft' : ''}. The contract is signed.`, ref: { kind: 'contract', id: res.data!.contractId }, cue: 'counterReply' });
     } else {
@@ -1556,3 +1619,66 @@ export function chainAugment(g: GameState, typeId: string, chains: ChainShape[])
 
 /** v0.9 dev helpers: a draft finalised into an open offer (no market filters beyond the programme's own). */
 export const finalizeDraft = (g: GameState, d: Draft): ContractOffer | null => finalize(g, d, true);
+
+/**
+ * v0.12.1 a closure has just started or been extended (ops/world.ts, the hook below): open offers into the airports it
+ * shuts are withdrawn or adopted. A stub until Round F lane B (B9) fills it in.
+ */
+export function sweepOffersForClosure(g: GameState, e: WorldEvent): void {
+  const gone: ContractOffer[] = [];
+  for (const o of Object.values(g.offers)) {
+    if ((o.status !== 'open' && o.status !== 'countered') || o.eventId === e.id) continue;
+    const p = o.pattern;
+    const stops: [string, Minute][] = p.kind === 'base' ? [p.base, ...p.dests].map((code) => [code, Math.max(g.now, o.start)]) : p.kind === 'legs' ? p.legs.flatMap((l) => [[l.from, l.dep], [l.to, l.dep]] as [string, Minute][]) : [];
+    if (closureOn(g, stops, o.eventId)?.id !== e.id) continue;
+    // Mission work becomes this event's work (its permit); other clients withdraw the request.
+    if (ADOPTS.has(o.archetype) && !o.eventId) {
+      o.eventId = e.id;
+      if (!e.offerIds.includes(o.id)) e.offerIds.push(o.id);
+      continue;
+    }
+    closeOffer(g, o, 'expired');
+    gone.push(o);
+  }
+  if (!gone.length) return;
+  const names = gone.slice(0, 3).map((o) => o.title).join('; ');
+  pushMessage(g, {
+    tone: 'info', cat: 'commercial', title: gone.length === 1 ? `Offer withdrawn: ${gone[0].title}` : `${gone.length} offers withdrawn`,
+    body: `${e.title}: the client${gone.length === 1 ? ' withdrew it' : 's withdrew them'}, nothing can fly there while it is closed.${gone.length > 1 ? ` ${names}${gone.length > 3 ? ' and more' : ''}.` : ''}`,
+    ref: gone.length === 1 ? { kind: 'offer', id: gone[0].id } : { kind: 'event', id: e.id },
+  });
+}
+
+/** v0.12.1 mission work that flies into a closure under its event's permit (the rest is withdrawn). */
+const ADOPTS: ReadonlySet<Archetype> = new Set<Archetype>(['evacuation', 'repatriation', 'humanitarian']);
+
+/** v0.12.1 the first world closure (not the job's own event) over any of these airports at those times. Pure. */
+function closureOn(g: GameState, stops: [string, Minute][], own?: string): WorldEvent | null {
+  for (const [code, t] of stops) {
+    const e = closedAirport(g, code, t, own);
+    if (e) return e;
+  }
+  return null;
+}
+setClosureOfferHook(sweepOffersForClosure);
+// v0.12.1 (review) empty legs wait for a closed airport to reopen (3 h after, as a held leg does), unless the aircraft
+// flies under the closing event's permit (its job's own event).
+setOpenFromHook((g, code, t, contractId) => {
+  const e = closedAirport(g, code, t, contractId ? permitEvent(g.contracts[contractId]) : undefined);
+  return e ? closedUntil(e) + 3 * 60 : null;
+});
+setClosurePlannedHook(closurePlanned);
+// v0.12.1 the relief pilots a base signed ahead needs before its duties roll in (crew/sets.ts augOf): its rotations as
+// the planner builds them, out and back in one duty (a rotation no crew can fly as one is slipped: two plain duties).
+setProgrammeAugHook((g, k, ac) => {
+  if (k.pattern.kind !== 'base') return 0;
+  const rest = restOf(g, ac.id);
+  const rots: ChainShape[] = flownRotations(k.pattern, ac.typeId).flat().map((r) => ({ from: k.pattern.kind === 'base' ? k.pattern.base : '', std: r.outStd, legs: [{ std: r.outStd, sta: r.outSta, to: r.dest }, { std: r.backStd, sta: r.backSta, from: r.dest }] }));
+  let lv: 0 | 1 | 2 = 0;
+  for (const c of longestChains(rots)) {
+    const mode = dutyNeed(g, ac.typeId, rest, c).mode;
+    if (mode === 'aug2') return 2;
+    if (mode === 'aug1') lv = 1;
+  }
+  return lv;
+});

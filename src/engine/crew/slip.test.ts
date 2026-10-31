@@ -30,15 +30,15 @@ function chainOf(typeId: string, from: string, to: string, std: number): ChainSh
 }
 
 describe('§W bestSlip', () => {
-  it('Madrid–Singapore on an A330 without rest on board changes crews at Istanbul', () => {
+  it('Madrid–Singapore on an A330 without rest on board changes crews at Dubai (v0.12.1: the fuel stop midway)', () => {
     const g = fixtureGame(51);
     const std = Math.floor(g.now / DAY) * DAY + 3 * DAY + 9 * 60;
     const c = chainOf('a332', 'MAD', 'SIN', std);
-    expect(c.legs.map((l) => l.to)).toEqual(['IST', 'SIN']);
+    expect(c.legs.map((l) => l.to)).toEqual(['DXB', 'SIN']);
     const s = bestSlip(g, 'a332', NO_REST, c)!;
     expect(s).not.toBeNull();
-    expect(s.at).toBe('IST');
-    expect(s.text).toBe('Crew change at IST (fresh crew flies in)');
+    expect(s.at).toBe('DXB');
+    expect(s.text).toBe('Crew change at DXB (fresh crew flies in)');
     expect(s.first.mode).not.toBe('none');
     expect(s.second.mode).not.toBe('none');
     expect(s.tickets).toBeGreaterThan(0);
@@ -170,16 +170,18 @@ describe('§W round 4: a stop hours from home, the second crew set, the lines', 
     const leg = o.pattern.kind === 'legs' ? o.pattern.legs[0] : null;
     const c1 = chainOf('a332', leg!.from, leg!.to, o.start);
     const c2 = chainOf('a332', 'LIS', 'PER', o.start + 3 * DAY);
-    expect(c2.legs.map((l) => l.to)).toEqual(['JED', 'PER']);
+    // v0.12.1 Lisbon–Perth stops midway at Mumbai (was Jeddah, near the start).
+    expect(c2.legs.map((l) => l.to)).toEqual(['BOM', 'PER']);
     const rn = restNeed(g, o, 'a332', rest, [c1, c2]);
-    expect(rn.line).toBe('Crew change at MAA and JED (fresh crews fly in)');
+    expect(rn.line).toBe('Crew change at MAA and BOM (fresh crews fly in)');
     expect(rn.slips?.length).toBe(2);
     expect(rn.extraSets).toBe(1);
     expect(rn.detail).not.toMatch(/Another day/);
     // The same two on the same day: two crews in the air at once.
     expect(restNeed(g, o, 'a332', rest, [c1, chainOf('a332', 'LIS', 'PER', o.start)]).extraSets).toBe(2);
-    // A 4-pilot day (Madrid–Singapore on business-seat rest) is not hidden by the slip line.
-    const c3 = chainOf('a332', 'MAD', 'SIN', o.start + 5 * DAY);
+    // A 4-pilot day (Lisbon–Bangkok by Baku on business-seat rest; v0.12.1 Madrid–Singapore stops midway at Dubai now,
+    // too long a day for one crew) is not hidden by the slip line.
+    const c3 = chainOf('a332', 'LIS', 'BKK', o.start + 5 * DAY);
     expect(dutyNeed(g, 'a332', rest, c3).mode).toBe('aug2');
     const mixed = restNeed(g, o, 'a332', rest, [c1, c3]);
     expect(mixed.line).toBe('Crew change at MAA (fresh crew flies in)');

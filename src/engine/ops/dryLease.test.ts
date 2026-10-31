@@ -6,12 +6,13 @@ import { describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
 import { typeOf } from '../core/perf';
 import { DAY, monthKey, monthStart } from '../core/time';
+import { addFlight } from '../core/entities';
 import type { Contract, GameState, SimEvent } from '../core/types';
 import { acceptOffer, cancelContract, cancelCost } from '../contracts';
 import { feasibility } from '../contracts/feasibility';
 import { devDryLease } from '../contracts/missions';
 import { hamBase, newGame, owned, run } from '../contracts/testkit';
-import { consentFor, dailyDryLeases, dryLeaseOf, dryLeaseView, leasedText, onLeaseBack, onLeaseFerryHome, onLeaseOut } from './dryLease';
+import { consentFor, dryPlan, dailyDryLeases, dryLeaseOf, dryLeaseView, leasedText, onLeaseBack, onLeaseFerryHome, onLeaseOut } from './dryLease';
 import { fixedCosts } from './finance';
 
 /** BAL.v08.dry with the two risks writable (tests force them). */
@@ -82,10 +83,12 @@ describe('dry lease out (§6)', () => {
     const rent = g.finance.receivables.slice(recv0).find((r) => r.cat === 'leaseIncome' && /^Rent/.test(r.desc));
     expect(rent).toBeDefined();
     // Insurance: the lessee's while she is out.
+    // v0.12.1 by the days she is out (from the handover), not by the status at month end.
     const ins = fixedCosts(g, monthKey(g.now)).insurance;
-    ac.status = 'available';
+    const at = d.leasedAt;
+    d.leasedAt = undefined;
     expect(fixedCosts(g, monthKey(g.now)).insurance).toBeGreaterThan(ins);
-    ac.status = 'leasedOut';
+    d.leasedAt = at;
     // A month of their flying: hours on our airframe, the A-check counter reset by their own checks.
     const h0 = ac.hours;
     const k0 = monthKey(g.now);
@@ -283,5 +286,18 @@ describe('v0.8 fix pack: a dry lease never over a signed base programme', () => 
       checked++;
     }
     expect(checked).toBeGreaterThan(0);
+  });
+});
+
+describe('v0.12.1 the ferry out leaves from where the aircraft is then', () => {
+  it('a leg landing at Prague two days before the lease start: the ferry leaves Prague', () => {
+    const g = newGame(3);
+    const ac = owned(g);
+    const start = g.now + 20 * DAY;
+    const arr = start - 2 * DAY;
+    addFlight(g, { no: 'AW1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: ac.at, to: 'PRG', std: arr - 200, sta: arr });
+    const plan = dryPlan(g, { start, end: start + 90 * DAY, dry: { site: 'WAW' } as never }, ac);
+    expect(plan?.from).toBe('PRG');
+    expect(plan?.out[0]?.from).toBe('PRG');
   });
 });

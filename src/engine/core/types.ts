@@ -192,7 +192,15 @@ export interface Policies {
   allowTight: boolean;
   /** Buy short-notice positioning tickets automatically. */
   autoDeadhead: boolean;
+  /**
+   * v0.12.1 buy back a day off (crew/buyBack.ts): 'auto' the roster asks crew whose only blocker is a day off to work it
+   * (paid, the day repaid later); 'ask' only from Crew Control; 'never'. load: ??= 'auto'.
+   */
+  buyBack?: BuyBackMode;
 }
+
+/** v0.12.1 Settings › Buy back days off. */
+export type BuyBackMode = 'auto' | 'ask' | 'never';
 
 /** Department heads arrive in v0.6; the shape is reserved so saves stay compatible. */
 export interface Department {
@@ -319,7 +327,8 @@ export interface Aircraft {
   /** v0.7: handover abroad and the delivery ferry (unset on v0.6 deliveries: handover at base, no ferry). */
   delivery?: DeliveryInfo;
   /** v0.7: lease return booked (ferry + return check). */
-  returning?: { site: string; maintId: string; ferryIds: string[]; quote: number; /** v0.7.2 early-return fee (posted when the return check starts). */ earlyFee?: number };
+  returning?: { site: string; maintId: string; ferryIds: string[]; quote: number; /** v0.7.2 early-return fee (posted when the return check starts). */ earlyFee?: number;
+    /** v0.12.1 the lease end before an early return moved it (a slipped return check falls back to it). */ wasEnd?: Minute };
   /** @deprecated v0.7.3: read `rest` (kept for the migration). v0.7.2 bunks and crew rest seats. */
   crewRest?: { bunks: boolean; seats: number };
   /**
@@ -397,7 +406,10 @@ export type Archetype =
   // v0.7+
   | 'capacityLease' | 'hajj' | 'unRotation' | 'vip' | 'deportation' | 'evacuation' | 'humanitarian' | 'subcharterIn' | 'dryLeaseOut'
   // v0.8
-  | 'medical' | 'musicTour' | 'antarctic';
+  | 'medical' | 'musicTour' | 'antarctic'
+  // v0.12.1 a round-the-world private-jet tour (Les Voyages de TMR's 'Tour du monde en avion privé'): one widebody,
+  // one crew, three weeks.
+  | 'worldTour';
 
 export type Product =
   /** ACMI / wet lease: rate per block hour against a monthly minimum. Client pays fuel, fees, hotels. */
@@ -453,7 +465,15 @@ export interface LegTemplate {
 
 export type SchedulePattern =
   /** Explicit legs: ad hoc, sports, repatriation, tour series, troop rotation. */
-  | { kind: 'legs'; legs: LegTemplate[] }
+  | {
+      kind: 'legs';
+      legs: LegTemplate[];
+      /**
+       * v0.12.1 the aircraft and its crew stay with the job from its first leg to its last (a world tour): one trip,
+       * no hop home between legs, no other work in its gaps, the same crew all the way (crew/duties.ts buildTrips).
+       */
+      hold?: true;
+    }
   /** Based at the client's station flying its rotations (season base, AOG cover). Flights roll out daily. */
   | {
       kind: 'base';
@@ -533,6 +553,8 @@ export interface ContractOffer {
     /** v0.5.1: paint on (default) or off. */ paint?: boolean;
     /** v0.5.2: expiry minutes left when sent (the clock is paused while the counter is pending), and the client's halfway price. */
     left?: number; offer?: number;
+    /** v0.12.1 the cabin choice and the client-paid extra crew sent with the counter. */
+    cabin?: boolean; crewExtra?: CrewExtra;
   };
   status: OfferStatus;
   /** Map pin airport. */
@@ -624,6 +646,8 @@ export interface MonthUse {
   shortCycles: number;
   /** Block minutes of revenue legs we cancelled ourselves (non-performance: off the month's MGH). */
   lostMin?: number;
+  /** v0.12.1 block minutes lost to force majeure (a world event): off the MGH like lostMin, but not our fault. */
+  lostFmMin?: number;
   /** v0.8 revenue legs flown this month and those on time (≤ 15 min): the month's relation move. */
   legs?: number;
   onTime?: number;
@@ -778,6 +802,10 @@ export interface Flight {
   heldAt?: Minute;
   /** B3: lateness the player accepted with delayFlight (minutes); recovery's lateness cap counts on top of it. */
   lateOk?: number;
+  /** v0.12.1 minutes of lateness that are not ours (world waits, a client CTOT): no penalty, cumulative. lateOk also holds our own waits. */
+  excused?: number;
+  /** v0.12.1 (review) a Trusted / Partner client forgave this leg's delay (15 min to 3 h): it counts as on time for them. */
+  forgiven?: true;
   /** B2: the crew-shortage warning was given for this flight (once; saved so a reload does not repeat it). */
   crewWarned?: boolean;
   /** v0.7: why an empty ferry flies (labels, map, ticket purpose). */
@@ -806,13 +834,19 @@ export interface Flight {
   /** v0.10.2 a technical cause hit this leg (a technical delay, the aircraft AOG or in an overrunning check, grounded): technical dispatch reliability. */
   tech?: true;
   /** v0.11 Operations: diverted en route (ops/disrupt.ts): the planned destination, when and why it turned, the eta it had. */
-  div?: { to0: string; at: Minute; eta0: Minute; cause: DisruptCause };
+  div?: {
+    to0: string; at: Minute; eta0: Minute; cause: DisruptCause;
+    /** v0.12.1 the technical cause text; true once nothing onward is pending. */
+    what?: string; settled?: boolean;
+  };
   /** v0.11 the leg that carries on to the planned destination after a diversion (its id on the diverted leg, and back). */
   contOf?: string;
   /** v0.11 a disruption already rolled or decided for this leg (one card per leg at most). */
   ops?: DisruptKind;
   /** v0.11 one cabin crew short under ORO.CC.100 (unforeseen: fewer passengers, a report to the authority). */
   reducedCabin?: number;
+  /** v0.12.1 moved later at its client's own request (minutes, by whom): the schedule moved with it (no penalty, not late). */
+  asked?: { min: number; by: string };
 }
 
 /** v0.11 the live disruption cards (ops/disrupt.ts). */
@@ -824,7 +858,9 @@ export type DisruptCause = 'weather' | 'medical' | 'technical';
 export type JetClass = 'light' | 'midsize' | 'heavy' | 'long';
 
 /** v0.7.1 Crew Control fixes (crew/control.ts). */
-export type CrewFix = 'autoFix' | 'deadhead' | 'delay' | 'jet' | 'callIn' | 'discretion' | 'swap' | 'subcharter' | 'cancel';
+export type CrewFix = 'autoFix' | 'deadhead' | 'delay' | 'jet' | 'callIn' | 'discretion' | 'swap' | 'subcharter' | 'cancel'
+  /** v0.12.1 ask a crew member to work a day off (crew/buyBack.ts). */
+  | 'buyBack';
 
 /** v0.7.1 every kind of problem a ProblemCard can be about (engine/problems). */
 export type ProblemKind =
@@ -848,7 +884,9 @@ export type ProblemKind =
   /** v0.11 Operations: a live disruption (its decision), a ramp inspection finding, an authority audit finding. */
   | 'disruption' | 'rampFinding' | 'auditFinding'
   /** Peak-staffing round: a busy month ahead short of crew (crew/forecast.ts). */
-  | 'crewPeak';
+  | 'crewPeak'
+  /** v0.12.1 a leg that needs an approval we won't hold by its departure (ops/approvalGate.ts). */
+  | 'approvalLate';
 
 /** v0.7.1 what a card is about: the entity (as a message Ref) plus the kind. */
 export interface ProblemRef { kind: ProblemKind; ref: Ref }
@@ -967,6 +1005,10 @@ export interface CrewMember {
   leaveYear?: number;
   /** v0.9 round 3: when crew control last asked them to swap a published day off (one ask in 14 days). */
   offSwapAt?: Minute;
+  /** v0.12.1 months (base-local MonthKey) in which a day off was bought back (crew/buyBack.ts: at most one a month); the last 13 kept. */
+  boughtOff?: MonthKey[];
+  /** v0.12.1 salary starts on this minute (a joiner's first day); absent = paid the whole month. */
+  payFrom?: Minute;
 }
 
 export interface CrewSlot {
@@ -978,10 +1020,14 @@ export interface CrewSlot {
   extra?: boolean;
   /** v0.6: seat above the legal minimum (crew-extra settings): optional, never blocks departure. */
   above?: boolean;
+  /** v0.12.1 a far base's reserve seat (crew/farBase.ts; with `above`): the set's spare on station. */
+  reserve?: true;
   /** v0.9 crew out of hours: who was taken off this seat for a legal limit, which, by how much (min) and when; cleared on a legal refill. */
   ooh?: { crewId: string; limit: OohLimit; over: number; at: Minute };
   /** v0.9 round 4 (§Y.1): a replacement who joined after the duty reported: their own report (a fresh day). Cleared with the seat. */
   from?: Minute;
+  /** v0.12.1 a day-off buy-back planned for this seat, not yet paid: the pay, the base-local month, the days bought and the days given back. */
+  buyBack?: { cost: number; month: string; days: number[]; repay: number[] };
 }
 
 /** v0.9 the legal limit a crew member reached (UPDATE-0.9.md §T.1). */
@@ -1041,6 +1087,11 @@ export interface Duty {
    * Saved, so a reloaded game reads it when the original would (absent: read now).
    */
   earlyRead?: Minute;
+  /**
+   * v0.12.1 (review, CREW-8) the crew stayed on duty at the gate until this time (a duty split after its next leg was
+   * held): the duty releases then, never back at the last landing, so the rest after it starts when it really does.
+   */
+  heldTo?: Minute;
 }
 
 /** A crew complement's trip: duties from base back to base (or a deployment at a client base). */
@@ -1082,6 +1133,8 @@ export interface Deployment {
   anchors?: Minute[];
   /** B2: sets from the initial sizing (later growth is capped at one more). */
   sized?: number;
+  /** v0.12.1 sized on the programme's own duties (absent: on its positioning alone, or an older save: sized again when they come). */
+  work?: true;
 }
 
 export interface HireOrder {
@@ -1430,6 +1483,9 @@ export interface SimEvent {
 // ======================================================================
 
 export interface Stats {
+  /** v0.12.1 approvals at departure: when each job ('<contract>|<aircraft>') last got the 'approvalLate' decision; revenue legs stopped at the gate. */
+  gateAsked?: Record<string, Minute>;
+  gateStopped?: number;
   /** v0.8 fix pack: offers' and contracts' `requirements.body` means the client asks for one (older saves: stripped once on load). */
   bodyAsked?: boolean;
   /** Peak-staffing round: busy-month gaps already told in the Inbox ('<month key>|<family>|<role>'; past months pruned). */
@@ -1529,6 +1585,8 @@ export interface StatsV09 {
   lastCancel?: Minute; lastOverdue?: Minute;
   /** Signed offers a rival was bidding on; evacuation/repatriation and Hajj contracts completed. */
   firstCall?: number; homeSafe?: number; hajjDone?: number;
+  /** v0.12.1 world tours completed (the 'Around the world' achievement). */
+  tourDone?: number;
   /** Month results by year (calendar-year net). */
   yearNet?: Record<number, number>;
   /** MonthKey → [revenue departures, on time (≤ 15 min)] (the clockwork achievement; last 14 kept). */
@@ -1549,6 +1607,8 @@ export interface StatsRoster09 {
   offMoved?: number;
   /** v0.9 round 3: published days off swapped by agreement for short-notice work (crew control's ask, morale −3). */
   offSwaps?: number;
+  /** v0.12.1 days off bought back (worked for pay, the day repaid later) and what they cost. */
+  offBought?: number; offBoughtPaid?: number;
   /** Crew-months closed and those below 7 days off. */
   months: number; monthsLow: number;
   /** v0.9 round 4: crew-years closed (at the December close) and those below 96 free days pro rata. */
