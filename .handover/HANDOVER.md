@@ -535,3 +535,4 @@ After it: Round C world tour, then RELEASE (player authorised "when you finish, 
 Fix workflow wf_1e53de3a-b38 DONE: acmi d1d422f (merge a2b1a74 + 9 review fixes). 1631 tests. Saves 30 d: 0/0. Results JSON: scratchpad/hunt/fixresult.json.
 RELEASE BLOCKER found by me: bot seed 1 --wide melts down (172 sub-charters, reliability 56.6, cash -1661k vs base 18/91.2/1573k; signs B744). Other seeds 2/3/5 fine/better; seed 7 cash 1641k→120k (check). Diagnosis agent running.
 Still open: A7 item 2 (waves inside base curfew), C7 core, B8 exact count, D5, C2, MOVE-S4, iPad/iPhone screenshots of new card labels, Goma force-majeure design call, S-DEPREC.
+Seed-1 blocker FIXED acmi f75c0f7 (old feasibility bug: positioning no crew can fly). Now running: Round C world tour (acmi) + polish (branch polish: base-curfew waves, EV-S06/S-HOTEL/EV-S05/MOVE-S4, UI label check, Goma = force majeure). Then merge polish, What's new v0.12.1, release.
