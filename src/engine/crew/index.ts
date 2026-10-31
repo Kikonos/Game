@@ -318,7 +318,9 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     // before they landed there (their own leg arrived late: seed 1, a DH at 18:00 'boarded' off a leg on blocks 18:10).
     // v0.12.1 round D: nor by someone on leave, sick or not joined at its departure (they stay home: a captain placed
     // by hand while on annual leave rode our aircraft out to her trip).
-    const off = c.blocks?.some((b) => b.why !== 'training' && b.from <= (f.atd ?? f.std) && b.to > (f.atd ?? f.std));
+    // v0.12.1 a flight home is the exception: sick, or with leave begun while away, they fly home as passengers (seed
+    // 6: a captain sick at Düsseldorf 'missed' his ride home every morning for a week, a new ticket bought each day).
+    const off = f.to !== c.base && c.blocks?.some((b) => b.why !== 'training' && b.from <= (f.atd ?? f.std) && b.to > (f.atd ?? f.std));
     if (off || c.loc !== f.from || (late ??= landedAfter(g, f.from, (f.atd ?? f.std) - 15)).has(id)) {
       missed.push(id);
       continue;

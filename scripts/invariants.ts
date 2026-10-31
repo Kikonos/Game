@@ -224,7 +224,8 @@ export function createChecker(opts: CheckerOpts = {}) {
         }
         for (const id of f.riders) {
           const c = g.crew[id];
-          const bl = c?.blocks?.find((b) => b.why !== 'training' && b.from <= atd && b.to > atd);
+          // v0.12.1 riding home sick, or with leave begun while away, is a flight home, not work.
+          const bl = f.to === c?.base ? undefined : c?.blocks?.find((b) => b.why !== 'training' && b.from <= atd && b.to > atd);
           if (bl) (f.status === 'done' ? err : warn)('ride-blocked', atd, `${c!.first} ${c!.last} (${c!.role}) ${f.status === 'done' ? 'rode' : 'boarded'} ${f.no} ${f.from}–${f.to} ${fmtDateTime(atd)} while ${bl.why === 'joining' ? 'not yet joined' : bl.why}`);
         }
       }
@@ -390,7 +391,7 @@ export function createChecker(opts: CheckerOpts = {}) {
         if (!a && b.from !== h.loc0 && b.atd > h.t0) err('teleport', b.atd, `${h.name}: was at ${h.loc0} ${fmtDateTime(h.t0)}, first leg ${b.no} left ${b.from}`);
         if (a && b.atd < a.ata) err('crew-twice', b.atd, `${h.name}: ${b.no} left ${fmtDateTime(b.atd)} before ${a.no} landed ${fmtDateTime(a.ata)}`);
         // Unavailable windows.
-        for (const bl of h.blocks.values()) if (b.atd >= bl.from && b.atd < bl.to && bl.why !== 'joining' && !(bl.why === 'sick' && b.kind === 'deadhead')) err('blocked', b.atd, `${h.name} flew ${b.no} ${fmtDateTime(b.atd)} while ${bl.why} (${fmtDateTime(bl.from)}–${fmtDateTime(bl.to)})`);
+        for (const bl of h.blocks.values()) if (b.atd >= bl.from && b.atd < bl.to && bl.why !== 'joining' && !(bl.why === 'sick' && b.kind === 'deadhead') && !((bl.why === 'sick' || bl.why === 'leave') && b.to === h.base && (b.kind === 'deadhead' || b.riders.includes(h.id)))) err('blocked', b.atd, `${h.name} flew ${b.no} ${fmtDateTime(b.atd)} while ${bl.why} (${fmtDateTime(bl.from)}–${fmtDateTime(bl.to)})`);
         if (b.unrated?.includes(h.id)) {
           const typeId = typeOfAc.get(b.aircraftId ?? '') ?? 'a320ceo';
           err('rating', b.atd, `${h.name} operated ${b.no} on ${typeOf(typeId).short} without the ${typeOf(typeId).family} rating`);
