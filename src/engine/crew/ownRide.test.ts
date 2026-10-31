@@ -117,23 +117,48 @@ describe('v0.12.1 crew riding our own passenger flights', () => {
     }
   });
 
-  it('a cancelled flight: its riders are rebooked at once', () => {
+  /** Each rider still on the trip has a way out again: a ticket, another of our flights, or (v0.14) the first leg of
+   *  their next duty leaving from where they are. */
+  const wayOut = (g: GameState, p: Pairing, ids: string[], gone: string) => {
+    const d = openDuties(g, p)[0];
+    expect(d.deadheadIds).not.toContain(gone);
+    for (const id of ids) {
+      if (!p.slots.some((s) => s.crewId === id)) continue;
+      const carried = d.deadheadIds.some((x) => {
+        const t = g.flights[x];
+        return !!t && t.status === 'scheduled' && (t.kind === 'deadhead' ? t.crewIds : t.riders ?? []).includes(id);
+      });
+      const operates = g.flights[d.flightIds[0]]?.from === g.crew[id].loc && g.flights[d.flightIds[0]]?.crewIds.includes(id);
+      expect(carried || operates, id).toBe(true);
+    }
+  };
+
+  it('a cancelled flight: its riders are rebooked at once (a ride days out: an airline ticket or another of ours)', () => {
     const { g, k } = dublin();
-    // v0.14 (the offer stream moved) a ride a few days out, as before: one a day out finds no ticket in time here.
     const { f, p } = rideOut(g, k, g.now + 3 * DAY);
     const ids = [...f.riders!];
     cancelFlight(g, f, 'Test');
     advanceTo(g, g.now + 1);
-    const d = openDuties(g, p)[0];
-    expect(d.deadheadIds).not.toContain(f.id);
-    // Each rider still on the trip has a way out again (a ticket, or another of our flights).
-    for (const id of ids) {
-      if (!p.slots.some((s) => s.crewId === id)) continue;
-      expect(d.deadheadIds.some((x) => {
-        const t = g.flights[x];
-        return !!t && t.status === 'scheduled' && (t.kind === 'deadhead' ? t.crewIds : t.riders ?? []).includes(id);
-      })).toBe(true);
-    }
+    wayOut(g, p, ids, f.id);
+  });
+
+  it('v0.14 a ride cancelled a day out: the riders are not stranded (they crew the empty leg that takes the aircraft out)', () => {
+    // The calls merge had moved the case above to a ride 3+ days out ("one a day out finds no ticket in time"). The
+    // first ride here is 32 h out: cancelling the LIS–DUB leg leaves the aircraft at Lisbon, schedule recovery flies it
+    // to Dublin empty, and the riders (in Lisbon, due in Dublin) are its crew: no ticket needed, and they get there.
+    const { g, k } = dublin();
+    const { f, p } = rideOut(g, k);
+    expect(f.std - g.now).toBeLessThan(2 * DAY);
+    const ids = [...f.riders!];
+    cancelFlight(g, f, 'Test');
+    advanceTo(g, g.now + 1);
+    wayOut(g, p, ids, f.id);
+    // They reach the trip: its first duty from Dublin is flown with them aboard.
+    const dub = openDuties(g, p).find((d) => g.flights[d.flightIds[0]]?.from === f.to)!;
+    const first = g.flights[dub.flightIds[0]];
+    run(g, first.sta + 60);
+    expect(first.status).toBe('done');
+    for (const id of ids) if (p.slots.some((s) => s.crewId === id)) expect(first.crewIds, id).toContain(id);
   });
 
   it('a delayed flight takes its riders late: they land with it, and their rest runs from the late landing', () => {
