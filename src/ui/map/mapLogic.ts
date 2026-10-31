@@ -11,6 +11,26 @@ import type { AcRest, Aircraft, Archetype, ContractOffer, CrewMember, Flight, Ga
 import { type CrewAlertKind, crewAway, LIMIT_NAME, shortFlights, type SlipView } from '../../engine/crew';
 import { clientCode, clientLivery, clientTitles, commercialFlightsBetween, type CommercialFlight, commercialItinerary, dryLeaseOf, type FlightType, flightType, liveryOf, type ResolvedLivery } from '../../engine/ops';
 import { contractColor } from '../screens/palette';
+import type { MapRoute } from './WorldMap';
+
+/**
+ * v0.12.1 the route line of each world tour under way, or starting within three days: its passenger legs in order,
+ * flown ones solid, the rest dashed, in the contract's colour (the Ops Map draws them under the aircraft). Pure.
+ */
+export function tourRoutes(g: GameState): MapRoute[] {
+  const out: MapRoute[] = [];
+  for (const k of Object.values(g.contracts)) {
+    if (k.archetype !== 'worldTour' || (k.status !== 'active' && k.status !== 'signed') || k.start > g.now + 3 * DAY || k.pattern.kind !== 'legs') continue;
+    const done = new Set<string>();
+    for (const f of Object.values(g.flights)) if (f.contractId === k.id && f.kind === 'revenue' && (f.status === 'done' || f.status === 'enroute')) done.add(`${f.from}-${f.to}`);
+    [...k.pattern.legs].sort((a, b) => a.dep - b.dep).forEach((l, i) => {
+      // Flown legs older than a week are pruned with their flights: anything before now counts as flown.
+      const flown = done.has(`${l.from}-${l.to}`) || l.dep < g.now - 6 * 60;
+      out.push({ id: `tour:${k.id}:${i}`, from: l.from, to: l.to, weight: 0.45, color: contractColor(k.color), dashed: !flown });
+    });
+  }
+  return out;
+}
 
 /** v0.7.1 business-jet glyph (24 × 24, nose up, same frame as PLANE_PATH): slim body, swept wings, T-tail. */
 export const JET_PATH = 'M12 1.2c.65 0 1.15.95 1.15 2.1v6.4l7.6 6.2v1.6l-7.6-2.9v5.4h2.9v1.5h-3.1l-.95 1.3-.95-1.3h-3.1v-1.5h2.9v-5.4l-7.6 2.9v-1.6l7.6-6.2V3.3C10.85 2.15 11.35 1.2 12 1.2z';

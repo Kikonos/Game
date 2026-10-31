@@ -1212,7 +1212,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     roomNights += crewN * nights;
     crewDays += crewN * Math.max(1, Math.ceil(span / DAY));
     const far = t.legs.reduce((m, l) => (distanceNm(home, l.to) > distanceNm(home, m) ? l.to : m), t.from);
-    tickets += tripTickets(home, far, crewN, span + 90, span);
+    // v0.12.1 a held job (a world tour) keeps its crew with the aircraft: no tickets home and back during the stays.
+    if (!(p.kind === 'legs' && p.hold)) tickets += tripTickets(home, far, crewN, span + 90, span);
   }
   // v0.9 §W crew changes at fuel stops: tickets in and out, the hotel and the extra crew-days, priced in.
   const slips = programmeSlips(g, ref, prog.chains);
@@ -1233,6 +1234,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     archetype: d.archetype, typeId: ref, estBH: wet ? revBH : revBH + emptyMin / 60 + (d.extraBH ?? 0), start: d.start, end: d.end, lead: d.start - g.now,
     mult: d.mult, departures: deps, revDepartures: revDeps, roomNights, crewDays, tickets: tickets + (d.passThrough ?? 0), government: gov, mghPerMonth: d.mghPerMonth,
     loyalty: (1 + levelPct) * (1 + standingPct) - 1, wet: d.wet, ...((d.jumbo || bigFull(d)) && !wet ? { fuelAtCostBH: revBH } : {}),
+    // v0.12.1 a world tour's five-star catering.
+    ...(d.archetype === 'worldTour' ? { cateringX: BAL.v0121.tour.catering } : {}),
   });
   // v0.7.3 heavy crews cost more: a wet rate +3 % when the longest chain needs 3 pilots on the type it was sized
   // for, +6 % for 4 (that type's usual rest facilities).

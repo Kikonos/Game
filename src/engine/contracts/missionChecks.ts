@@ -57,6 +57,12 @@ function missionLine(g: GameState, o: ContractOffer): V08Line | null {
       return { id: 'mission', level: 'ok', label: 'Relief: aid workers and supplies in, empty back; paid after the job' };
     case 'capacityLease':
       return { id: 'mission', level: 'ok', label: `Capacity lease: their schedule for ${Math.round((o.end - o.start) / (30.44 * 1440))} months at a long-term rate` };
+    case 'worldTour': {
+      // v0.12.1 the tour's stops (every leg's arrival but the last, home).
+      const n = Math.max(0, legs.length - 1);
+      const days = Math.round((o.end - o.start) / 1440);
+      return { id: 'mission', level: 'ok', label: `World tour: the aircraft and one crew are away ${days} days; augmented, ${req.extraCabin} extra cabin crew for the service, hotels at ${n} stops` };
+    }
     case 'subcharterIn': {
       const r = g.rivals.find((x) => x.id === g.clients[o.clientId]?.rivalId);
       return { id: 'mission', level: 'ok', label: `Sub-charter in: we fly for ${r?.name ?? 'a rival'}'s client under its flight numbers; ${r?.name ?? 'they'} pay us` };

@@ -28,6 +28,7 @@ import { ask } from './events';
 import { applyHold, cancelCost, cancelLegs, delayChain, moveFlight, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLegs } from './flights';
 import { subcharter, subcharterQuotes } from './subcharter';
 import { contractOf, isRevenue, turnOf, usd } from './util';
+import { tourStopAsk } from './tourStop';
 
 export type { WorldEvent, WorldEventKind };
 
@@ -266,6 +267,8 @@ function allowed(g: GameState, t: WorldEventTpl): boolean {
   if (t.airportDays && t.at === g.company.homeBase) return false;
   if (!AIRPORT_BY_CODE[t.at]) return false;
   if (t.months && !t.months.includes(toDate(g.now).getUTCMonth())) return false;
+  // v0.12.1 a world tour's remote stop: only while one of our tours is due there.
+  if (t.ours && !callsAt(g, t.at)) return false;
   if (eventsOf(g).some((e) => isLive(g, e) && e.tpl === t.id)) return false;
   if (t.kind === 'airlineFailure') {
     if (t.entity === '{rival}') return g.rivals.filter(isActive).length > 8;
@@ -273,6 +276,15 @@ function allowed(g: GameState, t: WorldEventTpl): boolean {
     if (cl && Object.values(g.contracts).some((k) => k.clientId === cl.id && (k.status === 'active' || k.status === 'signed'))) return false;
   }
   return true;
+}
+
+/** v0.12.1 one of our world tours' legs in the next 30 days leaves or lands at `code`. Pure. */
+function callsAt(g: GameState, code: string): boolean {
+  for (const f of Object.values(g.flights)) {
+    if (f.status !== 'scheduled' || !f.aircraftId || f.std > g.now + 30 * DAY || (f.from !== code && f.to !== code)) continue;
+    if (f.contractId && g.contracts[f.contractId]?.archetype === 'worldTour') return true;
+  }
+  return false;
 }
 
 /**
@@ -521,6 +533,8 @@ function applyClosure(g: GameState, e: WorldEvent, first: boolean, again = false
     // Legs of a programme the player was already asked about for this closure join that question or follow its
     // answer (no new question every day).
     if (g.decisions.some((d) => d.kind === 'airspace' && d.data?.eventId === e.id && d.data?.contractId === k.id)) continue;
+    // v0.12.1 a world tour due at the closed stop: another stop, skip it, or the whole tour waits (ops/tourStop.ts).
+    if (k.archetype === 'worldTour' && tourStopAsk(g, e, k)) continue;
     const prior = Object.values(g.flights).filter((f) => f.contractId === k.id && f.closedBy === e.id && !legs.includes(f));
     if (prior.some((f) => f.status === 'scheduled')) {
       waitLegs(g, k, e);
@@ -583,7 +597,7 @@ export const closedUntil = (e: WorldEvent) => (e.closed ? e.end : Math.min(e.end
  * Wait: the contract's held legs move to 3 h after the reopening, their spacing kept; its later legs on that aircraft
  * move only as far as the turn needs (a long programme is not pushed back by the whole closure).
  */
-function waitLegs(g: GameState, k: Contract, e: WorldEvent): number {
+export function waitLegs(g: GameState, k: Contract, e: WorldEvent): number {
   const until = closedUntil(e) + 3 * 60;
   const held = Object.values(g.flights).filter((f) => f.contractId === k.id && f.status === 'scheduled' && f.closedBy === e.id && f.std < until).sort((a, b) => a.std - b.std);
   if (!held.length) return 0;
@@ -602,7 +616,17 @@ function waitLegs(g: GameState, k: Contract, e: WorldEvent): number {
   }
   const turn = (f: Flight) => (f.aircraftId && g.fleet[f.aircraftId] ? typeOf(g.fleet[f.aircraftId].typeId).turnMin : 45);
   let ready = held[held.length - 1].sta + turn(held[held.length - 1]);
+  // v0.12.1 a world tour moves as a whole: every later leg by the same wait, so each stop keeps its nights (its crew
+  // their rest: squeezed, the next stop lost the weekly 36 h and the rest of the tour was cancelled).
+  const whole = k.archetype === 'worldTour';
   for (const f of later) {
+    if (whole) {
+      f.lateOk = Math.max(f.lateOk ?? 0, f.std + shift - (f.schedStd ?? f.std));
+      excuse(f, shift);
+      moveFlight(g, f, f.std + shift, `Waiting: ${e.title}`);
+      moved++;
+      continue;
+    }
     if (f.std >= ready) break;
     f.lateOk = Math.max(f.lateOk ?? 0, ready - (f.schedStd ?? f.std));
     excuse(f, ready - (f.std + f.delay));

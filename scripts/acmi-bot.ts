@@ -240,6 +240,8 @@ const CODE: Partial<Record<Archetype, string>> = {
   seasonBase: 'SB', aogCover: 'AC', adhoc: 'AH', sports: 'SP', repatriation: 'RP', tourSeries: 'TS', troopRotation: 'TR', evacuation: 'EV', vip: 'VI',
   // v0.8
   hajj: 'HJ', unRotation: 'UN', deportation: 'DP', medical: 'MD', musicTour: 'MT', antarctic: 'AN', capacityLease: 'CL', subcharterIn: 'SI', dryLeaseOut: 'DL', humanitarian: 'HU',
+  // v0.12.1
+  worldTour: 'WT',
 };
 /** v0.8 the client's level rank (Partner first at equal value). */
 const levelRank = (g: GameState, o: ContractOffer) => LEVEL_ORDER.indexOf(levelOf(g, g.clients[o.clientId]));
@@ -410,15 +412,17 @@ function offers(g: GameState, t: Tally): void {
     // Hajj only with a widebody of 300+ seats free for both phases (§13; a narrowbody airlift from Islamabad, crewed
     // from Lisbon, lost seed 2 every other rotation).
     if (o.archetype === 'hajj' && (o.requirements.body !== 'wide' || !Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide' && a.cabin.total >= 300))) continue;
-    if (span > 10 && o.estBH / span < 3 && o.archetype !== 'unRotation') continue;
+    // v0.12.1 a world tour holds its aircraft for three weeks by design (priced for the days held).
+    if (span > 10 && o.estBH / span < 3 && o.archetype !== 'unRotation' && o.archetype !== 'worldTour') continue;
     // Ad hoc work inside 30 days (v0.6: was three weeks); tour series and troop rotations up to 90 days out (v0.8:
     // and the long-lead new work: Hajj, UN rotations, tours, Antarctica, deportation frameworks).
     // v0.9 fix: a job with a crew change at a fuel stop is taken up to 90 days out too (the bot never flew one: the
     // §W path was not exercised).
-    const longLead = o.archetype === 'tourSeries' || o.archetype === 'troopRotation' || o.archetype === 'unRotation' || o.archetype === 'hajj' || o.archetype === 'musicTour' || o.archetype === 'antarctic' || o.archetype === 'deportation' || !!o.slip;
+    // v0.12.1 and a world tour (offered 3–6 months ahead).
+    const longLead = o.archetype === 'tourSeries' || o.archetype === 'troopRotation' || o.archetype === 'unRotation' || o.archetype === 'hajj' || o.archetype === 'musicTour' || o.archetype === 'antarctic' || o.archetype === 'deportation' || o.archetype === 'worldTour' || !!o.slip;
     // v0.8 (§13) an offer rivals are keen on is decided now: up to 90 days out instead of waiting for it to come closer.
     const keen = offerCompetition(g, o.id).level === 'strong';
-    if (!isBase(o) && o.start > g.now + (longLead ? (o.archetype === 'hajj' || o.archetype === 'antarctic' ? 200 : 90) : keen ? 90 : hungry ? 45 : 30) * DAY) continue;
+    if (!isBase(o) && o.start > g.now + (longLead ? (o.archetype === 'hajj' || o.archetype === 'antarctic' || o.archetype === 'worldTour' ? 200 : 90) : keen ? 90 : hungry ? 45 : 30) * DAY) continue;
     const best = bestFit(g, o);
     if (!best && process.argv.includes('--why') && o.created > g.now - DAY) {
       if (o.slip) console.error(`${fmtDateTime(g.now)} WHY slip offer ${o.id} ${o.archetype} seats-fit ${seatsFit(g, o).length} start ${fmtDateTime(o.start)}`);
@@ -1405,7 +1409,33 @@ function play(g: GameState, t: Tally, end: number, onStep?: () => void): void {
     policy(g, t, r.pause === 'urgentOffer', newDay);
     // Like the UI's store.act: runtime-only change marks are applied now, so a save here plays on identically.
     settle(g);
+    watchTours(g);
     onStep?.();
+  }
+}
+
+/** v0.12.1 world tours seen: offered, signed, and the crew on each of their legs as flown (flights are pruned after a week). */
+const tours = { offered: new Map<string, string>(), legs: new Map<string, { no: string; crew: string[]; late: number }>() };
+/** $K (k$ is declared further down: a top-level const not yet initialised while the game plays). */
+const kUsd = (v: number) => `${(v / 1000).toFixed(0)}k`;
+function watchTours(g: GameState): void {
+  for (const o of Object.values(g.offers)) if (o.archetype === 'worldTour' && !tours.offered.has(o.id)) tours.offered.set(o.id, `${fmtDateTime(o.created)} ${o.title} (${g.clients[o.clientId]?.name}) ${kUsd(o.estValue)}`);
+  for (const f of Object.values(g.flights)) {
+    if (f.status !== 'done' || f.kind !== 'revenue' || tours.legs.has(f.id) || !f.contractId || g.contracts[f.contractId]?.archetype !== 'worldTour') continue;
+    tours.legs.set(f.id, { no: `${f.contractId} ${f.no} ${f.from}-${f.to}`, crew: [...f.crewIds].sort(), late: Math.max(0, (f.atd ?? f.std) - (f.schedStd ?? f.std)) });
+  }
+}
+
+/** The tours' read-out: each offer, each signed tour's legs flown, its crew (distinct people over the legs) and status. */
+function tourReport(g: GameState): void {
+  if (!tours.offered.size) return console.log('  world tours: none offered');
+  console.log(`  world tours: ${tours.offered.size} offered`);
+  for (const [id, line] of tours.offered) {
+    const k = Object.values(g.contracts).find((c) => c.offerId === id);
+    const legs = [...tours.legs.values()].filter((l) => k && l.no.startsWith(`${k.id} `));
+    const crew = new Set(legs.flatMap((l) => l.crew));
+    const first = legs[0]?.crew.length ?? 0;
+    console.log(`    ${line}: ${k ? `signed, ${k.status}, ${legs.length} legs flown (${k.legsOnTime ?? 0} on time), ${first} crew on the first leg, ${crew.size} people over the tour, earned ${kUsd(k.accrued ?? 0)} of ${kUsd(k.product.kind === 'charter' ? k.product.price : 0)}` : `not signed (${g.offers[id]?.status ?? 'gone'})`}`);
   }
 }
 
@@ -2211,6 +2241,8 @@ console.log(`cancelled legs by reason: ${[...cancels].sort((a, b) => b[1] - a[1]
 for (const e of errors.slice(0, 3)) console.log(e);
 // Soft target (information): the ladder in practice, a widebody signed with a job inside the year.
 console.log(`ladder: widebody signed ${dayOf(tally.wideSigned)}; tour series / troop rotations signed ${tally.longLead}`);
+// v0.12.1 world tours offered, signed and flown (the same crew all the way round?).
+tourReport(g);
 {
   // v0.7.1 Crew Control: ladder stages, fixes by kind, jets and their share of revenue (soft targets, §16).
   const fixes = [...tally.crewFixes].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || 'none';

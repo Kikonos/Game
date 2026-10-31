@@ -476,4 +476,18 @@ export const BAL = {
       buyBack: { pay: 2, horizonH: 72, minMorale: 35 },
     },
   },
+
+  // ---------- v0.12.1 world tours (contracts/missions.ts worldTour) ----------
+  v0121: {
+    /**
+     * A round-the-world private-jet tour (Les Voyages de TMR's 51st: 21 days, 20 nights, from €21,900 a guest): a day's
+     * chance once we fly a widebody with ETOPS 180 (Established, Respected), offered 90–180 days ahead; the archetype
+     * multiplier, block-hour equivalents per day the aircraft is held, catering × (five-star), extra cabin crew [min,
+     * max], the business-seat bonus (+pctPerJ per J seat above fromJ, capped) and the guests on board [min, max].
+     */
+    tour: {
+      perDay: { 1: 1 / 365, 2: 2.5 / 365 } as Record<number, number>, lead: [90, 180] as [number, number], expires: [10, 21] as [number, number],
+      mult: 1.4, idleBH: 3, catering: 4, extraCabin: [2, 4] as [number, number], bizFromJ: 16, bizPctPerJ: 0.004, bizMax: 0.12, pax: [80, 150] as [number, number],
+    },
+  },
 } as const;

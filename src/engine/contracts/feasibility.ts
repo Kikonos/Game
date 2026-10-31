@@ -24,10 +24,12 @@ import { cabinQuote, cabinTarget, termsProduct } from './cabinTerms';
 import { clientCabinSlot } from '../ops/clientCabin';
 import { bodyText, maintWord, usd } from '../ops/util';
 import { possessive } from './flavor';
-import { productValue, tripTickets } from './pricing';
+import { productValue, tourBizPct, tripTickets } from './pricing';
 import { v08Lines } from './missionChecks';
 import { dryFeasibility } from '../ops/dryLease';
 import { closedAirport, closedUntil } from '../ops/world';
+import { checkAirportOk } from '../ops/maintenance';
+import { emptyDay } from './schedule';
 import { curfewOk } from '../core/curfew';
 
 export type CheckId = 'seats' | 'layout' | 'family' | /** v0.8 fix pack */ 'body' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease' | 'paint' | 'restSeats' | /** v0.7.3 */ 'rest'
@@ -153,9 +155,12 @@ function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme)
   const t = typeOf(ac.typeId);
   const turn = t.turnMin;
   const home = g.company.homeBase;
-  const lead = o.pattern.kind === 'base' ? DEPLOY_LEAD : turn + CHARTER_SLACK;
+  // v0.12.1 a world tour too (schedule.ts leadFor): the evening before.
+  const lead = o.pattern.kind === 'base' || (o.pattern.kind === 'legs' && o.pattern.hold) ? DEPLOY_LEAD : turn + CHARTER_SLACK;
   // v0.11 empty legs stay inside our ETOPS approval and the type's capability (the 60-minute rule without one).
   const cap = etopsCap(g.company.approvals, t.id);
+  // v0.12.1 and empty legs within one crew's day (schedule.ts emptyDay: a crew-change stop beyond), as they are planned.
+  const day = emptyDay(g, ac.id);
   const anchors = anchorsOf(g, ac.id);
   const conflicts: Anchor[] = [];
   for (const a of anchors) {
@@ -177,10 +182,10 @@ function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme)
     if (prev) {
       const earliest = prev.a?.kind === 'start' ? prev.sta : prev.sta + turn;
       const hop = prev.a?.kind !== 'maint';
-      const ch = gapMoves(t.id, prev.to, n.from, earliest, n.std - lead, home, hop, cap) ?? gapMoves(t.id, prev.to, n.from, earliest, n.std - turn, home, hop, cap);
+      const ch = gapMoves(t.id, prev.to, n.from, earliest, n.std - lead, home, hop, cap, day) ?? gapMoves(t.id, prev.to, n.from, earliest, n.std - turn, home, hop, cap, day);
       if (ch) [fit.homeBefore, fit.posIn] = splitHome(ch, home) ?? [[], ch];
       else {
-        const fwd = chainForward(t.id, prev.to, n.from, earliest, cap);
+        const fwd = chainForward(t.id, prev.to, n.from, earliest, cap, day);
         if (!fwd) {
           fit.noRoute = true;
           if (noRouteWhy(t.id, prev.to, n.from, cap) === 'etops') fit.noRouteEtops = [prev.to, n.from];
@@ -193,11 +198,11 @@ function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme)
     }
     const nx = nodes[i + 1];
     if (nx?.a) {
-      const ch = gapMoves(t.id, n.to, nx.from, n.sta + turn, nx.std - turn, home, nx.a.kind !== 'maint', cap);
+      const ch = gapMoves(t.id, n.to, nx.from, n.sta + turn, nx.std - turn, home, nx.a.kind !== 'maint', cap, day);
       if (ch) [fit.posOut, fit.homeAfter] = splitHome(ch, home) ?? [ch, []];
       else fit.blockedNext = nx.a;
     } else if (!nx && n.to !== home) {
-      fit.posOut = chainForward(t.id, n.to, home, n.sta + turn, cap) ?? [];
+      fit.posOut = chainForward(t.id, n.to, home, n.sta + turn, cap, day) ?? [];
     }
     fits.push(fit);
   });
@@ -308,6 +313,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const home = g.company.homeBase;
   const wet = o.product.kind === 'wet';
   const base = o.pattern.kind === 'base';
+  // v0.12.1 a held job (a world tour): one trip, its crew with the aircraft throughout.
+  const hold = o.pattern.kind === 'legs' && !!o.pattern.hold;
 
   // 1–3. Cabin and type (v0.7: a refit planned to end before the start counts).
   const { cabin: cab0, refitEnd } = cabinAt(g, ac, o.start);
@@ -526,8 +533,11 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
       const first = before.length ? `Home to ${home} ${fmtDay(before[0].std)} after its last job, then ` : '';
       if (pIn.length) {
         const stops = pIn.length - 1;
-        const longWay = etopsCap(g.company.approvals, t.id) !== Infinity && !samePath(pIn, route(t.id, pIn[0].from, pIn[pIn.length - 1].to));
-        add('positioning', 'ok', `Positioning ${routeText(pIn)} ${fmtDuration(chainMin(pIn))}${stops ? ` (fuel stop${stops > 1 ? 's' : ''}${longWay ? `: ${etopsCapText(g, t.id)} way` : ''})` : ''}, ${pay}`, `${first}${first ? 'leaves' : 'Leaves'} ${fmtDateTime(pIn[0].std)} UTC, lands ${fmtDateTime(pIn[pIn.length - 1].sta)} UTC. ${out}${extra}`);
+        const longWay = etopsCap(g.company.approvals, t.id) !== Infinity && !samePath(pIn, route(t.id, pIn[0].from, pIn[pIn.length - 1].to, Infinity, emptyDay(g, ac.id)));
+        // v0.12.1 a crew-change stop (plan.ts route `day`): the night there says so, not a fuel stop.
+        const night = pIn.slice(1).findIndex((l, i) => l.std - pIn[i].sta >= 8 * 60);
+        const stopText = night >= 0 ? ` (a night at ${pIn[night].to} for the crew)` : stops ? ` (fuel stop${stops > 1 ? 's' : ''}${longWay ? `: ${etopsCapText(g, t.id)} way` : ''})` : '';
+        add('positioning', 'ok', `Positioning ${routeText(pIn)} ${fmtDuration(chainMin(pIn))}${stopText}, ${pay}`, `${first}${first ? 'leaves' : 'Leaves'} ${fmtDateTime(pIn[0].std)} UTC, lands ${fmtDateTime(pIn[pIn.length - 1].sta)} UTC. ${out}${extra}`);
       } else add('positioning', 'ok', `Already at ${fits[0]?.trip.from ?? o.pin} when it starts`, `${out}${extra}`);
     }
   } else add('positioning', availNo ? 'no' : 'warn', availNo ? 'Not planned: the aircraft is busy' : 'Not planned');
@@ -644,6 +654,12 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     add('maintenance', 'ok', `A-check due ${fmtDay(aDue)}: fits a maintenance night at ${o.pattern.base}`, `The schedule keeps a ${t.aCheckHours} h+ night free every ${o.pattern.maintEvery} days; the planner books it there.`);
   } else if (gapBefore(aDue)) {
     add('maintenance', 'ok', `A-check due ${fmtDay(aDue)}: fits between trips`, `There is a ${t.aCheckHours} h+ gap at the right time; the planner books it there.`);
+  } else if (hold && tourCheckStop(g, ac.id, prog, aDue, checkMin)) {
+    // v0.12.1 a world tour: a stop with an A-check contractor (a major airport) and the nights to do it, before it falls due.
+    const at = tourCheckStop(g, ac.id, prog, aDue, checkMin)!;
+    add('maintenance', 'ok', `A-check due ${fmtDay(aDue)}: fits at ${AIRPORT_BY_CODE[at]?.city ?? at} during the tour`, `A contractor there does it while the guests are ashore (${t.aCheckHours} h, +20 % away from base); the planner books it.`);
+  } else if (hold) {
+    add('maintenance', 'warn', `A-check due ${fmtDay(aDue)} (${why}), in the middle of the tour`, `No stop before then has a contractor and the time: book it before departure (${t.aCheckHours} h at ${home}), or pick another aircraft.`);
   } else {
     add('maintenance', 'warn', `A-check due ${fmtDay(aDue)} (${why}), in the middle of the job`, `Book it before departure (${t.aCheckHours} h at ${home}), or pick another aircraft.`);
   }
@@ -709,6 +725,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const product = termsProduct(o, { paint: paintOn, cabin: cabinOn });
   // v0.12.1 Hajj MGH inside the phases only (o.terms), and a broker's cut on wet work too (the invoice takes it).
   rep.estRevenue = Math.round((product.kind === 'wet' ? productValue(product, revBH + (product.positioningBillable ? posBH : 0), o.start, o.end, o.terms) : productValue(product, revBH, o.start, o.end)) * (1 - (o.broker ? BAL.brokerCommission : 0)));
+  // v0.12.1 a world tour pays more for this aircraft's business seats (accept.ts at signing).
+  rep.estRevenue = Math.round(rep.estRevenue * (1 + tourBizPct(o.archetype, cab.j)));
   // v0.9 §Y.2 fuel at cost: the client pays this aircraft's own burn on the revenue legs after flying.
   if (product.kind === 'charter' && product.fuelAtCost) rep.estRevenue += Math.round(revBH * t.fuelTBH * g.market.fuelPrice);
   const age = Math.max(0, toDate(g.now).getUTCFullYear() - ac.builtYear - 12);
@@ -726,7 +744,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
       if (!wet) {
         cost += crewN * hotel * Math.floor(span / DAY + 0.3);
         const far = f.trip.legs.reduce((m, l) => (distanceNm(home, l.to) > distanceNm(home, m) ? l.to : m), f.trip.from);
-        cost += tripTickets(home, far, crewN, span + 90, span);
+        // v0.12.1 a world tour's crew stay with the aircraft (no tickets home and back during the stays).
+        if (!hold) cost += tripTickets(home, far, crewN, span + 90, span);
       }
     }
   }
@@ -734,7 +753,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     const wide = t.body === 'wide';
     const deps = fits.reduce((s, f) => s + f.trip.legs.length + f.posIn.length + f.posOut.length, 0);
     const revDeps = fits.reduce((s, f) => s + f.trip.legs.filter((l) => l.kind !== 'positioning').length, 0);
-    cost += bh * t.fuelTBH * g.market.fuelPrice + deps * BAL.airportFees[wide ? 1 : 0] + revDeps * BAL.catering[wide ? 1 : 0];
+    cost += bh * t.fuelTBH * g.market.fuelPrice + deps * BAL.airportFees[wide ? 1 : 0] + revDeps * BAL.catering[wide ? 1 : 0] * (o.archetype === 'worldTour' ? BAL.v0121.tour.catering : 1);
   }
   if (paintOn) {
     // Our share of paint + strip, and the ferries to and from the shop (fuel and maintenance).
@@ -748,6 +767,21 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   rep.estCost = Math.round(cost);
   rep.estMargin = rep.estRevenue - rep.estCost;
   return rep;
+}
+
+/**
+ * v0.12.1 the first stop of a held job (a world tour) where an A-check fits before `due`: a major airport or ours
+ * (maintenance checkAirportOk) with the hours on the ground between landing and the next leg. Null when none. Pure.
+ */
+function tourCheckStop(g: GameState, aircraftId: string, prog: Programme, due: Minute, need: number): string | null {
+  const legs = prog.trips.flatMap((tr) => tr.legs);
+  for (let i = 0; i + 1 < legs.length; i++) {
+    const a = legs[i];
+    const b = legs[i + 1];
+    if (a.sta + 30 > due) break;
+    if (a.to === b.from && b.std - a.sta >= need + 120 && checkAirportOk(g, 'A', a.to, aircraftId)) return a.to;
+  }
+  return null;
 }
 
 /** One report per fleet aircraft, best first (ok before warn before no, then margin). */

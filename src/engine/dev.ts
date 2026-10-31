@@ -290,7 +290,7 @@ export function devStandby(g: GameState): string {
 
 // ---------- v0.8 (UPDATE-0.8.md §12): each returns the id to open ----------
 
-export { devDeportation, devDryLease, devEvacuation, devHajj, devMixedCrew } from './contracts/missions';
+export { devDeportation, devDryLease, devEvacuation, devHajj, devMixedCrew, devWorldTour } from './contracts/missions';
 export { devWorldEvent } from './ops/world';
 
 /** A client at a level (relation and jobs set to reach it; level stored now); the client id. Dev/test helper. */

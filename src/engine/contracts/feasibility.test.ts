@@ -169,12 +169,15 @@ describe('feasibility', () => {
     // v0.7.4 nothing fitted: the business seats of its cabin are always there (class 2), the same day
     wb.rest = { fc: null, cc: null };
     expect(check(feasibility(g, o.id, wb.id), 'rest').label).toMatch(/^Business seats \(class 2\) → 3 pilots, 16 h limit ✓/);
-    // all economy: curtained economy seats (class 3): a 4th pilot, or no when even that is too short; recliners as the fix
+    // all economy: curtained economy seats (class 3): 3 pilots for the 11:30 revenue leg. v0.12.1 the empty leg home
+    // (13:35, a 15:05 day: a 4th pilot before) is longer than 3 pilots fly in class 3 seats: a night at a crew-change
+    // stop on the way (schedule.ts emptyDay), so the job's own day decides.
     wb.cabin = { j: 0, w: 0, y: 400, total: 400, label: '400Y', layout: 'all-economy' };
-    const y = check(feasibility(g, o.id, wb.id), 'rest');
-    expect(y.level).not.toBe('ok');
+    const yr = feasibility(g, o.id, wb.id);
+    const y = check(yr, 'rest');
     expect(y.label).toMatch(/conomy seats/);
-    if (y.level === 'no') expect(y.action).toEqual({ kind: 'restRefit', option: 'recliners' });
+    expect(yr.positionOut.length).toBe(2);
+    expect(yr.positionOut[1].std - yr.positionOut[0].sta).toBeGreaterThanOrEqual(10 * 60);
     wb.cabin = { j: 30, w: 24, y: 239, total: 293, label: '30J/24W/239Y', layout: 'three-class' };
     // ULR work needs class 1 for both pilots and cabin crew (C6)
     o.requirements.approvals.push('ulr');
@@ -194,14 +197,18 @@ describe('feasibility', () => {
     const jumbo = addAircraft(g, 'b744');
     const t0 = g.now + 20 * DAY;
     const o = legsOffer(g, [['SGN', 'BKK', t0 + 3 * 60], ['BKK', 'SGN', t0 + 6 * 60], ['SGN', 'BKK', t0 + DAY + 3 * 60], ['BKK', 'SGN', t0 + DAY + 6 * 60]], 300);
-    const r = check(feasibility(g, o.id, jumbo.id), 'rest');
-    expect(r.level).toBe('no');
-    expect(r.label).toMatch(/^Positioning (LIS→SGN|SGN→LIS): A \d+:\d\d day needs an augmented crew: we have no approval for it$/);
-    expect(r.detail).toMatch(/empty leg/);
-    expect(acceptOffer(g, o.id, [jumbo.id]).ok).toBe(false);
-    // With augmented crews and the 747's bunks the roster flies them with 3 or 4 pilots: no longer a 'no'.
+    // v0.12.1 the empty-move planner now splits a leg longer than one crew's day (schedule.ts emptyDay: 11:00 for two
+    // pilots) at a crew-change stop, a night there: the positioning is two short days, and no longer a 'no'.
+    const rep = feasibility(g, o.id, jumbo.id);
+    expect(check(rep, 'rest').level).not.toBe('no');
+    expect(rep.positionIn.length).toBeGreaterThanOrEqual(2);
+    expect(rep.positionIn.every((l) => l.sta - l.std <= 11 * 60)).toBe(true);
+    expect(check(rep, 'positioning').label).toMatch(/a night at [A-Z]{3} for the crew/);
+    // With augmented crews and the 747's bunks the roster flies LIS–SGN in one day with 3 pilots (14:30 of block).
     g.company.approvals.push('augmented');
-    expect(check(feasibility(g, o.id, jumbo.id), 'rest').level).not.toBe('no');
+    const aug = feasibility(g, o.id, jumbo.id);
+    expect(check(aug, 'rest').level).not.toBe('no');
+    expect(aug.positionIn.length).toBe(1);
     // An aircraft already out there flies the job without the long empty legs: the job's own short days only.
     g.company.approvals.pop();
     const o2 = legsOffer(g, [['LIS', 'MAD', t0 + 3 * 60], ['MAD', 'LIS', t0 + 6 * 60]], 300);

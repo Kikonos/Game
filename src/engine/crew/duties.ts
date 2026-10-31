@@ -396,11 +396,31 @@ export function pairingSeats(g: GameState, p: Pairing): Seat[] {
     }
   }
   const c: Contract | undefined = p.contractId ? g.contracts[p.contractId] : undefined;
+  // v0.12.1 a world tour (a held job) flies one augmented crew all the way round: the most pilots any of its duties
+  // needs on every leg (the same seats whichever part of the tour a pairing holds), a spare pilot when none needs more
+  // than two; its service crew above the minimum ride as spares (a sick one never grounds the tour: promoteSpares).
+  const tour = !empty && c?.pattern.kind === 'legs' && !!c.pattern.hold && !!p.aircraftId;
+  if (tour) {
+    for (const f of flightsOf(g, p.aircraftId!)) {
+      const d = f.contractId === c!.id && f.dutyId ? g.duties[f.dutyId] : undefined;
+      if (!d || d.augment <= augment) continue;
+      augment = d.augment;
+      restCabin = Math.max(restCabin, d.restExtra ?? 0);
+    }
+  }
   let x = crewExtraFor(g, p.aircraftId, p.contractId);
   // v0.8 mixed crew: the client staffs part of the cabin (no company extra on top); we fill only our share.
   const cc = clientCabinOf(g, p);
   if (cc && cc.n > 0) x = { ...x, cabin: Math.min(x.cabin, c?.requirements.extraCabin ?? 0) };
-  const seats = dropClientSeats(seatsFor(typeId, ac?.cabin.total ?? 180, x, c?.requirements.extraCabin ?? 0, { augment, restCabin, pilotsOnly: empty }), empty ? undefined : cc);
+  const req = tour ? 0 : c?.requirements.extraCabin ?? 0;
+  if (tour) x = { ...x, cabin: Math.max(x.cabin, c!.requirements.extraCabin), pilot: augment === 0 ? 1 : x.pilot };
+  const seats = dropClientSeats(seatsFor(typeId, ac?.cabin.total ?? 180, x, req, { augment, restCabin, pilotsOnly: empty }), empty ? undefined : cc);
+  // ... one of them a second purser, who takes the purser's seat if the purser falls ill far from home (a cabin crew
+  // member may not: seed 4's tour lost its last two legs at Kathmandu for want of one).
+  if (tour) {
+    const spare = seats.find((x) => x.above && x.role === 'CC');
+    if (spare) spare.role = 'PUR';
+  }
   const rank = (s: Seat) => (s.above ? 10 : 0) + ROLE_ORDER.indexOf(s.role);
   return seats.sort((a, b) => rank(a) - rank(b));
 }
@@ -1022,6 +1042,14 @@ function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
   const dayOf = (t: Minute) => Math.floor((t + offsetAt(home, t)) / DAY);
   let cur: Duty[] = [];
   const empty = (d: Duty) => emptyDuty(g, d);
+  /** v0.12.1 the held job (a world tour) the duty flies for, positioning to it included; null for any other. */
+  const heldBy = (d: Duty): string | null => {
+    for (const id of d.flightIds) {
+      const c = g.contracts[g.flights[id]?.contractId ?? ''];
+      if (c?.pattern.kind === 'legs' && c.pattern.hold) return c.id;
+    }
+    return null;
+  };
   /** The cabin crew's earlier report (absent: the type's default, as timeline.cabinEarly reads it). */
   const early = (d: Duty) => d.cabinEarly ?? cabinEarlyOf(g.fleet[acId]?.typeId ?? '');
   // v0.5.2: empty duties after the trip's last revenue duty are their own pilots-only trip (a ferry: the cabin
@@ -1050,7 +1078,10 @@ function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
       // (Code review: the cabin crew's earlier report counts at both ends: their day is longer and their next one
       // starts sooner. A widebody's days 10:05 apart read 'Rest 9:50 < 10:00' for every cabin crew member.)
       const need = minRest({ dutyMin: last.release - last.report + early(last), atHome: false, augmented: last.augment > 0, tzShift: tzDeltaH(home, last.restAt, last.release), extended: !!last.ext });
-      const cont = last.restAt !== home && firstDep === last.restAt && gap <= 3 * DAY && gap - early(d) >= need && days.size <= LIMITS.blockDays && d.release + homeLeg(d, home) - anchor <= TRIP_SPAN;
+      // v0.12.1 a held job (a world tour): one crew all the way round, its days on the ground the rest (the 168 h,
+      // the cumulative limits and the days off are the crew check's to judge, as on any trip).
+      const tour = heldBy(last) !== null && heldBy(last) === heldBy(d);
+      const cont = last.restAt !== home && firstDep === last.restAt && gap - early(d) >= need && (tour || (gap <= 3 * DAY && days.size <= LIMITS.blockDays && d.release + homeLeg(d, home) - anchor <= TRIP_SPAN));
       if (!cont) close();
     }
     if (!cur.length) anchor = d.report;

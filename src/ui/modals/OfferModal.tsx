@@ -11,8 +11,9 @@ import { flag } from '../../data/countries';
 import { artFor } from '../../data/acmiTypes';
 import {
   acceptOffer, askingPrice, cabinQuote, cabinTarget, counterOffer, counterView, declineOffer, deportationCleanHit, feasibilityAll, leadDays, markOfferSeen, offerClientLine, offerCompetition,
-  offerRestLine, paintQuote, paintTermsText, termsProduct, type FeasibilityReport,
+  offerRestLine, paintQuote, paintTermsText, termsProduct, tourBizPct, tourCrew, tourSight, tourStops, type FeasibilityReport,
 } from '../../engine/contracts';
+import { TourMap } from '../map/TourMap';
 import { mixedCrewFlavour, mixedCrewText } from '../../engine/crew';
 import { problemFor } from '../../engine/problems';
 import { LevelPill } from '../screens/Clients';
@@ -422,12 +423,45 @@ function MixedPanel({ g, o }: { g: GameState; o: ContractOffer }) {
   );
 }
 
+/**
+ * v0.12.1 a world tour: the route on a world map, the stops with their nights, the days away, the one crew that flies
+ * it (on the chosen aircraft) and the cabin it needs, with what its business seats add to the price.
+ */
+function TourPanel({ g, o, aircraftId }: { g: GameState; o: ContractOffer; aircraftId?: string }) {
+  if (o.pattern.kind !== 'legs') return null;
+  const legs = [...o.pattern.legs].sort((a, b) => a.dep - b.dep);
+  const stops = tourStops(legs);
+  const gw = legs[0]?.from ?? '';
+  const days = Math.round((o.end - o.start) / DAY);
+  const ac = aircraftId ? g.fleet[aircraftId] : undefined;
+  const crew = aircraftId ? tourCrew(g, o.id, aircraftId) : null;
+  const biz = ac ? tourBizPct(o.archetype, ac.cabin.j) : 0;
+  const city = (c: string) => AIRPORT_BY_CODE[c]?.city ?? c;
+  const home = legs[legs.length - 1];
+  return (
+    <div className="v8-panel tour-panel">
+      <b>Around the world in {days} days</b>
+      <TourMap gateway={gw} stops={stops} />
+      <div className="row gap-4 wrap tour-stops">
+        {stops.map((x) => <span key={x.code} className="chip sc-chip">{tourSight(x.code)} · {x.nights} night{x.nights === 1 ? '' : 's'}</span>)}
+      </div>
+      <KV rows={[
+        ['Route', `From ${city(gw)} ${fmtDay(legs[0].dep)}, ${stops.length} stops, home ${fmtDay(home.dep)}`],
+        ['Crew', crew ? `One crew all the way: ${crew.pilots} pilots and ${crew.cabin} cabin crew (${crew.extra} extra for the service)` : `One crew all the way: augmented, ${o.requirements.extraCabin} extra cabin crew for the service`],
+        ['Cabin', `Any widebody with business seats${ac ? `: ${ac.reg} has ${ac.cabin.j} J${biz ? `, +${Math.round(biz * 100)} % on the price` : ''}` : ''}`],
+        ['Stops', 'Hotels at every stop; the days ashore are the crew’s rest'],
+      ]} />
+    </div>
+  );
+}
+
 /** Whether the offer has an archetype panel (its 'mission' line is then in the panel's words). */
-const hasPanel = (o: ContractOffer) => o.product.kind === 'dry' || o.archetype === 'deportation' || o.archetype === 'hajj' || !!o.requirements.clientCabin?.n;
+const hasPanel = (o: ContractOffer) => o.product.kind === 'dry' || o.archetype === 'deportation' || o.archetype === 'hajj' || o.archetype === 'worldTour' || !!o.requirements.clientCabin?.n;
 
 /** The archetype panel that applies (a mixed cabin can come on top of a Hajj airlift). */
-function ArchPanel({ g, o }: { g: GameState; o: ContractOffer }) {
+function ArchPanel({ g, o, aircraftId }: { g: GameState; o: ContractOffer; aircraftId?: string }) {
   if (o.product.kind === 'dry') return <DryPanel g={g} o={o} />;
+  if (o.archetype === 'worldTour') return <TourPanel g={g} o={o} aircraftId={aircraftId} />;
   if (o.archetype === 'deportation') return <MoralPanel o={o} />;
   const mixed = o.requirements.clientCabin?.n ? <MixedPanel g={g} o={o} /> : null;
   if (o.archetype === 'hajj') return <>{<HajjPanel o={o} />}{mixed}</>;
@@ -528,7 +562,9 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const crewed = o.product.kind !== 'dry';
   const x = extra ?? offerExtra(g, sel?.aircraftId ?? null, o.requirements);
   const paid = o.requirements.extraCabinPaid;
-  const lift = crewed && paid && x.cabin >= paid.n ? 1 + paid.pct : 1;
+  // v0.12.1 a world tour's business-seat bonus on the chosen aircraft (applied at signing, as the paid crew's lift).
+  const bizLift = 1 + tourBizPct(o.archetype, sel && g.fleet[sel.aircraftId] ? g.fleet[sel.aircraftId].cabin.j : 0);
+  const lift = (crewed && paid && x.cabin >= paid.n ? 1 + paid.pct : 1) * bizLift;
   const opts = { paint, cabin, crewExtra: crewed ? x : undefined };
   const canCounter = live && !countered && !o.counter && !!sel && !blocked(sel);
   const canAccept = live && !countered && !!sel && !blocked(sel) && !mustPaint;
@@ -596,7 +632,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           <Chips chips={[...v09Chips(o), ...reqChips(o.requirements, o.pattern), ...riskChips(o.risk), ...effectChips(o)]} />
           <AnalystBlock g={g} offerId={o.id} fmtP={fmtP} steps={steps} lift={lift} onUse={live && !countered && !o.counter ? setStep : undefined} />
           {live && <CompetitionLine g={g} o={o} />}
-          <ArchPanel g={g} o={o} />
+          <ArchPanel g={g} o={o} aircraftId={sel?.aircraftId} />
           {sel && !hasPanel(o) && (() => {
             const mission = sel.checks.find((c) => c.id === 'mission');
             return mission ? <div className={`small v8-mission ${LEVEL_TONE[mission.level]}`}><Dot tone={LEVEL_TONE[mission.level]} /><span>{mission.label}{mission.detail ? ` · ${mission.detail}` : ''}</span></div> : null;
@@ -630,7 +666,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           {!reports.length && <div className="small muted">No aircraft in the fleet.</div>}
           {reports.length > 0 && o.product.kind !== 'dry' && <div className="tiny dim v91-portal-hint">Under each aircraft, its schedule around this job, every flight on its own. This job's flights are dashed outlines (not booked yet), or one shaded block while it has no flights yet; red outlines are in the way. Tap a trip to move it to another aircraft or sub-lease it, or hold and drag it onto another aircraft.</div>}
           {reports.map((r) => (
-            <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} lift={lift} offerId={o.id} long={!!restLine}
+            <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} lift={lift / bizLift} offerId={o.id} long={!!restLine}
               portal={o.product.kind !== 'dry' ? <SchedulePortal g={g} o={o} aircraftId={r.aircraftId} candidates={reports.map((x) => x.aircraftId)} report={r} open={sel?.aircraftId === r.aircraftId} /> : undefined} />
           ))}
         </div>

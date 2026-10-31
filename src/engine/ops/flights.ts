@@ -166,7 +166,10 @@ export function lateCap(g: GameState, f: Flight): number {
   if (!isRevenue(f)) return Infinity;
   if (isBaseLeg(g, f)) return BAL.holdMax;
   // v0.12.1 an evacuation or repatriation waits a day longer: late beats not at all for the people waiting.
-  return waitsFirst(contractOf(g, f)) ? BAL.tripHoldMax + BAL.missionHoldExtra : BAL.tripHoldMax;
+  // v0.12.1 a world tour waits three days: its stops absorb a late leg, and dropping one ends the tour for its guests.
+  const k = contractOf(g, f);
+  if (k?.archetype === 'worldTour') return 3 * BAL.tripHoldMax;
+  return waitsFirst(k) ? BAL.tripHoldMax + BAL.missionHoldExtra : BAL.tripHoldMax;
 }
 
 /** v0.12.1 work whose passengers would rather leave late than not at all: evacuations, repatriations, relief, medical. */

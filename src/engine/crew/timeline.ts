@@ -300,7 +300,10 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
   // ... and a trip that starts far away (4+ time zones, or a long ticket) gets the ticket out a few hours before the
   // last one that still rests: a late-landing itinerary, or a report moved a little earlier, no longer leaves the
   // whole crew minutes short. The last one that rests stays the fallback when the earlier one has left already.
-  const far = tz >= 4 || blk >= OUT_FAR_BLOCK;
+  // v0.12.1 so does a world tour's crew (a held job): three weeks rest on that first night at the gateway.
+  const k = p.contractId ? g.contracts[p.contractId] : undefined;
+  const tour = k?.pattern.kind === 'legs' && !!k.pattern.hold;
+  const far = tz >= 4 || blk >= OUT_FAR_BLOCK || tour;
   const buffered = far ? hour(rep - rest - blk - OUT_REST_BUFFER, false) : exact;
   // v0.12.1 only seats that exist (no closed airport, no curfew landing): the next one earlier.
   const rested = slotBefore(g, from, to, buffered >= first ? buffered : exact, first, blk) ?? slotBefore(g, from, to, exact, first - DAY, blk) ?? exact;
@@ -325,7 +328,9 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
   if (ride) {
     const rideRest = minRest({ dutyMin: ride.sta - ride.std + CHECKIN(), atHome: false, augmented: false, tzShift: tzDeltaH(p.base, to, d.report) });
     const x = fdpOf(ride.std);
-    if (ride.sta + rideRest <= rep || x.fdp <= x.max) return { plan: ride, why: null };
+    // v0.12.1 a world tour's crew with the hours in hand (riding the positioning to the gateway they rested 9:57 after
+    // it left 3 min late, and the tour went without them).
+    if (ride.sta + rideRest + (tour ? OUT_REST_BUFFER : 0) <= rep || x.fdp <= x.max) return { plan: ride, why: null };
   }
   const pref0 = hour(d.report - OUT_BUFFER - blk, false);
   const pref = slotBefore(g, from, to, pref0, Math.max(first, exact), blk) ?? pref0;

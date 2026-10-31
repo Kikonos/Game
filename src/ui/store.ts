@@ -14,7 +14,8 @@ import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
 import type { ClientLevel } from '../engine/contracts';
 import type { WorldEventKind } from '../engine/core/types';
-import { devDeportation, devDryLease, devEvacuation, devHajj, devLevel, devMixedCrew, devRivalBid, devWorldEvent } from '../engine/dev';
+import { devDeportation, devDryLease, devEvacuation, devHajj, devLevel, devMixedCrew, devRivalBid, devWorldEvent, devWorldTour } from '../engine/dev';
+import { devTourStopClosed } from '../engine/ops/tourStop';
 import { demoFlights, devAddType, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
 import { dropTargets, moveDuty, publishedTo, resignNow, type DropTarget, type MoveScope } from '../engine/crew';
 import { acquireAircraft, headsView, headView } from '../engine/ops';
@@ -978,6 +979,8 @@ class GameStore {
     /** One offer of an archetype (null until B1 lands); opens the offer modal. */
     offer: (archetype?: Archetype) => {
       if (!this.game) return null;
+      // v0.12.1 a world tour whatever the company holds (the daily roll waits for a widebody, ETOPS 180 and standing).
+      if (archetype === 'worldTour') return this.devOffer((g) => devWorldTour(g)) || null;
       const o = generateOffer(this.game, archetype);
       if (o) this.openModal({ kind: 'offer', offerId: o.id });
       this.emit();
@@ -1086,6 +1089,28 @@ class GameStore {
       const n = g.decisions.length;
       const end = g.now + min;
       for (let i = 0; i < 200 && g.now < end && g.decisions.length <= n; i++) advanceTo(g, Math.min(end, g.now + 10), new Set(['decision']));
+      this.exact = g.now;
+      this.clockLabel = -1;
+      this.emitClock();
+      this.emit();
+    },
+    /** v0.12.1 a storm shuts the next stop of the world tour under way: its card (opens the decision); the id. */
+    tourStop: () => {
+      const g = this.game;
+      if (!g) return '';
+      const id = devTourStopClosed(g);
+      settle(g);
+      if (id) this.openModal({ kind: 'decision', decisionId: id });
+      this.emit();
+      return id;
+    },
+    /** v0.12.1 plays `days` on, through every pause (decisions take their defaults when they expire); dev and screenshots. */
+    skip: (days: number) => {
+      const g = this.game;
+      if (!g) return;
+      const end = g.now + Math.round(days * 1440);
+      for (let i = 0; i < 100_000 && g.now < end && !g.gameOver; i++) advanceTo(g, end, new Set());
+      settle(g);
       this.exact = g.now;
       this.clockLabel = -1;
       this.emitClock();
@@ -1279,6 +1304,8 @@ class GameStore {
     hajj: () => this.devOffer(devHajj),
     dryLease: () => this.devOffer(devDryLease),
     deportation: () => this.devOffer(devDeportation),
+    /** v0.12.1 a world tour offer (TMR unless another client is named: 'Abercrombie & Kent', 'Kuoni Group Travel'). */
+    worldTour: (client?: string) => this.devOffer((g) => devWorldTour(g, client)),
     evacuation: () => this.devOffer(devEvacuation),
     rivalBid: () => this.devOffer(devRivalBid),
     mixedCrew: () => this.devScene(devMixedCrew, 'duty'),

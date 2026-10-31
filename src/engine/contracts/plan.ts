@@ -5,7 +5,7 @@
 
 import { dryAnchor } from '../ops/dryLease';
 import type { ChainShape } from '../crew/duties';
-import { liveFlightsOf } from '../core/entities';
+import { flightsOf, liveFlightsOf } from '../core/entities';
 import { BAL } from '../core/balance';
 import { blockMinutes, etopsRoute, NO_STOP_COUNTRY, planSector, reportMinutes, TECH_STOP_MIN, typeOf, withinEtops } from '../core/perf';
 import { DAY, dayIndex, dayStart, localOffset, monthKey, monthStart, toLocal } from '../core/time';
@@ -53,12 +53,21 @@ export const isRerouted = (legs: readonly Hop[]) => rerouted.has(legs);
  * leg inside it (Europe–Keflavík–Iqaluit–Halifax), or null when there is none (no 60-minute Pacific crossing).
  * Omitted: no cap (revenue planning and the quotes that do not move an aircraft).
  */
-export function route(typeId: string, from: string, to: string, cap = Infinity): Hop[] | null {
+export function route(typeId: string, from: string, to: string, cap = Infinity, day = Infinity): Hop[] | null {
   if (from === to) return [];
   const p = planSector(typeId, from, to);
   if (!p.ok) return null;
-  if (cap === Infinity || p.legs.every((l) => withinEtops(typeId, l.from, l.to, cap))) return p.legs;
-  const r = etopsRoute(typeId, from, to, cap, { maxBlock: BAL.delivery.dayBlockMax, noStop: NO_STOP_COUNTRY });
+  const within = cap === Infinity || p.legs.every((l) => withinEtops(typeId, l.from, l.to, cap));
+  // v0.12.1 `day` (schedule.ts emptyDay): a leg longer than one crew's day of empty flying is split at a crew-change
+  // stop and flown as ferry days (a night stop between), as a delivery is; kept as it was when no such way exists.
+  if (within && p.legs.every((l) => l.block <= day)) return p.legs;
+  if (within) {
+    const d = etopsRoute(typeId, from, to, cap, { maxBlock: day, noStop: NO_STOP_COUNTRY }, 'day');
+    if (!d) return p.legs;
+    rerouted.add(d);
+    return d;
+  }
+  const r = etopsRoute(typeId, from, to, cap, { maxBlock: Math.min(day, BAL.delivery.dayBlockMax), noStop: NO_STOP_COUNTRY });
   if (r) rerouted.add(r);
   return r;
 }
@@ -107,8 +116,8 @@ function curfewMove(legs: ChainLeg[], dir: 'before' | 'after'): number {
  * v0.12.1 never leaving or landing in a night curfew: moved earlier until it is clear (AWL200 CGN–DUS landed 05:20
  * local, its crew on 3 h rest; seed 2 legs into Heathrow at 00:45).
  */
-export function chainBackward(typeId: string, from: string, to: string, earliest: Minute, latest: Minute, cap = Infinity): ChainLeg[] | null {
-  const r = route(typeId, from, to, cap);
+export function chainBackward(typeId: string, from: string, to: string, earliest: Minute, latest: Minute, cap = Infinity, day = Infinity): ChainLeg[] | null {
+  const r = route(typeId, from, to, cap, day);
   if (!r) return null;
   if (!r.length) return [];
   let std = latest - routeMinutes(r);
@@ -134,8 +143,8 @@ export function chainBackward(typeId: string, from: string, to: string, earliest
 }
 
 /** Empty move leaving at `earliest` (v0.12.1 or when the night curfews at either end allow: after them). */
-export function chainForward(typeId: string, from: string, to: string, earliest: Minute, cap = Infinity): ChainLeg[] | null {
-  const r = route(typeId, from, to, cap);
+export function chainForward(typeId: string, from: string, to: string, earliest: Minute, cap = Infinity, day = Infinity): ChainLeg[] | null {
+  const r = route(typeId, from, to, cap, day);
   if (!r) return null;
   let legs = timeChain(r, earliest, typeId);
   if (!rerouted.has(r) && legs.length) {
@@ -197,20 +206,20 @@ export function ferryDays(legs: Hop[], first: Minute, typeId?: string): DayLeg[]
  * or (allowHop) a hop home and on to Y when the aircraft would otherwise idle ≥ AWAY_GAP at an outstation.
  * null: cannot make it.
  */
-export function gapMoves(typeId: string, X: string, Y: string, earliest: Minute, latest: Minute, home: string, allowHop: boolean, cap = Infinity): ChainLeg[] | null {
+export function gapMoves(typeId: string, X: string, Y: string, earliest: Minute, latest: Minute, home: string, allowHop: boolean, cap = Infinity, day = Infinity): ChainLeg[] | null {
   if (X !== Y) {
     // A long wait away from base is spent at home: back to base at once, then out to Y as late as possible.
     if (allowHop && X !== home && latest - earliest >= AWAY_GAP) {
-      const out = chainForward(typeId, X, home, earliest, cap);
+      const out = chainForward(typeId, X, home, earliest, cap, day);
       if (out?.length && Y === home && out[out.length - 1].sta <= latest) return out;
-      const back = Y === home ? null : chainBackward(typeId, home, Y, earliest, latest, cap);
+      const back = Y === home ? null : chainBackward(typeId, home, Y, earliest, latest, cap, day);
       if (out?.length && back?.length && out[out.length - 1].sta + HOME_HOP_MIN <= back[0].std) return [...out, ...back];
     }
-    return chainBackward(typeId, X, Y, earliest, latest, cap);
+    return chainBackward(typeId, X, Y, earliest, latest, cap, day);
   }
   if (!allowHop || X === home || latest - earliest < TRIP_GAP) return [];
-  const out = chainForward(typeId, X, home, earliest, cap);
-  const back = chainBackward(typeId, home, Y, earliest, latest, cap);
+  const out = chainForward(typeId, X, home, earliest, cap, day);
+  const back = chainBackward(typeId, home, Y, earliest, latest, cap, day);
   if (out && back && out.length && back.length && out[out.length - 1].sta + HOME_HOP_MIN <= back[0].std) return [...out, ...back];
   return [];
 }
@@ -280,6 +289,8 @@ export function anchorsOf(g: GameState, aircraftId: string): Anchor[] {
   // v0.8 a dry lease out holds the aircraft at the lessee's base between its two ferries.
   const dry = dryHere ? dryAnchor(g, aircraftId) : null;
   if (dry) out.push({ ...dry, kind: 'base', id: dry.contractId });
+  // v0.12.1 a held job (a world tour) keeps the aircraft from its first leg to its last: no other work or hop home in its gaps.
+  for (const h of holdAnchors(g, aircraftId)) out.push(h);
   out.sort((a, b) => a.std - b.std || a.sta - b.sta);
   if (ac && !ac.flightId) {
     // v0.7: a delivered aircraft abroad is busy with its acceptance until the delivery ferry leaves (never hopped home).
@@ -291,6 +302,35 @@ export function anchorsOf(g: GameState, aircraftId: string): Anchor[] {
       }
     }
     out.unshift({ from: ac.at, to: ac.at, std: g.now, sta: ready, contractId: null, kind: 'start', id: '' });
+  }
+  return out;
+}
+
+/** v0.12.1 the contract keeps its aircraft and crew between legs (a world tour: SchedulePattern legs `hold`). Pure. */
+export const isHold = (c: Pick<Contract, 'pattern'> | undefined): boolean => c?.pattern.kind === 'legs' && !!c.pattern.hold;
+
+/**
+ * v0.12.1 the span a live held job keeps its aircraft: from its next leg (from now when it has begun and the aircraft is
+ * on the ground at a stop) to its last landing, as one 'base' anchor (the flights inside it stay anchors too). Pure.
+ */
+function holdAnchors(g: GameState, aircraftId: string): Anchor[] {
+  const out: Anchor[] = [];
+  const ac = g.fleet[aircraftId];
+  for (const c of Object.values(g.contracts)) {
+    if ((c.status !== 'signed' && c.status !== 'active') || !isHold(c) || !c.aircraftIds.includes(aircraftId)) continue;
+    let first: Flight | null = null;
+    let last: Flight | null = null;
+    let begun = false;
+    for (const f of liveFlightsOf(g, aircraftId)) {
+      if (f.contractId !== c.id || (f.kind !== 'revenue' && f.kind !== 'techstop')) continue;
+      if (!first || f.std < first.std) first = f;
+      if (!last || f.sta > last.sta) last = f;
+    }
+    if (!first || !last) continue;
+    for (const f of flightsOf(g, aircraftId)) if (f.contractId === c.id && f.kind === 'revenue' && f.status === 'done') begun = true;
+    const on = begun && !ac?.flightId;
+    const std = on ? Math.min(g.now, first.std) : first.std;
+    out.push({ from: on ? ac!.at : first.from, to: last.to, std, sta: last.status === 'enroute' ? (last.eta ?? last.sta) : last.sta, contractId: c.id, kind: 'base', id: c.id });
   }
   return out;
 }
@@ -393,7 +433,8 @@ export function planLegs(p: LegsPattern, typeId: string, noTechStops = false): P
     let std = l.dep;
     if (last && trip) {
       const gap = l.dep - last.sta;
-      if (gap >= TRIP_GAP) {
+      // v0.12.1 a held job (a world tour) is one trip however long it stays at a stop.
+      if (gap >= TRIP_GAP && !p.hold) {
         res.trips.push(trip);
         trip = null;
       } else if (last.to !== l.from) {

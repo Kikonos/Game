@@ -8,6 +8,7 @@ import type { Flight, GameState, MaintenanceEvent, Minute, Ref } from '../../eng
 import { crewRev, dutyLegality, flightCrewStatus } from '../../engine/crew';
 import { flightType, type FlightType } from '../../engine/ops/flightType';
 import { dryLeaseView } from '../../engine/ops/dryLease';
+import { tourSight } from '../../engine/contracts/missions';
 
 export type ZoomDays = 3 | 7 | 28;
 /** Pixels per hour at each zoom preset when the view width is unknown (the screen fits the preset to the width). */
@@ -262,6 +263,12 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
   const end = Math.max(to, opts.until ?? to);
   for (const gap of idleGaps(busy, g.now, end, ac?.at ?? '')) {
     if (gap.to < from || gap.from > to) continue;
+    // v0.12.1 a gap inside a world tour is the tour: the aircraft and its crew stay at the stop (never 'idle').
+    const tour = tourStay(g, aircraftId, gap.from, gap.to);
+    if (tour) {
+      out.push({ key: `tour-${gap.from}`, kind: 'cont', start: gap.from, end: gap.to, color: tour.color, label: tour.label, short: 'TOUR', refs: [{ kind: 'contract', id: tour.contractId }], at: gap.at });
+      continue;
+    }
     // v0.8: a gap past the generated days of a base programme still running is the programme continuing.
     const cont = continuing(g, aircraftId, gap.from);
     if (cont) {
@@ -292,6 +299,23 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
   }
   const sorted = out.sort((a, b) => a.start - b.start || a.end - b.end);
   return opts.pills ? dayPills(sorted) : sorted;
+}
+
+/**
+ * v0.12.1 the world tour whose stop this ground gap [from, to) is: between two of its legs on this aircraft, the guests
+ * ashore and the crew at the hotel ('Easter Island: 2 nights ashore · Around the world…'). Null otherwise. Pure.
+ */
+export function tourStay(g: GameState, aircraftId: string, from: Minute, to: Minute): { color: number; label: string; contractId: string } | null {
+  for (const c of Object.values(g.contracts)) {
+    if (c.archetype !== 'worldTour' || (c.status !== 'active' && c.status !== 'signed') || !c.aircraftIds.includes(aircraftId) || c.pattern.kind !== 'legs') continue;
+    const legs = [...c.pattern.legs].sort((a, b) => a.dep - b.dep);
+    const i = legs.findIndex((l, k) => k > 0 && l.dep >= to - 6 * 60 && legs[k - 1].dep < from);
+    if (i <= 0) continue;
+    const at = legs[i].from;
+    const nights = Math.max(1, Math.round((to - from) / DAY));
+    return { color: c.color, contractId: c.id, label: `${tourSight(at)}: ${nights} night${nights === 1 ? '' : 's'} ashore · ${c.title}` };
+  }
+  return null;
 }
 
 /** v0.8 the base programme flying on this aircraft whose flights are generated day by day past `t`, if any. */

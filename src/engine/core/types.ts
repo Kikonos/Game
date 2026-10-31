@@ -406,7 +406,10 @@ export type Archetype =
   // v0.7+
   | 'capacityLease' | 'hajj' | 'unRotation' | 'vip' | 'deportation' | 'evacuation' | 'humanitarian' | 'subcharterIn' | 'dryLeaseOut'
   // v0.8
-  | 'medical' | 'musicTour' | 'antarctic';
+  | 'medical' | 'musicTour' | 'antarctic'
+  // v0.12.1 a round-the-world private-jet tour (Les Voyages de TMR's 'Tour du monde en avion privé'): one widebody,
+  // one crew, three weeks.
+  | 'worldTour';
 
 export type Product =
   /** ACMI / wet lease: rate per block hour against a monthly minimum. Client pays fuel, fees, hotels. */
@@ -462,7 +465,15 @@ export interface LegTemplate {
 
 export type SchedulePattern =
   /** Explicit legs: ad hoc, sports, repatriation, tour series, troop rotation. */
-  | { kind: 'legs'; legs: LegTemplate[] }
+  | {
+      kind: 'legs';
+      legs: LegTemplate[];
+      /**
+       * v0.12.1 the aircraft and its crew stay with the job from its first leg to its last (a world tour): one trip,
+       * no hop home between legs, no other work in its gaps, the same crew all the way (crew/duties.ts buildTrips).
+       */
+      hold?: true;
+    }
   /** Based at the client's station flying its rotations (season base, AOG cover). Flights roll out daily. */
   | {
       kind: 'base';
@@ -1565,6 +1576,8 @@ export interface StatsV09 {
   lastCancel?: Minute; lastOverdue?: Minute;
   /** Signed offers a rival was bidding on; evacuation/repatriation and Hajj contracts completed. */
   firstCall?: number; homeSafe?: number; hajjDone?: number;
+  /** v0.12.1 world tours completed (the 'Around the world' achievement). */
+  tourDone?: number;
   /** Month results by year (calendar-year net). */
   yearNet?: Record<number, number>;
   /** MonthKey → [revenue departures, on time (≤ 15 min)] (the clockwork achievement; last 14 kept). */

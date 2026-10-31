@@ -1,7 +1,7 @@
 // Real clients and rivals from the naming kit (B1).
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { CLIENT_SEEDS, CLIENT_SEEDS_B1, CLIENT_SEEDS_V08, RIVALS, RIVALS_B1, type ClientSeed } from '../../data/naming';
+import { CLIENT_SEEDS, CLIENT_SEEDS_B1, CLIENT_SEEDS_V08, CLIENT_SEEDS_V0121, RIVALS, RIVALS_B1, type ClientSeed } from '../../data/naming';
 import { nextId } from '../core/entities';
 import { distance } from '../core/geo';
 import { typeOf } from '../core/perf';
@@ -63,6 +63,21 @@ export function loadClients(g: GameState): void {
     const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0 };
     g.clients[c.id] = c;
   }
+}
+
+/**
+ * v0.12.1 a client added on first use (data/naming.ts CLIENT_SEEDS_V0121: the world-tour operators), or the one by
+ * that name already in the game; undefined when the name is unknown or its base is not an airport we list.
+ */
+export function ensureClient(g: GameState, name: string): Client | undefined {
+  const have = Object.values(g.clients).find((c) => c.name === name);
+  if (have) return have;
+  const s = CLIENT_SEEDS_V0121.find((x) => x.name === name);
+  if (!s || !AIRPORT_BY_CODE[s.base]) return undefined;
+  // As loadRelations sets them on a new game's clients: no jobs yet, a fresh log, a New client.
+  const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0, jobs: 0, firstJob: null, lastJob: null, log: [], level: 'new' };
+  g.clients[c.id] = c;
+  return c;
 }
 
 /** v0.8 the client's special role (hajj, presidency, interior, health, polar, foreign, defence, aid…). */

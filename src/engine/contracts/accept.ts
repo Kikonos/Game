@@ -15,7 +15,7 @@ import { autoRoster, crewExtraFor, flightCrewStatus, onContractDoneMorale } from
 import { billContractMonth, issueBill, mghFor, mghRemaining } from './billing';
 import { feasibility } from './feasibility';
 import { baseDayOf, flownRotations, programmeOf } from './plan';
-import { productValue } from './pricing';
+import { productValue, tourBizPct } from './pricing';
 import { generateFlights, relinkPositioning } from './schedule';
 import { bookPaint, cancelPaintFor } from '../ops/paint';
 import { paintWindow, type PaintSlot } from './paintTerms';
@@ -139,6 +139,10 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
     // The contract flies the client's layout (a later refit may not take it away).
     if (cabinOn) c.requirements.layouts = [o.cabin.layout];
   }
+  // v0.12.1 a world tour pays more for more business seats (the aircraft's own cabin), on the asking or a countered
+  // price alike, as the offer dialog shows it (the client-paid extra crew's lift works the same way).
+  const biz = tourBizPct(c.archetype, g.fleet[ids[0]].cabin.j);
+  if (biz > 0 && c.product.kind === 'charter') setPrice(c, Math.round((c.product.price * (1 + biz)) / 1000) * 1000);
   signHook?.(g, c, o, ids[0]);
   g.contracts[c.id] = c;
   signCrewExtra(g, c, ids[0], opts.crewExtra);
@@ -629,6 +633,8 @@ function completeContract(g: GameState, c: Contract): void {
     const v = v09Stats(g);
     if (c.archetype === 'hajj') v.hajjDone = (v.hajjDone ?? 0) + 1;
     if (c.archetype === 'evacuation' || c.archetype === 'repatriation') v.homeSafe = (v.homeSafe ?? 0) + 1;
+    // v0.12.1 a world tour all the way round: every leg it planned flown (none of ours cancelled).
+    if (c.archetype === 'worldTour' && !cxUs && (c.revMinDone ?? 0) >= (c.planRevMin ?? 0) * 0.99) v.tourDone = (v.tourDone ?? 0) + 1;
     rollRepeat(g, c.id);
   }
   const own = flown - sub;

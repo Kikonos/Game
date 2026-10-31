@@ -13,16 +13,19 @@ import { nextId } from '../core/entities';
 import { distanceNm } from '../core/geo';
 import { cue } from '../core/cues';
 import { pushMessage } from '../core/messages';
-import { blockMinutes, complement, etopsCap, maxSectorNm, typeOf, usableRangeNm } from '../core/perf';
+import { blockMinutes, complement, etopsCap, maxSectorNm, planSector, typeOf, usableRangeNm } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
 import { DAY, fmtDay, fromUTC, toDate } from '../core/time';
 import type { CabinLayout } from '../../data/acmiTypes';
 import type { Archetype, ApprovalId, Client, ContractOffer, GameState, LegTemplate, Minute, Requirements, Rival } from '../core/types';
 import { segIndex } from '../ops/market';
+import { isDisruptive, LIMITS, nightsIn } from '../crew/rules';
+import { dutyNeed } from '../crew/duties';
+import { restOf } from '../crew/restPlan';
 import { closedAirport, warRiskAt } from '../ops/world';
 import { acceptOffer } from './accept';
-import { clientPrefix, clientsOf, ministry, roleOf } from './clients';
+import { clientPrefix, clientsOf, ensureClient, ministry, roleOf } from './clients';
 import * as F from './flavor';
 import {
   airportsWithin, atLocal, city, generateOffer, hookFor, idleWindows, inMarket, km, listCities, nearClient, needsWide, newcomerNarrow, perks, pickN, pickStart, seasonBaseDraft, standingOf,
@@ -30,7 +33,7 @@ import {
 } from './offers';
 import { feasibility } from './feasibility';
 import { sideRng } from './paintTerms';
-import { computeWaves, route } from './plan';
+import { computeWaves, programmeOf, route } from './plan';
 import { defaultSeats } from './pricing';
 import { warRiskCost } from './missionChecks';
 import { levelOf } from './relations';
@@ -539,10 +542,256 @@ function subcharterIn(ctx: Ctx): Draft | null {
   };
 }
 
+// ---------- world tours (v0.12.1) ----------
+
+/**
+ * A round-the-world tour by private jet as the real operators sell them (Les Voyages de TMR's 'Tour du monde en avion
+ * privé', 51st tour 16 Nov – 6 Dec 2026: Paris, Rio, Iguaçu, Easter Island, Papeete, Sydney, Siem Reap, Ha Long Bay,
+ * Samarkand, Paris; Abercrombie & Kent's and Kuoni's round-the-world journeys): a gateway, then stops in route
+ * order, each a few real choices (the first is the classic). `opt` stops come with that chance. Flown westbound as
+ * listed or eastbound in reverse. Every stop takes a widebody (perf.runwayFit) and every leg a twin with ETOPS 180.
+ */
+export interface TourTpl { client: string; gateway: string; name: string; stops: { at: string[]; opt?: number }[] }
+
+export const WORLD_TOURS: readonly TourTpl[] = [
+  {
+    client: 'Les Voyages de TMR', gateway: 'CDG', name: 'Tour du monde en avion privé',
+    stops: [{ at: ['GIG'] }, { at: ['IGU'] }, { at: ['LIM'], opt: 0.3 }, { at: ['IPC'] }, { at: ['PPT'] }, { at: ['SYD', 'AYQ', 'CNS'] }, { at: ['DPS'], opt: 0.25 }, { at: ['SAI'] }, { at: ['VDO', 'HAN'] }, { at: ['SKD'] }, { at: ['AMM'], opt: 0.25 }],
+  },
+  {
+    client: 'Abercrombie & Kent', gateway: 'LHR', name: 'Around the World by Private Jet',
+    stops: [{ at: ['CTG', 'HAV'] }, { at: ['LIM'] }, { at: ['IPC'] }, { at: ['PPT', 'APW', 'TBU'] }, { at: ['CNS', 'AYQ'] }, { at: ['SAI'] }, { at: ['KTM', 'DEL'] }, { at: ['AMM'] }, { at: ['LXR'], opt: 0.3 }],
+  },
+  {
+    client: 'Kuoni Group Travel', gateway: 'ZRH', name: 'Weltreise im Privatjet',
+    stops: [{ at: ['SSA', 'GIG'] }, { at: ['FTE'] }, { at: ['IPC'] }, { at: ['PPT'] }, { at: ['NAN', 'VLI', 'TBU'] }, { at: ['AYQ', 'BME'] }, { at: ['DPS'] }, { at: ['MLE', 'GAN'] }, { at: ['MUB'] }],
+  },
+];
+
+const TOUR_SIGHTS: Record<string, string> = {
+  GIG: 'Rio', IGU: 'the Iguaçu Falls', LIM: 'Machu Picchu', IPC: 'Easter Island', PPT: 'Tahiti', SYD: 'Sydney', AYQ: 'Uluru', CNS: 'the Great Barrier Reef',
+  DPS: 'Bali', SAI: 'Angkor', VDO: 'Ha Long Bay', HAN: 'Hanoi and Ha Long Bay', SKD: 'Samarkand', AMM: 'Petra', CTG: 'Cartagena', HAV: 'Havana', APW: 'Samoa', TBU: 'Tonga',
+  KTM: 'the Himalaya', DEL: 'the Taj Mahal', LXR: 'Luxor', SSA: 'Salvador', FTE: 'Patagonia', NAN: 'Fiji', VLI: 'Vanuatu', BME: 'the Kimberley', MLE: 'the Maldives',
+  GAN: 'the Maldives', MUB: 'the Okavango Delta',
+};
+/** What the guests go to see at a stop ('Easter Island', 'Angkor'); the city otherwise. */
+export const tourSight = (code: string) => TOUR_SIGHTS[code] ?? city(code);
+
+/** The stops of a world-tour legs pattern with the nights spent at each (arrival to the next departure, local dates). Pure. */
+export function tourStops(legs: readonly LegTemplate[]): { code: string; nights: number }[] {
+  const ls = [...legs].sort((a, b) => a.dep - b.dep);
+  const out: { code: string; nights: number }[] = [];
+  for (let i = 0; i + 1 < ls.length; i++) {
+    const at = ls[i].to;
+    const arr = ls[i].dep + blockMinutes('a333', ls[i].from, at);
+    out.push({ code: at, nights: Math.max(0, Math.round((dayStartLocal(at, ls[i + 1].dep) - dayStartLocal(at, arr)) / DAY)) });
+  }
+  return out;
+}
+const dayStartLocal = (code: string, t: Minute) => atLocal(code, t, 0);
+
+/** The world-tour template a stop belongs to, and the other choices for that stop (alternates for a closure). Pure. */
+export function tourAlternates(gateway: string, code: string): string[] {
+  const out: string[] = [];
+  for (const t of WORLD_TOURS) {
+    if (t.gateway !== gateway) continue;
+    for (const s of t.stops) if (s.at.includes(code)) out.push(...s.at.filter((x) => x !== code));
+  }
+  return [...new Set(out)];
+}
+
+/** A sector the type flies non-stop from that runway. Pure. */
+const direct = (typeId: string, a: string, b: string) => {
+  const sp = planSector(typeId, a, b);
+  return sp.ok && !sp.techStops.length;
+};
+
+/** A tour's legs: from the gateway on `start`'s local date at `hours[0]`, then after nights[i] at stop i (local dates). Pure. */
+function tourLegs(pts: string[], nights: number[], start: Minute, hours: number[]): { from: string; to: string; dep: Minute }[] {
+  const out: { from: string; to: string; dep: Minute }[] = [];
+  let t = atLocal(pts[0], start, hours[0]);
+  for (let i = 0; i + 1 < pts.length; i++) {
+    out.push({ from: pts[i], to: pts[i + 1], dep: t });
+    if (i + 1 < pts.length - 1) {
+      const arr = t + blockMinutes('a333', pts[i], pts[i + 1]);
+      t = atLocal(pts[i + 1], arr + nights[i] * DAY, hours[i + 1]);
+      if (t < arr + DAY) t += DAY;
+    }
+  }
+  return out;
+}
+
+/**
+ * v0.12.1 the stop (index) whose rest must become the crew's recovery for the 168 h to hold (ORO.FTL.235(d): 36 h with
+ * 2 local nights by the base clock, 60 h after 4 disruptive duties, as the crew check reads them), with 12 h in hand for
+ * delays and the way home; -1 when every stretch of the tour holds one. The crew start it rested (the evening before
+ * at the gateway). Pure.
+ */
+export function tourRecovery(legs: readonly { from: string; to: string; dep: Minute }[], home: string): number {
+  const REPORT = 90;
+  const POST = 30;
+  const KEEP = 12 * 60;
+  let anchor = legs[0].dep - REPORT - 14 * 60;
+  let disruptive = 0;
+  for (let i = 0; i < legs.length; i++) {
+    const l = legs[i];
+    const report = l.dep - REPORT;
+    const release = l.dep + blockMinutes('a333', l.from, l.to) + POST;
+    if (i > 0) {
+      const p = legs[i - 1];
+      const before = p.dep + blockMinutes('a333', p.from, p.to) + POST;
+      const need = disruptive >= LIMITS.disruptiveMax ? LIMITS.recoveryLong : LIMITS.recovery;
+      if (report - before >= need && nightsIn(home, before, report) >= 2) {
+        anchor = report;
+        disruptive = 0;
+      }
+    }
+    if (release + KEEP > anchor + LIMITS.recoveryEvery) return Math.max(0, i - 1);
+    if (isDisruptive(home, report, release)) disruptive++;
+  }
+  return -1;
+}
+
+/**
+ * v0.12.1 a world tour: a tour operator's round-the-world journey by private jet from its gateway, 7–10 stops of 2–3
+ * nights each, 18–24 days, offered 3–6 months ahead. One widebody with business seats, one augmented crew and 2–4
+ * extra cabin crew for the whole tour; five-star catering; any delay over 30 min is noticed (standards 'vip').
+ */
+function worldTour(ctx: Ctx): Draft | null {
+  const { g, o } = ctx;
+  const T = BAL.v0121.tour;
+  const tpls = WORLD_TOURS.filter((t) => exists(t.gateway) && (!o.client || g.clients[o.client]?.name === t.client) && (!o.airport || t.gateway === o.airport));
+  // TMR is the signature client (half the tours); A&K and Kuoni share the rest.
+  const tpl = weightedPick(g, tpls, (t) => (t.client === 'Les Voyages de TMR' ? 2 : 1));
+  if (!tpl) return null;
+  const client = ensureClient(g, tpl.client);
+  if (!client) return null;
+  // The stops: each one of its choices; optional ones at their chance; 7–10 in all. Every leg direct on an A330-300
+  // (the type these tours are sized for): a fuel stop would change the crew there (a slip), never one crew all the way.
+  const east = chance(g, 0.5);
+  let stops: string[] = [];
+  for (let k = 0; k < 6 && !stops.length; k++) {
+    let x: string[] = [];
+    for (const st of tpl.stops) {
+      const at = st.at.filter(exists);
+      if (!at.length || (st.opt !== undefined && !chance(g, st.opt))) continue;
+      x.push(chance(g, 0.55) ? at[0] : pick(g, at));
+    }
+    x = x.slice(0, 10);
+    if (east) x.reverse();
+    const pts = [tpl.gateway, ...x, tpl.gateway];
+    if (x.length >= 7 && pts.slice(1).every((b, i) => direct('a333', pts[i], b))) stops = x;
+  }
+  if (!stops.length) return null;
+  // Nights: 2 at each stop, a third where the crew's 36 h recovery (2 local nights by their base clock) is due within
+  // the 168 h (ORO.FTL.235(d): tourRecovery), then at random to 16–22 nights in all (an 18–24 day tour).
+  const n = stops.length;
+  const total = int(g, Math.max(16, 2 * n), Math.min(22, 3 * n));
+  const nights = stops.map(() => 2);
+  const s = o.start ?? g.now + int(g, T.lead[0], T.lead[1]) * DAY;
+  const pax = int(g, T.pax[0], T.pax[1]);
+  const pts = [tpl.gateway, ...stops, tpl.gateway];
+  const prefix = clientPrefix(client.name);
+  const no = 800 + int(g, 0, 9) * 10;
+  // Morning departures (09:00–11:30 local); the next leaves after the stop's nights, by local date.
+  const hours = pts.map(() => int(g, 18, 23) * 30);
+  const build = () => tourLegs(pts, nights, s, hours).map((l, i) => ({ ...l, flightNo: `${prefix}${no + i}`, pax }));
+  for (let k = 0; k < n; k++) {
+    const due = tourRecovery(build(), g.company.homeBase);
+    if (due < 0) break;
+    if (nights[due] >= 3) return null;
+    nights[due]++;
+  }
+  for (let k = nights.reduce((x, y) => x + y, 0), tries = 0; k < total && tries < 50; tries++) {
+    const i = int(g, 0, n - 1);
+    if (nights[i] >= 3) continue;
+    nights[i]++;
+    k++;
+  }
+  const legs: LegTemplate[] = build();
+  if (tourRecovery(legs, g.company.homeBase) >= 0) return null;
+  const last = legs[legs.length - 1];
+  const end = last.dep + blockMinutes('a333', last.from, last.to);
+  const days = Math.round((end - legs[0].dep) / DAY) + 1;
+  if (days < 18 || days > 24) return null;
+  const extra = int(g, T.extraCabin[0], T.extraCabin[1]);
+  const y = toDate(legs[0].dep).getUTCFullYear();
+  const sights = stops.map((c, i) => `${tourSight(c)} (${nights[i]} nights)`);
+  return {
+    archetype: 'worldTour', client,
+    title: `Around the world ${y}: ${n} stops, ${days} days`,
+    blurb: `${client.name}: their ${tpl.name}, ${pax} guests, ${east ? 'eastbound' : 'westbound'} from ${city(tpl.gateway)} on ${fmtDay(legs[0].dep)}: ${sights.join(', ')}, then home. ` +
+      `One aircraft and one crew for all ${days} days: the same pilots (augmented) and cabin crew all the way round, ${extra} extra cabin crew for the service, hotels at every stop. ` +
+      `Business seats wanted (more of them pays more), five-star catering; any delay over 30 minutes is noticed.`,
+    pattern: { kind: 'legs', legs, hold: true },
+    req: { minSeats: pax, layouts: ['two-class', 'three-class', 'vip'], extraCabin: extra, approvals: [], standards: 'vip', body: 'wide' },
+    start: legs[0].dep, end: end + 8 * 60, expiresIn: range(g, T.expires[0], T.expires[1]) * DAY,
+    mult: T.mult, extraBH: T.idleBH * days, effects: { reliable: 2, clean: 1, morale: 3 }, risk: { disruption: 0.4, politics: 0.1, permit: 0.3 },
+    pin: tpl.gateway, hook: hookFor(ctx),
+  };
+}
+
+/**
+ * v0.12.1 the one crew a world tour flies on an aircraft, all of it for the whole tour: the pilots its longest day needs
+ * on that airframe's rest (3 at least: a spare when no leg needs more than two), the cabin crew for its seats with the
+ * service extras and any rest relief. Null when the aircraft or offer is unknown. Pure.
+ */
+export function tourCrew(g: GameState, offerId: string, aircraftId: string): { pilots: number; cabin: number; extra: number } | null {
+  const o = g.offers[offerId] ?? Object.values(g.contracts).find((k) => k.offerId === offerId);
+  const ac = g.fleet[aircraftId];
+  if (!o || !ac || o.pattern.kind !== 'legs') return null;
+  const rest = restOf(g, aircraftId);
+  let aug: 0 | 1 | 2 = 0;
+  let relief = 0;
+  for (const c of programmeOf(o, ac.typeId).chains) {
+    const n = dutyNeed(g, ac.typeId, rest, c);
+    const a: 0 | 1 | 2 = n.mode === 'aug1' ? 1 : n.mode === 'aug2' || n.mode === 'none' ? 2 : 0;
+    if (a > aug) aug = a;
+    if (a && n.plan?.ok) relief = Math.max(relief, n.plan.extraCabin);
+  }
+  const roles = complement(ac.typeId, ac.cabin.total, { augment: aug, extraCabin: o.requirements.extraCabin, restCabin: relief });
+  return { pilots: Math.max(3, roles.filter((r) => r === 'CPT' || r === 'FO' || r === 'CRP').length), cabin: roles.filter((r) => r === 'PUR' || r === 'CC').length, extra: o.requirements.extraCabin };
+}
+
+/**
+ * v0.12.1 the company can be offered a world tour: Established or better, with a widebody with business seats that may
+ * cross the Pacific (a twin under ETOPS 180, or a four-engined 747 or A340, which needs none). Pure.
+ */
+export function tourReady(g: GameState): boolean {
+  const etops = g.company.approvals.includes('etops180') || g.company.approvals.includes('etops240');
+  return standingOf(g) >= 1 && Object.values(g.fleet).some((a) => {
+    const t = typeOf(a.typeId);
+    return t.body === 'wide' && a.cabin.j > 0 && a.status !== 'leasedOut' && (etops || t.engines === 4);
+  });
+}
+
+/**
+ * v0.12.1 daily: a world tour (about once a year Established, 2–3 times Respected), on its own side stream so a game
+ * that never qualifies keeps its offer stream; never two at once (an open offer or a tour not yet flown).
+ */
+export function dailyWorldTour(g: GameState): ContractOffer | null {
+  if (!tourReady(g)) return null;
+  const p = BAL.v0121.tour.perDay[standingOf(g)] ?? 0;
+  if (!chance(sideRng(g, `tour:${Math.floor(g.now / DAY)}`), p)) return null;
+  if (Object.values(g.offers).some((x) => x.archetype === 'worldTour' && (x.status === 'open' || x.status === 'countered'))) return null;
+  if (Object.values(g.contracts).some((k) => k.archetype === 'worldTour' && (k.status === 'signed' || k.status === 'active'))) return null;
+  return generateOffer(g, 'worldTour', { wide: true, window: false, paint: false, cabin: false });
+}
+
+/** A world-tour offer (any qualification; `client`: TMR, A&K or Kuoni by name); the offer id ('' when none). Dev/test helper. */
+export function devWorldTour(g: GameState, clientName?: string): string {
+  const cl = clientName ? ensureClient(g, clientName) : undefined;
+  for (let i = 0; i < 12; i++) {
+    const o = generateOffer(g, 'worldTour', { wide: true, window: false, paint: false, cabin: false, ...(cl ? { client: cl.id } : {}) });
+    if (o) return o.id;
+  }
+  return '';
+}
+
 // ---------- registry ----------
 
 export const MISSION_BUILDERS: Partial<Record<Archetype, (ctx: Ctx) => Draft | null>> = {
-  hajj, unRotation, deportation, evacuation, medical, humanitarian, musicTour, antarctic, capacityLease, subcharterIn,
+  hajj, unRotation, deportation, evacuation, medical, humanitarian, musicTour, antarctic, capacityLease, subcharterIn, worldTour,
 };
 
 /** Per archetype: lead from now to start [min, max] and the room it needs inside a window, in days. */

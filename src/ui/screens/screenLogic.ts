@@ -20,6 +20,8 @@ export const ARCH_LABEL: Record<Archetype, string> = {
   tourSeries: 'Tour series', troopRotation: 'Troop rotation', capacityLease: 'Capacity lease', hajj: 'Hajj', unRotation: 'UN rotation', vip: 'VIP charter',
   deportation: 'Deportation', evacuation: 'Evacuation', humanitarian: 'Humanitarian', subcharterIn: 'Sub-charter', dryLeaseOut: 'Dry lease out',
   medical: 'Medical airbridge', musicTour: 'Music tour', antarctic: 'Antarctica',
+  // v0.12.1
+  worldTour: 'World tour',
 };
 
 /** Category label; a season base of 120 days or more is long-term, as its title says. */

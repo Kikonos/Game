@@ -33,6 +33,7 @@ import { bumpClient, favourChip, levelOf, statsV08 } from '../contracts/relation
 import { mghFor } from '../contracts/billing';
 import { cancelForceMajeure, resolveAirspace, resolveStranded, resolveUninsurable, setFindSwap } from './world';
 import { optionalFactor } from './director';
+import { resolveTourStop } from './tourStop';
 
 type Data = Record<string, string | number | boolean>;
 const num = (d: Data | undefined, k: string) => Number(d?.[k] ?? 0);
@@ -864,6 +865,8 @@ export function knockLine(ks: KnockOn[], client: string): string {
 
 /** A client change request for this contract: an extra rotation on a base programme, a later departure on a trip. */
 export function changeRequestFor(g: GameState, c: Contract): boolean {
+  // v0.12.1 never on a world tour: its hotels, guides and the guests' days ashore are booked months ahead.
+  if (c.archetype === 'worldTour') return false;
   return c.pattern.kind === 'base' ? extraRotation(g, c) : retimeRequest(g, c);
 }
 
@@ -1056,7 +1059,8 @@ function resolveClientFee(g: GameState, d: Decision, opt: string): ActionResult 
 
 function clientFees(g: GameState): void {
   for (const c of Object.values(g.contracts)) {
-    if (c.status !== 'active' || c.dry || !chance({ rng: hash(`${g.seed}:feeday:${c.id}:${Math.floor(g.now / DAY)}`) | 0 }, (BAL.v08.rel.clientFeeWeekly / 7) * optionalFactor(g))) continue;
+    // v0.12.1 nor a day's move of a world tour (changeRequestFor).
+    if (c.status !== 'active' || c.dry || c.archetype === 'worldTour' || !chance({ rng: hash(`${g.seed}:feeday:${c.id}:${Math.floor(g.now / DAY)}`) | 0 }, (BAL.v08.rel.clientFeeWeekly / 7) * optionalFactor(g))) continue;
     clientFeeFor(g, c);
   }
 }
@@ -1087,6 +1091,8 @@ const RESOLVERS: Record<string, Resolver> = {
   uninsurable: (g, d, opt) => resolveUninsurable(g, d, opt),
   // v0.12.1 an aircraft held by a closure that a later job needs (sub-charter, swap or cancel those legs).
   stranded: (g, d, opt) => resolveStranded(g, d, opt),
+  // v0.12.1 a world tour's stop closed: another stop, or skip it (ops/tourStop.ts).
+  tourStop: (g, d, opt) => resolveTourStop(g, d, opt),
   clientFee: (g, d, opt) => resolveClientFee(g, d, opt),
 };
 
