@@ -140,6 +140,8 @@ const RAW: [string, string, number, string][] = [
   ['CV', 'Cabo Verde', 0.4, 'D4-'],
   ['AL', 'Albania', 0.5, 'ZA-'],
   ['CI', "Côte d'Ivoire", 0.35, 'TU-'],
+  // v0.14 Togo (ASKY Airlines at Lomé).
+  ['TG', 'Togo', 0.2, '5V-'],
   ['IQ', 'Iraq', 0.35, 'YI-'],
   ['SD', 'Sudan', 0.2, 'ST-'],
   // v0.12.1 the new airports' states and territories (territories on their parent state's register: no prefix).

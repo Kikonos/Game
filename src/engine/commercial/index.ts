@@ -6,6 +6,8 @@ import type { GameState } from '../core/types';
 import { setTravelHook } from '../ops/commercial';
 import { dailyCrises, devCrisis } from './crises';
 import { loadCommercial } from './state';
+import { seedMarketClients } from '../contracts/clients';
+import { dailyPresence, loadPresence, presence } from './presence';
 import { bidQuote, dailyTenders, decideTender, issueTender, placeBid } from './tenders';
 import { bookTrip, dailyTrips, fairsAhead, travelLegs } from './trips';
 import type { CrisisKind } from './types';
@@ -16,13 +18,16 @@ export {
   TENDER, aircraftWanted, bidAircraft, bidQuote, decideTender, issueTender, offerWithBid, ourScore, placeBid, roundAt, roundName, tenderBoard, tenderById, tenderRow, withdrawBid,
   type BidAircraft, type BidQuote, type BidTerms, type TenderRow, type TenderRound,
 } from './tenders';
-export { TRIPS, bookTrip, cancelTrip, fairDays, fairsAhead, nextEdition, planTickets, travelLegs, travellers, tripNow, tripQuote, tripTitle, tripsView, type FairView, type TravellerView, type TripQuote } from './trips';
+export { TRIPS, bookTrip, cancelTrip, fairDays, fairMeets, fairsAhead, inAudience, nextEdition, planTickets, presenceText, travelLegs, travellers, tripNow, tripQuote, tripTitle, tripsView, type FairView, type TravellerView, type TripQuote } from './trips';
+export { PRESENCE, bumpPresence, clientMarket, dailyPresence, fairPresence, homeMarket, marketTilt, presence, presenceIn, presenceView, presenceWeight, presenceWord, type PresenceRow } from './presence';
 export { CRISIS, clientCrisisCard, crisesOf, crisisKindName, crisisLive, crisisOfEvent, devCrisis, knowsUs, startCrisis } from './crises';
 
 // The map's deadhead layer draws our travellers' airline legs with the crew's (ops/commercial.ts commercialFlightsBetween).
 setTravelHook(travelLegs);
 
 function daily(g: GameState): void {
+  // v0.14 market presence: the day's jobs and satisfied clients, the slow fade.
+  dailyPresence(g);
   dailyTrips(g);
   dailyTenders(g);
   dailyCrises(g);
@@ -30,8 +35,16 @@ function daily(g: GameState): void {
 
 export const commercialModule: SimModule = {
   name: 'commercial',
+  // v0.14 a new company is known in its home market (presence seeded from the base country).
+  init(g) {
+    seedMarketClients(g);
+    presence(g);
+  },
   load(g) {
     loadCommercial(g);
+    seedMarketClients(g);
+    // v0.14 an older save: presence seeded from its clients and contracts.
+    loadPresence(g);
   },
   handlers: { day: daily },
 };

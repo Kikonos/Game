@@ -577,6 +577,8 @@ export interface ContractOffer {
   call?: true;
   /** v0.8 repeat business: the contract it repeats. */
   repeatOf?: string;
+  /** v0.14 an ordinary market offer (the paced draw or the quiet-week floor), not a tender, call-out, lead or repeat. */
+  ordinary?: true;
   /** v0.8 the player opened or countered it (markOfferSeen): a rival win is announced. */
   seen?: boolean;
   /** v0.8 relationship-level and company-standing rate parts in the price (0.08 = +8 %). */
@@ -1532,6 +1534,8 @@ export interface Stats {
   moraleWeeks?: number[];
   /** v0.6: last quiet-week gap-fit offer. */
   lastGapOfferAt?: Minute;
+  /** v0.14 the last ordinary market offer (the quiet-week floor waits this long). */
+  lastMarketOfferAt?: Minute;
   /** v0.6: low-morale message given (rearmed above 55). */
   moraleLowWarned?: boolean;
   /** v0.6: rated pilot hires of the last 30 days [ordered, 'family:role', count] (the rated market's pool). */

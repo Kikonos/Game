@@ -1,7 +1,7 @@
 // Real clients and rivals from the naming kit (B1).
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { CLIENT_SEEDS, CLIENT_SEEDS_B1, CLIENT_SEEDS_V08, CLIENT_SEEDS_V0121, RIVALS, RIVALS_B1, type ClientSeed } from '../../data/naming';
+import { CLIENT_SEEDS, CLIENT_SEEDS_B1, CLIENT_SEEDS_V08, CLIENT_SEEDS_V014, CLIENT_SEEDS_V0121, RIVALS, RIVALS_B1, type ClientSeed } from '../../data/naming';
 import { nextId } from '../core/entities';
 import { distance } from '../core/geo';
 import { typeOf } from '../core/perf';
@@ -53,6 +53,24 @@ export function seedClients(g: GameState): void {
     const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0 };
     g.clients[c.id] = c;
   }
+}
+
+/** v0.14 the market-presence clients by name (data/naming.ts CLIENT_SEEDS_V014). */
+const MARKET_SEEDS = new Set(CLIENT_SEEDS_V014.map((s) => s.name));
+export const isMarketClient = (c: Pick<Client, 'name'>): boolean => MARKET_SEEDS.has(c.name);
+
+/**
+ * v0.14 the market-presence clients (a new game, and an older save on load): ids of their own ('cm' + the seed's
+ * place), so adding them shifts no other id (side streams are keyed by ids) and a save gets the same ids as a new game.
+ */
+export function seedMarketClients(g: GameState): void {
+  const have = new Set(Object.values(g.clients).map((c) => c.name));
+  CLIENT_SEEDS_V014.forEach((s, i) => {
+    if (have.has(s.name) || !AIRPORT_BY_CODE[s.base]) return;
+    const id = `cm${i.toString(36)}`;
+    if (g.clients[id]) return;
+    g.clients[id] = { id, name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0, jobs: 0, firstJob: null, lastJob: null, log: [], level: 'new' };
+  });
 }
 
 /** v0.8 load: clients added since the save was made (Hajj, presidencies, interior, health, polar), by name. */

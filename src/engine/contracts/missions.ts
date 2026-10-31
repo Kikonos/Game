@@ -877,7 +877,8 @@ export function dailySubIn(g: GameState): ContractOffer | null {
   const ends = clientsOf(g, ['airline'], (c) => exists(c.base) && !c.rivalId);
   const end = weightedPick(r, ends, (c) => 1 / (1 + km(c.base, rival.base) / 1500));
   if (!end) return null;
-  return generateOffer(g, 'subcharterIn', { window: w, wide, rival: rival.id, endClient: end.id, variant: aog ? undefined : 'oneway', client: rivalClient(g, rival)!.id });
+  // v0.14 paced: a rival's request at short notice waits for a busy spell (a quiet spell rings no phone).
+  return generateOffer(g, 'subcharterIn', { window: w, wide, rival: rival.id, endClient: end.id, variant: aog ? undefined : 'oneway', client: rivalClient(g, rival)!.id, paced: true });
 }
 
 /** Daily: repeat business for base programmes 45 days before they end. */

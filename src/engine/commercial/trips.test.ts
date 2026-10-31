@@ -35,10 +35,11 @@ describe('the fair calendar', () => {
     for (const f of FAIRS) expect(nextEdition(f, fromUTC(2031, 1, 1)).start).toBeGreaterThan(fromUTC(2031, 1, 1));
   });
 
-  it('a new game (1 Mar 2027) sees ITB, Routes Europe and ATM ahead', () => {
+  it('a new game (1 Mar 2027) sees ITB, Routes Europe and ATM ahead, and (v0.14) the regional fairs among them', () => {
     const g = newGame(21);
     const ids = fairsAhead(g).map((f) => f.id);
-    expect(ids.slice(0, 3)).toEqual(['itb', 'routesEurope', 'atm']);
+    expect(ids.filter((id) => ['itb', 'routesEurope', 'atm'].includes(id))).toEqual(['itb', 'routesEurope', 'atm']);
+    expect(ids.slice(0, 6)).toEqual(['routesAsia', 'itb', 'gaa', 'mroAmericas', 'routesEurope', 'atm']);
   });
 });
 

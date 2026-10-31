@@ -545,6 +545,18 @@ export function addShock(g: GameState, x: Omit<MarketShock, 'id'>): void {
   list.push({ id: nextId(g, 'sh'), ...x });
 }
 
+/**
+ * v0.14 ordinary market offers a week (the player: far fewer, especially while earning a name): by company standing
+ * (Newcomer 1.5, Established 3.1, Respected 4.6) for its usual fleet, a little more or less per aircraft. Pure.
+ */
+export function marketPerWeek(g: GameState): number {
+  const M = BAL.marketOffers;
+  const s = Math.min(2, g.company.standing ?? 0);
+  const n = Object.values(g.fleet).filter((a) => a.status !== 'stored' && a.status !== 'leasedOut').length;
+  const fleetF = Math.max(M.fleetClamp[0], Math.min(M.fleetClamp[1], 1 + M.fleetSlope * (n - M.fleetRef[s])));
+  return M.perWeek[s] * fleetF;
+}
+
 /** Fleet-weighted demand: offer volume × (index)² (slump ≈ 0.67, boom ≈ 1.32). Pure. */
 export function demandFactor(g: GameState): number {
   let w = 0;
@@ -599,7 +611,8 @@ export function marketOutlook(g: GameState): MarketOutlook {
   const nextH = hj.find((h) => h.pre[0] > g.now);
   const hajjIn = nextH ? Math.ceil((nextH.pre[0] - g.now) / DAY) : 0;
   if (nextH && hajjIn <= 120) season.name = `${season.name} · Hajj in ${hajjIn} d`;
-  const perWeek = BAL.offersPerWeek * demandFactor(g);
+  // v0.14 the ordinary market offers a week at our standing and size (tenders, calls and leads come on top).
+  const perWeek = marketPerWeek(g) * demandFactor(g);
   return {
     phase: cy.phase, phaseText: PHASE_LINE[cy.phase],
     narrow: { index: n, trend: nt, text: `Narrowbody demand ${arrow(nt)} ${levelWord(n)}`.replace('  ', ' ') },
@@ -609,7 +622,7 @@ export function marketOutlook(g: GameState): MarketOutlook {
     hajj: hj.map((h) => ({ arafah: h.arafah, pre: h.pre, post: h.post, ah: h.ah })),
     antarctic: antarcticSeason(g.now),
     shocks: (m.shocks ?? []).filter((x) => x.until > g.now).map((x) => ({ text: `${x.text}: ${x.delta > 0 ? '+' : '−'}${Math.round(Math.abs(x.delta) * 100)} % ${x.seg === 'all' ? '' : `${x.seg}body `}demand until ${fmtDay(x.until)}`.replace('  ', ' '), until: x.until })),
-    offersText: `About ${Math.round(perWeek * 10) / 10} new offers a week at this size`,
+    offersText: `About ${Math.round(perWeek * 10) / 10} new offers a week at our standing and size`,
   };
 }
 

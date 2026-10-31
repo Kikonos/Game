@@ -1362,7 +1362,7 @@ class GameStore {
       const id = devFair(g, fairId);
       settle(g);
       this.surfaceMessages();
-      if (id) this.navigate('company', { view: 'team', sel: { kind: 'head', id: 'sales' } });
+      if (id) this.navigate('contracts', { view: 'markets' });
       else this.emit();
       return id;
     },

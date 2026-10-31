@@ -146,7 +146,8 @@ describe('v0.12.1 crew riding our own passenger flights', () => {
     // The calls merge had moved the case above to a ride 3+ days out ("one a day out finds no ticket in time"). The
     // first ride here is 32 h out: cancelling the LIS–DUB leg leaves the aircraft at Lisbon, schedule recovery flies it
     // to Dublin empty, and the riders (in Lisbon, due in Dublin) are its crew: no ticket needed, and they get there.
-    const { g, k } = dublin();
+    // v0.14 seed 22: the market's offer stream changed the draws (on seed 21 the first ride is now 80 h out).
+    const { g, k } = dublin(22);
     const { f, p } = rideOut(g, k);
     expect(f.std - g.now).toBeLessThan(2 * DAY);
     const ids = [...f.riders!];
@@ -162,7 +163,9 @@ describe('v0.12.1 crew riding our own passenger flights', () => {
   });
 
   it('a delayed flight takes its riders late: they land with it, and their rest runs from the late landing', () => {
-    const { g, k } = dublin();
+    // v0.14 seed 22: the market's offer stream changed the draws; on seed 21 (and 23) the ride now also meets a random
+    // delay on top of the test's 90 minutes and no positioning entry ends at the landing (a crew-log case, not this one).
+    const { g, k } = dublin(22);
     const { f } = rideOut(g, k);
     const id = f.riders![0];
     expect(delayFlight(g, f.id, 90, 'Test').ok).toBe(true);

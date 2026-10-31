@@ -828,7 +828,7 @@ function TravellerPanel({ g, cf }: { g: GameState; cf: NonNullable<ReturnType<ty
       </Section>
       <Section title="On board">
         <div className="small"><b>{cf.who}</b>{trip ? ` · ${trip.kind === 'fair' ? tripTitle(trip) : `visiting ${g.clients[trip.clientId ?? '']?.name ?? 'a client'}`}` : ''}</div>
-        <button className="op-row" onClick={() => store.navigate('company', { view: 'team', sel: { kind: 'head', id: 'sales' } })}><Plane /><span className="op-wrap">Sales trips & fairs</span></button>
+        <button className="op-row" onClick={() => store.navigate('contracts', { view: 'markets' })}><Plane /><span className="op-wrap">Sales trips & fairs</span></button>
       </Section>
     </Panel>
   );

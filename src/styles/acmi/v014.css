@@ -80,3 +80,39 @@
 .v14-tn-row { padding: 10px 16px; border-bottom: 1px solid rgba(var(--line-rgb), 0.07); border-radius: 0; }
 .v14-tn-row:last-child { border-bottom: none; }
 .v14-tn-row .col { flex: 1 1 auto; }
+
+/* v0.14 Contracts › Markets: the presence bars on the left (who knows us), the fairs by region on the right; one
+   column on a narrow screen. Team keeps one line: who is away. */
+.v14-markets { display: grid; grid-template-columns: minmax(250px, 330px) minmax(0, 1fr); gap: 12px; align-items: start; }
+.v14-mk-side, .v14-mk-main { min-width: 0; }
+.v14-mk-card { padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
+.v14-mk-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 28px; margin-bottom: 2px; }
+.v14-mk-foot { margin-top: 4px; line-height: 1.35; }
+.v14-pres-row { display: grid; grid-template-columns: minmax(0, 1fr) 72px 22px 30px; align-items: center; gap: 8px; min-height: 24px; }
+.v14-pres-name { font-size: 13px; display: inline-flex; align-items: center; gap: 5px; min-width: 0; }
+.v14-pres-home { width: 12px; height: 12px; flex: none; color: var(--accent); }
+.v14-pres-bar { height: 5px; border-radius: 999px; background: rgba(var(--line-rgb), 0.12); overflow: hidden; }
+.v14-pres-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--grad); transition: width 0.4s var(--ease); }
+.v14-pres-val { font-size: 12px; text-align: right; color: var(--text-2, var(--muted)); }
+.v14-pres-season { text-align: left; }
+.v14-mk-person { min-height: 34px; }
+.v14-fair-group { display: flex; flex-direction: column; }
+.v14-fair-group + .v14-fair-group { margin-top: 6px; }
+.v14-fair-region { display: flex; align-items: center; gap: 6px; min-height: 24px; color: var(--text-2, var(--muted)); }
+.v14-fair-region .upper { font-size: 11px; letter-spacing: 0.06em; }
+.v14-fair-region .tiny { margin-left: auto; }
+.v14-mk-main .v14-fair { background: none; border: 0; border-bottom: 1px solid rgba(var(--line-rgb), 0.05); border-radius: 0; padding: 6px 2px; color: inherit; cursor: pointer; }
+.v14-mk-main .v14-fair:hover:not(:disabled) { background: var(--panel-2); }
+.v14-mk-main .v14-fair.on { outline: none; background: rgba(var(--accent-rgb), 0.08); }
+.v14-fair-cost { text-align: right; flex: none; }
+.v14-mk-main .v14-quote { margin: 6px 0; }
+.v14-mk-main .v14-trip { display: flex; flex-direction: column; gap: 2px; padding: 6px 0; border-bottom: 1px solid rgba(var(--line-rgb), 0.06); }
+.v14-mk-main .v14-trip:last-child { border-bottom: none; }
+.v14-mk-main .v14-trip.away { border-left: 0; box-shadow: inset 3px 0 0 var(--accent); padding-left: 8px; }
+.v14-away-line { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 6px 14px; background: none; border: 0; border-bottom: 1px solid rgba(var(--line-rgb), 0.07); color: var(--text-2, var(--muted)); text-align: left; cursor: pointer; }
+.v14-away-line:hover { background: var(--panel-2); }
+.v14-away-line > svg { color: var(--accent); }
+@media (max-width: 760px) {
+  .v14-markets { grid-template-columns: minmax(0, 1fr); }
+}
+.v14-fair-demand { padding: 4px 0 2px; line-height: 1.35; }
