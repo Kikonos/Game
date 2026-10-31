@@ -27,6 +27,7 @@ import { requestPause } from '../core/pause';
 import { problemFor } from '../problems';
 import { hurtProse } from '../problems/types';
 import { noteIncident } from './company';
+import { noApprovalAtGate } from './approvalGate';
 import { deliveryWaitDay } from './delivery';
 import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
@@ -793,6 +794,8 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
   if (whiteout(g, f)) return;
   // v0.12.1 around a closed zone (a leg planned since the day's pass), once.
   rerouteAtDeparture(g, f);
+  // v0.12.1 an approval the leg needs (Widebody operations, ETOPS) not held now: it does not leave.
+  if (noApprovalAtGate(g, f, ac)) return;
   // Grounded past the check tolerance: revenue legs stay on the ground; empty legs fly on a ferry permit.
   if (isRevenue(f) && isGrounded(g, ac)) {
     return dropUnit(g, ac, f, 'Aircraft grounded: check overdue', `${ac.reg} is grounded: a check is overdue (book it on the Fleet screen).`, 'tech');

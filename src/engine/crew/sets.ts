@@ -9,9 +9,9 @@ import { isPilot, typeOf } from '../core/perf';
 import { DAY } from '../core/time';
 import type { Aircraft, GameState, Role } from '../core/types';
 import { dropClientSeats } from './clientCrew';
-import { conversionClasses } from './conversion';
+import { conversionClasses, ratingsLost } from './conversion';
 import { crewExtraFor, rolesWithExtra } from './extraSeats';
-import { salaryFor } from './generate';
+import { payFor } from './generate';
 import { hireQuote, type HireRequest } from './hr';
 
 export const SET_ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
@@ -270,7 +270,8 @@ export function crewSupply(g: GameState, fams: Map<RatingFamily, { need: Partial
     for (const id of k.crewIds) {
       const c = g.crew[id];
       if (!c) continue;
-      const lost = k.group === 'pilot' ? (k.course === 'full' ? c.ratings.filter((f) => f !== k.family) : []) : k.drop?.[id] ? [k.drop[id]] : [];
+      // v0.12.1 one rule for what a course ends (a CCQ keeps the old type).
+      const lost = ratingsLost(c, k);
       if (lost.length) losing.set(id, [...(losing.get(id) ?? []), ...lost]);
     }
   }
@@ -506,7 +507,7 @@ export function roundUpQuote(g: GameState, p: FamilyPlan, target: number, cabinT
   for (const m of roundUpRoles(p, target)) {
     const req: HireRequest = isPilot(m.role) ? { role: m.role, family: p.family, base: g.company.homeBase, count: m.count } : { role: m.role, family: p.family, base: g.company.homeBase, count: m.count, families: fams };
     const q = hireQuote(g, req);
-    const payroll = Math.round(salaryFor(m.role, p.family) * m.count * (1 + BAL.onCosts));
+    const payroll = Math.round(payFor(g, m.role, p.family) * m.count * (1 + BAL.onCosts));
     lines.push({ req, cost: q.cost, readyAt: q.readyAt, payroll, beyondPool: q.beyondPool });
   }
   return { lines, cost: lines.reduce((s, l) => s + l.cost, 0), payroll: lines.reduce((s, l) => s + l.payroll, 0) };

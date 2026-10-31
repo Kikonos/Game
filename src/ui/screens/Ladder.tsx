@@ -7,7 +7,7 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import { typeOf } from '../../engine/core/perf';
 import { fmtDate, fmtDay } from '../../engine/core/time';
 import type { ApprovalId, GameState } from '../../engine/core/types';
-import { ladder, RUNG0_TYPES, waitingFor, type ApprovalReq, type LadderNode } from '../../engine/ops';
+import { atRiskLine, ladder, RUNG0_TYPES, waitingFor, type ApprovalReq, type LadderNode } from '../../engine/ops';
 import { Bar, Card } from '../components/ui';
 import { money } from '../format';
 import { store } from '../store';
@@ -53,9 +53,11 @@ export function firstUnmet(n: LadderNode): string | null {
   return `${label} · ${/^[\d$]/.test(r.have) ? `${r.have} now` : r.have}`;
 }
 
-function NodeCard({ n, held }: { n: LadderNode; held: ReadonlySet<ApprovalId> }) {
+function NodeCard({ g, n, held }: { g: GameState; n: LadderNode; held: ReadonlySet<ApprovalId> }) {
   const st = nodeStatus(n, held);
   const unmet = firstUnmet(n);
+  // v0.12.1 signed jobs that can't fly until it is granted (a stuck or late application).
+  const risk = n.state === 'held' ? null : atRiskLine(g, n.id);
   const types = shortOf(n.unlocksTypes);
   return (
     <button className={`ld-node s-${n.state}`} data-node={n.id} onClick={() => store.openModal({ kind: 'approval', id: n.id })}>
@@ -63,6 +65,7 @@ function NodeCard({ n, held }: { n: LadderNode; held: ReadonlySet<ApprovalId> })
       <span className={`badge ${st.tone}`}>{n.state === 'held' ? <BadgeCheck /> : st.locked ? <Lock /> : null}{st.label}</span>
       {n.state === 'pending' && n.pending && <Bar value={n.pending.progress} size="thin" />}
       {unmet && <span className={`tiny ld-req ${st.locked ? 'muted' : ''}`}>{unmet}</span>}
+      {risk && <span className="tiny bad">{risk}</span>}
       {n.state !== 'held' && <span className="tiny dim">{money(n.cost)}{n.grantCost ? ` + ${money(n.grantCost)}` : ''} · {n.days} days</span>}
       {types.length > 0 && <span className="ld-types">{types.slice(0, 4).map((t) => <span key={t} className="ld-type">{t}</span>)}</span>}
     </button>
@@ -143,7 +146,7 @@ export function LadderCard({ g }: { g: GameState }) {
                   <span className="tiny dim">Our AOC as it started</span>
                   <span className="ld-types">{shortOf(RUNG0_TYPES).slice(0, 5).map((t) => <span key={t} className="ld-type">{t}</span>)}</span>
                 </div>
-              ) : r.nodes.map((n) => <NodeCard key={n.id} n={n} held={heldIds} />)}
+              ) : r.nodes.map((n) => <NodeCard key={n.id} g={g} n={n} held={heldIds} />)}
             </div>
           );
         })}

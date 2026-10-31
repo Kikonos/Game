@@ -8,7 +8,7 @@ import { DAY } from '../core/time';
 import type { ActionResult, CrewExtra, GameState } from '../core/types';
 import { refreshPairing } from './duties';
 import { crewExtraFor, paidMinOf } from './extraSeats';
-import { salaryFor } from './generate';
+import { payFor } from './generate';
 import { setsForStation } from './sets';
 import { autoRoster, releaseCrew, setFlightsCrew } from './roster';
 import { crewIx, touchCrew } from './timeline';
@@ -59,7 +59,7 @@ export function crewExtraQuote(
   const sets = setsOf(g, aircraftId);
   const extraPeople = (cabin + pilot) * sets;
   const family = typeOf(typeId).family;
-  const salaries = (cabin * salaryFor('CC', family) + pilot * salaryFor('FO', family)) * sets * (1 + BAL.onCosts);
+  const salaries = (cabin * payFor(g, 'CC', family) + pilot * payFor(g, 'FO', family)) * sets * (1 + BAL.onCosts);
   const away = awayNights(g, aircraftId);
   const k = 30.44 / 28;
   const pct = g.company.policies.perDiemPct / 100;

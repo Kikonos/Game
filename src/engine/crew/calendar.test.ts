@@ -123,7 +123,8 @@ describe('crew calendar', () => {
 
   it('sick and training windows show with their end dates', () => {
     const g = fixtureGame(52);
-    const [a, b] = addCrew(g, { CC: 1, FO: 1 });
+    // v0.12.1 a B737 first officer: a full course onto the A330 (an A320 one takes the CCQ).
+    const [a, b] = [...addCrew(g, { CC: 1 }), ...addCrew(g, { FO: 1 }, 'B737')];
     g.crew[a].blocks = [{ from: g.now - 60, to: g.now + 3 * DAY, why: 'sick' }];
     g.crew[a].status = 'sick';
     const v = crewStatusView(g, a);

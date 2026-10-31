@@ -32,6 +32,8 @@ function mbj(): { g: GameState; dutyId: string } {
   addFlight(g, { no: 'AW1396', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'MBJ', to: 'PAP', std, sta: std + 70, pax: 263 });
   addFlight(g, { no: 'AW1396', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'PAP', to: 'AMS', std: std + 180, sta: std + 180 + 540, pax: 263 });
   addCrew(g, { CPT: 3, FO: 3, PUR: 2, CC: 10 }, 'A330/340');
+  // v0.12.1 approvals are checked at departure: the A330 and the PAP–AMS crossing on our certificate.
+  g.company.approvals.push('widebody', 'etops120');
   const d = buildDuties(g, ac.id, g.now, g.now + 5 * DAY)[0];
   return { g, dutyId: d.id };
 }

@@ -432,7 +432,9 @@ function offers(g: GameState, t: Tally): void {
     // and one such job at a time: a 747 on AOG covers, sub-charters and ad hoc legs at a day's notice lost the year.
     if (typeOf(g.fleet[best.aircraftId].typeId).body === 'wide' && !wideWork(o)) {
       const held = Object.values(g.contracts).filter((k) => (k.status === 'signed' || k.status === 'active') && k.aircraftIds.includes(best.aircraftId) && k.end > g.now && !wideWork(k) && k.pattern.kind !== 'base').length;
-      if (o.start < g.now + 7 * DAY || held >= 1) {
+      // v0.12.1 never at narrowbody prices while widebody work for those weeks is on offer.
+      const wideOpen = Object.values(g.offers).some((x) => x.id !== o.id && x.status === 'open' && x.expires > g.now && wideWork(x) && x.start < o.end + 7 * DAY && x.end > o.start - 7 * DAY);
+      if (o.start < g.now + 7 * DAY || held >= 1 || wideOpen) {
         t.wideCapped++;
         continue;
       }
@@ -550,10 +552,9 @@ function hire(g: GameState, t: Tally): void {
     }
   }
   for (const l of staffing(g)) {
-    const pilot = l.role === 'CPT' || l.role === 'FO';
-    // Widebody cabin crew who also hold a narrowbody type fly both fleets: counted as half a widebody crew member.
-    const shared = !pilot && wideN.has(l.family) ? Object.values(g.crew).filter((c) => c.role === l.role && c.ratings.includes(l.family) && c.ratings.length > 1 && !c.notice).length : 0;
-    const have = l.have + inClass(g, l) - Math.ceil(shared / 2);
+    // v0.12.1 staffing() already counts each dual-type crew member once, in one family: no second subtraction here
+    // (seed 6 carried about $450K a month of surplus widebody cabin crew).
+    const have = l.have + inClass(g, l);
     // Two more sets of every role per widebody (one set's worth of each role per extra set).
     const need = l.need + (wideN.has(l.family) ? Math.round((2 * l.need) / Math.max(1, BAL.crewSetsPerAircraft * (wideN.get(l.family) ?? 1))) * (wideN.get(l.family) ?? 0) : 0);
     // v0.7.3 a widebody's crew join about a week before it can fly revenue (home and Widebody operations granted),
@@ -609,8 +610,26 @@ const isPilotRole = (r: Role) => r === 'CPT' || r === 'FO' || r === 'CRP';
 function wideFrom(g: GameState, family: RatingFamily): number {
   const acs = Object.values(g.fleet).filter((a) => typeOf(a.typeId).body === 'wide' && typeOf(a.typeId).family === family);
   const home = Math.min(...acs.map((a) => (a.status === 'delivering' ? a.deliveredAt : g.now)));
-  const grant = g.company.approvals.includes('widebody') ? g.now : g.company.pendingApprovals.find((p) => p.id === 'widebody')?.done ?? g.now;
+  // v0.12.1 an application stuck on something hiring won't fix (technical reliability, the record): not yet.
+  const grant = grantAt(g, family) ?? g.now + 60 * DAY;
   return Math.max(home, grant);
+}
+
+/**
+ * v0.12.1 when Widebody operations should be ours (approvals are checked at departure now): now when held; its due date
+ * while on time; while it waits for rated pilots, when the family's last rated hire or class joins; null when it waits
+ * for anything else (technical reliability, a clean record) or nothing is filed.
+ */
+function grantAt(g: GameState, family: RatingFamily): number | null {
+  if (g.company.approvals.includes('widebody')) return g.now;
+  const p = g.company.pendingApprovals.find((x) => x.id === 'widebody');
+  if (!p) return null;
+  if (!p.waiting) return p.done;
+  if (!/rated/.test(p.waiting)) return null;
+  let joins = Math.max(g.now, p.done);
+  for (const c of Object.values(g.crew)) if ((c.role === 'CPT' || c.role === 'FO') && c.status === 'joining' && c.ratings.includes(family)) joins = Math.max(joins, c.hired);
+  for (const k of conversionClasses(g)) if (k.family === family && k.group === 'pilot') joins = Math.max(joins, k.end);
+  return joins + DAY;
 }
 
 /** v0.6: crew of a staffing line's role booked on a class onto its family (they count once the course ends). */
@@ -918,7 +937,10 @@ function fleet(g: GameState, t: Tally): void {
     const filed = g.company.pendingApprovals.find((p) => p.id === 'widebody')?.started ?? g.company.approvalsAt?.widebody ?? g.now;
     // v0.8 as the comment says: only while one of our family is on offer (the post-filing A330 lapsed unseen).
     const ours = g.market.aircraft.some((x) => x.kind === 'dryLeaseIn' && x.expires > g.now && typeOf(x.typeId).family === wideFamily(g));
-    if (typeOf(o.typeId).family !== wideFamily(g) && g.now - filed < 60 * DAY && ours) continue;
+    // v0.12.1 with widebody pilots on the books (rated, joining or converting) only their family: seed 6 hired 767
+    // pilots and signed an A330-200, seed 1 A330 pilots and a 747-400 (the market's post-filing lessor now offers ours).
+    const crewed = ratedPilots(g, [wideFamily(g)], { booked: true });
+    if (typeOf(o.typeId).family !== wideFamily(g) && (crewed.CPT + crewed.FO > 0 || (g.now - filed < 60 * DAY && ours))) continue;
     // Acquirable (the target): deposit plus three months of rent and insurance, with $1M left to run the airline.
     if (g.company.cash >= o.deposit + 3 * (o.rentPerMonth + typeOf(o.typeId).insuranceMonth) + 1_000_000) t.wideAffordableAt ??= g.now;
     // v0.8 two months of its fixed costs after the deposit (v0.7.3: three) and $300K (was $500K) to run the airline.
@@ -933,15 +955,19 @@ function fleet(g: GameState, t: Tally): void {
     const crewLead = Math.max(o.leadDays + 7, rated.CPT >= 2 && rated.FO >= 2 ? 0 : 50);
     const lead = o.leadDays + 7;
     // On the ladder: signed so it is home about when Widebody operations is granted (it flies revenue only then).
-    const due = g.company.approvals.includes('widebody') ? g.now : g.company.pendingApprovals.find((p) => p.id === 'widebody')?.done;
+    // v0.12.1 the grant as it stands: an application stuck on anything but pilots signs nothing (approvals are checked
+    // at departure: seed 7's 767 flew with it stuck); the first job within 60 days of the handover (was 120).
+    const due = grantAt(g, typeOf(o.typeId).family) ?? undefined;
+    if (due === undefined && !g.company.approvals.includes('widebody')) continue;
     const job = Object.values(g.offers).find(
-      (x) => x.status === 'open' && x.estValue >= 1_000_000 && x.start > g.now + (crewLead + 14) * DAY && x.start < g.now + (lead + 120) * DAY && (x.requirements.body === 'wide' || x.requirements.minSeats > 220) &&
+      (x) => x.status === 'open' && x.estValue >= 1_000_000 && x.start > g.now + (crewLead + 14) * DAY && x.start < g.now + (lead + 60) * DAY && (x.requirements.body === 'wide' || x.requirements.minSeats > 220) &&
         o.cabin.total >= x.requirements.minSeats && (!x.requirements.families?.length || x.requirements.families.includes(typeOf(o.typeId).family)) &&
         // v0.7: work the widebody can fly (after the grant).
         (due === undefined || x.start >= due + 7 * DAY),
     );
     // v0.7.2 not before the grant is near: home at most about two weeks before it (rent and crew run from the handover).
-    if (!WIDE && due !== undefined && due - g.now > (lead + 14) * DAY) continue;
+    // v0.12.1 --wide too (its leases were handed over months before the grant).
+    if (due !== undefined && due - g.now > (lead + 14) * DAY) continue;
     const timed = due !== undefined;
     // Without a job to fly, only a lease the airline can carry while it waits for work ($300K/month at most; v0.7.3 the
     // last quarter earned three months of its fixed costs: seed 6 signed an A340 off a thin autumn and lost $1.2M).
@@ -1833,8 +1859,24 @@ let fuelMax = 0;
 let trustedAt: number | null = null;
 const mixedSeen = new Set<string>();
 
+/** v0.12.1 widebody timing: first widebody handed over and first widebody revenue leg flown (game days). */
+let wideHome: number | null = null;
+let wideFirstRev: number | null = null;
+function wideTiming(): void {
+  if (wideHome === null && Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide' && a.status !== 'delivering')) wideHome = dayN(g);
+  if (wideHome !== null && wideFirstRev === null) {
+    for (const f of Object.values(g.flights)) {
+      if (f.kind === 'revenue' && f.atd !== undefined && f.aircraftId && g.fleet[f.aircraftId] && typeOf(g.fleet[f.aircraftId].typeId).body === 'wide') {
+        wideFirstRev = Math.floor((f.atd - g.started) / DAY);
+        break;
+      }
+    }
+  }
+}
+
 function onStep(): void {
   if (process.env.PROG) console.error(`step ${fmtDateTime(g.now)}`);
+  wideTiming();
   // Debugging: PROBE=<flight no>: its duty's seats at every step (stderr).
   if (process.env.PROBE) for (const f of Object.values(g.flights)) {
     if (f.no !== process.env.PROBE || f.status === 'done' || f.status === 'cancelled') continue;
@@ -2267,6 +2309,10 @@ console.log(
   softTargets.push(['ladder: widebody ops filed by day 200, a widebody signed by day 365 (≥ 4 of seeds 1–6)', tally.filed.some((f) => f.startsWith('widebody ') && Number(f.split(' day ')[1]) <= 200) && tally.wideSigned !== null, `filed ${tally.filed.find((f) => f.startsWith('widebody ')) ?? 'never'}; signed ${dayOf(tally.wideSigned)}`]);
   softTargets.push(['delivery pilots on airline deadheads (when handed over abroad)', abroad.size === 0 || dhDelivery.size > 0, `${dhDelivery.size} tickets for ${abroad.size} abroad`]);
   // v0.7.2 crew rules & fleet.
+  // v0.12.1 approvals at departure and widebody timing.
+  const grantDay = g.company.approvalsAt?.widebody !== undefined && g.company.approvals.includes('widebody') ? Math.floor((g.company.approvalsAt.widebody - g.started) / DAY) : null;
+  const ccqClasses = Object.values(g.classes ?? {}).filter((k) => k.course === 'ccq' && k.status !== 'cancelled').length;
+  console.log(`v0.12.1: legs stopped at the gate for an approval ${s.gateStopped ?? 0}, approval decisions ${[...tally.decKinds].filter(([k]) => k.startsWith('approvalLate')).reduce((n, [, v]) => n + v, 0)} · widebody signed ${tally.wideSigned === null ? 'never' : `day ${Math.floor((tally.wideSigned - g.started) / DAY)}`}, home ${wideHome === null ? 'never' : `day ${wideHome}`}, Widebody operations ${grantDay === null ? 'not held' : `day ${grantDay}`}, first widebody revenue leg ${wideFirstRev === null ? 'never' : `day ${wideFirstRev}`} · CCQ classes ${ccqClasses}`);
   console.log(`v0.7.2: sub-chartered legs ${s.subchartered ?? 0} (reliability ${s.subHit ?? 0}), C-checks at hubs [${tally.cHubs.join(', ') || '-'}], ferry+ticket cost ${Math.round(tally.hubTravel / 1000)}k, ferry legs ${checkLegs.size}, captains as FO ${s.asFo ?? 0}, multi-type cabin hires ${tally.multiHires}, early returns ${s.earlyReturns ?? 0}, sales ${s.sales ?? 0}`);
   // v0.7.3 in-flight rest & EASA.
   {

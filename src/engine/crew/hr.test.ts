@@ -171,8 +171,11 @@ describe('capacity (crewAvailability)', () => {
     const cpt0 = line('CPT');
     const cc0 = line('CC');
     const cpts = Object.values(g.crew).filter((c) => c.role === 'CPT').slice(0, 3).map((c) => c.id);
-    expect(startConversion(g, { crewIds: cpts, family: 'A330/340', start: conversionEarliest(g) }).ok).toBe(true);
-    expect(line('CPT')).toMatchObject({ have: cpt0.have - 3, converting: 3, leaving: 0 });
+    // v0.12.1 a CCQ onto the A330 keeps the A320: still counted; a full course onto the 777 ends it.
+    expect(startConversion(g, { crewIds: [cpts[0]], family: 'A330/340', start: conversionEarliest(g) }).ok).toBe(true);
+    expect(line('CPT')).toMatchObject({ have: cpt0.have, converting: 0, leaving: 0 });
+    expect(startConversion(g, { crewIds: cpts.slice(1), family: 'B777', start: conversionEarliest(g) }).ok).toBe(true);
+    expect(line('CPT')).toMatchObject({ have: cpt0.have - 2, converting: 2, leaving: 0 });
     const ccs = Object.values(g.crew).filter((c) => c.role === 'CC').slice(0, 2);
     for (const c of ccs) resignNow(g, c.id);
     expect(line('CC')).toMatchObject({ have: cc0.have - 2, leaving: 2, converting: 0 });

@@ -1,6 +1,6 @@
 // Named crew members (B2 owns; first version by the architect for the starting roster).
 
-import type { RatingFamily } from '../../data/acmiTypes';
+import { ACMI_TYPES_LIST, type RatingFamily } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { CREW_MIX, DEFAULT_MIX, NAMES } from '../../data/names';
 import { BAL } from '../core/balance';
@@ -9,11 +9,41 @@ import { monthKey, yearOf } from '../core/time';
 import { chance, int, next, pick, weightedPick } from '../core/rng';
 import type { CrewMember, CrewStatus, GameState, Role } from '../core/types';
 
-const WIDE: RatingFamily[] = ['B757/767', 'A330/340', 'B777', 'B787', 'A350', 'A380', 'B747'];
+/** v0.12.1 families with a widebody type, and those that also have a narrowbody one (the B757/767). */
+const bodies = (f: RatingFamily) => new Set(ACMI_TYPES_LIST.filter((t) => t.family === f).map((t) => t.body));
 
-export function salaryFor(role: Role, family: RatingFamily): number {
+/**
+ * Monthly salary of a role on a family: widebody pay on a widebody family, narrowbody pay on a narrowbody one.
+ * v0.12.1 a family with both (the 757 and the 767) pays the widebody scale when `wideFlown` (a 767 in our fleet).
+ */
+export function salaryFor(role: Role, family: RatingFamily, wideFlown = false): number {
   const [n, w] = BAL.salary[role];
-  return WIDE.includes(family) && family !== 'B757/767' ? w : n;
+  const b = bodies(family);
+  return b.has('wide') && (!b.has('narrow') || wideFlown) ? w : n;
+}
+
+/** v0.12.1 a widebody of this family in our fleet (the 767 of the B757/767 family, delivering included). Pure. */
+export function wideOfFamilyInFleet(g: GameState, family: RatingFamily): boolean {
+  for (const a of Object.values(g.fleet)) {
+    const t = ACMI_TYPES_LIST.find((x) => x.id === a.typeId);
+    if (t && t.family === family && t.body === 'wide') return true;
+  }
+  return false;
+}
+
+/**
+ * v0.12.1 the salary of a role on a family in this company: B757/767 crews earn widebody pay while a 767 is in the
+ * fleet (one pay scale for a combined 757/767 fleet, as airlines pay it), narrowbody pay on a 757-only fleet. Pure.
+ */
+export function payFor(g: GameState, role: Role, family: RatingFamily): number {
+  return salaryFor(role, family, wideOfFamilyInFleet(g, family));
+}
+
+/** v0.12.1 a crew member's salary: the best-paid type they hold. Pure. */
+export function crewPay(g: GameState, c: Pick<CrewMember, 'role' | 'ratings'>): number {
+  let best = 0;
+  for (const f of c.ratings) best = Math.max(best, payFor(g, c.role, f));
+  return best || salaryFor(c.role, 'A320');
 }
 
 /** Surname, feminine form where the language has one (same RNG draw as a plain pick). */
@@ -57,7 +87,7 @@ export function makeCrewMember(g: GameState, role: Role, family: RatingFamily, b
     awaySince: null,
     morale: int(g, m0, m1),
     fatigue: 0,
-    salary: salaryFor(role, family),
+    salary: payFor(g, role, family),
     hired: g.now,
     discretion: 0,
     totalHours,

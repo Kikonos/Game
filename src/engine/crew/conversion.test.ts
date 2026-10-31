@@ -30,7 +30,8 @@ describe('conversion classes', () => {
 
   it('12 pilots + 33 cabin → P1 (12), C1 (17), C2 (16); pilots CPT/FO alternately', () => {
     const g = rich();
-    const ids = [...addCrew(g, { CPT: 6, FO: 6 }), ...addCrew(g, { PUR: 9, CC: 24 })];
+    // v0.12.1 B737 crew: a full course (A320 crew take the CCQ onto the A330).
+    const ids = [...addCrew(g, { CPT: 6, FO: 6 }, 'B737'), ...addCrew(g, { PUR: 9, CC: 24 }, 'B737')];
     const plan = conversionPlan(g, { crewIds: ids, family: 'A330/340', start: start(g) });
     expect(plan.ok).toBe(true);
     expect(plan.classes.map((k) => [k.no, k.crewIds.length])).toEqual([['A330-P1', 12], ['A330-C1', 17], ['A330-C2', 16]]);
@@ -75,7 +76,7 @@ describe('conversion classes', () => {
   it('class dates in the inbox and the calendar are home-base days (a summer start at LIS midnight)', () => {
     const g = rich();
     g.now = fromUTC(2027, 6, 1, 10);
-    const ids = [...addCrew(g, { CPT: 2 }), ...addCrew(g, { CC: 4 })];
+    const ids = [...addCrew(g, { CPT: 2 }, 'B737'), ...addCrew(g, { CC: 4 }, 'B737')];
     const s0 = start(g);
     // LIS summer: local midnight of 4 Jun is 3 Jun 23:00 UTC.
     expect(fmtDate(s0)).toBe('3 Jun 2027');
@@ -123,7 +124,7 @@ describe('conversion classes', () => {
 
   it('completion: pilots drop the old type (not on a common type); cabin keep up to 3; salary, bond, morale', () => {
     const g = rich();
-    const [fo] = addCrew(g, { FO: 1 });
+    const [fo] = addCrew(g, { FO: 1 }, 'B737');
     const [ccq] = addCrew(g, { CPT: 1 }, 'A330/340');
     const [cab] = addCrew(g, { CC: 1 });
     const [cab3] = addCrew(g, { CC: 1 }, 'B737');
@@ -183,11 +184,15 @@ describe('conversion classes', () => {
   it('warns when the fleet would be short during and after the course, and about cash', () => {
     const g = rich();
     const cpts = Object.values(g.crew).filter((c) => c.role === 'CPT' && c.ratings.includes('A320')).map((c) => c.id);
-    const plan = conversionPlan(g, { crewIds: cpts.slice(0, 4), family: 'A330/340', start: start(g) });
+    // v0.12.1 onto a type that is no common type of the A320 (a CCQ onto the A330 keeps them: no 'after' warning).
+    const plan = conversionPlan(g, { crewIds: cpts.slice(0, 4), family: 'B777', start: start(g) });
     expect(plan.warnings[0].level).toBe('bad');
     expect(plan.warnings.some((w) => /^A320 captains during the course: \d+ of \d+ needed$/.test(w.text))).toBe(true);
     expect(plan.warnings.some((w) => /^After the course: A320 captains \d+ of \d+$/.test(w.text))).toBe(true);
-    expect(plan.warnings.some((w) => w.text === 'No A330 in the fleet or on order')).toBe(true);
+    expect(plan.warnings.some((w) => w.text === 'No B777 in the fleet or on order')).toBe(true);
+    const ccq = conversionPlan(g, { crewIds: cpts.slice(0, 4), family: 'A330/340', start: start(g) });
+    expect(ccq.warnings.some((w) => /^A320 captains during the course/.test(w.text))).toBe(true);
+    expect(ccq.warnings.some((w) => /^After the course/.test(w.text))).toBe(false);
     g.company.cash = 1_000;
     const poor = conversionPlan(g, { crewIds: cpts.slice(0, 1), family: 'A330/340', start: start(g) });
     expect(poor.ok).toBe(false);

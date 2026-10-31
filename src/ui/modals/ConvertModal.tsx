@@ -8,7 +8,7 @@ import { ACMI_TYPES_LIST, type RatingFamily } from '../../data/acmiTypes';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, toDate, toLocal } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
-import { ccqPartner, conversionEarliest, conversionPlan, courseOf, crewName, familyLabel, startConversion } from '../../engine/crew';
+import { ccqKeeps, ccqPartners, conversionEarliest, conversionPlan, courseOf, courseText, crewName, familyLabel, startConversion } from '../../engine/crew';
 import { approvalReqs, ratedPilots } from '../../engine/ops';
 import { Modal } from '../components/ui';
 import { money } from '../format';
@@ -102,7 +102,8 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
       <span key={id} className={`cv-person ${why ? 'skipped' : ''}`}>
         <span className="col cv-person-txt">
           <span className="row gap-4"><span className={`sc-role r-${c.role}`}>{c.role}</span><b className="ellipsis">{c.last}, {c.first.charAt(0)}.</b></span>
-          <span className="tiny muted ellipsis">{why ?? c.ratings.join(', ')}</span>
+          {/* v0.12.1 a CCQ keeps the old type: 'CCQ (keeps A320)'. */}
+          <span className="tiny muted ellipsis">{why ?? (picked && ccqKeeps(c, family) ? `${c.ratings.join(', ')} · CCQ (keeps ${familyLabel(ccqKeeps(c, family)!)})` : c.ratings.join(', '))}</span>
         </span>
         {dropFor && !why && (
           <select className="select cv-drop" value={drop[id] ?? dropFor} onChange={(e) => setDrop({ ...drop, [id]: e.target.value as RatingFamily })} aria-label={`Rating ${c.last} gives up`}>
@@ -183,7 +184,7 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
               <div key={k.no} className="cv-class">
                 <div className="row between small">
                   <b>{k.no}</b>
-                  <span className="muted">{k.crewIds.length} {k.group === 'pilot' ? 'pilot' : 'cabin crew'}{k.group === 'pilot' && k.crewIds.length !== 1 ? 's' : ''} · {bd(k.start)} – {bd(k.end - 1)}</span>
+                  <span className="muted">{k.crewIds.length} {k.group === 'pilot' ? 'pilot' : 'cabin crew'}{k.group === 'pilot' && k.crewIds.length !== 1 ? 's' : ''}{k.course === 'ccq' ? ` · ${courseText(g, { course: k.course, family, crewIds: k.crewIds })}` : ''} · {bd(k.start)} – {bd(k.end - 1)}</span>
                 </div>
                 <div className="cv-track">
                   <span className={`cv-bar ${k.group}`} style={{ left: `${pct(k.start)}%`, width: `${Math.max(2, pct(k.end) - pct(k.start))}%` }}>
@@ -208,7 +209,7 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
               ))}
             </div>
           )}
-          <div className="tiny dim">After the course pilots fly the {label} only{ccqPartner(family) ? ` (pilots rated on the ${familyLabel(ccqPartner(family)!)} take a 14-day common-type course and keep both)` : ''}; cabin crew keep their types, up to 3.</div>
+          <div className="tiny dim">After the course pilots fly the {label} only{ccqPartners(family).length ? ` (pilots rated on the ${ccqPartners(family).map(familyLabel).join(' or ')} take a ${courseOf('pilot', 'ccq', family).days}-day CCQ and keep both)` : ''}; cabin crew keep their types, up to 3.</div>
           </>}
         </div>
       </div>

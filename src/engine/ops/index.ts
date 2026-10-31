@@ -25,6 +25,8 @@ import { dailyWorld, healStranded, loadWorld, onWorldEnd } from './world';
 import { relinkPositioning } from '../contracts/schedule';
 import { retireTypes } from './retired';
 import { registerResolvers } from './events';
+import { dailyApprovalGate, resolveApprovalLate } from './approvalGate';
+export { atRiskLine, gateMisses, jobsAtRisk, legApprovals, legsAtRisk } from './approvalGate';
 import { DISRUPT_RESOLVERS, holdingForDecision, onDivertedArrival, onOpsEvent, opsState, rollBirdStrike, rollSickAway } from './disrupt';
 import { dailyDirector, newDirector } from './director';
 import { rollRamp } from './ramp';
@@ -33,6 +35,8 @@ import { DAY as DAY_MIN } from '../core/time';
 
 // v0.11 Operations: the disruption cards' resolvers join the decision table (wired here, after every module loaded).
 registerResolvers(DISRUPT_RESOLVERS);
+// v0.12.1 a leg that needs an approval we won't hold by its departure.
+registerResolvers({ approvalLate: resolveApprovalLate }, 'company');
 
 /** v0.11 load / init: the director and the operations record (older saves: a first audit at least 60 days off). */
 function loadOps(g: GameState): void {
@@ -123,6 +127,8 @@ function daily(g: GameState) {
   dailyEvents(g);
   dailyFinance(g);
   dailyApprovals(g);
+  // v0.12.1 legs that need an approval we won't hold by their departure: the card and the decision ahead of time.
+  dailyApprovalGate(g);
   dailyMarket(g);
   dailyDelivery(g);
   dailyLeases(g);

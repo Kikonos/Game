@@ -2,6 +2,8 @@
 // classes of at most BAL.conv.classMax form automatically (pilots and cabin apart, full course and common-type
 // apart), staggered through one training centre. Pilots convert in 42 days, cabin crew in 8; costs per head are
 // charged once at booking. Read APIs are pure.
+// v0.12.1 Airbus Cross Crew Qualification (CCQ): A320-family pilots take a short course onto the A330/340 (and back)
+// and keep both ratings (EASA Mixed Fleet Flying), as A330 pilots do onto the A350.
 
 import { ACMI_TYPES_LIST, type RatingFamily } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
@@ -13,7 +15,7 @@ import { schedule } from '../core/queue';
 import { DAY, fmtDateAt, fmtDayAt } from '../core/time';
 import type { ActionResult, CrewMember, GameState, Minute, Role, TrainingClass, TrainingItem } from '../core/types';
 import { staffing } from './hr';
-import { crewName, salaryFor } from './generate';
+import { crewName, crewPay } from './generate';
 import { moraleShock } from './morale';
 import { removeCrew, rosterOf } from './roster';
 import { dropStandby } from './standby';
@@ -46,7 +48,7 @@ export interface ConversionPlan {
   skipped: { crewId: string; why: string }[];
   warnings: { level: 'warn' | 'bad'; text: string }[];
   dutiesAffected: number;
-  /** Per included crew member: ratings after completion (pilots drop the old type unless CCQ; cabin keep ≤ 3). */
+  /** Per included crew member: ratings after completion (pilots drop the old type unless CCQ (v0.12.1: a common-type partner is always kept); cabin keep ≤ 3). */
   ratingsAfter: Record<string, RatingFamily[]>;
   /** Cabin crew at 3 types: the default rating they give up (player may override via drop). */
   dropDefault: Record<string, RatingFamily>;
@@ -66,18 +68,55 @@ type Course = 'full' | 'ccq';
 /** Course phases by day (1-based, inclusive), RESEARCH §5.2. */
 const PHASES: Record<`${Group}:${Course}`, [string, number, number][]> = {
   'pilot:full': [['Ground school', 1, 12], ['Simulator', 13, 28], ['Skill test & base training', 29, 30], ['Line training & line check', 31, 42]],
-  'pilot:ccq': [['Differences ground', 1, 4], ['Simulator', 5, 10], ['Line check', 11, 14]],
+  // v0.12.1 CCQ in 10 days (was 14): differences ground school, simulator, line check.
+  'pilot:ccq': [['Differences ground', 1, 3], ['Simulator', 4, 8], ['Line check', 9, 10]],
   'cabin:full': [['Ground & safety', 1, 5], ['Doors, slides, fire & first aid', 6, 7], ['Exam & familiarisation', 8, 8]],
   'cabin:ccq': [['Differences course', 1, 3]],
 };
 
-/** Common-type partner of a family (Airbus CCQ A330/340 ↔ A350, Boeing 777 ↔ 787), else null. */
-export function ccqPartner(f: RatingFamily): RatingFamily | null {
+/**
+ * Common-type partners of a family (Airbus CCQ A320 ↔ A330/340 ↔ A350, Boeing 777 ↔ 787). v0.12.1 a family may have
+ * two (the A330/340: the A320 and the A350).
+ */
+export function ccqPartners(f: RatingFamily): RatingFamily[] {
+  const out: RatingFamily[] = [];
   for (const [a, b] of BAL.conv.ccq) {
-    if (a === f) return b as RatingFamily;
-    if (b === f) return a as RatingFamily;
+    if (a === f) out.push(b as RatingFamily);
+    if (b === f) out.push(a as RatingFamily);
   }
-  return null;
+  return out;
+}
+
+/** The first common-type partner of a family, else null. */
+export function ccqPartner(f: RatingFamily): RatingFamily | null {
+  return ccqPartners(f)[0] ?? null;
+}
+
+/** v0.12.1 the common-type rating a crew member keeps on a CCQ onto `family` (their A320 onto the A330), else null. Pure. */
+export function ccqKeeps(c: Pick<CrewMember, 'ratings'>, family: RatingFamily): RatingFamily | null {
+  return ccqPartners(family).find((p) => c.ratings.includes(p)) ?? null;
+}
+
+/** v0.12.1 the course in a few words: 'CCQ (keeps A320)' / 'Full course'. Pure. */
+export function courseText(g: GameState, k: Pick<TrainingClass, 'course' | 'family' | 'crewIds'>): string {
+  if (k.course !== 'ccq') return 'Full course';
+  const kept = [...new Set(k.crewIds.map((id) => (g.crew[id] ? ccqKeeps(g.crew[id], k.family) : null)).filter((f): f is RatingFamily => !!f))];
+  return kept.length === 1 ? `CCQ (keeps ${familyLabel(kept[0])})` : 'CCQ (keeps their type)';
+}
+
+/**
+ * v0.12.1 the ratings a class member gives up at completion: a pilot on a full course every old type but a
+ * common-type partner of the new one (a class booked before v0.12.1 as a full A320 → A330 course keeps the A320);
+ * a cabin crew member at 3 types the one they drop. Staffing, the sets and the forecasts read this. Pure.
+ */
+export function ratingsLost(c: Pick<CrewMember, 'id' | 'ratings'>, k: Pick<TrainingClass, 'group' | 'course' | 'family' | 'drop'>): RatingFamily[] {
+  if (k.group === 'pilot') {
+    if (k.course === 'ccq') return [];
+    const keep = ccqPartners(k.family);
+    return c.ratings.filter((f) => f !== k.family && !keep.includes(f));
+  }
+  const d = k.drop?.[c.id];
+  return d ? [d] : [];
 }
 
 const wideFamily = (f: RatingFamily) => ACMI_TYPES_LIST.some((t) => t.family === f && t.body === 'wide');
@@ -90,10 +129,7 @@ export function courseOf(group: Group, course: Course, family: RatingFamily): { 
 }
 
 const groupOf = (c: CrewMember): Group => (isPilot(c.role) ? 'pilot' : 'cabin');
-const courseFor = (c: CrewMember, family: RatingFamily): Course => {
-  const p = ccqPartner(family);
-  return p && c.ratings.includes(p) ? 'ccq' : 'full';
-};
+const courseFor = (c: CrewMember, family: RatingFamily): Course => (ccqKeeps(c, family) ? 'ccq' : 'full');
 
 /** Base-local start of the day containing t (the training centre is at home base). */
 function localDay(g: GameState, t: Minute): Minute {
@@ -125,7 +161,10 @@ function defaultDrop(g: GameState, c: CrewMember): RatingFamily {
 
 /** Ratings after the course (pilots: one type unless common type; cabin: up to 3, `drop` given up at 3). */
 function after(c: CrewMember, family: RatingFamily, course: Course, drop: RatingFamily | undefined): RatingFamily[] {
-  if (isPilot(c.role)) return course === 'ccq' ? [...c.ratings, family] : [family];
+  if (isPilot(c.role)) {
+    const lost = ratingsLost(c, { group: 'pilot', course, family });
+    return [...c.ratings.filter((f) => !lost.includes(f)), family];
+  }
   const kept = c.ratings.length >= 3 && drop ? c.ratings.filter((f) => f !== drop) : [...c.ratings];
   return [...kept, family];
 }
@@ -420,18 +459,20 @@ export function onClassItemDone(g: GameState, item: TrainingItem): boolean {
   const old = c ? [...c.ratings] : [];
   if (c && k.crewIds.includes(c.id)) {
     if (k.group === 'pilot') {
-      c.ratings = k.course === 'ccq' ? [...new Set([...c.ratings, k.family])] : [k.family];
+      // v0.12.1 a common-type partner stays (a full A320 → A330 course booked before the CCQ keeps the A320 too).
+      const lost = ratingsLost(c, k);
+      c.ratings = [...new Set([...c.ratings.filter((f) => !lost.includes(f)), k.family])];
       if (k.course === 'full') c.bondUntil = k.end + Math.round(BAL.conv.bondMonths * 30.44) * DAY;
     } else {
       const drop = k.drop?.[c.id];
       if (c.ratings.length >= 3) c.ratings = c.ratings.filter((f) => f !== (drop ?? c.ratings[0]));
       if (!c.ratings.includes(k.family)) c.ratings.push(k.family);
     }
-    const wide = c.ratings.find((f) => salaryFor(c.role, f) !== salaryFor(c.role, 'A320'));
-    c.salary = salaryFor(c.role, wide ?? c.ratings[0] ?? 'A320');
+    // v0.12.1 the pay of the best-paid type held (a 767 in the fleet pays the B757/767 family widebody rates).
+    c.salary = crewPay(g, c);
     if (c.blocks) {
       // v0.9 the days already spent in training stay on record (the month's days-off count reads them, pro rata).
-    c.blocks = c.blocks.flatMap((b) => (b.why === 'training' && b.from === k.start && b.to === k.end ? (b.from < g.now ? [{ ...b, to: Math.min(b.to, g.now) }] : []) : [b]));
+      c.blocks = c.blocks.flatMap((b) => (b.why === 'training' && b.from === k.start && b.to === k.end ? (b.from < g.now ? [{ ...b, to: Math.min(b.to, g.now) }] : []) : [b]));
       if (!c.blocks.length) delete c.blocks;
     }
     if (c.status === 'training') c.status = c.restUntil > g.now ? 'resting' : 'available';
@@ -443,8 +484,11 @@ export function onClassItemDone(g: GameState, item: TrainingItem): boolean {
     const label = familyLabel(k.family);
     const n = k.crewIds.length;
     const kept = old.filter((f) => f !== k.family).map(familyLabel);
+    // v0.12.1 a full course onto a common type of the old one (booked before the CCQ) keeps it as well.
+    const still = c ? old.filter((f) => f !== k.family && c.ratings.includes(f)).map(familyLabel) : [];
     const body = k.group === 'pilot'
-      ? k.course === 'ccq' ? `Common type rating: they keep the ${kept.join(', ') || 'old type'} and fly both.` : `Their ${kept.join(', ') || 'old'} rating is no longer current.`
+      ? k.course === 'ccq' ? `Cross crew qualification: they keep the ${kept.join(', ') || 'old type'} and fly both.`
+        : still.length ? `They keep the ${still.join(', ')} as well and fly both.` : `Their ${kept.join(', ') || 'old'} rating is no longer current.`
       : kept.length ? `They keep the ${kept.join(', ')} as well (cabin crew hold up to 3 types).` : `The ${label} is now their only type.`;
     pushMessage(g, {
       tone: 'good', cat: 'crew', title: `${k.no} finished: ${n} ${k.group === 'pilot' ? `pilot${n > 1 ? 's' : ''} now fly the ${label}` : `cabin crew now hold the ${label}`}`,
@@ -464,4 +508,49 @@ export function classBlockText(g: GameState, crewId: string, from: Minute, to: M
   const ph = phases.find(([, a, b]) => t >= k.start + (a - 1) * DAY && t < k.start + b * DAY) ?? phases[0];
   const line = k.group === 'pilot' && k.course === 'full' ? '\nLine training is flown under supervision; the trainee is not rostered.' : '';
   return { label: `Conversion ${familyLabel(k.family)}`, detail: `Class ${k.no} · ${ph[0]} d${ph[1]}–${ph[2]} · ends ${fmtDateAt(g.company.homeBase, k.end - 1)}${line}` };
+}
+
+/**
+ * v0.12.1 load repair: pilots who gave up a rating on a full course onto a type that is now its common type (an
+ * A320 → A330 conversion before the CCQ) get it back: the CCQ keeps both. The old type is read from the class's
+ * finish message, else from the fleet when it is the only other family the pilot could have come from. Nothing is
+ * charged; one Inbox message. Courses still running keep their dates (ratingsLost keeps the old type at the end).
+ * Idempotent. Returns the pilots repaired.
+ */
+export function restoreCcqRatings(g: GameState): string[] {
+  const fleet = new Set(Object.values(g.fleet).map((a) => typeOf(a.typeId).family));
+  const fixed: string[] = [];
+  const back = new Map<RatingFamily, number>();
+  for (const k of Object.values(g.classes ?? {})) {
+    if (k.group !== 'pilot' || k.course !== 'full' || k.status !== 'done') continue;
+    const partners = ccqPartners(k.family);
+    if (!partners.length) continue;
+    // 'A330-P1 finished: …' / 'Their A320 rating is no longer current.' (the message kept, when not pruned).
+    const said = g.messages.find((m) => m.title.startsWith(`${k.no} finished`) && / rating is no longer current/.test(m.body));
+    const named = said ? partners.filter((p) => new RegExp(`Their (.*, )?${familyLabel(p).replace('/', '\\/')}(,.*)? rating`).test(said.body)) : [];
+    const others = [...fleet].filter((f) => f !== k.family);
+    const inferred = !said && others.length === 1 && partners.includes(others[0]) ? [others[0]] : [];
+    const old = named.length ? named : inferred;
+    if (!old.length) continue;
+    for (const id of k.crewIds) {
+      const c = g.crew[id];
+      if (!c || !isPilot(c.role) || !c.ratings.includes(k.family)) continue;
+      const add = old.filter((f) => !c.ratings.includes(f));
+      if (!add.length) continue;
+      c.ratings = [...add, ...c.ratings];
+      c.salary = crewPay(g, c);
+      fixed.push(c.id);
+      for (const f of add) back.set(f, (back.get(f) ?? 0) + 1);
+    }
+  }
+  if (fixed.length) {
+    const what = [...back].map(([f]) => familyLabel(f)).join(' and ');
+    pushMessage(g, {
+      tone: 'good', cat: 'crew', title: `${fixed.length} pilot${fixed.length > 1 ? 's' : ''} get their ${what} rating back`,
+      body: `Airbus cross crew qualification (CCQ): a pilot converting between the A320 and the A330 keeps both ratings and flies both. Nothing to pay.`,
+      ref: { kind: 'crew', id: fixed[0] },
+    });
+    touchCrew(g);
+  }
+  return fixed;
 }

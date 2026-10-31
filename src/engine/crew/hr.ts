@@ -12,11 +12,11 @@ import { chance, int } from '../core/rng';
 import { DAY, dayStart, fmtDate, fmtDateTime, yearOf } from '../core/time';
 import type { ActionResult, CrewExtra, CrewMember, GameState, Minute, Role, SimEvent, TrainingKind } from '../core/types';
 import { hashUnit } from '../core/util';
-import { classOf, conversionClasses, conversionEarliest, onClassItemDone, startConversion } from './conversion';
+import { classOf, conversionClasses, conversionEarliest, onClassItemDone, ratingsLost, startConversion } from './conversion';
 import { crewExtraFor, rolesWithExtra } from './extraSeats';
 import { crewSupply, familyNeeds } from './sets';
 import { sickMult } from './morale';
-import { crewName, makeCrewMember, salaryFor } from './generate';
+import { crewName, crewPay, makeCrewMember, payFor } from './generate';
 import { removeCrew, rosterOf } from './roster';
 import { dropStandby } from './standby';
 import { block28, crewIx, crewRev, segsOf, touchCrew } from './timeline';
@@ -53,7 +53,7 @@ export function ratedMarket(g: GameState, family: RatingFamily, role: Role): Rat
   const key = poolKey(family, role);
   let used = 0;
   for (const [t, k, n] of g.stats.ratedHires ?? []) if (k === key && t > g.now - 30 * DAY) used += n;
-  return { pool, left: Math.max(0, pool - used), fee: Math.round((salaryFor(role, family) * 12 * P.feePct) / 100) * 100 };
+  return { pool, left: Math.max(0, pool - used), fee: Math.round((payFor(g, role, family) * 12 * P.feePct) / 100) * 100 };
 }
 
 /**
@@ -269,7 +269,8 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
     // v0.6: gone after the leave date; off this type from a conversion that ends the rating (as staffing()).
     if (c.notice) mark(c.notice.leaves, to);
     const k = classOf(g, c.id);
-    if (k && k.family !== family && (k.group === 'pilot' ? k.course === 'full' : k.drop?.[c.id] === family)) mark(k.start, to);
+    // v0.12.1 a CCQ keeps the old type (ratingsLost: what the course ends).
+    if (k && k.family !== family && ratingsLost(c, k).includes(family)) mark(k.start, to);
     for (const p of ix.pairingsOf.get(c.id) ?? []) if (!p.contractId && p.status !== 'done') mark(p.start, p.end);
     let segs = memo.segs.get(c.id);
     if (!segs) memo.segs.set(c.id, (segs = segsOf(g, c)));
@@ -414,7 +415,8 @@ export function staffingAssign(g: GameState): { lines: StaffingLine[]; homeOf: M
     for (const id of k.crewIds) {
       const c = g.crew[id];
       if (!c) continue;
-      const lost = k.group === 'pilot' ? (k.course === 'full' ? c.ratings.filter((f) => f !== k.family) : []) : k.drop?.[id] ? [k.drop[id]] : [];
+      // v0.12.1 one rule for what a course ends (a CCQ keeps the old type).
+      const lost = ratingsLost(c, k);
       if (lost.length) losing.set(id, [...(losing.get(id) ?? []), ...lost]);
     }
   }
@@ -486,13 +488,39 @@ export function onTrainingDone(g: GameState, ev: SimEvent): void {
     if (!c.ratings.includes(item.family)) c.ratings.push(item.family);
   } else if (item.kind === 'command') c.role = 'CPT';
   else if (item.kind === 'sccm') c.role = 'PUR';
-  const wide = c.ratings.find((f) => salaryFor(c.role, f) !== salaryFor(c.role, 'A320'));
-  c.salary = salaryFor(c.role, wide ?? c.ratings[0] ?? 'A320');
+  c.salary = crewPay(g, c);
   clearBlock(c, 'training');
   if (c.status === 'training') c.status = 'available';
   const what = item.kind === 'command' ? 'command upgrade' : item.kind === 'sccm' ? 'Purser course' : `${item.family} ${item.kind === 'conversion' ? 'conversion' : 'type rating'}`;
   pushMessage(g, { tone: 'good', cat: 'crew', title: `${crewName(c)} finished training`, body: `Completed the ${what}.`, ref: { kind: 'crew', id: c.id }, cue: 'crewJoined' });
   touchCrew(g);
+}
+
+/**
+ * v0.12.1 daily: B757/767 crews earn widebody pay while a 767 is in the fleet (narrowbody pay on a 757-only fleet).
+ * When the fleet changes their pay follows, with one Inbox message. Returns how many salaries changed.
+ */
+export function dailyPay(g: GameState): number {
+  let up = 0;
+  let down = 0;
+  for (const c of Object.values(g.crew)) {
+    if (!c.ratings.includes('B757/767')) continue;
+    const pay = crewPay(g, c);
+    if (pay === c.salary) continue;
+    if (pay > c.salary) up++;
+    else down++;
+    c.salary = pay;
+  }
+  if (up || down) {
+    const n = up + down;
+    pushMessage(g, {
+      tone: 'info', cat: 'crew', title: `B757/767 crews move to ${up ? 'widebody' : 'narrowbody'} pay`,
+      body: up
+        ? `A 767 is in the fleet: ${n} crew rated on the 757/767 now earn the widebody scale, as A330 crews do.`
+        : `No 767 left in the fleet: ${n} crew rated on the 757/767 are back on the narrowbody scale.`,
+    });
+  }
+  return up + down;
 }
 
 /**
