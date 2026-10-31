@@ -23,6 +23,12 @@ describe('contracts helpers', () => {
     expect(expiryLabel(10, 5)).toBe('Expired');
     expect(spanLabel(2 * DAY)).toBe('2 d');
   });
+  it('v0.14 the last 6 h count down in hours and minutes (a clear countdown on the market)', () => {
+    expect(expiryLabel(0, 2 * HOUR + 40)).toBe('2 h 40 min left');
+    expect(expiryLabel(0, 5 * HOUR + 5)).toBe('5 h 05 min left');
+    expect(expiryLabel(0, 6 * HOUR)).toBe('6 h left');
+    expect(expiryLabel(0, 59.5)).toBe('59 min left');
+  });
   it('summarises routes and products', () => {
     expect(routeSummary({ kind: 'legs', legs: [{ from: 'LIS', to: 'OLB', dep: 0, flightNo: '', pax: 1 }, { from: 'OLB', to: 'LIS', dep: 5, flightNo: '', pax: 1 }] })).toBe('LIS ⇄ OLB');
     expect(routeSummary({ kind: 'legs', legs: [{ from: 'KBL', to: 'TBS', dep: 0, flightNo: '', pax: 1 }, { from: 'TBS', to: 'LIS', dep: 5, flightNo: '', pax: 1 }] })).toBe('KBL → TBS → LIS');

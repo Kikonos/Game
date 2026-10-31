@@ -19,7 +19,7 @@ import type { FeasibilityReport } from '../../engine/contracts';
 import { quoteTripMove, tripOf } from '../../engine/ops/tripMove';
 import { subleaseTrip } from '../../engine/ops/sublease';
 import { contractColor } from '../screens/palette';
-import { store } from '../store';
+import { store, type ModalSpec } from '../store';
 import { toCss } from '../device';
 import { money } from '../format';
 import { clashTrips, offerGhosts, portalBlocks, portalWidth, subleaseGroups, type ClashTrip } from './offerPortalLogic';
@@ -42,14 +42,14 @@ interface Drag { flightId: string; x0: number; y0: number; timer: number; lifted
 /** Near the dialog's top or bottom edge (px) a lifted trip scrolls the dialog, so every aircraft can be reached. */
 const EDGE = 64;
 
-/** Opens the Schedule's trip move confirm, coming back to this offer afterwards. */
-function askMove(offerId: string, flightId: string, targetId: string) {
-  store.openModal({ kind: 'tripMove', flightId, targetId, back: { kind: 'offer', offerId } });
+/** Opens the Schedule's trip move confirm, coming back to this offer afterwards (v0.14 or to `back`: the call). */
+function askMove(offerId: string, flightId: string, targetId: string, back?: ModalSpec) {
+  store.openModal({ kind: 'tripMove', flightId, targetId, back: back ?? { kind: 'offer', offerId } });
 }
 
-/** Opens the sub-lease (sub-charter) dialog on these legs, coming back to this offer afterwards. */
-export function askSublease(offerId: string, contractId: string, flightIds: string[], flightId?: string) {
-  store.openModal({ kind: 'subcharter', contractId, flightIds, flightId, back: { kind: 'offer', offerId } });
+/** Opens the sub-lease (sub-charter) dialog on these legs, coming back to this offer afterwards (v0.14 or to `back`). */
+export function askSublease(offerId: string, contractId: string, flightIds: string[], flightId?: string, back?: ModalSpec) {
+  store.openModal({ kind: 'subcharter', contractId, flightIds, flightId, back: back ?? { kind: 'offer', offerId } });
 }
 
 const rowAt = (x: number, y: number): string | null => document.elementFromPoint(x, y)?.closest<HTMLElement>('.v91-portal[data-ac]')?.dataset.ac ?? null;
@@ -58,7 +58,7 @@ const clearHover = () => {
 };
 
 /** What a picked trip can do: move to another candidate aircraft, or be sub-leased (with the price, or why not). */
-function TripActions({ g, offerId, flightId, others, onClose }: { g: GameState; offerId: string; flightId: string; others: string[]; onClose: () => void }) {
+function TripActions({ g, offerId, flightId, others, onClose, back }: { g: GameState; offerId: string; flightId: string; others: string[]; onClose: () => void; back?: ModalSpec }) {
   const trip = tripOf(g, flightId);
   const sub = subleaseTrip(g, flightId);
   const f = g.flights[flightId];
@@ -74,7 +74,7 @@ function TripActions({ g, offerId, flightId, others, onClose }: { g: GameState; 
         {trip.ok ? (
           <>
             {quotes.map(({ id, q }) => (
-              <button key={id} className={`btn btn-sm ${q.ok ? '' : 'dim'}`} disabled={!q.ok} title={q.ok ? undefined : q.reasons[0]} onClick={() => askMove(offerId, flightId, id)}>
+              <button key={id} className={`btn btn-sm ${q.ok ? '' : 'dim'}`} disabled={!q.ok} title={q.ok ? undefined : q.reasons[0]} onClick={() => askMove(offerId, flightId, id, back)}>
                 {g.fleet[id].reg}
               </button>
             ))}
@@ -89,7 +89,7 @@ function TripActions({ g, offerId, flightId, others, onClose }: { g: GameState; 
         <span key={id} className="tiny muted v12-ta-note">{q.reasons[0]?.startsWith(g.fleet[id].reg) ? q.reasons[0] : `${g.fleet[id].reg}: ${q.reasons[0]}`}</span>
       ))}
       <div className="row gap-6 wrap v12-ta-row">
-        <button className="btn btn-sm v12-sublease" disabled={!sub.ok} onClick={() => sub.contractId && askSublease(offerId, sub.contractId, sub.flightIds, flightId)}>
+        <button className="btn btn-sm v12-sublease" disabled={!sub.ok} onClick={() => sub.contractId && askSublease(offerId, sub.contractId, sub.flightIds, flightId, back)}>
           <Handshake /> Sub-lease{sub.best ? ` · ${money(sub.best.cost)}` : ''}
         </button>
         <span className={`small v12-ta-why ${sub.ok ? 'muted' : 'warn'}`}>{sub.ok ? `${SUBLEASE_LINE} Best: ${sub.best!.rivalName}.` : sub.reason}</span>
@@ -99,7 +99,7 @@ function TripActions({ g, offerId, flightId, others, onClose }: { g: GameState; 
 }
 
 /** The open aircraft's work in the way of the new job: each trip (tap: what it can do), programmes without flights yet, checks. */
-function ClashList({ g, o, r, trips, picked, onPick, others }: { g: GameState; o: ContractOffer; r: FeasibilityReport; trips: ClashTrip[]; picked: string | null; onPick: (id: string | null) => void; others: string[] }) {
+function ClashList({ g, o, r, trips, picked, onPick, others, back }: { g: GameState; o: ContractOffer; r: FeasibilityReport; trips: ClashTrip[]; picked: string | null; onPick: (id: string | null) => void; others: string[]; back?: ModalSpec }) {
   const progs = r.conflicts.programmes.map((id) => g.contracts[id]).filter((c) => !!c);
   const checks = r.conflicts.maintenance.map((id) => g.maintenance[id]).filter((m) => !!m);
   if (!trips.length && !progs.length && !checks.length) return null;
@@ -110,7 +110,7 @@ function ClashList({ g, o, r, trips, picked, onPick, others }: { g: GameState; o
       <div className="row gap-8 wrap v12-clash-head">
         <span className="small bad grow"><TriangleAlert /> In the way of this job{trips.length ? ` · ${trips.length} trip${trips.length > 1 ? 's' : ''}` : ''}</span>
         {groups.length === 1 && groups[0].trips.length > 1 && (
-          <button className="btn btn-sm v12-sublease" onClick={() => askSublease(o.id, groups[0].contractId, groups[0].flightIds)}><Handshake /> Sub-lease all {groups[0].trips.length}</button>
+          <button className="btn btn-sm v12-sublease" onClick={() => askSublease(o.id, groups[0].contractId, groups[0].flightIds, undefined, back)}><Handshake /> Sub-lease all {groups[0].trips.length}</button>
         )}
       </div>
       {trips.map((t) => (
@@ -124,7 +124,7 @@ function ClashList({ g, o, r, trips, picked, onPick, others }: { g: GameState; o
             {/* v0.12 (player) one quiet 'more' mark instead of Move / Sub-lease tags: the row opens what it can do */}
             <span className="v12-clash-more" aria-hidden title={t.move.ok || t.sub.ok ? 'Move or sub-lease' : 'Fixed: it can\'t move or be sub-leased'}><Menu /></span>
           </button>
-          {pickedTrip === t && <TripActions g={g} offerId={o.id} flightId={t.flightId} others={others} onClose={() => onPick(null)} />}
+          {pickedTrip === t && <TripActions g={g} offerId={o.id} flightId={t.flightId} others={others} onClose={() => onPick(null)} back={back} />}
         </div>
       ))}
       {progs.map((c) => (
@@ -141,8 +141,12 @@ function ClashList({ g, o, r, trips, picked, onPick, others }: { g: GameState; o
   );
 }
 
-export function SchedulePortal({ g, o, aircraftId, candidates, report, open = false }: { g: GameState; o: ContractOffer; aircraftId: string; candidates: string[]; report?: FeasibilityReport; open?: boolean }) {
-  const [from, to] = portalWindow(o, g.now);
+/**
+ * v0.14 the phone call shows one of these for the aircraft picked on the call: `span` its own window (the job and a
+ * margin, callSpan) and `back` the call, so a trip moved or sub-leased from it comes back to the call.
+ */
+export function SchedulePortal({ g, o, aircraftId, candidates, report, open = false, span: win, back }: { g: GameState; o: ContractOffer; aircraftId: string; candidates: string[]; report?: FeasibilityReport; open?: boolean; span?: [Minute, Minute]; back?: ModalSpec }) {
+  const [from, to] = win ?? portalWindow(o, g.now);
   const span = to - from;
   const scrollRef = useRef<HTMLDivElement>(null);
   const [box, setBox] = useState(0);
@@ -178,7 +182,8 @@ export function SchedulePortal({ g, o, aircraftId, candidates, report, open = fa
     if (!el || !box || scrolled.current) return;
     scrolled.current = true;
     const first = trips[0]?.start ?? jobFrom;
-    el.scrollLeft = Math.max(0, x(Math.min(first, jobFrom)) - (DAY / span) * width * 0.5);
+    // v0.14 and the empty leg there (a ghost) in view too, not cut at the left edge.
+    el.scrollLeft = Math.max(0, x(Math.min(first, jobFrom, ghosts[0]?.start ?? jobFrom)) - (DAY / span) * width * 0.5);
   });
 
   const lift = (d: Drag) => {
@@ -245,7 +250,7 @@ export function SchedulePortal({ g, o, aircraftId, candidates, report, open = fa
     suppressClick.current = true;
     window.setTimeout(() => (suppressClick.current = false), 400);
     const target = drop ? rowAt(cx, cy) : null;
-    if (target && target !== aircraftId) askMove(o.id, d.flightId, target);
+    if (target && target !== aircraftId) askMove(o.id, d.flightId, target, back);
   };
 
   // Touch: a long press lifts (the timeline scrolls with a swipe before that); the move is held from the page scroll.
@@ -383,8 +388,8 @@ export function SchedulePortal({ g, o, aircraftId, candidates, report, open = fa
           })}
         </div>
       </div>
-      {picked && !listed && <TripActions g={g} offerId={o.id} flightId={picked} others={others} onClose={() => setPicked(null)} />}
-      {open && report && <ClashList g={g} o={o} r={report} trips={trips} picked={picked} onPick={setPicked} others={others} />}
+      {picked && !listed && <TripActions g={g} offerId={o.id} flightId={picked} others={others} onClose={() => setPicked(null)} back={back} />}
+      {open && report && <ClashList g={g} o={o} r={report} trips={trips} picked={picked} onPick={setPicked} others={others} back={back} />}
     </div>
   );
 }

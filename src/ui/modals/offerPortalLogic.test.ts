@@ -10,7 +10,7 @@ import { legsOffer, newGame, owned } from '../../engine/contracts/testkit';
 import { subcharter } from '../../engine/ops';
 import { SUB_LEAD } from '../../engine/ops/subcharter';
 import { subleaseTrip } from '../../engine/ops/sublease';
-import { clashTrips, portalBlocks, portalWidth, PORTAL_PX_DAY, subleaseGroups } from './offerPortalLogic';
+import { callSpan, clashTrips, portalBlocks, portalWidth, PORTAL_PX_DAY, subleaseGroups } from './offerPortalLogic';
 import { portalWindow } from './OfferPortal';
 
 /** A signed charter of `n` same-day LIS–FAO–LIS rotations, a day apart, on the owned A320; its revenue legs by time. */
@@ -154,5 +154,19 @@ describe('why a trip cannot be sub-leased', () => {
     expect(subleaseTrip(g, 'fx').reason).toMatch(/^An empty positioning leg/);
     expect(subleaseTrip(g, 'nope').reason).toBe('Flight not found');
     expect(ac.id).toBeTruthy();
+  });
+});
+
+describe('v0.14 the phone call\'s strip', () => {
+  it('spans the job and half a day either side in whole days, from today, two days at least and a week at most', () => {
+    const now = 100 * DAY + 600;
+    // A 6 h job tomorrow at 03:00: today (from midnight) to the day after, two days.
+    expect(callSpan({ start: 101 * DAY + 180, end: 101 * DAY + 540 }, now)).toEqual([100 * DAY, 102 * DAY]);
+    // A job starting the day after tomorrow at 20:00 for a day: that day to the end of the next.
+    expect(callSpan({ start: 102 * DAY + 1200, end: 103 * DAY + 1200 }, now)).toEqual([102 * DAY, 105 * DAY]);
+    // A ten-day base: its first week.
+    const [a, b] = callSpan({ start: 101 * DAY, end: 111 * DAY }, now);
+    expect(a).toBe(100 * DAY);
+    expect(b - a).toBe(7 * DAY);
   });
 });

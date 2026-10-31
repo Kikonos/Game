@@ -1,7 +1,7 @@
 // Contracts (B5): Market (offer cards, urgent first), Active (MGH progress, next flight, crew problems,
 // cancel with penalty) and Missed. DESIGN.md §6.3.
 
-import { AlertTriangle, CalendarRange, ChevronDown, ChevronRight, CircleSlash, FileSearch, Handshake, Inbox as InboxIcon, Medal, Palette, Users } from 'lucide-react';
+import { AlertTriangle, CalendarRange, ChevronDown, ChevronRight, CircleSlash, Clock, FileSearch, Handshake, Inbox as InboxIcon, Medal, Palette, PhoneIncoming, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { flag } from '../../data/countries';
 import { cancelContract, cancelCost, contractProgress, counterView, idleWindows, type IdleWindow, leadDays, offerClientLine, offerCompetition, standing } from '../../engine/contracts';
@@ -17,16 +17,31 @@ import { ProblemCardView } from '../components/ProblemCard';
 import { Why } from '../components/Why';
 import { Bar, Empty, Stepper, Tabs, Toggle } from '../components/ui';
 import { money } from '../format';
-import { store, useGame } from '../store';
+import { store, useClock, useGame } from '../store';
 import { ArchIcon, Chips, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
-import { archLabel, expiryLabel, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays, v09Chips } from './screenLogic';
+import { archLabel, COUNTDOWN_MIN, expiryLabel, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays, v09Chips } from './screenLogic';
 import { analystView } from '../../engine/ops';
 import { ScreenHint } from '../components/ScreenHint';
 import { clientList } from '../../engine/contracts';
 import { ClientsView } from './Clients';
 
 type View = 'market' | 'active' | 'missed' | 'clients';
+
+/** v0.14 the card's time left: hours and minutes ticking with the clock in the last 6 h, a phone call marked. */
+function OfferLeft({ o, now }: { o: ContractOffer; now: number }) {
+  const left = o.expires - now;
+  return left < COUNTDOWN_MIN ? <OfferCountdown o={o} /> : <span className={`small num ${left < 12 * 60 ? 'warn' : 'muted'}`}>{expiryLabel(now, o.expires)}</span>;
+}
+function OfferCountdown({ o }: { o: ContractOffer }) {
+  const now = Math.floor(useClock());
+  const left = o.expires - now;
+  return (
+    <span className={`small num row gap-4 nowrap v14-left ${left <= 60 ? 'bad' : 'warn'}`}>
+      {o.call ? <PhoneIncoming className="sc-ico-s" /> : <Clock className="sc-ico-s" />}{expiryLabel(now, o.expires)}
+    </span>
+  );
+}
 
 function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows: IdleWindow[] }) {
   const hook = liveHook(g, o, windows);
@@ -53,7 +68,7 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
           {pending ? (
             <span className="small accent nowrap" data-tip="The offer cannot lapse while the client considers your counter">Clock paused</span>
           ) : (
-            <span className={`small num ${o.expires - g.now < 12 * 60 ? 'warn' : 'muted'}`}>{expiryLabel(g.now, o.expires)}</span>
+            <OfferLeft o={o} now={g.now} />
           )}
         </span>
       </div>

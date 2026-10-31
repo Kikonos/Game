@@ -34,9 +34,9 @@ function dublin(seed = 21): { g: GameState; k: string; ac: string } {
 
 const revenue = (f: Flight) => f.kind === 'revenue' || f.kind === 'techstop';
 /** A ride still to fly on the contract's own LIS–DUB flight, with the tour it takes its riders to. */
-function rideOut(g: GameState, k: string): { f: Flight; p: Pairing } {
+function rideOut(g: GameState, k: string, after = 0): { f: Flight; p: Pairing } {
   for (const f of Object.values(g.flights).sort((a, b) => a.std - b.std)) {
-    if (f.contractId !== k || !revenue(f) || f.from !== 'LIS' || f.status !== 'scheduled' || !f.riders?.length) continue;
+    if (f.contractId !== k || !revenue(f) || f.from !== 'LIS' || f.status !== 'scheduled' || !f.riders?.length || f.std < after) continue;
     const p = Object.values(g.pairings).find((q) => q.tour && openDuties(g, q)[0]?.deadheadIds.includes(f.id));
     if (p) return { f, p };
   }
@@ -119,7 +119,8 @@ describe('v0.12.1 crew riding our own passenger flights', () => {
 
   it('a cancelled flight: its riders are rebooked at once', () => {
     const { g, k } = dublin();
-    const { f, p } = rideOut(g, k);
+    // v0.14 (the offer stream moved) a ride a few days out, as before: one a day out finds no ticket in time here.
+    const { f, p } = rideOut(g, k, g.now + 3 * DAY);
     const ids = [...f.riders!];
     cancelFlight(g, f, 'Test');
     advanceTo(g, g.now + 1);
