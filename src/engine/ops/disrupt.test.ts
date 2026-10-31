@@ -163,3 +163,43 @@ describe('A2: a technical diversion back to the departure airport keeps the retu
     expect(line(g, 'penalties') - pen0).toBe(-lost.length * c.penalties.perCancelledLeg);
   });
 });
+
+describe('A4: one cabin crew short is for the sector in hand (ORO.CC.205(c))', () => {
+  it('the seat is required again once the leg lands: the next leg never flies short with a full load', () => {
+    const g = newGame(9);
+    const ac = leased(g);
+    const t0 = Math.floor(g.now / DAY) * DAY + 3 * DAY;
+    const o = legsOffer(g, [['LIS', 'FUE', t0 + 9 * 60], ['FUE', 'TFS', t0 + DAY + 9 * 60], ['TFS', 'LIS', t0 + DAY + 11 * 60]], 150);
+    o.broker = undefined;
+    const r = acceptOffer(g, o.id, [ac.id]);
+    if (!r.ok) throw new Error(r.error);
+    const [, mid, back] = flightsOf(g, ac.id).filter((f) => f.contractId === r.data!.contractId && isRevenue(f));
+    skip(g, mid.std - 4 * 60);
+    g.decisions.length = 0;
+    const d0 = g.duties[mid.dutyId!];
+    expect(d0 && d0.report > g.now).toBe(true);
+    expect(back.dutyId).toBe(mid.dutyId);
+    const p = g.pairings[d0.pairingId];
+    const cc = p.slots.filter((s) => s.role === 'CC' && s.crewId && !s.above);
+    expect(cc.length).toBeGreaterThan(0);
+    for (const s of p.slots) if (s !== cc[0] && s.crewId && g.crew[s.crewId]) g.crew[s.crewId].status = 'onDuty';
+    expect(devDisruption(g, 'sickAway', mid.id)).toBe(true);
+    for (const s of p.slots) if (s.crewId && g.crew[s.crewId]?.status === 'onDuty') g.crew[s.crewId].status = 'resting';
+    const d = g.decisions.find((x) => x.kind === 'sickAway')!;
+    const opt = d.options.find((x) => x.id === 'minCrew')!;
+    expect(opt.desc).toMatch(/ORO\.CC\.205\(c\)/);
+    expect(resolveDecision(g, d.id, 'minCrew').ok).toBe(true);
+    expect(mid.reducedCabin).toBe(1);
+    const short = () => p.slots.filter((s) => s.role === 'CC' && s.above && !s.crewId).length;
+    const flipped = short();
+    expect(flipped).toBeGreaterThan(0);
+    for (let i = 0; i < 100 && mid.status !== 'done'; i++) {
+      skip(g, g.now + 30);
+      g.decisions.length = 0;
+    }
+    expect(mid.status).toBe('done');
+    // Landed: the empty seat is a required one again (filled, or still open for crew control: never "above").
+    expect(short()).toBe(flipped - 1);
+    expect(back.reducedCabin).toBeUndefined();
+  });
+});

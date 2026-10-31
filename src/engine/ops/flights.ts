@@ -1378,6 +1378,9 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
     post(g, 'airportFees', -cost.fees);
   }
   g.finance.current.bh = Math.round((g.finance.current.bh + bh) * 100) / 100;
+  // v0.12.1 one cabin crew short (ORO.CC.205(c)) covers the sector in hand only: the seat is required again for the
+  // next leg (bot seed 4: LH2081 KGS–FRA flew back with 3 cabin crew and a full load).
+  if (f.reducedCabin) cabinSeatBack(g, f, ac);
   // Stats and reliability (revenue legs).
   const s = stats(g);
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
@@ -1390,6 +1393,16 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
     else s.delayed++;
     legOutcome(g, onTime ? 100 : 60);
   }
+}
+
+/** v0.12.1 after a leg flown one cabin crew short: the seat it left empty is a required seat again (the roster fills it). */
+function cabinSeatBack(g: GameState, f: Flight, ac: Aircraft): void {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  const s = p?.slots.find((x) => x.above && !x.crewId && x.role === 'CC');
+  if (!s) return;
+  delete s.above;
+  rerosterFrom(g, ac.id, g.now);
 }
 
 // ---------- player action ----------
