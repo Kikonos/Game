@@ -1,14 +1,14 @@
 // v0.12.1 far bases: a base so far from home that a crew member who falls sick there can't be replaced from home
 // within a day (the fastest ticket home takes over 12 h, or it lies 4 or more time zones away, where crew flown in
 // need local nights first). Real ACMI practice stations enough crew there, reserve included, and rotates them in
-// planned blocks: the deployment is sized on the programme itself, never on its positioning alone (duties.ts), and
-// every crew set on station carries its own reserve (a spare captain and purser, a cabin crew more on a widebody),
+// planned blocks: the deployment is sized on the programme itself, never on its positioning alone (duties.ts, as every
+// base is since v0.12.1), and every crew set on station carries its own reserve (a spare captain and purser, a cabin crew more on a widebody),
 // rotating with the set's tours. A reserve flies along as crew above the minimum, so a sick call at the base or at an
 // outstation the set slips at (Cairns, Perth, Chennai) is covered on the spot (roster.ts promoteSpares); on the
 // days the set does not fly, the reserve stands by at the hotel with it (dayPlan.ts). Pure.
 
 import { BAL } from '../core/balance';
-import { typeOf } from '../core/perf';
+import { blockMinutes, typeOf } from '../core/perf';
 import { ticketBlock } from '../ops/commercial';
 import type { GameState, Minute, Pairing, Role } from '../core/types';
 import { tzDeltaH } from './rules';
@@ -23,11 +23,18 @@ export function farBase(home: string, base: string, t: Minute): boolean {
 }
 
 /**
- * Crew sets on station a far base's pattern asks for before its flights exist (an offer, a base signed months ahead):
- * one per 85 block hours a month (4 for a 747 at 300 BH), at least the 2 or 3 of a near base. Pure.
+ * Crew sets on station a base's pattern asks for before its flights exist (an offer, a base signed months ahead):
+ * one per 85 block hours a month (4 for a 747 at 300 BH), at least 2 (3 with three waves a day). v0.12.1 every base
+ * (duties.ts chainDeployment; was far bases only); with `typeId`, never more hours than its waves can fly (one wave of
+ * HAM–PMI flies about 160 BH a month whatever the target). Pure.
  */
-export function farSetsEstimate(p: { waves: number[]; targetBH: number }): number {
-  return Math.max(p.waves.length >= 3 ? 3 : 2, Math.ceil(p.targetBH / BAL.cabinBHMonth));
+export function patternSets(p: { base: string; dests: string[]; waves: number[]; targetBH: number }, typeId?: string): number {
+  let bh = p.targetBH;
+  if (typeId && p.dests.length) {
+    const rot = p.dests.reduce((s, d) => s + blockMinutes(typeId, p.base, d) + blockMinutes(typeId, d, p.base), 0) / p.dests.length;
+    bh = Math.min(bh, (p.waves.length * rot * 30.44) / 60);
+  }
+  return Math.max(p.waves.length >= 3 ? 3 : 2, Math.ceil(bh / BAL.cabinBHMonth - 1e-9));
 }
 
 /**

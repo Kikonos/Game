@@ -12,7 +12,7 @@ import { crewAvailability, offerExtra, type Availability } from '../crew';
 import { dutyNeed, type ChainShape, type DutyNeed } from '../crew/duties';
 import { restOf } from '../crew/restPlan';
 import { minRest, tzDeltaH } from '../crew/rules';
-import { farBase, farSetsEstimate, reserveDayCost, reserveRoles } from '../crew/farBase';
+import { farBase, patternSets, reserveDayCost, reserveRoles } from '../crew/farBase';
 import { dhBlock, ticketPrice } from '../crew/timeline';
 import { bestSlip, slipCost, slipDetail, type SlipPlan } from '../crew/slip';
 import { A_CHECK_DAYS, anchorsOf, chainForward, chainsOf, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, longestChains, maxPax, noRouteWhy, programmeOf, route, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
@@ -699,7 +699,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   // v0.12.1 a far base (crew/farBase.ts): sized on its block hours (5 sets for a 747 at 300 BH a month), each set with
   // its reserve on station; the reserve counts in the crew needed.
   const far = o.pattern.kind === 'base' && farBase(home, o.pattern.base, o.start) ? o.pattern : null;
-  const farSets = far ? farSetsEstimate(far) : 0;
+  const farSets = far ? patternSets(far, t.id) : 0;
   const farRes = far ? reserveRoles(t.id) : [];
   const farNeed: Partial<Record<Role, number>> = {};
   for (const r of farRes) farNeed[r] = (farNeed[r] ?? 0) + farSets;
@@ -758,7 +758,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const perDiem = ((BAL.perDiem.CPT + BAL.perDiem.FO + (crewN - 2) * BAL.perDiem.CC) / crewN) * (g.company.policies.perDiemPct / 100);
   const hotel = BAL.hotelPerNight[g.company.policies.hotelTier] ?? 140;
   if (base && prog.base) {
-    const sets = far ? farSets : o.pattern.kind === 'base' && o.pattern.waves.length >= 3 ? 3 : 2;
+    // v0.12.1 the sets the deployment will station (duties.ts: every base sized on its programme; was 2, or 3 with three waves).
+    const sets = o.pattern.kind === 'base' ? patternSets(o.pattern, t.id) : 2;
     cost += sets * crewN * perDiem * prog.base.days;
     if (far) {
       // v0.12.1 a far base: the reserve's pay, hotels and per diem while on station, and every crew's tickets out and

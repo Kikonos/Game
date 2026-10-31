@@ -14,7 +14,7 @@ import type { ActionResult, CrewExtra, CrewMember, GameState, Minute, Role, SimE
 import { hashUnit } from '../core/util';
 import { classOf, conversionClasses, conversionEarliest, onClassItemDone, ratingsLost, startConversion } from './conversion';
 import { crewExtraFor, rolesWithExtra } from './extraSeats';
-import { farBase, reserveRoles } from './farBase';
+import { farBase, patternSets, reserveRoles } from './farBase';
 import { crewSupply, familyNeeds } from './sets';
 import { sickMult } from './morale';
 import { crewName, crewPay, makeCrewMember, payFor } from './generate';
@@ -304,11 +304,14 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
     const kx = crewExtraFor(g, ac[0].id, k.id);
     const kPer = countRoles(rolesWithExtra(ac[0].typeId, ac[0].cabin.total, kx, k.requirements.extraCabin).map((r) => (r === 'CRP' ? 'FO' : r)));
     const kNeed = sizing(kPer, bhMonth);
-    // v0.12.1 a far base holds its reserve too: once per crew set on station.
-    if (k.pattern.kind === 'base' && farBase(g.company.homeBase, k.pattern.base, k.start)) {
+    if (k.pattern.kind === 'base') {
+      // v0.12.1 a base holds at least the sets it stations (duties.ts: sized on its programme; its pattern until the
+      // flights come), not only its block hours' worth: three short waves a day station more crews than their hours.
       const dp = Object.values(g.deployments).find((x) => x.contractId === k.id);
-      const sets = dp?.setsOnStation ?? Math.ceil(k.pattern.targetBH / BAL.cabinBHMonth);
-      for (const r of reserveRoles(ac[0].typeId)) kNeed[r] = (kNeed[r] ?? 0) + sets;
+      const sets = dp?.setsOnStation ?? patternSets(k.pattern, ac[0].typeId);
+      for (const r of ROLES) if (kPer[r]) kNeed[r] = Math.max(kNeed[r] ?? 0, kPer[r]! * sets);
+      // A far base holds its reserve too: once per crew set on station.
+      if (farBase(g.company.homeBase, k.pattern.base, k.start)) for (const r of reserveRoles(ac[0].typeId)) kNeed[r] = (kNeed[r] ?? 0) + sets;
     }
     for (const a of ac) {
       const h = acHeld(a.id);

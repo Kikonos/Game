@@ -8,10 +8,11 @@ import type { Contract, GameState } from '../core/types';
 import { feasibility } from '../contracts/feasibility';
 import { offer } from '../contracts/testkit';
 import { dailyCrewCosts } from './costs';
-import { pairingSeats, planAircraft } from './duties';
-import { farBase, farTourBase, reserveRoles } from './farBase';
+import { deletePairing, pairingSeats, planAircraft } from './duties';
+import { farBase, farTourBase, patternSets, reserveRoles } from './farBase';
 import { addCrew, fixtureGame, seasonBase } from './fixtures';
 import { reserveHolders } from './control';
+import { crewAvailability } from './hr';
 import { autoRoster, removeCrew } from './roster';
 import { offsetAt } from './rules';
 
@@ -63,13 +64,61 @@ describe('v0.12.1 far bases', () => {
     expect(trips).toEqual([]);
   });
 
-  it('a near base keeps its sizing (its strays fly as trips from home)', () => {
+  it('v0.12.1 a near base signed ahead is sized again on its programme too (was: its positioning alone, 2 sets)', () => {
     const g = fixtureGame();
     const { k, later } = signedAhead(g, 'HAM', 'PMI', [6 * 60, 12 * 60 + 30, 19 * 60]);
-    const sized = depOf(g, k).sized;
+    const before = depOf(g, k);
+    expect(before.work).toBeUndefined();
+    // On its pattern until the flights come: three waves, at least 3 sets (was 2: the positioning duty alone).
+    expect(before.sized!).toBeGreaterThanOrEqual(3);
+    const sized = before.sized!;
+    later();
+    const dep = depOf(g, k);
+    expect(dep.work).toBe(true);
+    expect(dep.sized!).toBeGreaterThanOrEqual(sized);
+    expect(dep.setsOnStation).toBeGreaterThanOrEqual(4);
+    // None of its duties flown as trips from Lisbon; and a near base's tours carry no reserve.
+    const trips = Object.values(g.pairings).filter((p) => p.contractId === k.id && !p.deploymentId && p.dutyIds.some((id) => g.duties[id]?.flightIds.some((f) => g.flights[f].kind === 'revenue')));
+    expect(trips).toEqual([]);
+    for (const id of dep.pairingIds) expect(g.pairings[id].slots.some((s) => s.reserve)).toBe(false);
+  });
+
+  it('v0.12.1 a deployment already under way (an older save, no work mark) keeps its sizing', () => {
+    const g = fixtureGame();
+    const { k, later } = signedAhead(g, 'HAM', 'PMI', [6 * 60, 12 * 60 + 30, 19 * 60]);
+    const dep = depOf(g, k);
+    const sized = dep.sized;
+    // The planner has dropped its planned tours, and the deployment started: not re-sized.
+    for (const id of [...dep.pairingIds]) deletePairing(g, g.pairings[id]);
+    g.now = k.start + 60;
     later();
     expect(depOf(g, k).sized).toBe(sized);
     expect(depOf(g, k).work).toBeUndefined();
+  });
+
+  it('v0.12.1 the offer crew check holds a base\'s stationed sets for it, not only its block hours\' worth', () => {
+    const g = fixtureGame();
+    const { k, acId, later } = signedAhead(g, 'HAM', 'PMI', [6 * 60, 12 * 60 + 30, 19 * 60]);
+    later();
+    addCrew(g, { CPT: 12, FO: 12, PUR: 12, CC: 24 });
+    const t = g.fleet[acId].typeId;
+    const free = () => crewAvailability(g, 'A320', t, k.start + DAY, k.start + 8 * DAY, 50).byRole.CPT!.free;
+    const dep = depOf(g, k);
+    dep.setsOnStation = 3;
+    const few = free();
+    dep.setsOnStation = 9;
+    // Nine crews stationed at Hamburg hold nine captains (its 220 BH alone size five).
+    expect(free()).toBeLessThan(few);
+  });
+
+  it('v0.12.1 patternSets: one set per 85 BH a month, at least 2 (3 with three waves)', () => {
+    const p = { base: 'HAM', dests: ['PMI'], waves: [360, 750], targetBH: 150 };
+    expect(patternSets(p)).toBe(2);
+    expect(patternSets({ ...p, waves: [360, 750, 1140] })).toBe(3);
+    expect(patternSets({ ...p, waves: [360], targetBH: 300 })).toBe(4);
+    // Never more hours than its waves fly: one wave of HAM–PMI on an A320 is about 160 BH a month, so 2 sets, not 5.
+    expect(patternSets({ ...p, waves: [360], targetBH: 400 }, 'a320ceo')).toBe(2);
+    expect(patternSets({ ...p, waves: [360, 750], targetBH: 300 }, 'a320ceo')).toBe(4);
   });
 
   it('every crew set at a far base carries its reserve: a spare captain and purser above the minimum', () => {

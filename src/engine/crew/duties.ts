@@ -14,7 +14,7 @@ import {
   splitFdp, tzDeltaH, woclMinutes, worst, type Seg, type TimelineCtx,
 } from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
-import { farBase, farSetsEstimate, farTourBase, reserveRoles } from './farBase';
+import { farBase, farTourBase, patternSets, reserveRoles } from './farBase';
 import { bestSlip } from './slip';
 import { dropStandby } from './standby';
 import { aboard, cabinEarly, cabinEarlyOf, crewCount, crewIx, ctxOf, dhBlock, dutyBlock, dutyFlights, dutySegs, onBlocks, planHome, segsOf, touchCrew } from './timeline';
@@ -1296,15 +1296,15 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
   let dep = Object.values(g.deployments).find((x) => x.contractId === c.id && x.aircraftId === acId);
   // v0.12.1 a base signed more than the schedule horizon ahead was sized on its positioning duty alone (the programme's
   // flights roll in 28 days ahead): 2 sets for a 747 slipping crews at Cairns, Perth and Chennai, the rest flown as trips
-  // from Lisbon (bot seed 1). A far base is sized again on the programme's own duties when they come, while no tour is
-  // planned yet (a near one keeps flying its strays as trips from home).
+  // from Lisbon (bot seed 1). Every base (v0.12.1: was far bases only; seed 1's A320 base at Riyadh flew 19 duties as
+  // trips from Lisbon, every base started at 2 sets) is sized again on the programme's own duties when they come, while
+  // no tour is planned yet and before the programme starts (an older save's deployment under way keeps its sizing).
   const work = duties.some((d) => !emptyDuty(g, d));
-  if (!dep || (!dep.work && work && !dep.pairingIds.length && farBase(g.company.homeBase, base, dep.start))) {
+  if (!dep || (!dep.work && work && !dep.pairingIds.length && g.now < c.start)) {
     const start = dep?.start ?? dayStart(duties[0].report);
     dep ??= { id: nextId(g, 'dp'), contractId: c.id, aircraftId: acId, base, start, end: Math.max(c.end, duties[duties.length - 1].release), setsOnStation: 0, pairingIds: [] };
-    // ... and until they come, on its pattern (crew/farBase.ts), so the crew are hired in time.
-    const far = c.pattern.kind === 'base' && farBase(g.company.homeBase, base, start) ? c.pattern : null;
-    const sets = Math.max(sizeSets(g, dep, duties, start, R), far ? farSetsEstimate(far) : 0);
+    // ... and until they come, on its pattern (crew/farBase.ts patternSets), so the crew are hired in time.
+    const sets = Math.max(sizeSets(g, dep, duties, start, R), patternSets(c.pattern, g.fleet[acId]?.typeId));
     dep.setsOnStation = sets;
     dep.sized = sets;
     dep.anchors = anchorsFor(start, sets, R);
