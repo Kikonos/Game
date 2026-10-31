@@ -9,7 +9,7 @@ import { LIMIT_NAME, restNow, restPlanForFlight } from '../../engine/crew';
 import { createGame } from '../../engine/newGame';
 import { advanceTo } from '../../engine/sim';
 import {
-  awaitingDelivery, chipInfo, commercialById, deliveryTag, fitCodes, onMap, purposeChain, groupCommercial, headingDeg, isCommercialId, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, parseCommercialId, downSide, legLabelSide, pickNearest, placeLabels, regSlot, REG_DY,
+  awaitingDelivery, chipInfo, commercialById, deliveryTag, fitCodes, onMap, purposeChain, groupCommercial, headingDeg, isCommercialId, lerpAngle, mapAirports, offerPins, parkOffset, PARK_GAP, PARK_PER_ROW, regMark, standOffsets, parseCommercialId, downSide, legLabelSide, pickNearest, placeLabels, regSlot, REG_DY,
   JET_PATH, restChip, restingLine, restSeatNoun, selectedLegs, shortIndex, trackLabelAt, sunElevation, sunPoint, terminator, TYPE_STROKE, upNext, upNextRows,
   EVENT_PIN_GAP, leasedOut, mapLivery, placeEventPins, ringLabelAt, ringPath,
   ALERT_BANNER, ALERT_CHIP, hotelCount, OOH_SHORT, oohLine, parseSlipId, placeSlipMarks, SLIP_MARK_GAP, slipArcs, slipLine, slipSelId, slipWindow,
@@ -82,6 +82,37 @@ describe('geometry helpers', () => {
       }
     }
     expect(parkOffset(0, 1)).toEqual([24, 0]);
+  });
+
+  it('v0.14 lays stands out to scale: no two aircraft (or their regs) overlap, a 747 takes a wider stand', () => {
+    const a320 = { w: 21, h: 22.6 };
+    const b744 = { w: 38.6, h: 42.4 };
+    const a388 = { w: 47.9, h: 43.6 };
+    const lab = 12;
+    for (const sizes of [[a320], [a320, b744], [b744, a320, a388, a320, a320, b744, a320], Array.from({ length: 23 }, (_, i) => [a320, b744, a388][i % 3])]) {
+      const pts = standOffsets(sizes, lab);
+      expect(pts).toHaveLength(sizes.length);
+      const box = (i: number) => ({ x: pts[i][0], y: pts[i][1] + lab / 2, w: sizes[i].w, h: sizes[i].h + lab });
+      for (let i = 0; i < pts.length; i++) {
+        expect(pts[i][0] - sizes[i].w / 2).toBeGreaterThanOrEqual(12); // right of the airport dot
+        for (let j = i + 1; j < pts.length; j++) expect(boxOverlapPx(box(i), box(j))).toBe(0);
+      }
+      // rows of PARK_PER_ROW
+      const rows = new Set(pts.map((p) => p[1].toFixed(2)));
+      expect(rows.size).toBe(Math.ceil(sizes.length / PARK_PER_ROW));
+    }
+    // the stand after a 747 sits further right than the one after an A320
+    expect(standOffsets([b744, a320], lab)[1][0]).toBeGreaterThan(standOffsets([a320, a320], lab)[1][0] + 15);
+    // one row: centred near the dot's height
+    expect(Math.abs(standOffsets([a320], lab)[0][1])).toBeLessThanOrEqual(lab);
+  });
+
+  it('v0.14 shows our tail mark without the shared registry prefix', () => {
+    expect(regMark('CS-TTL', 'CS-')).toBe('TTL');
+    expect(regMark('N801BH', 'N')).toBe('801BH');
+    expect(regMark('D-AXYZ', 'CS-')).toBe('D-AXYZ');
+    expect(regMark('CS-', 'CS-')).toBe('CS-');
+    expect(regMark('EI-ABC', '')).toBe('EI-ABC');
   });
 
   it('heads along the screen vector, wrapping at the antimeridian', () => {

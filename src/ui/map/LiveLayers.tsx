@@ -24,11 +24,12 @@ import { liveMinute, store } from '../store';
 import { mix } from '../components/aircraft/ink';
 import { isTouch } from '../useMedia';
 import { MAP_H, MAP_W } from './mapData';
-import { type AcLabel, thinLabels, deliveryTag, headingDeg, JET_PATH, leasedOut, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, parkOffset, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, type SlipArc, type SlipMark, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, TYPE_STROKE } from './mapLogic';
-import { parkedFit, silColour, silhouette, silPx, silSpec } from './silhouettes';
+import { type AcLabel, thinLabels, deliveryTag, headingDeg, JET_PATH, leasedOut, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, standOffsets, regMark, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, type SlipArc, type SlipMark, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, TYPE_STROKE } from './mapLogic';
+import { mapPxPerM, SIL_BUILD_K, silColour, silhouette, silPx, silSpec } from './silhouettes';
 import { airlineType } from './airlineTypes';
 import { fillNight, mercLat, parseRgb } from './sky';
 import { contrailWindow } from './spotter';
+import { leaseShowOf, showAt, type LeaseShow, type ShowLeg } from './dryShow';
 import type { WxKind, WxMark } from './weather';
 import type { MapLayerCtx } from './WorldMap';
 
@@ -539,16 +540,20 @@ function polyD(pts: [number, number][]): string {
   return d;
 }
 
-/** v0.12 an airline leg's grey silhouette (it was a generic plane glyph): its type at 85 % of our aircraft's map size, a little smaller than ours. */
+/** v0.12 an airline leg's grey silhouette (it was a generic plane glyph): its type at 85 % of our aircraft's map size,
+ *  a little smaller than ours. v0.14 on the same to-scale rule as ours (scaled with the zoom like them). */
 function cmSilhouette(iata: string, from: string, to: string) {
   const t = airlineType(iata, from, to);
   return silhouette(t, Math.round(silPx(silSpec(t)) * 0.85 * 10) / 10);
 }
 
+/** v0.14 an aircraft icon's sizes at the current zoom (screen px): radius, reg baselines and the FERRY tag's shift. */
+interface AcSize { z: number; r: number; rp: number; ry: number; ru: number; ty: number }
+
 /** Contrails off: the Map animations setting, or the system's reduced motion. */
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 /** An airline leg on the map: icon group, rotating glyph and path. */
-interface CmEl { el: SVGGElement; glyph: SVGGElement; no: SVGTextElement; side: 1 | -1; pref: 1 | -1; sideK: number; sideAps: LiveShared['aps'] | null; at: string; hide: boolean[]; hidden: boolean; path: SVGPathElement | null; gi: (t: number) => [number, number]; cf: CommercialFlight }
+interface CmEl { /** v0.14 half its largest dimension as built (px). */ r: number; el: SVGGElement; glyph: SVGGElement; no: SVGTextElement; side: 1 | -1; pref: 1 | -1; sideK: number; sideAps: LiveShared['aps'] | null; at: string; hide: boolean[]; hidden: boolean; path: SVGPathElement | null; gi: (t: number) => [number, number]; cf: CommercialFlight }
 
 export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ctx: MapLayerCtx; g: GameState; shared: LiveShared; selected?: string; selectedFlight?: string }) {
   const ref = useRef<SVGGElement>(null);
@@ -568,12 +573,35 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
     const root = ref.current;
     if (!root) return;
     const REG_FS = isTouch() ? 12 : 11; // .ops-ac .reg font size
-    const els = new Map<string, { el: SVGGElement; glyph: SVGGElement; crowd: boolean; reg: RegSlot; regW: number; fit: number; trail: boolean; half: number; thinReg: boolean; thinTag: boolean }>();
+    const els = new Map<string, { el: SVGGElement; glyph: SVGGElement; crowd: boolean; reg: RegSlot; regW: number; trail: boolean; hl: number; hs: number; sz: AcSize; thinReg: boolean; thinTag: boolean }>();
     for (const el of Array.from(root.querySelectorAll(':scope > .ops-ac')) as SVGGElement[]) {
       const id = el.dataset.id!;
       const reg = el.querySelector('.reg')?.textContent ?? '';
-      els.set(id, { el, glyph: el.querySelector('.glyph') as SVGGElement, crowd: false, reg: 0, regW: reg.length * REG_FS * 0.62 + 2, fit: Number(el.dataset.fit) || 1, trail: false, half: Number(el.dataset.half) || 11, thinReg: false, thinTag: false });
+      els.set(id, { el, glyph: el.querySelector('.glyph') as SVGGElement, crowd: false, reg: 0, regW: reg.length * REG_FS * 0.62 + 2, trail: false, hl: Number(el.dataset.hl) || 11, hs: Number(el.dataset.hs) || 11, sz: { z: 0, r: 11, rp: 25, ry: 25, ru: -15, ty: 0 }, thinReg: false, thinTag: false });
     }
+    /**
+     * v0.14 one px-per-metre for every icon (to scale), from the zoom: the glyph scales, and with it the tap target,
+     * rings, badges and where the reg and tags sit (CSS variables, so a label slides rather than jumps).
+     */
+    const sizeIcon = (e: typeof els extends Map<string, infer V> ? V : never, z: number) => {
+      const r = Math.max(e.hl, e.hs) * z;
+      const sz: AcSize = { z, r, rp: e.hl * z + 1.5 + REG_FS * 0.75, ry: r + 1 + REG_FS * 0.75, ru: -(r + 3), ty: 12 - r };
+      e.sz = sz;
+      e.el.style.setProperty('--rp', `${sz.rp.toFixed(1)}px`);
+      e.el.style.setProperty('--ry', `${sz.ry.toFixed(1)}px`);
+      e.el.style.setProperty('--ru', `${sz.ru.toFixed(1)}px`);
+      e.el.style.setProperty('--ty', `${sz.ty.toFixed(1)}px`);
+      e.el.querySelector('.hit')?.setAttribute('r', Math.max(HIT_R.touch, r).toFixed(1));
+      e.el.querySelector('.sel-ring')?.setAttribute('r', Math.max(16, r + 4).toFixed(1));
+      e.el.querySelector('.aog-ring')?.setAttribute('r', Math.max(14, r + 2).toFixed(1));
+      e.el.querySelector('.hangar')?.setAttribute('transform', `scale(${Math.max(1, (r + 3) / 15).toFixed(3)})`);
+      const b = Math.max(11, r * 0.72).toFixed(1);
+      for (const x of Array.from(e.el.querySelectorAll('.badge'))) x.setAttribute('transform', `translate(${b} -${b})`);
+    };
+    let lastZ = NaN;
+    /** v0.14 dry-leased-out aircraft flying their lessee's (cosmetic) legs: who, refreshed with each React render. */
+    const leases = new Map<string, LeaseShow | null>();
+    const showLegs = new Map<string, ShowLeg>();
     /** v0.12 airborne labels shown last frame (label thinning keeps them in place: no flicker as aircraft pass). */
     let shownLabels = new Set<string>();
     /** v0.12 contrail windows per leg (game minutes when it is high enough), by flight id and its times. */
@@ -662,6 +690,12 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
       }
       if (anim !== root.classList.contains('trails')) root.classList.toggle('trails', anim);
       const u = 1 / (c.px * k); // map units per screen px right now
+      // v0.14 every icon to one scale (px per metre) for this zoom.
+      const z = mapPxPerM(k) / SIL_BUILD_K;
+      if (z !== lastZ || fresh) {
+        lastZ = z;
+        for (const e of els.values()) sizeIcon(e, z);
+      }
       const wantLabels = k / (c.fitK || 1) >= 2;
       if (wantLabels !== labels) {
         labels = wantLabels;
@@ -689,13 +723,45 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
           glide.delete(id);
           continue;
         }
-        const live = aircraftLive(game, ac, t);
+        let live = aircraftLive(game, ac, t);
+        // v0.14 dry-leased out: it flies the lessee's out-and-backs (cosmetic, dryShow.ts), or waits where it landed.
+        if (fresh || !leases.has(id)) leases.set(id, leasedOut(ac) ? leaseShowOf(game, ac) : null);
+        const ls = leases.get(id);
+        showLegs.delete(id);
+        if (ls && live.phase === 'parked') {
+          const sa = showAt(id, ac.typeId, ls.site, ls.prefix, t);
+          if ('leg' in sa) {
+            const A = AIRPORT_BY_CODE[sa.leg.from];
+            const B = AIRPORT_BY_CODE[sa.leg.to];
+            live = { ...live, phase: 'airborne', at: undefined, progress: sa.progress, pos: interpolateGC(A.lon, A.lat, B.lon, B.lat, sa.progress) };
+            showLegs.set(id, sa.leg);
+          } else if (AIRPORT_BY_CODE[sa.at]) live = { ...live, at: sa.at, pos: [AIRPORT_BY_CODE[sa.at].lon, AIRPORT_BY_CODE[sa.at].lat] };
+          if (e) {
+            const no = showLegs.get(id)?.no ?? '';
+            const x = e.el.querySelector('.lsn');
+            if (x && x.textContent !== no) x.textContent = no;
+          }
+        }
         if (live.phase !== 'airborne') parked.set(live.at!, (parked.get(live.at!) ?? 0) + 1);
         lives.push(live);
       }
-      const slot = new Map<string, number>();
+      // v0.14 stands to scale: each as wide as its aircraft (and its reg), rows as deep as their longest.
+      const standAt = new Map<string, [number, number]>();
+      {
+        const byAp = new Map<string, string[]>();
+        for (const live of lives) if (live.phase !== 'airborne') byAp.set(live.at!, [...(byAp.get(live.at!) ?? []), live.aircraft.id]);
+        for (const list of byAp.values()) {
+          const sizes = list.map((id) => {
+            const e = els.get(id);
+            const tagged = !!e && (e.el.classList.contains('dlv') || e.el.classList.contains('lsd'));
+            return e ? { w: Math.max(e.hs * 2 * e.sz.z, e.regW), h: e.hl * 2 * e.sz.z, lh: REG_FS + (tagged ? 14 : 2) } : { w: 22, h: 22 };
+          });
+          standOffsets(sizes, REG_FS + 2).forEach((o, i) => standAt.set(list[i], o));
+        }
+      }
       // Labels of our parked aircraft (screen px), with the airport each stands at.
       const ownLabels: (LabelBox & { at: string })[] = [];
+      const parkedIcons: (LabelBox & { at: string })[] = [];
       // Parked glyphs (stand, badges) with their labels: airline-leg flight numbers keep off them.
       const parkedBoxes: LabelBox[] = [];
       const f = 1 - Math.exp(-dt / TAXI_MS);
@@ -709,19 +775,17 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         let toy = 0;
         let tang = PARK_ANGLE;
         let crowd = false;
-        if (live.phase === 'airborne' && live.flight) {
-          const A = AIRPORT_BY_CODE[live.flight.from];
-          const B = AIRPORT_BY_CODE[live.flight.to];
+        const route = live.flight ?? showLegs.get(id);
+        if (live.phase === 'airborne' && route) {
+          const A = AIRPORT_BY_CODE[route.from];
+          const B = AIRPORT_BY_CODE[route.to];
           const gi = geoInterpolate([A.lon, A.lat], [B.lon, B.lat]);
           const a = proj(gi(Math.max(0, live.progress - 0.004)));
           const b = proj(gi(Math.min(1, live.progress + 0.004)));
           if (a && b && (a[0] !== b[0] || a[1] !== b[1])) tang = headingDeg(a, b, MAP_W);
         } else {
-          const n = slot.get(live.at!) ?? 0;
-          const of = parked.get(live.at!) ?? 1;
-          slot.set(live.at!, n + 1);
-          [tox, toy] = parkOffset(n, of);
-          crowd = of > 1;
+          [tox, toy] = standAt.get(id) ?? [24, 0];
+          crowd = (parked.get(live.at!) ?? 1) > 1;
         }
         let s = glide.get(id);
         if (!s) glide.set(id, (s = { ox: tox, oy: toy, ang: tang }));
@@ -732,8 +796,8 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         if (Math.abs(tox - s.ox) + Math.abs(toy - s.oy) > 0.3) settling = true;
         else { s.ox = tox; s.oy = toy; }
         e.el.setAttribute('transform', `translate(${p[0].toFixed(2)} ${p[1].toFixed(2)}) scale(${u.toPrecision(4)}) translate(${s.ox.toFixed(1)} ${s.oy.toFixed(1)})`);
-        // v0.12 parked, a silhouette fits its stand (wide-bodies a little smaller than in the air).
-        e.glyph.setAttribute('transform', `rotate(${s.ang.toFixed(1)})${live.phase === 'airborne' || e.fit >= 1 ? '' : ` scale(${e.fit.toFixed(3)})`}`);
+        // v0.14 to scale in the air and on the stand alike (v0.12 shrank widebodies to fit a narrowbody's stand).
+        e.glyph.setAttribute('transform', `rotate(${s.ang.toFixed(1)}) scale(${e.sz.z.toPrecision(4)})`);
         // Contrails only while high enough (climbing through 26,000 ft to the top of descent).
         let tr = false;
         if (live.phase === 'airborne' && live.flight) {
@@ -758,7 +822,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
             if (Math.abs(ax - ix) > 70 || Math.abs(ay - iy) > 60) continue;
             obs.push({ id: '', x: ax, y: ay, w: 10, h: 10 }, { id: '', x: ax, y: ay - 15, w: 28, h: 15 });
           }
-          if (obs.length) reg = regSlot(ix, iy, e.regW, REG_FS, obs, e.reg);
+          if (obs.length) reg = regSlot(ix, iy, e.regW, REG_FS, obs, e.reg, e.sz.ry - REG_FS * 0.35);
         }
         if (reg !== e.reg) {
           e.el.classList.toggle('reg-up', reg === 1);
@@ -771,17 +835,19 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
           const iy = p[1] / u + s.oy;
           // DELIVERY (v0.7) or LEASED (v0.8) under the icon, the reg below it.
           const dlv = e.el.classList.contains('dlv') || e.el.classList.contains('lsd');
-          parkedBoxes.push({ id, x: ix + 2, y: iy - 3, w: 36, h: 34 });
-          if (selRef.current === id || (labels && !crowd)) {
-            const by = dlv ? 38 : 25;
-            ownLabels.push({ id, at: live.at!, x: ix, y: iy + by - REG_FS * 0.35, w: e.regW, h: REG_FS });
-          }
-          if (dlv) ownLabels.push({ id, at: live.at!, x: ix, y: iy + 26 - TAG_FS * 0.35, w: 8 * TAG_FS * 0.68 + 2, h: TAG_FS });
+          const icon = { id, x: ix, y: iy, w: Math.max(22, e.hs * 2 * e.sz.z), h: Math.max(22, e.hl * 2 * e.sz.z) };
+          parkedBoxes.push(icon);
+          // v0.14 a neighbouring airport's code under one of our parked icons fades too (the stands are wider now).
+          parkedIcons.push({ ...icon, at: live.at! });
+          // v0.14 every parked aircraft keeps its reg (the stands leave room for it).
+          ownLabels.push({ id, at: live.at!, x: ix, y: iy + e.sz.rp + (dlv ? 13 : 0) - REG_FS * 0.35, w: e.regW, h: REG_FS });
+          if (dlv) ownLabels.push({ id, at: live.at!, x: ix, y: iy + e.sz.rp + 1 - TAG_FS * 0.35, w: 8 * TAG_FS * 0.68 + 2, h: TAG_FS });
         }
       }
       // Our parked aircraft's reg and DELIVERY tag win over a neighbouring airport's code: that code fades out
       // (the airport they stand at, and a selected one, keep theirs). Re-checked when labels move, zoom or re-render.
-      const uk = `${k.toPrecision(5)}|${ownLabels.map((b) => `${b.id}${b.x.toFixed(0)},${b.y.toFixed(0)}`).join(';')}`;
+      const under = [...ownLabels, ...parkedIcons];
+      const uk = `${k.toPrecision(5)}|${under.map((b) => `${b.id}${b.x.toFixed(0)},${b.y.toFixed(0)}`).join(';')}`;
       if (fresh || uk !== underKey) {
         underKey = uk;
         const svg = root.ownerSVGElement;
@@ -790,13 +856,13 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
           const text = ap.querySelector('.ap-label');
           const A = AIRPORT_BY_CODE[code];
           const q = text && A && !ap.classList.contains('sel') ? proj([A.lon, A.lat]) : null;
-          let under = false;
-          if (q && text && ownLabels.length) {
+          let hid = false;
+          if (q && text && under.length) {
             const fs = Number(text.getAttribute('font-size')) || 11;
             const box: LabelBox = { id: code, x: q[0] / u, y: q[1] / u + (Number(text.getAttribute('y')) || 0) - fs * 0.35, w: code.length * fs * 0.62 + 2, h: fs };
-            under = ownLabels.some((b) => b.at !== code && boxOverlap(b, box, 1) > 0);
+            hid = under.some((b) => b.at !== code && boxOverlap(b, box, 1) > 0);
           }
-          if (under !== ap.hasAttribute('data-under')) ap.toggleAttribute('data-under', under);
+          if (hid !== ap.hasAttribute('data-under')) ap.toggleAttribute('data-under', hid);
         }
       }
       for (const b of ownLabels) parkedBoxes.push(b);
@@ -856,19 +922,20 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
           if (!e || !q) continue;
           const ix = q[0] / u;
           const iy = q[1] / u;
-          const ry = Math.max(0, e.half - 11);
           // its icon: other aircraft's labels keep off it
           const ib = `${id}:i`;
           fixed.add(ib);
-          want.push({ id: ib, ac: id, x: ix, y: iy, w: e.half * 1.5, h: e.half * 1.5 });
-          if ((labels || selRef.current === id) && e.reg !== 2) {
-            const dy = e.reg === 1 ? 25 - 42 - 2 * ry : 25 + ry;
+          want.push({ id: ib, ac: id, x: ix, y: iy, w: e.sz.r * 1.5, h: e.sz.r * 1.5 });
+          // v0.14 always labelled (thinned only where it would sit on another aircraft's label or icon).
+          if (e.reg !== 2) {
+            const dy = e.reg === 1 ? e.sz.ru : e.sz.ry;
             want.push({ id: `${id}:reg`, ac: id, x: ix, y: iy + dy - REG_FS * 0.35, w: e.regW, h: REG_FS });
           }
           const dlv = e.el.classList.contains('dlv');
-          if (dlv || e.el.dataset.type === 'ferry') {
-            const dy = -16 - (dlv ? 0 : ry) - (e.reg === 1 ? 15 : 0);
-            want.push({ id: `${id}:tag`, ac: id, x: ix, y: iy + dy - TAG_FS * 0.35, w: (dlv ? 8 : 5) * TAG_FS * 0.68 + 2, h: TAG_FS });
+          const lsn = showLegs.get(id)?.no;
+          if (dlv || e.el.dataset.type === 'ferry' || lsn) {
+            const dy = -16 + e.sz.ty - (e.reg === 1 ? 15 : 0);
+            want.push({ id: `${id}:tag`, ac: id, x: ix, y: iy + dy - TAG_FS * 0.35, w: (dlv ? 8 : lsn ? lsn.length : 5) * TAG_FS * 0.68 + 2, h: TAG_FS });
           }
         }
         const keep = thinLabels(want, selRef.current, shownLabels, fixed);
@@ -913,10 +980,12 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
             svgEl('circle', { class: 'hit', r: HIT_R.touch }, el);
             svgEl('circle', { class: 'sel-ring', r: 14 }, el);
             const glyph = svgEl('g', { class: 'glyph' }, el);
+            let r = JET_GLYPH_PX / 2;
             if (jet) svgEl('path', { d: JET_PATH, transform: `scale(${JET_GLYPH_PX / 24}) translate(-12 -12)` }, glyph);
             else {
               // v0.12 the airline's own type seen from above (737, A320, its widebody on a long leg), in neutral grey.
               const sil = cmSilhouette(cf.leg.iata, cf.leg.from, cf.leg.to);
+              r = Math.max(sil.hl, sil.hs);
               svgEl('path', { class: 'eng', d: sil.engines }, glyph);
               svgEl('path', { class: 'sil', d: sil.body }, glyph);
             }
@@ -929,7 +998,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
             const pb = proj([B.lon, B.lat]);
             const pref = pa && pb ? downSide(headingDeg(pa, pb, MAP_W)) : 1;
             no.setAttribute('text-anchor', 'middle');
-            cms.set(cf.id, (x = { el, glyph, no, side: pref, pref, sideK: 0, sideAps: null, at: '', hide: [], hidden: false, path, gi: geoInterpolate([A.lon, A.lat], [B.lon, B.lat]), cf }));
+            cms.set(cf.id, (x = { r, el, glyph, no, side: pref, pref, sideK: 0, sideAps: null, at: '', hide: [], hidden: false, path, gi: geoInterpolate([A.lon, A.lat], [B.lon, B.lat]), cf }));
             selKey = '';
           }
           x.cf = cf;
@@ -940,7 +1009,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
           const q = proj(x.gi(Math.min(1, pr + 0.004)));
           const ang = a && q && (a[0] !== q[0] || a[1] !== q[1]) ? headingDeg(a, q, MAP_W) : 0;
           x.el.setAttribute('transform', `translate(${p[0].toFixed(2)} ${p[1].toFixed(2)}) scale(${u.toPrecision(4)})`);
-          x.glyph.setAttribute('transform', `rotate(${ang.toFixed(1)})`);
+          x.glyph.setAttribute('transform', `rotate(${ang.toFixed(1)}) scale(${z.toPrecision(4)})`);
           // The flight number rides across the track on one side per leg (re-chosen after a zoom): the
           // preferred one unless the other covers clearly fewer airport codes and dots over the whole leg.
           // Where it would still sit on an airport code (passing close by one), it fades out for that stretch.
@@ -971,7 +1040,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
             x.side = legLabelSide(track, w, NO_FS, [...obs, ...codes, ...parkedBoxes], x.pref);
             x.hide = trackCovered(track, x.side, w, NO_FS, codes);
           }
-          const [cx, cy] = trackLabelAt(ang, x.side, w, NO_FS);
+          const [cx, cy] = trackLabelAt(ang, x.side, w, NO_FS, Math.max(13, x.r * z));
           // Fades over an airport code on this stretch, or while passing our parked aircraft (e.g. leaving our base).
           let hidden = !!x.hide[Math.round(pr * 32)];
           if (!hidden && parkedBoxes.length) {
@@ -1022,16 +1091,14 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         const ac = g.fleet[id];
         // v0.12 the family's colour (A320 blue, 777 orange…), so the type reads at a glance; the legend lists them.
         const ink = inkOf(silColour(ac.typeId));
-        // v0.12 a top-down silhouette of the type (engines where they really are), sized by the real aircraft.
+        // v0.12 a top-down silhouette of the type (engines where they really are). v0.14 built to one scale for every
+        // type; the loop scales the glyph with the zoom, and sizes the rings, tap target and labels to match.
         const sil = silhouette(ac.typeId);
-        const half = Math.max(sil.hl, sil.hs);
-        const ring = Math.max(16, half + 4);
-        const vars = { '--ry': `${Math.max(0, half - 11).toFixed(1)}px`, '--ru': `${(-42 - Math.max(0, half - 11) * 2).toFixed(1)}px`, '--ty': `${(-Math.max(0, half - 11)).toFixed(1)}px` } as React.CSSProperties;
         return (
-          <g key={id} data-id={id} data-phase="parked" data-half={half.toFixed(1)} data-fit={parkedFit(silSpec(ac.typeId)).toFixed(3)} style={vars} className={`ops-ac${selected === id ? ' sel' : ''}${deliveryTag(ac) ? ' dlv' : leasedOut(ac) ? ' lsd' : ''}`}>
-            <circle className="hit" r={Math.max(HIT_R.touch, half)} />
+          <g key={id} data-id={id} data-phase="parked" data-hl={sil.hl.toFixed(2)} data-hs={sil.hs.toFixed(2)} className={`ops-ac${selected === id ? ' sel' : ''}${deliveryTag(ac) ? ' dlv' : leasedOut(ac) ? ' lsd' : ''}`}>
+            <circle className="hit" r={HIT_R.touch} />
             <path className="hangar" d="M-15 11V-1Q0 -17 15 -1V11Z" />
-            <circle className="sel-ring" r={ring} />
+            <circle className="sel-ring" r={16} />
             <circle className="aog-ring" r={14} />
             <g className="glyph">
               <path className="trail" d={sil.trails} fill="url(#bh-trail)" />
@@ -1048,10 +1115,13 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
               <circle r={7.5} />
               <path d="M0 -4V1M0 3.6V3.7" />
             </g>
-            <text className="reg" y={25}>{ac.reg}</text>
+            {/* v0.14 always shown: the mark without our registry prefix ('TTL'), under the icon. */}
+            <text className="reg">{regMark(ac.reg, g.company.regPrefix)}</text>
             <text className="tag" y={-16}>FERRY</text>
             <text className="op-delivery-tag" y={-16}>DELIVERY</text>
             <text className="op-leased-tag" y={-16}>LEASED</text>
+            {/* v0.14 dry-leased out and flying for the lessee: their flight number above it (cosmetic). */}
+            <text className="tag lsn" y={-16} />
           </g>
         );
       })}

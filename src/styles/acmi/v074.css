@@ -39,6 +39,16 @@
 .cp-actions { flex-wrap: wrap; }
 .cp-actions .btn { min-height: 44px; }
 .cp-idle { padding: 0 4px; }
+/* v0.14 the strip's one sentence per fleet; the card's "i" (three short lines); a complete family's quiet actions. */
+.cp-line { display: inline-flex; align-items: baseline; gap: 6px; font-size: 14px; }
+.cp-info { width: 30px; height: 30px; min-height: 30px; padding: 0; color: var(--text-3); }
+.cp-info svg { width: 16px; height: 16px; }
+.cp-info.on { color: var(--accent); }
+.cp-why { margin: 0; padding: 8px 12px 8px 26px; border-radius: 10px; background: var(--panel-2); line-height: 1.4; }
+.cp-why li + li { margin-top: 3px; }
+.cp-actions { align-items: center; }
+.cp-actions .btn.btn-sm { min-height: 36px; }
+.cp-done { font-weight: 600; margin-right: 4px; }
 
 @media (max-width: 1100px) { .cp-grid { grid-template-columns: 1fr; } }
 

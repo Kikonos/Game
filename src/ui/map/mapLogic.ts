@@ -104,6 +104,45 @@ export function parkOffset(i: number, n: number): [number, number] {
   return [24 + col * PARK_GAP, (row - (rows - 1) / 2) * PARK_GAP];
 }
 
+/** v0.14 an aircraft's footprint on its stand (screen px): span `w` (at least its label's width), length `h`, and the
+ *  depth of the labels under it (`lh`, default the layout's `labelH`). */
+export interface StandSize { w: number; h: number; lh?: number }
+
+/**
+ * v0.14 stands to scale at one airport: in rows of PARK_PER_ROW right of the dot, each stand as wide as its aircraft
+ * (a 747 takes the room of two A320s), rows as deep as their longest aircraft plus `labelH` for the reg under it, the
+ * block centred on the dot's height. Offsets of each aircraft's centre (screen px). Pure.
+ */
+export function standOffsets(sizes: StandSize[], labelH: number, gap = 4, x0 = 13): [number, number][] {
+  const rows: StandSize[][] = [];
+  for (let i = 0; i < sizes.length; i += PARK_PER_ROW) rows.push(sizes.slice(i, i + PARK_PER_ROW));
+  const lab = rows.map((r) => Math.max(...r.map((z) => z.lh ?? labelH)));
+  const depth = rows.map((r, i) => Math.max(...r.map((z) => z.h)) + lab[i]);
+  const total = depth.reduce((a, b) => a + b, 0) + gap * Math.max(0, rows.length - 1);
+  const out: [number, number][] = [];
+  let top = -total / 2;
+  rows.forEach((r, ri) => {
+    const cy = top + (depth[ri] - lab[ri]) / 2;
+    let x = x0;
+    for (const z of r) {
+      out.push([x + z.w / 2, cy]);
+      x += z.w + gap;
+    }
+    top += depth[ri] + gap;
+  });
+  return out;
+}
+
+/**
+ * v0.14 the mark shown beside our aircraft on the map: the registration without the company's registry prefix
+ * ('CS-TTL' → 'TTL', 'N801BH' → '801BH'), the way crews and ops name a tail; every aircraft of ours shares the prefix,
+ * so it adds width, not information. A reg from another registry keeps its prefix. Pure.
+ */
+export function regMark(reg: string, prefix: string): string {
+  if (prefix && reg.startsWith(prefix) && reg.length > prefix.length) return reg.slice(prefix.length);
+  return reg;
+}
+
 /** Nearest item within radius r (same units as x/y), or undefined. */
 export function pickNearest<T>(items: Iterable<{ x: number; y: number; item: T }>, x: number, y: number, r: number): T | undefined {
   let best: T | undefined;
@@ -483,18 +522,19 @@ export const REG_DY = 21;
 export type RegSlot = 0 | 1 | 2;
 
 /**
- * Where our airborne aircraft's reg label sits right now (icon at x/y, screen px): under the icon unless
+ * Where our airborne aircraft's reg label sits right now (icon at x/y, screen px; v0.14 `dy`: the label's centre
+ * offset for this icon's size): under the icon unless
  * that covers an airport dot or code (just after take-off, on short final), then above it. Hysteresis
  * (a label leaves a slot on a clear overlap, returns only with a margin) keeps it from hopping back and forth.
  */
-export function regSlot(x: number, y: number, w: number, h: number, obstacles: LabelBox[], prev: RegSlot): RegSlot {
+export function regSlot(x: number, y: number, w: number, h: number, obstacles: LabelBox[], prev: RegSlot, dy = REG_DY): RegSlot {
   const bad = (dy: number, held: boolean) => {
     // Held: covered once it is more than 1.5 px into a box; taken back only with 2 px to spare.
     const m = held ? -1.5 : 2;
     return obstacles.some((o) => Math.abs(x - o.x) < (w + o.w) / 2 + m && Math.abs(y + dy - o.y) < (h + o.h) / 2 + m);
   };
-  if (!bad(REG_DY, prev === 0)) return 0;
-  return bad(-REG_DY, prev === 1) ? 2 : 1;
+  if (!bad(dy, prev === 0)) return 0;
+  return bad(-dy, prev === 1) ? 2 : 1;
 }
 
 /**

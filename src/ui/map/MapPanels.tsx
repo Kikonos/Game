@@ -16,6 +16,7 @@
 
 import { SkyArt } from '../components/SkyArt';
 import { RankMark } from '../components/RankMark';
+import { leaseShowLine } from './dryShow';
 import { ArrowLeftRight, CalendarRange, FileSearch, Info, KeyRound, LifeBuoy, PackageCheck, Plane, TimerOff, Undo2, Users, Wrench, X } from 'lucide-react';
 import { type ReactNode, useMemo } from 'react';
 import { ACMI_TYPES, artFor } from '../../data/acmiTypes';
@@ -451,7 +452,9 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
       </div>
     );
   } else if (leasedOut(ac)) {
-    now = <div className="op-note"><KeyRound /><span>{lease ? `Leased to ${lease.lessee} until ${fmtDayRel(lease.lease[1], g.now)}` : 'Leased out'} · at {ap?.city ?? ac.at} ({ac.at}), flown by their crews</span></div>;
+    // v0.14 flying the lessee's (cosmetic) legs on the map: say whose flight it is.
+    const flying = safe(() => leaseShowLine(g, ac, t), null);
+    now = <div className="op-note"><KeyRound /><span>{flying ?? <>{lease ? `Leased to ${lease.lessee} until ${fmtDayRel(lease.lease[1], g.now)}` : 'Leased out'} · at {ap?.city ?? ac.at} ({ac.at}), flown by their crews</>}</span></div>;
   } else if (ac.status === 'delivering') {
     now = <div className="op-note"><PackageCheck /><span>Not handed over yet · {ac.delivery ? `at ${cityOf(ac.delivery.site)} ${fmtDay(ac.delivery.handover)}` : `delivery ${fmtDay(ac.deliveredAt)}`}</span></div>;
   } else {

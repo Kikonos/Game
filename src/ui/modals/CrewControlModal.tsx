@@ -10,6 +10,7 @@ import { flightsRev } from '../../engine/core/entities';
 import { fmtTime } from '../../engine/core/time';
 import type { CrewFix, Role } from '../../engine/core/types';
 import { applyCrewFix, crewAlertKind, crewControl, crewRev, outOfHours, ROLE_WORD, type CrewSolution, type FixOption, type OohInfo } from '../../engine/crew';
+import { RankMark } from '../components/RankMark';
 import { Modal } from '../components/ui';
 import { ProblemCardView } from '../components/ProblemCard';
 import { cardUnderStrip } from '../../engine/problems/crew';
@@ -40,7 +41,7 @@ function Option({ o, on, onTap, multi, role, seat, disabled }: { o: FixOption; o
     <button className={`cc-opt ${on ? 'on' : ''} ${o.level === 'illegal' ? 'illegal' : ''} ${disabled ? 'off' : ''}`} onClick={onTap} aria-pressed={on} disabled={disabled}>
       <span className={`cc-opt-check ${multi ? 'box' : 'radio'} ${on ? 'on' : ''}`} aria-hidden>{on && <Check />}</span>
       <span className="grow col cc-opt-main">
-        <span className="row gap-8">{tone && <Dot tone={tone} />}{role && <span className={`sc-role r-${role}`}>{role}</span>}<b className="ellipsis">{sby ? sby[1] : o.label}</b>{seat && <span className="chip sc-chip good nowrap">{seat} seat</span>}{sby && <span className="chip sc-chip nowrap cc-sby">{sby[2].trim()}</span>}{noOt && <span className="chip sc-chip good nowrap">No overtime</span>}</span>
+        <span className="row gap-8">{tone && <Dot tone={tone} />}{role && <span className={`sc-role r-${role}`}>{role}</span>}<b className="ellipsis">{sby ? sby[1] : o.label}</b>{role && <RankMark role={role} />}{seat && <span className="chip sc-chip good nowrap">{seat} seat</span>}{sby && <span className="chip sc-chip nowrap cc-sby">{sby[2].trim()}</span>}{noOt && <span className="chip sc-chip good nowrap">No overtime</span>}</span>
         {(sby ? sby[3] ?? (noOt ? '' : o.sub) : o.sub) && <span className="small muted">{sby ? sby[3] ?? o.sub : o.sub}</span>}
         {o.reason && <ReasonLine reason={o.reason} tone={o.level === 'illegal' ? 'bad' : 'warn'} />}
       </span>

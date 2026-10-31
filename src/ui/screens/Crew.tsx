@@ -5,6 +5,9 @@ import { BoardingPasses } from '../components/BoardingPass';
 import { RankMark } from '../components/RankMark';
 import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, CheckSquare, GraduationCap, Layers, LayoutGrid, List, Lock, Search, UserPlus, Users, X } from 'lucide-react';
 import { CrewPlanView, PeakHeadsUp, PlanStrip } from './CrewPlan';
+import { ratingLine } from './crewPlanLogic';
+import type { RatingFamily } from '../../data/acmiTypes';
+import { crewSupply, familyNeeds } from '../../engine/crew/sets';
 import { FlightTypeChip } from '../components/FlightType';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flag } from '../../data/countries';
@@ -292,6 +295,16 @@ function MoraleChip({ g }: { g: GameState }) {
   );
 }
 
+/** v0.14 the family the crew sets count a person in (their home fleet), memoised per game state and crew revision. */
+const homesMemo = new WeakMap<GameState, { key: string; homes: Map<string, RatingFamily> }>();
+function homeOf(g: GameState, id: string): RatingFamily | undefined {
+  const key = `${g.now}|${crewRev(g)}|${Object.keys(g.fleet).length}`;
+  let m = homesMemo.get(g);
+  if (!m || m.key !== key) homesMemo.set(g, (m = { key, homes: crewSupply(g, familyNeeds(g)).homes }));
+  return m.homes.get(id);
+}
+const fleetTypes = (g: GameState) => [...new Set(Object.values(g.fleet).map((a) => a.typeId))];
+
 function Detail({ g, c }: { g: GameState; c: CrewMember }) {
   const w = crewWindows(g, c, g.now);
   // v0.5.2: header status with the right date ('Joins 26 May 2027', 'Sick · back ~12 Mar'), no fake rest.
@@ -309,7 +322,8 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
           <span className="sc-flag" aria-hidden>{flag(c.nationality)}</span>
           <div className="grow" style={{ minWidth: 0 }}>
             <h3 className="row gap-8 sc-crew-h"><span className="ellipsis">{crewName(c)}</span><RankMark role={c.role} /></h3>
-            <div className="small muted">{ROLE_LABEL[c.role]} · {c.ratings.map(familyLabel).join(', ') || 'no rating'} · base {c.base}</div>
+            {/* v0.14 the home fleet (where the crew sets count them), any other ratings in brackets: 'A320 (also A330)'. */}
+            <div className="small muted">{ROLE_LABEL[c.role]} · {ratingLine(c.ratings, homeOf(g, c.id), fleetTypes(g))} · base {c.base}</div>
           </div>
           <span className={`badge ${sv.tone === 'bad' ? 'bad' : sv.tone === 'warn' ? 'warn' : sv.tone === 'good' ? 'good' : ''}`}>{sv.label}</span>
         </div>
