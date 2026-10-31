@@ -727,7 +727,7 @@ function worldTour(ctx: Ctx): Draft | null {
     pattern: { kind: 'legs', legs, hold: true },
     req: { minSeats: pax, layouts: ['two-class', 'three-class', 'vip'], extraCabin: extra, approvals: [], standards: 'vip', body: 'wide' },
     start: legs[0].dep, end: end + 8 * 60, expiresIn: range(g, T.expires[0], T.expires[1]) * DAY,
-    mult: T.mult, extraBH: T.idleBH * days, effects: { reliable: 2, clean: 1, morale: 3 }, risk: { disruption: 0.4, politics: 0.1, permit: 0.3 },
+    mult: T.mult, extraBH: T.idleBH * days, effects: { reliable: 2, clean: 1, morale: 3 }, risk: { disruption: 0.4, politics: 0.1, permit: 0 }, // v0.14 permits filed by the tour operator (ops/events.ts permitDelays)
     pin: tpl.gateway, hook: hookFor(ctx),
   };
 }

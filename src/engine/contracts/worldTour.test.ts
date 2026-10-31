@@ -329,6 +329,29 @@ describe('v0.12.1 world tours: one crew', () => {
   }, 120_000);
 });
 
+describe('v0.14 world tours: no permit delay', () => {
+  it('the tour operator files the permits: a tour never moves for a late permit, and its one crew flies every leg', () => {
+    // After the v0.14 merges seed 3 drew a 12 h permit delay on the first leg: its departure turned night-time
+    // (disruptive), the next recovery needed 60 h, the 37 h stop at Samarkand fell short, and the tour crew was taken off
+    // the eight legs after it (all cancelled). Forced risky here, as an old save's offer could be.
+    for (const seed of [3, 7]) {
+      const { g, acId } = tourGame(seed);
+      const o = g.offers[devWorldTour(g)];
+      expect(o.risk.permit).toBe(0);
+      const k = g.contracts[signed(g, o.id, acId)];
+      // Even a tour noted as risky (an old save's offer) gets no permit delay.
+      if (g.offers[k.offerId]) g.offers[k.offerId].risk.permit = 10;
+      const first = legsOf(k)[0].dep;
+      run(g, k.start + 60);
+      expect(g.messages.some((m) => /^Permit delay/.test(m.title))).toBe(false);
+      const flown = Object.values(g.flights).filter((f) => f.contractId === k.id && f.kind === 'revenue').sort((a, b) => a.std - b.std);
+      expect(flown[0].std, `seed ${seed}`).toBe(first);
+      run(g, k.end + 3 * DAY);
+      expect(k.legsFlown, `seed ${seed}`).toBe(legsOf(k).length);
+    }
+  }, 120_000);
+});
+
 describe('v0.12.1 world tours: a stop closed', () => {
   /**
    * A signed tour run to two days before its fifth leg (or the first leg into a stop that can be skipped), and a 5-day

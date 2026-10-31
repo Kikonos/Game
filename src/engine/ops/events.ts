@@ -944,7 +944,9 @@ function permitDelays(g: GameState): void {
   const risks = (s.permits ??= {});
   for (const id of Object.keys(risks)) if (!g.contracts[id]) delete risks[id];
   for (const c of Object.values(g.contracts)) {
-    if ((c.status !== 'signed' && c.status !== 'active') || c.pattern.kind !== 'legs') {
+    // v0.14 never on a world tour: the tour operator files the whole itinerary's permits months ahead (a first leg
+    // moved half a day turned its first stop's rest disruptive, and the one crew lost its weekly rest mid-tour).
+    if ((c.status !== 'signed' && c.status !== 'active') || c.pattern.kind !== 'legs' || c.archetype === 'worldTour') {
       delete risks[c.id];
       continue;
     }
