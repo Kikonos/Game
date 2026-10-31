@@ -1228,12 +1228,23 @@ function workTakesPublishedOff(g: GameState, c: CrewMember, p: Pairing): boolean
   return plan.segs.some((x) => (x.kind === 'duty' || x.kind === 'pos') && takesPublishedOff(g, c, x.start, x.end));
 }
 
+/** v0.12.1 crew holding a far base's reserve seat on a tour not over yet (crew/farBase.ts). */
+export function reserveHolders(g: GameState): Set<string> {
+  const out = new Set<string>();
+  for (const p of Object.values(g.pairings)) {
+    if (!p.tour || p.status === 'done' || p.status === 'broken') continue;
+    for (const s of p.slots) if (s.reserve && s.crewId) out.add(s.crewId);
+  }
+  return out;
+}
+
 function seatCandidates(g: GameState, d: Duty, role: Role, here: boolean): DutyCandidate[] {
   const p = g.pairings[d.pairingId];
   // v0.12.1 only those the fix can really seat (a published day off is the buy-back's): the list and the fix agree.
   const list = candidatesOf(g, d, role).filter((c) => !c.onPairing && c.level !== 'illegal' && (here ? !c.travel : !!c.travel) && !(c.dayOff && p && g.crew[c.crewId] && workTakesPublishedOff(g, g.crew[c.crewId], p)));
-  // On a window now before one starting later (short notice).
-  const rank = (c: DutyCandidate) => (c.dayOff ? 5 : !c.standby ? 4 : c.standby.kind === 'airport' ? 1 : c.standby.kind === 'reserve' ? 3 : c.standby.from <= g.now ? 2 : 2.5);
+  // On a window now before one starting later (short notice). v0.12.1 a far base's reserve on station comes first.
+  const res = reserveHolders(g);
+  const rank = (c: DutyCandidate) => (c.dayOff ? 5 : res.has(c.crewId) ? 0 : !c.standby ? 4 : c.standby.kind === 'airport' ? 1 : c.standby.kind === 'reserve' ? 3 : c.standby.from <= g.now ? 2 : 2.5);
   return list.map((c, i) => ({ c, i })).sort((a, b) => rank(a.c) - rank(b.c) || a.i - b.i).map((x) => x.c);
 }
 

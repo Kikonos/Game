@@ -7,12 +7,13 @@ import { flightsOf } from '../core/entities';
 import { distanceNm } from '../core/geo';
 import { blockMinutes, complement, etopsCap, etopsNeeded, maxSectorNm, planSector, rangeFromNm, reportMinutes, runwayFit, typeOf, usableRangeNm } from '../core/perf';
 import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime, toDate, fmtDayRange } from '../core/time';
-import type { AcRest, Aircraft, ApprovalId, ContractOffer, CrewExtra, Flight, GameState, Minute, RestRefitId } from '../core/types';
+import type { AcRest, Aircraft, ApprovalId, ContractOffer, CrewExtra, Flight, GameState, Minute, RestRefitId, Role } from '../core/types';
 import { crewAvailability, offerExtra, type Availability } from '../crew';
 import { dutyNeed, type ChainShape, type DutyNeed } from '../crew/duties';
 import { restOf } from '../crew/restPlan';
-import { minRest } from '../crew/rules';
-import { dhBlock } from '../crew/timeline';
+import { minRest, tzDeltaH } from '../crew/rules';
+import { farBase, farSetsEstimate, reserveDayCost, reserveRoles } from '../crew/farBase';
+import { dhBlock, ticketPrice } from '../crew/timeline';
 import { bestSlip, slipCost, slipDetail, type SlipPlan } from '../crew/slip';
 import { A_CHECK_DAYS, anchorsOf, chainForward, chainsOf, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, longestChains, maxPax, noRouteWhy, programmeOf, route, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
 import { etopsCapText, etopsFixText } from '../ops/etops';
@@ -34,7 +35,8 @@ import { curfewOk } from '../core/curfew';
 
 export type CheckId = 'seats' | 'layout' | 'family' | /** v0.8 fix pack */ 'body' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease' | 'paint' | 'restSeats' | /** v0.7.3 */ 'rest'
   /** v0.7.4 client cabin request */ | 'cabinReq'
-  /** v0.8 */ | 'mission' | 'warRisk' | 'airspace' | 'clientCrew' | 'dryLease';
+  /** v0.8 */ | 'mission' | 'warRisk' | 'airspace' | 'clientCrew' | 'dryLease'
+  /** v0.12.1 */ | 'farBase';
 export type CheckLevel = 'ok' | 'warn' | 'no';
 
 export interface FeasibilityCheck {
@@ -688,7 +690,14 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const augmented = rn.need?.mode === 'aug1' || rn.need?.mode === 'aug2';
   // v0.7 `quick` (a caller that only wants a flyable pick): no crew capacity sizing once another check says no.
   // Round 4 §W: a crew change puts a second crew in the air at the same time: one more set per concurrent slip.
-  rep.crew = flyable && !(opts.quick && rep.level === 'no') ? crewAvailability(g, t.family, t.id, winFrom, Math.max(winFrom + DAY, winTo), progBH, xc, rn.extraSets) : empty;
+  // v0.12.1 a far base (crew/farBase.ts): sized on its block hours (5 sets for a 747 at 300 BH a month), each set with
+  // its reserve on station; the reserve counts in the crew needed.
+  const far = o.pattern.kind === 'base' && farBase(home, o.pattern.base, o.start) ? o.pattern : null;
+  const farSets = far ? farSetsEstimate(far) : 0;
+  const farRes = far ? reserveRoles(t.id) : [];
+  const farNeed: Partial<Record<Role, number>> = {};
+  for (const r of farRes) farNeed[r] = (farNeed[r] ?? 0) + farSets;
+  rep.crew = flyable && !(opts.quick && rep.level === 'no') ? crewAvailability(g, t.family, t.id, winFrom, Math.max(winFrom + DAY, winTo), progBH, xc, rn.extraSets, farNeed) : empty;
   const shorts = Object.entries(rep.crew.byRole).filter(([, r]) => r && r.short > 0) as [string, { short: number }][];
   const reach = flyable ? crewReach(g, o, t.id, fits[0]) : null;
   const soon = flyable && !reach ? crewReachSoon(g, t.id, fits[0]) : null;
@@ -699,6 +708,14 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     add('crew', 'warn', `Short of crew: ${what}${rep.crew.firstShort ? ` from ${fmtDay(rep.crew.firstShort)}` : ''}`, 'Hire, or the roster will deadhead crew from other work; sets may run tight.');
   } else if (!rep.crew.setsNeeded && !Object.keys(rep.crew.byRole).length) { if (flyable) add('crew', 'warn', 'Crew capacity not checked yet'); }
   else add('crew', 'ok', `Needs ${rep.crew.setsNeeded} crew set${rep.crew.setsNeeded === 1 ? '' : 's'}, ${rep.crew.setsAvailable >= rep.crew.setsNeeded ? `${rep.crew.setsAvailable} free` : 'enough free in each role'}`);
+  if (far) {
+    const n = farSets * farRes.length;
+    const far12 = dhBlock(far.base, home) > 12 * 60;
+    rep.checks.push({
+      id: 'farBase', level: 'ok', label: `Far base: ${n} reserve crew stationed at ${far.base}`,
+      detail: `${far12 ? `Over 12 h from ${home} by air` : `${Math.round(tzDeltaH(home, far.base, o.start))} time zones from ${home}`}: a sick crew member can't be replaced from home in a day. Each of about ${farSets} crews on station brings a spare captain and purser${farRes.length > 2 ? ' and one more cabin crew' : ''}, and they rotate together. Their pay, hotels and per diem are ours.`,
+    });
+  }
   if (rn.line) {
     // v0.7.4 seat rest everywhere: a refit can also lift a day that is too long for the seats (recliners, class 2).
     const fix = rn.level === 'no' && (rn.need?.why === 'noRest' || rn.need?.why === 'tooLong' || rn.need?.why === 'cabin') ? restRefitFix(g, ac.id, o, t.id, chains) : null;
@@ -735,8 +752,16 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const perDiem = ((BAL.perDiem.CPT + BAL.perDiem.FO + (crewN - 2) * BAL.perDiem.CC) / crewN) * (g.company.policies.perDiemPct / 100);
   const hotel = BAL.hotelPerNight[g.company.policies.hotelTier] ?? 140;
   if (base && prog.base) {
-    const sets = o.pattern.kind === 'base' && o.pattern.waves.length >= 3 ? 3 : 2;
+    const sets = far ? farSets : o.pattern.kind === 'base' && o.pattern.waves.length >= 3 ? 3 : 2;
     cost += sets * crewN * perDiem * prog.base.days;
+    if (far) {
+      // v0.12.1 a far base: the reserve's pay, hotels and per diem while on station, and every crew's tickets out and
+      // home at each rotation (far bases fly out on long-haul fares).
+      const days = Math.max(1, Math.ceil((o.end - o.start) / DAY));
+      const tours = Math.max(1, Math.ceil(days / (g.company.policies.rotationWeeks * 7)));
+      for (const r of farRes) cost += farSets * reserveDayCost(g, r, t.body === 'wide') * days;
+      cost += farSets * (crewN + farRes.length) * 2 * tours * ticketPrice(home, far.base);
+    }
   } else {
     for (const f of fits) {
       const span = (f.posOut.length ? f.posOut[f.posOut.length - 1].sta : f.trip.sta) - (f.posIn.length ? f.posIn[0].std : f.trip.std);

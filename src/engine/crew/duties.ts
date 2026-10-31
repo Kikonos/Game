@@ -5,7 +5,7 @@
 import { dropClientSeats } from './clientCrew';
 import { BAL } from '../core/balance';
 import { flightsOf, nextId, removeFlights } from '../core/entities';
-import { cabinMinimum, reportMinutes, typeOf } from '../core/perf';
+import { cabinMinimum, extraCabinRoom, isPilot, reportMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { DAY, dayStart, yearOf } from '../core/time';
 import type { AcRest, Contract, CrewMember, CrewSlot, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Requirements, Role } from '../core/types';
@@ -14,6 +14,7 @@ import {
   splitFdp, tzDeltaH, woclMinutes, worst, type Seg, type TimelineCtx,
 } from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
+import { farBase, farSetsEstimate, farTourBase, reserveRoles } from './farBase';
 import { bestSlip } from './slip';
 import { dropStandby } from './standby';
 import { aboard, cabinEarly, cabinEarlyOf, crewCount, crewIx, ctxOf, dhBlock, dutyBlock, dutyFlights, dutySegs, onBlocks, planHome, segsOf, touchCrew } from './timeline';
@@ -421,6 +422,15 @@ export function pairingSeats(g: GameState, p: Pairing): Seat[] {
     const spare = seats.find((x) => x.above && x.role === 'CC');
     if (spare) spare.role = 'PUR';
   }
+  // v0.12.1 a crew set at a far base carries its reserve (crew/farBase.ts): a spare captain and purser (a cabin crew
+  // more on a widebody), the cabin ones only while the crew seats have room for them.
+  if (!empty && farTourBase(g, p)) {
+    let room = extraCabinRoom(typeId, ac?.cabin.total ?? 180, seats.filter((x) => !isPilot(x.role)).length - Math.max(cabinMinimum(typeId, ac?.cabin.total ?? 180), 1));
+    for (const role of reserveRoles(typeId)) {
+      if (!isPilot(role) && room-- <= 0) continue;
+      seats.push({ role, above: true, reserve: true });
+    }
+  }
   const rank = (s: Seat) => (s.above ? 10 : 0) + ROLE_ORDER.indexOf(s.role);
   return seats.sort((a, b) => rank(a) - rank(b));
 }
@@ -479,7 +489,7 @@ export function aboveMinimum(g: GameState, p: Pairing): { pilots: number; cabin:
 /** Roles of the pairing's seats (required, then above the minimum). */
 export const pairingRoles = (g: GameState, p: Pairing): Role[] => pairingSeats(g, p).map((s) => s.role);
 
-const seatKey = (s: { role: Role; above?: boolean }) => (s.above ? `${s.role}+` : s.role);
+const seatKey = (s: { role: Role; above?: boolean; reserve?: boolean }) => (s.reserve ? `${s.role}R` : s.above ? `${s.role}+` : s.role);
 
 /**
  * Start/end, slots and duty measures of a pairing. Slots follow the complement: assigned crew keep a slot of
@@ -513,7 +523,7 @@ export function refreshPairing(g: GameState, p: Pairing): string[] {
   if (seats.map(seatKey).join() !== core.map(seatKey).join()) {
     const old = core;
     const used = new Set<number>();
-    const next: CrewSlot[] = seats.map((seat) => (seat.above ? { role: seat.role, crewId: null, above: true } : { role: seat.role, crewId: null }));
+    const next: CrewSlot[] = seats.map((seat) => (seat.above ? { role: seat.role, crewId: null, above: true, ...(seat.reserve ? { reserve: true as const } : {}) } : { role: seat.role, crewId: null }));
     // Same seat kind first, then the same role across kinds (a spare takes a required seat; a required holder an above one).
     for (const loose of [false, true]) {
       next.forEach((slot, j) => {
@@ -810,7 +820,10 @@ export function planAircraft(g: GameState, acId: string, from: Minute): void {
     const c = contractOfDuties(g, [d]);
     // v0.5.2: an empty leg into a deployment from an outstation is a pilots-only ferry: the tour's cabin crew
     // deadhead straight to the base instead of first flying out to the aircraft (from home they ride along).
-    const remoteIn = isDeploymentContract(g, c) && emptyDuty(g, d) && g.flights[d.flightIds[0]]?.from !== home && !specs.some((x) => x.flights[0].std < s.flights[0].std && x.flights.some((f) => f.contractId === c.id && f.kind !== 'positioning' && f.kind !== 'ferry'));
+    // v0.12.1 at a far base only on the way in, before the programme starts: an empty leg back to base from an outstation
+    // later (its legs handed to a rival) is the tour's to fly, never a ferry crew's from home (seed 1: PER–SGN planned
+    // again every day as a trip from Lisbon, nobody could reach it, and each next rotation went to Air Atlanta).
+    const remoteIn = isDeploymentContract(g, c) && emptyDuty(g, d) && g.flights[d.flightIds[0]]?.from !== home && (s.flights[0].std < c!.start || (c!.pattern.kind === 'base' && !farBase(home, c!.pattern.base, c!.start))) && !specs.some((x) => x.flights[0].std < s.flights[0].std && x.flights.some((f) => f.contractId === c!.id && f.kind !== 'positioning' && f.kind !== 'ferry'));
     if (isDeploymentContract(g, c) && !remoteIn) {
       const l = byDep.get(c.id) ?? [];
       l.push(d);
@@ -1244,6 +1257,33 @@ export function setRetickHook(f: (g: GameState, p: Pairing) => void): void {
   retickHook = f;
 }
 
+/** Sets on station for a deployment's duties: max(peak duties/day × 8/6, BH per 28 days / 85), +1 while chaining can't cover the days. */
+function sizeSets(g: GameState, dep: Deployment, duties: Duty[], start: Minute, R: number): number {
+  const perDay = new Map<number, number>();
+  let bh = 0;
+  for (const d of duties) {
+    const k = Math.floor((d.report + offsetAt(dep.base, d.report)) / DAY);
+    perDay.set(k, (perDay.get(k) ?? 0) + 1);
+    if (d.report < start + 28 * DAY) bh += dutyBlock(g, d);
+  }
+  const span = Math.min(28, Math.max(14, (duties[duties.length - 1].release - start) / DAY));
+  const peak = Math.max(...perDay.values());
+  const sets = Math.max(1, Math.ceil((peak * 8) / 6), Math.ceil((bh / 60) * (28 / span) / BAL.cabinBHMonth));
+  // v0.9 fix: more sets only while they take more duties (a duty no set can take, a stray one far out, sized a
+  // HAM base at 10 sets on station and the fleet at 17 crews a seat); the strays fly as trips.
+  let best = { sets, taken: -1 };
+  for (let n = sets; n <= BAL.maxSetsOnStation; n++) {
+    const trial: Deployment = { ...dep, start, anchors: anchorsFor(start, n, R), pairingIds: [] };
+    const ch = chainer(g, trial, () => 2, undefined, true);
+    let taken = 0;
+    for (const d of duties) if (ch.take(d)) taken++;
+    if (taken > best.taken) best = { sets: n, taken };
+    // One more set may still help (anchors stagger differently); two in a row that do not, never.
+    if (taken === duties.length || n >= best.sets + 2) break;
+  }
+  return best.sets;
+}
+
 /**
  * Places free deployment duties into tours (creating the deployment and sizing its sets on first use).
  * Returns the duties no set can legally take (they become trips).
@@ -1254,36 +1294,21 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
   const R = rotation(g);
   duties.sort((a, b) => a.report - b.report || (a.id < b.id ? -1 : 1));
   let dep = Object.values(g.deployments).find((x) => x.contractId === c.id && x.aircraftId === acId);
-  if (!dep) {
-    const start = dayStart(duties[0].report);
-    dep = { id: nextId(g, 'dp'), contractId: c.id, aircraftId: acId, base, start, end: Math.max(c.end, duties[duties.length - 1].release), setsOnStation: 0, pairingIds: [] };
-    // setsOnStation = max(peak duties/day × 8/6, BH per 28 days / 85), +1 while chaining can't cover the days.
-    const perDay = new Map<number, number>();
-    let bh = 0;
-    for (const d of duties) {
-      const k = Math.floor((d.report + offsetAt(base, d.report)) / DAY);
-      perDay.set(k, (perDay.get(k) ?? 0) + 1);
-      if (d.report < start + 28 * DAY) bh += dutyBlock(g, d);
-    }
-    const span = Math.min(28, Math.max(14, (duties[duties.length - 1].release - start) / DAY));
-    const peak = Math.max(...perDay.values());
-    let sets = Math.max(1, Math.ceil((peak * 8) / 6), Math.ceil((bh / 60) * (28 / span) / BAL.cabinBHMonth));
-    // v0.9 fix: more sets only while they take more duties (a duty no set can take, a stray one far out, sized a
-    // HAM base at 10 sets on station and the fleet at 17 crews a seat); the strays fly as trips.
-    let best = { sets, taken: -1 };
-    for (let n = sets; n <= BAL.maxSetsOnStation; n++) {
-      const trial: Deployment = { ...dep, anchors: anchorsFor(start, n, R), pairingIds: [] };
-      const ch = chainer(g, trial, () => 2, undefined, true);
-      let taken = 0;
-      for (const d of duties) if (ch.take(d)) taken++;
-      if (taken > best.taken) best = { sets: n, taken };
-      // One more set may still help (anchors stagger differently); two in a row that do not, never.
-      if (taken === duties.length || n >= best.sets + 2) break;
-    }
-    sets = best.sets;
+  // v0.12.1 a base signed more than the schedule horizon ahead was sized on its positioning duty alone (the programme's
+  // flights roll in 28 days ahead): 2 sets for a 747 slipping crews at Cairns, Perth and Chennai, the rest flown as trips
+  // from Lisbon (bot seed 1). A far base is sized again on the programme's own duties when they come, while no tour is
+  // planned yet (a near one keeps flying its strays as trips from home).
+  const work = duties.some((d) => !emptyDuty(g, d));
+  if (!dep || (!dep.work && work && !dep.pairingIds.length && farBase(g.company.homeBase, base, dep.start))) {
+    const start = dep?.start ?? dayStart(duties[0].report);
+    dep ??= { id: nextId(g, 'dp'), contractId: c.id, aircraftId: acId, base, start, end: Math.max(c.end, duties[duties.length - 1].release), setsOnStation: 0, pairingIds: [] };
+    // ... and until they come, on its pattern (crew/farBase.ts), so the crew are hired in time.
+    const far = c.pattern.kind === 'base' && farBase(g.company.homeBase, base, start) ? c.pattern : null;
+    const sets = Math.max(sizeSets(g, dep, duties, start, R), far ? farSetsEstimate(far) : 0);
     dep.setsOnStation = sets;
     dep.sized = sets;
     dep.anchors = anchorsFor(start, sets, R);
+    if (work) dep.work = true;
     g.deployments[dep.id] = dep;
   }
   dep.sized ??= dep.setsOnStation;
@@ -1291,11 +1316,15 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
   dep.end = Math.max(dep.end, duties[duties.length - 1].release);
   const ch = chainer(g, dep, (p, d) => crewOkHook(g, p, d), (p, d) => crewTakeHook(g, p, d));
   const left: Duty[] = [];
+  // v0.12.1 two at a far base: a stray flown from home there is two long-haul tickets for a whole crew, and the first
+  // days of a programme slipping crews at its outstations need a crew already at each (seed 1: Perth's first morning
+  // flew from Lisbon).
+  const grow = farBase(g.company.homeBase, base, dep.start) ? 2 : 1;
   for (const d of duties) {
     if (ch.take(d)) continue;
     // One extra set at most beyond the sizing (a whole tour of crew for a stray duty is waste: it flies as a
     // trip from base instead); a duty before the deployment's start can't join any set.
-    if (d.report >= dep.start && dep.anchors.length < Math.min(BAL.maxSetsOnStation, dep.sized + 1)) {
+    if (d.report >= dep.start && dep.anchors.length < Math.min(BAL.maxSetsOnStation, dep.sized + grow)) {
       dep.anchors.push(dayStart(d.report) + R);
       dep.setsOnStation = dep.anchors.length;
       if (ch.take(d)) continue;

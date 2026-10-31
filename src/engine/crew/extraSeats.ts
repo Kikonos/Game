@@ -59,6 +59,8 @@ export interface Seat {
   role: Role;
   /** Above the legal minimum (crew-extra settings): optional. */
   above: boolean;
+  /** v0.12.1 a far base's reserve (crew/farBase.ts): above the minimum too. */
+  reserve?: true;
 }
 
 /**

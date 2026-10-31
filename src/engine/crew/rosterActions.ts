@@ -47,6 +47,8 @@ export interface RosterSlotView {
   extra: boolean;
   /** v0.6: seat above the legal minimum (crew-extra settings): optional, amber when empty. */
   above: boolean;
+  /** v0.12.1 a far base's reserve seat (with `above`; never warns when empty). */
+  reserve?: true;
   /** This crew member's legality on the pairing (null when the seat is empty). */
   level: Legality | null;
 }
@@ -80,7 +82,7 @@ export function dutyCrew(g: GameState, dutyOrFlightId: string): DutyCrewView | n
       for (const i of plan.issues) if (i.code !== 'fdp') level = worst(level ?? 'legal', issueLevelFor(g, p, d, i));
       level ??= 'legal';
     }
-    return { index, role: s.role, crewId: s.crewId, name: c ? crewName(c) : null, locked: !!s.locked, extra: !!s.extra, above: !!s.above, level };
+    return { index, role: s.role, crewId: s.crewId, name: c ? crewName(c) : null, locked: !!s.locked, extra: !!s.extra, above: !!s.above, ...(s.reserve ? { reserve: true as const } : {}), level };
   });
   return {
     dutyId: d.id, pairingId: p.id, aircraftId: p.aircraftId, contractId: p.contractId, kind: p.tour ? 'tour' : 'trip',
@@ -218,8 +220,8 @@ export function dutyLegality(g: GameState, dutyOrFlightId: string): DutyLegality
   const missing = p.slots.filter((s) => !s.crewId && !s.above).map((s) => s.role);
   if (missing.length) warnings.push({ level: 'illegal', code: 'missing', text: `No ${seatWords(missing)} yet` });
   let level: Legality = worst(d.legality, missing.length ? 'illegal' : 'legal');
-  // v0.6: optional seats above the legal minimum only warn when empty.
-  const spare = p.slots.filter((s) => !s.crewId && s.above);
+  // v0.6: optional seats above the legal minimum only warn when empty (v0.12.1 a far base's reserve seat does not).
+  const spare = p.slots.filter((s) => !s.crewId && s.above && !s.reserve);
   if (spare.length && !d.done) {
     const cab = spare.filter((s) => s.role !== 'CRP').length;
     const pil = spare.length - cab;

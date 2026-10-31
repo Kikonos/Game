@@ -14,10 +14,11 @@ import type { ActionResult, CrewExtra, CrewMember, GameState, Minute, Role, SimE
 import { hashUnit } from '../core/util';
 import { classOf, conversionClasses, conversionEarliest, onClassItemDone, startConversion } from './conversion';
 import { crewExtraFor, rolesWithExtra } from './extraSeats';
+import { farBase, reserveRoles } from './farBase';
 import { crewSupply, familyNeeds } from './sets';
 import { sickMult } from './morale';
 import { crewName, makeCrewMember, salaryFor } from './generate';
-import { removeCrew, rosterOf } from './roster';
+import { removeCrew, rosterOf, setReserveOkHook } from './roster';
 import { dropStandby } from './standby';
 import { block28, crewIx, crewRev, segsOf, touchCrew } from './timeline';
 import type { Seg } from './rules';
@@ -237,7 +238,7 @@ function homesOf(g: GameState, memo: ReturnType<typeof memoOf>): { of: Map<strin
   return memo.homes;
 }
 
-export function crewAvailability(g: GameState, family: RatingFamily, typeId: string, from: Minute, to: Minute, programmeBH: number, extra?: CrewExtra, extraSets = 0): Availability {
+export function crewAvailability(g: GameState, family: RatingFamily, typeId: string, from: Minute, to: Minute, programmeBH: number, extra?: CrewExtra, extraSets = 0, reserve?: Partial<Record<Role, number>>): Availability {
   const days = Math.max(1, Math.ceil((to - from) / DAY));
   const t = typeOf(typeId);
   const seats = t.cabins[0] ? t.cabins[0].j + t.cabins[0].w + t.cabins[0].y : 180;
@@ -247,6 +248,8 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
   const need = sizing(per, programmeBH / Math.max(1, days / 30.44));
   // v0.9 round 4 §W: a crew change at a fuel stop puts a second crew in the air at once: one whole set more per slip.
   if (extraSets > 0) for (const r of ROLES) if (per[r]) need[r] = (need[r] ?? 0) + per[r]! * extraSets;
+  // v0.12.1 a far base's reserve on station (crew/farBase.ts).
+  for (const r of ROLES) if (reserve?.[r]) need[r] = (need[r] ?? 0) + reserve[r]!;
   // Supply per role and day (exact role; seniors spill down below).
   const supply: Record<Role, Int32Array> = Object.fromEntries(ROLES.map((r) => [r, new Int32Array(days)])) as Record<Role, Int32Array>;
   const ix = crewIx(g);
@@ -300,6 +303,12 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
     const kx = crewExtraFor(g, ac[0].id, k.id);
     const kPer = countRoles(rolesWithExtra(ac[0].typeId, ac[0].cabin.total, kx, k.requirements.extraCabin).map((r) => (r === 'CRP' ? 'FO' : r)));
     const kNeed = sizing(kPer, bhMonth);
+    // v0.12.1 a far base holds its reserve too: once per crew set on station.
+    if (k.pattern.kind === 'base' && farBase(g.company.homeBase, k.pattern.base, k.start)) {
+      const dp = Object.values(g.deployments).find((x) => x.contractId === k.id);
+      const sets = dp?.setsOnStation ?? Math.ceil(k.pattern.targetBH / BAL.cabinBHMonth);
+      for (const r of reserveRoles(ac[0].typeId)) kNeed[r] = (kNeed[r] ?? 0) + sets;
+    }
     for (const a of ac) {
       const h = acHeld(a.id);
       for (let d = 0; d < days; d++) {
@@ -512,6 +521,7 @@ export function dailySickness(g: GameState): void {
     for (const d of rosterOf(g, c.id, g.now, from)) if (d.report < from) from = Math.max(from, d.release);
     const to = from + days * DAY;
     c.blocks = [...(c.blocks ?? []), { from, to, why: 'sick' }];
+    const spares = g.stats.sparesCovered ?? 0;
     const res = removeCrew(g, c.id, from, to);
     // Crew-planning round: the legs left without crew carry who fell sick (the shortage notices say so plainly).
     for (const id of res.uncovered) if (g.flights[id]) g.flights[id].crewLost = { crewId: c.id, why: 'sick', t: g.now };
@@ -532,7 +542,32 @@ export function dailySickness(g: GameState): void {
         data: { crewId: c.id, flightId: f.id },
       });
     } else {
-      pushMessage(g, { tone: 'info', cat: 'crew', title: `${crewName(c)} is off sick`, body: `From tomorrow, ${days} days. Their duties were re-crewed.`, ref: { kind: 'crew', id: c.id } });
+      // v0.12.1 a spare with their crew (a far base's reserve, a tour's spare) took the seat: said so.
+      const spare = (g.stats.sparesCovered ?? 0) > spares;
+      pushMessage(g, { tone: 'info', cat: 'crew', title: `${crewName(c)} is off sick`, body: `From tomorrow, ${days} days. ${spare ? 'The reserve with their crew takes the seat.' : 'Their duties were re-crewed.'}`, ref: { kind: 'crew', id: c.id } });
     }
   }
 }
+
+/**
+ * v0.12.1 a far base's reserve seats are filled only while the family has the crew of that role at work now for its
+ * whole need, the reserve included (crew/farBase.ts): hires still joining, crew sick, on leave or in training do not
+ * count. Short, the reserve waits for them and never takes a crew member a flight needs. Read once per game minute.
+ */
+const reserveMemo = new WeakMap<GameState, { key: string; ok: Map<string, boolean> }>();
+setReserveOkHook((g, family, role) => {
+  const key = `${g.now}:${Object.keys(g.crew).length}:${Object.keys(g.deployments).length}:${g.hires.length}`;
+  let m = reserveMemo.get(g);
+  if (!m || m.key !== key) {
+    m = { key, ok: new Map() };
+    const fn = familyNeeds(g);
+    const at = new Map<string, number>();
+    for (const c of Object.values(g.crew)) {
+      if (c.notice || c.status === 'joining' || c.status === 'training' || c.status === 'leave' || c.status === 'sick') continue;
+      for (const f of c.ratings) at.set(`${f}:${c.role}`, (at.get(`${f}:${c.role}`) ?? 0) + 1);
+    }
+    for (const [f, x] of fn) for (const r of ROLES) m.ok.set(`${f}:${r}`, (at.get(`${f}:${r}`) ?? 0) >= Math.ceil((x.need[r] ?? 0) - 1e-9));
+    reserveMemo.set(g, m);
+  }
+  return m.ok.get(`${family}:${role}`) ?? false;
+});

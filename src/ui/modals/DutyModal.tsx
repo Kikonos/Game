@@ -84,12 +84,14 @@ function Seat({ s, busy, later, onChange, onRemove, onUnlock }: { s: RosterSlotV
               {store.game?.crew[s.crewId] && <RankMark role={store.game.crew[s.crewId].role} />}
             </>
           ) : (
-            <b className={later ? 'muted' : s.above ? 'warn' : 'bad'}>{later ? 'Open seat' : s.above ? 'Extra seat open' : 'Empty seat'}</b>
+            <b className={later ? 'muted' : s.above ? 'warn' : 'bad'}>{later ? 'Open seat' : s.reserve ? 'Reserve seat open' : s.above ? 'Extra seat open' : 'Empty seat'}</b>
           )}
         </span>
         <span className="small muted row gap-8">
           {s.crewId ? <span className={s.level ? LEVEL_TONE[s.level] : ''}>{s.level ? LEVEL_LABEL[s.level] : 'Flown'}</span> : <span>{s.above ? `Optional ${ROLE_LABEL[s.role].toLowerCase()}` : `${ROLE_LABEL[s.role]} needed`}</span>}
-          {s.above && <span className="chip sc-chip sc-chip-extra" data-tip="Above the legal minimum: optional, never blocks the departure">Extra</span>}
+          {s.above && (s.reserve
+            ? <span className="chip sc-chip sc-chip-extra" data-tip="Far base reserve: flies with this crew and takes a seat if someone falls sick">Reserve</span>
+            : <span className="chip sc-chip sc-chip-extra" data-tip="Above the legal minimum: optional, never blocks the departure">Extra</span>)}
           {s.extra && !s.above && <span className="chip sc-chip">added</span>}
           {s.locked && <span className="row gap-4 accent"><Lock className="sc-ico-s" />set by you</span>}
         </span>

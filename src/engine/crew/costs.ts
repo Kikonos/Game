@@ -14,7 +14,7 @@ function currentPairing(g: GameState, c: CrewMember): Pairing | undefined {
   return best;
 }
 
-/** Per diem (BAL rate × perDiemPct) per crew member away, and hotel nights at outstations (client pays on wet leases). */
+/** Per diem (BAL rate × perDiemPct) per crew member away, and hotel nights at outstations (client pays on wet leases, v0.12.1 not for a far base's reserve). */
 export function dailyCrewCosts(g: GameState): void {
   const pct = g.company.policies.perDiemPct / 100;
   const night = BAL.hotelPerNight[g.company.policies.hotelTier] ?? BAL.hotelPerNight[4];
@@ -26,7 +26,8 @@ export function dailyCrewCosts(g: GameState): void {
     if (c.loc === c.base || c.status === 'onDuty') continue;
     const p = currentPairing(g, c);
     const k = p?.contractId ? g.contracts[p.contractId] : undefined;
-    if (k?.product.kind !== 'wet') hotels += night;
+    // v0.12.1 a far base's reserve is ours to house, on a wet lease too (the client pays for the crew it asked for).
+    if (k?.product.kind !== 'wet' || p?.slots.some((s) => s.crewId === c.id && s.reserve)) hotels += night;
   }
   post(g, 'perDiem', -Math.round(perDiem));
   post(g, 'hotels', -Math.round(hotels));

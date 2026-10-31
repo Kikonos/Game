@@ -1018,6 +1018,8 @@ export interface CrewSlot {
   extra?: boolean;
   /** v0.6: seat above the legal minimum (crew-extra settings): optional, never blocks departure. */
   above?: boolean;
+  /** v0.12.1 a far base's reserve seat (crew/farBase.ts; with `above`): the set's spare on station. */
+  reserve?: true;
   /** v0.9 crew out of hours: who was taken off this seat for a legal limit, which, by how much (min) and when; cleared on a legal refill. */
   ooh?: { crewId: string; limit: OohLimit; over: number; at: Minute };
   /** v0.9 round 4 (§Y.1): a replacement who joined after the duty reported: their own report (a fresh day). Cleared with the seat. */
@@ -1129,6 +1131,8 @@ export interface Deployment {
   anchors?: Minute[];
   /** B2: sets from the initial sizing (later growth is capped at one more). */
   sized?: number;
+  /** v0.12.1 sized on the programme's own duties (absent: on its positioning alone, or an older save: sized again when they come). */
+  work?: true;
 }
 
 export interface HireOrder {

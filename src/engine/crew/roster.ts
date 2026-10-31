@@ -1,5 +1,6 @@
 // Auto-roster, change sync and disruption APIs (B2). DESIGN.md §4.2, §5.3.
 
+import type { RatingFamily } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { addDeadhead, deadheadFlights, flightsOf, markFlightsChanged, removeFlights, retimeFlight, touchTickets } from '../core/entities';
 import { post } from '../core/ledger';
@@ -1316,6 +1317,14 @@ function offFallback(g: GameState, c: CrewMember, plan: CrewPlan, base: Seg[]): 
 const homeTravel = (d: Duty, base: string): number => (d.restAt === base ? 0
   : minRest({ dutyMin: d.release - d.report, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(base, d.restAt, d.release), extended: !!d.ext }) + dhBlock(d.restAt, base) + 2 * 60);
 
+/** v0.12.1 fillAll's second pass: a far base's reserve seats only (crew/farBase.ts). */
+let reservePass = false;
+/** Hook (crew/index.ts, staffing): the family has the crew of this role for its reserve too (none short). */
+let reserveOk: (g: GameState, family: RatingFamily, role: Role) => boolean = () => true;
+export function setReserveOkHook(f: typeof reserveOk): void {
+  reserveOk = f;
+}
+
 function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, exclude?: Set<string>): void {
   const duties = openDuties(g, p);
   if (!duties.length) return;
@@ -1335,7 +1344,9 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   const inP = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
   // Seats above the legal minimum after every required one, and only before the trip starts (no one is
   // positioned out to an optional seat on a trip under way).
-  const order = p.slots.map((_, i) => i).filter((i) => !p.slots[i].crewId && (!p.slots[i].above || p.status === 'planned'));
+  // v0.12.1 a far base's reserve seats in a pass of their own, after every required seat of the run (fillAll), and only
+  // while the family has the crew for its reserve (reserveOk): the reserve never takes a crew member a flight needs.
+  const order = p.slots.map((_, i) => i).filter((i) => !p.slots[i].crewId && (!p.slots[i].above || p.status === 'planned') && !!p.slots[i].reserve === reservePass && (!reservePass || reserveOk(g, family, p.slots[i].role)));
   order.sort((a, b) => Number(!!p.slots[a].above) - Number(!!p.slots[b].above) || SLOT_ORDER.indexOf(p.slots[a].role) - SLOT_ORDER.indexOf(p.slots[b].role) || a - b);
   const plans = new Map<string, CrewPlan>();
   // Slot-independent part of the score, once per pairing (crew in p are skipped below).
@@ -1588,15 +1599,30 @@ export function fillAll(g: GameState, ps: Pairing[], res: RosterResult, exclude?
   const ctx = new Ctx(g);
   placed.clear();
   const before = res.assigned;
+  const seen: Pairing[] = [];
   for (const p of ps) {
     if (!g.pairings[p.id]) continue;
     fillPairing(g, ctx, p, res, exclude);
+    seen.push(p);
     // v0.5.2: a tour seat nobody can take from its first duty (a sickness, a crew just off another tour) is
     // filled from the first later duty someone can: the tour is split there, so only the gap goes uncovered.
     let q: Pairing | null = p;
     for (let n = 0; q && n < 3; n++) {
       q = q.tour ? splitTourGap(g, ctx, q, exclude) : null;
-      if (q) fillPairing(g, ctx, q, res, exclude);
+      if (q) {
+        fillPairing(g, ctx, q, res, exclude);
+        seen.push(q);
+      }
+    }
+  }
+  // v0.12.1 then the far bases' reserve seats (crew/farBase.ts).
+  const open = seen.filter((p) => g.pairings[p.id] && p.status === 'planned' && p.slots.some((s) => s.reserve && !s.crewId));
+  if (open.length) {
+    reservePass = true;
+    try {
+      for (const p of open) if (g.pairings[p.id]) fillPairing(g, ctx, p, res, exclude);
+    } finally {
+      reservePass = false;
     }
   }
   // v0.9 round 4 speed: the seats filled are the run's own change to the index (splits and spares bump it themselves).
@@ -2316,8 +2342,9 @@ export function flightCrewStatus(g: GameState, flightId: string, opts?: { live?:
     // partial re-roster); confirm it live, the same reading as the Adjust crew panel (dutyLegality).
     if (crewIssuesFor(g, d).length) return { level: 'illegal', missing };
   }
-  // An empty seat above the legal minimum only warns (optional; never blocks the departure).
-  if (d.legality === 'tight' || (!d.done && aboveEmpty(p))) return { level: 'tight', missing };
+  // An empty seat above the legal minimum only warns (optional; never blocks the departure). v0.12.1 an empty far-base
+  // reserve seat does not: the reserve stepped in, or joins with the next tour.
+  if (d.legality === 'tight' || (!d.done && p.slots.some((s) => !s.crewId && s.above && !s.reserve))) return { level: 'tight', missing };
   // v0.6.4: a stored 'tight' can outlive the crew it was about too (fillPairing keeps the worse of old and new);
   // confirm it live (cached per crew change) so the amber dot agrees with the Adjust crew panel.
   // v0.7.3 callers that only ask 'missing or illegal?' (the hourly shortage ladder, the departure gate) skip it.
