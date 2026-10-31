@@ -2,6 +2,7 @@
 // dispatches each event to the modules. Deterministic: no wall clock, no Math.random.
 
 import { contractsModule } from './contracts';
+import { commercialModule } from './commercial';
 import type { SimModule } from './core/module';
 import { clearPause, takePause, type PauseReason } from './core/pause';
 import { peek, pop, schedule } from './core/queue';
@@ -13,7 +14,8 @@ import { opsModule } from './ops';
 import { scenarioModule } from './scenario/module';
 
 /** Dispatch order for every event type: ops (state machine, money) → contracts → crew (→ v0.12 the scenario's goals, last). */
-export const MODULES: SimModule[] = [opsModule, contractsModule, crewModule, scenarioModule];
+/** v0.14 the commercial module (tenders, sales trips, client crises) runs after contracts, before crew. */
+export const MODULES: SimModule[] = [opsModule, contractsModule, commercialModule, crewModule, scenarioModule];
 
 const table = new Map<SimEventType, ((g: GameState, ev: SimEvent) => void)[]>();
 for (const m of MODULES) {

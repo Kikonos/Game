@@ -34,6 +34,8 @@ export const REVENUE_CATS: readonly LedgerCat[] = ['acmiRevenue', 'charterRevenu
 export const COST_CATS: readonly LedgerCat[] = [
   'fuel', 'airportFees', 'rent', 'reserves', 'salaries', 'perDiem', 'hotels', 'deadhead', 'crewJet', 'maintenance', 'checks', 'paint', 'insurance', 'overhead',
   'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex', 'refit', 'leaseReturn', 'warRisk', 'disruption', 'compliance', 'delivery',
+  // v0.14 sales trips and fairs; receivables written off.
+  'sales', 'badDebt',
 ];
 
 /**

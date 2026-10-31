@@ -25,8 +25,9 @@ import { analystView } from '../../engine/ops';
 import { ScreenHint } from '../components/ScreenHint';
 import { clientList } from '../../engine/contracts';
 import { ClientsView } from './Clients';
+import { openTenders, TendersView } from './Tenders';
 
-type View = 'market' | 'active' | 'missed' | 'clients';
+type View = 'market' | 'active' | 'tenders' | 'missed' | 'clients';
 
 /** v0.14 the card's time left: hours and minutes ticking with the clock in the last 6 h, a phone call marked. */
 function OfferLeft({ o, now }: { o: ContractOffer; now: number }) {
@@ -289,7 +290,7 @@ export function ContractsScreen() {
   useRenderCount('contracts');
   const g = useGame();
   const nav = store.nav;
-  const view = (['market', 'active', 'missed', 'clients'].includes(nav.view ?? '') ? nav.view : 'market') as View;
+  const view = (['market', 'active', 'tenders', 'missed', 'clients'].includes(nav.view ?? '') ? nav.view : 'market') as View;
   const nMarket = marketOffers(g).length;
   const nActive = Object.values(g.contracts).filter((c) => c.status === 'signed' || c.status === 'active').length;
   const nMissed = missedOffers(g).length;
@@ -302,6 +303,8 @@ export function ContractsScreen() {
         <Tabs<View> value={view} onChange={(v) => store.navigate('contracts', { view: v })} tabs={[
           { id: 'market', label: 'Market', count: nMarket },
           { id: 'active', label: 'Active', count: nActive },
+          // v0.14 the tender board.
+          { id: 'tenders', label: 'Tenders', count: openTenders(g) || undefined },
           { id: 'missed', label: 'Missed', count: nMissed },
           { id: 'clients', label: 'Clients', count: nClients || undefined },
         ]} />
@@ -310,6 +313,7 @@ export function ContractsScreen() {
       <HeadStrip g={g} />
       {view === 'market' && <Market g={g} />}
       {view === 'active' && <Active g={g} sel={nav.sel?.kind === 'contract' ? nav.sel.id : null} />}
+      {view === 'tenders' && <TendersView g={g} />}
       {view === 'missed' && <Missed g={g} />}
       {view === 'clients' && <ClientsView g={g} />}
     </div>
