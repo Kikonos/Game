@@ -7,10 +7,11 @@ import { devMixedCrew } from '../contracts/missions';
 import { addAircraft, newGame } from '../contracts/testkit';
 import { DAY } from '../core/time';
 import type { GameState, Role } from '../core/types';
+import { planAircraft } from './duties';
 import { crewDays } from './forecast';
-import { addCrew } from './fixtures';
+import { addCrew, fixtureGame, seasonBase } from './fixtures';
 import { crewAvailability, staffing } from './hr';
-import { crewPlan, roundTargets, type FamilyPlan } from './sets';
+import { crewPlan, familyNeeds, roundTargets, setsForStation, type FamilyPlan } from './sets';
 
 /** Two A320s (180Y: 1 CPT + 1 FO + 1 PUR + 3 CC), no crew, no extra cabin crew. */
 const twoA320 = (): GameState => {
@@ -49,13 +50,13 @@ function agree(g: GameState) {
 
 /** Fake augmented days on an aircraft: `n` duties over the next days, every other one with `level` relief pilots. */
 function augmented(g: GameState, acId: string, level: 1 | 2, n = 10) {
-  const dutyIds: string[] = [];
+  // v0.12.1 one trip per duty (relief pilots are counted by pairing: a trip with one augmented duty is all augmented).
   for (let i = 0; i < n; i++) {
     const id = `dx${i}`;
-    (g.duties as Record<string, unknown>)[id] = { id, pairingId: 'px', report: g.now + (i + 1) * DAY, release: g.now + (i + 1) * DAY + 600, augment: i % 2 ? level : 0, flightIds: [], deadheadIds: [] };
-    dutyIds.push(id);
+    const report = g.now + (i + 1) * DAY;
+    (g.duties as Record<string, unknown>)[id] = { id, pairingId: `px${i}`, report, release: report + 600, augment: i % 2 ? level : 0, flightIds: [], deadheadIds: [] };
+    (g.pairings as Record<string, unknown>)[`px${i}`] = { id: `px${i}`, aircraftId: acId, contractId: null, deploymentId: null, base: g.company.homeBase, start: report, end: report + 600, dutyIds: [id], slots: [], status: 'planned' };
   }
-  (g.pairings as Record<string, unknown>).px = { id: 'px', aircraftId: acId, contractId: null, deploymentId: null, base: g.company.homeBase, start: g.now, end: g.now + (n + 1) * DAY, dutyIds, slots: [], status: 'planned' };
 }
 
 describe('sets review: 777 + 787 with pilots on both (common type rating)', () => {
@@ -208,5 +209,27 @@ describe('sets review: the offer crew check counts dual-rated crew once', () => 
     // the A320 family full without them: they count for the A330
     addCrew(g, { CC: 4 });
     expect(free()).toBeGreaterThan(single);
+  });
+});
+
+describe('v0.12.1 relief pilots counted by pairing', () => {
+  it('a tour with one augmented duty carries its relief pilots on all of them: every duty of it counts as augmented', () => {
+    const g = fixtureGame();
+    const acId = Object.keys(g.fleet)[0];
+    seasonBase(g, acId, 'HAM', 'PMI', [6 * 60, 12 * 60 + 30], 28);
+    planAircraft(g, acId, g.now);
+    const tours = Object.values(g.pairings).filter((p) => p.aircraftId === acId && p.tour && p.dutyIds.length >= 2);
+    expect(tours.length).toBeGreaterThan(1);
+    const live = (ids: string[]) => ids.filter((id) => g.duties[id] && !g.duties[id].done && g.duties[id].report <= g.now + 30 * DAY).length;
+    const all = Object.values(g.pairings).filter((p) => p.aircraftId === acId && p.status !== 'done' && p.status !== 'broken').reduce((n, p) => n + live(p.dutyIds), 0);
+    // One duty of each tour needs four pilots: its crew carry two captains and two first officers throughout.
+    const before = familyNeeds(g).get('A320')!.need.CPT!;
+    for (const t of tours) g.duties[t.dutyIds[0]].augment = 2;
+    const after = familyNeeds(g).get('A320')!.need.CPT!;
+    const sets = setsForStation(Math.max(0, ...Object.values(g.deployments).filter((d) => d.aircraftId === acId).map((d) => d.setsOnStation)));
+    const share = tours.reduce((n, t) => n + live(t.dutyIds), 0) / all;
+    // Was those duties' share alone (one per tour); now the whole tours'.
+    expect(after - before).toBe(Math.ceil(sets * share - 1e-9));
+    expect(after - before).toBeGreaterThan(Math.ceil(sets * (tours.length / all) - 1e-9));
   });
 });

@@ -104,7 +104,13 @@ export const familyName = (f: RatingFamily) => LABEL[f];
 
 const count = (roles: Role[]) => roles.reduce<Partial<Record<Role, number>>>((m, r) => ((m[r] = (m[r] ?? 0) + 1), m), {});
 
-/** Augmented share of an aircraft's duties over the next 30 days and the most pilots any of them needs (1 → 3 pilots, 2 → 4). */
+/**
+ * Augmented share of an aircraft's duties over the next 30 days and the most pilots any of them needs (1 → 3 pilots, 2 → 4).
+ * v0.12.1 by pairing: a crew whose trip or tour has one augmented duty carries its relief pilots on every duty of it (the
+ * seats are the pairing's), so all its duties count. Seed 4 --b744 --aug: four 747 sets at Jeddah, each with two
+ * captains for its Bangalore days, were counted as 40 % augmented: 7 captains needed for the 8 on station, the tours
+ * short and the legs sub-chartered or cancelled.
+ */
 function augOf(g: GameState, aircraftId: string): { share: number; level: 0 | 1 | 2 } {
   let n = 0;
   let a = 0;
@@ -112,14 +118,18 @@ function augOf(g: GameState, aircraftId: string): { share: number; level: 0 | 1 
   const to = g.now + 30 * DAY;
   for (const p of Object.values(g.pairings)) {
     if (p.aircraftId !== aircraftId || p.status === 'done' || p.status === 'broken') continue;
+    let k = 0;
+    let lv = 0;
     for (const id of p.dutyIds) {
       const d = g.duties[id];
-      if (!d || d.done || d.report > to) continue;
-      n++;
-      if (d.augment > 0) {
-        a++;
-        if (d.augment > level) level = d.augment as 1 | 2;
-      }
+      if (!d) continue;
+      lv = Math.max(lv, d.augment);
+      if (!d.done && d.report <= to) k++;
+    }
+    n += k;
+    if (lv > 0 && k) {
+      a += k;
+      if (lv > level) level = lv as 1 | 2;
     }
   }
   return { share: n ? a / n : 0, level };
