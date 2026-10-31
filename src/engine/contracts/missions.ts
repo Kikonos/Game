@@ -20,7 +20,7 @@ import { DAY, fmtDay, fromUTC, toDate } from '../core/time';
 import type { CabinLayout } from '../../data/acmiTypes';
 import type { Archetype, ApprovalId, Client, ContractOffer, GameState, LegTemplate, Minute, Requirements, Rival } from '../core/types';
 import { segIndex } from '../ops/market';
-import { warRiskAt } from '../ops/world';
+import { closedAirport, warRiskAt } from '../ops/world';
 import { acceptOffer } from './accept';
 import { clientPrefix, clientsOf, ministry, roleOf } from './clients';
 import * as F from './flavor';
@@ -243,12 +243,15 @@ function evacuation(ctx: Ctx): Draft | null {
   const { g, o } = ctx;
   // A ministry charters what the operator has: a widebody only when we fly one.
   const wide = ctx.wide && (!Object.keys(g.fleet).length || Object.values(g.fleet).some((a) => a.cabin.total >= 250));
-  const pairs = WORLD_ZONES.flatMap((z) => z.staging ?? []).filter(([a, b]) => exists(a) && exists(b));
+  // v0.12.1 never a staging pair another event has closed (an event's own evacuation names its airport).
+  const pairs = WORLD_ZONES.flatMap((z) => z.staging ?? []).filter(([a, b]) => exists(a) && exists(b) && (!!o.airport || (!closedAirport(g, a, g.now) && !closedAirport(g, b, g.now))));
   const pair: [string, string] | undefined = o.airport && o.staging ? [o.airport, o.staging] : o.airport ? pairs.find(([a]) => a === o.airport) : pick(g, pairs);
   if (!pair) return null;
   const [x, hub] = pair;
   const foreign = clientsOf(g, ['government'], (c) => roleOf(c) === 'foreign' && exists(c.base));
-  const client = (o.client && g.clients[o.client]) || (chance(g, 0.5) ? ministry(g, 'Foreign Affairs') : nearClient({ ...ctx, window: undefined }, foreign)) || ministry(g, 'Foreign Affairs');
+  // v0.12.1 only a government charters an evacuation.
+  const asked = o.client && g.clients[o.client]?.kind === 'government' ? g.clients[o.client] : undefined;
+  const client = asked || (chance(g, 0.5) ? ministry(g, 'Foreign Affairs') : nearClient({ ...ctx, window: undefined }, foreign)) || ministry(g, 'Foreign Affairs');
   if (!client) return null;
   const capital = client.base;
   const n = int(g, 2, 6);
@@ -643,10 +646,16 @@ export function repeatHit(g: GameState, contractId: string): boolean {
   return p > 0 && chance(sideRng(g, `repeat:${contractId}`), p);
 }
 
+/** Work that never comes back as repeat business (v0.12.1 repatriation and medical flights too). */
+const ONE_OFF: ReadonlySet<Archetype> = new Set<Archetype>(['subcharterIn', 'dryLeaseOut', 'evacuation', 'humanitarian', 'hajj', 'repatriation', 'medical']);
+
 /** At completion (or 45 days before a base programme ends): the client's level's chance of the same work again. */
+
 export function rollRepeat(g: GameState, contractId: string): ContractOffer | null {
   const c = g.contracts[contractId];
-  if (!c || c.repeatRolled || c.archetype === 'subcharterIn' || c.archetype === 'dryLeaseOut' || c.archetype === 'evacuation' || c.archetype === 'humanitarian' || c.archetype === 'hajj') return null;
+  if (!c || c.repeatRolled || ONE_OFF.has(c.archetype)) return null;
+  // v0.12.1 rescue work and a world event's work are one-off, as are a scenario's hand-made jobs.
+  if (c.eventId || g.scen?.mem?.[`oneOff:${c.offerId}`]) return null;
   c.repeatRolled = true;
   const cl = g.clients[c.clientId];
   if (!cl || !repeatHit(g, c.id)) return null;

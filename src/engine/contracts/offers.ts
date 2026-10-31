@@ -35,7 +35,7 @@ export { maxPax, seatNeed };
 import { ARCH_MULT, defaultSeats, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
-import { inWarZone, setClosureOfferHook, warRiskLandings } from '../ops/world';
+import { closedAirport, inWarZone, setClosureOfferHook, warRiskLandings } from '../ops/world';
 import type { HajjDates } from '../../data/worldCalendar';
 import { demandFactor } from '../ops/market';
 import { afterOfferDays, isQuiet } from '../ops/director';
@@ -776,7 +776,8 @@ function sportsBase(ctx: Ctx): Draft | null {
 function repatriation(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
   if (ctx.window && ctx.window.from > g.now + 60 * 60) return null;
-  const client = (o.client && g.clients[o.client]) || ministry(g, 'Foreign Affairs');
+  // v0.12.1 a government brings its citizens home (a tour operator never asks for a war-zone repatriation).
+  const client = (o.client && g.clients[o.client]?.kind === 'government' ? g.clients[o.client] : undefined) || ministry(g, 'Foreign Affairs');
   if (!client) return null;
   const home = g.company.homeBase;
   const crisis = o.airport ?? pick(g, F.CRISIS_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home));
@@ -823,7 +824,7 @@ function repatriation(ctx: Ctx): Draft | null {
 export function titleFor(ctx: Ctx, arch: string, client: Client, x: Omit<F.TitleCtx, 'client' | 'brand' | 'fromCity' | 'toCity' | 'season' | 'month'> & { start: Minute }, fallback: string): string {
   const { g } = ctx;
   const tc: F.TitleCtx = {
-    ...x, client: client.name, brand: F.brandOf(client.name), fromCity: city(x.from), toCity: city(x.to), season: F.seasonOf(x.start, x.to), month: F.monthOf(x.start),
+    ...x, client: client.name, brand: F.brandOf(client.name), fromCity: city(x.from), toCity: city(x.to), season: F.seasonOf(x.start, x.to, x.from), month: F.monthOf(x.start, x.from),
     nation: x.nation ?? F.NATIONS[client.country],
   };
   return F.pickTitle(sideRng(g, `title:${g.seq}:${g.now}:${arch}`), F.TITLES[arch], tc, g.clients[client.id]?.lastTitle, fallback);
@@ -1110,6 +1111,13 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   const ref = referenceType(d.req, sectors, p.kind === 'base', d.req.approvals.includes('ulr'));
   if (!ref) return null;
   const airports = [...new Set(sectors.flat())];
+  // v0.12.1 never into an airport a world event already closes when the job flies there: mission work (an
+  // evacuation, a repatriation, relief) is that event's work and flies under its permit; anything else is dropped.
+  const shut = closureOn(g, p.kind === 'base' ? airports.map((code) => [code, d.start] as [string, Minute]) : p.legs.flatMap((l) => [[l.from, l.dep], [l.to, l.dep]] as [string, Minute][]), d.eventId);
+  if (shut) {
+    if (!ADOPTS.has(d.archetype)) return null;
+    d.eventId = shut.id;
+  }
   const requirements: Requirements = {
     // v0.8 fix pack: `body` only when the client asks for one (a widebody base, Hajj, Antarctica); seats decide the rest.
     minSeats: d.req.minSeats, maxSeats: d.req.maxSeats, layout: d.req.layout, families: d.req.families,
@@ -1231,6 +1239,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   };
   if (d.terms) o.terms = d.terms;
   if (d.jumbo) o.jumbo = true;
+  if (shut && !shut.offerIds.includes(o.id)) shut.offerIds.push(o.id);
   if (isWideJob(requirements)) {
     const v = v09Stats(g);
     v.offersWide = (v.offersWide ?? 0) + 1;
@@ -1286,7 +1295,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // v0.7.2 F4: never the same title twice in a row for a client (builders without a pool: the month appended).
   const cl = g.clients[o.clientId];
   if (cl) {
-    if (cl.lastTitle === o.title) o.title = `${o.title} (${F.monthOf(o.start)})`;
+    if (cl.lastTitle === o.title) o.title = `${o.title} (${F.monthOf(o.start, p.kind === 'base' ? p.base : p.kind === 'legs' ? p.legs[0]?.from : undefined)})`;
     cl.lastTitle = o.title;
   }
   g.offers[o.id] = o;
@@ -1571,7 +1580,40 @@ export const finalizeDraft = (g: GameState, d: Draft): ContractOffer | null => f
  * v0.12.1 a closure has just started or been extended (ops/world.ts, the hook below): open offers into the airports it
  * shuts are withdrawn or adopted. A stub until Round F lane B (B9) fills it in.
  */
-export function sweepOffersForClosure(_g: GameState, _e: WorldEvent): void {
-  // TODO(v0.12.1 B9): withdraw or adopt open offers whose legs touch the closure.
+export function sweepOffersForClosure(g: GameState, e: WorldEvent): void {
+  const gone: ContractOffer[] = [];
+  for (const o of Object.values(g.offers)) {
+    if ((o.status !== 'open' && o.status !== 'countered') || o.eventId === e.id) continue;
+    const p = o.pattern;
+    const stops: [string, Minute][] = p.kind === 'base' ? [p.base, ...p.dests].map((code) => [code, Math.max(g.now, o.start)]) : p.kind === 'legs' ? p.legs.flatMap((l) => [[l.from, l.dep], [l.to, l.dep]] as [string, Minute][]) : [];
+    if (closureOn(g, stops, o.eventId)?.id !== e.id) continue;
+    // Mission work becomes this event's work (its permit); other clients withdraw the request.
+    if (ADOPTS.has(o.archetype) && !o.eventId) {
+      o.eventId = e.id;
+      if (!e.offerIds.includes(o.id)) e.offerIds.push(o.id);
+      continue;
+    }
+    closeOffer(g, o, 'expired');
+    gone.push(o);
+  }
+  if (!gone.length) return;
+  const names = gone.slice(0, 3).map((o) => o.title).join('; ');
+  pushMessage(g, {
+    tone: 'info', cat: 'commercial', title: gone.length === 1 ? `Offer withdrawn: ${gone[0].title}` : `${gone.length} offers withdrawn`,
+    body: `${e.title}: the client${gone.length === 1 ? ' withdrew it' : 's withdrew them'}, nothing can fly there while it is closed.${gone.length > 1 ? ` ${names}${gone.length > 3 ? ' and more' : ''}.` : ''}`,
+    ref: gone.length === 1 ? { kind: 'offer', id: gone[0].id } : { kind: 'event', id: e.id },
+  });
+}
+
+/** v0.12.1 mission work that flies into a closure under its event's permit (the rest is withdrawn). */
+const ADOPTS: ReadonlySet<Archetype> = new Set<Archetype>(['evacuation', 'repatriation', 'humanitarian']);
+
+/** v0.12.1 the first world closure (not the job's own event) over any of these airports at those times. Pure. */
+function closureOn(g: GameState, stops: [string, Minute][], own?: string): WorldEvent | null {
+  for (const [code, t] of stops) {
+    const e = closedAirport(g, code, t, own);
+    if (e) return e;
+  }
+  return null;
 }
 setClosureOfferHook(sweepOffersForClosure);

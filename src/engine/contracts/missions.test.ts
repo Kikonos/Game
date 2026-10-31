@@ -11,10 +11,10 @@ import { autoRoster } from '../crew/roster';
 import { acceptOffer } from './accept';
 import { onFlightArrivedContracts } from './billing';
 import { feasibility } from './feasibility';
-import { deportationCleanHit, devHajj, dailySubIn, hajjTender, presidential } from './missions';
+import { deportationCleanHit, devHajj, dailySubIn, hajjTender, presidential, rollRepeat } from './missions';
 import { generateOffer, type Ctx } from './offers';
 import { ARCH_MULT, priceProduct, productValue } from './pricing';
-import { addAircraft, legsOffer, newGame } from './testkit';
+import { addAircraft, legsOffer, newGame, owned } from './testkit';
 
 const legsOf = (o: ContractOffer) => (o.pattern.kind === 'legs' ? o.pattern.legs : []);
 const ymd = (t: number) => toDate(t).toISOString().slice(0, 10);
@@ -261,5 +261,40 @@ describe('presidential (§2.3) and sub-charter in (§3.5)', () => {
     const cl = g.clients[o!.clientId];
     expect(cl.rivalId).toBeDefined();
     expect(g.rivals.find((r) => r.id === cl.rivalId)?.clientId).toBe(cl.id);
+  });
+});
+
+describe('v0.12.1 no repeat business from one-off rescue work', () => {
+  const signed = (g: GameState) => {
+    const o = legsOffer(g, [['LIS', 'PMI', g.now + 5 * DAY], ['PMI', 'LIS', g.now + 6 * DAY]]);
+    const r = acceptOffer(g, o.id, [owned(g).id]);
+    if (!r.ok) throw new Error(r.error);
+    return g.contracts[r.data!.contractId];
+  };
+  it('a repatriation, a medical flight, an event job and a scenario one-off never roll; ordinary work does', () => {
+    const g = newGame(12);
+    const c = signed(g);
+    for (const a of ['repatriation', 'medical'] as const) {
+      c.archetype = a;
+      expect(rollRepeat(g, c.id)).toBeNull();
+      expect(c.repeatRolled).toBeFalsy();
+    }
+    c.archetype = 'adhoc';
+    c.eventId = 'we1';
+    expect(rollRepeat(g, c.id)).toBeNull();
+    expect(c.repeatRolled).toBeFalsy();
+    delete c.eventId;
+    g.scen = { mem: { [`oneOff:${c.offerId}`]: 1 } } as never;
+    expect(rollRepeat(g, c.id)).toBeNull();
+    expect(c.repeatRolled).toBeFalsy();
+    delete g.scen;
+    rollRepeat(g, c.id);
+    expect(c.repeatRolled).toBe(true);
+  });
+  it('a repatriation asked for by a tour operator comes from a government instead', () => {
+    const g = newGame(12);
+    const tour = Object.values(g.clients).find((x) => x.kind !== 'government')!;
+    const o = generateOffer(g, 'repatriation', { client: tour.id, wide: false, window: false });
+    if (o) expect(g.clients[o.clientId].kind).toBe('government');
   });
 });

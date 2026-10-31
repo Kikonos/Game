@@ -2,6 +2,7 @@
 
 import type { Airport } from '../../data/airports';
 import { next, type RngHolder } from '../core/rng';
+import { toDate, toLocal } from '../core/time';
 
 export const AOG_CAUSES = [
   'an engine borescope finding', 'a bird strike on the climb-out', 'a cracked windshield', 'a hard-landing inspection',
@@ -261,9 +262,12 @@ const CANARIES = ['TFS', 'LPA', 'FUE', 'ACE'];
 const MARKETS = ['SZG', 'INN', 'PRG', 'VIE', 'BUD', 'NUE', 'STR', 'KRK', 'ZRH', 'BSL'];
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
-/** The season of a programme by its first month (ski when Dec–Mar to a ski airport). */
-export function seasonOf(startUtc: number, to: string): Season {
-  const m = new Date(startUtc * 60_000).getUTCMonth();
+/** v0.12.1 the calendar month (0–11) of a game minute, local at `airport` when given (a local-midnight start). */
+const monthIx = (t: number, airport?: string): number => toDate(airport ? toLocal(airport, t) : t).getUTCMonth();
+
+/** The season of a programme by its first month (ski when Dec–Mar to a ski airport). v0.12.1 `from`: local there. */
+export function seasonOf(startUtc: number, to: string, from?: string): Season {
+  const m = monthIx(startUtc, from);
   if ((m === 11 || m <= 2) && RESORTS_SKI.includes(to)) return 'ski';
   if (m === 11) return 'christmas';
   if (m === 2 || m === 3) return 'easter';
@@ -271,7 +275,7 @@ export function seasonOf(startUtc: number, to: string): Season {
   if (m === 9 || m === 10) return 'autumn';
   return 'winter';
 }
-export const monthOf = (startUtc: number) => MONTHS[new Date(startUtc * 60_000).getUTCMonth()];
+export const monthOf = (startUtc: number, airport?: string) => MONTHS[monthIx(startUtc, airport)];
 
 const SEASON_WORD: Record<Season, string> = { winter: 'Winter', ski: 'Ski', easter: 'Easter', summer: 'Summer', autumn: 'Autumn', christmas: 'Christmas' };
 

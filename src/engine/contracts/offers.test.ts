@@ -15,7 +15,9 @@ import { onOfferExpire, onOfferReply, PACING, quietWeekOffer } from './offers';
 import { computeWaves, programmeOf } from './plan';
 import { referenceType } from './pricing';
 import * as F from './flavor';
-import { addAircraft, newGame, offer, run } from './testkit';
+import { addAircraft, hamBase, legsOffer, newGame, offer, run } from './testkit';
+import { TPL_BY_ID } from '../../data/worldEvents';
+import { startEvent } from '../ops/world';
 import { breathe } from '../../test/breathe';
 
 const ARCHETYPES: Archetype[] = ['seasonBase', 'aogCover', 'adhoc', 'sports', 'repatriation', 'tourSeries', 'troopRotation', 'vip'];
@@ -542,5 +544,38 @@ describe('v0.7.2 contract titles (F4)', () => {
     expect(F.pickTitle(r, [() => 'A'], x, 'A', 'F')).toBe('A (June)');
     expect(F.seasonOf(Date.UTC(2027, 0, 10) / 60_000, 'SZG')).toBe('ski');
     expect(F.seasonOf(Date.UTC(2027, 6, 10) / 60_000, 'PMI')).toBe('summer');
+  });
+});
+
+describe('v0.12.1 offers and world closures', () => {
+  it('no offer goes into an airport another event has closed, unless it is that event\'s mission work', () => {
+    const g = newGame(31);
+    const e = startEvent(g, { ...TPL_BY_ID.warRedSea, closeP: 1 });
+    expect(e.closed).toBe(true);
+    for (let i = 0; i < 40; i++) {
+      const o = generateOffer(g, 'evacuation', { wide: false, window: false });
+      if (!o) continue;
+      const codes = o.pattern.kind === 'legs' ? o.pattern.legs.flatMap((l) => [l.from, l.to]) : [];
+      if (codes.includes('ADE')) expect(o.eventId).toBe(e.id);
+      delete g.offers[o.id];
+    }
+    // A forced Aden evacuation is the war's work (adopted), and listed on the event.
+    const o = generateOffer(g, 'evacuation', { airport: 'ADE', staging: 'DXB', wide: false, window: false });
+    expect(o?.eventId).toBe(e.id);
+    expect(e.offerIds).toContain(o!.id);
+  });
+  it('a closure that starts: mission offers into it are adopted, other offers into it withdrawn the same minute', () => {
+    const g = newGame(31);
+    const evac = generateOffer(g, 'evacuation', { airport: 'ADE', staging: 'DXB', wide: false, window: false })!;
+    expect(evac.eventId).toBeUndefined();
+    const far = hamBase(g, g.now + 20 * DAY, 30);
+    const job = legsOffer(g, [['DXB', 'ADE', g.now + 2 * DAY], ['ADE', 'DXB', g.now + 2 * DAY + 300]]);
+    expect(job.archetype).toBe('adhoc');
+    const e = startEvent(g, { ...TPL_BY_ID.warRedSea, closeP: 1 });
+    expect(evac.eventId).toBe(e.id);
+    expect(evac.status).toBe('open');
+    expect(job.status).toBe('expired');
+    expect(far.status).toBe('open');
+    expect(g.messages.some((m) => m.title === `Offer withdrawn: ${job.title}`)).toBe(true);
   });
 });
