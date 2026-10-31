@@ -187,7 +187,8 @@ describe('disruptions', () => {
     const hotels0 = line(g, 'hotels');
     const dis0 = line(g, 'disruption');
     expect(resolveDecision(g, on.id, 'hotel').ok).toBe(true);
-    expect(line(g, 'hotels')).toBeLessThan(hotels0);
+    // v0.12.1 a crew rest over 00:00 UTC is booked by the nightly crew-cost run (one room a night), not twice.
+    expect(line(g, 'hotels')).toBeLessThanOrEqual(hotels0);
     expect(line(g, 'disruption')).toBeLessThan(dis0);
     const cont = g.flights[f.contOf!];
     expect(cont.from).toBe(alt);

@@ -11,6 +11,7 @@ import { advanceTo } from '../sim';
 import { flightCrewStatus } from '../crew';
 import { curfewOk } from '../core/curfew';
 import { devDisruption, flowUnit } from './disrupt';
+import { inspect } from './ramp';
 import { resolveDecision } from './index';
 import { isRevenue, turnOf } from './util';
 
@@ -288,5 +289,56 @@ describe('A7: a curfew diversion repositions after the curfew, on a rested crew'
     g.decisions.length = 0;
     for (let i = 0; i < 3; i++) relinkPositioning(g, ac.id);
     check();
+  });
+});
+
+describe('unclear items settled: S-HOTEL, EV-S05', () => {
+  it('a diversion hotel over 00:00 UTC is one room a night (the nightly run books it), none here on a wet lease', () => {
+    const { g, legs } = charter(6);
+    const f = legs[0];
+    airborne(g, f);
+    divertAndLand(g, f);
+    skip(g, (f.eta ?? f.sta) + 1);
+    const on = g.decisions.find((x) => x.kind === 'divertOnward')!;
+    const morning = Number(on.data!.morning);
+    const overMidnight = Math.floor(morning / DAY) > Math.floor(g.now / DAY);
+    const h0 = line(g, 'hotels');
+    expect(resolveDecision(g, on.id, 'hotel').ok).toBe(true);
+    // Over midnight UTC: not booked here, dailyCrewCosts books their night away; a day rest is booked here.
+    if (overMidnight) expect(line(g, 'hotels')).toBe(h0);
+    else expect(line(g, 'hotels')).toBeLessThan(h0);
+    // On a wet lease the client pays crew hotels: none booked here.
+    const w = charter(7);
+    const k = w.g.contracts[w.legs[0].contractId!];
+    (k as { product: unknown }).product = { kind: 'wet', ratePerBH: 3000, mghPerMonth: 0, excessRate: 3000, cycleFee: 0, positioningBillable: true };
+    airborne(w.g, w.legs[0]);
+    divertAndLand(w.g, w.legs[0]);
+    skip(w.g, (w.legs[0].eta ?? w.legs[0].sta) + 1);
+    const on2 = w.g.decisions.find((x) => x.kind === 'divertOnward');
+    if (!on2) return;
+    const h1 = line(w.g, 'hotels');
+    expect(resolveDecision(w.g, on2.id, 'hotel').ok).toBe(true);
+    expect(line(w.g, 'hotels')).toBe(h1);
+  });
+
+  it('a ramp finding on an aircraft already in line maintenance keeps it there until it is put right', () => {
+    const g = newGame(14);
+    const ac = leased(g);
+    ac.builtYear = new Date(g.now * 60_000 + Date.UTC(2000, 0, 1)).getUTCFullYear() - 26;
+    ac.maint.deferred = 0.6;
+    // An inspection after a diversion, ending in an hour.
+    const end = g.now + 60;
+    g.maintenance.mxd = { id: 'mxd', aircraftId: ac.id, kind: 'line', at: 'FRA', start: g.now, end, cost: 0, status: 'inWork', planned: false, cause: 'Inspection after a hydraulic system warning', ev: 0 };
+    ac.status = 'maintenance';
+    ac.maintId = 'mxd';
+    ac.at = 'FRA';
+    for (let i = 0; i < 200; i++) {
+      const r = inspect(g, ac, 'FRA', 'SACA', `held:${i}`);
+      if (r.action === '3b' || r.action === '3c') {
+        expect(g.maintenance.mxd.end).toBeGreaterThanOrEqual(g.now + r.fixMin);
+        return;
+      }
+    }
+    throw new Error('no class 3 finding in 200 inspections');
   });
 });

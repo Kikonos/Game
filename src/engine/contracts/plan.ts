@@ -11,7 +11,6 @@ import { blockMinutes, etopsRoute, NO_STOP_COUNTRY, planSector, reportMinutes, T
 import { DAY, dayIndex, dayStart, localOffset, monthKey, monthStart, toLocal } from '../core/time';
 import { hash } from '../core/util';
 import { curfewOk, curfewShift } from '../core/curfew';
-import { CURFEWS } from '../../data/opsData';
 import type { Contract, ContractOffer, Flight, GameState, LegTemplate, Minute, Requirements, SchedulePattern } from '../core/types';
 
 export type BasePattern = Extract<SchedulePattern, { kind: 'base' }>;
@@ -254,7 +253,10 @@ export function onwardPending(g: GameState, aircraftId: string): boolean {
 export function anchorsOf(g: GameState, aircraftId: string): Anchor[] {
   const ac = g.fleet[aircraftId];
   const out: Anchor[] = [];
+  // v0.12.1 the last generated landing of each contract on this aircraft (its base tail starts after it).
+  const lastOn = new Map<string, Minute>();
   for (const f of liveFlightsOf(g, aircraftId)) {
+    if (f.contractId) lastOn.set(f.contractId, Math.max(lastOn.get(f.contractId) ?? -Infinity, f.sta));
     if (isSoft(g, f)) continue;
     out.push({ from: f.from, to: f.to, std: f.std, sta: f.status === 'enroute' ? (f.eta ?? f.sta) : f.sta, contractId: f.contractId, kind: 'flight', id: f.id });
   }
@@ -270,7 +272,9 @@ export function anchorsOf(g: GameState, aircraftId: string): Anchor[] {
     const p = c.pattern;
     if (c.generatedUntil >= p.to || !ac) continue;
     const slot = c.aircraftIds.indexOf(aircraftId);
-    const std = Math.max(c.generatedUntil, firstDeparture(p, ac.typeId, slot) ?? p.from);
+    // v0.12.1 not before the last generated rotation is home: generatedUntil is local midnight, an evening wave lands
+    // after it (seed 9: EW6045 LIS–DUS 23:30–02:10 and a twin empty LIS–DUS planned beside it).
+    const std = Math.max(c.generatedUntil, (lastOn.get(c.id) ?? -Infinity) + typeOf(ac.typeId).turnMin, firstDeparture(p, ac.typeId, slot) ?? p.from);
     out.push({ from: p.base, to: p.base, std, sta: Math.max(std, lastArrival(p, ac.typeId, slot) ?? p.to), contractId: c.id, kind: 'base', id: c.id });
   }
   // v0.8 a dry lease out holds the aircraft at the lessee's base between its two ferries.
@@ -454,19 +458,15 @@ export function localToUTC(code: string, local: Minute): Minute {
 
 /**
  * Wave departure times (local minutes): 06:00, then each next wave after the longest rotation plus a turn,
- * while it leaves by 21:00 local; at most maxWaves (DESIGN §5.1.6). v0.12.1 inside the base's night curfew no
- * wave leaves or comes home (strict: the grace is for delayed flights only): HAM–PMI on an A320 is 06:00 and 12:30
- * (a 19:00 wave would land back at 00:30, inside the 23:00–06:00 ban).
+ * while it leaves by 21:00 local; at most maxWaves (DESIGN §5.1.6). HAM–PMI on an A320: 06:00, 12:30, 19:00.
  */
 export function computeWaves(base: string, dests: string[], typeId: string, maxWaves: number): number[] {
   const turn = typeOf(typeId).turnMin;
   const rot = Math.max(...dests.map((d) => blockMinutes(typeId, base, d) + turn + blockMinutes(typeId, d, base)));
-  const cf = CURFEWS[base];
-  const shut = (m: number) => !!cf && (cf.from <= cf.to ? m % DAY >= cf.from && m % DAY < cf.to : m % DAY >= cf.from || m % DAY < cf.to);
-  const waves = [cf && shut(360) ? roundUp5(cf.to) : 360];
+  const waves = [360];
   while (waves.length < maxWaves) {
     const next = roundUp5(waves[waves.length - 1] + rot + turn);
-    if (next > 21 * 60 || shut(next) || shut(next + rot)) break;
+    if (next > 21 * 60) break;
     waves.push(next);
   }
   return waves;

@@ -217,3 +217,20 @@ describe('v0.12.1 new airports', () => {
     for (const c of ['CUR', 'BON', 'SXM', 'PBM', 'RUN', 'AQJ', 'SAI']) expect(AIRPORT_BY_CODE[c].remote, c).toBeUndefined();
   });
 });
+
+describe('v0.12.1 isolated aerodromes on a nonstop sector (A15)', () => {
+  it('the two hours of holding fuel count on the nonstop check too: FCO–SFJ and LIS–SFJ need a fuel stop on an A320', () => {
+    const t = ACMI_TYPES.a320ceo;
+    expect(maxSectorNm('a320ceo', 'FCO', 'SFJ')).toBe(rangeFromNm('a320ceo', 'FCO') - t.cruiseKt);
+    for (const from of ['FCO', 'LIS']) {
+      expect(distanceNm(from, 'SFJ')).toBeGreaterThan(maxSectorNm('a320ceo', from, 'SFJ'));
+      const p = planSector('a320ceo', from, 'SFJ');
+      expect(p.ok).toBe(true);
+      expect(p.techStops.length).toBeGreaterThan(0);
+    }
+    // A usual airport as far from Rome stays nonstop.
+    const d = distanceNm('FCO', 'SFJ');
+    const same = AIRPORTS.find((a) => a.code !== 'SFJ' && !['UAK', 'YFB', 'BDA'].includes(a.code) && runwayFit('a320ceo', a.code) === 'ok' && Math.abs(distanceNm('FCO', a.code) - d) < 60 && distanceNm('FCO', a.code) <= rangeFromNm('a320ceo', 'FCO'));
+    if (same) expect(planSector('a320ceo', 'FCO', same.code).techStops).toEqual([]);
+  });
+});
