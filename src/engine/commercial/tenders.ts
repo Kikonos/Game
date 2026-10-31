@@ -7,7 +7,7 @@
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { countryName } from '../../data/countries';
-import { TENDER_ISSUERS } from '../../data/fairs';
+import { TENDER_ISSUERS, winterIssuer } from '../../data/fairs';
 import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
 import { pushMessage } from '../core/messages';
@@ -119,7 +119,8 @@ export function issueTender(g: GameState, opts: { clientId?: string; invited?: b
   for (let tries = 0; tries < 4; tries++) {
     const pickd = opts.clientId ? null : weightedPick(r, issuers, (x) => x.w);
     const client = opts.clientId ? g.clients[opts.clientId] : pickd ? clientByName(g, pickd.name) : undefined;
-    if (!client || busy.has(client.id) || !AIRPORT_BY_CODE[client.base]) {
+    // v0.14 a winter RFP comes only from a Gulf, North African or winter-sun airline (data/fairs.ts winterIssuer).
+    if (!client || busy.has(client.id) || !AIRPORT_BY_CODE[client.base] || (round.kind === 'winter' && !winterIssuer(client))) {
       if (opts.clientId) return null;
       continue;
     }
@@ -274,6 +275,30 @@ function fitOn(g: GameState, o: ContractOffer, aircraftId: string): { level: Che
 
 const mixedCutPerBH = () => BAL.v08.mixedCrew.perCabinBH;
 
+export type BidTerms = Pick<TenderBid, 'rate' | 'mgh' | 'start' | 'end' | 'crew'>;
+
+/**
+ * v0.14 each narrowbody's fit for a bid on these terms (our dates, rate, crew): the offer dialog's feasibility, as
+ * if the job were on the market now (a tail busy over the window, crew, maintenance…). The bid form shows it as the
+ * terms change, and placeBid refuses a tail that cannot fly it. Read-only (a temporary market entry).
+ */
+export function bidAircraft(g: GameState, tenderId: string, terms?: BidTerms): BidAircraft[] {
+  const t = com(g).tenders.find((x) => x.id === tenderId);
+  if (!t) return [];
+  const o = t.ask;
+  const bid = terms ?? t.bid ?? { rate: o.product.kind === 'wet' ? o.product.ratePerBH : 0, mgh: o.product.kind === 'wet' ? o.product.mghPerMonth : 0, start: o.start, end: o.end, crew: 'ours' as const };
+  // v0.14 a tail in another bid still waiting for its award (closed) counts too: seed 3 bid CS-TTM into two flynas
+  // winter tenders, won both, and the second award found it busy with the first.
+  const others = com(g).tenders.filter((x) => x.id !== t.id && (x.status === 'open' || x.status === 'closed') && x.bid && x.bid.start < bid.end && x.bid.end > bid.start);
+  return Object.values(g.fleet)
+    .filter((a) => a.status !== 'stored' && a.status !== 'leasedOut' && !a.sale && typeOf(a.typeId).body === 'narrow')
+    .map((a) => {
+      const fit = fitOn(g, offerWithBid(t, bid, a.typeId, a.cabin.total), a.id);
+      return { id: a.id, reg: a.reg, type: typeOf(a.typeId).short, age: yearsOld(g, a.builtYear), family: typeOf(a.typeId).family, level: fit.level, note: fit.note, otherBids: others.filter((x) => x.bid!.aircraftId === a.id).length };
+    })
+    .sort((a, b) => (a.level === 'no' ? 1 : 0) - (b.level === 'no' ? 1 : 0) || (a.reg < b.reg ? -1 : 1));
+}
+
 /** Everything the bid form needs. Null when the tender is not open. */
 export function bidQuote(g: GameState, tenderId: string): BidQuote | null {
   const t = com(g).tenders.find((x) => x.id === tenderId);
@@ -282,14 +307,7 @@ export function bidQuote(g: GameState, tenderId: string): BidQuote | null {
   const budget = o.product.kind === 'wet' ? o.product.ratePerBH : 0;
   const mgh = o.product.kind === 'wet' ? o.product.mghPerMonth : 0;
   const bid0 = t.bid ?? { rate: budget, mgh, start: o.start, end: o.end, crew: 'ours' as const };
-  const others = com(g).tenders.filter((x) => x.id !== t.id && x.status === 'open' && x.bid && x.bid.start < o.end && x.bid.end > o.start);
-  const aircraft: BidAircraft[] = Object.values(g.fleet)
-    .filter((a) => a.status !== 'stored' && a.status !== 'leasedOut' && !a.sale && typeOf(a.typeId).body === 'narrow')
-    .map((a) => {
-      const fit = fitOn(g, offerWithBid(t, bid0, a.typeId, a.cabin.total), a.id);
-      return { id: a.id, reg: a.reg, type: typeOf(a.typeId).short, age: yearsOld(g, a.builtYear), family: typeOf(a.typeId).family, level: fit.level, note: fit.note, otherBids: others.filter((x) => x.bid!.aircraftId === a.id).length };
-    })
-    .sort((a, b) => (a.level === 'no' ? 1 : 0) - (b.level === 'no' ? 1 : 0) || (a.reg < b.reg ? -1 : 1));
+  const aircraft = bidAircraft(g, tenderId, bid0);
   const home = g.company.homeBase;
   return {
     tenderId, budget, mgh, rateMin: r10(budget * 0.85), rateMax: r10(budget * 1.15), mghMin: Math.round(mgh * 0.8), mghMax: Math.round(mgh * 1.2),
@@ -311,6 +329,9 @@ export function placeBid(g: GameState, tenderId: string, bid: Omit<TenderBid, 'a
   if (!(bid.rate > 0) || !(bid.mgh > 0)) return { ok: false, error: 'Rate and MGH must be above zero' };
   if (bid.start < o.start + TENDER.startShift[0] * DAY || bid.start > o.start + TENDER.startShift[1] * DAY) return { ok: false, error: 'Start too far from their dates' };
   if (bid.end < o.end + TENDER.endShift[0] * DAY || bid.end > o.end + TENDER.endShift[1] * DAY || bid.end - bid.start < 30 * DAY) return { ok: false, error: 'End too far from their dates' };
+  // v0.14 the offer dialog's feasibility on our terms: no bid on a tail that cannot fly it (busy over the window, …).
+  const fit = fitOn(g, offerWithBid(t, bid, ac.typeId, ac.cabin.total), ac.id);
+  if (fit.level === 'no') return { ok: false, error: `${ac.reg}: ${fit.note || 'cannot fly it'}` };
   const first = !t.bid;
   t.bid = { ...bid, rate: Math.round(bid.rate), mgh: Math.round(bid.mgh), at: g.now };
   if (first) comStats(g).bids++;

@@ -6,7 +6,7 @@ import { Check, CircleAlert, CircleX, FileSignature, Undo2 } from 'lucide-react'
 import { useMemo, useState } from 'react';
 import { flag } from '../../data/countries';
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { bidQuote, placeBid, tenderById, tenderRow, withdrawBid } from '../../engine/commercial';
+import { bidAircraft, bidQuote, placeBid, TENDER, tenderById, tenderRow, withdrawBid } from '../../engine/commercial';
 import { DAY, fmtDay } from '../../engine/core/time';
 import { Modal, Seg, Stepper } from '../components/ui';
 import { store, useGame } from '../store';
@@ -27,10 +27,15 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
   const [ds, setDs] = useState(t?.bid && q ? Math.round((t.bid.start - t.ask.start) / DAY) : 0);
   const [de, setDe] = useState(t?.bid && q ? Math.round((t.bid.end - t.ask.end) / DAY) : 0);
   const [err, setErr] = useState<string | null>(null);
+  // v0.14 each tail's fit on the terms as set (dates, crew): the offer dialog's feasibility, live with the form.
+  const start = t ? t.ask.start + ds * DAY : 0;
+  const end = t ? t.ask.end + de * DAY : 0;
+  const fits = useMemo(() => (q ? bidAircraft(g, tenderId, { rate, mgh, start, end, crew }) : []), [g, q, tenderId, start, end, crew, Math.floor(g.now / DAY)]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!t || !row) return null;
+  const ac = fits.find((a) => a.id === acId);
   const close = () => store.closeModal();
   const send = () => {
-    const r = store.act((gg) => placeBid(gg, tenderId, { rate, mgh, aircraftId: acId, crew, start: t.ask.start + ds * DAY, end: t.ask.end + de * DAY }));
+    const r = store.act((gg) => placeBid(gg, tenderId, { rate, mgh, aircraftId: acId, crew, start, end }));
     if (r.ok) close();
     else setErr(r.error);
   };
@@ -44,11 +49,10 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
       {t.bid ? <button className="btn" onClick={withdraw}><Undo2 /> Withdraw</button> : <span />}
       <span className="row gap-8">
         <button className="btn" onClick={close}>Close</button>
-        <button className="btn btn-primary" onClick={send} disabled={!acId}><FileSignature /> {t.bid ? 'Update bid' : 'Send bid'}</button>
+        <button className="btn btn-primary" onClick={send} disabled={!acId || ac?.level === 'no'}><FileSignature /> {t.bid ? 'Update bid' : 'Send bid'}</button>
       </span>
     </div>
   ) : <div className="row end"><button className="btn" onClick={close}>Close</button></div>;
-  const ac = q?.aircraft.find((a) => a.id === acId);
   return (
     <Modal title={<span>{flag(row.country)} {row.client} · {row.round}</span>} icon={<FileSignature />} onClose={close} footer={footer} className="v14-tender">
       <div className="col gap-12">
@@ -69,8 +73,8 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
             </div>
             <div className="col gap-4">
               <div className="upper dim">Aircraft</div>
-              {q.aircraft.length === 0 && <div className="small warn">No narrowbody in the fleet to bid.</div>}
-              {q.aircraft.map((a) => (
+              {fits.length === 0 && <div className="small warn">No narrowbody in the fleet to bid.</div>}
+              {fits.map((a) => (
                 <button key={a.id} className={`v8-row v14-tn-ac ${a.id === acId ? 'on' : ''}`} onClick={() => setAc(a.id)} aria-pressed={a.id === acId}>
                   {a.level === 'ok' ? <Check className="sc-ico-s good" /> : a.level === 'warn' ? <CircleAlert className="sc-ico-s warn" /> : <CircleX className="sc-ico-s bad" />}
                   <span className="col grow" style={{ minWidth: 0 }}>
@@ -92,7 +96,8 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
               <div><b>End</b><div className="tiny dim">They ask {fmtDay(t.ask.end - 1)}</div></div>
               <Stepper value={de} min={Math.round((q.endRange[0] - t.ask.end) / DAY)} max={Math.round((q.endRange[1] - t.ask.end) / DAY)} step={7} onChange={setDe} format={(v) => fmtDay(t.ask.end - 1 + v * DAY)} />
             </div>
-            {ac?.level === 'no' && <div className="small warn">{ac.reg} cannot fly it as things stand: if you win, you sign on another aircraft or let it go.</div>}
+            {ac?.level === 'no' && <div className="small bad">{ac.reg} cannot fly it on these dates{ac.note ? `: ${ac.note}` : ''}. Choose another aircraft or other dates.</div>}
+            {ac?.level !== 'no' && <div className="tiny dim">Checked again at the award: if {ac?.reg ?? 'the aircraft'} can no longer fly it then, you have {TENDER.signDays} days to sign it on another aircraft.</div>}
             {err && <div className="small bad">{err}</div>}
           </>
         )}

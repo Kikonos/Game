@@ -25,6 +25,12 @@ describe('the fair calendar', () => {
     expect(fairDays(FAIR_BY_ID.routesEurope, 2027).at).toBe('AYT');
     expect(fairDays(FAIR_BY_ID.routesWorld, 2027).at).toBe('BCN');
     expect(fairDays(FAIR_BY_ID.mroEurope, 2028).where).toMatch(/London/);
+    // v0.14 (player's call) guessed hosts stay, labelled: an edition the organiser has not announced reads '(planned)'.
+    expect(fairDays(FAIR_BY_ID.routesEurope, 2027).where).toBe('Antalya, NEST Congress Centre');
+    expect(fairDays(FAIR_BY_ID.mroEurope, 2028).where).not.toMatch(/planned/);
+    expect(fairDays(FAIR_BY_ID.routesEurope, 2028).where).toBe('Budapest, HUNGEXPO (planned)');
+    expect(fairDays(FAIR_BY_ID.routesWorld, 2029).where).toMatch(/São Paulo.*\(planned\)$/);
+    expect(fairDays(FAIR_BY_ID.itb, 2031).where).toMatch(/\(planned\)$/);
     // Every fair has a usual week for the years not listed.
     for (const f of FAIRS) expect(nextEdition(f, fromUTC(2031, 1, 1)).start).toBeGreaterThan(fromUTC(2031, 1, 1));
   });

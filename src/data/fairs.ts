@@ -14,6 +14,9 @@ export interface FairEdition {
   /** Airport of the host city, the city and venue (Routes moves every year). */
   at?: string;
   where?: string;
+  /** v0.14 dates and venue published by the organiser (checked Oct 2026); any other edition is our guess and reads
+   *  '(planned)' wherever its venue is shown. */
+  confirmed?: boolean;
 }
 
 export interface Fair {
@@ -42,14 +45,14 @@ const EU = ['PT', 'ES', 'FR', 'DE', 'GB', 'IE', 'NL', 'BE', 'IT', 'GR', 'HR', 'P
 export const FAIRS: Fair[] = [
   {
     id: 'itb', name: 'ITB Berlin', short: 'ITB', at: 'BER', where: 'Berlin, Messe Berlin',
-    usual: { m: 3, d: 4, days: 3 }, editions: [{ y: 2027, m: 3, d: 16, days: 3 }, { y: 2028, m: 3, d: 7, days: 3 }, { y: 2029, m: 3, d: 6, days: 3 }],
+    usual: { m: 3, d: 4, days: 3 }, editions: [{ y: 2027, m: 3, d: 16, days: 3, confirmed: true }, { y: 2028, m: 3, d: 7, days: 3 }, { y: 2029, m: 3, d: 6, days: 3 }],
     meets: ['tourOperator', 'airline'], countries: EU, pass: 1_200, leads: 'tour',
     blurb: "The tour operators' fair: TUI, Corendon, Schauinsland and the leisure airlines plan next winter and the summer after.",
   },
   {
     id: 'routesEurope', name: 'Routes Europe', short: 'Routes Europe', at: 'AYT', where: 'Antalya, NEST Congress Centre',
     usual: { m: 4, d: 20, days: 3 },
-    editions: [{ y: 2027, m: 4, d: 20, days: 3, at: 'AYT', where: 'Antalya, NEST Congress Centre' }, { y: 2028, m: 4, d: 25, days: 3, at: 'BUD', where: 'Budapest, HUNGEXPO' }, { y: 2029, m: 4, d: 24, days: 3, at: 'OPO', where: 'Porto, Alfândega Congress Centre' }],
+    editions: [{ y: 2027, m: 4, d: 20, days: 3, at: 'AYT', where: 'Antalya, NEST Congress Centre', confirmed: true }, { y: 2028, m: 4, d: 25, days: 3, at: 'BUD', where: 'Budapest, HUNGEXPO' }, { y: 2029, m: 4, d: 24, days: 3, at: 'OPO', where: 'Porto, Alfândega Congress Centre' }],
     meets: ['airline'], countries: EU, pass: 4_500, leads: 'airline',
     blurb: "Route planners of about 120 European airlines meet airports and suppliers: the place to hear who is short of aircraft.",
   },
@@ -68,14 +71,14 @@ export const FAIRS: Fair[] = [
   {
     id: 'routesWorld', name: 'Routes World', short: 'Routes World', at: 'BCN', where: 'Barcelona, Fira Barcelona',
     usual: { m: 10, d: 17, days: 3 },
-    editions: [{ y: 2027, m: 10, d: 17, days: 3, at: 'BCN', where: 'Barcelona, Fira Barcelona' }, { y: 2028, m: 9, d: 24, days: 3, at: 'AMM', where: 'Amman, Dead Sea Convention Centre' }, { y: 2029, m: 10, d: 14, days: 3, at: 'GRU', where: 'São Paulo, Expo Center Norte' }],
+    editions: [{ y: 2027, m: 10, d: 17, days: 3, at: 'BCN', where: 'Barcelona, Fira Barcelona', confirmed: true }, { y: 2028, m: 9, d: 24, days: 3, at: 'AMM', where: 'Amman, Dead Sea Convention Centre' }, { y: 2029, m: 10, d: 14, days: 3, at: 'GRU', where: 'São Paulo, Expo Center Norte' }],
     meets: ['airline'], countries: [], pass: 5_000, leads: 'airline',
     blurb: 'The biggest route-development meeting: airlines from every continent, a week of 20-minute meetings.',
   },
   {
     id: 'mroEurope', name: 'MRO Europe', short: 'MRO Europe', at: 'LHR', where: 'London, ExCeL',
     usual: { m: 10, d: 14, days: 3 },
-    editions: [{ y: 2027, m: 10, d: 19, days: 3, at: 'BCN', where: 'Barcelona, Fira Gran Via' }, { y: 2028, m: 10, d: 3, days: 3, at: 'LHR', where: 'London, ExCeL' }, { y: 2029, m: 10, d: 16, days: 3, at: 'AMS', where: 'Amsterdam, RAI' }],
+    editions: [{ y: 2027, m: 10, d: 19, days: 3, at: 'BCN', where: 'Barcelona, Fira Gran Via', confirmed: true }, { y: 2028, m: 10, d: 3, days: 3, at: 'LHR', where: 'London, ExCeL', confirmed: true }, { y: 2029, m: 10, d: 16, days: 3, at: 'AMS', where: 'Amsterdam, RAI' }],
     meets: ['airline'], countries: EU, pass: 1_800, leads: 'aog',
     blurb: 'Engineering and maintenance: airlines with engine problems and long shop visits look for spare lift (AOG cover).',
   },
@@ -92,8 +95,11 @@ export const FAIR_BY_ID: Record<string, Fair> = Object.fromEntries(FAIRS.map((f)
 /** The edition of a fair in a year (the listed one, else its usual week at its usual place). */
 export function fairEdition(f: Fair, y: number): Required<FairEdition> {
   const e = f.editions.find((x) => x.y === y);
-  return e ? { at: f.at, where: f.where, ...e } as Required<FairEdition> : { y, m: f.usual.m, d: f.usual.d, days: f.usual.days, at: f.at, where: f.where };
+  return e ? { at: f.at, where: f.where, confirmed: false, ...e } as Required<FairEdition> : { y, m: f.usual.m, d: f.usual.d, days: f.usual.days, at: f.at, where: f.where, confirmed: false };
 }
+
+/** v0.14 the venue as shown: 'Budapest, HUNGEXPO (planned)' for an edition the organiser has not announced. Pure. */
+export const editionWhere = (e: Pick<Required<FairEdition>, 'where' | 'confirmed'>): string => (e.confirmed ? e.where : `${e.where} (planned)`);
 
 /** v0.14 airlines and tour operators that issue summer ACMI tenders and are not in the base client list (added on first use). */
 export interface TenderClientSeed {
@@ -139,9 +145,16 @@ export const TENDER_ISSUERS: { name: string; w: number; fam?: 'A320' | 'B737'; m
   { name: 'Aegean Airlines', w: 1, fam: 'A320' },
   { name: 'Bulgaria Air', w: 0.7, fam: 'A320' },
   { name: 'Royal Air Maroc', w: 0.7, fam: 'B737', mixed: true, winter: true },
-  { name: 'Royal Jordanian', w: 0.5, fam: 'A320', mixed: true, winter: true },
+  // v0.14 (player's call) the winter round only from Gulf, North African and winter-sun airlines: not Royal Jordanian.
+  { name: 'Royal Jordanian', w: 0.5, fam: 'A320', mixed: true },
   { name: 'Saudia', w: 0.7, fam: 'A320', mixed: true, winter: true },
   { name: 'flynas', w: 0.7, fam: 'A320', mixed: true, winter: true },
   { name: 'flyadeal', w: 0.6, fam: 'A320', mixed: true, winter: true },
   { name: 'Air Algérie', w: 0.5, fam: 'B737', mixed: true, winter: true },
 ];
+
+/** v0.14 (player's call: keep the winter round, Jun–Aug) who may issue a winter RFP: a Gulf or North African airline,
+ *  or a winter-sun carrier based at the Canaries, Madeira, Cape Verde or the Red Sea resorts. */
+export const WINTER_TENDER_COUNTRIES = new Set(['SA', 'AE', 'QA', 'BH', 'KW', 'OM', 'MA', 'DZ', 'TN', 'LY', 'EG']);
+export const WINTER_SUN_BASES = new Set(['LPA', 'TFS', 'TFN', 'ACE', 'FUE', 'SPC', 'FNC', 'SID', 'BVC', 'RAI', 'HRG', 'SSH', 'RMF']);
+export const winterIssuer = (c: { country: string; base: string }): boolean => WINTER_TENDER_COUNTRIES.has(c.country) || WINTER_SUN_BASES.has(c.base);

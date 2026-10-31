@@ -8,7 +8,7 @@
 // an invitation to tender.
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { FAIR_BY_ID, FAIRS, fairEdition, TENDER_ISSUERS, TENDER_CLIENT_SEEDS, type Fair } from '../../data/fairs';
+import { editionWhere, FAIR_BY_ID, FAIRS, fairEdition, TENDER_ISSUERS, TENDER_CLIENT_SEEDS, type Fair } from '../../data/fairs';
 import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
 import { post } from '../core/ledger';
@@ -75,7 +75,8 @@ export function fairDays(f: Fair, y: number): { start: Minute; end: Minute; at: 
   const at = e.at;
   const s0 = fromUTC(e.y, e.m, e.d, 8);
   const start = s0 - localOffset(at, s0);
-  return { start, end: start + (e.days - 1) * DAY + 10 * 60, at, where: e.where };
+  // v0.14 an edition not announced yet reads '(planned)' (data/fairs.ts editionWhere).
+  return { start, end: start + (e.days - 1) * DAY + 10 * 60, at, where: editionWhere(e) };
 }
 
 /** The next edition of a fair that has not started yet (this year or next). Pure. */

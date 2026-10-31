@@ -4,11 +4,13 @@
 import { describe, expect, it } from 'vitest';
 import { takeCues } from '../core/cues';
 import { DAY, fromUTC } from '../core/time';
+import { TENDER_ISSUERS, winterIssuer } from '../../data/fairs';
 import type { GameState } from '../core/types';
-import { newGame, run } from '../contracts/testkit';
+import { leased, newGame, offer, run } from '../contracts/testkit';
+import { acceptOffer } from '../contracts/accept';
 import { newDirector } from '../ops/director';
 import { com } from './state';
-import { bidQuote, dailyTenders, decideTender, issueTender, offerWithBid, ourScore, placeBid, roundAt, roundName, TENDER, tenderBoard, withdrawBid } from './tenders';
+import { bidAircraft, bidQuote, dailyTenders, decideTender, issueTender, offerWithBid, ourScore, placeBid, roundAt, roundName, TENDER, tenderBoard, withdrawBid } from './tenders';
 
 /** A game at a date (the director re-drawn there). */
 function at(g: GameState, t: number): GameState {
@@ -18,6 +20,8 @@ function at(g: GameState, t: number): GameState {
 }
 
 function tender(g: GameState) {
+  // v0.14 bids run the offer feasibility: the fleet's C-checks done (a check due inside the summer is a red line).
+  for (const a of Object.values(g.fleet)) a.maint.lastC = g.now;
   for (let i = 0; i < 8; i++) {
     const t = issueTender(g);
     if (t) return t;
@@ -34,6 +38,26 @@ describe('rounds', () => {
     expect(roundAt(fromUTC(2027, 10, 1))).toBeNull();
     expect(roundName('S2028')).toBe('summer 2028');
     expect(roundName('W2027')).toBe('winter 2027/28');
+  });
+});
+
+describe('v0.14 the winter round (kept: Jun–Aug)', () => {
+  it('comes only from Gulf, North African and winter-sun airlines', () => {
+    const seen = new Set<string>();
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const g = at(newGame(seed), fromUTC(2027, 7, 10));
+      for (let i = 0; i < 12; i++) {
+        const t = issueTender(g, { round: roundAt(g.now)! });
+        if (!t) continue;
+        const c = g.clients[t.clientId];
+        expect(t.round).toBe('W2027');
+        expect(winterIssuer(c), c.name).toBe(true);
+        seen.add(c.name);
+      }
+    }
+    expect(seen.size).toBeGreaterThan(1);
+    expect(seen.has('Royal Jordanian')).toBe(false);
+    expect(TENDER_ISSUERS.filter((x) => x.winter).every((x) => x.name !== 'Royal Jordanian')).toBe(true);
   });
 });
 
@@ -130,6 +154,38 @@ describe('bidding', () => {
     expect(placeBid(g, t.id, { rate: q.budget, mgh: q.mgh, aircraftId: ac, crew: 'ours', start: q.start, end: q.end }).ok).toBe(false);
   });
 
+  it('v0.14 a bid runs the offer feasibility on our terms: no bid on a tail busy over the window; the form sees each tail on its dates', () => {
+    const g = newGame(12);
+    const t = tender(g);
+    const q = bidQuote(g, t.id)!;
+    const ac = q.aircraft.find((a) => a.level !== 'no')!;
+    // Another job on that tail over the whole tender window: the tail is busy.
+    const o = offer(g, 'seasonBase', { airport: 'LIS', start: q.start - 5 * DAY, days: Math.round((q.end - q.start) / DAY) + 10, wide: false });
+    o.broker = undefined;
+    expect(acceptOffer(g, o.id, [ac.id]).ok).toBe(true);
+    const busy = bidAircraft(g, t.id, { rate: q.budget, mgh: q.mgh, start: q.start, end: q.end, crew: 'ours' }).find((a) => a.id === ac.id)!;
+    expect(busy.level).toBe('no');
+    expect(busy.note).toMatch(/Busy/);
+    const r = placeBid(g, t.id, { rate: q.budget, mgh: q.mgh, aircraftId: ac.id, crew: 'ours', start: q.start, end: q.end });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).toMatch(/Busy/);
+    // Another tail that is free: the bid goes in.
+    const free = bidAircraft(g, t.id).find((a) => a.level !== 'no');
+    if (free) expect(placeBid(g, t.id, { rate: q.budget, mgh: q.mgh, aircraftId: free.id, crew: 'ours', start: q.start, end: q.end }).ok).toBe(true);
+  });
+
+  it('v0.14 a tail in a bid waiting for its award counts as in another bid (no second bid on it unawares)', () => {
+    const g = newGame(19);
+    const a = tender(g);
+    const b = tender(g);
+    const q = bidQuote(g, a.id)!;
+    const ac = q.aircraft.find((x) => x.level !== 'no')!;
+    expect(placeBid(g, a.id, { rate: q.budget, mgh: q.mgh, aircraftId: ac.id, crew: 'ours', start: q.start, end: q.end }).ok).toBe(true);
+    a.status = 'closed';
+    const overlap = a.bid!.start < b.ask.end && a.bid!.end > b.ask.start;
+    expect(bidAircraft(g, b.id).find((x) => x.id === ac.id)!.otherBids).toBe(overlap ? 1 : 0);
+  });
+
   it('offerWithBid moves the dates by whole days and carries our rate, MGH and their cabin crew', () => {
     const g = newGame(13);
     const t = tender(g);
@@ -207,6 +263,37 @@ describe('the award', () => {
     placeBid(g, t.id, { rate: q.budget, mgh: q.mgh, aircraftId: q.aircraft[0].id, crew: 'ours', start: q.start, end: q.end });
     run(g, t.resultAt + 6 * DAY);
     expect(['won', 'lost']).toContain(t.status);
+  });
+
+  it('v0.14 the award checks the tail again: busy since the bid, it goes to the 7-day path and signs on another aircraft', () => {
+    const g = newGame(18);
+    const second = leased(g);
+    const t = tender(g);
+    t.rivals = [];
+    const q = bidQuote(g, t.id)!;
+    const ac = q.aircraft.find((a) => a.level !== 'no' && a.id !== second.id)!;
+    expect(placeBid(g, t.id, { rate: q.budget, mgh: q.mgh, aircraftId: ac.id, crew: 'ours', start: q.start, end: q.end }).ok).toBe(true);
+    // Signed elsewhere over the window after the bid.
+    const o = offer(g, 'seasonBase', { airport: 'LIS', start: q.start - 5 * DAY, days: Math.round((q.end - q.start) / DAY) + 10, wide: false });
+    o.broker = undefined;
+    expect(acceptOffer(g, o.id, [ac.id]).ok).toBe(true);
+    const nk = Object.keys(g.contracts).length;
+    t.status = 'closed';
+    decideTender(g, t);
+    expect(t.status).toBe('won');
+    expect(t.result!.contractId).toBeUndefined();
+    expect(Object.keys(g.contracts).length).toBe(nk);
+    const won = g.offers[t.result!.offerId!];
+    expect(won.status).toBe('open');
+    expect(won.expires - g.now).toBe(TENDER.signDays * DAY);
+    expect(g.messages[0].title).toMatch(/choose an aircraft/);
+    expect(g.messages[0].body).toMatch(/Busy/);
+    // Signed on another aircraft within the week: the tender keeps its contract, no relation lost.
+    const rel = g.clients[t.clientId].relation;
+    expect(acceptOffer(g, won.id, [second.id], { priced: true }).ok).toBe(true);
+    dailyTenders(g);
+    expect(t.result!.contractId).toBeTruthy();
+    expect(g.clients[t.clientId].relation).toBe(rel);
   });
 
   it('a win the bid aircraft cannot take stays open to sign; letting it lapse costs relation', () => {

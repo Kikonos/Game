@@ -13,8 +13,8 @@ import type { CrisisKind } from './types';
 export * from './types';
 export { com, comStats, loadCommercial } from './state';
 export {
-  TENDER, aircraftWanted, bidQuote, decideTender, issueTender, offerWithBid, ourScore, placeBid, roundAt, roundName, tenderBoard, tenderById, tenderRow, withdrawBid,
-  type BidAircraft, type BidQuote, type TenderRow, type TenderRound,
+  TENDER, aircraftWanted, bidAircraft, bidQuote, decideTender, issueTender, offerWithBid, ourScore, placeBid, roundAt, roundName, tenderBoard, tenderById, tenderRow, withdrawBid,
+  type BidAircraft, type BidQuote, type BidTerms, type TenderRow, type TenderRound,
 } from './tenders';
 export { TRIPS, bookTrip, cancelTrip, fairDays, fairsAhead, nextEdition, planTickets, travelLegs, travellers, tripNow, tripQuote, tripTitle, tripsView, type FairView, type TravellerView, type TripQuote } from './trips';
 export { CRISIS, clientCrisisCard, crisesOf, crisisKindName, crisisLive, crisisOfEvent, devCrisis, knowsUs, startCrisis } from './crises';

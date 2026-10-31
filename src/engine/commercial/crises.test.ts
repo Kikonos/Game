@@ -98,6 +98,9 @@ describe('an administration', () => {
     const cl = byName(g, 'Bulgaria Air');
     g.contracts.kx = { id: 'kx', clientId: cl.id, status: 'active' } as never;
     expect(startCrisis(g, 'bankruptcy', cl.id)).toBeNull();
+    // v0.14 (player's call: a client never goes under while we fly for it) signed and not started yet counts too.
+    g.contracts.kx = { id: 'kx', clientId: cl.id, status: 'signed' } as never;
+    expect(startCrisis(g, 'bankruptcy', cl.id)).toBeNull();
     delete g.contracts.kx;
     startCrisis(g, 'bankruptcy', cl.id);
     expect(Object.values(g.offers).filter((o) => o.clientId === cl.id && o.status === 'open').length).toBe(0);
