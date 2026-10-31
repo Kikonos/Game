@@ -64,9 +64,19 @@ export function settleOverlaps(g: GameState, ac: Aircraft): number {
   const turn = turnOf(ac);
   let n = 0;
   let prev: Flight | undefined;
+  const here = ac.flightId ? null : ac.at;
+  let fromHere = false;
   for (const f of legs) {
     if (!prev) {
       prev = f;
+      fromHere = f.from === here;
+      continue;
+    }
+    // v0.12.1 the empty leg that takes the aircraft from where it stands, behind legs that leave from where it is not
+    // (they wait for it at their gate): it leads, nothing pushes it behind them.
+    if (!fromHere && here && f.from === here && f.kind === 'positioning') {
+      prev = f;
+      fromHere = true;
       continue;
     }
     // v0.12.1 by place as well as time (seed 9: RIX–BUD pushed behind a landing at Varna; seed 2: four copies of one

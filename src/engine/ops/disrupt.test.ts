@@ -288,7 +288,14 @@ describe('A7: a curfew diversion repositions after the curfew, on a rested crew'
     for (let i = 0; i < 100 && f.status !== 'done'; i++) skip(g, g.now + 30);
     g.decisions.length = 0;
     for (let i = 0; i < 3; i++) relinkPositioning(g, ac.id);
-    check();
+    const kept = check();
+    // The same leg, hour after hour: never planned again as the clock moves (one crew alarm at most, not one an hour).
+    for (let i = 0; i < 6; i++) {
+      skip(g, g.now + 30);
+      g.decisions.length = 0;
+      if (kept.status !== 'scheduled') break;
+      expect(scheduled(g, ac).filter((x) => x.kind === 'positioning' && x.from === alt).map((x) => x.id)).toEqual([kept.id]);
+    }
   });
 });
 

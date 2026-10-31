@@ -185,17 +185,19 @@ export function stranded(g: GameState, aircraftId: string, X: string): boolean {
 
 /**
  * v0.12.1 after a curfew diversion to X (the leg on its way there, or landed in the last day), the earliest the empty
- * leg out can leave: when a rested crew can fly it, theirs after the minimum rest or one flown in, whichever is
- * sooner (seed 9: AWL200 CGN–DUS flown on 3 h of rest after the Düsseldorf curfew diversion). -Infinity otherwise. Pure.
+ * leg out can leave: when its crew have had their minimum rest (seed 9: AWL200 CGN–DUS flown on 3 h of rest after the
+ * Düsseldorf curfew diversion). -Infinity otherwise. Pure.
  */
 function restAfterCurfew(g: GameState, a: Anchor, aircraftId: string, X: string): Minute {
   let f: Flight | undefined = a.kind === 'flight' ? g.flights[a.id] : undefined;
   if (a.kind === 'start') for (const y of flightsOf(g, aircraftId)) if (y.status === 'done' && y.kind !== 'deadhead' && (!f || y.std >= f.std)) f = y;
   if (!f || f.to !== X || !f.div || f.ops !== 'curfew' || (f.ata !== undefined && g.now - f.ata >= DAY)) return -Infinity;
+  // From the landing, never from now: the earliest stays put from one relink to the next (a fixed point). Their own
+  // crew after the rest is the crew there for sure (a crew flown in sooner is not: seed 2, no captain could make it).
   const home = g.company.homeBase;
   const blk = X === home ? 0 : ticketBlock(home, X);
-  const fresh = Math.ceil((g.now + (X === home ? 120 : blk + (blk <= 180 ? 6 * 60 : 14 * 60))) / 5) * 5;
-  return Math.min(restedDeparture(g, f) ?? fresh, fresh);
+  const fresh = Math.ceil(((f.ata ?? f.eta ?? f.sta) + (X === home ? 120 : blk + (blk <= 180 ? 6 * 60 : 14 * 60))) / 5) * 5;
+  return restedDeparture(g, f) ?? fresh;
 }
 
 /** v0.12.1 the aircraft is at X after a technical diversion that no onward leg carried on from (coach, rival, fix). Pure. */
@@ -294,6 +296,13 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
   let prev = null as { f: Flight; gap: Gap } | null;
   for (const f of [...soft].sort((x, y) => x.std - y.std)) {
     let gap: Gap = gaps.find((x) => x.b && (f.std < x.b.std || (f.from === x.a.to && f.std < x.b.sta))) ?? gaps[gaps.length - 1];
+    // v0.12.1 a late leg planned forward past the next commitment's landing (after a night curfew and the crew's rest)
+    // belongs to the last gap that starts where it leaves, not to the gap its time falls in: read there it was an
+    // orphan, removed and planned again on every settle (seed 2: CGN–DUS AWL263–273, a crew alarm each).
+    if (gap.a.to !== f.from) {
+      const own = gaps.filter((x) => x.a.to === f.from && x.a.sta <= f.std).pop();
+      if (own) gap = own;
+    }
     const pg: Gap | undefined = prev?.gap;
     // v0.12.1 only a chain already late for that gap's next commitment (S1027: a hop's return a week later, LIS–AMS
     // 27 Nov, was pulled into the gap before the 26 Nov trip and kept there, the aircraft "in Lisbon" for weeks).

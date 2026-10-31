@@ -195,6 +195,22 @@ describe('v0.12.1 settleOverlaps by place (A5)', () => {
     expect(p2.std).toBe(p2std);
     expect(r.std).toBe(p1.sta + turn);
   });
+
+  it('the empty leg out of where the aircraft stands is never pushed behind legs that leave from where it is not', () => {
+    calm();
+    const g = newGame(3);
+    const ac = owned(g);
+    ac.at = 'OPO';
+    const t0 = Math.floor(g.now / DAY) * DAY + 2 * DAY;
+    const b = (x: string, y: string) => blockMinutes(ac.typeId, x, y);
+    // A wave out of Lisbon still timed before the move that brings the aircraft there (it waits at its gate for it).
+    addFlight(g, { no: 'W1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'FAO', std: t0 + 4 * 60, sta: t0 + 4 * 60 + b('LIS', 'FAO'), pax: 150 });
+    addFlight(g, { no: 'W2', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'FAO', to: 'LIS', std: t0 + 6 * 60, sta: t0 + 6 * 60 + b('FAO', 'LIS'), pax: 150 });
+    const move = addFlight(g, { no: 'P1', aircraftId: ac.id, contractId: null, kind: 'positioning', from: 'OPO', to: 'LIS', std: t0 + 7 * 60, sta: t0 + 7 * 60 + b('OPO', 'LIS') });
+    const std0 = move.std;
+    settleOverlaps(g, ac);
+    expect(move.std).toBe(std0);
+  });
 });
 
 describe('delays and ripple', () => {
