@@ -140,7 +140,7 @@ export function permitOf(g: GameState, f: Flight): string | undefined {
  * Belgium's spare aircraft during the Brussels strike) is ordinary flying and waits for the airport like anyone. Pure.
  */
 const PERMIT_WORK = new Set<string>(['evacuation', 'repatriation', 'humanitarian', 'medical']);
-const permitEvent = (k: Contract | undefined): string | undefined => (k?.eventId && PERMIT_WORK.has(k.archetype) ? k.eventId : undefined);
+export const permitEvent = (k: Contract | undefined): string | undefined => (k?.eventId && PERMIT_WORK.has(k.archetype) ? k.eventId : undefined);
 
 /** v0.12.1 minutes a leg flies around a closed zone: the zone's detour over it, half that out of an open airport inside it. */
 export function detourFor(e: WorldEvent, z: WorldZone, f: Pick<Flight, 'from' | 'to'>): number {
@@ -642,10 +642,12 @@ export function waitAtGate(g: GameState, f: Flight, e: WorldEvent): boolean {
  * v0.12.1 other jobs' revenue legs a wait of f until `at` would drop (late past their cap), in departure order; with
  * `e`, not the legs that closure holds itself (they wait for the airport whichever aircraft flies them). Pure.
  */
-export function strandedLegs(g: GameState, f: Flight, at: Minute, e?: WorldEvent): Flight[] {
+export function strandedLegs(g: GameState, f: Flight, at: Minute, e?: WorldEvent, from: Minute = f.std): Flight[] {
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
   if (!ac) return [];
-  const plan = planRecovery(g, ac, f.to, at + f.block + typeOf(ac.typeId).turnMin, f.std, f);
+  // v0.12.1 (review) `from`: when the aircraft was free to leave without the closure (an empty leg the planner already
+  // put after the reopening: the jobs in between are the ones it strands).
+  const plan = planRecovery(g, ac, f.to, at + f.block + typeOf(ac.typeId).turnMin, Math.min(from, f.std), f);
   // A trip's own legs wait with it (waitLegs: accepted lateness); a positioning's job, or any other job, is dropped.
   const k = contractOf(g, f);
   const waits = isRevenue(f) && !!k && k.pattern.kind !== 'base';
@@ -658,11 +660,11 @@ export function strandedLegs(g: GameState, f: Flight, at: Minute, e?: WorldEvent
  * Air: sub-charter or swap aircraft". Asked once per aircraft and event while open; true while it is open (the leg
  * waits for the answer), false when nothing would be dropped.
  */
-export function strandedAsk(g: GameState, f: Flight, e: WorldEvent, at: Minute): boolean {
+export function strandedAsk(g: GameState, f: Flight, e: WorldEvent, at: Minute, from: Minute = f.std): boolean {
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
   if (!ac) return false;
   if (g.decisions.some((d) => d.kind === 'stranded' && d.data?.aircraftId === ac.id && d.data?.eventId === e.id)) return true;
-  const lost = strandedLegs(g, f, at, e);
+  const lost = strandedLegs(g, f, at, e, from);
   if (!lost.length) return false;
   const k = contractOf(g, lost[0]);
   const who = (k && g.clients[k.clientId]?.name) || 'the client';
@@ -684,9 +686,19 @@ export function strandedAsk(g: GameState, f: Flight, e: WorldEvent, at: Minute):
       { id: 'cancel', label: 'Cancel those legs', desc: 'Compensation to the client and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legs] },
     ],
     defaultOption: swap ? 'swap' : sub < pen ? 'subcharter' : 'cancel', expires: g.now + 12 * 60, ref: { kind: 'aircraft', id: ac.id },
-    data: { aircraftId: ac.id, eventId: e.id, flightId: f.id, rivalId },
+    data: { aircraftId: ac.id, eventId: e.id, flightId: f.id, rivalId, ...(from < f.std ? { from } : {}) },
   }, true);
   return g.decisions.some((d) => d.kind === 'stranded' && d.data?.aircraftId === ac.id);
+}
+
+/**
+ * v0.12.1 (review) the planner put an empty leg out of a closed airport after the reopening (contracts/schedule.ts);
+ * `from` is when it could have left otherwise. A later job it can no longer reach gets the stranded card now, as a leg
+ * held at the gate would (sub-charter, swap or cancel), instead of its legs being dropped unasked.
+ */
+export function closurePlanned(g: GameState, f: Flight, from: Minute): void {
+  const e = closedAirport(g, f.from, from, permitOf(g, f));
+  if (e) strandedAsk(g, f, e, f.std, from);
 }
 
 /** v0.12.1 events.ts findSwap (the AOG swap's search), set there: world.ts must not import events' internals at load. */
@@ -723,7 +735,8 @@ export function resolveStranded(g: GameState, d: Decision, opt: string): ActionR
   const ac = g.fleet[String(d.data?.aircraftId ?? '')];
   const e = eventsOf(g).find((x) => x.id === String(d.data?.eventId ?? ''));
   if (!f || !ac || !e || f.status !== 'scheduled') return { ok: true, msg: 'The aircraft is on its way' };
-  const lost = strandedLegs(g, f, Math.max(f.std, closedUntil(e) + 3 * 60), e);
+  const from = typeof d.data?.from === 'number' ? Math.max(g.now, d.data.from) : f.std;
+  const lost = strandedLegs(g, f, Math.max(f.std, closedUntil(e) + 3 * 60), e, from);
   if (!lost.length) return { ok: true, msg: 'Nothing is lost any more' };
   if (opt === 'subcharter') {
     const rival = String(d.data?.rivalId ?? '') || pickRival(g, ac.typeId, lost);

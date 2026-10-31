@@ -1469,8 +1469,18 @@ export function delayFlight(g: GameState, flightId: string, minutes: number, rea
  */
 export function pruneFlights(g: GameState): void {
   const ids: string[] = [];
+  // v0.12.1 (review) each aircraft's last leg flown stays: it says how the aircraft got where it stands (permitOf: an
+  // event's permit lets it out; S1027: CS-TCS's permit out of closed Goma lapsed when its inbound leg was pruned).
+  const lastOf = new Map<string, Flight>();
+  for (const f of Object.values(g.flights)) {
+    if (f.status !== 'done' || f.kind === 'deadhead' || !f.aircraftId) continue;
+    const x = lastOf.get(f.aircraftId);
+    if (!x || f.std > x.std || (f.std === x.std && f.id > x.id)) lastOf.set(f.aircraftId, f);
+  }
+  const keep = new Set(lastOf.values());
   for (const f of Object.values(g.flights)) {
     if (f.status !== 'done' && f.status !== 'cancelled') continue;
+    if (keep.has(f)) continue;
     if ((f.ata ?? f.sta) < g.now - (f.kind === 'deadhead' ? 2 : 7) * DAY) ids.push(f.id);
   }
   if (ids.length) removeFlights(g, ids);

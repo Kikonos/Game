@@ -21,7 +21,7 @@ import { cancelCost, cancelLegs, clearRestMarks, delayChain, liveOver, unitOf, w
 import { latePenalty } from '../ops/latePolicy';
 import { rotationOf, subcharter, subcharterQuote } from '../ops/subcharter';
 import { contractOf, isRevenue, stats, usd } from '../ops/util';
-import { closedAirport, closedUntil, eventsOf, setClosureTicketHook } from '../ops/world';
+import { closedAirport, closedUntil, eventsOf, permitOf, setClosureTicketHook } from '../ops/world';
 import { hurtProse, mkHurt, type GaugeSpec, type ProblemCard, type ReachSpec, hm, limitTone } from '../problems/types';
 import { crewIssuesFor, openDuties, planCrew, readyAt } from './check';
 import { crewWindows } from './ftl';
@@ -753,6 +753,14 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
       terms.push('standby');
     }
     if (hereLine && !free?.standby && !offFree) why = `${hereLine}${why}`;
+    // v0.12.1 (review) the departure airport closed by a world event (no permit): nobody is flown in or rests there
+    // first (BLU1574's cards offered "rest in Goma first" during the fighting): the leg waits for the reopening.
+    const shut = closedAirport(g, x.dep, Math.max(g.now, f.std), permitOf(g, f));
+    if (shut) {
+      why = `${city(x.dep)} is closed (${shut.title}) until ${at(closedUntil(shut), g.now)}: no crew can be flown in or rest there before then. ${f.no} waits for the reopening.`;
+      visuals.reach = undefined;
+      visuals.minimap = undefined;
+    }
     for (const c of cands.slice(0, 8)) details.push(`${c.name} (${city(c.loc)}): ${c.reason?.text ?? (c.reasons.length ? c.reasons.join('; ') : c.level === 'tight' ? 'legal, close to a limit' : 'legal, free')}`);
   }
   // v0.12.1 (C7) the report and its airport from one source: a duty under way reported at its first airport; the held

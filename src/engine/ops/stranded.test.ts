@@ -26,7 +26,7 @@ import { advanceTo } from '../sim';
 import { resolveDecision } from './events';
 import { lateCap } from './flights';
 import { acceptProposal, moveOutPlanned, unlockHead, hireHead } from './heads';
-import { closedAirport, closedAtDeparture, closureHits, healStranded, inZone, permitOf, startEvent, strandedLegs, worldEvent } from './world';
+import { closedAirport, closedAtDeparture, closedUntil, closureHits, healStranded, inZone, permitOf, startEvent, strandedLegs, worldEvent } from './world';
 
 /** A signed trip of these legs on this aircraft (ETOPS held so routing never blocks it); its revenue flights. */
 function trip(g: GameState, acId: string, legs: [string, string, number][], seats = 150) {
@@ -256,16 +256,17 @@ describe('(e) a wait that strands an aircraft another job needs asks first', () 
     if (!r.ok) throw new Error(r.error);
     const e = startEvent(g, { ...TPL_BY_ID.warIraq, closeP: 1, days: [8, 8] });
     expect(closedAirport(g, 'EBL')?.id).toBe(e.id);
-    // The closure dropped the planned positioning out (force majeure); the schedule plans it again at once.
+    // The closure dropped the planned positioning out (force majeure); the schedule plans it again at once, v0.12.1
+    // (review) after the reopening (never out of a closed airport), and asks then about the job it can't reach.
     relinkPositioning(g, ac.id);
     const pos = flightsOf(g, ac.id).find((f) => f.status === 'scheduled' && f.from === 'EBL');
     expect(pos).toBeDefined();
-    expect(strandedLegs(g, pos!, e.end + 3 * 60).length).toBeGreaterThan(0);
-    // Hour by hour to the gate (the closure re-plans the positioning out daily): the card comes up there.
+    expect(pos!.std).toBeGreaterThanOrEqual(closedUntil(e) + 3 * 60);
     for (let i = 0; i < 6 * 24 && !g.decisions.some((x) => x.kind === 'stranded'); i++) advanceTo(g, g.now + 60, new Set());
     const d = g.decisions.find((x) => x.kind === 'stranded');
+    expect(typeof d?.data?.from).toBe('number');
     const held = flightsOf(g, ac.id).find((f) => f.status === 'scheduled' && f.from === 'EBL')!;
-    const lost = strandedLegs(g, held, e.end + 3 * 60);
+    const lost = strandedLegs(g, held, e.end + 3 * 60, e, Number(d!.data!.from));
     expect(lost.length).toBeGreaterThan(0);
     expect(d?.title).toBe(`${ac.reg} can't reach Hamburg for ${g.clients[g.contracts[r.data!.contractId].clientId].name}: sub-charter or swap aircraft`);
     expect(d!.options.map((x) => x.id)).toEqual(['subcharter', 'swap', 'cancel']);

@@ -35,7 +35,8 @@ export { maxPax, seatNeed };
 import { ARCH_MULT, defaultSeats, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
-import { closedAirport, inWarZone, setClosureOfferHook, warRiskLandings } from '../ops/world';
+import { closedAirport, closedUntil, closurePlanned, inWarZone, permitEvent, setClosureOfferHook, warRiskLandings } from '../ops/world';
+import { setClosurePlannedHook, setOpenFromHook } from './schedule';
 import { curfewOk, curfewShift } from '../core/curfew';
 import type { HajjDates } from '../../data/worldCalendar';
 import { demandFactor } from '../ops/market';
@@ -1656,3 +1657,10 @@ function closureOn(g: GameState, stops: [string, Minute][], own?: string): World
   return null;
 }
 setClosureOfferHook(sweepOffersForClosure);
+// v0.12.1 (review) empty legs wait for a closed airport to reopen (3 h after, as a held leg does), unless the aircraft
+// flies under the closing event's permit (its job's own event).
+setOpenFromHook((g, code, t, contractId) => {
+  const e = closedAirport(g, code, t, contractId ? permitEvent(g.contracts[contractId]) : undefined);
+  return e ? closedUntil(e) + 3 * 60 : null;
+});
+setClosurePlannedHook(closurePlanned);

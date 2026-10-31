@@ -471,9 +471,10 @@ describe('v0.12.1 (review, COMM-S1) a charter series cancelled: past rotations a
     const mins = trips.map((x) => x.legs.filter((l) => l.kind !== 'positioning').reduce((s2, l) => s2 + l.sta - l.std, 0));
     const total = mins.reduce((a, b) => a + b, 0);
     const scale = (d: number) => c.penalties.cancelScale.find(([x]) => d >= x)?.[1] ?? 1;
-    const ahead = () => trips.reduce((s2, x, i) => (x.std > g.now ? s2 + c.product.price * (mins[i] / total) * scale((x.std - g.now) / DAY) : s2), 0);
+    const price = c.product.price;
+    const ahead = () => trips.reduce((s2, x, i) => (x.std > g.now ? s2 + price * (mins[i] / total) * scale((x.std - g.now) / DAY) : s2), 0);
     const legs = Object.values(g.flights).filter((f) => f.contractId === c.id && f.kind === 'revenue').sort((a, b) => a.std - b.std);
-    return { g, c, t, trips, mins, total, ahead, legs };
+    return { g, c, t, trips, mins, total, ahead, legs, price };
   };
 
   it('a past rotation we cancelled (compensation paid) adds nothing: only the rotations ahead', () => {
@@ -486,12 +487,12 @@ describe('v0.12.1 (review, COMM-S1) a charter series cancelled: past rotations a
   });
 
   it('a rotation under way is charged for its legs still to fly only', () => {
-    const { g, c, t, trips, mins, total, ahead, legs } = series(44);
+    const { g, c, t, trips, mins, total, ahead, legs, price } = series(44);
     run(g, t + 200);
     expect(legs[0].status).toBe('done');
     expect(legs[1].status).toBe('scheduled');
     const back = (trips[0].legs.filter((l) => l.kind !== 'positioning').at(-1)!);
-    const share = c.product.price * (mins[0] / total);
+    const share = price * (mins[0] / total);
     const want = ahead() + share * ((legs[1].block) / mins[0]);
     expect(back.from).toBe('PMI');
     expect(Math.abs(cancelPenalty(g, c.id) - Math.round(want))).toBeLessThanOrEqual(2);

@@ -699,7 +699,10 @@ describe('pruning', () => {
     skip(g, lastOn + 6 * DAY);
     expect(ids.every((id) => g.flights[id]?.status === 'done')).toBe(true);
     skip(g, lastOn + 9 * DAY);
-    expect(ids.some((id) => g.flights[id])).toBe(false);
+    // v0.12.1 (review) all but the aircraft's last leg flown (it says how the aircraft got where it stands).
+    const left = ids.filter((id) => g.flights[id]);
+    expect(left.length).toBe(1);
+    expect(g.flights[left[0]].sta).toBe(lastOn);
     pruneFlights(g);
   });
 });
