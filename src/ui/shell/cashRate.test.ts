@@ -18,6 +18,22 @@ describe('v0.12 profit per day (top bar)', () => {
     g.finance.current.lines = { acmiRevenue: 50_000_000 } as typeof g.finance.current.lines;
     expect(profitPerDay(g)!.perDay).toBeGreaterThan(0);
   });
+  it('v0.12.1 a one-off counts once for the month, spread over all its days (S1118: a refit on the 11th)', () => {
+    const g = newGame();
+    const k = g.finance.current.month;
+    g.now = monthStart(k) + 10 * DAY;
+    g.finance.current.lines = {};
+    const base = profitPerDay(g)!.perDay;
+    // A $1.6M refit and $1.44M of compensation on day 10 lower the rate by their month share, not by a tenth each.
+    g.finance.current.lines = { refit: -1_600_000, penalties: -1_440_000 } as typeof g.finance.current.lines;
+    expect(profitPerDay(g)!.perDay - base).toBeCloseTo(-3_040_000 / daysInMonth(k));
+    // A dry lease's month of rent invoiced in advance likewise (not ×3 on day 10).
+    g.finance.current.lines = { leaseIncome: 400_000 } as typeof g.finance.current.lines;
+    expect(profitPerDay(g)!.perDay - base).toBeCloseTo(400_000 / daysInMonth(k));
+    // The month's flying still runs at its daily pace.
+    g.finance.current.lines = { charterRevenue: 1_000_000 } as typeof g.finance.current.lines;
+    expect(profitPerDay(g)!.perDay - base).toBeCloseTo(100_000);
+  });
   it('in the first two days of a month shows last month\'s average', () => {
     const g = newGame();
     const k = g.finance.current.month;
