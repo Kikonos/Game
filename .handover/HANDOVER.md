@@ -532,3 +532,6 @@ Round E DONE (roundE c5c8c10) merged into acmi e094ab1 with B: tsc clean, 1492/1
 Bug hunt wf_6ff50ee1-ac7 DONE: 79 confirmed (18 high/39 med/22 low), 7 unclear, 7 refuted. Plan: .handover/updates/roundF-plan.md (also scratchpad/hunt/plan.md, result.json).
 Fix workflow wf_1e53de3a-b38 running: step0 (fix0) → lanes fixA..fixD → merge into acmi + section 6 verify → review → final. Decisions: forgive 15 min–3 h; series cancel per rotation; no depreciation yet.
 After it: Round C world tour, then RELEASE (player authorised "when you finish, push it to main").
+Fix workflow wf_1e53de3a-b38 DONE: acmi d1d422f (merge a2b1a74 + 9 review fixes). 1631 tests. Saves 30 d: 0/0. Results JSON: scratchpad/hunt/fixresult.json.
+RELEASE BLOCKER found by me: bot seed 1 --wide melts down (172 sub-charters, reliability 56.6, cash -1661k vs base 18/91.2/1573k; signs B744). Other seeds 2/3/5 fine/better; seed 7 cash 1641k→120k (check). Diagnosis agent running.
+Still open: A7 item 2 (waves inside base curfew), C7 core, B8 exact count, D5, C2, MOVE-S4, iPad/iPhone screenshots of new card labels, Goma force-majeure design call, S-DEPREC.
