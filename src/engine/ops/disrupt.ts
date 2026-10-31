@@ -394,7 +394,8 @@ function curfewCard(g: GameState, f: Flight, ac: Aircraft): boolean {
   if (rushOk) opts.push({ id: 'rush', label: 'Rush it out now', desc: `Priority handling and a quick boarding gain ${rush} min: lands before the curfew.`, tone: 'good', chips: [usd(-DISRUPT.rushTurn[wide(ac)] * 1.5), 'Lands in time'] });
   if (alt) {
     const bus = coachCost(pax, alt.roadKm);
-    opts.push({ id: 'divert', label: `Land at ${apName(alt.code)} (${alt.code}) instead`, desc: `${alt.code} is open; passengers go on by coach (${alt.roadKm} km). The aircraft repositions in the morning.`, chips: [charter ? usd(-(bus + handlingAt(ac, alt.station))) : 'Client pays the coaches', `Coach ~${hm((alt.roadKm / 70) * 60 + 30)}`, 'Relation −1'] });
+    // v0.12.1 the aircraft repositions once the curfew lifts and its crew have rested: the morning's first flight may wait.
+    opts.push({ id: 'divert', label: `Land at ${apName(alt.code)} (${alt.code}) instead`, desc: `${alt.code} is open; passengers go on by coach (${alt.roadKm} km). The aircraft repositions in the morning, once the crew have rested.`, chips: [charter ? usd(-(bus + handlingAt(ac, alt.station))) : 'Client pays the coaches', `Coach ~${hm((alt.roadKm / 70) * 60 + 30)}`, 'Relation −1', 'Morning flight may be late'] });
   }
   opts.push({ id: 'night', label: 'Night-stop, fly at first light', desc: `Hotels here for passengers and crew; off blocks ${fmtTime(night)} UTC to land as ${f.to} opens.`, chips: [charter ? usd(-(hotelCost(pax) + crewOn(f) * DISRUPT.crewRoom)) : usd(-crewOn(f) * DISRUPT.crewRoom), `${hm(night - g.now)} late`, 'Relation −1'] });
   opts.push({ id: 'cancel', label: 'Cancel the leg', desc: 'Compensation to the client and a reliability hit.', tone: 'bad', chips: ['Reliability −3'] });

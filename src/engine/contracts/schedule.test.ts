@@ -6,7 +6,8 @@ import { typeOf } from '../core/perf';
 import { DAY, fromUTC, localMinuteOfDay, monthKey } from '../core/time';
 import type { GameState } from '../core/types';
 import { acceptOffer, planPositioning } from '.';
-import { baseDays, computeWaves, flownRotations, gapMoves, type BasePattern } from './plan';
+import { baseDays, chainBackward, chainForward, computeWaves, flownRotations, gapMoves, localToUTC, type BasePattern } from './plan';
+import { curfewOk } from '../core/curfew';
 import { hamBase, leased, newGame, offer, owned, run } from './testkit';
 
 const liveFlights = (g: GameState, id: string) => flightsOf(g, id).filter((f) => f.status !== 'cancelled');
@@ -24,13 +25,36 @@ function turnsOk(g: GameState, id: string) {
 }
 
 describe('wave times', () => {
-  it('HAM–PMI on an A320: 06:00 / 12:30 / 19:00 local, or the first two', () => {
-    expect(computeWaves('HAM', ['PMI'], 'a320ceo', 3)).toEqual([360, 750, 1140]);
+  it('HAM–PMI on an A320: 06:00 / 12:30 local (v0.12.1 a 19:00 wave would land back in the night ban), or the first two', () => {
+    expect(computeWaves('HAM', ['PMI'], 'a320ceo', 3)).toEqual([360, 750]);
+    // No curfew at Lisbon: the third wave stays.
+    expect(computeWaves('LIS', ['FAO'], 'a320ceo', 3).length).toBe(3);
     expect(computeWaves('HAM', ['PMI'], 'a320ceo', 2)).toEqual([360, 750]);
   });
   it('long rotations get fewer waves instead of colliding', () => {
     const w = computeWaves('HAM', ['TFS'], 'a320ceo', 3);
     expect(w.length).toBeLessThan(3);
+  });
+});
+
+describe('v0.12.1 night curfews in the empty-move planner (A7)', () => {
+  const day = (code: string, hh: number, mm = 0, d = 10) => localToUTC(code, (Math.floor(fromUTC(2027, 2, 1) / DAY) + d) * DAY + hh * 60 + mm);
+  it('backward: a move that would land in the Heathrow night lands before it starts', () => {
+    const latest = day('LHR', 5, 30);
+    const ch = chainBackward('a320ceo', 'LIS', 'LHR', latest - DAY, latest)!;
+    expect(ch).not.toBeNull();
+    for (const l of ch) expect(curfewOk(l.from, l.std) && curfewOk(l.to, l.sta)).toBe(true);
+    expect(localMinuteOfDay('LHR', ch[ch.length - 1].sta)).toBeLessThan(23 * 60 + 30);
+    // No room before the curfew: no backward move (the planner then flies it forward, late).
+    expect(chainBackward('a320ceo', 'LIS', 'LHR', latest - 3 * 60, latest)).toBeNull();
+  });
+  it('forward: leaving late in the evening, a move lands when the curfew lifts (06:00 local), never inside it', () => {
+    const ch = chainForward('a320ceo', 'LIS', 'LHR', day('LIS', 22))!;
+    for (const l of ch) expect(curfewOk(l.from, l.std) && curfewOk(l.to, l.sta)).toBe(true);
+    expect(localMinuteOfDay('LHR', ch[ch.length - 1].sta)).toBeGreaterThanOrEqual(6 * 60);
+    // A Hamburg departure at 05:00 local waits for 06:00.
+    const h = chainForward('a320ceo', 'HAM', 'PMI', day('HAM', 5))!;
+    expect(localMinuteOfDay('HAM', h[0].std)).toBeGreaterThanOrEqual(6 * 60);
   });
 });
 
@@ -40,7 +64,8 @@ describe('base pattern plan', () => {
     it(`${waves} waves: maintenance nights every 7 days and monthly BH within 5% of target`, () => {
       const o = hamBase(g, fromUTC(2027, 4, 1), 91, waves);
       const p = o.pattern as BasePattern;
-      expect(p.waves).toHaveLength(waves);
+      // v0.12.1 the third wave would land back in the Hamburg night ban: two at most.
+      expect(p.waves).toHaveLength(Math.min(waves, 2));
       const t = typeOf('a320ceo');
       const days = flownRotations(p, 'a320ceo');
       expect(days.length).toBe(baseDays(p));

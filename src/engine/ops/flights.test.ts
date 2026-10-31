@@ -6,7 +6,7 @@ import { addFlight, flightsOf, removeFlights } from '../core/entities';
 import { blockMinutes, typeOf } from '../core/perf';
 import { DAY, monthKey } from '../core/time';
 import type { Aircraft, Contract, Flight, GameState, LedgerCat, Minute } from '../core/types';
-import { acceptOffer } from '../contracts';
+import { acceptOffer, relinkPositioning } from '../contracts';
 import { hamBase, leased, legsOffer, newGame, owned, run } from '../contracts/testkit';
 import { demoFlights } from '../dev';
 import { serialize } from '../save';
@@ -473,6 +473,40 @@ describe('schedule recovery', () => {
 });
 
 // ---------- AOG ----------
+
+describe('v0.12.1 recovery across a break in the chain (A6)', () => {
+  it('the legs the aircraft can no longer reach are dropped at the decision, not at the gate', () => {
+    calm();
+    const g = newGame(4);
+    const ac = owned(g);
+    const t0 = Math.floor(g.now / DAY) * DAY + 2 * DAY;
+    const b = (x: string, y: string) => blockMinutes(ac.typeId, x, y);
+    ac.at = 'AYT';
+    const l1 = addFlight(g, { no: 'R1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'AYT', to: 'AMS', std: t0 + 120, sta: t0 + 120 + b('AYT', 'AMS'), pax: 150 });
+    const l2 = addFlight(g, { no: 'R2', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'FAO', std: t0 + 20 * 60, sta: t0 + 20 * 60 + b('LIS', 'FAO'), pax: 150 });
+    const plan = planHold(g, ac, 'AYT', t0 + 72 * 60);
+    const touched = [...plan.cancels, ...plan.moves.map((m) => m.f)];
+    expect(touched).toContain(l1);
+    // R2 leaves Lisbon long before the aircraft could get there from Antalya: it is in the plan (dropped or moved).
+    expect(touched).toContain(l2);
+    const m2 = plan.moves.find((m) => m.f === l2);
+    if (m2) expect(m2.std).toBeGreaterThanOrEqual(t0 + 72 * 60 + b('AMS', 'LIS'));
+  });
+
+  it('a leg out of the maintenance airport is not swallowed by unplanned work: relink plans nothing beside it', () => {
+    calm();
+    const g = newGame(4);
+    const ac = owned(g);
+    const t0 = Math.floor(g.now / DAY) * DAY + 2 * DAY;
+    const b = (x: string, y: string) => blockMinutes(ac.typeId, x, y);
+    addFlight(g, { no: 'E1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'OPO', std: t0 + 8 * 60 + 20, sta: t0 + 8 * 60 + 20 + b('LIS', 'OPO'), pax: 150 });
+    addFlight(g, { no: 'E2', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'OPO', to: 'LIS', std: t0 + 12 * 60 + 25, sta: t0 + 12 * 60 + 25 + b('OPO', 'LIS'), pax: 150 });
+    relinkPositioning(g, ac.id);
+    g.now = t0 + 7 * 60 + 43;
+    g.maintenance.mxt = { id: 'mxt', aircraftId: ac.id, kind: 'line', at: 'LIS', start: g.now, end: g.now + 4 * 60, cost: 0, status: 'inWork', planned: false, cause: 'Ramp inspection', ev: 0 };
+    expect(relinkPositioning(g, ac.id)).toEqual([]);
+  });
+});
 
 describe('AOG', () => {
   it('pauses, posts the 5-option decision, holds departures until resolved; maint.end restores the aircraft', () => {

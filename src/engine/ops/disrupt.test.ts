@@ -9,6 +9,7 @@ import { DAY, localMinuteOfDay } from '../core/time';
 import type { Aircraft, Flight, GameState } from '../core/types';
 import { advanceTo } from '../sim';
 import { flightCrewStatus } from '../crew';
+import { curfewOk } from '../core/curfew';
 import { devDisruption, flowUnit } from './disrupt';
 import { resolveDecision } from './index';
 import { isRevenue, turnOf } from './util';
@@ -249,5 +250,43 @@ describe('A12–A14, EV-S06: card texts and times', () => {
       expect(localMinuteOfDay('FUE', morning)).toBe(6 * 60);
       expect(w.chips?.some((c) => / local \(.* UTC\)/.test(c))).toBe(true);
     }
+  });
+});
+
+describe('A7: a curfew diversion repositions after the curfew, on a rested crew', () => {
+  it('the empty leg to the curfew airport lands after it opens and leaves once a crew has rested', () => {
+    const g = newGame(4);
+    const ac = leased(g);
+    const t0 = Math.floor(g.now / DAY) * DAY + 3 * DAY;
+    const o = legsOffer(g, [['LIS', 'DUS', t0 + 20 * 60 + 30], ['DUS', 'LIS', t0 + DAY + 5 * 60 + 15]], 150);
+    o.broker = undefined;
+    const r = acceptOffer(g, o.id, [ac.id]);
+    if (!r.ok) throw new Error(r.error);
+    const [f] = flightsOf(g, ac.id).filter((x) => x.contractId === r.data!.contractId && isRevenue(x));
+    skip(g, f.std - 1);
+    g.decisions.length = 0;
+    expect(devDisruption(g, 'curfew', f.id)).toBe(true);
+    const d = g.decisions.find((x) => x.kind === 'curfew')!;
+    if (!d.options.some((x) => x.id === 'divert')) return;
+    expect(d.options.find((x) => x.id === 'divert')!.chips).toContain('Morning flight may be late');
+    expect(resolveDecision(g, d.id, 'divert').ok).toBe(true);
+    const alt = f.to;
+    expect(alt).not.toBe('DUS');
+    for (let i = 0; i < 3; i++) relinkPositioning(g, ac.id);
+    const check = () => {
+      const rep = scheduled(g, ac).filter((x) => x.kind === 'positioning' && x.from === alt && x.to === 'DUS');
+      expect(rep.length).toBe(1);
+      expect(curfewOk('DUS', rep[0].sta)).toBe(true);
+      expect(curfewOk(alt, rep[0].std)).toBe(true);
+      // Their crew landed late at night: the leg leaves no sooner than after their minimum rest or a crew flown in.
+      expect(rep[0].std - (f.ata ?? f.sta)).toBeGreaterThanOrEqual(6 * 60);
+      return rep[0];
+    };
+    check();
+    // Landed at the alternate: still clean after the relinks that follow.
+    for (let i = 0; i < 100 && f.status !== 'done'; i++) skip(g, g.now + 30);
+    g.decisions.length = 0;
+    for (let i = 0; i < 3; i++) relinkPositioning(g, ac.id);
+    check();
   });
 });

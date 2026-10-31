@@ -287,7 +287,14 @@ function recover(g: GameState, ac: Aircraft, legs: Flight[], at: string, ready: 
   for (let i = 0; i < legs.length; ) {
     const x = legs[i];
     shiftChecks(x.std);
-    if (x.from !== loc || (x.std >= ready && !x.delay)) break;
+    // v0.12.1 where the chain breaks (the aircraft is not where x leaves), the empty move relink puts in is counted
+    // (its block and a turn), so the legs it can no longer reach are dropped now, as the card said (S1027: an AOG card
+    // promised "4 legs cancelled", the answer cancelled none and the trip was cancelled at the gate a day later).
+    if (x.from !== loc) {
+      ready += emptyMoveMin(ac.typeId, loc, x.from) + turn;
+      loc = x.from;
+    }
+    if (x.std >= ready && !x.delay) break;
     const u = unitAt(g, legs, i);
     // Away from the station, the leg continuing the one that brought the aircraft here (a wave's return, a tour)
     // brings the aircraft and its passengers home: it is never dropped for lateness.

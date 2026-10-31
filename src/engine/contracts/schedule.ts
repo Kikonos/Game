@@ -5,6 +5,8 @@ import { addFlight, flightsOf, liveFlightsOf, ownFlightNo, removeFlights, retime
 import { etopsCap, typeOf } from '../core/perf';
 import { ticketBlock } from '../ops/commercial';
 import { safetyTrip } from '../core/safety';
+import { restedDeparture } from '../crew/duties';
+import { curfewOk } from '../core/curfew';
 import { DAY, dayStart } from '../core/time';
 import type { Contract, Flight, GameState, Minute } from '../core/types';
 import {
@@ -165,6 +167,21 @@ export function stranded(g: GameState, aircraftId: string, X: string): boolean {
   return flightsOf(g, aircraftId).some((f) => f.status === 'cancelled' && f.contractId === k && f.from === X && f.std >= last!.std);
 }
 
+/**
+ * v0.12.1 after a curfew diversion to X (the leg on its way there, or landed in the last day), the earliest the empty
+ * leg out can leave: when a rested crew can fly it, theirs after the minimum rest or one flown in, whichever is
+ * sooner (seed 9: AWL200 CGN–DUS flown on 3 h of rest after the Düsseldorf curfew diversion). -Infinity otherwise. Pure.
+ */
+function restAfterCurfew(g: GameState, a: Anchor, aircraftId: string, X: string): Minute {
+  let f: Flight | undefined = a.kind === 'flight' ? g.flights[a.id] : undefined;
+  if (a.kind === 'start') for (const y of flightsOf(g, aircraftId)) if (y.status === 'done' && y.kind !== 'deadhead' && (!f || y.std >= f.std)) f = y;
+  if (!f || f.to !== X || !f.div || f.ops !== 'curfew' || (f.ata !== undefined && g.now - f.ata >= DAY)) return -Infinity;
+  const home = g.company.homeBase;
+  const blk = X === home ? 0 : ticketBlock(home, X);
+  const fresh = Math.ceil((g.now + (X === home ? 120 : blk + (blk <= 180 ? 6 * 60 : 14 * 60))) / 5) * 5;
+  return Math.min(restedDeparture(g, f) ?? fresh, fresh);
+}
+
 /** v0.12.1 the aircraft is at X after a technical diversion that no onward leg carried on from (coach, rival, fix). Pure. */
 function ownFaultAt(g: GameState, aircraftId: string, X: string): boolean {
   let last: Flight | undefined;
@@ -183,6 +200,8 @@ function chainOk(legs: Flight[], X: string, Y: string | null, earliest: Minute):
   if (!legs.length) return false;
   if (legs[0].from !== X || legs[0].std < earliest) return false;
   for (let i = 1; i < legs.length; i++) if (legs[i].from !== legs[i - 1].to || legs[i].std < legs[i - 1].sta) return false;
+  // v0.12.1 an empty leg planned into a night curfew (an older plan) is planned again, clear of it (S1027: AMS–LHR at 04:50).
+  if (legs.some((f) => !curfewOk(f.from, f.std) || !curfewOk(f.to, f.sta))) return false;
   return Y === null || legs[legs.length - 1].to === Y;
 }
 
@@ -238,6 +257,14 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
   for (let i = 1; i < nodes.length; i++) {
     const b = nodes[i];
     if (b.std < cur.sta) {
+      // v0.12.1 a leg out of the maintenance airport that is not yet moved behind unplanned work (a ramp inspection,
+      // an AOG) follows it, as recovery will move it: the gap after it starts where it lands (seed 9: CTA–DUS planned
+      // empty beside EW6101 CTA–DUS, which the inspection had only delayed).
+      if (cur.kind === 'maint' && b.kind === 'flight' && b.from === cur.to) {
+        const std = Math.max(b.std, cur.sta);
+        cur = { ...b, std, sta: std + (b.sta - b.std) };
+        continue;
+      }
       if (b.sta > cur.sta) cur = b;
       continue;
     }
@@ -289,7 +316,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     // can be there) keeps that wait: re-planned from earlier, it was retimed or replaced to leave at once, its departure
     // held it again, and so on at one minute (seed 1: LGW–LHR after a curfew diversion, 500 copies, the safety net).
     const held = legs.reduce((m, l) => ((l.crewTries ?? 0) > 0 && l.status === 'scheduled' ? Math.max(m, l.std) : m), -Infinity);
-    const earliest = Math.max(a.kind === 'start' ? a.sta : a.sta + turn, held);
+    const earliest = Math.max(a.kind === 'start' ? a.sta : a.sta + turn, held, restAfterCurfew(g, a, aircraftId, X));
     if (!b) {
       // End gap: after a live contract's last leg, go home. v0.12.1 also when the aircraft was stranded (the rest of
       // its job, the legs that would have taken it away, cancelled): one way home, at once (crewFree).

@@ -10,6 +10,8 @@ import { BAL } from '../core/balance';
 import { blockMinutes, etopsRoute, NO_STOP_COUNTRY, planSector, reportMinutes, TECH_STOP_MIN, typeOf, withinEtops } from '../core/perf';
 import { DAY, dayIndex, dayStart, localOffset, monthKey, monthStart, toLocal } from '../core/time';
 import { hash } from '../core/util';
+import { curfewOk, curfewShift } from '../core/curfew';
+import { CURFEWS } from '../../data/opsData';
 import type { Contract, ContractOffer, Flight, GameState, LegTemplate, Minute, Requirements, SchedulePattern } from '../core/types';
 
 export type BasePattern = Extract<SchedulePattern, { kind: 'base' }>;
@@ -88,13 +90,39 @@ export function timeChain(legs: Hop[], std: Minute, typeId?: string): ChainLeg[]
   });
 }
 
-/** Empty move landing at `latest` (as late as possible), departing no earlier than `earliest`; null: no route or no time. */
+/**
+ * v0.12.1 minutes a chain must move so that no leg leaves or lands inside a strict night curfew (core/curfew.ts):
+ * < 0 earlier ('before': it lands before the curfew starts), > 0 later ('after': from the curfew's end); 0 when
+ * clean. Pure.
+ */
+function curfewMove(legs: ChainLeg[], dir: 'before' | 'after'): number {
+  for (const l of legs) {
+    if (!curfewOk(l.from, l.std)) return curfewShift(l.from, l.std, dir) - l.std;
+    if (!curfewOk(l.to, l.sta)) return curfewShift(l.to, l.sta, dir) - l.sta;
+  }
+  return 0;
+}
+
+/**
+ * Empty move landing at `latest` (as late as possible), departing no earlier than `earliest`; null: no route or no time.
+ * v0.12.1 never leaving or landing in a night curfew: moved earlier until it is clear (AWL200 CGN–DUS landed 05:20
+ * local, its crew on 3 h rest; seed 2 legs into Heathrow at 00:45).
+ */
 export function chainBackward(typeId: string, from: string, to: string, earliest: Minute, latest: Minute, cap = Infinity): ChainLeg[] | null {
   const r = route(typeId, from, to, cap);
   if (!r) return null;
   if (!r.length) return [];
   let std = latest - routeMinutes(r);
-  if (!rerouted.has(r)) return std < earliest ? null : timeChain(r, std);
+  if (!rerouted.has(r)) {
+    let legs = timeChain(r, std);
+    for (let k = 0; k < 4; k++) {
+      const d = curfewMove(legs, 'before');
+      if (!d) break;
+      std += d;
+      legs = timeChain(r, std);
+    }
+    return std < earliest || curfewMove(legs, 'before') ? null : legs;
+  }
   // Ferry days snap their night stops to local mornings: walk the start back until the chain lands in time.
   for (let k = 0; k < 8; k++) {
     if (std < earliest) return null;
@@ -106,9 +134,19 @@ export function chainBackward(typeId: string, from: string, to: string, earliest
   return null;
 }
 
+/** Empty move leaving at `earliest` (v0.12.1 or when the night curfews at either end allow: after them). */
 export function chainForward(typeId: string, from: string, to: string, earliest: Minute, cap = Infinity): ChainLeg[] | null {
   const r = route(typeId, from, to, cap);
-  return r ? timeChain(r, earliest, typeId) : null;
+  if (!r) return null;
+  let legs = timeChain(r, earliest, typeId);
+  if (!rerouted.has(r) && legs.length) {
+    for (let k = 0; k < 4; k++) {
+      const d = curfewMove(legs, 'after');
+      if (!d) break;
+      legs = timeChain(r, legs[0].std + d, typeId);
+    }
+  }
+  return legs;
 }
 
 // ---------- ferry days ----------
@@ -416,15 +454,19 @@ export function localToUTC(code: string, local: Minute): Minute {
 
 /**
  * Wave departure times (local minutes): 06:00, then each next wave after the longest rotation plus a turn,
- * while it leaves by 21:00 local; at most maxWaves (DESIGN §5.1.6). HAM–PMI on an A320: 06:00, 12:30, 19:00.
+ * while it leaves by 21:00 local; at most maxWaves (DESIGN §5.1.6). v0.12.1 inside the base's night curfew no
+ * wave leaves or comes home (strict: the grace is for delayed flights only): HAM–PMI on an A320 is 06:00 and 12:30
+ * (a 19:00 wave would land back at 00:30, inside the 23:00–06:00 ban).
  */
 export function computeWaves(base: string, dests: string[], typeId: string, maxWaves: number): number[] {
   const turn = typeOf(typeId).turnMin;
   const rot = Math.max(...dests.map((d) => blockMinutes(typeId, base, d) + turn + blockMinutes(typeId, d, base)));
-  const waves = [360];
+  const cf = CURFEWS[base];
+  const shut = (m: number) => !!cf && (cf.from <= cf.to ? m % DAY >= cf.from && m % DAY < cf.to : m % DAY >= cf.from || m % DAY < cf.to);
+  const waves = [cf && shut(360) ? roundUp5(cf.to) : 360];
   while (waves.length < maxWaves) {
     const next = roundUp5(waves[waves.length - 1] + rot + turn);
-    if (next > 21 * 60) break;
+    if (next > 21 * 60 || shut(next) || shut(next + rot)) break;
     waves.push(next);
   }
   return waves;
