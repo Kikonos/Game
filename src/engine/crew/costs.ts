@@ -2,7 +2,8 @@
 
 import { BAL } from '../core/balance';
 import { post } from '../core/ledger';
-import type { CrewMember, GameState, Pairing } from '../core/types';
+import { monthKey, monthStart } from '../core/time';
+import type { CrewMember, GameState, Minute, Pairing } from '../core/types';
 import { salariesLate } from './morale';
 import { crewIx } from './timeline';
 
@@ -31,14 +32,38 @@ export function dailyCrewCosts(g: GameState): void {
   post(g, 'hotels', -Math.round(hotels));
 }
 
-/** Month end: salaries × (1 + BAL.onCosts) under 'salaries' (crew still joining are not paid yet). */
+/**
+ * v0.12.1 the share of the month [a, b) a crew member is on the payroll: from the day they joined (payFrom), so a joiner
+ * on the 30th is paid a day, not the month (April paid a whole $11,750 for crew who joined at its end). Pure.
+ */
+export function paidShare(c: CrewMember, a: Minute, b: Minute): number {
+  const from = Math.max(a, c.payFrom ?? a);
+  return b > a ? Math.max(0, Math.min(1, (b - from) / (b - a))) : 0;
+}
+
+/** Month end: salaries × (1 + BAL.onCosts) under 'salaries' (crew still joining are not paid yet; v0.12.1 joiners pro rata). */
 export function monthlySalaries(g: GameState): void {
   let total = 0;
-  for (const c of Object.values(g.crew)) if (c.status !== 'joining') total += c.salary;
+  // (The month handler runs on the new month's first minute: the month paid is the one just ended.)
+  const a = monthStart(monthKey(g.now - 1));
+  for (const c of Object.values(g.crew)) if (c.status !== 'joining') total += c.salary * paidShare(c, a, g.now);
   post(g, 'salaries', -Math.round(total * (1 + BAL.onCosts)));
   for (const c of Object.values(g.crew)) c.discretion = 0;
   // v0.6: paid out of a negative balance, salaries are late.
   if (total > 0 && g.company.cash < 0) salariesLate(g);
+}
+
+/**
+ * v0.12.1 a crew member leaving the company is paid the part of the month they worked (with on-costs) before their record
+ * goes (they were paid nothing for it: the month-end run no longer finds them).
+ */
+export function payLeaver(g: GameState, c: CrewMember): void {
+  if (c.status === 'joining') return;
+  const a = monthStart(monthKey(g.now));
+  const b = monthStart(monthKey(g.now) + 1);
+  const worked = Math.max(0, g.now - Math.max(a, c.payFrom ?? a)) / (b - a);
+  const pay = Math.round(c.salary * worked * (1 + BAL.onCosts));
+  if (pay > 0) post(g, 'salaries', -pay);
 }
 
 /** Monthly salary bill including on-costs (for forecasts). */

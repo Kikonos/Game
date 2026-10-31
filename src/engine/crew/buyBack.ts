@@ -12,10 +12,10 @@ import { BAL } from '../core/balance';
 import { fmtTime } from '../core/time';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
-import type { BuyBackMode, CrewMember, GameState, Ref } from '../core/types';
+import type { BuyBackMode, CrewMember, CrewSlot, GameState, Ref } from '../core/types';
 import { usd } from '../ops/util';
 import { acceptable, type CrewPlan } from './check';
-import { buyBackDays, dayLabel, rosterStats, takeOffDays, type BuyBackDays } from './dayPlan';
+import { buyBackDays, dayLabel, restoreOffDays, rosterStats, takeOffDays, type BuyBackDays } from './dayPlan';
 import { crewName } from './generate';
 import type { Seg } from './rules';
 
@@ -68,24 +68,54 @@ export function repayText(c: CrewMember, bb: BuyBackDays): string {
 
 /**
  * Applies a buy-back once c is placed on the work in `segs`: the days off go and are repaid (takeOffDays 'bought'), the
- * pay is booked (salaries), the month is marked, and one notice says who works which day for what (its chime with it).
- * `what`: the flight number. `quiet`: the caller tells the player itself (a Crew Control fix's own message).
+ * month is marked, and one notice says who works which day for what (its chime with it). `what`: the flight number.
+ * `quiet`: the caller tells the player itself (a Crew Control fix's own message). v0.12.1 with the seat (`slot`) the pay
+ * waits on it until the crew member reports (payBuyBack), and is never paid when they come off first (undoBuyBack):
+ * seed 2 paid 30 of 58 buy-backs for days never worked ($16,059). Without a seat it is paid at once, as before.
  */
-export function applyBuyBack(g: GameState, c: CrewMember, segs: Seg[], bb: BuyBack, what: string, ref?: Ref, quiet = false): void {
-  takeOffDays(g, c, segs, 'bought');
+export function applyBuyBack(g: GameState, c: CrewMember, segs: Seg[], bb: BuyBack, what: string, ref?: Ref, quiet = false, slot?: CrewSlot): void {
+  const moved = takeOffDays(g, c, segs, 'bought');
   let m = recent.get(g);
   if (!m) recent.set(g, (m = new Map()));
   m.set(c.id, g.now);
   c.boughtOff = [...(c.boughtOff ?? []).filter((m) => m > bb.month - 13), bb.month];
-  post(g, 'salaries', -bb.cost);
-  const st = rosterStats(g);
-  st.offBoughtPaid = (st.offBoughtPaid ?? 0) + bb.cost;
+  if (slot) slot.buyBack = { cost: bb.cost, month: String(bb.month), days: moved.map(([k]) => k), repay: moved.map(([, to]) => to).filter((k): k is number => k !== null) };
+  else paid(g, bb.cost);
   if (quiet) return;
   pushMessage(g, {
     tone: 'info', cat: 'crew', title: buyBackTitle(c, bb, what),
-    body: `Paid at twice a day's pay. ${repayText(c, bb)}`.trim(),
+    body: `Paid at twice a day's pay${slot ? ' once they report' : ''}. ${repayText(c, bb)}`.trim(),
     ...(ref ? { ref } : {}),
   });
+}
+
+function paid(g: GameState, cost: number): void {
+  post(g, 'salaries', -cost);
+  const st = rosterStats(g);
+  st.offBoughtPaid = (st.offBoughtPaid ?? 0) + cost;
+}
+
+/** v0.12.1 the crew member reported for the work a day off was bought for: the pay is booked now. */
+export function payBuyBack(g: GameState, slot: CrewSlot): void {
+  if (!slot.buyBack) return;
+  paid(g, slot.buyBack.cost);
+  delete slot.buyBack;
+}
+
+/**
+ * v0.12.1 the seat a day off was bought for is given up before the report (a swap, a re-roster, the trip cancelled): the
+ * day off comes back, the day given in return is a work day again, the month may buy another, nothing is paid. A quiet
+ * note says so.
+ */
+export function undoBuyBack(g: GameState, c: CrewMember, slot: CrewSlot): void {
+  const bb = slot.buyBack;
+  if (!bb) return;
+  delete slot.buyBack;
+  restoreOffDays(g, c, bb.days, bb.repay);
+  c.boughtOff = (c.boughtOff ?? []).filter((m) => String(m) !== bb.month);
+  if (!c.boughtOff.length) delete c.boughtOff;
+  const back = bb.days.filter((k) => k >= 0).map(dayLabel);
+  pushMessage(g, { cue: null, tone: 'info', cat: 'crew', title: `${crewName(c)} keeps the day off${back.length ? ` on ${back.join(' and ')}` : ''}`, body: 'The trip it was bought for changed: nothing is paid.' });
 }
 
 /**

@@ -30,6 +30,31 @@ function away(days: number): { g: GameState; c: CrewMember; from: number } {
 const ticketsOf = (g: GameState, id: string): Flight[] => Object.values(g.flights).filter((f) => f.kind === 'deadhead' && f.status === 'scheduled' && f.crewIds.includes(id));
 
 describe('leave starts at home', () => {
+
+  it('v0.12.1 (C4) a ticket home logged with the released duty is never bought twice, and the leave keeps its start', () => {
+    const { g, c, from } = away(1);
+    // Just released at Hamburg; the ticket home straight on is logged with the duty (S1027: a cabin crew member's
+    // ticket home at 12:00 was bought again for the next morning at the release, 10:55).
+    const t = addDeadhead(g, { crewIds: [c.id], from: 'HAM', to: c.base, std: g.now + 60, sta: g.now + 4 * 60, cost: 250 });
+    c.log.push({ start: g.now - 8 * 60, end: g.now + 4 * 60, fdp: 8 * 60, block: 5 * 60, sectors: 2, augmented: false, disruptive: false });
+    c.restUntil = g.now + 16 * 60;
+    touchCrew(g);
+    const cash = g.finance.current.lines.deadhead ?? 0;
+    sendStrandedHome(g);
+    const home = ticketsOf(g, c.id).filter((f) => f.to === c.base);
+    expect(home.map((f) => f.id)).toEqual([t.id]);
+    expect(g.finance.current.lines.deadhead ?? 0).toBe(cash);
+    expect(c.blocks![0].from).toBe(from);
+  });
+
+  it('v0.12.1 (C4) one held that lands inside the leave gives way to an earlier one: still exactly one ticket home', () => {
+    const { g, c, from } = away(1);
+    addDeadhead(g, { crewIds: [c.id], from: 'HAM', to: c.base, std: from + 6 * 60, sta: from + 9 * 60, cost: 0 });
+    sendStrandedHome(g);
+    const home = ticketsOf(g, c.id).filter((f) => f.to === c.base);
+    expect(home.length).toBe(1);
+    expect(home[0].sta).toBeLessThanOrEqual(from);
+  });
   it('crew left at an outstation go home before their leave, even with a ticket out of there for a trip after it', () => {
     const { g, c, from } = away(1);
     // A ticket on from Hamburg for work after the leave (the planner had kept them there).

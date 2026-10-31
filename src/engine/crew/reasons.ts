@@ -108,8 +108,14 @@ export function rootReason(g: GameState, issues: LegalityIssue[], c: CrewMember,
   if (rest2 && !codes.has('rest')) set('rest', rest2.code === 'lateEarly' ? 'finished late: needs a whole local night before an early start' : 'back from a trip across time zones: needs local nights at home first');
   if (has('twoDays') && !codes.has('recovery')) set('recovery', 'due a 2-day weekend off this month');
   const loc = has('location');
-  if (loc) {
-    const arr = /earliest arrival (\w{3}) ([^,]+), must land by/i.exec(loc.text);
+  // v0.12.1 a later trip's ticket out that leaves from elsewhere: said as that ticket, never as where they are now
+  // (BLU1574: "In Goma: Lucía Torres is in Lisbon, not Goma" while she was in Goma).
+  const laterD = loc?.dutyId && p && !p.dutyIds.includes(loc.dutyId) ? g.duties[loc.dutyId] : undefined;
+  const laterF = laterD ? g.flights[laterD.flightIds[0]] : undefined;
+  const laterT = laterD ? laterD.deadheadIds.map((id) => g.flights[id]).find((f) => !!f && f.kind === 'deadhead' && f.status === 'scheduled' && f.crewIds.includes(c.id)) : undefined;
+  if (loc && laterF && laterT) set('place', `their ticket out for ${laterF.no} on ${fmtDay(laterF.std)} leaves ${city(laterT.from)}`);
+  else if (loc) {
+    const arr = /earliest arrival (\w{3}) ([^,]+), (?:must land by|after the crew reported)/i.exec(loc.text);
     const where = /^At (\w{3}), not (\w{3})/.exec(loc.text);
     const resting = /^Resting at (\w{3}) until ([^;]+);/.exec(loc.text);
     if (arr) set('place', `in ${city(resting?.[1] ?? c.loc)}, landing ${arr[2].trim()} at the earliest`);

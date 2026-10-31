@@ -161,7 +161,8 @@ export function dutyCandidates(g: GameState, dutyOrFlightId: string, role: Role)
     // A ride on our own flight (planned, or already booked: a Flight that is not a commercial ticket).
     const ride = !!o && (!!o.rideId || ((o as Partial<Flight>).kind ?? 'deadhead') !== 'deadhead');
     // v0.12.1 a ride costs no ticket.
-    const ticket = wet || ride ? 0 : ticketPrice(loc, dep);
+    // v0.12.1 plus a later trip's ticket out bought again from where this one leaves them (CrewPlan.retick).
+    const ticket = (wet || ride ? 0 : ticketPrice(loc, dep)) + (wet ? 0 : plan.retickCost ?? 0);
     const b28 = block28(segs, first.report) / 60;
     const reasons = [...new Set(issues.filter((i) => i.level !== 'legal').map((i) => i.text))];
     const lost = issues.some((i) => i.code === 'location' && i.level === 'illegal');

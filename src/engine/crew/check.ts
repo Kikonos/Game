@@ -8,7 +8,7 @@ import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } f
 import { dayFloorIssue, eveFloorIssue, monthFloorIssue, offIssue, offMovable } from './dayPlan';
 import { evalSegs, EXT_REST, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { flightsRev } from '../core/entities';
-import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, ridesHome, segsOf, segsTagOf, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
+import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, ridesHome, segsOf, segsTagOf, ticketPrice, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 
 export interface CrewPlan {
   level: Legality;
@@ -19,6 +19,10 @@ export interface CrewPlan {
   segs: Seg[];
   /** Tickets home from the departure airport the crew no longer needs (they stay on for this trip). */
   drop?: string[];
+  /** v0.12.1 later trips whose ticket out (bought from where the crew were) this trip leaves wrong: re-ticketed on taking it. */
+  retick?: string[];
+  /** v0.12.1 what those new tickets out cost. */
+  retickCost?: number;
 }
 
 /** Duties of p still to fly (not released), in report order. */
@@ -310,8 +314,28 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
     // the 168 h is never planned past).
     for (const i of ftl) if (i.code === 'recovery' && i.level === 'illegal' && i.dutyId && (g.duties[i.dutyId]?.report ?? Infinity) <= g.now) i.level = 'tight';
   }
+  // v0.12.1 a later trip's ticket out, not flown yet, from where the crew are now: this trip takes them elsewhere, so that
+  // ticket is bought again from where they will be (S1027: a rested captain in Goma refused for "Lisbon, not Goma",
+  // her out-ticket for a trip ten days on leaving Goma). Only a planned trip's first duty, not a tour's.
+  const retick: string[] = [];
+  let retickCost = 0;
+  if (!existing) {
+    for (const i of ftl) {
+      if (i.code !== 'location' || i.level !== 'illegal' || !i.dutyId || own.has(i.dutyId)) continue;
+      const q = g.pairings[g.duties[i.dutyId]?.pairingId ?? ''];
+      const qd = q && q.status === 'planned' && !q.tour ? openDuties(g, q)[0] : undefined;
+      if (!q || !qd || qd.id !== i.dutyId) continue;
+      const tk = qd.deadheadIds.map((id) => g.flights[id]).find((f) => !!f && f.kind === 'deadhead' && f.status === 'scheduled' && f.std - BAL.deadheadCheckIn > g.now && f.sta <= qd.report && aboard(f, c.id));
+      if (!tk) continue;
+      i.level = 'legal';
+      if (!retick.includes(q.id)) {
+        retick.push(q.id);
+        retickCost += ticketPrice(home ? home.to : last.restAt, tk.to);
+      }
+    }
+  }
   issues.push(...ftl);
-  return { level: levelOf(issues), issues, out, home, segs, drop: dropped.length ? dropped : undefined };
+  return { level: levelOf(issues), issues, out, home, segs, drop: dropped.length ? dropped : undefined, ...(retick.length ? { retick, retickCost } : {}) };
 }
 
 /**

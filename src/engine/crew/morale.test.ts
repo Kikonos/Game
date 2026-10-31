@@ -4,6 +4,7 @@
 import { monthlyRelationDrift } from '../contracts/relations';
 import { describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
+import { addFlight } from '../core/entities';
 import { DAY } from '../core/time';
 import type { CrewMember, GameState } from '../core/types';
 import { run } from '../contracts/testkit';
@@ -263,6 +264,18 @@ describe('service quality', () => {
     expect(g.crew[extra[0]].moraleWhy?.recognition).toBe(BAL.morale.recognition);
     expect(settleService(g, k)).toBeNull();
     expect(rel).toBeDefined();
+    // v0.12.1 (C14) legs we cancelled count against the job: 9 on time of 10 flown and 2 we cancelled is no recognition.
+    const before = g.crew[extra[0]].morale;
+    noteService(g, f);
+    for (const no of ['X1', 'X2']) addFlight(g, { no, aircraftId: f.aircraftId, contractId: k.id, kind: 'revenue', from: f.from, to: f.to, std: f.std + DAY, sta: f.sta + DAY }).status = 'cancelled';
+    onContractDoneMorale(g, k);
+    expect(g.crew[extra[0]].morale).toBe(before);
+    // And with none flown, none.
+    k.legsFlown = 0;
+    k.legsOnTime = 0;
+    noteService(g, f);
+    onContractDoneMorale(g, k);
+    expect(g.crew[extra[0]].morale).toBe(before);
   });
 
   it('v0.8: idle client satisfaction drifts 1 a month toward neutral (not in monthlyMorale); the loyalty input still scales the price', () => {

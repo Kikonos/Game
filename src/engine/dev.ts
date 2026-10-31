@@ -12,6 +12,7 @@ import { cabinFrom } from './newGame';
 import { makeCrewMember } from './crew/generate';
 import { rerosterFrom } from './crew';
 import { touchCrew, touchCrewState } from './crew/timeline';
+import { payLeaver } from './crew/costs';
 import { blockMinutes } from './core/perf';
 import { flightsOf } from './core/entities';
 import { nextId } from './core/entities';
@@ -545,6 +546,8 @@ export function devPeak(g: GameState, short: Partial<Record<Role, number>> = { C
       const c = Object.values(g.crew).filter((x) => x.role === role && x.ratings.includes(fam) && x.status !== 'onDuty').sort((a, b) => (a.id < b.id ? 1 : -1))[0];
       if (!c) break;
       removeCrew(g, c.id, g.now, g.now + 3650 * DAY);
+      // v0.12.1 paid for the part of the month worked.
+      payLeaver(g, c);
       delete g.crew[c.id];
       touchCrew(g);
     }

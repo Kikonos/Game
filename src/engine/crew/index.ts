@@ -12,7 +12,7 @@ import { afterDiversion, deletePairing, dutyLegality as dutyLevel, pairingSeats,
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
-import { autoRoster, closedWait, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, removeCrew, sendStrandedHome, settleRides, stayOn } from './roster';
+import { autoRoster, closedWait, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, removeCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets } from './roster';
 import { localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, v09Stats } from './dayPlan';
@@ -61,6 +61,7 @@ export {
 } from './control';
 import { escalateShortages } from './control';
 import { migrateRanks } from './migrate';
+import { payBuyBack } from './buyBack';
 export { migrateRanks } from './migrate';
 // v0.7.2 (UPDATE-0.7.2.md §12).
 export { crewAway, type CrewAway } from './away';
@@ -161,6 +162,8 @@ function onDutyReport(g: GameState, ev: SimEvent): void {
     }
     const own = dutySegs(g, c, p, d, out, null).find((x) => x.kind === 'duty')?.start ?? d.report;
     noteRecovery(c, Math.min(d.report, own), g);
+    // v0.12.1 a day off bought back for this trip is paid now that they report for it.
+    if (s.buyBack) payBuyBack(g, s);
     c.status = 'onDuty';
     if (c.awaySince === null && (dep !== c.base || d.restAt !== c.base)) c.awaySince = g.now;
   }
@@ -614,6 +617,8 @@ function queueAlert(g: GameState): void {
 function onCrewAlert(g: GameState): void {
   // Leftover-breach round: crew away with a leave (or their last day) starting within 3 h go home first.
   homeBeforeLeave(g);
+  // v0.12.1 nobody waits on duty at the gate past their limit: a duty held past a night's rest ends at its last landing.
+  splitOverlong(g);
   // The hourly check re-rosters a freshly short aircraft before warning (a roster not yet run is not a shortage).
   escalateShortages(g, { reroster: true });
   hourlyHook?.(g);
@@ -655,6 +660,8 @@ export const crewModule: SimModule = {
     // v0.9 old saves keep their published roster; the v0.9 planner takes over from the first unpublished day.
     dayPlanLoad(g);
     repairMissedTickets(g);
+    // v0.12.1 open duties no longer list rides on legs already gone (a relinked positioning leg removed with crew on it).
+    for (const d of Object.values(g.duties)) if (!d.done && d.deadheadIds.some((id) => !g.flights[id])) d.deadheadIds = d.deadheadIds.filter((id) => g.flights[id]);
     repairCutStandby(g);
     repairDiverted(g);
     repairMixedTrips(g);
@@ -665,8 +672,9 @@ export const crewModule: SimModule = {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
     const rev = flightsRev(g);
     if (lastFlightsRev.get(g) !== rev) {
-      // v0.12.1 riders whose flight was cancelled, removed or filled up are re-planned first.
+      // v0.12.1 riders whose flight was cancelled, removed or filled up are re-planned first; tickets gone come off duties.
       settleRides(g);
+      forgetGoneTickets(g);
       rosterNewFlights(g);
       lastFlightsRev.set(g, flightsRev(g));
     }
