@@ -14,6 +14,7 @@ import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
 import type { ClientLevel } from '../engine/contracts';
 import type { WorldEventKind } from '../engine/core/types';
+import { devCrisisNow, devFair, devTender, type CrisisKind } from '../engine/commercial';
 import { devDeportation, devDryLease, devEvacuation, devHajj, devLevel, devMixedCrew, devRivalBid, devWorldEvent, devWorldTour } from '../engine/dev';
 import { devTourStopClosed } from '../engine/ops/tourStop';
 import { demoFlights, devAddType, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
@@ -180,6 +181,8 @@ export type ModalSpec =
   | { kind: 'offerCall'; offerId: string }
   /** v0.9.1 an aircraft handed over: the celebration card, then 'Follow the delivery flight?'. */
   | { kind: 'delivered'; aircraftId: string }
+  /** v0.14 a tender's bid form (Contracts › Tenders). */
+  | { kind: 'tender'; tenderId: string }
   | { kind: 'followDelivery'; aircraftId: string };
 
 export interface Toast {
@@ -1323,6 +1326,38 @@ class GameStore {
       const g = this.game;
       if (!g) return '';
       const id = devWorldEvent(g, kind, tpl);
+      settle(g);
+      this.surfaceMessages();
+      if (id) this.openModal({ kind: 'worldEvent', eventId: id });
+      this.emit();
+      return id;
+    },
+    /** v0.14 Commercial: an RFP now (its bid form), you booked on the next fair (Team › Sales trips), a client crisis
+     *  ('strike' | 'grounding' | 'bankruptcy'; its event dialog). Each returns the id ('' when none fits). */
+    tender: (clientId?: string) => {
+      const g = this.game;
+      if (!g) return '';
+      const id = devTender(g, clientId);
+      settle(g);
+      this.surfaceMessages();
+      if (id) this.openModal({ kind: 'tender', tenderId: id });
+      this.emit();
+      return id;
+    },
+    fair: (fairId?: string) => {
+      const g = this.game;
+      if (!g) return '';
+      const id = devFair(g, fairId);
+      settle(g);
+      this.surfaceMessages();
+      if (id) this.navigate('company', { view: 'team', sel: { kind: 'head', id: 'sales' } });
+      else this.emit();
+      return id;
+    },
+    crisis: (kind: CrisisKind = 'strike', client?: string) => {
+      const g = this.game;
+      if (!g) return '';
+      const id = devCrisisNow(g, kind, client);
       settle(g);
       this.surfaceMessages();
       if (id) this.openModal({ kind: 'worldEvent', eventId: id });

@@ -13,6 +13,7 @@ import { NamedIcon } from '../components/NamedIcon';
 import { Bar, Seg, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { store } from '../store';
+import { SalesPanel, SalesRow } from './SalesTrips';
 
 const pct = (x: number) => Math.round(x * 100);
 /** A progress worth a bar ('18 of 25 sectors'); a one-off goal ('Not yet') shows its unlock line instead. */
@@ -249,13 +250,16 @@ export function TeamView({ g }: { g: GameState }) {
   const selId = store.nav.sel?.kind === 'head' ? store.nav.sel.id : (list.find((h) => h.unlocked && !h.person) ?? list.find((h) => h.person) ?? list[0])?.id;
   const v = list.find((h) => h.id === selId) ?? list[0];
   const earned = list.filter((h) => h.unlocked).length;
+  // v0.14 sales trips and fairs: the first row, its own panel.
+  const sales = selId === 'sales';
   return (
     <div className="v8-split v9-team">
       <div className="card v8-pane v8-list">
         <div className="v8-list-head small muted">{earned} of {list.length} earned · {list.filter((h) => h.person).length} hired</div>
-        {list.map((h) => <HeadRow key={h.id} v={h} on={h.id === v?.id} onPick={() => store.select({ kind: 'head', id: h.id })} />)}
+        <SalesRow g={g} on={sales} />
+        {list.map((h) => <HeadRow key={h.id} v={h} on={!sales && h.id === v?.id} onPick={() => store.select({ kind: 'head', id: h.id })} />)}
       </div>
-      <div className="card v8-pane v8-pane-r">{v && <Detail v={v} g={g} />}</div>
+      <div className="card v8-pane v8-pane-r">{sales ? <SalesPanel g={g} /> : v && <Detail v={v} g={g} />}</div>
     </div>
   );
 }

@@ -221,6 +221,8 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   approvals: 'Approvals', interest: 'Interest', capex: 'Aircraft purchases', assetSale: 'Asset sales', paint: 'Paint & livery',
   refit: 'Cabin refits', leaseReturn: 'Lease returns', leaseIncome: 'Lease income', warRisk: 'War-risk cover',
   disruption: 'Disruptions', compliance: 'Safety & compliance', delivery: 'Ferry companies',
+  // v0.14
+  sales: 'Sales and travel', badDebt: 'Bad debts',
 };
 
 // v0.12.1 the engine's lists (statementTotals splits the same way).
@@ -332,6 +334,11 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     // v0.9 round 4 credit control's note: the receivable on Finance.
     case 'receivable':
       return { tab: 'finance', sel: ref };
+    // v0.14 a tender: Contracts › Tenders; a sales trip: Company › Team › Sales trips.
+    case 'tender':
+      return { tab: 'contracts', view: 'tenders', sel: ref };
+    case 'trip':
+      return { tab: 'company', view: 'team', sel: { kind: 'head', id: 'sales' } };
   }
   return null;
 }

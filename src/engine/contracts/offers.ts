@@ -277,6 +277,8 @@ export function nearClient(ctx: Ctx, list: Client[]): Client | undefined {
  */
 export function clientWeight(g: GameState, c: Client): number {
   const cur = g.clients[c.id] ?? c;
+  // v0.14 an airline in administration sends no more work.
+  if (cur.ceased !== undefined) return 0;
   const lv = LEVEL_PERKS[levelOf(g, cur)].offers;
   const clean = g.company.reputation.clean;
   const cf = Math.max(0.05, 1 - (cur.cleanSensitivity * Math.max(0, 60 - clean)) / 60);

@@ -16,6 +16,7 @@ import { aogCard, checkCard, checkClashCard, noSlotCard, techProblems } from './
 import { hurtBadges, hurtProse, type ProblemCard } from './types';
 import { auditFindingCard, disruptionAt, disruptionCard, isDisruption, opsProblems, rampFindingCard } from './ops';
 import { approvalLateCard, approvalProblems } from './approval';
+import { clientCrisisCard, crisisProblems } from '../commercial/crises';
 import { airspaceClosedCard, clientUnhappyCard, dryLeaseInfoCard, leaseDamageCard, leaseLateCard, lostToRivalCard, uninsurableCard, worldProblems } from './world';
 
 export { hurtBadges, lateText, limitTone, mkHurt, usdShort } from './types';
@@ -82,6 +83,8 @@ export function problemFor(g: GameState, subject: ProblemRef): ProblemCard | nul
     case 'crewPeak': return crewPeakCard(g, id);
     // v0.12.1
     case 'approvalLate': return approvalLateCard(g, id);
+    // v0.14
+    case 'clientCrisis': return clientCrisisCard(g, id);
   }
 }
 
@@ -99,6 +102,8 @@ const KIND_RANK: ProblemKind[] = [
   'disruption', 'auditFinding', 'rampFinding',
   // v0.12.1
   'approvalLate',
+  // v0.14
+  'clientCrisis',
 ];
 const rankOf = (c: ProblemCard) => SEV[c.severity] * 100 + KIND_RANK.indexOf(c.subject.kind);
 
@@ -114,7 +119,7 @@ export function problems(g: GameState): ProblemCard[] {
   const key = keyOf(g);
   const hit = cache.get(g);
   if (hit && hit.key === key) return hit.list;
-  const list = [...crewProblems(g), ...techProblems(g), ...commercialProblems(g), ...moneyProblems(g), ...fleetProblems(g), ...worldProblems(g), ...opsProblems(g), ...approvalProblems(g)];
+  const list = [...crewProblems(g), ...techProblems(g), ...commercialProblems(g), ...moneyProblems(g), ...fleetProblems(g), ...worldProblems(g), ...opsProblems(g), ...approvalProblems(g), ...crisisProblems(g)];
   list.sort((a, b) => rankOf(a) - rankOf(b) || (a.by ?? Infinity) - (b.by ?? Infinity) || (a.subject.ref.id < b.subject.ref.id ? -1 : 1));
   cache.set(g, { key, list });
   return list;
@@ -135,7 +140,7 @@ export function problemAt(g: GameState, ref: Ref): ProblemCard | null {
     case 'maint': return checkClashCard(g, ref.id) ?? refitMissedCard(g, ref.id);
     case 'offer': return counterExpiryCard(g, ref.id) ?? offerFitCard(g, ref.id) ?? lostToRivalCard(g, ref.id);
     case 'client': return clientUnhappyCard(g, ref.id);
-    case 'event': return airspaceClosedCard(g, ref.id);
+    case 'event': return airspaceClosedCard(g, ref.id) ?? clientCrisisCard(g, ref.id);
     case 'contract': return contractCancelledCard(g, ref.id) ?? leaseLateCard(g, ref.id) ?? leaseDamageCard(g, ref.id) ?? g.finance.receivables.filter((r) => r.contractId === ref.id).map((r) => invoiceOverdueCard(g, r.id)).find((c) => !!c) ?? null;
     case 'decision': {
       const d = g.decisions.find((x) => x.id === ref.id);

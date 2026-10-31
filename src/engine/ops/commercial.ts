@@ -323,6 +323,28 @@ export interface CommercialFlight {
   legCount: number;
   /** Our crew on board. */
   crewIds: string[];
+  /** v0.14 a sales trip's traveller on board (no crew): their name and the trip. */
+  who?: string;
+  tripId?: string;
+}
+
+/** v0.14 our travellers' airline legs (commercial/trips.ts travelLegs), set by the commercial module (no import cycle). */
+type TravelLegs = (g: GameState, t0: Minute, t1: Minute) => { ticketId: string; legs: CommercialLeg[]; who: string; tripId: string }[];
+let travelHook: TravelLegs | null = null;
+export function setTravelHook(f: TravelLegs | null): void {
+  travelHook = f;
+}
+
+/** v0.14 the travellers' legs overlapping [t0, t1) kept by `keep`, as airline flights. Pure. */
+function travelFlights(g: GameState, t0: Minute, t1: Minute, keep: (l: CommercialLeg) => boolean): CommercialFlight[] {
+  const out: CommercialFlight[] = [];
+  if (!travelHook || !g.com?.trips?.length) return out;
+  for (const x of travelHook(g, t0, t1)) {
+    x.legs.forEach((leg, i) => {
+      if (keep(leg)) out.push({ id: `${x.ticketId}:${i}`, ticketId: x.ticketId, leg, legIndex: i, legCount: x.legs.length, crewIds: [], who: x.who, tripId: x.tripId });
+    });
+  }
+  return out;
 }
 
 const legCache = new WeakMap<Flight, { k: string; legs: CommercialLeg[] }>();
@@ -356,6 +378,7 @@ const ticketsLive = (g: GameState): Flight[] => deadheadFlights(g).filter((f) =>
 export function commercialFlightsBetween(g: GameState, t0: Minute, t1: Minute): CommercialFlight[] {
   const out: CommercialFlight[] = [];
   for (const f of ticketsLive(g)) if (f.std < t1 && f.sta > t0) out.push(...asFlights(g, f, (l) => l.dep < t1 && l.arr > t0));
+  out.push(...travelFlights(g, t0, t1, (l) => l.dep < t1 && l.arr > t0));
   return out.sort((a, b) => a.leg.dep - b.leg.dep || (a.id < b.id ? -1 : 1));
 }
 
@@ -363,6 +386,7 @@ export function commercialFlightsBetween(g: GameState, t0: Minute, t1: Minute): 
 export function commercialFlightsAirborne(g: GameState, t: Minute): CommercialFlight[] {
   const out: CommercialFlight[] = [];
   for (const f of ticketsLive(g)) if (f.std <= t && f.sta > t) out.push(...asFlights(g, f, (l) => l.dep <= t && l.arr > t));
+  out.push(...travelFlights(g, t, t + 1, (l) => l.dep <= t && l.arr > t));
   return out.sort((a, b) => (a.id < b.id ? -1 : 1));
 }
 

@@ -230,7 +230,11 @@ export function groupCommercial(list: CommercialFlight[]): CommercialFlight[] {
     const k = `${cf.leg.no}|${cf.leg.from}|${cf.leg.dep}`;
     const hit = by.get(k);
     if (!hit) by.set(k, { ...cf, crewIds: [...cf.crewIds] });
-    else for (const id of cf.crewIds) if (!hit.crewIds.includes(id)) hit.crewIds.push(id);
+    else {
+      for (const id of cf.crewIds) if (!hit.crewIds.includes(id)) hit.crewIds.push(id);
+      // v0.14 a traveller on the same flight as our crew.
+      if (cf.who && !hit.who) Object.assign(hit, { who: cf.who, tripId: cf.tripId });
+    }
   }
   return [...by.values()];
 }
@@ -238,6 +242,8 @@ export function groupCommercial(list: CommercialFlight[]): CommercialFlight[] {
 /** The airline flight a map selection id points at, with every ticket's crew on it (null once the ticket is gone). */
 export function commercialById(g: GameState, id: string): CommercialFlight | null {
   const ref = parseCommercialId(id);
+  // v0.14 a sales trip's seat ('<trip>~o' out, '~b' back): the traveller's leg.
+  if (ref?.ticketId.includes('~')) return commercialFlightsBetween(g, g.now - 2 * DAY, g.now + 7 * DAY).find((c) => c.id === id) ?? null;
   const ticket = ref ? g.flights[ref.ticketId] : undefined;
   const leg = ticket && ref ? commercialItinerary(g, ticket)[ref.legIndex] : undefined;
   if (!ticket || !leg || !ref) return null;

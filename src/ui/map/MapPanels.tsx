@@ -38,6 +38,7 @@ import { AircraftArt } from '../components/AircraftArt';
 import { Bar } from '../components/ui';
 import { money } from '../format';
 import { contractColor } from '../screens/palette';
+import { tripTitle } from '../../engine/commercial';
 import { type ModalSpec, store } from '../store';
 import { paintLabel } from '../screens/scheduleLogic';
 import { archLabel, capFirst, expiryLabel, hangarWord, offerDays } from '../screens/screenLogic';
@@ -725,6 +726,8 @@ const utcLocal = (t: number, code: string) => `${fmtTime(t)} UTC · ${fmtTime(t,
 
 function CommercialPanel({ g, id }: { g: GameState; id: string }) {
   const cf = safe(() => commercialById(g, id), null);
+  // v0.14 a sales trip's traveller on an airline seat.
+  if (cf?.tripId) return <TravellerPanel g={g} cf={cf} />;
   const ticket = cf ? g.flights[cf.ticketId] : undefined;
   if (!cf || !ticket) return null;
   const leg = cf.leg;
@@ -796,6 +799,34 @@ function CommercialPanel({ g, id }: { g: GameState; id: string }) {
           )}
         </Section>
       )}
+    </Panel>
+  );
+}
+
+/** v0.14 our traveller on an airline leg (a sales trip or a fair): who, the flight, where to and why. */
+function TravellerPanel({ g, cf }: { g: GameState; cf: NonNullable<ReturnType<typeof commercialById>> }) {
+  const trip = g.com?.trips.find((t) => t.id === cf.tripId);
+  const leg = cf.leg;
+  const t = g.now;
+  const state = t < leg.dep ? 'before' : t < leg.arr ? 'air' : 'done';
+  return (
+    <Panel title={<span className="mono">{leg.no}</span>} kicker={`Sales trip · ${leg.airline}`} onClose={() => store.select(undefined)}>
+      <div className="row wrap op-chips">
+        <TypeChip type="deadhead" />
+        <span className={`chip ${state === 'air' ? 'tone-air' : ''}`}>{state === 'air' ? 'Airborne' : state === 'before' ? 'Scheduled' : 'Landed'}</span>
+        {cf.legCount > 1 && <span className="chip">Leg {cf.legIndex + 1} of {cf.legCount}</span>}
+      </div>
+      <Section title="Flight">
+        <div className="row between"><b className="mono op-big">{leg.from} → {leg.to}</b><span className="small muted ellipsis">{AIRPORT_BY_CODE[leg.from]?.city ?? leg.from} – {AIRPORT_BY_CODE[leg.to]?.city ?? leg.to}</span></div>
+        <div className="op-kv">
+          <div><span>Departs</span><b className="num">{fmtDay(leg.dep)} · {utcLocal(leg.dep, leg.from)}</b></div>
+          <div><span>Arrives</span><b className="num">{fmtDay(leg.arr)} · {utcLocal(leg.arr, leg.to)}</b></div>
+        </div>
+      </Section>
+      <Section title="On board">
+        <div className="small"><b>{cf.who}</b>{trip ? ` · ${trip.kind === 'fair' ? tripTitle(trip) : `visiting ${g.clients[trip.clientId ?? '']?.name ?? 'a client'}`}` : ''}</div>
+        <button className="op-row" onClick={() => store.navigate('company', { view: 'team', sel: { kind: 'head', id: 'sales' } })}><Plane /><span className="op-wrap">Sales trips & fairs</span></button>
+      </Section>
     </Panel>
   );
 }

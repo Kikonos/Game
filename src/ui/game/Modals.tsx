@@ -1,5 +1,6 @@
 // Global dialogs (menu, saves, settings, confirm) and the in-game modal slot (decisions, game over).
 
+import { TenderModal } from '../modals/TenderModal';
 import { BookOpenText, Download, FolderOpen, Home, Lightbulb, Play, PlusCircle, RefreshCw, Save, Settings as SettingsIcon, Sparkles, Trash2, Upload, Volume2 } from 'lucide-react';
 import { sound, SOUND_MEANING } from '../sound';
 import { TRACKS } from '../music';
@@ -391,6 +392,7 @@ export function GlobalModals() {
     case 'rival': return s.game ? <RivalModal rivalId={m.rivalId} /> : null;
     case 'outlook': return s.game ? <OutlookModal /> : null;
     case 'worldEvent': return s.game ? <WorldEventModal eventId={m.eventId} /> : null;
+    case 'tender': return s.game ? <TenderModal tenderId={m.tenderId} /> : null;
     case 'headUnlocked': return s.game ? <HeadUnlockedModal key={m.id} id={m.id} ids={m.ids} /> : null;
     case 'counterReply': return s.game ? <CounterReplyModal {...m} /> : null;
     case 'offerCall': return s.game ? <CallModal key={m.offerId} offerId={m.offerId} /> : null;

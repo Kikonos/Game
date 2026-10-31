@@ -4,6 +4,7 @@
 
 import type { CabinLayout, RatingFamily } from '../../data/acmiTypes';
 import type { LogoId } from '../../data/livery';
+import type { CommercialState } from '../commercial/types';
 
 export type { LogoId };
 
@@ -396,6 +397,8 @@ export interface Client {
   forgiven?: [MonthKey, number];
   /** v0.8 this client is a rival operator (sub-charter in). */
   rivalId?: string;
+  /** v0.14 went into administration (commercial/crises.ts): no more work from it. */
+  ceased?: Minute;
 }
 
 /** v0.8 client relationship level (contracts/relations.ts). */
@@ -886,7 +889,9 @@ export type ProblemKind =
   /** Peak-staffing round: a busy month ahead short of crew (crew/forecast.ts). */
   | 'crewPeak'
   /** v0.12.1 a leg that needs an approval we won't hold by its departure (ops/approvalGate.ts). */
-  | 'approvalLate';
+  | 'approvalLate'
+  /** v0.14 a client crisis: a strike, an administration, an engine grounding (commercial/crises.ts). */
+  | 'clientCrisis';
 
 /** v0.7.1 what a card is about: the entity (as a message Ref) plus the kind. */
 export interface ProblemRef { kind: ProblemKind; ref: Ref }
@@ -1238,7 +1243,9 @@ export interface Ref {
     /** v0.9 a department head (Company › Team); v0.9 round 4 a receivable (Finance) for credit control's notes. */
     | 'head' | 'receivable'
     /** v0.11 a ramp inspection, an audit finding (Company › Safety). */
-    | 'ramp' | 'audit';
+    | 'ramp' | 'audit'
+    /** v0.14 a tender (Contracts › Tenders), a sales trip (Company › Team › Sales trips). */
+    | 'tender' | 'trip';
   id: string;
 }
 
@@ -1305,7 +1312,9 @@ export type LedgerCat =
   /** v0.11 Operations: diversions (handling, passenger care, hotels), extra handling, ramp fixes, audit corrective actions. */
   | 'disruption' | 'compliance'
   /** v0.11 a ferry company (or the seller) delivering an aircraft we may not ferry ourselves (ETOPS). */
-  | 'delivery';
+  | 'delivery'
+  /** v0.14 sales trips and trade fairs (tickets, passes, hotels); receivables written off when a client fails. */
+  | 'sales' | 'badDebt';
 
 export interface MonthStatement {
   month: MonthKey;
@@ -1336,6 +1345,8 @@ export interface Receivable {
   factored?: boolean;
   /** v0.9 credit controller: reminders sent (days overdue: 3, 10). */
   chased?: number;
+  /** v0.14 written off: the client went into administration (commercial/crises.ts); never paid, never chased. */
+  written?: true;
 }
 
 export interface Finance {
@@ -1744,6 +1755,8 @@ export interface GameState {
   director?: DirectorState;
   /** v0.11 Operations: disruptions, ramp inspections and the yearly audit (ops/ramp.ts, ops/audit.ts). load: ??= opsDefaults */
   opsx?: OpsState;
+  /** v0.14 Commercial: tenders, sales trips, client crises (engine/commercial). load: ??= empty */
+  com?: CommercialState;
   /** v0.9 achievements earned: id → when. load: ??= {} then a silent backfill */
   achievements?: Record<string, Minute>;
   /**

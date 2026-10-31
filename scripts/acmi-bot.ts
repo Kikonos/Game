@@ -104,6 +104,7 @@ import { createChecker } from './invariants';
 import { SETUP_BY_ID, type SetupId } from '../src/data/setups';
 import { createScenario, METRICS, SCENARIO_BY_ID, fmtValue, reliability, scenarioOutcome, scenarioView } from '../src/engine/scenario';
 import { fleetWords } from '../src/engine/newGame';
+import { bidQuote, bookTrip, com, fairsAhead, placeBid, travellers } from '../src/engine/commercial';
 
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
@@ -1381,9 +1382,44 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     if (!NOSIGN) {
       refits(g, t);
       dryLeases(g, t);
+      // v0.14 Commercial: bid on the season's tenders, a fair now and then.
+      tenderBids(g, t);
+      salesTrips(g, t);
     }
   }
   if ((newDay || urgent) && !NOSIGN) offers(g, t);
+}
+
+/**
+ * v0.14 tenders: a bid on each open RFP the bot can fly: a tail that fits and is in no other bid over the window
+ * (younger first, the client's family first), the client's MGH, 1–6 % under the market rate (more under as a
+ * Newcomer), their cabin crew when they like it.
+ */
+function tenderBids(g: GameState, t: Tally): void {
+  for (const tn of com(g).tenders) {
+    if (tn.status !== 'open' || tn.bid || g.now > tn.deadline - DAY) continue;
+    const q = bidQuote(g, tn.id);
+    if (!q) continue;
+    const ac = q.aircraft.filter((a) => a.level !== 'no' && a.otherBids === 0).sort((a, b) => Number(b.family === tn.family) - Number(a.family === tn.family) || a.age - b.age)[0];
+    if (!ac) continue;
+    const cut = (g.company.standing ?? 0) === 0 ? 0.06 : 0.01 + (hash(tn.id) % 5) / 100;
+    const res = placeBid(g, tn.id, { rate: Math.round((q.budget * (1 - cut)) / 10) * 10, mgh: q.mgh, aircraftId: ac.id, crew: tn.mixedPref ? 'mixed' : 'ours', start: q.start, end: q.end });
+    if (res.ok) act(g, t);
+  }
+}
+
+/** v0.14 sales trips: you to a fair about every 80 days when cash allows (the next one reachable within 45 days). */
+let lastTrip = -Infinity;
+function salesTrips(g: GameState, t: Tally): void {
+  if (g.now - lastTrip < 80 * DAY || g.company.cash < 1_500_000 || travellers(g)[0].tripId) return;
+  for (const f of fairsAhead(g)) {
+    if (f.tripId || f.start - g.now > 45 * DAY || f.start - g.now < 4 * DAY) continue;
+    if (bookTrip(g, 'ceo', { fairId: f.id }).ok) {
+      lastTrip = g.now;
+      act(g, t);
+      return;
+    }
+  }
 }
 
 /** Crew-planning round: when the player was first told a leg was short of crew (any notice on it or its trip). */
@@ -2457,6 +2493,22 @@ console.log(
         `findings open ${(au?.findings ?? []).filter((f) => !f.closed).length} (started ${(au?.findings ?? []).filter((f) => !f.closed && f.started).length}, overdue ${(au?.findings ?? []).filter((f) => f.overdue && !f.closed).length}) · suspended ${au?.suspended ? 'yes' : 'no'}`,
     );
     softTargets.push(['quiet days 45–75 % (v0.11 director, Normal pace)', quietShare(g) >= 0.45 && quietShare(g) <= 0.75, `${(quietShare(g) * 100).toFixed(0)} %`]);
+  }
+  {
+    // v0.14 Commercial: tenders by status, bids, wins (signed), trips and leads, crises by kind, money written off and back.
+    const c = com(g);
+    const st = c.stats ?? { bids: 0, won: 0, lost: 0, trips: 0, leads: 0, crises: 0, written: 0 };
+    const by = (s: string) => c.tenders.filter((x) => x.status === s).length;
+    const signed = c.tenders.filter((x) => x.result?.contractId).length;
+    const kinds = ['strike', 'grounding', 'bankruptcy'].map((k) => `${k} ${c.crises.filter((x) => x.kind === k).length}`).join('/');
+    const claims = c.crises.reduce((s2, x) => s2 + (x.claim?.paid ? x.claim.amount : 0), 0);
+    const salesCost = [...g.finance.history, g.finance.current].reduce((s2, m) => s2 - (m.lines.sales ?? 0), 0);
+    const crisisOffers = c.crises.reduce((s2, x) => s2 + ((g.world?.events ?? []).find((e) => e.id === x.eventId)?.offerIds.length ?? 0), 0);
+    console.log(
+      `v0.14 commercial: tenders ${c.tenders.length} (rounds ${Object.entries(c.rounds ?? {}).map(([k, v]) => `${k} ${v}`).join(', ') || '-'}; open ${by('open')}, closed ${by('closed')}, won ${by('won')}, lost ${by('lost')}, no bid ${by('noBid')}) · ` +
+        `bids ${st.bids}, won ${st.won} (signed ${signed}), lost ${st.lost} · trips ${st.trips} (leads ${st.leads}) · crises ${st.crises} (${kinds}; ${crisisOffers} requests) · ` +
+        `written off ${k$(st.written)}, claims paid ${k$(claims)} · sales and travel ${k$(salesCost)}`,
+    );
   }
   targets.push(['discretion never planned (v0.9)', (v9?.discretionPlanned ?? 0) === 0, `${v9?.discretionPlanned ?? 0}`]);
   targets.push(['runs in ≤ 20 s (v0.9 hard limit)', runSecs <= 20, `${runSecs.toFixed(1)} s`]);
