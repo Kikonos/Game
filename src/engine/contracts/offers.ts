@@ -13,7 +13,8 @@ import { cardMeta, offerFitCard } from '../problems';
 import { requestPause } from '../core/pause';
 import { blockMinutes, complement, etopsNeeded, planSector, typeOf } from '../core/perf';
 import { dutyNeed } from '../crew/duties';
-import { bunksFor, seatRest } from '../crew/restPlan';
+import { bunksFor, restOf, seatRest } from '../crew/restPlan';
+import { setProgrammeAugHook } from '../crew/sets';
 import { bestSlip, slipCost, type SlipPlan } from '../crew/slip';
 import { cabinPresets } from '../../data/cabins';
 import { schedule } from '../core/queue';
@@ -30,7 +31,7 @@ import { adhocGroupClients, clientPrefix, clientsOf, isBigClub, isCruiseLine, is
 import * as F from './flavor';
 import { paintTermsText, rollPaint, sideRng } from './paintTerms';
 import { cabinTarget, cabinTermsText, rollCabin } from './cabinTerms';
-import { anchorsOf, computeWaves, localToUTC, maxPax, programmeOf, route, routeMinutes, seatNeed, type ChainShape } from './plan';
+import { anchorsOf, computeWaves, flownRotations, localToUTC, longestChains, maxPax, programmeOf, route, routeMinutes, seatNeed, type ChainShape } from './plan';
 export { maxPax, seatNeed };
 import { ARCH_MULT, defaultSeats, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
@@ -1667,3 +1668,17 @@ setOpenFromHook((g, code, t, contractId) => {
   return e ? closedUntil(e) + 3 * 60 : null;
 });
 setClosurePlannedHook(closurePlanned);
+// v0.12.1 the relief pilots a base signed ahead needs before its duties roll in (crew/sets.ts augOf): its rotations as
+// the planner builds them, out and back in one duty (a rotation no crew can fly as one is slipped: two plain duties).
+setProgrammeAugHook((g, k, ac) => {
+  if (k.pattern.kind !== 'base') return 0;
+  const rest = restOf(g, ac.id);
+  const rots: ChainShape[] = flownRotations(k.pattern, ac.typeId).flat().map((r) => ({ from: k.pattern.kind === 'base' ? k.pattern.base : '', std: r.outStd, legs: [{ std: r.outStd, sta: r.outSta, to: r.dest }, { std: r.backStd, sta: r.backSta, from: r.dest }] }));
+  let lv: 0 | 1 | 2 = 0;
+  for (const c of longestChains(rots)) {
+    const mode = dutyNeed(g, ac.typeId, rest, c).mode;
+    if (mode === 'aug2') return 2;
+    if (mode === 'aug1') lv = 1;
+  }
+  return lv;
+});

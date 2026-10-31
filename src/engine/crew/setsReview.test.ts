@@ -9,7 +9,8 @@ import { DAY } from '../core/time';
 import type { GameState, Role } from '../core/types';
 import { planAircraft } from './duties';
 import { crewDays } from './forecast';
-import { addCrew, fixtureGame, seasonBase } from './fixtures';
+import { addCrew, fixtureContract, fixtureGame, seasonBase } from './fixtures';
+import { devAddType } from '../dev';
 import { crewAvailability, staffing } from './hr';
 import { crewPlan, familyNeeds, roundTargets, setsForStation, type FamilyPlan } from './sets';
 
@@ -257,5 +258,36 @@ describe('v0.12.1 the offer crew check counts relief pilots', () => {
     const held = crewAvailability(h, 'A320', t, win[0], win[1], 200);
     expect(held.byRole.CPT!.free).toBeLessThan(two.byRole.CPT!.free);
     expect(held.byRole.PUR!.free).toBe(two.byRole.PUR!.free);
+  });
+});
+
+describe('v0.12.1 relief pilots of a base signed ahead', () => {
+  /** A 747 base starting in 40 days: no flights or duties planned yet (they roll in 28 days ahead). */
+  const ahead = (base: string, dest: string) => {
+    const g = fixtureGame();
+    const acId = devAddType(g, 'b744');
+    if (!g.company.approvals.includes('augmented')) g.company.approvals.push('augmented');
+    const pilots = () => {
+      const n = familyNeeds(g).get('B747')!.need;
+      return (n.CPT ?? 0) + (n.FO ?? 0) + (n.CRP ?? 0);
+    };
+    const before = pilots();
+    const start = g.now + 40 * DAY;
+    const k = fixtureContract(g, { aircraftIds: [acId], start, end: start + 60 * DAY, pattern: { kind: 'base', base, dests: [dest], from: start, to: start + 60 * DAY, targetBH: 300, waves: [8 * 60], prefix: 'NB', maintEvery: 7 } });
+    expect(Object.values(g.flights).some((f) => f.contractId === k.id)).toBe(false);
+    return { before, after: pilots(), aug: familyNeeds(g).get('B747')!.aug };
+  };
+
+  it('a base whose rotations need four pilots counts its relief pilots on every set before its duties roll in', () => {
+    // Jeddah–Bangalore and back in one duty (seed 4 --b744 --aug): two captains and two first officers.
+    const x = ahead('JED', 'BLR');
+    expect(x.after).toBeGreaterThan(x.before);
+    expect(x.aug).toBe(true);
+  });
+
+  it('a rotation no crew can fly as one duty is slipped at the far end: two pilots a set', () => {
+    const x = ahead('LIS', 'EZE');
+    expect(x.after).toBe(x.before);
+    expect(x.aug).toBe(false);
   });
 });

@@ -7,8 +7,9 @@ import { ACMI_TYPES, type RatingFamily } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { isPilot, typeOf } from '../core/perf';
 import { DAY } from '../core/time';
-import type { Aircraft, GameState, Role } from '../core/types';
+import type { Aircraft, Contract, GameState, Role } from '../core/types';
 import { dropClientSeats } from './clientCrew';
+import { restOf } from './restPlan';
 import { conversionClasses, ratingsLost } from './conversion';
 import { crewExtraFor, rolesWithExtra } from './extraSeats';
 import { farBase, reserveRoles } from './farBase';
@@ -116,6 +117,17 @@ function augOf(g: GameState, aircraftId: string): { share: number; level: 0 | 1 
   let a = 0;
   let level: 0 | 1 | 2 = 0;
   const to = g.now + 30 * DAY;
+  // v0.12.1 a base signed ahead flies its relief pilots on every tour from its first day, but its duties roll in only
+  // 28 days ahead: until then its programme says (rated widebody pilots take 40–60 days to hire; seed 4's 747 at Jeddah
+  // hired its second captains the day the base started).
+  const ac = g.fleet[aircraftId];
+  let based = false;
+  for (const k of Object.values(g.contracts)) {
+    if ((k.status !== 'signed' && k.status !== 'active') || k.pattern.kind !== 'base' || k.end <= g.now || k.start > g.now + WINDOW || !k.aircraftIds.includes(aircraftId) || !ac) continue;
+    const lv = baseAug(g, k, ac);
+    if (lv > level) level = lv;
+    if (lv) based = true;
+  }
   for (const p of Object.values(g.pairings)) {
     if (p.aircraftId !== aircraftId || p.status === 'done' || p.status === 'broken') continue;
     let k = 0;
@@ -132,11 +144,29 @@ function augOf(g: GameState, aircraftId: string): { share: number; level: 0 | 1 
       if (lv > level) level = lv as 1 | 2;
     }
   }
-  return { share: n ? a / n : 0, level };
+  return { share: based ? 1 : n ? a / n : 0, level };
 }
 
 /** The planning window: signed work over the next 60 days shapes each aircraft's crew. */
 const WINDOW = 60 * DAY;
+
+/** v0.12.1 the relief pilots a base programme's longest days need on an aircraft (0–2), memoised per game. */
+const baseAugMemo = new WeakMap<GameState, Map<string, 0 | 1 | 2>>();
+function baseAug(g: GameState, k: Contract, ac: Aircraft): 0 | 1 | 2 {
+  const rest = restOf(g, ac.id);
+  const key = `${k.id}:${ac.id}:${ac.typeId}:${g.company.approvals.includes('augmented')}:${JSON.stringify(rest)}`;
+  let m = baseAugMemo.get(g);
+  if (!m) baseAugMemo.set(g, (m = new Map()));
+  let lv = m.get(key);
+  if (lv === undefined) m.set(key, (lv = programmeAugHook(g, k, ac)));
+  return lv;
+}
+
+/** Hook (contracts/offers.ts: the programme's longest chains through dutyNeed): the relief pilots a contract's days need. */
+let programmeAugHook: (g: GameState, k: Contract, ac: Aircraft) => 0 | 1 | 2 = () => 0;
+export function setProgrammeAugHook(f: typeof programmeAugHook): void {
+  programmeAugHook = f;
+}
 
 /**
  * v0.8 an aircraft away on a dry lease out: from its delivery ferry's departure until the lease ends (status
