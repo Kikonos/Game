@@ -298,8 +298,9 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     let gap: Gap = gaps.find((x) => x.b && (f.std < x.b.std || (f.from === x.a.to && f.std < x.b.sta))) ?? gaps[gaps.length - 1];
     // v0.12.1 a late leg planned forward past the next commitment's landing (after a night curfew and the crew's rest)
     // belongs to the last gap that starts where it leaves, not to the gap its time falls in: read there it was an
-    // orphan, removed and planned again on every settle (seed 2: CGN–DUS AWL263–273, a crew alarm each).
-    if (gap.a.to !== f.from) {
+    // orphan, removed and planned again on every settle (seed 2: CGN–DUS AWL263–273, a crew alarm each). A leg that
+    // continues the one before it (a hop's way back out, a fuel stop) stays with that chain.
+    if (gap.a.to !== f.from && !(prev && prev.f.to === f.from)) {
       const own = gaps.filter((x) => x.a.to === f.from && x.a.sta <= f.std).pop();
       if (own) gap = own;
     }
