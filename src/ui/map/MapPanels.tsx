@@ -42,7 +42,7 @@ import { contractColor } from '../screens/palette';
 import { tripTitle } from '../../engine/commercial';
 import { type ModalSpec, store } from '../store';
 import { paintLabel } from '../screens/scheduleLogic';
-import { archLabel, capFirst, expiryLabel, hangarWord, offerDays } from '../screens/screenLogic';
+import { archLabel, capFirst, expiryLabel, hangarWord, offerDays, offerModal } from '../screens/screenLogic';
 import { ALERT_BANNER, ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, deliveryTag, EVENT_KIND_LABEL, EVENT_TONE, hotelCount, leasedOut, mapLivery, OOH_SHORT, oohLine, parseCommercialId, parseSlipId, PURPOSE_LABEL, purposeChain, restChip, restingLine, restSeatNoun, shortIndex, type ShortRow, slipLine, slipSelId, slipWindow, upcomingLegs } from './mapLogic';
 import { MiniMap } from './MiniMap';
 import { eventIcon } from './WorldLayer';
@@ -716,7 +716,7 @@ function OfferPanel({ g, id }: { g: GameState; id: string }) {
         }) : <div className="small muted">Feasibility not available.</div>}
       </Section>
       <div className="op-actions">
-        <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'offer', offerId: o.id })}><FileSearch />Review offer</button>
+        <button className="btn btn-primary" onClick={() => store.openModal(offerModal(g, o.id))}><FileSearch />Review offer</button>
       </div>
     </Panel>
   );

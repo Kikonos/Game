@@ -13,7 +13,7 @@ import type {
   Aircraft, AircraftOffer, Archetype, Minute, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
 } from '../../engine/core/types';
 import { money } from '../format';
-import type { Tab } from '../store';
+import type { ModalSpec, Tab } from '../store';
 
 export const ARCH_LABEL: Record<Archetype, string> = {
   seasonBase: 'Season ACMI base', aogCover: 'AOG cover', adhoc: 'Ad hoc charter', sports: 'Sports charter', repatriation: 'Repatriation',
@@ -283,6 +283,16 @@ export function showLossMonth(g: GameState): boolean {
   if (statementTotals(g.finance.current.lines).profit < 0) return true;
   const closed = g.finance.history.filter((h) => h.closed && h.month !== g.finance.current.month).sort((a, b) => b.month - a.month);
   return closed.length >= 2 && statementTotals(closed[0].lines).profit < 0 && statementTotals(closed[1].lines).profit < 0;
+}
+
+/**
+ * v0.14 the dialog an offer opens from a list (Contracts › Market, the map, a card, the Inbox): the call card while
+ * it is a live phone call (open, not yet lapsed), else the offer dialog. The call card's own 'details' still opens
+ * the offer dialog. Pure.
+ */
+export function offerModal(g: GameState, offerId: string): ModalSpec {
+  const o = g.offers[offerId];
+  return o?.call && o.status === 'open' && o.expires > g.now ? { kind: 'offerCall', offerId } : { kind: 'offer', offerId };
 }
 
 export interface DeepLink {

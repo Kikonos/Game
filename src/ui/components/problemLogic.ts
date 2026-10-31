@@ -9,6 +9,7 @@ import type { GameState, Minute, Ref, Role } from '../../engine/core/types';
 import { hm, hurtProse } from '../../engine/problems/types';
 import type { GaugeSpec, ProblemAction, ProblemCard, ReachSpec, TimelineSpec } from '../../engine/problems/types';
 import type { ModalSpec, Tab } from '../store';
+import { offerModal } from '../screens/screenLogic';
 
 export interface TextSeg {
   text: string;
@@ -261,7 +262,8 @@ export function actionTarget(g: GameState, a: ProblemAction): ActionTarget {
       if (fam && ROLES.includes(r as Role)) return { modal: { kind: 'hire', role: r as Role, family: fam as RatingFamily, ...(Number(n) > 0 ? { count: Number(n) } : {}) } };
       return { modal: ROLES.includes(id as Role) ? { kind: 'hire', role: id as Role } : { kind: 'hire', family: id as RatingFamily } };
     }
-    case 'offer': return { modal: { kind: 'offer', offerId: id } };
+    // v0.14 a live call opens its call card (screenLogic offerModal).
+    case 'offer': return { modal: offerModal(g, id) };
     // v0.7.2: 'Plan crew rest' opens the refit dialog on crew rest; v0.7.3 'Plan a lower-deck module' picks that option.
     case 'refit': return { modal: /lower-deck/i.test(a.label) ? { kind: 'refit', aircraftId: id, section: 'rest', restOption: 'ldmcr' } : /crew rest|bunk|recliner/i.test(a.label) ? { kind: 'refit', aircraftId: id, section: 'rest' } : { kind: 'refit', aircraftId: id } };
     case 'lease': return { modal: { kind: 'lease', aircraftId: id } };

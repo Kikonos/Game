@@ -20,7 +20,7 @@ import { money } from '../format';
 import { store, useClock, useGame } from '../store';
 import { ArchIcon, Chips, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
-import { archLabel, COUNTDOWN_MIN, expiryLabel, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays, v09Chips } from './screenLogic';
+import { archLabel, COUNTDOWN_MIN, expiryLabel, offerModal, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays, v09Chips } from './screenLogic';
 import { analystView } from '../../engine/ops';
 import { ScreenHint } from '../components/ScreenHint';
 import { clientList } from '../../engine/contracts';
@@ -60,7 +60,7 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
   // v0.7.1 §13: a WHY? dot when the offer can't be flown as it stands or a counter is about to expire.
   const prob = problemAt(g, { kind: 'offer', id: o.id });
   return (
-    <button className={`card sc-offer ${o.urgency}`} onClick={() => store.openModal({ kind: 'offer', offerId: o.id })}>
+    <button className={`card sc-offer ${o.urgency}`} onClick={() => store.openModal(offerModal(g, o.id))}>
       <div className="row between sc-offer-top">
         <span className="row gap-8 upper dim ellipsis"><ArchIcon a={o.archetype} />{archLabel(o)}</span>
         <span className="row gap-8 nowrap">
