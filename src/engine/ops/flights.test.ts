@@ -13,7 +13,7 @@ import { serialize } from '../save';
 import { advanceTo } from '../sim';
 import { aogChance, delayFlight, resolveDecision } from '.';
 import { cancelContract, cancelCost } from '../contracts';
-import { cancelLegs, delayChain, legCostEstimate, pickRival, planHold, pruneFlights, subcharterCost, subcharterLegs, unitOf } from './flights';
+import { cancelLegs, delayChain, legCostEstimate, pickRival, planHold, pruneFlights, settleOverlaps, subcharterCost, subcharterLegs, unitOf } from './flights';
 import { breathe } from '../../test/breathe';
 import { delayOf, excusedLate, isOurDelay, latePenalty, onTimeLeg } from './latePolicy';
 
@@ -168,6 +168,30 @@ describe('departure and arrival', () => {
 });
 
 // ---------- delays, ripple, recovery ----------
+
+describe('v0.12.1 settleOverlaps by place (A5)', () => {
+  it('a leg leaving from elsewhere waits for the empty move between; a copy of an empty leg pushes nothing', () => {
+    calm();
+    const g = newGame(3);
+    const ac = owned(g);
+    const t0 = Math.floor(g.now / DAY) * DAY + 2 * DAY;
+    const b = (a: string, c: string) => blockMinutes(ac.typeId, a, c);
+    const turn = typeOf(ac.typeId).turnMin;
+    const a = addFlight(g, { no: 'T1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'FAO', std: t0 + 39, sta: t0 + 39 + b('LIS', 'FAO'), pax: 150 });
+    const x = addFlight(g, { no: 'T2', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'MAD', std: t0 + 60, sta: t0 + 60 + b('LIS', 'MAD'), pax: 150 });
+    settleOverlaps(g, ac);
+    expect(x.std).toBeGreaterThanOrEqual(a.sta + turn + b('FAO', 'LIS') + turn);
+    // Two copies of one empty leg, then a passengers' leg from where they land: the copy is no anchor.
+    const t1 = t0 + DAY;
+    const p1 = addFlight(g, { no: 'P1', aircraftId: ac.id, contractId: null, kind: 'positioning', from: 'MAD', to: 'LIS', std: t1, sta: t1 + b('MAD', 'LIS') });
+    const p2 = addFlight(g, { no: 'P2', aircraftId: ac.id, contractId: null, kind: 'positioning', from: 'MAD', to: 'LIS', std: t1 + 10, sta: t1 + 10 + b('MAD', 'LIS') });
+    const r = addFlight(g, { no: 'R1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'OPO', std: t1 + 30, sta: t1 + 30 + b('LIS', 'OPO'), pax: 150 });
+    const p2std = p2.std;
+    settleOverlaps(g, ac);
+    expect(p2.std).toBe(p2std);
+    expect(r.std).toBe(p1.sta + turn);
+  });
+});
 
 describe('delays and ripple', () => {
   it('a player delay ripples to later legs with turn minima kept and moves a planned check behind them', async () => {

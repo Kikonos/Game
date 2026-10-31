@@ -16,7 +16,7 @@ import type { ActionResult, Aircraft, Contract, Duty, Flight, GameState, Mainten
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { distance } from '../core/geo';
 import { noteLostLegs } from '../contracts/billing';
-import { isSoft } from '../contracts/plan';
+import { isSoft, route, routeMinutes } from '../contracts/plan';
 import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, seatRiders, crewSeatsBlocked, restSeatsBlocked, setClosedWaitHook, setRestDelayHook } from '../crew';
 import { fdpLimitAt } from '../crew/timeline';
 import { dutyLegality } from '../crew/duties';
@@ -63,15 +63,32 @@ export function settleOverlaps(g: GameState, ac: Aircraft): number {
   const legs = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled').sort((a, b) => a.std - b.std);
   const turn = turnOf(ac);
   let n = 0;
-  for (let i = 1; i < legs.length; i++) {
-    const prev = legs[i - 1];
-    const f = legs[i];
-    const ready = prev.sta + turn;
-    if (f.std >= ready) continue;
-    moveFlight(g, f, ready, 'Late inbound aircraft');
-    n++;
+  let prev: Flight | undefined;
+  for (const f of legs) {
+    if (!prev) {
+      prev = f;
+      continue;
+    }
+    // v0.12.1 by place as well as time (seed 9: RIX–BUD pushed behind a landing at Varna; seed 2: four copies of one
+    // LHR–LGW empty leg stacked end to end, the passengers' leg behind them). An empty leg that repeats the one before
+    // it is a copy: relink removes it, it pushes nothing. Any other leg leaving from elsewhere waits for the empty
+    // move relink puts in between (its block and two turns).
+    const broken = prev.to !== f.from;
+    if (broken && f.kind === 'positioning' && f.from === prev.from && f.to === prev.to) continue;
+    const ready = prev.sta + turn + (broken ? emptyMoveMin(ac.typeId, prev.to, f.from) + turn : 0);
+    if (f.std < ready) {
+      moveFlight(g, f, ready, 'Late inbound aircraft');
+      n++;
+    }
+    prev = f;
   }
   return n;
+}
+
+/** v0.12.1 block minutes of the empty move from → to (fuel stops included; the great-circle block without a route). Pure. */
+function emptyMoveMin(typeId: string, from: string, to: string): number {
+  const r = route(typeId, from, to);
+  return r ? routeMinutes(r) : blockMinutes(typeId, from, to);
 }
 
 /**

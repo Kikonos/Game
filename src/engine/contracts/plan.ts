@@ -195,6 +195,20 @@ export function isSoft(g: GameState, f: Flight): boolean {
 }
 
 /**
+ * v0.12.1 a diversion of this aircraft whose onward is not decided yet: turned for the alternate, or on the ground
+ * there with the onward card open. Until it is, the aircraft's next move is unknown: the passengers may fly on in it
+ * (no empty leg), go by coach (one empty leg after), or wait for the morning. Pure.
+ */
+export function onwardPending(g: GameState, aircraftId: string): boolean {
+  for (const f of liveFlightsOf(g, aircraftId)) if (f.div && f.status === 'enroute' && !f.div.settled && !f.contOf) return true;
+  return g.decisions.some((d) => {
+    if (d.kind !== 'divertOnward') return false;
+    const f = g.flights[String(d.data?.flightId)];
+    return !!f?.div && f.aircraftId === aircraftId && !f.div.settled && !f.contOf;
+  });
+}
+
+/**
  * Hard commitments of an aircraft from now on, by departure: scheduled or airborne legs except soft positioning,
  * planned or running maintenance, and the not-yet-generated tail of signed base contracts (virtual).
  * Leads with a 'start' node (where it is now) unless it is airborne.

@@ -9,7 +9,7 @@
 
 import { AIRPORTS, AIRPORT_BY_CODE } from '../../data/airports';
 import { CTOT_CAUSES, CURFEWS, DISRUPT, ISLAND, MAINLAND_EU, MEDICAL_EVENTS, TECH_CAUSES, TURN_CAUSES, WEATHER_CAUSES } from '../../data/opsData';
-import { addFlight, flightsOf, markFlightsChanged, nextId, touchFlights } from '../core/entities';
+import { addFlight, flightsOf, markFlightsChanged, nextId, removeFlights, touchFlights } from '../core/entities';
 import { haversine, interpolateGC } from '../core/geo';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
@@ -17,14 +17,17 @@ import { blockMinutes, fullLength, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { hashUnit } from '../core/util';
 import { divPos } from '../core/query';
-import { curfewEnd, inCurfew } from '../core/curfew';
-import { DAY, dayStart, fmtDuration, fmtTime, yearOf } from '../core/time';
+import { curfewEnd, curfewOk, curfewShift, inCurfew } from '../core/curfew';
+import { DAY, dayStart, fmtDuration, fmtTime, localMinuteOfDay, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, Decision, DecisionOption, DisruptCause, DisruptKind, Flight, GameState, MaintenanceEvent, Minute, OpsState, SimEvent } from '../core/types';
 import { bumpClient } from '../contracts/relations';
-import { afterDiversion, applyCrewFix, crewControl, flightCrewStatus, removeCrew } from '../crew';
+import { afterDiversion, applyCrewFix, crewControl, flightCrewStatus, removeCrew, rerosterFrom } from '../crew';
+import { continuationFits, restedDeparture } from '../crew/duties';
 import { crewName } from '../crew/generate';
 import { emergencyFactor, OPS_LIVE, optionalFactor } from './director';
-import { delayChain, moveFlight, pickRival, rivalFactor, subcharterCost, subcharterLegs, unitOf, cancelLegs } from './flights';
+import { applyHold, delayChain, moveFlight, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLegs, unitOf, cancelLegs } from './flights';
+import { isSoft } from '../contracts/plan';
+import { relinkPositioning } from '../contracts/schedule';
 import { aogDecision, ask, autoDecide } from './events';
 import { engineersAt } from './maintenance';
 import { bumpReliable, contractOf, isRevenue, turnOf, usd } from './util';
@@ -73,6 +76,22 @@ const roll = (g: GameState, key: string) => hashUnit(`${g.seed}:ops:${key}`);
 const pickOf = <T>(g: GameState, key: string, xs: readonly T[]): T => xs[Math.floor(roll(g, key) * xs.length) % xs.length];
 const span = (g: GameState, key: string, [lo, hi]: [number, number]) => Math.round(lo + roll(g, key) * (hi - lo));
 const city = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
+/** v0.12.1 the city, or the city and the airport where the city has more than one ("London Gatwick", "London Heathrow"). */
+const place = (code: string) => {
+  const A = AIRPORT_BY_CODE[code];
+  if (!A) return code;
+  return AIRPORTS.some((x) => x.code !== code && x.city === A.city) ? `${A.city} ${A.name}` : A.city;
+};
+/** v0.12.1 the first departure from `std` on that leaves `dep` and lands at `arr` (after `block`) outside their strict curfews. Pure. */
+function clearOfCurfews(dep: string, arr: string, std: Minute, block: number): Minute {
+  let t = std;
+  for (let i = 0; i < 3; i++) {
+    t = curfewShift(dep, t, 'after');
+    if (curfewOk(arr, t + block)) break;
+    t = curfewShift(arr, t + block, 'after') - block;
+  }
+  return t;
+}
 /** v0.11 the airport itself ('Gatwick'), where the city alone is ambiguous (London has several). */
 const apName = (code: string) => AIRPORT_BY_CODE[code]?.name ?? code;
 const wide = (ac: Aircraft) => (typeOf(ac.typeId).body === 'wide' ? 1 : 0);
@@ -185,7 +204,7 @@ function altChips(o: AltOption, dest: string): string[] {
   ];
 }
 
-const altLabel = (o: AltOption) => `Divert to ${city(o.code)} (${o.code})`;
+const altLabel = (o: AltOption) => `Divert to ${place(o.code)} (${o.code})`;
 
 // ---------- money helpers ----------
 
@@ -383,7 +402,7 @@ function resolveCurfew(g: GameState, d: Decision, opt: string): ActionResult {
       if (!alt || !AIRPORT_BY_CODE[alt]) return { ok: false, error: 'No open airport nearby' };
       const to0 = f.to;
       rerouteLeg(g, f, alt, 'weather');
-      f.div = { to0, at: g.now, eta0: f.sta, cause: 'weather' };
+      f.div = { to0, at: g.now, eta0: f.sta, cause: 'weather', settled: true };
       const bus = coachCost(pax, Number(d.data?.roadKm ?? 100));
       if (charter) post(g, 'disruption', -(bus + handlingAt(ac, (String(d.data?.station) as AltOption['station']) || 'adhoc')));
       bumpClient(g, c?.clientId, -1, `${f.no} landed at ${alt} for the ${to0} curfew`);
@@ -483,7 +502,7 @@ function diversionCard(g: GameState, f: Flight, ac: Aircraft, cause: 'weather' |
     kind: 'diversion', title: cause === 'weather' ? `${f.no}: ${city(f.to)} closed by weather` : `${f.no}: technical problem en route`,
     body: cause === 'weather' ? `${what} at ${city(f.to)}. ${ac.reg} must hold or divert.` : `${what} on ${ac.reg}. The captain wants to land at the nearest suitable airport.`,
     options: opts, defaultOption: opts.find((o) => o.id.startsWith('alt:'))!.id, expires: g.now + 15, ref: { kind: 'flight', id: f.id },
-    data: { flightId: f.id, cause, what, ...cardData(cause === 'weather' ? `${f.no} cannot land at ${city(f.to)}` : `${f.no} has a technical problem in flight`, cause === 'weather' ? `${what}; the destination is below the landing limits.` : `${what}; the checklist says land at the nearest suitable airport.`, `${pax} passengers to look after${cause === 'technical' && isCharter(g, f) ? ', compensation if over 3 h late (EU261)' : ''}`, 0, pax, 120) },
+    data: { flightId: f.id, cause, causeText: what, ...cardData(cause === 'weather' ? `${f.no} cannot land at ${city(f.to)}` : `${f.no} has a technical problem in flight`, cause === 'weather' ? `${what}; the destination is below the landing limits.` : `${what}; the checklist says land at the nearest suitable airport.`, `${pax} passengers to look after${cause === 'technical' && isCharter(g, f) ? ', compensation if over 3 h late (EU261)' : ''}`, 0, pax, 120) },
   }, { optional: cause === 'weather' });
 }
 
@@ -507,7 +526,7 @@ function medicalCard(g: GameState, f: Flight, ac: Aircraft): void {
 }
 
 /** Turns an airborne leg to `alt` now (the map turns it from where it is). */
-export function divertNow(g: GameState, f: Flight, alt: string, cause: DisruptCause): void {
+export function divertNow(g: GameState, f: Flight, alt: string, cause: DisruptCause, what?: string): void {
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
   if (!ac || f.status !== 'enroute') return;
   const P = legPos(f, g.now);
@@ -516,7 +535,9 @@ export function divertNow(g: GameState, f: Flight, alt: string, cause: DisruptCa
   const min = Math.round(km / ((typeOf(ac.typeId).cruiseKt * 1.852) / 60) + 18);
   const eta0 = f.eta ?? f.sta;
   markFlightsChanged(g, ac.id, f.std);
-  f.div = { to0: f.to, at: g.now, eta0, cause };
+  f.div = { to0: f.to, at: g.now, eta0, cause, ...(what ? { what } : {}) };
+  // v0.12.1 the leg is late for its own fault now: the delay reads the technical cause, not the last ops delay.
+  if (cause === 'technical' && what) f.delayReason = `Technical: ${what.charAt(0).toLowerCase()}${what.slice(1)}`;
   f.to = alt;
   f.eta = g.now + min;
   f.sta = f.eta;
@@ -545,11 +566,11 @@ function resolveDiversion(g: GameState, d: Decision, opt: string): ActionResult 
     touchFlights(g);
     if (clears) return { ok: true, msg: `The weather lifted: ${f.no} lands at ${city(f.to)} 30 min late` };
     const first = d.options.find((o) => o.id.startsWith('alt:'));
-    if (first) divertNow(g, f, first.id.slice(4), cause);
+    if (first) divertNow(g, f, first.id.slice(4), cause, String(d.data?.causeText ?? '') || undefined);
     return { ok: true, msg: `It did not clear: ${f.no} diverts after holding` };
   }
   if (!opt.startsWith('alt:')) return { ok: false, error: 'Unknown option' };
-  divertNow(g, f, opt.slice(4), cause);
+  divertNow(g, f, opt.slice(4), cause, String(d.data?.causeText ?? '') || undefined);
   if (cause === 'technical') bumpReliable(g, -0.5);
   return { ok: true, msg: `${f.no} diverts to ${city(opt.slice(4))}` };
 }
@@ -589,7 +610,10 @@ export function onDivertedArrival(g: GameState, f: Flight): void {
   // Debug round (26 Oct 2026): a curfew diversion was settled at the gate (the passengers go on by coach, the aircraft
   // repositions empty once the curfew lifts). No second card: its 'fly on today' default flew the passengers into the
   // curfew it had avoided (Blue Airlines BLU404 ACE–LHR landed at Gatwick 02:15 UTC, then LGW–LHR planned at 04:05).
-  if (f.ops === 'curfew') return;
+  if (f.ops === 'curfew') {
+    f.div.settled = true;
+    return;
+  }
   const to0 = f.div.to0;
   const cause = f.div.cause;
   const alt = f.to;
@@ -611,35 +635,35 @@ export function onDivertedArrival(g: GameState, f: Flight): void {
   let fixEnd = g.now;
   if (cause === 'technical') {
     const hrs = span(g, `fix:${f.id}`, [4, 20]);
-    fixEnd = lineMx(g, ac, alt, hrs * 60, Math.round(span(g, `fixc:${f.id}`, [6_000, 25_000]) / 100) * 100, `Inspection after ${String(f.delayReason ?? 'a technical diversion').toLowerCase()}`);
+    // v0.12.1 the cause the crew wrote up, not the leg's last delay ("Inspection after airport congestion").
+    fixEnd = lineMx(g, ac, alt, hrs * 60, Math.round(span(g, `fixc:${f.id}`, [6_000, 25_000]) / 100) * 100, `Inspection after ${(f.div.what || 'a technical diversion').toLowerCase()}`);
   }
-  const fdpLeft = crewLeft(g, f);
-  const sameCrew = fdpLeft !== null && fdpLeft >= ground + block + 30;
-  const flyAt = Math.max(g.now + Math.max(45, ground), fixEnd + 30);
-  const morning = Math.max(g.now + 12 * 60, fixEnd + 30);
+  // v0.12.1 the onward leg leaves and lands outside the night curfews at both ends (the next morning's opening).
+  const flyAt = clearOfCurfews(alt, to0, Math.max(g.now + Math.max(45, ground), fixEnd + 30), block);
+  // v0.12.1 "the crew get their legal rest": the morning leg leaves no sooner than their minimum rest allows.
+  const morning = clearOfCurfews(alt, to0, Math.max(g.now + 12 * 60, fixEnd + 30, restedDeparture(g, f) ?? 0), block);
+  // v0.12.1 "Same crew" only when the crew's duty, flying on at flyAt, stays under its limit (the rule afterDiversion keeps it by).
+  const sameCrew = continuationFits(g, f, flyAt, block);
   const next = flightsOf(g, ac.id).find((x) => x.status === 'scheduled' && x.from === to0 && x.std >= (f.schedStd ?? f.std));
   const opts: DecisionOption[] = [];
   if (cause !== 'technical' || fixEnd < g.now + 6 * 60) {
-    opts.push({ id: 'flyOn', label: `Fly on to ${city(to0)} ${cause === 'technical' ? 'after the fix' : 'today'}`, desc: `Refuel, ${cause === 'weather' ? 'wait for the weather to lift' : cause === 'medical' ? 'hand the patient to the ambulance' : 'fix it'}, then ${hm(block)} to ${to0}.`, tone: 'good', chips: [`Off ${fmtTime(flyAt)} UTC`, sameCrew ? 'Same crew, within their day' : 'Crew out of hours: a fresh crew', charter ? usd(-(2 * DISRUPT.mealPax * pax)) : 'Client pays fuel'] });
+    opts.push({ id: 'flyOn', label: `Fly on to ${place(to0)} ${cause === 'technical' ? 'after the fix' : 'today'}`, desc: `Refuel, ${cause === 'weather' ? 'wait for the weather to lift' : cause === 'medical' ? 'hand the patient to the ambulance' : 'fix it'}, then ${hm(block)} to ${to0}.`, tone: 'good', chips: [`Off ${fmtTime(flyAt)} UTC`, sameCrew ? 'Same crew, within their day' : 'Crew out of hours: a fresh crew', charter ? usd(-(2 * DISRUPT.mealPax * pax)) : 'Client pays fuel'] });
   }
-  if (road <= 450) opts.push({ id: 'bus', label: 'Coach the passengers', desc: `${Math.ceil(Math.max(1, pax) / 50)} coaches, ${road} km to ${city(to0)}. The aircraft repositions empty.`, chips: [charter ? usd(-coachCost(pax, road)) : 'Client pays the coaches', `~${hm((road / 70) * 60 + 45)} by road`, 'Relation −1'] });
-  opts.push({ id: 'hotel', label: 'Hotels tonight, fly in the morning', desc: `Passengers and crew to hotels in ${city(alt)}; the crew get their legal rest, then fly to ${to0}.`, chips: [charter ? usd(-(hotelCost(pax) + crewOn(f) * DISRUPT.crewRoom)) : usd(-crewOn(f) * DISRUPT.crewRoom), `Off ${fmtTime(morning)} UTC`, 'Relation −1'] });
+  if (road <= 450) opts.push({ id: 'bus', label: 'Coach the passengers', desc: `${Math.ceil(Math.max(1, pax) / 50)} coaches, ${road} km to ${place(to0)}. The aircraft repositions empty.`, chips: [charter ? usd(-coachCost(pax, road)) : 'Client pays the coaches', `~${hm((road / 70) * 60 + 45)} by road`, 'Relation −1'] });
+  // v0.12.1 named by when it really leaves ("fly in the morning" read for an 23:05 UTC departure).
+  const mh = Math.floor(localMinuteOfDay(alt, morning) / 60);
+  opts.push({ id: 'hotel', label: mh >= 4 && mh < 12 ? 'Hotels tonight, fly in the morning' : `Hotels and a rest, fly at ${fmtTime(morning)} UTC`, desc: `Passengers and crew to hotels in ${place(alt)}; the crew get their legal rest, then fly to ${to0}.`, chips: [charter ? usd(-(hotelCost(pax) + crewOn(f) * DISRUPT.crewRoom)) : usd(-crewOn(f) * DISRUPT.crewRoom), `Off ${fmtTime(morning)} UTC`, 'Relation −1'] });
   if (cause === 'technical') opts.push({ id: 'subcharter', label: 'A rival flies the passengers on', desc: 'Another operator sends an aircraft; our aircraft stays for the fix.', tone: 'warn', chips: [usd(-subcharterCost(g, [f], 1.3)), 'Fast'] });
   const def = opts[0].id === 'flyOn' && sameCrew ? 'flyOn' : road <= 300 ? 'bus' : 'hotel';
   const late = Math.max(0, flyAt + block - (f.div.eta0 ?? f.sta));
   raise(g, {
-    kind: 'divertOnward', title: `${f.no} on the ground at ${city(alt)}`,
-    body: `${pax} passengers for ${city(to0)}${next ? `; ${next.no} from ${to0} is due ${fmtTime(next.std)} UTC` : ''}.`,
-    options: opts, defaultOption: def, expires: g.now + 30, ref: { kind: 'flight', id: f.id },
-    data: { flightId: f.id, to0, alt, cause, pax, roadKm: Number.isFinite(road) ? road : 0, flyAt, morning, block, ...cardData(`${pax} passengers are in ${city(alt)}, not ${city(to0)}`, cause === 'weather' ? 'The weather closed the destination.' : cause === 'medical' ? 'We landed for a sick passenger.' : 'A technical problem made us land.', `${pax} passengers at least ${hm(late)} late${cause === 'technical' && isCharter(g, f) ? '; EU261 compensation over 3 h' : ''}`, 0, pax, late) },
+    kind: 'divertOnward', title: `${f.no} on the ground at ${place(alt)}`,
+    body: `${pax} passengers for ${place(to0)}${next ? `; ${next.no} from ${to0} is due ${fmtTime(next.std)} UTC` : ''}.`,
+    // v0.12.1 decided before the crew's duty ends at release (timed out at release, the crew had gone off and the
+    // "Same crew" default left the onward leg uncrewed: seed 6 DBB393).
+    options: opts, defaultOption: def, expires: Math.max(g.now + 10, Math.min(g.now + 30, (f.dutyId ? g.duties[f.dutyId]?.release ?? Infinity : Infinity) - 5)), ref: { kind: 'flight', id: f.id },
+    data: { flightId: f.id, to0, alt, cause, pax, roadKm: Number.isFinite(road) ? road : 0, flyAt, morning, block, ...cardData(`${pax} passengers are in ${place(alt)}, not ${place(to0)}`, cause === 'weather' ? 'The weather closed the destination.' : cause === 'medical' ? 'We landed for a sick passenger.' : 'A technical problem made us land.', `${pax} passengers at least ${hm(late)} late${cause === 'technical' && isCharter(g, f) ? '; EU261 compensation over 3 h' : ''}`, 0, pax, late) },
   }, { optional: false });
-}
-
-/** FDP minutes left for the crew of f's duty at now (null: no duty). Pure. */
-function crewLeft(g: GameState, f: Flight): number | null {
-  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
-  if (!d) return null;
-  return d.maxFdp + 60 - (g.now - d.report);
 }
 
 /** An unplanned line maintenance event at `at` (inspection, a fix); the aircraft is unavailable until it ends. */
@@ -665,14 +689,24 @@ function resolveOnward(g: GameState, d: Decision, opt: string): ActionResult {
   const c = contractOf(g, f);
   const cause = String(d.data?.cause) as DisruptCause;
   const block = Number(d.data?.block ?? blockMinutes(ac.typeId, alt, to0));
+  // v0.12.1 decided: the planner may plan the aircraft's next move again (relinkPositioning waits while it is open).
+  f.div.settled = true;
+  const why = cause === 'technical' ? 'Technical: diversion' : cause === 'medical' ? 'Medical diversion' : 'Weather: diversion';
   const cont = (std: Minute) => {
+    // v0.12.1 empty legs planned out of the alternate before the decision (an older save) give way to the passengers' leg.
+    const stale = flightsOf(g, ac.id).filter((y) => y.kind === 'positioning' && y.status === 'scheduled' && y.from === alt && (isSoft(g, y) || y.to === to0));
+    if (stale.length) removeFlights(g, stale.map((y) => y.id));
     const x = addFlight(g, { no: f.no, aircraftId: ac.id, contractId: f.contractId, kind: 'revenue', from: alt, to: to0, std, sta: std + block, pax });
     x.contOf = f.id;
     f.contOf = x.id;
     x.lateOk = Math.max(0, std - (f.schedStd ?? f.std));
-    // The aircraft's later legs from the planned destination follow (turn minima kept, the usual recovery).
-    const next = flightsOf(g, ac.id).find((y) => y.status === 'scheduled' && y !== x && y.from === to0 && y.std >= f.std);
-    if (next && next.std < x.sta + turnOf(ac)) delayChain(g, next, x.sta + turnOf(ac), cause === 'technical' ? 'Technical: diversion' : cause === 'medical' ? 'Medical diversion' : 'Weather: diversion', cause === 'technical');
+    // The aircraft's later legs from the planned destination follow (turn minima kept, the usual recovery). v0.12.1 the
+    // recovery starts from the onward leg, so the leg after it (a wave's return) is the one bringing the aircraft home:
+    // late, never dropped (seed 9: BT4063 VAR–RIX cancelled, $15K, and flown empty, billed to airBaltic).
+    applyHold(g, planRecovery(g, ac, to0, x.sta + turnOf(ac), f.schedStd ?? f.std, x), why, why, `Recovery: ${why}`);
+    settleOverlaps(g, ac);
+    // The crew's next trip starts where the aircraft now goes (seed 6: BHX–FRA re-planned DUB–FRA before the crew check).
+    relinkPositioning(g, ac.id);
     return x;
   };
   const comp = () => {
@@ -690,6 +724,7 @@ function resolveOnward(g: GameState, d: Decision, opt: string): ActionResult {
       const x = cont(at);
       // Crew-planning round: the crew fly on within their day, or rest here while the roster re-crews what follows.
       afterDiversion(g, f, x);
+      rerosterFrom(g, ac.id, g.now);
       if (at + block - (f.div.eta0 ?? f.sta) >= 180) comp();
       bumpClient(g, c?.clientId, 1, `${f.no} flew on to ${to0} the same day`);
       return { ok: true, msg: `${x.no} flies on ${alt}–${to0} at ${fmtTime(at)} UTC` };
@@ -708,6 +743,8 @@ function resolveOnward(g: GameState, d: Decision, opt: string): ActionResult {
       if (charter) post(g, 'disruption', -hotelCost(pax));
       post(g, 'hotels', -crewOn(f) * DISRUPT.crewRoom);
       afterDiversion(g, f, cont(at));
+      // v0.12.1 a crew member who can't fly on after the rest is replaced now, not at the gate.
+      rerosterFrom(g, ac.id, g.now);
       comp();
       bumpClient(g, c?.clientId, -1, `${f.no}: an overnight in ${alt}`);
       countOps(g, 'overnight');

@@ -9,7 +9,7 @@ import { DAY, dayStart } from '../core/time';
 import type { Contract, Flight, GameState, Minute } from '../core/types';
 import {
   anchorsOf, baseDayOf, baseDays, baseDayStart, baseFlightNo, chainBackward, chainForward, CHARTER_SLACK, DEPLOY_LEAD, flownRotations, gapMoves,
-  isSoft, planLegs, route, type Anchor, type ChainLeg,
+  isSoft, onwardPending, planLegs, route, type Anchor, type ChainLeg,
 } from './plan';
 
 const horizonEnd = (g: GameState) => dayStart(g.now) + BAL.scheduleHorizonDays * DAY;
@@ -165,6 +165,13 @@ export function stranded(g: GameState, aircraftId: string, X: string): boolean {
   return flightsOf(g, aircraftId).some((f) => f.status === 'cancelled' && f.contractId === k && f.from === X && f.std >= last!.std);
 }
 
+/** v0.12.1 the aircraft is at X after a technical diversion that no onward leg carried on from (coach, rival, fix). Pure. */
+function ownFaultAt(g: GameState, aircraftId: string, X: string): boolean {
+  let last: Flight | undefined;
+  for (const f of flightsOf(g, aircraftId)) if (f.status === 'done' && f.kind !== 'deadhead' && (!last || f.std >= last.std)) last = f;
+  return !!last && last.to === X && last.div?.cause === 'technical' && !last.contOf;
+}
+
 /** Positioning lead before a commitment: the evening before a deployment, a turn plus slack before a charter. */
 function leadFor(g: GameState, b: Anchor, turn: number): number {
   const c = b.contractId ? g.contracts[b.contractId] : undefined;
@@ -213,6 +220,9 @@ function chainSane(typeId: string, legs: Flight[], X: string, Y: string | null, 
 export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
   const ac = g.fleet[aircraftId];
   if (!ac || ac.status === 'stored' || ac.status === 'leasedOut') return [];
+  // v0.12.1 nothing is planned while a diversion's onward is open (S1118 BLU1083: an empty AMS–AYT planned while its
+  // passengers waited at Amsterdam for the card; seed 2: four LHR–LGW copies, one per relink): planned once, after it.
+  if (onwardPending(g, aircraftId)) return [];
   const typeId = ac.typeId;
   const turn = typeOf(typeId).turnMin;
   const home = g.company.homeBase;
@@ -303,7 +313,9 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     if (X === Y && !legs.length && !hop?.length) continue;
     if (legs.length && chainOk(legs, X, Y, earliest) && chainSane(typeId, legs, X, Y, home, allowHop, cap)) continue;
     replacing(legs);
-    const inId = live(g, b.contractId) ? b.contractId : live(g, a.contractId) ? a.contractId : null;
+    // v0.12.1 the empty leg out of an alternate after our own technical diversion is our cost: never billed to the
+    // client as positioning (seed 9: airBaltic billed for four VAR–RIX legs after our fault at Riga).
+    const inId = a.kind === 'start' && ownFaultAt(g, aircraftId, X) ? null : live(g, b.contractId) ? b.contractId : live(g, a.contractId) ? a.contractId : null;
     if (X === Y) {
       if (hop?.length) {
         const k = hop.findIndex((l) => l.to === home) + 1;
@@ -344,7 +356,14 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     const was = remove.map((id) => g.flights[id]).filter((f) => f?.status === 'scheduled').map((f) => key(f.from, f.to, f.std, f.sta, f.contractId)).sort().join(' ');
     if (was === planned.map(({ l, contractId }) => key(l.from, l.to, l.std, l.sta, contractId)).sort().join(' ')) return [];
   }
-  for (const { l, contractId } of planned) created.push(addFlight(g, { no: ownFlightNo(g), aircraftId, contractId, kind: 'positioning', from: l.from, to: l.to, std: l.std, sta: l.sta }));
+  // v0.12.1 never a second copy of an empty leg the aircraft keeps (seed 2: a hard LHR–LGW within the hour fell inside
+  // the gap before it, the gap read empty and planned it again, AWL374–377 in one minute, each a crew alarm).
+  const gone = new Set(remove);
+  const kept = liveFlightsOf(g, aircraftId).filter((f) => f.kind === 'positioning' && f.status === 'scheduled' && !gone.has(f.id));
+  for (const { l, contractId } of planned) {
+    if (kept.some((f) => f.from === l.from && f.to === l.to && f.contractId === contractId && Math.abs(f.std - l.std) <= turn)) continue;
+    created.push(addFlight(g, { no: ownFlightNo(g), aircraftId, contractId, kind: 'positioning', from: l.from, to: l.to, std: l.std, sta: l.sta }));
+  }
   // v0.8 pre-release safety net: a pass that only swaps legs for the very same legs (route, times, contract) would
   // do it again on the next settle, and the next: the fix pack's fuel-stop chain was re-planned that way on every
   // settle until the game froze. Keep the legs (and their crews), drop the copies and report the loop.
