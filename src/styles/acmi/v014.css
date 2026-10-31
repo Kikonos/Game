@@ -25,3 +25,7 @@
 .v14-trip.cancelled { opacity: 0.6; }
 .v14-trip.away { border-left: 3px solid var(--accent); }
 .v14-sales .v8-box.row { flex-direction: row; align-items: center; }
+.v14-list { display: flex; flex-direction: column; padding: 0; overflow: hidden; }
+.v14-tn-row { padding: 10px 16px; border-bottom: 1px solid rgba(var(--line-rgb), 0.07); border-radius: 0; }
+.v14-tn-row:last-child { border-bottom: none; }
+.v14-tn-row .col { flex: 1 1 auto; }

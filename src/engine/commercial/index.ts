@@ -84,7 +84,7 @@ export function devTenderBoard(g: GameState): string[] {
       t.deadline = g.now;
       return;
     }
-    if (i === 0) t.rivals = t.rivals.map((r) => ({ ...r, rateX: Math.max(r.rateX, 1.06) }));
+    if (i === 0) t.rivals = [];
     else t.rivals = t.rivals.map((r, j) => (j === 0 ? { ...r, rateX: 0.93, quality: 0.96 } : r));
     t.status = 'closed';
     t.deadline = g.now;

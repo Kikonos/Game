@@ -5,20 +5,19 @@ import { CalendarClock, FileSignature, Gavel, Trophy } from 'lucide-react';
 import { useMemo } from 'react';
 import { flag } from '../../data/countries';
 import { roundAt, roundName, tenderBoard, type TenderRow } from '../../engine/commercial';
-import { DAY, fmtDay } from '../../engine/core/time';
+import { DAY, fmtDay, toDate } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import { Empty } from '../components/ui';
-import { money } from '../format';
 import { store } from '../store';
 
 const days = (t: number, now: number) => Math.max(0, Math.ceil((t - now) / DAY));
-const span = (t: TenderRow) => `${fmtDay(t.start)} – ${fmtDay(t.end - 1)}`;
+const span = (t: TenderRow) => `${fmtDay(t.start)} – ${fmtDay(t.end - 1)} ${toDate(t.start).getUTCFullYear()}`;
 
 /** The season line: the round open now, or when the next one opens. */
 export function seasonLine(now: number): string {
   const r = roundAt(now);
   if (r) return `${r.kind === 'summer' ? 'Summer' : 'Winter'} tender season: airlines ask for ${roundName(r.key)} capacity until ${fmtDay(r.until - 1)}.`;
-  const d = new Date(Date.UTC(2000, 0, 1) + now * 60_000);
+  const d = toDate(now);
   const mo = d.getUTCMonth();
   return mo >= 2 && mo <= 4 ? 'Next round: winter capacity, June to August.' : 'Next round: summer capacity, November to February.';
 }
@@ -27,7 +26,7 @@ function Row({ g, t, kind }: { g: GameState; t: TenderRow; kind: 'open' | 'mine'
   const open = () => store.openModal({ kind: 'tender', tenderId: t.id });
   const left = days(t.deadline, g.now);
   return (
-    <button className={`sc-list-row v14-tn-row ${t.status}`} onClick={open} aria-label={`${t.client} tender`}>
+    <button className={`v14-tn-row ${t.status}`} onClick={open} aria-label={`${t.client} tender`}>
       <span className="v14-tn-ico">{kind === 'result' ? (t.status === 'won' ? <Trophy /> : <Gavel />) : kind === 'mine' ? <CalendarClock /> : <FileSignature />}</span>
       <span className="col grow" style={{ minWidth: 0, gap: 2 }}>
         <b className="ellipsis">{flag(t.country)} {t.client}{t.invited && <span className="chip v14-chip">Invitation</span>}</b>
@@ -36,7 +35,7 @@ function Row({ g, t, kind }: { g: GameState; t: TenderRow; kind: 'open' | 'mine'
           <span className={`small ellipsis ${t.status === 'won' ? 'good' : 'warn'}`}>{t.status === 'won' ? `Won: ${t.result.why}` : `${t.result.winnerName}: ${t.result.why}`}</span>
         )}
         {kind === 'result' && t.status === 'noBid' && <span className="small dim">You did not bid</span>}
-        {t.bid && kind !== 'result' && <span className="small accent ellipsis">Your bid: {money(t.bid.rate)}/BH · MGH {t.bid.mgh} · {t.bid.reg}</span>}
+        {t.bid && kind !== 'result' && <span className="small accent ellipsis">Your bid: ${t.bid.rate.toLocaleString('en-US')}/BH · MGH {t.bid.mgh} · {t.bid.reg}</span>}
       </span>
       <span className="right small nowrap">
         {kind === 'open' && <span className={`num ${left <= 3 ? 'warn' : 'muted'}`}>{left ? `closes in ${left} d` : 'closes today'}</span>}
@@ -63,19 +62,19 @@ export function TendersView({ g }: { g: GameState }) {
       {b.open.length > 0 && (
         <section className="col gap-4">
           <div className="upper dim">Open requests</div>
-          <div className="card sc-list">{b.open.filter((t) => !t.bid).concat(b.open.filter((t) => !!t.bid)).map((t) => <Row key={t.id} g={g} t={t} kind="open" />)}</div>
+          <div className="card v14-list">{b.open.filter((t) => !t.bid).concat(b.open.filter((t) => !!t.bid)).map((t) => <Row key={t.id} g={g} t={t} kind="open" />)}</div>
         </section>
       )}
       {b.mine.filter((t) => t.status === 'closed').length > 0 && (
         <section className="col gap-4">
           <div className="upper dim">My bids: waiting for the award</div>
-          <div className="card sc-list">{b.mine.filter((t) => t.status === 'closed').map((t) => <Row key={t.id} g={g} t={t} kind="mine" />)}</div>
+          <div className="card v14-list">{b.mine.filter((t) => t.status === 'closed').map((t) => <Row key={t.id} g={g} t={t} kind="mine" />)}</div>
         </section>
       )}
       {b.results.length > 0 && (
         <section className="col gap-4">
           <div className="upper dim">Results</div>
-          <div className="card sc-list">{b.results.map((t) => <Row key={t.id} g={g} t={t} kind="result" />)}</div>
+          <div className="card v14-list">{b.results.map((t) => <Row key={t.id} g={g} t={t} kind="result" />)}</div>
         </section>
       )}
     </div>

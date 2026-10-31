@@ -112,16 +112,16 @@ export function SalesPanel({ g }: { g: GameState }) {
             <div className="upper dim">Plan a trip</div>
             {free.length > 1 && <Seg<Traveller> value={who} onChange={setWho} options={free.map((p) => ({ value: p.who, label: p.who === 'ceo' ? 'You' : p.name.split(' ')[0] }))} />}
           </div>
-          {fairs.map((f) => (
+          {fairs.map((f) => [
             <button key={f.id} className={`v8-row v14-fair ${pick?.fairId === f.id ? 'on' : ''}`} onClick={() => setPick({ fairId: f.id })} disabled={!!f.tripId} aria-pressed={pick?.fairId === f.id}>
               <CalendarDays className="sc-ico-s dim" />
               <span className="col grow" style={{ minWidth: 0 }}>
                 <b className="ellipsis">{f.name} <span className="small muted">· {f.where}</span></b>
                 <span className="small muted ellipsis">{fmtDay(f.start)} – {fmtDay(f.end)} · pass {money(f.pass)}{f.tripId ? ' · booked' : ''}</span>
               </span>
-            </button>
-          ))}
-          {pick?.fairId && q && <QuoteCard q={q} who={who} onBook={book} onClose={() => setPick(null)} />}
+            </button>,
+            pick?.fairId === f.id && q ? <QuoteCard key={`${f.id}-q`} q={q} who={who} onBook={book} onClose={() => setPick(null)} /> : null,
+          ])}
           <div className="set-row v14-field">
             <div><b>Visit a client</b><div className="tiny dim">One or two days at their office</div></div>
             <select className="select" value={pick?.clientId ?? ''} aria-label="Client to visit" onChange={(e) => setPick(e.target.value ? { clientId: e.target.value } : null)}>

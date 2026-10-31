@@ -61,7 +61,7 @@ export interface TravellerView {
 /** You always; the commercial analyst once hired. Pure. */
 export function travellers(g: GameState): TravellerView[] {
   const busy = (who: Traveller) => com(g).trips.find((t) => t.who === who && (t.status === 'planned' || t.status === 'away'))?.id ?? null;
-  const out: TravellerView[] = [{ who: 'ceo', name: g.company.ceo || 'You', title: 'You · accountable manager', skill: TRIPS.ceoSkill, tripId: busy('ceo') }];
+  const out: TravellerView[] = [{ who: 'ceo', name: g.company.ceo || 'You', title: g.company.ceo ? 'Accountable manager (you)' : 'Accountable manager', skill: TRIPS.ceoSkill, tripId: busy('ceo') }];
   const a = g.heads?.analyst?.hired;
   if (a) out.push({ who: 'analyst', name: a.name, title: 'Commercial analyst', skill: a.skill, tripId: busy('analyst') });
   return out;

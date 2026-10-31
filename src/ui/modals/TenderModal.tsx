@@ -9,10 +9,10 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { bidQuote, placeBid, tenderById, tenderRow, withdrawBid } from '../../engine/commercial';
 import { DAY, fmtDay } from '../../engine/core/time';
 import { Modal, Seg, Stepper } from '../components/ui';
-import { money } from '../format';
 import { store, useGame } from '../store';
 
 const pct = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : '±'}${Math.abs(Math.round(v * 100))} %`;
+const usd = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
 const city = (c: string) => AIRPORT_BY_CODE[c]?.city ?? c;
 
 export function TenderModal({ tenderId }: { tenderId: string }) {
@@ -53,15 +53,15 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
     <Modal title={<span>{flag(row.country)} {row.client} · {row.round}</span>} icon={<FileSignature />} onClose={close} footer={footer} className="v14-tender">
       <div className="col gap-12">
         <div className="v8-box col gap-4">
-          <b>{row.wanted} based at {city(row.base)}</b>
+          <b>{row.wanted.replace(/^a/, (m) => m.toUpperCase())} based at {city(row.base)}</b>
           <span className="small muted">{fmtDay(row.start)} – {fmtDay(row.end - 1)}{p.kind === 'base' ? ` · ${p.waves.length} wave${p.waves.length > 1 ? 's' : ''} a day to ${row.dests.map(city).slice(0, 5).join(', ')}${row.dests.length > 5 ? '…' : ''}` : ''}</span>
           <span className="small muted">{row.status === 'open' ? `Bids close ${fmtDay(row.deadline)} · about ${row.rivals || 'no'} other operator${row.rivals === 1 ? '' : 's'} bidding` : `Award about ${fmtDay(row.resultAt)}`}{row.invited ? ' · they invited us' : ''}</span>
         </div>
         {q && (
           <>
             <div className="set-row v14-field">
-              <div><b>Rate per block hour</b><div className="tiny dim">Market rate {money(q.budget)} · {pct(rate / q.budget - 1)}</div></div>
-              <Stepper value={rate} min={q.rateMin} max={q.rateMax} step={10} onChange={setRate} format={(v) => money(v)} />
+              <div><b>Rate per block hour</b><div className="tiny dim">Market rate {usd(q.budget)} · {pct(rate / q.budget - 1)}</div></div>
+              <Stepper value={rate} min={q.rateMin} max={q.rateMax} step={10} onChange={setRate} format={(v) => usd(v)} />
             </div>
             <div className="set-row v14-field">
               <div><b>MGH a month</b><div className="tiny dim">They ask {q.mgh} · lower is easier for them</div></div>
@@ -81,7 +81,7 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
               ))}
             </div>
             <div className="set-row v14-field">
-              <div><b>Crew</b><div className="tiny dim">{crew === 'ours' ? q.crewLabel : `Their cabin crew with our pilots and purser (−${money(q.mixedCut)}/BH each)`}{q.mixedPref ? ' · they like their own cabin crew on board' : ''}</div></div>
+              <div><b>Crew</b><div className="tiny dim">{crew === 'ours' ? q.crewLabel : `Their cabin crew with our pilots and purser (−${usd(q.mixedCut)}/BH each)`}{q.mixedPref ? ' · they like their own cabin crew on board' : ''}</div></div>
               <Seg<'ours' | 'mixed'> value={crew} onChange={setCrew} options={[{ value: 'ours', label: 'Our crew' }, { value: 'mixed', label: 'Mixed' }]} />
             </div>
             <div className="set-row v14-field">
@@ -97,7 +97,7 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
           </>
         )}
         {!q && t.bid && (
-          <div className="small">Your bid: {money(t.bid.rate)}/BH · MGH {t.bid.mgh} · {g.fleet[t.bid.aircraftId]?.reg ?? '—'} · {t.bid.crew === 'mixed' ? 'mixed crew' : 'our crew'} · {fmtDay(t.bid.start)} – {fmtDay(t.bid.end - 1)}</div>
+          <div className="small">Your bid: {usd(t.bid.rate)}/BH · MGH {t.bid.mgh} · {g.fleet[t.bid.aircraftId]?.reg ?? '—'} · {t.bid.crew === 'mixed' ? 'mixed crew' : 'our crew'} · {fmtDay(t.bid.start)} – {fmtDay(t.bid.end - 1)}</div>
         )}
         {row.result && (
           <div className={`small ${row.status === 'won' ? 'good' : 'warn'}`}>{row.status === 'won' ? `Won: ${row.result.why}.` : `${row.result.winnerName} won: ${row.result.why}.`}</div>
