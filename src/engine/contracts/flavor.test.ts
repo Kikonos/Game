@@ -1,10 +1,13 @@
 // Naming kit and offer flavour: real codes don't clash, tables point at real seeds and airports, generated copy is plausible.
 
+import { readdirSync, readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ACMI_TYPES } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BROKERS, CLIENT_SEEDS, CLIENT_SEEDS_B1, COMPANY_PRESETS, RIVALS, RIVALS_B1 } from '../../data/naming';
 import { typeOf } from '../core/perf';
+import { fromUTC } from '../core/time';
 import type { ContractOffer } from '../core/types';
 import { CLIENT_DESIGNATORS, clientPrefix, rivalFor } from './clients';
 import * as F from './flavor';
@@ -109,5 +112,55 @@ describe('rival display', () => {
     const hf = g.rivals.find((r) => r.name === 'Hi Fly')!;
     expect(rivalFleetText(hf)).toBe('Lisbon · typical fleet A330/340, A350');
     expect(g.rivals.find((r) => r.name === 'Heston Airlines')).toMatchObject({ country: 'LT', base: 'VNO' });
+  });
+});
+
+describe('v0.12.1 months on the game calendar', () => {
+  it('monthOf/seasonOf read game minutes from the epoch, local at the airport when given', () => {
+    expect(F.monthOf(fromUTC(2028, 3, 31, 12))).toBe('March');
+    expect(F.monthOf(fromUTC(2028, 11, 30, 12))).toBe('November');
+    expect(F.seasonOf(fromUTC(2028, 11, 30, 12), 'PMI')).not.toBe('christmas');
+    expect(F.seasonOf(fromUTC(2028, 12, 5, 12), 'PMI')).toBe('christmas');
+    // Local midnight 1 Dec in Casablanca (UTC+1) is 30 Nov 23:00 UTC.
+    const cmn = fromUTC(2027, 11, 30, 23);
+    expect(F.monthOf(cmn)).toBe('November');
+    expect(F.monthOf(cmn, 'CMN')).toBe('December');
+  });
+  it('no game minute is turned into a date without the epoch (lint)', () => {
+    const root = join(__dirname, '..', '..');
+    const bad: string[] = [];
+    const walk = (dir: string) => {
+      for (const n of readdirSync(dir)) {
+        const p = join(dir, n);
+        if (statSync(p).isDirectory()) walk(p);
+        else if (/\.tsx?$/.test(n) && !/\.test\.tsx?$/.test(n)) {
+          readFileSync(p, 'utf8').split('\n').forEach((l, i) => {
+            if (/new Date\([^)]*\* ?60_?000/.test(l) && !/EPOCH|Date\.UTC\(2000, 0, 1\)/.test(l)) bad.push(`${p}:${i + 1}`);
+          });
+        }
+      }
+    };
+    walk(root);
+    expect(bad).toEqual([]);
+  });
+});
+
+describe('v0.12.1 offer text lint', () => {
+  it("no '1 days', no 'a' before a vowel sound, no empty brackets in generated titles and blurbs", () => {
+    const bad: string[] = [];
+    const kinds: ContractOffer['archetype'][] = ['adhoc', 'tourSeries', 'seasonBase', 'sports', 'repatriation', 'capacityLease', 'aogCover', 'vip', 'evacuation', 'humanitarian', 'medical', 'deportation'];
+    for (const seed of [3, 8, 13]) {
+      const g = newGame(seed);
+      for (let i = 0; i < 6; i++) {
+        for (const k of kinds) {
+          const o = generateOffer(g, k, { wide: i % 2 === 1, window: false });
+          if (!o) continue;
+          const t = `${o.title} | ${o.blurb}`;
+          if (/\b1 days\b/.test(t) || /\ba (?!one\b|one-|once\b|uni|use|eu|Eu|UN\b|US\b|UK\b)[aeiouAEIOU]/.test(t) || /\(\s*\)/.test(t)) bad.push(t);
+          delete g.offers[o.id];
+        }
+      }
+    }
+    expect(bad).toEqual([]);
   });
 });

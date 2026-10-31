@@ -1,6 +1,7 @@
 // v0.7.2 F3: sub-chartering costs reliability, more as it becomes a habit (UPDATE-0.7.2.md F3).
 
 import { describe, expect, it } from 'vitest';
+import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
 import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
@@ -119,5 +120,20 @@ describe('v0.8 fix round 1: quotes', () => {
     if (free.length > 1) expect(Math.max(...free.map((q) => q.quality))).toBe(Math.max(...subcharterQuotes(g, ids).filter((q) => q.available).map((q) => q.quality)));
     // Three quotes are not all the same price any more.
     if (qs.length === 3) expect(new Set(qs.map((q) => q.cost)).size).toBeGreaterThan(1);
+  });
+});
+
+describe('v0.12.1 sub-charter: what the client still pays us', () => {
+  it('a brokered charter: the leg share net of the 5 % commission', () => {
+    const g = newGame(31);
+    const { c, fl } = job(g, 2);
+    if (c.product.kind !== 'charter') throw new Error('charter');
+    const share = (c.product.price * fl[0].block) / Math.max(fl[0].block, c.planRevMin ?? fl[0].block * 4);
+    c.broker = undefined;
+    const plain = subcharterQuotes(g, [fl[0].id])[0]?.revenue;
+    c.broker = 'Polaris Ad-hoc';
+    const net = subcharterQuotes(g, [fl[0].id])[0]?.revenue;
+    expect(plain).toBe(Math.round(share));
+    expect(net).toBe(Math.round(share * (1 - BAL.brokerCommission)));
   });
 });

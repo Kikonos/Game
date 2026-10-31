@@ -6,6 +6,8 @@ import { DAY } from '../core/time';
 import type { CheckId, FeasibilityReport } from '.';
 import { acceptOffer, feasibility, feasibilityAll } from '.';
 import { A_CHECK_DAYS } from './plan';
+import { TPL_BY_ID } from '../../data/worldEvents';
+import { startEvent } from '../ops/world';
 import { addAircraft, hamBase, leased, legsOffer, newGame, offer, owned } from './testkit';
 
 const check = (r: FeasibilityReport, id: CheckId) => r.checks.find((c) => c.id === id)!;
@@ -254,5 +256,25 @@ describe('short-notice crew reach (v0.9.1)', () => {
     cm.loc = g.company.homeBase;
     const later = legsOffer(g, [['DXB', 'MCT', g.now + 3 * DAY]], 150);
     expect(check(feasibility(g, later.id, ac.id), 'crew').label).not.toMatch(/^No crew can reach/);
+  });
+});
+
+describe('v0.12.1 empty legs and world closures', () => {
+  it("an ash closure at the aircraft's station: a job elsewhere inside it is 'no' and can't be signed; after it reopens, ok", () => {
+    const g = newGame(21);
+    const ac = owned(g);
+    // Ash closes Lisbon (the aircraft's station) for 6 days.
+    const e = startEvent(g, { ...TPL_BY_ID.ashEtna, id: 'ashTest', at: ac.at, zoneId: undefined, closeP: 0, airportDays: [6, 6], days: [6, 6] });
+    expect(e.airportClosedUntil).toBe(g.now + 6 * DAY);
+    const soon = legsOffer(g, [['HAM', 'PMI', g.now + DAY], ['PMI', 'HAM', g.now + DAY + 6 * 60]]);
+    const r = feasibility(g, soon.id, ac.id);
+    expect(r.positionIn[0]?.from).toBe(ac.at);
+    const pos = r.checks.filter((c) => c.id === 'positioning');
+    expect(pos.map((c) => c.level)).toEqual(['no']);
+    expect(pos[0].label).toContain(`${ac.reg} can't leave`);
+    expect(acceptOffer(g, soon.id, [ac.id]).ok).toBe(false);
+    const later = legsOffer(g, [['HAM', 'PMI', g.now + 9 * DAY], ['PMI', 'HAM', g.now + 9 * DAY + 6 * 60]]);
+    const r2 = feasibility(g, later.id, ac.id);
+    expect(r2.checks.filter((c) => c.id === 'positioning').map((c) => c.level)).toEqual(['ok']);
   });
 });

@@ -5,7 +5,7 @@ import { BAL } from '../core/balance';
 import { statementTotals } from '../core/ledger';
 import { DAY, fmtDay, fmtMonth, monthKey, nextMonthStart } from '../core/time';
 import type { GameState } from '../core/types';
-import { cashForecast, fixedCosts } from '../ops/finance';
+import { cashForecast, fixedCosts, forecastItems, monthEndBill } from '../ops/finance';
 import { usd } from '../ops/util';
 import { mkHurt, type ProblemCard, type TimelineSpec } from './types';
 
@@ -18,10 +18,12 @@ export function cashLowCard(g: GameState): ProblemCard | null {
   for (const p of fc) if (p.cash < low.cash) low = p;
   const first = fc.find((p) => p.cash < 0);
   if (!first || low.cash >= 0) return null;
-  const k = monthKey(g.now);
-  const fx = fixedCosts(g, k);
-  const salaries = Object.values(g.crew).reduce((s, c) => s + c.salary, 0) * (1 + BAL.onCosts);
+  const bill = monthEndBill(g, monthKey(g.now));
   const monthEnd = nextMonthStart(g.now);
+  // v0.12.1 WHY names what really pulls it under: the biggest outgoing up to the first day below zero.
+  const by = new Map<string, number>();
+  for (const x of forecastItems(g, 30)) if (x.amount < 0 && x.t < first.t + DAY) by.set(x.what, (by.get(x.what) ?? 0) + x.amount);
+  const top = [...by].sort((a, b) => a[1] - b[1])[0];
   const timeline: TimelineSpec = {
     from: g.now, to: g.now + 30 * DAY,
     marks: [{ t: first.t, label: 'cash < 0', tone: 'bad' }, { t: monthEnd, label: 'month end', tone: 'warn' }],
@@ -31,14 +33,14 @@ export function cashLowCard(g: GameState): ProblemCard | null {
   return {
     subject: { kind: 'cashLow', ref: { kind: 'cash', id: 'cash' } }, severity: first.t - g.now <= 7 * DAY ? 'red' : 'amber',
     title: `Cash runs out on ${fmtDay(first.t)}`, what: `Cash runs out on ${fmtDay(first.t)}`,
-    why: `The 30-day forecast dips to ${usd(low.cash)}: rent and salaries of about ${usd(fx.rent + fx.insurance + fx.overhead + salaries)} on ${fmtDay(monthEnd)} exceed what comes in.`,
+    why: `The 30-day forecast dips to ${usd(low.cash)}${top ? `. Biggest cost before then: ${top[0]} (${usd(-top[1])})` : ''}.`,
     hurt: mkHurt({ money: -low.cash, what: `short on ${fmtDay(low.t)}`, extra: `salaries late = morale ${BAL.morale.salaryLate}` }),
     actions: [
       { id: 'finance', label: 'Finance', open: { tab: 'finance' }, primary: true },
       { id: 'findWork', label: 'Find work', open: { tab: 'contracts' } },
       ...(decision ? [{ id: 'factor', label: 'Sell an invoice', open: { modal: 'decision' as const, id: decision.id } }] : []),
     ],
-    details: [`Cash now ${usd(g.company.cash)}`, `Fixed costs this month ${usd(fx.rent + fx.insurance + fx.overhead)}, salaries ${usd(salaries)}`, `Outstanding invoices ${usd(g.finance.receivables.filter((r) => r.paid === null).reduce((s, r) => s + r.amount, 0))}`],
+    details: [`Cash now ${usd(g.company.cash)}`, `Month end ${fmtDay(monthEnd)}: fixed costs ${usd(bill.rent + bill.insurance + bill.overhead)}, salaries ${usd(bill.salaries + bill.heads)}`, `Outstanding invoices ${usd(g.finance.receivables.filter((r) => r.paid === null).reduce((s, r) => s + r.amount, 0))}`],
     visuals: { timeline, gauges: [{ id: 'cash', label: 'Cash', value: Math.max(0, g.company.cash), limit: Math.max(1, g.company.cash - low.cash), unit: 'usd', text: `${usd(g.company.cash)} now, ${usd(low.cash)} at the low`, tone: 'bad', by: low.t }] },
     terms: ['blockHours'], by: first.t,
   };
@@ -109,23 +111,21 @@ export function cashNegativeCard(g: GameState): ProblemCard | null {
   const since = g.finance.negSince ?? g.now;
   const rescueAt = since + BAL.rescueDays * DAY;
   const daysLeft = Math.max(0, Math.ceil((rescueAt - g.now) / DAY));
-  const k = monthKey(g.now);
-  const fx = fixedCosts(g, k);
-  const salaries = Object.values(g.crew).reduce((s, c) => s + c.salary, 0) * (1 + BAL.onCosts);
+  const bill = monthEndBill(g, monthKey(g.now));
   const owed = g.finance.receivables.filter((r) => r.paid === null).reduce((s, r) => s + r.amount, 0);
   const again = (g.finance.rescues ?? 0) >= 1;
   const decision = g.decisions.find((d) => d.kind === 'latePayment');
   return {
     subject: { kind: 'cashNegative', ref: { kind: 'cash', id: 'cash' } }, severity: 'red',
     title: `Cash is below zero (${usd(cash)})`, what: `Cash is below zero (${usd(cash)})`,
-    why: `Rent, salaries and flying costs of about ${usd(fx.rent + fx.insurance + fx.overhead + salaries)} a month outran what came in${owed ? `; ${usd(owed)} of invoices are still unpaid` : ''}.`,
+    why: `Costs outran what came in: about ${usd(bill.total)} a month in rent, insurance and salaries before any flying${owed ? `; ${usd(owed)} of invoices are still unpaid` : ''}.`,
     hurt: mkHurt({ money: -cash, what: 'short', extra: again ? `the company fails after ${BAL.rescueDays} days in the red` : `in ${daysLeft} days an investor offers a rescue for a quarter of the company` }),
     actions: [
       { id: 'finance', label: 'Finance', open: { tab: 'finance' }, primary: true },
       { id: 'findWork', label: 'Find work', open: { tab: 'contracts' } },
       ...(decision ? [{ id: 'factor', label: 'Sell an invoice', open: { modal: 'decision' as const, id: decision.id } }] : []),
     ],
-    details: [`Below zero since ${fmtDay(since)}`, `Fixed costs this month ${usd(fx.rent + fx.insurance + fx.overhead)}, salaries ${usd(salaries)}`, `Outstanding invoices ${usd(owed)}`],
+    details: [`Below zero since ${fmtDay(since)}`, `Fixed costs this month ${usd(bill.rent + bill.insurance + bill.overhead)}, salaries ${usd(bill.salaries + bill.heads)}`, `Outstanding invoices ${usd(owed)}`],
     // The gauge carries no `by`: Gauge prints a time of day for it, and the hurt line already gives the date.
     visuals: { gauges: [{ id: 'cash', label: 'Days in the red', value: Math.min(BAL.rescueDays, Math.floor((g.now - since) / DAY)), limit: BAL.rescueDays, unit: 'hm', text: `${Math.floor((g.now - since) / DAY)} of ${BAL.rescueDays} days`, tone: 'bad' }] },
     terms: [], by: rescueAt,

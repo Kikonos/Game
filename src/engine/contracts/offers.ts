@@ -35,7 +35,8 @@ export { maxPax, seatNeed };
 import { ARCH_MULT, defaultSeats, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
-import { inWarZone, setClosureOfferHook, warRiskLandings } from '../ops/world';
+import { closedAirport, inWarZone, setClosureOfferHook, warRiskLandings } from '../ops/world';
+import { curfewOk, curfewShift } from '../core/curfew';
 import type { HajjDates } from '../../data/worldCalendar';
 import { demandFactor } from '../ops/market';
 import { afterOfferDays, isQuiet } from '../ops/director';
@@ -521,12 +522,40 @@ const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${St
 function oddWaves(g: GameState, base: string, dests: string[], ref: string, waves: number[]): number[] {
   const r = sideRng(g, `oddw:${g.seq}:${g.now}`);
   const shift = 360 - (300 + 5 * int(r, 0, 6));
-  const out = waves.map((w) => w - shift);
   const turn = typeOf(ref).turnMin;
+  // v0.12.1 a wave flies only outside the night curfews at both ends (out, the turn, back), strict.
+  const day = g.now + 7 * DAY;
+  const clear = (local: number) => dests.every((d) => {
+    const dep = atLocal(base, day, local), arr = dep + blockMinutes(ref, base, d), back = arr + turn, home = back + blockMinutes(ref, d, base);
+    return curfewOk(base, dep) && curfewOk(d, arr) && curfewOk(d, back) && curfewOk(base, home);
+  });
+  const early = waves.map((w) => w - shift);
+  const out = clear(early[0]) ? early : [...waves];
   const rot = Math.max(...dests.map((d) => blockMinutes(ref, base, d) + turn + blockMinutes(ref, d, base)));
   const late = 1380 + 5 * int(r, 0, 9);
   // The late rotation must be back and turned before the next morning's first wave.
-  if (out[out.length - 1] + rot + turn <= late && late + rot + turn <= out[0] + 1440) out.push(late);
+  if (out[out.length - 1] + rot + turn <= late && late + rot + turn <= out[0] + 1440 && clear(late)) out.push(late);
+  return out;
+}
+
+/**
+ * v0.12.1 job legs out of the night curfews (strict) at both ends: a leg that would leave or land inside one moves to
+ * the nearest legal time, earlier or later, when that still leaves a turn on either side. Pure.
+ */
+function curfewLegs(legs: LegTemplate[], ref: string): LegTemplate[] {
+  const turn = typeOf(ref).turnMin;
+  const out = legs.map((l) => ({ ...l }));
+  for (let i = 0; i < out.length; i++) {
+    const l = out[i];
+    const block = blockMinutes(ref, l.from, l.to);
+    if (curfewOk(l.from, l.dep) && curfewOk(l.to, l.dep + block)) continue;
+    const before = Math.floor(Math.min(curfewShift(l.from, l.dep, 'before'), curfewShift(l.to, l.dep + block, 'before') - block) / 5) * 5;
+    const after = Math.ceil(Math.max(curfewShift(l.from, l.dep, 'after'), curfewShift(l.to, l.dep + block, 'after') - block) / 5) * 5;
+    const prev = out[i - 1], next = out[i + 1];
+    const fits = (t: number) => curfewOk(l.from, t) && curfewOk(l.to, t + block) && (!prev || t >= prev.dep + blockMinutes(ref, prev.from, prev.to) + turn) && (!next || t + block + turn <= next.dep);
+    const pick = [before, after].filter(fits).sort((a, b) => Math.abs(a - l.dep) - Math.abs(b - l.dep))[0];
+    if (pick !== undefined) l.dep = pick;
+  }
   return out;
 }
 
@@ -574,7 +603,7 @@ function adhoc(ctx: Ctx): Draft | null {
     if (!shrine || back < 2) return null;
     legs = roundTrip(g, from, shrine.code, s, back, pax);
     title = `Pilgrimage ${city(from)}–${shrine.place}`;
-    blurb = `${client.name} is bringing a parish group from ${city(from)} to ${shrine.place}, ${shrine.note}. Out ${fmtDay(legs[0].dep)}, home ${back} days later.`;
+    blurb = `${client.name} is bringing a parish group from ${city(from)} to ${shrine.place}, ${shrine.note}. Out ${fmtDay(legs[0].dep)}, home ${F.later(back)}.`;
   } else if (variant === 'music') {
     client = nearClient(ctx, clientsOf(g, ['music']));
     if (!client || maxBack < 7) return null;
@@ -776,7 +805,8 @@ function sportsBase(ctx: Ctx): Draft | null {
 function repatriation(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
   if (ctx.window && ctx.window.from > g.now + 60 * 60) return null;
-  const client = (o.client && g.clients[o.client]) || ministry(g, 'Foreign Affairs');
+  // v0.12.1 a government brings its citizens home (a tour operator never asks for a war-zone repatriation).
+  const client = (o.client && g.clients[o.client]?.kind === 'government' ? g.clients[o.client] : undefined) || ministry(g, 'Foreign Affairs');
   if (!client) return null;
   const home = g.company.homeBase;
   const crisis = o.airport ?? pick(g, F.CRISIS_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home));
@@ -823,7 +853,7 @@ function repatriation(ctx: Ctx): Draft | null {
 export function titleFor(ctx: Ctx, arch: string, client: Client, x: Omit<F.TitleCtx, 'client' | 'brand' | 'fromCity' | 'toCity' | 'season' | 'month'> & { start: Minute }, fallback: string): string {
   const { g } = ctx;
   const tc: F.TitleCtx = {
-    ...x, client: client.name, brand: F.brandOf(client.name), fromCity: city(x.from), toCity: city(x.to), season: F.seasonOf(x.start, x.to), month: F.monthOf(x.start),
+    ...x, client: client.name, brand: F.brandOf(client.name), fromCity: city(x.from), toCity: city(x.to), season: F.seasonOf(x.start, x.to, x.from), month: F.monthOf(x.start, x.from),
     nation: x.nation ?? F.NATIONS[client.country],
   };
   return F.pickTitle(sideRng(g, `title:${g.seq}:${g.now}:${arch}`), F.TITLES[arch], tc, g.clients[client.id]?.lastTitle, fallback);
@@ -1110,6 +1140,22 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   const ref = referenceType(d.req, sectors, p.kind === 'base', d.req.approvals.includes('ulr'));
   if (!ref) return null;
   const airports = [...new Set(sectors.flat())];
+  // v0.12.1 job legs keep out of night curfews (moved to the nearest legal time where they can).
+  if (p.kind === 'legs') {
+    const was = p.legs;
+    p.legs = curfewLegs(p.legs, ref);
+    // The job's window follows a first leg moved earlier or a last one moved later.
+    d.start = Math.min(d.start, p.legs[0]?.dep ?? d.start);
+    const moved = (p.legs[p.legs.length - 1]?.dep ?? 0) - (was[was.length - 1]?.dep ?? 0);
+    if (moved > 0) d.end += moved;
+  }
+  // v0.12.1 never into an airport a world event already closes when the job flies there: mission work (an
+  // evacuation, a repatriation, relief) is that event's work and flies under its permit; anything else is dropped.
+  const shut = closureOn(g, p.kind === 'base' ? airports.map((code) => [code, d.start] as [string, Minute]) : p.legs.flatMap((l) => [[l.from, l.dep], [l.to, l.dep]] as [string, Minute][]), d.eventId);
+  if (shut) {
+    if (!ADOPTS.has(d.archetype)) return null;
+    d.eventId = shut.id;
+  }
   const requirements: Requirements = {
     // v0.8 fix pack: `body` only when the client asks for one (a widebody base, Hajj, Antarctica); seats decide the rest.
     minSeats: d.req.minSeats, maxSeats: d.req.maxSeats, layout: d.req.layout, families: d.req.families,
@@ -1231,6 +1277,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   };
   if (d.terms) o.terms = d.terms;
   if (d.jumbo) o.jumbo = true;
+  if (shut && !shut.offerIds.includes(o.id)) shut.offerIds.push(o.id);
   if (isWideJob(requirements)) {
     const v = v09Stats(g);
     v.offersWide = (v.offersWide ?? 0) + 1;
@@ -1286,7 +1333,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // v0.7.2 F4: never the same title twice in a row for a client (builders without a pool: the month appended).
   const cl = g.clients[o.clientId];
   if (cl) {
-    if (cl.lastTitle === o.title) o.title = `${o.title} (${F.monthOf(o.start)})`;
+    if (cl.lastTitle === o.title) o.title = `${o.title} (${F.monthOf(o.start, p.kind === 'base' ? p.base : p.kind === 'legs' ? p.legs[0]?.from : undefined)})`;
     cl.lastTitle = o.title;
   }
   g.offers[o.id] = o;
@@ -1425,7 +1472,7 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
   // False when no workable time is left: the client takes a rival and the offer closes.
   const reopen = (): boolean => {
     o.status = 'open';
-    o.expires = Math.min(g.now + leftOf(o), answerBy(g, o, k.aircraftIds ?? [], k.paint !== false));
+    o.expires = Math.min(g.now + leftOf(o), answerBy(g, o, k.aircraftIds ?? [], k.paint !== false, k.cabin));
     if (o.expires > g.now + 10) {
       schedule(g, o.expires, 'offer.expire', o.id);
       return true;
@@ -1450,7 +1497,8 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
     setPrice(o, noPaint && o.paint!.required ? k.price * (1 - o.paint!.declinePct) : k.price);
     o.status = 'open';
     o.expires = Math.max(o.expires, g.now + 1);
-    const res = acceptOffer(g, o.id, k.aircraftIds ?? [], { paint: !noPaint, priced: true });
+    // v0.12.1 signed as countered: the cabin choice and the extra crew (a client-paid crew lifts the rate as shown).
+    const res = acceptOffer(g, o.id, k.aircraftIds ?? [], { paint: !noPaint, cabin: k.cabin, crewExtra: k.crewExtra, priced: true });
     if (res.ok) {
       pushMessage(g, { tone: 'good', cat: 'commercial', title: `Counter accepted: ${o.title}`, body: `${client} agreed to ${fmtPrice(o.product)}${noPaint ? ', without their colours on the aircraft' : ''}. The contract is signed.`, ref: { kind: 'contract', id: res.data!.contractId }, cue: 'counterReply' });
     } else {
@@ -1570,7 +1618,40 @@ export const finalizeDraft = (g: GameState, d: Draft): ContractOffer | null => f
  * v0.12.1 a closure has just started or been extended (ops/world.ts, the hook below): open offers into the airports it
  * shuts are withdrawn or adopted. A stub until Round F lane B (B9) fills it in.
  */
-export function sweepOffersForClosure(_g: GameState, _e: WorldEvent): void {
-  // TODO(v0.12.1 B9): withdraw or adopt open offers whose legs touch the closure.
+export function sweepOffersForClosure(g: GameState, e: WorldEvent): void {
+  const gone: ContractOffer[] = [];
+  for (const o of Object.values(g.offers)) {
+    if ((o.status !== 'open' && o.status !== 'countered') || o.eventId === e.id) continue;
+    const p = o.pattern;
+    const stops: [string, Minute][] = p.kind === 'base' ? [p.base, ...p.dests].map((code) => [code, Math.max(g.now, o.start)]) : p.kind === 'legs' ? p.legs.flatMap((l) => [[l.from, l.dep], [l.to, l.dep]] as [string, Minute][]) : [];
+    if (closureOn(g, stops, o.eventId)?.id !== e.id) continue;
+    // Mission work becomes this event's work (its permit); other clients withdraw the request.
+    if (ADOPTS.has(o.archetype) && !o.eventId) {
+      o.eventId = e.id;
+      if (!e.offerIds.includes(o.id)) e.offerIds.push(o.id);
+      continue;
+    }
+    closeOffer(g, o, 'expired');
+    gone.push(o);
+  }
+  if (!gone.length) return;
+  const names = gone.slice(0, 3).map((o) => o.title).join('; ');
+  pushMessage(g, {
+    tone: 'info', cat: 'commercial', title: gone.length === 1 ? `Offer withdrawn: ${gone[0].title}` : `${gone.length} offers withdrawn`,
+    body: `${e.title}: the client${gone.length === 1 ? ' withdrew it' : 's withdrew them'}, nothing can fly there while it is closed.${gone.length > 1 ? ` ${names}${gone.length > 3 ? ' and more' : ''}.` : ''}`,
+    ref: gone.length === 1 ? { kind: 'offer', id: gone[0].id } : { kind: 'event', id: e.id },
+  });
+}
+
+/** v0.12.1 mission work that flies into a closure under its event's permit (the rest is withdrawn). */
+const ADOPTS: ReadonlySet<Archetype> = new Set<Archetype>(['evacuation', 'repatriation', 'humanitarian']);
+
+/** v0.12.1 the first world closure (not the job's own event) over any of these airports at those times. Pure. */
+function closureOn(g: GameState, stops: [string, Minute][], own?: string): WorldEvent | null {
+  for (const [code, t] of stops) {
+    const e = closedAirport(g, code, t, own);
+    if (e) return e;
+  }
+  return null;
 }
 setClosureOfferHook(sweepOffersForClosure);

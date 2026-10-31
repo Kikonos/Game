@@ -10,12 +10,12 @@ import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
 import { DAY, fmtDay, monthKey, monthStart, fmtDayRange } from '../core/time';
 import { clamp } from '../core/util';
-import type { ActionResult, Contract, ContractOffer, CrewExtra, GameState, Minute, OfferStatus, Product, Receivable, SimEvent } from '../core/types';
+import type { ActionResult, Contract, ContractOffer, CrewExtra, Flight, GameState, Minute, OfferStatus, Product, Receivable, SimEvent } from '../core/types';
 import { autoRoster, crewExtraFor, flightCrewStatus, onContractDoneMorale } from '../crew';
-import { billContractMonth, issueBill } from './billing';
+import { billContractMonth, issueBill, mghFor, mghRemaining } from './billing';
 import { feasibility } from './feasibility';
 import { baseDayOf, flownRotations, programmeOf } from './plan';
-import { mghInMonth, productValue } from './pricing';
+import { productValue } from './pricing';
 import { generateFlights, relinkPositioning } from './schedule';
 import { bookPaint, cancelPaintFor } from '../ops/paint';
 import { paintWindow, type PaintSlot } from './paintTerms';
@@ -93,6 +93,12 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   if (o.pattern.kind === 'legs') ids = ids.slice(0, 1);
   // v0.8 a dry lease out: no flying of ours but the two ferries (ops/dryLease.ts).
   if (o.product.kind === 'dry') return acceptDry(g, o, ids[0]);
+  // v0.12.1 the client met our counter halfway: that price is final and holds for the terms we countered with
+  // (paint, cabin, extra crew), so no discount is taken a second time.
+  const k = o.counter;
+  if (k?.result === 'halfway' && !opts.priced) {
+    opts = { ...opts, priced: true, paint: k.paint !== false, cabin: k.cabin, crewExtra: opts.crewExtra ?? k.crewExtra };
+  }
   const paint = !!o.paint && opts.paint !== false;
   if (o.paint?.required && !paint && !opts.priced) return { ok: false, error: 'The client requires their livery on the aircraft' };
   // v0.7.4 the client's cabin request (a quick reconfiguration before the start).
@@ -276,15 +282,19 @@ export function counterOffer(g: GameState, offerId: string, price: number, aircr
   const ids = aircraftIds.filter((id) => g.fleet[id]);
   if (!ids.length) return { ok: false, error: 'Choose an aircraft' };
   const paint = !!o.paint && opts.paint !== false;
+  // v0.12.1 the counter carries the cabin choice and the extra crew, as an accept would (signed with them on reply).
+  const cabinOn = !!o.cabin && (opts.cabin !== false || o.cabin.required);
   for (const id of ids) {
-    const no = firstNo(feasibility(g, offerId, id, { paint }), !paint);
+    const no = firstNo(feasibility(g, offerId, id, { paint, cabin: cabinOn, crewExtra: opts.crewExtra }), !paint);
     if (no) return { ok: false, error: `${g.fleet[id].reg}: ${no.label}` };
   }
   // v0.5.2: the client always answers before the offer lapses (its expiry clock pauses while the counter is
   // pending) and before the job needs to get going (an hour before the positioning leaves).
-  const replyAt = replyTime(g, o, ids, paint);
+  const replyAt = replyTime(g, o, ids, paint, cabinOn);
   o.counter = { price: Math.round(price), at: g.now, replyAt, aircraftIds: ids, left: Math.max(60, o.expires - g.now) };
   if (o.paint) o.counter.paint = paint;
+  if (o.cabin) o.counter.cabin = cabinOn;
+  if (opts.crewExtra) o.counter.crewExtra = { cabin: opts.crewExtra.cabin, pilot: opts.crewExtra.pilot ? 1 : 0 };
   o.status = 'countered';
   schedule(g, replyAt, 'offer.reply', o.id);
   const hrs = Math.max(1, Math.ceil((replyAt - g.now) / 60));
@@ -306,25 +316,41 @@ function cancelScale(c: Contract, daysBefore: number): number {
   return 1;
 }
 
-/** Penalty if we cancel now: before start value × cancelScale; active wet = 100% of unflown MGH; active charter = unflown share. */
+/**
+ * Penalty if we cancel now: before start value × cancelScale; active wet = 100% of the MGH still to come (v0.12.1
+ * Hajj: inside the phases); a charter (v0.12.1, signed or active) = per trip not yet flown, its share × cancelScale
+ * by the days to its first departure.
+ */
 export function cancelPenalty(g: GameState, contractId: string): number {
   const c = g.contracts[contractId];
   if (!c || (c.status !== 'signed' && c.status !== 'active')) return 0;
-  const n = c.aircraftIds.length;
   const p = c.product;
   // v0.8 a delivered dry lease is recalled (even a day before its start): one month's rent to the lessee.
   const recall = c.dry ? recallTerms(g, c) : null;
   if (recall) return recall.penalty;
+  // v0.12.1 a charter series: each rotation not yet flown at the cancel scale for the days to its own first
+  // departure (charter series terms), the part of a rotation under way in full.
+  if (p.kind === 'charter') {
+    const value = g.now < c.start ? p.price : p.price * (1 - brokerCut(c));
+    const trips = programmeOf(c, g.fleet[c.aircraftIds[0]]?.typeId ?? 'a320ceo').trips;
+    const total = trips.reduce((s, t) => s + tripMin(t), 0) || 1;
+    let ahead = 0;
+    let pen = 0;
+    for (const t of trips) {
+      if (t.std <= g.now) continue;
+      const share = (value * tripMin(t)) / total;
+      ahead += share;
+      pen += share * cancelScale(c, (t.std - g.now) / DAY);
+    }
+    const underWay = Math.max(0, value - (c.accrued ?? 0) - ahead);
+    return Math.round(pen + underWay);
+  }
   if (g.now < c.start) {
-    const value = p.kind === 'wet' ? productValue(p, 0, c.start, c.end) * n : p.kind === 'charter' ? p.price : productValue(p, 0, c.start, c.end);
+    // v0.12.1 wet: the guaranteed hours over the term (Hajj: the phases only), as billing counts them.
+    const value = p.kind === 'wet' ? p.ratePerBH * mghRemaining(c, c.start) : productValue(p, 0, c.start, c.end);
     return Math.round(value * cancelScale(c, (c.start - g.now) / DAY));
   }
-  if (p.kind === 'wet') {
-    let mgh = 0;
-    for (let k = monthKey(g.now); monthStart(k) < c.end; k++) mgh += mghInMonth(p.mghPerMonth, g.now, c.end, k);
-    return Math.round(p.ratePerBH * mgh * n);
-  }
-  if (p.kind === 'charter') return Math.round(Math.max(0, p.price * (1 - brokerCut(c)) - (c.accrued ?? 0)));
+  if (p.kind === 'wet') return Math.round(p.ratePerBH * mghRemaining(c, g.now));
   return 0;
 }
 
@@ -465,7 +491,7 @@ export function contractProgress(g: GameState, contractId: string): ContractProg
   const k = monthKey(g.now);
   out.bhMonth = Math.round(((c.use[k]?.blockMin ?? 0) / 60) * 10) / 10;
   if (c.product.kind === 'wet') {
-    out.mgh = Math.round(mghInMonth(c.product.mghPerMonth, c.start, Math.min(c.end, c.cancelledAt ?? Infinity), k) * c.aircraftIds.length * 10) / 10;
+    out.mgh = Math.round(mghFor(c, k) * 10) / 10;
     const unbilled = c.billedMonths.includes(k) ? 0 : c.product.ratePerBH * out.bhMonth;
     out.revenueToDate = Math.round((c.invoiced ?? 0) + unbilled);
   } else out.revenueToDate = Math.round(c.accrued ?? 0);
@@ -492,10 +518,16 @@ export function onContractStart(g: GameState, ev: SimEvent): void {
 export function onContractEnd(g: GameState, ev: SimEvent): void {
   const c = g.contracts[ev.id];
   if (!c || (c.status !== 'signed' && c.status !== 'active') || c.dry) return;
+  // v0.12.1 the job's own legs only: revenue and tech stops, and the empty legs that are its way out (leaving
+  // within two days of the last revenue leg: a night stop or a delay on the way home). Crew deadheads and later positioning never hold the contract open.
+  const live = Object.values(g.flights).filter((f) => f.contractId === c.id && (f.status === 'scheduled' || f.status === 'enroute') && f.kind !== 'deadhead');
+  const endOf = (f: Flight) => (f.status === 'enroute' ? (f.eta ?? f.sta) : f.sta + f.delay);
+  const rev = live.filter((f) => f.kind === 'revenue' || f.kind === 'techstop');
+  const lastRev = Math.max(0, ...rev.map(endOf), ...Object.values(g.flights).filter((f) => f.contractId === c.id && f.status === 'done' && (f.kind === 'revenue' || f.kind === 'techstop')).map((f) => f.ata ?? f.sta));
   let last = 0;
-  for (const f of Object.values(g.flights)) {
-    if (f.contractId !== c.id || (f.status !== 'scheduled' && f.status !== 'enroute')) continue;
-    last = Math.max(last, f.status === 'enroute' ? (f.eta ?? f.sta) : f.sta + f.delay);
+  for (const f of live) {
+    if (f.kind !== 'revenue' && f.kind !== 'techstop' && f.std + f.delay > (lastRev || c.end) + 2 * DAY) continue;
+    last = Math.max(last, endOf(f));
   }
   if (last) {
     // Next look just after the last leg's on-blocks; a leg held past its time is looked at hourly, not every 5 min.
@@ -504,6 +536,9 @@ export function onContractEnd(g: GameState, ev: SimEvent): void {
   }
   completeContract(g, c);
 }
+
+/** v0.12.1 a leg cancelled by the client or by force majeure (a closure, a court, no war-risk cover), not by us. */
+const notOursCancel = (why = ''): boolean => /^(Cancelled: |Closed: |Court injunction|No war-risk cover)|cancelled$/.test(why);
 
 function completeContract(g: GameState, c: Contract): void {
   c.status = 'completed';
@@ -532,38 +567,48 @@ function completeContract(g: GameState, c: Contract): void {
     }
     settleCharter(g, c, Math.round(c.accrued ?? 0), c.payment.basis === 'arrears' ? `Invoice: ${c.title}` : `Final balance: ${c.title}`);
   }
+  // v0.12.1 the legs that did not fly count: ours (recovery, AOG, no crew) against the on-time score; the client's
+  // own or force majeure (a closure, a court) not. Flights are pruned a week after their day, so older
+  // cancellations are no longer seen here. legsFlown includes legs a rival flew for us.
   const flown = c.legsFlown ?? 0;
-  const onTime = flown ? (c.legsOnTime ?? 0) / flown : 1;
+  let sub = 0;
+  let cxUs = 0;
+  let cxFm = 0;
+  for (const f of Object.values(g.flights)) {
+    if (f.contractId !== c.id || (f.kind !== 'revenue' && f.kind !== 'techstop')) continue;
+    if (f.status === 'cancelled') {
+      if (notOursCancel(f.delayReason)) cxFm++;
+      else cxUs++;
+    } else if (f.operatedBy) sub++;
+  }
+  const onTime = flown + cxUs ? (c.legsOnTime ?? 0) / (flown + cxUs) : 1;
   const rep = g.company.reputation;
   const e = c.effects;
-  if (e.reliable && (c.archetype !== 'seasonBase' || onTime >= 0.85)) rep.reliable = clamp(rep.reliable + e.reliable, 0, 100);
-  if (e.clean) rep.clean = clamp(rep.clean + e.clean, 0, 100);
   const cl = g.clients[c.clientId];
-  // v0.8 completion moves the relation (§1.3) and counts a job; repeat business may follow.
-  const R = BAL.v08.rel;
-  const d = c.archetype === 'aogCover' ? R.doneAog : onTime >= 0.85 ? R.done : R.doneBad;
-  bumpClient(g, c.clientId, d, d > 0 ? `Completed ${c.title}${flown ? `, ${Math.round(onTime * 100)} % on time` : ''}` : `${c.title}: only ${Math.round(onTime * 100)} % on time`);
-  noteJobDone(g, c.clientId);
-  // Deportation: the press noticed (clean −2 a flight with returnees, capped −10 a contract; billed as flown).
-  g.stats.contractsDone++;
-  const v = v09Stats(g);
-  if (c.archetype === 'hajj') v.hajjDone = (v.hajjDone ?? 0) + 1;
-  if (c.archetype === 'evacuation' || c.archetype === 'repatriation') v.homeSafe = (v.homeSafe ?? 0) + 1;
-  rollRepeat(g, c.id);
-  // Legs a rival flew for us or that were cancelled (still in the flight table), so "0 legs flown" reads right.
-  let sub = 0;
-  let cx = 0;
-  for (const f of Object.values(g.flights)) {
-    if (f.contractId !== c.id || f.kind !== 'revenue') continue;
-    if (f.status === 'cancelled') cx++;
-    else if (f.operatedBy) sub++;
+  // Nothing flew (every leg cancelled): no completion credit, no job counted, no repeat business.
+  const flewAny = flown > 0;
+  if (flewAny) {
+    if (e.reliable && (c.archetype !== 'seasonBase' || onTime >= 0.85)) rep.reliable = clamp(rep.reliable + e.reliable, 0, 100);
+    if (e.clean) rep.clean = clamp(rep.clean + e.clean, 0, 100);
+    // v0.8 completion moves the relation (§1.3) and counts a job; repeat business may follow.
+    const R = BAL.v08.rel;
+    const d = c.archetype === 'aogCover' ? R.doneAog : onTime >= 0.85 ? R.done : R.doneBad;
+    bumpClient(g, c.clientId, d, d > 0 ? `Completed ${c.title}, ${Math.round(onTime * 100)} % on time` : `${c.title}: only ${Math.round(onTime * 100)} % on time`);
+    noteJobDone(g, c.clientId);
+    // Deportation: the press noticed (clean −2 a flight with returnees, capped −10 a contract; billed as flown).
+    g.stats.contractsDone++;
+    const v = v09Stats(g);
+    if (c.archetype === 'hajj') v.hajjDone = (v.hajjDone ?? 0) + 1;
+    if (c.archetype === 'evacuation' || c.archetype === 'repatriation') v.homeSafe = (v.homeSafe ?? 0) + 1;
+    rollRepeat(g, c.id);
   }
-  const parts = [`${flown} ${flown === 1 ? 'leg' : 'legs'} flown${flown ? `, ${Math.round(onTime * 100)}% on time` : ''}`];
+  const own = flown - sub;
+  const parts = [`${own} ${own === 1 ? 'leg' : 'legs'} flown${own ? `, ${Math.round(onTime * 100)}% on time` : ''}`];
   if (sub) parts.push(`${sub} sub-chartered`);
-  if (cx) parts.push(`${cx} cancelled`);
+  if (cxUs + cxFm) parts.push(`${cxUs + cxFm} cancelled`);
   pushMessage(g, {
-    tone: flown ? 'good' : 'info', cat: 'commercial', title: `Completed: ${c.title}`,
-    body: `${parts.join(', ')}. ${cl?.name ?? 'The client'} ${!flown ? 'has closed the contract' : onTime >= 0.85 ? 'is pleased' : 'noticed the delays'}.`,
+    tone: flewAny ? 'good' : 'info', cat: 'commercial', title: flewAny ? `Completed: ${c.title}` : `Closed without flying: ${c.title}`,
+    body: `${parts.join(', ')}. ${cl?.name ?? 'The client'} ${!flewAny ? 'has closed the contract' : onTime >= 0.85 ? 'is pleased' : 'noticed the delays'}.`,
     ref: { kind: 'contract', id: c.id },
   });
   completeHook?.(g, c);

@@ -5,17 +5,21 @@ import { ACMI_TYPES } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { takePause } from '../core/pause';
-import { planSector, TECH_STOP_MIN, typeOf } from '../core/perf';
+import { blockMinutes, planSector, TECH_STOP_MIN, typeOf } from '../core/perf';
 import { DAY, START, fromUTC, localMinuteOfDay, toDate } from '../core/time';
 import { advanceTo } from '../sim';
 import type { Archetype, ContractOffer, GameState } from '../core/types';
 import { acceptOffer, counterOffer, declineOffer, feasibility, feasibilityAll, generateOffer, offerRestLine, priceProduct, productValue, rateMultiplier } from '.';
 import { ulrNeed } from './feasibility';
-import { onOfferExpire, onOfferReply, PACING, quietWeekOffer } from './offers';
+import { atLocal, onOfferExpire, onOfferReply, PACING, quietWeekOffer } from './offers';
+import { curfewOk } from '../core/curfew';
+import { distanceNm } from '../core/geo';
 import { computeWaves, programmeOf } from './plan';
 import { referenceType } from './pricing';
 import * as F from './flavor';
-import { addAircraft, newGame, offer, run } from './testkit';
+import { addAircraft, hamBase, legsOffer, newGame, offer, run } from './testkit';
+import { TPL_BY_ID } from '../../data/worldEvents';
+import { startEvent } from '../ops/world';
 import { breathe } from '../../test/breathe';
 
 const ARCHETYPES: Archetype[] = ['seasonBase', 'aogCover', 'adhoc', 'sports', 'repatriation', 'tourSeries', 'troopRotation', 'vip'];
@@ -542,5 +546,78 @@ describe('v0.7.2 contract titles (F4)', () => {
     expect(F.pickTitle(r, [() => 'A'], x, 'A', 'F')).toBe('A (June)');
     expect(F.seasonOf(Date.UTC(2027, 0, 10) / 60_000, 'SZG')).toBe('ski');
     expect(F.seasonOf(Date.UTC(2027, 6, 10) / 60_000, 'PMI')).toBe('summer');
+  });
+});
+
+describe('v0.12.1 offers and world closures', () => {
+  it('no offer goes into an airport another event has closed, unless it is that event\'s mission work', () => {
+    const g = newGame(31);
+    const e = startEvent(g, { ...TPL_BY_ID.warRedSea, closeP: 1 });
+    expect(e.closed).toBe(true);
+    for (let i = 0; i < 40; i++) {
+      const o = generateOffer(g, 'evacuation', { wide: false, window: false });
+      if (!o) continue;
+      const codes = o.pattern.kind === 'legs' ? o.pattern.legs.flatMap((l) => [l.from, l.to]) : [];
+      if (codes.includes('ADE')) expect(o.eventId).toBe(e.id);
+      delete g.offers[o.id];
+    }
+    // A forced Aden evacuation is the war's work (adopted), and listed on the event.
+    const o = generateOffer(g, 'evacuation', { airport: 'ADE', staging: 'DXB', wide: false, window: false });
+    expect(o?.eventId).toBe(e.id);
+    expect(e.offerIds).toContain(o!.id);
+  });
+  it('a closure that starts: mission offers into it are adopted, other offers into it withdrawn the same minute', () => {
+    const g = newGame(31);
+    const evac = generateOffer(g, 'evacuation', { airport: 'ADE', staging: 'DXB', wide: false, window: false })!;
+    expect(evac.eventId).toBeUndefined();
+    const far = hamBase(g, g.now + 20 * DAY, 30);
+    const job = legsOffer(g, [['DXB', 'ADE', g.now + 2 * DAY], ['ADE', 'DXB', g.now + 2 * DAY + 300]]);
+    expect(job.archetype).toBe('adhoc');
+    const e = startEvent(g, { ...TPL_BY_ID.warRedSea, closeP: 1 });
+    expect(evac.eventId).toBe(e.id);
+    expect(evac.status).toBe('open');
+    expect(job.status).toBe('expired');
+    expect(far.status).toBe('open');
+    expect(g.messages.some((m) => m.title === `Offer withdrawn: ${job.title}`)).toBe(true);
+  });
+});
+
+describe('v0.12.1 offers keep out of night curfews', () => {
+  it('short-haul job legs never leave or land inside a strict curfew (3 seeds)', () => {
+    const bad: string[] = [];
+    for (const seed of [2, 6, 9]) {
+      const g = newGame(seed);
+      for (let i = 0; i < 12; i++) {
+        for (const k of ['adhoc', 'tourSeries', 'sports', 'repatriation', 'deportation', 'medical'] as Archetype[]) {
+          const o = generateOffer(g, k, { wide: false, window: false });
+          if (!o || o.pattern.kind !== 'legs') continue;
+          for (const l of o.pattern.legs) {
+            if (distanceNm(l.from, l.to) > 1500) continue;
+            const b = blockMinutes('a320ceo', l.from, l.to);
+            if (!curfewOk(l.from, l.dep) || !curfewOk(l.to, l.dep + b)) bad.push(`${o.title} ${l.from}-${l.to}`);
+          }
+          delete g.offers[o.id];
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+  it("a Newcomer's late base rotation at Hamburg, Düsseldorf or Frankfurt is never added inside a curfew", () => {
+    for (const base of ['HAM', 'DUS', 'FRA']) {
+      const g = newGame(5, 'LIS', true);
+      for (let i = 0; i < 25; i++) {
+        const o = generateOffer(g, 'seasonBase', { airport: base, wide: false, window: false });
+        if (!o || o.pattern.kind !== 'base') continue;
+        const p = o.pattern;
+        for (const w of p.waves) {
+          for (const d of p.dests) {
+            const dep = atLocal(base, p.from + 7 * DAY, w), arr = dep + blockMinutes('a320ceo', base, d);
+            const home = arr + typeOf('a320ceo').turnMin + blockMinutes('a320ceo', d, base);
+            if (w >= 1380) expect([curfewOk(base, dep), curfewOk(d, arr), curfewOk(base, home)]).toEqual([true, true, true]);
+          }
+        }
+        delete g.offers[o.id];
+      }
+    }
   });
 });

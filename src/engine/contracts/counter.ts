@@ -7,7 +7,7 @@ import { clamp } from '../core/util';
 import type { ContractOffer, GameState, Minute, Product } from '../core/types';
 import { askingPrice } from './accept';
 import { feasibility } from './feasibility';
-import { paintQuote } from './paintTerms';
+import { termsProduct } from './cabinTerms';
 
 /** Client leverage-for-us: urgent jobs need an answer now (1), short notice some (0.5), normal none. */
 export const leverage = (o: Pick<ContractOffer, 'urgency'>): number => (o.urgency === 'urgent' ? 1 : o.urgency === 'short' ? 0.5 : 0);
@@ -22,26 +22,36 @@ export function replyDelay(g: GameState, o: Pick<ContractOffer, 'urgency'>): num
  * positioning leg in, planned as late as possible, else the job's start). Replies and the reopened clock stay
  * before it, so an answer never leaves an offer open past the job's start. Pure.
  */
-export function answerBy(g: GameState, o: ContractOffer, aircraftIds: string[], paint = true): Minute {
+export function answerBy(g: GameState, o: ContractOffer, aircraftIds: string[], paint = true, cabin?: boolean): Minute {
   let t = o.start;
   for (const id of aircraftIds) {
     if (!g.fleet[id]) continue;
-    const d = feasibility(g, o.id, id, { paint }).positionIn[0]?.std;
+    // v0.12.1 the countered cabin choice (a refit before the start moves the positioning).
+    const d = feasibility(g, o.id, id, { paint, cabin }).positionIn[0]?.std;
     if (d !== undefined) t = Math.min(t, d);
   }
   return t;
 }
 
 /** Reply time for a counter sent now: the client's delay, capped an hour before answerBy (at least 15 min away). */
-export function replyTime(g: GameState, o: ContractOffer, aircraftIds: string[], paint = true): Minute {
+export function replyTime(g: GameState, o: ContractOffer, aircraftIds: string[], paint = true, cabin?: boolean): Minute {
   const delay = replyDelay(g, o);
-  return g.now + Math.min(delay, Math.max(15, answerBy(g, o, aircraftIds, paint) - 60 - g.now));
+  return g.now + Math.min(delay, Math.max(15, answerBy(g, o, aircraftIds, paint, cabin) - 60 - g.now));
 }
 
-/** The counter's comparison price: the asking price, without the client's paint when the counter drops it. */
+/**
+ * The counter's comparison price: the asking price, without the client's paint when the counter drops it, and
+ * v0.12.1 without an optional cabin the counter declines (the price the player saw on the Accept button).
+ */
 export function counterBase(o: ContractOffer): number {
-  const noPaint = !!o.paint && o.counter?.paint === false;
-  return noPaint && !o.paint!.required ? askingPrice(paintQuote(o, false)) : askingPrice(o);
+  const noPaint = !!o.paint && o.counter?.paint === false && !o.paint.required;
+  return askingPrice({ product: termsProduct(o, { paint: !noPaint, cabin: o.counter?.cabin }) });
+}
+
+/** v0.12.1 the rate lift a countered client-paid extra crew adds at signing (1 when none): the stepper shows it. */
+export function counterLift(o: Pick<ContractOffer, 'counter' | 'requirements'>): number {
+  const paid = o.requirements.extraCabinPaid, x = o.counter?.crewExtra;
+  return paid && x && x.cabin >= o.requirements.extraCabin + paid.n ? 1 + paid.pct : 1;
 }
 
 export interface CounterOdds {

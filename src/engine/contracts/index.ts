@@ -12,14 +12,14 @@ import { dailyRelations, loadRelations, monthlyRelationDrift } from './relations
 import { loadRivals, onRivalBid, refreshRivals } from './rivals';
 import { dailyDryLease, dailyRepeats, dailySubIn } from './missions';
 
-export { acceptOffer, askingPrice, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, leadDays, type ContractProgress, type SignOpts } from './accept';
+export { acceptOffer, askingPrice, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, leadDays, setPrice, type ContractProgress, type SignOpts } from './accept';
 export { paintQuote, paintTermsText, paintWindow, type PaintSlot } from './paintTerms';
 export { cabinQuote, cabinTarget, cabinTermsText, rollCabin, termsProduct } from './cabinTerms';
 export { billContractMonth, type BillingLine } from './billing';
 export { feasibility, feasibilityAll, marketFit, offerRestLine, type MarketFit, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningLeg } from './feasibility';
 export { fmtPrice, generateOffer, idleWindows, type IdleWindow, type OfferOpts } from './offers';
 export { maxPax, seatNeedText } from './plan';
-export { counterOdds, counterView, type CounterOdds, type CounterView } from './counter';
+export { counterLift, counterOdds, counterView, type CounterOdds, type CounterView } from './counter';
 export { mghLabel, priceProduct, productValue, rateMultiplier } from './pricing';
 export { generateFlights, planPositioning, relinkPositioning } from './schedule';
 // v0.8 (UPDATE-0.8.md §12).

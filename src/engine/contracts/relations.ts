@@ -103,6 +103,9 @@ export function forgiveDelay(g: GameState, clientId: string): boolean {
 
 // ---------- texts ----------
 
+/** v0.12.1 the forgiveness perk with its limit (15 min to 3 h; a longer delay is always paid). */
+const forgiveLine = (n: number): string => `${n} delay${n > 1 ? 's' : ''} of up to 3 h a month forgiven (longer ones are paid)`;
+
 /** What a level brings, as plain lines. Pure. */
 export function perkLines(level: ClientLevel): string[] {
   const p = LEVEL_PERKS[level];
@@ -112,7 +115,7 @@ export function perkLines(level: ClientLevel): string[] {
   if (p.length > 1) out.push(`Longer programmes (×${p.length}) and ${Math.round(p.mgh * 100)} % more guaranteed hours`);
   if (p.first) out.push('First refusal: they ask us before any rival');
   if (p.payDays) out.push(`They pay ${p.payDays} days sooner and more reliably`);
-  if (p.forgive) out.push(`${p.forgive} small delay${p.forgive > 1 ? 's' : ''} a month forgiven`);
+  if (p.forgive) out.push(forgiveLine(p.forgive));
   if (p.repeat) out.push(`${Math.round(p.repeat * 100)} % chance of repeat business after a job`);
   if (level === 'partner') out.push('Exclusive capacity leases');
   if (level === 'unhappy') out.push('No delays forgiven');
@@ -218,7 +221,7 @@ export function offerClientLine(g: GameState, offerId: string): { level: ClientL
   if (lp) lines.push(`${pct(lp)} rate (${LEVEL_NAME[level]} client, included)`);
   if (o.standingPct) lines.push(`${pct(o.standingPct)} rate (${o.standingPct < 0 ? 'Newcomer' : 'Respected'} company, included)`);
   if (o.firstRefusal) lines.push('First refusal: no rival will take it before it expires');
-  if (p.forgive) lines.push(`${p.forgive} small delay${p.forgive > 1 ? 's' : ''} a month forgiven`);
+  if (p.forgive) lines.push(forgiveLine(p.forgive));
   if (p.payDays) lines.push(`Pays ${p.payDays} days sooner`);
   if (o.urgency === 'urgent') lines.push(`+${V.rel.urgentSign} relation for helping at short notice`);
   if (o.repeatOf) lines.push('Repeat business: they liked the last job');

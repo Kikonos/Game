@@ -103,6 +103,8 @@ export function returnEarly(g: GameState, aircraftId: string, end: Minute): Acti
     return r;
   }
   ac.returning!.earlyFee = q.fee;
+  // v0.12.1 kept so a return check that falls through puts the lease back as it was (rent, notice, lease end).
+  ac.returning!.wasEnd = was;
   own.noticeGiven = true;
   const dec = openDecision(g, aircraftId);
   if (dec) g.decisions.splice(g.decisions.indexOf(dec), 1);
@@ -208,8 +210,23 @@ function unbook(g: GameState, ac: Aircraft): ActionResult {
     const ferries = (m.ferryIds ?? []).filter((id) => g.flights[id]?.status === 'scheduled');
     if (ferries.length) removeFlights(g, ferries);
   }
-  delete ac.returning;
+  dropReturn(ac);
   return { ok: true };
+}
+
+/**
+ * v0.12.1 a booked return that is off (unbooked, or its check fell through): an early return's lease end goes back
+ * to the original date (no fee, the rent runs again), and the lease-end choice comes round again in its notice
+ * window. True when an early return was undone.
+ */
+function dropReturn(ac: Aircraft): boolean {
+  const was = ac.returning?.wasEnd;
+  delete ac.returning;
+  if (ac.ownership.kind !== 'dryLeaseIn') return false;
+  ac.ownership.noticeGiven = false;
+  if (was === undefined || was <= ac.ownership.leaseEnd) return false;
+  ac.ownership.leaseEnd = was;
+  return true;
 }
 
 /** Extend 12 or 36 months, or book the return. Also the 'leaseEnd' decision's resolver. */
@@ -272,8 +289,11 @@ export function dailyLeases(g: GameState): void {
     if (ac.returning) {
       const m = g.maintenance[ac.returning.maintId];
       if (!m || m.status === 'cancelled') {
-        delete ac.returning;
-        pushMessage(g, { tone: 'warn', cat: 'company', title: `Lease return slipped: ${ac.reg}`, body: `The return check at ${siteCity(own.returnSite ?? g.company.homeBase)} fell through. Book the return again or extend; at the lease end it rolls on a month at +10%.`, ref: { kind: 'aircraft', id: ac.id }, ...cardMeta(leaseReturnCard(g, ac.id)) });
+        const early = dropReturn(ac);
+        const body = early
+          ? `The return check at ${siteCity(own.returnSite ?? g.company.homeBase)} fell through, so the early return is off: the lease runs to ${fmtDate(own.leaseEnd)} again at ${usd(own.rentPerMonth)}/month, with no early-return fee. Book the return again or extend.`
+          : `The return check at ${siteCity(own.returnSite ?? g.company.homeBase)} fell through. Book the return again or extend; at the lease end it rolls on a month at +10%.`;
+        pushMessage(g, { tone: 'warn', cat: 'company', title: `Lease return slipped: ${ac.reg}`, body, ref: { kind: 'aircraft', id: ac.id }, ...cardMeta(leaseReturnCard(g, ac.id)) });
       }
       continue;
     }

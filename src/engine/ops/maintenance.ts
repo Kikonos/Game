@@ -48,7 +48,9 @@ export interface CheckStatus {
 const MONTH = 30.44 * DAY;
 const cLimitFH = (ac: Aircraft) => (typeOf(ac.typeId).body === 'wide' ? BAL.cCheckFH.wide : BAL.cCheckFH.narrow);
 /** What a check costs us: a C-check is mostly paid out of maintenance reserves (leased) or the per-BH provision (owned). */
-export const checkCostOf = (ac: Aircraft, kind: 'A' | 'C') => Math.round(BAL.checkCost[kind][typeOf(ac.typeId).body === 'wide' ? 1 : 0] * (kind === 'C' ? 1 - BAL.cReserveCover : 1));
+/** A check's price; v0.12.1 an A-check `at` an airport other than `home` costs +20 % (line engineers sent out). */
+export const checkCostOf = (ac: Aircraft, kind: 'A' | 'C', at?: string, home?: string) =>
+  Math.round(BAL.checkCost[kind][typeOf(ac.typeId).body === 'wide' ? 1 : 0] * (kind === 'C' ? 1 - BAL.cReserveCover : 1) * (kind === 'A' && at && home && at !== home ? 1 + BAL.v09.heads.maint.outstation : 1));
 export const durationOf = (ac: Aircraft, kind: 'A' | 'C') => (kind === 'A' ? typeOf(ac.typeId).aCheckHours * 60 : typeOf(ac.typeId).cCheckDays * DAY);
 
 export function nextPlanned(g: GameState, acId: string, kind: MaintKind): MaintenanceEvent | undefined {
@@ -106,7 +108,7 @@ export function checkStatus(g: GameState, ac: Aircraft): CheckStatus {
 }
 
 /** Share of the A/C-check interval used by time t, counting the aircraft's scheduled and airborne legs until then. Pure. */
-export function checkUsedAt(g: GameState, ac: Aircraft, kind: 'A' | 'C', t: Minute): { used: number; fh: number; limitFH: number } {
+export function checkUsedAt(g: GameState, ac: Aircraft, kind: 'A' | 'C', t: Minute): { used: number; fh: number; limitFH: number; calUsed: number; fhUsed: number } {
   const ty = typeOf(ac.typeId);
   const m = ac.maint;
   let fh = kind === 'A' ? m.fhSinceA : m.fhSinceC;
@@ -117,7 +119,8 @@ export function checkUsedAt(g: GameState, ac: Aircraft, kind: 'A' | 'C', t: Minu
   }
   const limitFH = kind === 'A' ? ty.aCheckFH : cLimitFH(ac);
   const cal = kind === 'A' ? (t - m.lastA) / (BAL.aCheckDays * DAY) : (t - m.lastC) / (ty.cCheckMonths * MONTH);
-  return { used: Math.max(fh / limitFH, cal), fh: Math.round(fh), limitFH: Math.round(limitFH) };
+  // v0.12.1 both shares: the dialog says which one drives it (calendar or flight hours).
+  return { used: Math.max(fh / limitFH, cal), fh: Math.round(fh), limitFH: Math.round(limitFH), calUsed: cal, fhUsed: fh / limitFH };
 }
 
 /** Past the overdue tolerance on either check (ferry flights to the check are still allowed). */
@@ -246,7 +249,7 @@ export function scheduleCheck(
   if (needFerry && drop.length) return { ok: false, error: `Clashes with ${drop.length} flight${drop.length > 1 ? 's' : ''} (${drop[0].no} ${fmtDateTime(drop[0].std)})` };
   const soft = clash.filter((f) => f.kind === 'positioning' && f.status === 'scheduled');
   const m: MaintenanceEvent = {
-    id: nextId(g, 'mx'), aircraftId: ac.id, kind, at, start, end, cost: pt ? pt.cost : checkCostOf(ac, kind as 'A' | 'C'), status: 'planned', planned: true, ev: 0, booked: g.now, bookedStart: start,
+    id: nextId(g, 'mx'), aircraftId: ac.id, kind, at, start, end, cost: pt ? pt.cost : checkCostOf(ac, kind as 'A' | 'C', at, g.company.homeBase), status: 'planned', planned: true, ev: 0, booked: g.now, bookedStart: start,
   };
   if (opts.paint && kind === 'paint') m.paint = { phase: opts.paint.phase, contractId: opts.paint.contractId };
   if (opts.refit && kind === 'refit') m.refit = { cabin: { ...opts.refit.cabin }, ...(opts.refit.restSeats !== undefined ? { restSeats: opts.refit.restSeats } : {}) };
@@ -417,8 +420,7 @@ export function planA(g: GameState, ac: Aircraft, due: Minute, noDrop = false): 
     if (start + dur + buf - 30 > gp.to) continue;
     const r = scheduleCheck(g, ac.id, 'A', start, gp.at, { auto: true });
     if (!r.ok) continue;
-    // v0.9 round 4 (§5.3): a line A-check away from home costs +20 %.
-    if (gp.at !== home && r.data) g.maintenance[r.data.maintId].cost = Math.round(checkCostOf(ac, 'A') * (1 + BAL.v09.heads.maint.outstation));
+    // v0.9 round 4 (§5.3): a line A-check away from home costs +20 % (v0.12.1 priced in scheduleCheck, for every booking).
     return true;
   }
   for (const gp of gaps) {

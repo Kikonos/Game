@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { DAY } from '../core/time';
 import type { ContractOffer, GameState } from '../core/types';
 import { acceptOffer, askingPrice, counterOffer, feasibilityAll } from '.';
-import { answerBy, counterOdds, counterView, halfwayPrice } from './counter';
+import { answerBy, counterBase, counterLift, counterOdds, counterView, halfwayPrice } from './counter';
+import { termsProduct } from './cabinTerms';
 import { newGame, offer, run } from './testkit';
 
 const fit = (g: GameState, o: ContractOffer) => feasibilityAll(g, o.id).find((r) => r.level !== 'no')!.aircraftId;
@@ -138,5 +139,59 @@ describe('counter state machine', () => {
       return [o.counter!.result, o.counter!.replyAt, askingPrice(o), g.rng];
     };
     expect(play()).toEqual(play());
+  });
+});
+
+describe('v0.12.1 a counter keeps the cabin choice and the client-paid extra crew', () => {
+  it('a counter without the optional cabin signs without it: no refit, cabin-less asking price for the odds', () => {
+    const g = newGame(11);
+    const o = offer(g, 'seasonBase', { airport: 'HAM', dests: ['PMI'], waves: 2, start: g.now + 40 * DAY, days: 120, cabin: { layout: 'two-class', required: false } });
+    o.requirements.minSeats = 140;
+    const ac = feasibilityAll(g, o.id, { cabin: false }).find((r) => r.level !== 'no')!.aircraftId;
+    const off = askingPrice({ product: termsProduct(o, { cabin: false }) });
+    expect(off).toBeLessThan(askingPrice(o));
+    expect(counterOffer(g, o.id, off, [ac], { cabin: false }).ok).toBe(true);
+    expect(o.counter!.cabin).toBe(false);
+    // The client compares against the price without the cabin (what the Accept button showed).
+    expect(counterBase(o)).toBe(off);
+    run(g, o.counter!.replyAt + 1);
+    const k = Object.values(g.contracts).find((c) => c.offerId === o.id)!;
+    expect(o.counter!.result).toBe('accepted');
+    expect(k.cabin?.accepted).toBe(false);
+    expect(k.requirements.layouts).toBeUndefined();
+    expect(Object.values(g.maintenance).some((m) => m.aircraftId === ac && m.kind === 'refit')).toBe(false);
+    expect((k.product as { ratePerBH: number }).ratePerBH).toBe(off);
+  });
+  it('a counter with the client-paid extra crew signs with it, at the counter × (1 + pct) the stepper showed', () => {
+    const g = newGame(9);
+    const o = offer(g, 'seasonBase', { airport: 'HAM', dests: ['PMI'], waves: 2, start: g.now + 40 * DAY, days: 150 });
+    o.requirements.extraCabinPaid = { n: 1, pct: 0.0195, perBH: 75 };
+    const ac = fit(g, o);
+    const price = askingPrice(o);
+    const x = { cabin: o.requirements.extraCabin + 1, pilot: 0 as const };
+    expect(counterOffer(g, o.id, price, [ac], { crewExtra: x }).ok).toBe(true);
+    expect(counterLift(o)).toBeCloseTo(1.0195, 6);
+    run(g, o.counter!.replyAt + 1);
+    const k = Object.values(g.contracts).find((c) => c.offerId === o.id)!;
+    expect(k.extraPaid).toBe(true);
+    expect(k.crewExtra?.cabin).toBeGreaterThanOrEqual(x.cabin);
+    expect((k.product as { ratePerBH: number }).ratePerBH).toBe(Math.round(price * 1.0195));
+  });
+  it('met halfway: accepting signs at the halfway price on the countered terms, no second cabin discount', () => {
+    const g = newGame(11);
+    const o = offer(g, 'seasonBase', { airport: 'HAM', dests: ['PMI'], waves: 2, start: g.now + 40 * DAY, days: 120, cabin: { layout: 'two-class', required: false } });
+    o.requirements.minSeats = 140;
+    const ac = feasibilityAll(g, o.id, { cabin: false }).find((r) => r.level !== 'no')!.aircraftId;
+    expect(counterOffer(g, o.id, 9999, [ac], { cabin: false }).ok).toBe(true);
+    // As onOfferReply 'halfway' leaves it.
+    o.counter!.result = 'halfway';
+    o.counter!.offer = 3900;
+    o.status = 'open';
+    (o.product as { ratePerBH: number }).ratePerBH = 3900;
+    const r = acceptOffer(g, o.id, [ac], { cabin: true });
+    if (!r.ok) throw new Error(r.error);
+    const k = g.contracts[r.data!.contractId];
+    expect((k.product as { ratePerBH: number }).ratePerBH).toBe(3900);
+    expect(k.cabin?.accepted).toBe(false);
   });
 });

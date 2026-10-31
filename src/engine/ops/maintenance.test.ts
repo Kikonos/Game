@@ -10,6 +10,7 @@ import { acceptOffer } from '../contracts';
 import { hamBase, leased, legsOffer, newGame, owned } from '../contracts/testkit';
 import { demoFlights } from '../dev';
 import { advanceTo } from '../sim';
+import { moveMaint } from './maintMove';
 import { resolveDecision } from '.';
 import { cancelCheck, checkCostOf, checkStatus, groundGaps, isGrounded, onMaintEnd, onMaintStart, planA, planChecks, scheduleCheck } from './maintenance';
 
@@ -326,5 +327,22 @@ describe('v0.9 round 4 (audit): heavy check on time, line-station A-checks', () 
     const mh = Object.values(h.maintenance).find((x) => x.aircraftId === ah.id && x.kind === 'A' && x.status === 'planned')!;
     expect(mh.at).toBe(h.company.homeBase);
     expect(mh.cost).toBe(checkCostOf(ah, 'A'));
+  });
+});
+
+describe('v0.12.1 the outstation A-check premium on every booking', () => {
+  it('an A-check booked at a major airport away from base costs +20 %; moving it keeps the price; at base it does not', () => {
+    const g = newGame(23);
+    const ac = owned(g);
+    ac.at = 'MAD';
+    const away = scheduleCheck(g, ac.id, 'A', g.now + 3 * DAY, 'MAD');
+    if (!away.ok) throw new Error(away.error);
+    const m = g.maintenance[away.data!.maintId];
+    const base = Math.round(BAL.checkCost.A[0]);
+    expect(m.cost).toBe(Math.round(base * (1 + BAL.v09.heads.maint.outstation)));
+    const mv = moveMaint(g, m.id, m.start + DAY);
+    if (!mv.ok) throw new Error(mv.error);
+    expect(g.maintenance[mv.data!.maintId].cost).toBe(m.cost);
+    expect(checkCostOf(ac, 'A', g.company.homeBase, g.company.homeBase)).toBe(base);
   });
 });
