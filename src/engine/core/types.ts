@@ -327,7 +327,8 @@ export interface Aircraft {
   /** v0.7: handover abroad and the delivery ferry (unset on v0.6 deliveries: handover at base, no ferry). */
   delivery?: DeliveryInfo;
   /** v0.7: lease return booked (ferry + return check). */
-  returning?: { site: string; maintId: string; ferryIds: string[]; quote: number; /** v0.7.2 early-return fee (posted when the return check starts). */ earlyFee?: number };
+  returning?: { site: string; maintId: string; ferryIds: string[]; quote: number; /** v0.7.2 early-return fee (posted when the return check starts). */ earlyFee?: number;
+    /** v0.12.1 the lease end before an early return moved it (a slipped return check falls back to it). */ wasEnd?: Minute };
   /** @deprecated v0.7.3: read `rest` (kept for the migration). v0.7.2 bunks and crew rest seats. */
   crewRest?: { bunks: boolean; seats: number };
   /**
@@ -541,6 +542,8 @@ export interface ContractOffer {
     /** v0.5.1: paint on (default) or off. */ paint?: boolean;
     /** v0.5.2: expiry minutes left when sent (the clock is paused while the counter is pending), and the client's halfway price. */
     left?: number; offer?: number;
+    /** v0.12.1 the cabin choice and the client-paid extra crew sent with the counter. */
+    cabin?: boolean; crewExtra?: CrewExtra;
   };
   status: OfferStatus;
   /** Map pin airport. */
@@ -632,6 +635,8 @@ export interface MonthUse {
   shortCycles: number;
   /** Block minutes of revenue legs we cancelled ourselves (non-performance: off the month's MGH). */
   lostMin?: number;
+  /** v0.12.1 block minutes lost to force majeure (a world event): off the MGH like lostMin, but not our fault. */
+  lostFmMin?: number;
   /** v0.8 revenue legs flown this month and those on time (≤ 15 min): the month's relation move. */
   legs?: number;
   onTime?: number;
@@ -786,6 +791,8 @@ export interface Flight {
   heldAt?: Minute;
   /** B3: lateness the player accepted with delayFlight (minutes); recovery's lateness cap counts on top of it. */
   lateOk?: number;
+  /** v0.12.1 minutes of lateness that are not ours (world waits, a client CTOT): no penalty, cumulative. lateOk also holds our own waits. */
+  excused?: number;
   /** B2: the crew-shortage warning was given for this flight (once; saved so a reload does not repeat it). */
   crewWarned?: boolean;
   /** v0.7: why an empty ferry flies (labels, map, ticket purpose). */
@@ -814,7 +821,11 @@ export interface Flight {
   /** v0.10.2 a technical cause hit this leg (a technical delay, the aircraft AOG or in an overrunning check, grounded): technical dispatch reliability. */
   tech?: true;
   /** v0.11 Operations: diverted en route (ops/disrupt.ts): the planned destination, when and why it turned, the eta it had. */
-  div?: { to0: string; at: Minute; eta0: Minute; cause: DisruptCause };
+  div?: {
+    to0: string; at: Minute; eta0: Minute; cause: DisruptCause;
+    /** v0.12.1 the technical cause text; true once nothing onward is pending. */
+    what?: string; settled?: boolean;
+  };
   /** v0.11 the leg that carries on to the planned destination after a diversion (its id on the diverted leg, and back). */
   contOf?: string;
   /** v0.11 a disruption already rolled or decided for this leg (one card per leg at most). */
@@ -981,6 +992,8 @@ export interface CrewMember {
   offSwapAt?: Minute;
   /** v0.12.1 months (base-local MonthKey) in which a day off was bought back (crew/buyBack.ts: at most one a month); the last 13 kept. */
   boughtOff?: MonthKey[];
+  /** v0.12.1 salary starts on this minute (a joiner's first day); absent = paid the whole month. */
+  payFrom?: Minute;
 }
 
 export interface CrewSlot {
@@ -996,6 +1009,8 @@ export interface CrewSlot {
   ooh?: { crewId: string; limit: OohLimit; over: number; at: Minute };
   /** v0.9 round 4 (§Y.1): a replacement who joined after the duty reported: their own report (a fresh day). Cleared with the seat. */
   from?: Minute;
+  /** v0.12.1 a day-off buy-back planned for this seat, not yet paid: the pay, the base-local month, the days bought and the days given back. */
+  buyBack?: { cost: number; month: string; days: number[]; repay: number[] };
 }
 
 /** v0.9 the legal limit a crew member reached (UPDATE-0.9.md §T.1). */

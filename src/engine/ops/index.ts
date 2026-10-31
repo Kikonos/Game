@@ -73,6 +73,7 @@ export { chooseLease, earlyReturnQuote, leaseView, returnEarly, returnQuote, typ
 export { reopenLatePayment, resolveDecision } from './events';
 export { cashForecast, fixedCosts, monthProfit, newStatement } from './finance';
 export { delayFlight, delayOf, schedSta } from './flights';
+export { excusedLate, isOurDelay, latePenalty, NOT_OURS, onTimeLeg } from './latePolicy';
 export { GOALS, type GoalDef } from './goals';
 export { aogChance, cancelCheck, checkAirportOk, checkStatus, checkUsedAt, groundGaps, scheduleCheck, type CheckStatus } from './maintenance';
 export { acquireAircraft, eligibleTypes, marketView, renameAircraft, returnSiteOf, type MarketOfferView } from './market';

@@ -12,8 +12,10 @@ import { demoFlights } from '../dev';
 import { serialize } from '../save';
 import { advanceTo } from '../sim';
 import { aogChance, delayFlight, resolveDecision } from '.';
-import { cancelLegs, delayChain, pickRival, planHold, pruneFlights, subcharterCost, subcharterLegs, unitOf } from './flights';
+import { cancelContract, cancelCost } from '../contracts';
+import { cancelLegs, delayChain, legCostEstimate, pickRival, planHold, pruneFlights, subcharterCost, subcharterLegs, unitOf } from './flights';
 import { breathe } from '../../test/breathe';
+import { delayOf, excusedLate, isOurDelay, latePenalty, onTimeLeg } from './latePolicy';
 
 // ---------- helpers ----------
 
@@ -91,6 +93,62 @@ describe('departure and arrival', () => {
     expect(landed).toBeGreaterThanOrEqual(1);
     expect(line(g, 'airportFees')).toBe(fees0 - BAL.airportFees[0] * landed);
     expect(line(g, 'maintenance')).toBeLessThan(maint0);
+  });
+
+  it('v0.12.1 legCostEstimate gives the costs the arrival posts', () => {
+    calm();
+    const g = newGame(5);
+    const ac = owned(g);
+    const t = g.now + 2 * DAY;
+    sign(g, legsOffer(g, [['LIS', 'FAO', t], ['FAO', 'LIS', t + 3 * 60]]).id, ac);
+    const [a] = live(g, ac).filter(isRev);
+    run(g, a.std + 1);
+    expect(a.status).toBe('enroute');
+    const m0 = line(g, 'maintenance');
+    const f0 = line(g, 'fuel');
+    const e0 = line(g, 'airportFees');
+    run(g, a.eta!);
+    expect(a.status).toBe('done');
+    const est = legCostEstimate(g, a, ac, a.ata! - a.atd!);
+    expect(est.reserves).toBe(0);
+    expect(est.fees).toBe(BAL.airportFees[0] + BAL.catering[0]);
+    expect(line(g, 'maintenance')).toBe(m0 - Math.round(est.maint));
+    expect(line(g, 'fuel')).toBe(f0 - Math.round(est.fuel));
+    expect(line(g, 'airportFees')).toBe(e0 - est.fees);
+    // The planned block by default (the cash forecast's input).
+    expect(legCostEstimate(g, a, ac).fuel).toBeCloseTo((typeOf(ac.typeId).fuelTBH * a.block * g.market.fuelPrice) / 60, 6);
+  });
+
+  it('v0.12.1 fuel at cost: the re-bill is revenue when flown, and a charter settlement leaves it alone', () => {
+    calm();
+    const g = newGame(5);
+    const ac = owned(g);
+    const t = g.now + 2 * DAY;
+    const o = legsOffer(g, [['LIS', 'FAO', t], ['FAO', 'LIS', t + 3 * 60]]);
+    if (o.product.kind !== 'charter') throw new Error('charter expected');
+    o.product.fuelAtCost = true;
+    const c = sign(g, o.id, ac);
+    const [a] = live(g, ac).filter(isRev);
+    run(g, a.std + 1);
+    const other0 = line(g, 'otherRevenue');
+    run(g, a.eta! + 1);
+    expect(a.status).toBe('done');
+    const fuel = g.finance.receivables.find((r) => r.contractId === c.id && r.desc === `Fuel re-billed: ${a.no}`)!;
+    expect(fuel).toBeTruthy();
+    expect(fuel.amount).toBeGreaterThan(0);
+    expect(line(g, 'otherRevenue')).toBe(other0 + fuel.amount);
+    // Cancelled after one leg: the charter's own excess is voided or refunded; the fuel debt stays as it was.
+    const amount = fuel.amount;
+    const openCharter = g.finance.receivables.filter((r) => r.contractId === c.id && r.paid === null && r.cat === 'charterRevenue').reduce((s, r) => s + r.amount, 0);
+    const excess = (c.invoiced ?? 0) - Math.round(c.accrued ?? 0);
+    const want = Math.max(0, excess - openCharter);
+    expect(cancelCost(g, c.id).refund).toBe(Math.round(Math.max(0, (c.invoiced ?? 0) - openCharter - (c.accrued ?? 0))));
+    const cash0 = g.company.cash;
+    const pen = cancelCost(g, c.id).penalty;
+    expect(cancelContract(g, c.id).ok).toBe(true);
+    expect(g.finance.receivables.find((r) => r.id === fuel.id)).toMatchObject({ amount, paid: null });
+    expect(c.invoiced).toBe(Math.round(c.accrued ?? 0));
+    expect(cash0 - g.company.cash).toBe(want + pen);
   });
 
   it('waits for a late inbound aircraft: the next leg leaves a turn after on-blocks', () => {
@@ -182,9 +240,9 @@ describe('delays and ripple', () => {
     expect(a.std - a.schedStd!).toBeGreaterThanOrEqual(5);
     expect(a.std - a.schedStd!).toBeLessThanOrEqual(BAL.delayCap);
     calm();
-    // The player then holds the return 4 h: it leaves over 3 h late and the client is compensated.
+    // The player then holds the return 4 h (our reason): it leaves over 3 h late and the client is compensated.
     const pen0 = line(g, 'penalties');
-    expect(delayFlight(g, b.id, 4 * 60, 'Late passengers').ok).toBe(true);
+    expect(delayFlight(g, b.id, 4 * 60, 'Held by operations').ok).toBe(true);
     run(g, b.sta + 60);
     expect(a.status).toBe('done');
     expect(b.status).toBe('done');
@@ -192,6 +250,58 @@ describe('delays and ripple', () => {
     expect(g.stats.delayed).toBeGreaterThanOrEqual(1);
     expect(g.stats.onTime + g.stats.delayed).toBe(2);
     expect(line(g, 'penalties')).toBe(pen0 - c.penalties.perDelay);
+  });
+
+  it('v0.12.1 a delay that is not ours costs nothing on arrival; ours over 3 h costs perDelay', () => {
+    calm();
+    const fly = (why: string, min: number) => {
+      const g = newGame(5);
+      const ac = owned(g);
+      const t = g.now + 2 * DAY;
+      const c = sign(g, legsOffer(g, [['LIS', 'FAO', t], ['FAO', 'LIS', t + 3 * 60]]).id, ac);
+      const [a] = live(g, ac).filter(isRev);
+      const pen0 = line(g, 'penalties');
+      const rel0 = g.clients[c.clientId].relation;
+      expect(delayFlight(g, a.id, min, why).ok).toBe(true);
+      run(g, a.sta + 30);
+      expect(a.status).toBe('done');
+      return { pen: line(g, 'penalties') - pen0, rel: g.clients[c.clientId].relation - rel0, c };
+    };
+    // A world wait of 400 min: the client is not compensated and the relation does not move.
+    const w = fly('Waiting: Lisbon closed', 400);
+    expect(w.pen).toBe(0);
+    expect(w.rel).toBe(0);
+    // 200 min for late ground handling (ours): perDelay and the relation hit.
+    const o = fly('Late ground handling', 200);
+    expect(o.pen).toBe(-o.c.penalties.perDelay);
+    expect(o.rel).toBeLessThan(0);
+  });
+
+  it('v0.12.1 latePenalty: not ours costs 0; charter over 3 h perDelay; VIP over 30 min × 3 and −3; excused minutes come off', () => {
+    calm();
+    const g = newGame(5);
+    const ac = owned(g);
+    const t = g.now + 2 * DAY;
+    const c = sign(g, legsOffer(g, [['LIS', 'FAO', t], ['FAO', 'LIS', t + 3 * 60]]).id, ac);
+    const [a] = live(g, ac).filter(isRev);
+    const at = (min: number, why: string, extra: Partial<Flight> = {}): Flight => ({ ...a, schedStd: a.std, atd: a.std + min, delayReason: why, ...extra });
+    expect(c.product.kind).toBe('charter');
+    for (const why of ['Waiting: Hurricane Melissa', 'ATC slot', 'Weather at FAO']) expect(latePenalty(c, at(400, why))).toEqual({ money: 0, relation: 0, ours: false });
+    expect(latePenalty(c, at(200, 'Late ground handling'))).toEqual({ money: c.penalties.perDelay, relation: BAL.v08.rel.lateLeg, ours: true });
+    expect(latePenalty(c, at(170, 'Late ground handling')).money).toBe(0);
+    const vip: Contract = { ...c, requirements: { ...c.requirements, standards: 'vip' } };
+    expect(latePenalty(vip, at(60, 'Late inbound aircraft'))).toEqual({ money: 3 * c.penalties.perDelay, relation: -3, ours: true });
+    // A day of it was a world wait (excused), the last 60 min ours: under the threshold.
+    const f = at(1440 + 60, 'Late inbound aircraft', { excused: 1440 });
+    expect(delayOf(f)).toBe(1500);
+    expect(excusedLate(f)).toBe(60);
+    expect(latePenalty(c, f).money).toBe(0);
+    expect(onTimeLeg(at(15, 'x'))).toBe(true);
+    expect(onTimeLeg(at(16, 'x'))).toBe(false);
+    expect(isOurDelay(at(10, 'Closed: ash'))).toBe(false);
+    // A wet lease pays no delay compensation (the relation still counts).
+    const wet = { ...c, product: { kind: 'wet' } } as unknown as Contract;
+    expect(latePenalty(wet, at(200, 'Late ground handling'))).toEqual({ money: 0, relation: BAL.v08.rel.lateLeg, ours: true });
   });
 
   it('reliability follows on-time performance', () => {

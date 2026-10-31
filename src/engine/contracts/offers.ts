@@ -20,7 +20,7 @@ import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
 import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, localMinuteOfDay, toDate, toLocal } from '../core/time';
 import type {
-  AcRest, ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent,
+  AcRest, ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent, WorldEvent,
 } from '../core/types';
 import { acceptOffer, closeOffer, setPrice } from './accept';
 import { isCallOffer } from './call';
@@ -35,7 +35,7 @@ export { maxPax, seatNeed };
 import { ARCH_MULT, defaultSeats, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
-import { inWarZone, warRiskLandings } from '../ops/world';
+import { inWarZone, setClosureOfferHook, warRiskLandings } from '../ops/world';
 import type { HajjDates } from '../../data/worldCalendar';
 import { demandFactor } from '../ops/market';
 import { afterOfferDays, isQuiet } from '../ops/director';
@@ -1565,3 +1565,12 @@ export function chainAugment(g: GameState, typeId: string, chains: ChainShape[])
 
 /** v0.9 dev helpers: a draft finalised into an open offer (no market filters beyond the programme's own). */
 export const finalizeDraft = (g: GameState, d: Draft): ContractOffer | null => finalize(g, d, true);
+
+/**
+ * v0.12.1 a closure has just started or been extended (ops/world.ts, the hook below): open offers into the airports it
+ * shuts are withdrawn or adopted. A stub until Round F lane B (B9) fills it in.
+ */
+export function sweepOffersForClosure(_g: GameState, _e: WorldEvent): void {
+  // TODO(v0.12.1 B9): withdraw or adopt open offers whose legs touch the closure.
+}
+setClosureOfferHook(sweepOffersForClosure);

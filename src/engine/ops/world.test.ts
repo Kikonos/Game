@@ -15,7 +15,8 @@ import { warRiskCost } from '../contracts/missionChecks';
 import { hamBase, leased, legsOffer, newGame, owned } from '../contracts/testkit';
 import { resolveDecision } from './events';
 import { advanceTo } from '../sim';
-import { crosses, dailyWorld, flightZone, isLive, onWorldEnd, payWarRisk, startEvent, warRiskAt, worldEvent, worldEventPins, worldEvents, worldZones } from './world';
+import { sweepOffersForClosure } from '../contracts/offers';
+import { crosses, dailyWorld, flightZone, isLive, onWorldEnd, payWarRisk, setClosureOfferHook, startEvent, warRiskAt, worldEvent, worldEventPins, worldEvents, worldZones } from './world';
 
 const iraq = ZONE_BY_ID.iraq;
 
@@ -76,6 +77,31 @@ describe('closures (§5.4)', () => {
     expect(worldZones(g).some((z) => z.eventId === e.id && z.style === 'closed')).toBe(true);
     expect(worldZones(g)).toBe(worldZones(g));
     expect(worldEventPins(g).some((p) => p.eventId === e.id)).toBe(true);
+  });
+
+  it('v0.12.1 the closure-offers hook runs when a closure starts and when it is extended, not for an open event', () => {
+    const seen: string[] = [];
+    setClosureOfferHook((_g, e) => seen.push(e.id));
+    try {
+      const g0 = newGame(1);
+      const open = startEvent(g0, { ...TPL_BY_ID.airspaceIraq, closeP: 0, airportDays: undefined });
+      expect(open.closed).toBeUndefined();
+      expect(seen).toEqual([]);
+      for (let seed = 1; seed < 40; seed++) {
+        seen.length = 0;
+        const g = newGame(seed);
+        const e = startEvent(g, { ...TPL_BY_ID.airspaceIraq, closeP: 1 });
+        expect(seen).toEqual([e.id]);
+        g.now = e.end;
+        onWorldEnd(g, { t: g.now, seq: 0, type: 'world.end', id: e.id, v: e.ev ?? 0 });
+        if (!e.extended) continue;
+        expect(seen).toEqual([e.id, e.id]);
+        return;
+      }
+      throw new Error('no extension in 40 seeds');
+    } finally {
+      setClosureOfferHook(sweepOffersForClosure);
+    }
   });
 
   it('an extension re-retimes the waiting legs to the new reopening', () => {

@@ -10,7 +10,7 @@ import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
 import { DAY, fmtDay, monthKey, monthStart, fmtDayRange } from '../core/time';
 import { clamp } from '../core/util';
-import type { ActionResult, Contract, ContractOffer, CrewExtra, GameState, Minute, OfferStatus, Product, SimEvent } from '../core/types';
+import type { ActionResult, Contract, ContractOffer, CrewExtra, GameState, Minute, OfferStatus, Product, Receivable, SimEvent } from '../core/types';
 import { autoRoster, crewExtraFor, flightCrewStatus, onContractDoneMorale } from '../crew';
 import { billContractMonth, issueBill } from './billing';
 import { feasibility } from './feasibility';
@@ -328,10 +328,14 @@ export function cancelPenalty(g: GameState, contractId: string): number {
   return 0;
 }
 
+/** v0.12.1 an open invoice of the charter price (bill(): 'charterRevenue'), not a fuel re-bill or a fee. */
+const isCharterInv = (r: Receivable, c: Contract): boolean => r.contractId === c.id && r.paid === null && r.cat === 'charterRevenue';
+
 /** Charter money invoiced and already paid by the client (unpaid = still open receivables). */
 function charterPaid(g: GameState, c: Contract): number {
   let open = 0;
-  for (const r of g.finance.receivables) if (r.contractId === c.id && r.paid === null) open += r.amount;
+  // v0.12.1 only the charter price's own invoices (c.invoiced): a fuel re-bill is a separate debt, not a prepayment.
+  for (const r of g.finance.receivables) if (isCharterInv(r, c)) open += r.amount;
   return Math.max(0, (c.invoiced ?? 0) - open);
 }
 
@@ -346,14 +350,14 @@ function settleCharter(g: GameState, c: Contract, target: number, desc: string):
     return 0;
   }
   let excess = inv - target;
-  const open = g.finance.receivables.filter((r) => r.contractId === c.id && r.paid === null);
+  const open = g.finance.receivables.filter((r) => isCharterInv(r, c));
   for (let i = open.length - 1; i >= 0 && excess > 0; i--) {
     const r = open[i];
     const v = Math.min(excess, r.amount);
     r.amount -= v;
     excess -= v;
   }
-  g.finance.receivables = g.finance.receivables.filter((r) => r.contractId !== c.id || r.paid !== null || r.amount > 0);
+  g.finance.receivables = g.finance.receivables.filter((r) => !isCharterInv(r, c) || r.amount > 0);
   if (excess > 0) cashOnly(g, -excess);
   c.invoiced = target;
   return excess;

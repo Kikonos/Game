@@ -17,7 +17,8 @@ import { blockMinutes, fullLength, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { hashUnit } from '../core/util';
 import { divPos } from '../core/query';
-import { DAY, dayStart, fmtDuration, fmtTime, localMinuteOfDay, yearOf } from '../core/time';
+import { curfewEnd, inCurfew } from '../core/curfew';
+import { DAY, dayStart, fmtDuration, fmtTime, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, Decision, DecisionOption, DisruptCause, DisruptKind, Flight, GameState, MaintenanceEvent, Minute, OpsState, SimEvent } from '../core/types';
 import { bumpClient } from '../contracts/relations';
 import { afterDiversion, applyCrewFix, crewControl, flightCrewStatus, removeCrew } from '../crew';
@@ -109,24 +110,8 @@ function cardData(what: string, why: string, hurt: string, money: number, pax: n
 
 // ---------- curfews ----------
 
-/** True when a landing at `code` at `t` falls in its night curfew (`delayed` legs may use the grace). Pure. */
-export function inCurfew(code: string, t: Minute, delayed = true): boolean {
-  const c = CURFEWS[code];
-  if (!c) return false;
-  const m = localMinuteOfDay(code, t);
-  const from = c.from + (delayed ? c.grace : 0);
-  const inside = (x: number, a: number, b: number) => (a <= b ? x >= a && x < b : x >= a || x < b);
-  return inside(m, from % 1440, c.to);
-}
-
-/** When a curfew at `code` that covers `t` ends (UTC). */
-export function curfewEnd(code: string, t: Minute): Minute {
-  const c = CURFEWS[code];
-  if (!c) return t;
-  let x = t;
-  for (let i = 0; i < 48 && inCurfew(code, x, false); i++) x += 30;
-  return x + 15;
-}
+// v0.12.1 the curfew helpers live in core/curfew.ts (pure; the planners read them too).
+export { curfewEnd, inCurfew } from '../core/curfew';
 
 // ---------- positions and alternates ----------
 

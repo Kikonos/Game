@@ -35,6 +35,7 @@ import { bumpClient, forgiveDelay, LEVEL_NAME, levelOf, statsV08 } from '../cont
 import { closedAirport, closedAtDeparture, closedUntil, payWarRisk, permitOf, rerouteAtDeparture, strandedAsk, strikeDelay, waitAtGate, whiteout } from './world';
 import { isActive, noteHiredThem } from '../contracts/rivals';
 import { atGate, delayCard, rollEnRoute } from './disrupt';
+import { delayOf, excusedLate, latePenalty } from './latePolicy';
 
 /** v0.7.1: the problem ref and hurt snapshot of a message about legs lost or handed over (after the fact). */
 function penaltyMeta(g: GameState, rev: Flight[], money: number): Pick<Message, 'problem' | 'hurt'> {
@@ -45,11 +46,8 @@ function penaltyMeta(g: GameState, rev: Flight[], money: number): Pick<Message, 
 
 // ---------- schedule changes ----------
 
-/** Minutes a flight runs (or ran) behind its original schedule (UI). */
-export function delayOf(f: Flight): number {
-  const off = f.atd ?? f.std + f.delay;
-  return Math.max(0, off - (f.schedStd ?? f.std));
-}
+// v0.12.1 delayOf lives in latePolicy.ts (with the late-leg rule); re-exported for the callers.
+export { delayOf };
 
 /** Original scheduled arrival (before ops delays). */
 export const schedSta = (f: Flight): Minute => f.sta - (f.std - (f.schedStd ?? f.std));
@@ -936,29 +934,25 @@ function departStats(g: GameState, f: Flight, ac: Aircraft, duty: Duty | undefin
   if (ac.typeId === 'b744') v.queenSectors = (v.queenSectors ?? 0) + 1;
 }
 
-/** Delays nobody at our end controls (ATC, weather, the client, the world). */
-const NOT_OURS = /^(ATC|Weather|Late passengers|Airport congestion|Client|Landing permit|Waiting:|Closed:|Whiteout|Moved to|Medical|Night stop|Bird strike)/;
-
 /**
  * v0.8 (§1.3, §1.4, §2.3) a revenue leg leaving late by our fault: over 3 h, charter compensation and relation −1
  * (at most −4 a contract-month), unless a Trusted / Partner client forgives it (n a month); presidential standards:
  * over 30 min costs compensation × 3 and relation −3.
  */
 function lateLeg(g: GameState, f: Flight, c: Contract): void {
+  // v0.12.1 one rule (latePolicy.ts): a delay that is not ours (a world wait, ATC, weather, the client) costs nothing.
+  const pen = latePenalty(c, f, excusedLate(f));
+  if (!pen.ours || !pen.relation) return;
   const late = delayOf(f);
   const vip = c.requirements.standards === 'vip';
-  if (late <= (vip ? 30 : 180)) return;
-  const ours = !NOT_OURS.test(f.delayReason ?? '');
-  const pen = c.product.kind === 'charter' ? c.penalties.perDelay * (vip ? 3 : 1) : 0;
-  if (ours && !vip && forgiveDelay(g, c.clientId)) {
+  if (!vip && forgiveDelay(g, c.clientId)) {
     pushMessage(g, { tone: 'info', cat: 'commercial', title: `${g.clients[c.clientId]?.name ?? 'The client'} let it go`, body: `${f.no} left ${fmtDuration(late)} late; they forgave it (${LEVEL_NAME[levelOf(g, g.clients[c.clientId])]} client): no compensation, no harm done.`, ref: { kind: 'flight', id: f.id } });
     return;
   }
-  if (pen) post(g, 'penalties', -pen);
-  if (!ours) return;
+  if (pen.money) post(g, 'penalties', -pen.money);
   const k = monthKey(g.now);
   const used = c.lateHits && c.lateHits[0] === k ? c.lateHits[1] : 0;
-  const d = vip ? -3 : Math.max(BAL.v08.rel.lateCap - used, BAL.v08.rel.lateLeg);
+  const d = vip ? pen.relation : Math.max(BAL.v08.rel.lateCap - used, pen.relation);
   if (d >= 0) return;
   c.lateHits = [k, used + d];
   bumpClient(g, c.clientId, d, `${f.no} left ${fmtDuration(late)} late`);
@@ -1291,6 +1285,27 @@ export function paysFuel(g: GameState, f: Flight): boolean {
   return false;
 }
 
+/**
+ * v0.12.1 what one leg costs us to fly (pure): maintenance (after reserves), maintenance reserves (dry-leased in),
+ * fuel and airport fees with catering (only when we pay them: paysFuel). `blockMin` is the block time (the arrival
+ * passes the flown one; a forecast the planned f.block).
+ */
+export function legCostEstimate(g: GameState, f: Flight, ac: Aircraft, blockMin = f.block): { maint: number; reserves: number; fuel: number; fees: number } {
+  const bh = blockMin / 60;
+  const fh = Math.max(0, blockMin - 20) / 60;
+  const t = typeOf(ac.typeId);
+  const wide = t.body === 'wide' ? 1 : 0;
+  const all = t.maintBH * (1 + BAL.maintAgeFactor * Math.max(0, ageOf(g, ac) - 12)) * bh;
+  const reserves = ac.ownership.kind === 'dryLeaseIn' ? Math.min(all, ac.ownership.reservesPerFH * fh) : 0;
+  const pays = paysFuel(g, f);
+  return {
+    maint: all - reserves,
+    reserves,
+    fuel: pays ? t.fuelTBH * bh * g.market.fuelPrice : 0,
+    fees: pays ? BAL.airportFees[wide] + (isRevenue(f) ? BAL.catering[wide] : 0) : 0,
+  };
+}
+
 /** 'flight.arr': on-blocks; aircraft parked; hours and cycles; costs; on-time stats and reliability. */
 export function onFlightArr(g: GameState, ev: SimEvent): void {
   const f = g.flights[ev.id];
@@ -1331,23 +1346,19 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
   ac.maint.fhSinceA += fh;
   ac.maint.fhSinceC += fh;
   ac.maint.deferred = Math.min(1, ac.maint.deferred + 0.0005 * ageF(g, ac));
-  // Costs.
-  const t = typeOf(ac.typeId);
-  const wide = t.body === 'wide' ? 1 : 0;
-  const maint = t.maintBH * (1 + BAL.maintAgeFactor * Math.max(0, ageOf(g, ac) - 12)) * bh;
-  if (ac.ownership.kind === 'dryLeaseIn') {
-    const res = Math.min(maint, ac.ownership.reservesPerFH * fh);
-    post(g, 'reserves', -Math.round(res));
-    post(g, 'maintenance', -Math.round(maint - res));
-  } else post(g, 'maintenance', -Math.round(maint));
+  // Costs (v0.12.1 legCostEstimate: the same sums the cash forecast reads).
+  const cost = legCostEstimate(g, f, ac, block);
+  if (ac.ownership.kind === 'dryLeaseIn') post(g, 'reserves', -Math.round(cost.reserves));
+  post(g, 'maintenance', -Math.round(cost.maint));
   if (paysFuel(g, f)) {
-    post(g, 'fuel', -Math.round(t.fuelTBH * bh * g.market.fuelPrice));
+    post(g, 'fuel', -Math.round(cost.fuel));
     // v0.9 §Y.2 fuel at cost: a jumbo charter's revenue legs re-bill the actual burn to the client.
+    // v0.12.1 accrued now (not deferred): the re-bill is revenue of the month it is flown, on the statement.
     const fc = contractOf(g, f);
     if (fc && fc.product.kind === 'charter' && fc.product.fuelAtCost && isRevenue(f)) {
-      invoice(g, { clientId: fc.clientId, contractId: fc.id, desc: `Fuel re-billed: ${f.no}`, amount: Math.round(t.fuelTBH * bh * g.market.fuelPrice), cat: 'otherRevenue', dueDays: fc.payment.basis === 'arrears' ? fc.payment.dueDays : 7, deferred: true });
+      invoice(g, { clientId: fc.clientId, contractId: fc.id, desc: `Fuel re-billed: ${f.no}`, amount: Math.round(cost.fuel), cat: 'otherRevenue', dueDays: fc.payment.basis === 'arrears' ? fc.payment.dueDays : 7 });
     }
-    post(g, 'airportFees', -(BAL.airportFees[wide] + (isRevenue(f) ? BAL.catering[wide] : 0)));
+    post(g, 'airportFees', -cost.fees);
   }
   g.finance.current.bh = Math.round((g.finance.current.bh + bh) * 100) / 100;
   // Stats and reliability (revenue legs).

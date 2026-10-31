@@ -360,6 +360,7 @@ export function startEvent(g: GameState, t: WorldEventTpl, r: RngHolder = side(g
     title: e.title, body: e.body, ref: { kind: 'event', id: e.id }, topic: 'world',
   });
   applyClosure(g, e, true);
+  closureOffers(g, e);
   makeWork(g, e, 1);
   schedule(g, e.end, 'world.end', e.id, e.ev ?? 0);
   return e;
@@ -404,6 +405,7 @@ export function onWorldEnd(g: GameState, ev: SimEvent): void {
     schedule(g, e.end, 'world.end', e.id, e.ev);
     pushMessage(g, { tone: 'warn', cat: 'ops', title: `${e.title}: closed until ${fmtDay(e.end)}`, body: 'The closure has been extended. Flights waiting for it move again.', ref: { kind: 'event', id: e.id }, topic: 'world' });
     applyClosure(g, e, false, true);
+    closureOffers(g, e);
     return;
   }
   e.done = true;
@@ -600,6 +602,17 @@ export function strandedAsk(g: GameState, f: Flight, e: WorldEvent, at: Minute):
 var findSwapHook: ((g: GameState, ac: Aircraft, legs: Flight[], at: string) => { ac: Aircraft; from: string; arrive: Minute; moves: { f: Flight; std: Minute }[] } | null) | null | undefined;
 export function setFindSwap(fn: typeof findSwapHook): void {
   findSwapHook = fn;
+}
+
+/** v0.12.1 contracts/offers.ts sweepOffersForClosure, set there: open offers into airports a closure has just shut. */
+// eslint-disable-next-line no-var -- set while modules load in a cycle (var: no temporal dead zone)
+var closureOfferHook: ((g: GameState, e: WorldEvent) => void) | null | undefined;
+export function setClosureOfferHook(fn: typeof closureOfferHook): void {
+  closureOfferHook = fn;
+}
+/** v0.12.1 a closure started or was extended: the offers hook runs (airspace or airport actually closed only). */
+function closureOffers(g: GameState, e: WorldEvent): void {
+  if (e.closed || (e.airportClosedUntil && e.airportClosedUntil > g.now)) closureOfferHook?.(g, e);
 }
 
 /** Resolver of 'stranded' (v0.12.1): the legs the wait would drop go to a rival, to another aircraft, or are cancelled. */
