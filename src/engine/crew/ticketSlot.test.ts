@@ -35,7 +35,8 @@ describe('crew tickets are seats that exist (C9, C13)', () => {
     for (let h = 0; h < 48; h++) {
       const std = Math.floor(g.now / DAY) * DAY + h * 60;
       const x = slotAfter(g, 'LIS', 'FRA', std, 180);
-      expect(curfewOk('FRA', x + 180)).toBe(true);
+      expect(x).not.toBeNull();
+      expect(curfewOk('FRA', x! + 180)).toBe(true);
     }
   });
 
@@ -47,7 +48,8 @@ describe('crew tickets are seats that exist (C9, C13)', () => {
     expect(ticketSlotOk(g, 'FRA', 'LIS', day + 6 * 60, day + 9 * 60)).toBe(true);
     for (let h = 0; h < 48; h++) {
       const x = slotAfter(g, 'FRA', 'LIS', day + h * 60, 180);
-      expect(curfewOk('FRA', x)).toBe(true);
+      expect(x).not.toBeNull();
+      expect(curfewOk('FRA', x!)).toBe(true);
     }
   });
 
@@ -65,6 +67,29 @@ describe('crew tickets are seats that exist (C9, C13)', () => {
       setClosedCheck((h, code, t) => !!closedAirport(h, code, t));
     }
   });
+
+describe('a closure longer than two days (v0.12.1 review)', () => {
+  it('finds the first seat after it, and none when every seat is shut', () => {
+    const { g } = trip('FRA', 14 * 60);
+    const until = g.now + 6 * DAY;
+    setClosedCheck((_g: GameState, code: string, t: Minute) => code === 'GOM' && t < until);
+    try {
+      // Goma shut six days: the ticket home is the first seat after the reopening, never one inside the closure.
+      const x = slotAfter(g, 'GOM', 'LIS', g.now + 60, 9 * 60);
+      expect(x).not.toBeNull();
+      expect(x!).toBeGreaterThanOrEqual(until);
+      expect(x! - until).toBeLessThan(DAY);
+    } finally {
+      setClosedCheck((h, code, t) => !!closedAirport(h, code, t));
+    }
+    setClosedCheck((_g: GameState, code: string) => code === 'GOM');
+    try {
+      expect(slotAfter(g, 'GOM', 'LIS', g.now + 60, 9 * 60)).toBeNull();
+    } finally {
+      setClosedCheck((h, code, t) => !!closedAirport(h, code, t));
+    }
+  });
+});
 
 describe('a duty that has reported (C7)', () => {
   it('never shows a must-land-by deadline already past', () => {

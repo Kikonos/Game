@@ -8,7 +8,7 @@ import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } f
 import { dayFloorIssue, eveFloorIssue, monthFloorIssue, offIssue, offMovable } from './dayPlan';
 import { evalSegs, EXT_REST, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { flightsRev } from '../core/entities';
-import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, ridesHome, segsOf, segsTagOf, ticketPrice, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
+import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 
 export interface CrewPlan {
   level: Legality;
@@ -231,7 +231,8 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
   const own = new Set(p.dutyIds);
   if (!existing && out && !out.rideId && !booked && badRestFdp(ftl, own)) {
     const early = planOut(g, p, first, out.from, true);
-    if (early.std < out.std && early.std - BAL.deadheadCheckIn >= g.now) {
+    // v0.12.1 (review) and only a seat that exists (planOut's fallback can sit inside a closure).
+    if (early.std < out.std && early.std - BAL.deadheadCheckIn >= g.now && ticketSlotOk(g, early.from, early.to, early.std, early.sta)) {
       const plain = out;
       out = early;
       const s2 = buildSegs(g, c, p, duties, out, home);

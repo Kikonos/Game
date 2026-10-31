@@ -1,41 +1,28 @@
-// v0.12.1 (Round F, EV-S01 / D18 with C9): a closure that starts after crew tickets were bought left those tickets
-// flying into or out of the shut airport (S1027: three Goma tickets still flown). The closure now drops them and the
-// trips are re-planned on seats that exist.
+// v0.12.1 (review): the rule that keeps crew tickets out of closed airports looked only two days ahead (slotAfter), so
+// a closure of 3 to 10 days had the dropped ticket home bought again inside it (S1027, Goma closed to 6 Nov: António
+// Almeida's GOM–LIS 01:00 dropped and bought again on the same seat).
 
 import { describe, expect, it } from 'vitest';
-import { acceptOffer } from '../contracts';
-import { leased, legsOffer, newGame } from '../contracts/testkit';
+import { newGame } from '../contracts/testkit';
+import { TPL_BY_ID } from '../../data/worldEvents';
 import { addDeadhead } from '../core/entities';
 import { DAY } from '../core/time';
-import { TPL_BY_ID } from '../../data/worldEvents';
-import { closedAirport, startEvent } from '../ops/world';
-import { advanceTo } from '../sim';
-import { touchCrew } from './timeline';
+import { closedAirport, closedUntil, startEvent } from '../ops/world';
+import { crewIx, dhBlock } from './timeline';
 
-describe('a closure drops crew tickets through the shut airport (D18)', () => {
-  it('the ticket home from Funchal inside the closure goes; no duty lists a missing ticket', () => {
-    const g = newGame(21);
-    const ac = leased(g);
-    const dep = Math.ceil(g.now / DAY) * DAY + DAY + 9 * 60;
-    const r = acceptOffer(g, legsOffer(g, [['LIS', 'FNC', dep], ['FNC', 'LIS', dep + 4 * DAY]]).id, [ac.id]);
-    expect(r.ok).toBe(true);
-    advanceTo(g, g.now + 1, new Set());
-    const leg = Object.values(g.flights).find((f) => f.contractId === (r.ok ? r.data?.contractId : '') && f.to === 'FNC')!;
-    const d = g.duties[leg.dutyId!];
-    const crew = [...leg.crewIds];
-    expect(crew.length).toBeGreaterThan(0);
-    const t = addDeadhead(g, { crewIds: crew, from: 'FNC', to: 'LIS', std: leg.sta + 3 * 60, sta: leg.sta + 5 * 60, cost: 0, contractId: leg.contractId });
-    d.deadheadIds.push(t.id);
-    touchCrew(g);
-    advanceTo(g, leg.sta + 30, new Set());
-    const e = startEvent(g, { ...TPL_BY_ID.windMadeira, airportDays: [2, 2], days: [2, 2] });
-    expect(closedAirport(g, 'FNC', t.std)?.id).toBe(e.id);
-    expect(g.flights[t.id]?.status === 'scheduled' && g.flights[t.id].crewIds.length).toBeFalsy();
-    for (const x of Object.values(g.duties)) for (const id of x.deadheadIds) expect(g.flights[id], `${x.id} lists ${id}`).toBeTruthy();
-    // Whatever ticket they hold now flies once Funchal is open again.
-    for (const f of Object.values(g.flights)) {
-      if (f.kind !== 'deadhead' || f.status !== 'scheduled' || !crew.some((c) => f.crewIds.includes(c))) continue;
-      expect(closedAirport(g, f.from, f.std) || closedAirport(g, f.to, f.sta)).toBeNull();
-    }
+describe('a ticket home through a long closure (v0.12.1 review)', () => {
+  it('is bought again after the reopening, never inside the closure', () => {
+    const g = newGame(3);
+    const ix = crewIx(g);
+    const c = Object.values(g.crew).find((x) => !(ix.pairingsOf.get(x.id) ?? []).length && x.status !== 'onDuty')!;
+    expect(c).toBeTruthy();
+    c.loc = 'MAD';
+    const std = Math.ceil((g.now + 6 * 60) / 60) * 60;
+    addDeadhead(g, { crewIds: [c.id], from: 'MAD', to: c.base, std, sta: std + dhBlock('MAD', c.base), cost: 0 });
+    const e = startEvent(g, { ...TPL_BY_ID.airspaceIraq, id: 'madClosed', kind: 'strike', at: 'MAD', country: 'ES', zoneId: undefined, closeP: 0, airportDays: [6, 6], days: [6, 6], title: 'Strike closes Madrid', body: '' });
+    expect(closedUntil(e) - g.now).toBeGreaterThan(2 * DAY);
+    const mine = Object.values(g.flights).filter((f) => f.kind === 'deadhead' && f.status === 'scheduled' && f.crewIds.includes(c.id));
+    for (const f of mine) expect(closedAirport(g, f.from, f.std) || closedAirport(g, f.to, f.sta)).toBeNull();
+    expect(mine.some((f) => f.from === 'MAD' && f.std >= closedUntil(e))).toBe(true);
   });
 });

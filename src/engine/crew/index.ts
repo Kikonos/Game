@@ -59,7 +59,7 @@ export {
   applyCrewFix, cancelTrip, charterJet, crewControl, crewGauges, crewShortCard, escalateShortages, FIX_LABEL, jetQuote, previewCopy, reachFor, ROLE_WORD, rootReason, seatsText, shortFlights,
   type ApplyOpts, type CrewControlView, type CrewSolution, type FixOption, type FixPreview, type JetQuote, type Reason, type ReasonCode, type SeatNeed,
 } from './control';
-import { escalateShortages } from './control';
+import { closureTicketsOnLoad, escalateShortages } from './control';
 import { migrateRanks } from './migrate';
 import { payBuyBack } from './buyBack';
 export { migrateRanks } from './migrate';
@@ -667,6 +667,8 @@ export const crewModule: SimModule = {
     repairCutStandby(g);
     repairDiverted(g);
     repairMixedTrips(g);
+    // v0.12.1 (review) crew tickets through an airport closed now: dropped and re-planned.
+    closureTicketsOnLoad(g);
     // v0.12.1 legs a load repair moved or removed (ops: a closure's held legs, orphan out-and-backs): duties follow now.
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
   },

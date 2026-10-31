@@ -240,10 +240,17 @@ function slotBefore(g: GameState, from: string, to: string, t: Minute, lo: Minut
   return null;
 }
 
-/** The first hour at or after t (within two days) whose seat exists, else t. Pure. */
-export function slotAfter(g: GameState, from: string, to: string, t: Minute, blk: number): Minute {
-  for (let x = t; x < t + 2 * DAY; x += 60) if (ticketSlotOk(g, from, to, x, x + blk)) return x;
-  return t;
+/** v0.12.1 how far slotAfter looks for a seat: past the longest closure (3 to 10 days, a war zone a month) plus a day. */
+export const SLOT_AHEAD = 32 * DAY;
+
+/**
+ * The first hour at or after t whose seat exists, or null when none does within SLOT_AHEAD. v0.12.1 (review): it
+ * looked two days ahead and then gave back t, so a closure longer than that had its ticket bought again inside it
+ * (S1027, Goma closed to 6 Nov: the GOM–LIS 01:00 seat dropped and bought again). Pure.
+ */
+export function slotAfter(g: GameState, from: string, to: string, t: Minute, blk: number): Minute | null {
+  for (let x = t; x < t + SLOT_AHEAD; x += 60) if (ticketSlotOk(g, from, to, x, x + blk)) return x;
+  return null;
 }
 
 /** A ticket out, or why none works (`why`: then `plan` is only the best guess, not workable). */
@@ -297,7 +304,11 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
   const buffered = far ? hour(rep - rest - blk - OUT_REST_BUFFER, false) : exact;
   // v0.12.1 only seats that exist (no closed airport, no curfew landing): the next one earlier.
   const rested = slotBefore(g, from, to, buffered >= first ? buffered : exact, first, blk) ?? slotBefore(g, from, to, exact, first - DAY, blk) ?? exact;
-  if (early) return { plan: mk(rested), why: rested >= first ? null : `Rest at ${to} needed landing by ${at(rested + blk, g.now)}` };
+  // v0.12.1 (review) the fallback `exact` may be a seat that does not exist (inside a closure): never workable then.
+  if (early) {
+    if (rested >= first && !ticketSlotOk(g, from, to, rested, rested + blk)) return { plan: mk(rested), why: `No ${from}–${to} seat lands in time` };
+    return { plan: mk(rested), why: rested >= first ? null : `Rest at ${to} needed landing by ${at(rested + blk, g.now)}` };
+  }
   const disc = d.discretion ?? 0;
   /** Merged FDP and its limit for a ticket leaving at std. */
   const fdpOf = (std: Minute) => {

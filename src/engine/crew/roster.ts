@@ -71,7 +71,7 @@ export function boardCrew(g: GameState, f: Flight): void {
 type TicketLike = { from: string; to: string; std: Minute; sta: Minute; rideId?: string };
 
 /** Buys a ticket for a group and attaches it to a duty; cost posted to 'deadhead' unless the client pays. */
-function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: TicketLike, res: RosterResult): Flight {
+function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: TicketLike, res: RosterResult): Flight | null {
   // v0.7.1: a chartered jet already booked for these crew (planCrew used it as their ride out): nothing to buy.
   const booked = (t as Partial<Flight>).id ? g.flights[(t as Partial<Flight>).id!] : undefined;
   if (booked && booked.charter && booked.status === 'scheduled') {
@@ -103,7 +103,13 @@ function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: Tick
   // 15:15' on 27 Oct) leaves at the first hour it can still be checked in for.
   let late = Math.max(0, Math.ceil((g.now + BAL.deadheadCheckIn) / 60) * 60 - t.std);
   // v0.12.1 a ticket home waits for a seat that exists: no closed airport, no landing in a night curfew.
-  if (t.std >= d.release) late = slotAfter(g, t.from, t.to, t.std + late, t.sta - t.std) - t.std;
+  if (t.std >= d.release) {
+    // v0.12.1 (review) no seat at all (a closure past SLOT_AHEAD): nothing is bought; the crew wait at the hotel and
+    // the daily run home (sendStrandedHome) buys one once a seat exists.
+    const at = slotAfter(g, t.from, t.to, t.std + late, t.sta - t.std);
+    if (at === null) return null;
+    late = at - t.std;
+  }
   const f = addDeadhead(g, { crewIds, from: t.from, to: t.to, std: t.std + late, sta: t.sta + late, cost, contractId: p.contractId });
   leaveAfterTicket(g, crewIds, f);
   if (cost) post(g, 'deadhead', -cost);
@@ -570,7 +576,10 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void
     }
   }
   // v0.12.1 only a seat that exists (no closed airport, no landing in a night curfew).
-  std = slotAfter(g, c.loc, c.base, std, blk);
+  // v0.12.1 (review) none at all: nothing bought, they wait at the hotel (the daily run tries again).
+  const seat = slotAfter(g, c.loc, c.base, std, blk);
+  if (seat === null) return;
+  std = seat;
   // v0.12.1 forced (home before a leave): the ticket home they hold stands unless this one leaves at least an hour sooner.
   if (homeHeld.some((f) => f.std <= std + 60)) return;
   if (homeHeld.length) dropPlanned(g, c.id, homeHeld.map((f) => f.id));

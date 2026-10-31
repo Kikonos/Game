@@ -21,7 +21,7 @@ import { cancelCost, cancelLegs, clearRestMarks, delayChain, liveOver, unitOf, w
 import { latePenalty } from '../ops/latePolicy';
 import { rotationOf, subcharter, subcharterQuote } from '../ops/subcharter';
 import { contractOf, isRevenue, stats, usd } from '../ops/util';
-import { closedAirport, setClosureTicketHook } from '../ops/world';
+import { closedAirport, closedUntil, eventsOf, setClosureTicketHook } from '../ops/world';
 import { hurtProse, mkHurt, type GaugeSpec, type ProblemCard, type ReachSpec, hm, limitTone } from '../problems/types';
 import { crewIssuesFor, openDuties, planCrew, readyAt } from './check';
 import { crewWindows } from './ftl';
@@ -37,6 +37,17 @@ import { cabinEarly, crewCount, crewIx, crewRev, dhBlock, fdpLimitAt, locAt, OUT
 setClosedCheck((g, code, t) => !!closedAirport(g, code, t));
 // v0.12.1 (D18) a closure drops the crew tickets through the shut airport and re-plans their trips.
 setClosureTicketHook((g, e) => void closureTickets(g, (code, t) => closedAirport(g, code, t)?.id === e.id));
+
+/**
+ * v0.12.1 (review) at load: crew tickets into or out of an airport closed now (older saves: bought before the closure
+ * check, or in slotAfter's old two-day reach) are dropped and re-planned as when the closure began.
+ */
+export function closureTicketsOnLoad(g: GameState): void {
+  for (const e of eventsOf(g)) {
+    if (e.done || e.start > g.now || closedUntil(e) <= g.now || !(e.closed || e.airportClosedUntil)) continue;
+    closureTickets(g, (code, t) => closedAirport(g, code, t)?.id === e.id);
+  }
+}
 import { callFromStandby, calledNow, reserveContact } from './standby';
 import { SBY_LABEL } from './calendar';
 import { dayLabel, offDaysHit, takesPublishedOff, v09Stats } from './dayPlan';
