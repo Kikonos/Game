@@ -318,7 +318,8 @@ function cancelScale(c: Contract, daysBefore: number): number {
 
 /**
  * Penalty if we cancel now: before start value × cancelScale; active wet = 100% of the MGH still to come (v0.12.1
- * Hajj: inside the phases); active charter = per trip not yet flown, its share × cancelScale by its first departure.
+ * Hajj: inside the phases); a charter (v0.12.1, signed or active) = per trip not yet flown, its share × cancelScale
+ * by the days to its first departure.
  */
 export function cancelPenalty(g: GameState, contractId: string): number {
   const c = g.contracts[contractId];
@@ -327,13 +328,29 @@ export function cancelPenalty(g: GameState, contractId: string): number {
   // v0.8 a delivered dry lease is recalled (even a day before its start): one month's rent to the lessee.
   const recall = c.dry ? recallTerms(g, c) : null;
   if (recall) return recall.penalty;
+  // v0.12.1 a charter series: each rotation not yet flown at the cancel scale for the days to its own first
+  // departure (charter series terms), the part of a rotation under way in full.
+  if (p.kind === 'charter') {
+    const value = g.now < c.start ? p.price : p.price * (1 - brokerCut(c));
+    const trips = programmeOf(c, g.fleet[c.aircraftIds[0]]?.typeId ?? 'a320ceo').trips;
+    const total = trips.reduce((s, t) => s + tripMin(t), 0) || 1;
+    let ahead = 0;
+    let pen = 0;
+    for (const t of trips) {
+      if (t.std <= g.now) continue;
+      const share = (value * tripMin(t)) / total;
+      ahead += share;
+      pen += share * cancelScale(c, (t.std - g.now) / DAY);
+    }
+    const underWay = Math.max(0, value - (c.accrued ?? 0) - ahead);
+    return Math.round(pen + underWay);
+  }
   if (g.now < c.start) {
     // v0.12.1 wet: the guaranteed hours over the term (Hajj: the phases only), as billing counts them.
-    const value = p.kind === 'wet' ? p.ratePerBH * mghRemaining(c, c.start) : p.kind === 'charter' ? p.price : productValue(p, 0, c.start, c.end);
+    const value = p.kind === 'wet' ? p.ratePerBH * mghRemaining(c, c.start) : productValue(p, 0, c.start, c.end);
     return Math.round(value * cancelScale(c, (c.start - g.now) / DAY));
   }
   if (p.kind === 'wet') return Math.round(p.ratePerBH * mghRemaining(c, g.now));
-  if (p.kind === 'charter') return Math.round(Math.max(0, p.price * (1 - brokerCut(c)) - (c.accrued ?? 0)));
   return 0;
 }
 

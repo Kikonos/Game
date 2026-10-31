@@ -36,6 +36,7 @@ import { ARCH_MULT, defaultSeats, isJumboType, isWetArchetype, isWideJob, priceP
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
 import { closedAirport, inWarZone, setClosureOfferHook, warRiskLandings } from '../ops/world';
+import { curfewOk, curfewShift } from '../core/curfew';
 import type { HajjDates } from '../../data/worldCalendar';
 import { demandFactor } from '../ops/market';
 import { afterOfferDays, isQuiet } from '../ops/director';
@@ -521,12 +522,40 @@ const hhmm = (m: number) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${St
 function oddWaves(g: GameState, base: string, dests: string[], ref: string, waves: number[]): number[] {
   const r = sideRng(g, `oddw:${g.seq}:${g.now}`);
   const shift = 360 - (300 + 5 * int(r, 0, 6));
-  const out = waves.map((w) => w - shift);
   const turn = typeOf(ref).turnMin;
+  // v0.12.1 a wave flies only outside the night curfews at both ends (out, the turn, back), strict.
+  const day = g.now + 7 * DAY;
+  const clear = (local: number) => dests.every((d) => {
+    const dep = atLocal(base, day, local), arr = dep + blockMinutes(ref, base, d), back = arr + turn, home = back + blockMinutes(ref, d, base);
+    return curfewOk(base, dep) && curfewOk(d, arr) && curfewOk(d, back) && curfewOk(base, home);
+  });
+  const early = waves.map((w) => w - shift);
+  const out = clear(early[0]) ? early : [...waves];
   const rot = Math.max(...dests.map((d) => blockMinutes(ref, base, d) + turn + blockMinutes(ref, d, base)));
   const late = 1380 + 5 * int(r, 0, 9);
   // The late rotation must be back and turned before the next morning's first wave.
-  if (out[out.length - 1] + rot + turn <= late && late + rot + turn <= out[0] + 1440) out.push(late);
+  if (out[out.length - 1] + rot + turn <= late && late + rot + turn <= out[0] + 1440 && clear(late)) out.push(late);
+  return out;
+}
+
+/**
+ * v0.12.1 job legs out of the night curfews (strict) at both ends: a leg that would leave or land inside one moves to
+ * the nearest legal time, earlier or later, when that still leaves a turn on either side. Pure.
+ */
+function curfewLegs(legs: LegTemplate[], ref: string): LegTemplate[] {
+  const turn = typeOf(ref).turnMin;
+  const out = legs.map((l) => ({ ...l }));
+  for (let i = 0; i < out.length; i++) {
+    const l = out[i];
+    const block = blockMinutes(ref, l.from, l.to);
+    if (curfewOk(l.from, l.dep) && curfewOk(l.to, l.dep + block)) continue;
+    const before = Math.floor(Math.min(curfewShift(l.from, l.dep, 'before'), curfewShift(l.to, l.dep + block, 'before') - block) / 5) * 5;
+    const after = Math.ceil(Math.max(curfewShift(l.from, l.dep, 'after'), curfewShift(l.to, l.dep + block, 'after') - block) / 5) * 5;
+    const prev = out[i - 1], next = out[i + 1];
+    const fits = (t: number) => curfewOk(l.from, t) && curfewOk(l.to, t + block) && (!prev || t >= prev.dep + blockMinutes(ref, prev.from, prev.to) + turn) && (!next || t + block + turn <= next.dep);
+    const pick = [before, after].filter(fits).sort((a, b) => Math.abs(a - l.dep) - Math.abs(b - l.dep))[0];
+    if (pick !== undefined) l.dep = pick;
+  }
   return out;
 }
 
@@ -574,7 +603,7 @@ function adhoc(ctx: Ctx): Draft | null {
     if (!shrine || back < 2) return null;
     legs = roundTrip(g, from, shrine.code, s, back, pax);
     title = `Pilgrimage ${city(from)}–${shrine.place}`;
-    blurb = `${client.name} is bringing a parish group from ${city(from)} to ${shrine.place}, ${shrine.note}. Out ${fmtDay(legs[0].dep)}, home ${back} days later.`;
+    blurb = `${client.name} is bringing a parish group from ${city(from)} to ${shrine.place}, ${shrine.note}. Out ${fmtDay(legs[0].dep)}, home ${F.later(back)}.`;
   } else if (variant === 'music') {
     client = nearClient(ctx, clientsOf(g, ['music']));
     if (!client || maxBack < 7) return null;
@@ -1111,6 +1140,15 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   const ref = referenceType(d.req, sectors, p.kind === 'base', d.req.approvals.includes('ulr'));
   if (!ref) return null;
   const airports = [...new Set(sectors.flat())];
+  // v0.12.1 job legs keep out of night curfews (moved to the nearest legal time where they can).
+  if (p.kind === 'legs') {
+    const was = p.legs;
+    p.legs = curfewLegs(p.legs, ref);
+    // The job's window follows a first leg moved earlier or a last one moved later.
+    d.start = Math.min(d.start, p.legs[0]?.dep ?? d.start);
+    const moved = (p.legs[p.legs.length - 1]?.dep ?? 0) - (was[was.length - 1]?.dep ?? 0);
+    if (moved > 0) d.end += moved;
+  }
   // v0.12.1 never into an airport a world event already closes when the job flies there: mission work (an
   // evacuation, a repatriation, relief) is that event's work and flies under its permit; anything else is dropped.
   const shut = closureOn(g, p.kind === 'base' ? airports.map((code) => [code, d.start] as [string, Minute]) : p.legs.flatMap((l) => [[l.from, l.dep], [l.to, l.dep]] as [string, Minute][]), d.eventId);

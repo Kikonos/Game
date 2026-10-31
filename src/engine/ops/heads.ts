@@ -42,6 +42,7 @@ import { cancelCheck, checkCostOf, checkStatus, nextPlanned, planA, suggestC } f
 import { headsBill } from './finance';
 import { usd } from './util';
 import { closedAirport } from './world';
+import { curfewShift } from '../core/curfew';
 
 const H = () => BAL.v09.heads;
 
@@ -635,22 +636,33 @@ function creditChase(g: GameState): void {
   const h = active(g, 'credit');
   if (!h) return;
   const C = H().credit;
+  // v0.12.1 one reminder a client a day (all its late invoices in one call), one chance to get the tone wrong.
+  const byClient = new Map<string, { n: number; amount: number; over: number; ref?: Ref }>();
   for (const r of g.finance.receivables) {
     if (r.paid !== null) continue;
     const over = Math.floor((g.now - r.due) / DAY);
     const step = C.remind.filter((d) => over >= d && (r.chased ?? 0) < d).pop();
     if (step === undefined) continue;
     r.chased = step;
-    const cl = g.clients[r.clientId];
     const rr = sideRng(g, `chase:${r.id}:${step}`);
     if (r.payAt > g.now + 7 * DAY && chance(rr, C.base + C.perSkill * (h.hired?.skill ?? 0.7))) {
       r.payAt = g.now + int(rr, 1, 7) * DAY;
       schedule(g, r.payAt, 'payment', r.id);
     }
+    const x = byClient.get(r.clientId) ?? { n: 0, amount: 0, over: 0 };
+    x.n++;
+    x.amount += r.amount;
+    x.over = Math.max(x.over, over);
+    x.ref ??= r.contractId ? { kind: 'contract', id: r.contractId } : undefined;
+    byClient.set(r.clientId, x);
+  }
+  for (const [clientId, x] of byClient) {
+    const cl = g.clients[clientId];
     // §5.3 any client may be chased a little early (the mistake roll on every reminder).
     const early = !!cl && slips(g, h);
-    if (early) bumpClient(g, r.clientId, -2, 'Chased an invoice a little early');
-    done(g, h, 'finance', `Credit control reminded ${cl?.name ?? 'a client'}`, `${usd(r.amount)} for ${r.desc}, ${over} days late.`, r.contractId ? { kind: 'contract', id: r.contractId } : undefined,
+    if (early) bumpClient(g, clientId, -2, 'Chased an invoice a little early');
+    const what = x.n === 1 ? `${usd(x.amount)}, ${x.over} days late.` : `${x.n} invoices, ${usd(x.amount)}, up to ${x.over} days late.`;
+    done(g, h, 'finance', `Credit control reminded ${cl?.name ?? 'a client'}`, what, x.n === 1 ? x.ref : undefined,
       early ? `${firstName(h)} chased a ${LEVEL_NAME[levelOf(g, cl)]} client too early (relation −2).` : undefined);
   }
 }
@@ -718,7 +730,8 @@ function positionPlans(g: GameState, h: Head): void {
     const margin = need.mode === 'none' ? 0 : need.max - need.fdp;
     if (margin >= F.marginMin) continue;
     if (h.proposals.some((p) => p.kind === 'position' && p.data.contractId === c.id && p.data.aircraftId === ac.id)) continue;
-    const arriveBy = f0.std - F.arriveBeforeMin;
+    // v0.12.1 never into a night curfew: land before it starts.
+    const arriveBy = curfewShift(f0.from, f0.std - F.arriveBeforeMin, 'before');
     const data = { aircraftId: ac.id, to: f0.from, arriveBy, contractId: c.id };
     if (dismissedNow(g, h, { kind: 'position', data })) continue;
     const chain = chainBackward(ac.typeId, pos[0].from, f0.from, g.now + BAL.ferryLeadMin, arriveBy, etopsCap(g.company.approvals, ac.typeId));
@@ -1069,7 +1082,10 @@ export function ferryAircraft(g: GameState, aircraftId: string, to: string, arri
   if (ac.status !== 'available' || ac.flightId) return { ok: false, error: `${ac.reg} is not free to ferry now` };
   if (ac.at === to) return { ok: false, error: `${ac.reg} is already at ${to}` };
   const blk = emptyBlock(ac.typeId, ac.at, to);
-  const by = arriveBy ?? g.now + BAL.ferryLeadMin + blk + 6 * 60;
+  // v0.12.1 the arrival stays out of a night curfew at `to` (lands before it, or after it ends when that is too soon).
+  const by0 = arriveBy ?? g.now + BAL.ferryLeadMin + blk + 6 * 60;
+  const early = curfewShift(to, by0, 'before');
+  const by = early >= g.now + BAL.ferryLeadMin + blk ? early : arriveBy !== undefined ? early : curfewShift(to, by0, 'after');
   // v0.9 round 4: positioning for a contract (billable on a wet lease) replaces that contract's later same-day legs,
   // once a plan is known to fit (tried on a copy, no cues).
   const old = contractId ? flightsOf(g, aircraftId).filter((f) => f.contractId === contractId && f.kind === 'positioning' && f.status === 'scheduled' && f.std >= by && f.std < by + DAY).map((f) => f.id) : [];

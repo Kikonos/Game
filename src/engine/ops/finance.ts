@@ -147,6 +147,7 @@ function gameOver(g: GameState, reason: string): void {
 /** Daily: overdue reminders (+7, +30 → decision), receivables pruning, low-cash warning, rescue and bankruptcy. */
 export function dailyFinance(g: GameState): void {
   const f = g.finance;
+  const week = new Map<string, GameState['finance']['receivables']>();
   for (const r of f.receivables) {
     if (r.paid !== null) continue;
     const over = Math.floor((g.now - r.due) / DAY);
@@ -156,13 +157,22 @@ export function dailyFinance(g: GameState): void {
       else pushMessage(g, { tone: 'warn', cat: 'finance', title: `${g.clients[r.clientId]?.name ?? 'A client'} is 30 days late`, body: `${usd(r.amount)} for ${r.desc}.`, ref: r.contractId ? { kind: 'contract', id: r.contractId } : undefined, ...cardMeta(invoiceOverdueCard(g, r.id)) });
     } else if (over >= 7 && (r.nudged ?? 0) < 7) {
       r.nudged = 7;
-      // Late interest (BAL.lateInterest a year) is flavour in v0.5: shown, never collected.
-      const interest = Math.round((r.amount * BAL.lateInterest * over) / 365);
-      pushMessage(g, {
-        tone: 'info', cat: 'finance', title: `Invoice overdue: ${g.clients[r.clientId]?.name ?? 'client'}`,
-        body: `${usd(r.amount)} for ${r.desc}, ${over} days past due. Reminder sent${interest >= 100 ? ` (late interest so far ${usd(interest)}, which nobody in this business pays)` : ''}.`,
-      });
+      // v0.12.1 one reminder per client and day (grouped below).
+      const x = week.get(r.clientId) ?? [];
+      x.push(r);
+      week.set(r.clientId, x);
     }
+  }
+  for (const [clientId, rs] of week) {
+    // Late interest (BAL.lateInterest a year) is flavour in v0.5: shown, never collected.
+    const amount = rs.reduce((s, r) => s + r.amount, 0);
+    const interest = Math.round(rs.reduce((s, r) => s + (r.amount * BAL.lateInterest * Math.floor((g.now - r.due) / DAY)) / 365, 0));
+    const tail = `Reminder sent${interest >= 100 ? ` (late interest so far ${usd(interest)}, which nobody in this business pays)` : ''}.`;
+    const r0 = rs[0];
+    pushMessage(g, {
+      tone: 'info', cat: 'finance', title: `Invoice overdue: ${g.clients[clientId]?.name ?? 'client'}`,
+      body: rs.length === 1 ? `${usd(r0.amount)} for ${r0.desc}, ${Math.floor((g.now - r0.due) / DAY)} days past due. ${tail}` : `${rs.length} invoices, ${usd(amount)}, a week or more past due. ${tail}`,
+    });
   }
   if (f.receivables.length > 80) f.receivables = f.receivables.filter((r) => r.paid === null || r.paid > g.now - 120 * DAY);
   // Solvency (fail forward).

@@ -12,7 +12,7 @@ import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, HOUR, dayStart, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { ActionResult, GameState } from '../../engine/core/types';
-import { addRestToCCheck, bookCCheck, cCheckOptions, cCheckSlots, cancelCheck, checkAirportOk, checkLogistics, checkStatus, checkUsedAt, groundGaps, restRefitOptions, scheduleCheck, type CCheckOption } from '../../engine/ops';
+import { addRestToCCheck, bookCCheck, cCheckOptions, cCheckSlots, cancelCheck, checkAirportOk, checkLogistics, checkCostOf, checkStatus, checkUsedAt, groundGaps, restRefitOptions, scheduleCheck, type CCheckOption } from '../../engine/ops';
 import { Term } from '../components/Term';
 import { money } from '../format';
 import { Modal, Seg, Stepper } from '../components/ui';
@@ -184,7 +184,7 @@ function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit, hub0,
           <div className="cv-cost small ck-plan">
             <span>{fo.length ? <>Ferry out <b>{fmtDay(fo[0].std)} {fmtTime(fo[0].std)}</b> {fo[0].from}→{fo[fo.length - 1].to} ({fmtDuration(legsBlock(fo))}) · </> : null}check <b>{fmtDay(opt.start)}–{fmtDay(opt.end)}</b>{fh.length ? <> · ferry home <b>{fmtDay(fh[0].std)} {fmtTime(fh[0].std)}</b></> : null}</span>
             <span className="muted">Check {money(opt.checkCost - (fitAdd?.cost ?? 0))}{fitAdd ? ` + ${fitWord} ${money(fitAdd.cost)}` : ''} · ferries {money(opt.ferryCost)} · 2 pilots fly home and back out on airline tickets, hotels ≈ {money(opt.crewCost)}</span>
-            {proj && <span className={proj.used > 1 ? 'bad' : proj.used > 0.9 ? 'warn' : 'good'}>By then: {Math.round(proj.used * 100)}% used ({proj.fh} / {proj.limitFH} FH)</span>}
+            {proj && <span className={proj.used > 1 ? 'bad' : proj.used > 0.9 ? 'warn' : 'good'}>By then: {Math.round(proj.calUsed * 100)}% of the calendar interval used · {proj.fh} / {proj.limitFH} FH</span>}
             {proj && proj.used < 0.5 && <span className="muted">Early: the check restarts the count, so you lose most of the current check's life.</span>}
             {!opt.ok && opt.why && <span className="warn">{opt.why}</span>}
           </div>
@@ -224,7 +224,7 @@ function ACheckModal({ aircraftId, replace, kind, setKind, suggest }: { aircraft
   const proj = chosen ? checkUsedAt(g, ac, kind, chosen.start) : null;
   const projLine = proj && (
     <span className={`small ${proj.used > 1 ? 'bad' : proj.used > 0.9 ? 'warn' : 'good'}`}>
-      By then: {Math.round(proj.used * 100)}% used · {Math.max(0, 100 - Math.round(proj.used * 100))}% left ({proj.fh} / {proj.limitFH} FH)
+      By then: {Math.round(proj.calUsed * 100)}% of the calendar interval used · {proj.fh} / {proj.limitFH} FH{chosen && kind === 'A' ? ` · ${money(checkCostOf(ac, 'A', chosen.at, g.company.homeBase))}${chosen.at !== g.company.homeBase ? ' (+20% away from base)' : ''}` : ''}
     </span>
   );
 

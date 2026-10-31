@@ -27,6 +27,7 @@ import { acceptOffer, feasibilityAll } from '../contracts';
 import { onContractEnd } from '../contracts/accept';
 import { applyDecisionOption, reopenLatePayment } from './events';
 import { nextId } from '../core/entities';
+import { dailyFinance } from './finance';
 
 /** Unlocked and hired (the senior candidate, or a given skill). */
 function hire(g: GameState, id: HeadId, skill?: number): void {
@@ -522,5 +523,26 @@ describe('§5.3 round 4 (audit): heads', () => {
     g2.maintenance.cx = { id: 'cx', aircraftId: ac2.id, kind: 'C', at: g2.company.homeBase, start: Number(p!.data.from), end: Number(p!.data.from) + 20 * DAY, cost: 1, status: 'planned', planned: true, ev: 0 };
     dailyHeads(g2);
     expect(g2.heads!.maintPlanner.proposals.some((x) => x.id === p!.id)).toBe(false);
+  });
+});
+
+describe('v0.12.1 one reminder a client a day', () => {
+  it('six late invoices of one client: credit control sends one note, with at most one relation hit; the overdue note is one too', () => {
+    const g = fixtureGame(77);
+    hire(g, 'credit', 0);
+    const cl = Object.values(g.clients)[0];
+    for (let i = 0; i < 6; i++) {
+      g.finance.receivables.push({ id: nextId(g, 'r'), clientId: cl.id, contractId: null, desc: `Fuel re-billed: X${i}`, amount: 4_000, issued: g.now - 20 * DAY, due: g.now - 11 * DAY, payAt: g.now + 30 * DAY, paid: null, cat: 'otherRevenue' });
+    }
+    const rel = cl.relation;
+    const n0 = g.messages.length;
+    dailyHeads(g);
+    const notes = g.messages.slice(0, g.messages.length - n0).filter((m) => m.title === `Credit control reminded ${cl.name}`);
+    expect(notes).toHaveLength(1);
+    expect(notes[0].body).toContain('6 invoices, $24K');
+    expect(cl.relation).toBeGreaterThanOrEqual(rel - 2);
+    const n1 = g.messages.length;
+    dailyFinance(g);
+    expect(g.messages.slice(0, g.messages.length - n1).filter((m) => m.title === `Invoice overdue: ${cl.name}`)).toHaveLength(1);
   });
 });

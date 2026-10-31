@@ -6,7 +6,7 @@ import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
 import { distanceNm } from '../core/geo';
 import { blockMinutes, complement, etopsCap, etopsNeeded, maxSectorNm, planSector, rangeFromNm, reportMinutes, runwayFit, typeOf, usableRangeNm } from '../core/perf';
-import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate, fmtDayRange } from '../core/time';
+import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime, toDate, fmtDayRange } from '../core/time';
 import type { AcRest, Aircraft, ApprovalId, ContractOffer, CrewExtra, Flight, GameState, Minute, RestRefitId } from '../core/types';
 import { crewAvailability, offerExtra, type Availability } from '../crew';
 import { dutyNeed, type ChainShape, type DutyNeed } from '../crew/duties';
@@ -28,6 +28,7 @@ import { productValue, tripTickets } from './pricing';
 import { v08Lines } from './missionChecks';
 import { dryFeasibility } from '../ops/dryLease';
 import { closedAirport, closedUntil } from '../ops/world';
+import { curfewOk } from '../core/curfew';
 
 export type CheckId = 'seats' | 'layout' | 'family' | /** v0.8 fix pack */ 'body' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease' | 'paint' | 'restSeats' | /** v0.7.3 */ 'rest'
   /** v0.7.4 client cabin request */ | 'cabinReq'
@@ -393,6 +394,18 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   } else {
     const shortest = prog.airports.reduce((m, c) => Math.min(m, AIRPORT_BY_CODE[c]?.runwayM ?? 9999), 9999);
     add('runway', 'ok', `Runways fine (shortest ${shortest.toLocaleString('en-US')} m)`);
+  }
+
+  // v0.12.1 a job leg still inside a night curfew (strict) at either end: no slot there at that hour.
+  if (prog.ok) {
+    for (const tr of prog.trips) {
+      const l = tr.legs.find((x) => x.kind !== 'positioning' && (!curfewOk(x.from, x.std) || !curfewOk(x.to, x.sta)));
+      if (!l) continue;
+      const code = curfewOk(l.from, l.std) ? l.to : l.from;
+      const t0 = code === l.from ? l.std : l.sta;
+      add('runway', 'warn', `No night slot at ${AIRPORT_BY_CODE[code]?.city ?? code}: ${l.from}–${l.to} ${code === l.from ? 'leaves' : 'lands'} ${fmtTime(t0, code)} local, inside the night curfew`, 'The client will have to move that flight, or it waits for the morning.');
+      break;
+    }
   }
 
   // Place the programme among this aircraft's commitments (only meaningful if it can fly it).

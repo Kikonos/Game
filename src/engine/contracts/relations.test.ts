@@ -330,7 +330,8 @@ describe('company standing (§1.6)', () => {
       if (o.pattern.waves[0] < 6 * 60) odd++;
     }
     expect(n).toBeGreaterThan(200);
-    expect(odd / n).toBeGreaterThan(0.32);
+    // v0.12.1 a base whose night curfew covers 05:00 keeps its usual first wave, so a little under 40 %.
+    expect(odd / n).toBeGreaterThan(0.26);
     expect(odd / n).toBeLessThan(0.48);
   });
 });

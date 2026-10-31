@@ -144,3 +144,23 @@ describe('v0.12.1 months on the game calendar', () => {
     expect(bad).toEqual([]);
   });
 });
+
+describe('v0.12.1 offer text lint', () => {
+  it("no '1 days', no 'a' before a vowel sound, no empty brackets in generated titles and blurbs", () => {
+    const bad: string[] = [];
+    const kinds: ContractOffer['archetype'][] = ['adhoc', 'tourSeries', 'seasonBase', 'sports', 'repatriation', 'capacityLease', 'aogCover', 'vip', 'evacuation', 'humanitarian', 'medical', 'deportation'];
+    for (const seed of [3, 8, 13]) {
+      const g = newGame(seed);
+      for (let i = 0; i < 6; i++) {
+        for (const k of kinds) {
+          const o = generateOffer(g, k, { wide: i % 2 === 1, window: false });
+          if (!o) continue;
+          const t = `${o.title} | ${o.blurb}`;
+          if (/\b1 days\b/.test(t) || /\ba (?!one\b|one-|once\b|uni|use|eu|Eu|UN\b|US\b|UK\b)[aeiouAEIOU]/.test(t) || /\(\s*\)/.test(t)) bad.push(t);
+          delete g.offers[o.id];
+        }
+      }
+    }
+    expect(bad).toEqual([]);
+  });
+});

@@ -225,9 +225,10 @@ describe('receivables', () => {
     skip(g, a.due + 8 * DAY);
     expect(a.nudged).toBe(7);
     expect(a.paid).toBeNull();
+    // v0.12.1 one reminder per client and day: both invoices in one note.
     const reminders = g.messages.filter((m) => m.title === `Invoice overdue: ${gov.name}`);
-    expect(reminders).toHaveLength(2);
-    expect(reminders[0].body).toMatch(/7 days past due\. Reminder sent/);
+    expect(reminders).toHaveLength(1);
+    expect(reminders[0].body).toMatch(/^2 invoices, \$400K, a week or more past due\. Reminder sent/);
     skip(g, a.due + 30 * DAY + 60);
     expect(a.nudged).toBe(30);
     const dA = g.decisions.find((d) => d.kind === 'latePayment' && d.data?.receivableId === a.id)!;

@@ -11,6 +11,7 @@ import { mghFor, mghRemaining, noteLostLegs, onFlightArrivedContracts } from './
 import { clientMoved, moveFlight } from '../ops/flights';
 import { v09Stats } from '../crew/dayPlan';
 import { feasibility } from './feasibility';
+import { programmeOf } from './plan';
 import { devHajj } from './missions';
 import { earnedUnbilled } from '../../ui/screens/screenLogic';
 import { mghInMonth, mghTotal, productValue } from './pricing';
@@ -427,5 +428,31 @@ describe('v0.12.1 a contract ends with its last revenue leg', () => {
     addFlight(g, { no: 'TP1', aircraftId: null, contractId: c.id, kind: 'deadhead', from: 'PMI', to: 'LIS', std: t, sta: t + 150 });
     run(g, Math.max(c.end, last.sta) + 60);
     expect(c.status).toBe('completed');
+  });
+});
+
+describe('v0.12.1 cancelling a charter series: each rotation by its own notice', () => {
+  it('after the first rotation flew: the rest at the cancel scale for the days to each one, not 100 %', () => {
+    const g = newGame(44);
+    const t = g.now + 2 * DAY;
+    const o = legsOffer(g, [['LIS', 'PMI', t], ['PMI', 'LIS', t + 300], ['LIS', 'PMI', t + 30 * DAY], ['PMI', 'LIS', t + 30 * DAY + 300], ['LIS', 'PMI', t + 60 * DAY], ['PMI', 'LIS', t + 60 * DAY + 300], ['LIS', 'PMI', t + 90 * DAY], ['PMI', 'LIS', t + 90 * DAY + 300]]);
+    o.broker = undefined;
+    const res = acceptOffer(g, o.id, [owned(g).id]);
+    if (!res.ok) throw new Error(res.error);
+    const c = g.contracts[res.data!.contractId];
+    if (c.product.kind !== 'charter') throw new Error('charter');
+    run(g, t + DAY);
+    expect(c.status).toBe('active');
+    const trips = programmeOf(c, owned(g).typeId).trips;
+    expect(trips.length).toBe(4);
+    const mins = trips.map((x) => x.legs.filter((l) => l.kind !== 'positioning').reduce((s, l) => s + l.sta - l.std, 0));
+    const total = mins.reduce((a, b) => a + b, 0);
+    const scale = (d: number) => c.penalties.cancelScale.find(([x]) => d >= x)?.[1] ?? 1;
+    let want = 0;
+    trips.forEach((x, i) => { if (x.std > g.now) want += (c.product.kind === 'charter' ? c.product.price : 0) * (mins[i] / total) * scale((x.std - g.now) / DAY); });
+    const unflown = c.product.price - (c.accrued ?? 0);
+    const pen = cancelPenalty(g, c.id);
+    expect(pen).toBeLessThan(unflown * 0.6);
+    expect(Math.abs(pen - Math.round(want + Math.max(0, unflown - c.product.price * (1 - mins[0] / total))))).toBeLessThanOrEqual(2);
   });
 });
