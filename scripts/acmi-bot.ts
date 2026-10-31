@@ -403,7 +403,10 @@ function offers(g: GameState, t: Tally): void {
     .sort((a, b) => Number(isBase(b)) - Number(isBase(a)) || levelRank(g, b) - levelRank(g, a) || b.estValue - a.estValue);
   // v0.7: a calendar under half full over the next month takes ad hoc work up to 45 days out.
   const hungry = open.length > 0 && committed(g, 30) < 0.5;
+  const won = wonTenderOffers(g);
   for (const o of open) {
+    // v0.14 a won tender's offer is tenderBids' (its terms are the bid's: never countered).
+    if (won.has(o.id)) continue;
     const span = Math.max(1, (o.end - o.start) / DAY);
     // v0.8 dry leases have their own policy; deportation at most once a year and only with a clean record (70+);
     // no evacuation into level-3 war risk.
@@ -1396,6 +1399,21 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
  * Newcomer), their cabin crew when they like it.
  */
 function tenderBids(g: GameState, t: Tally): void {
+  // v0.14 a won tender the bid tail can no longer take (busy since, or gone): signed on another aircraft within the
+  // week, as a player would (the same pick as any offer; the winning terms kept).
+  for (const tn of com(g).tenders) {
+    if (tn.status !== 'won' || !tn.result?.offerId || tn.result.contractId) continue;
+    const o = g.offers[tn.result.offerId];
+    if (!o || o.status !== 'open' || o.expires <= g.now) continue;
+    const best = bestFit(g, o);
+    if (!best) continue;
+    hireFor(g, t, best);
+    if (acceptOffer(g, o.id, [best.aircraftId], { priced: true }).ok) {
+      tenderResigned++;
+      t.accepted++;
+      act(g, t);
+    }
+  }
   for (const tn of com(g).tenders) {
     if (tn.status !== 'open' || tn.bid || g.now > tn.deadline - DAY) continue;
     const q = bidQuote(g, tn.id);
@@ -1407,6 +1425,11 @@ function tenderBids(g: GameState, t: Tally): void {
     if (res.ok) act(g, t);
   }
 }
+
+/** v0.14 won tenders signed on another aircraft than the one bid (tenderBids). */
+let tenderResigned = 0;
+/** v0.14 the open offers of won tenders (signed by tenderBids, never countered by offers()). */
+const wonTenderOffers = (g: GameState) => new Set(com(g).tenders.map((x) => x.result?.offerId).filter((x): x is string => !!x));
 
 /** v0.14 sales trips: you to a fair about every 80 days when cash allows (the next one reachable within 45 days). */
 let lastTrip = -Infinity;
@@ -2476,6 +2499,44 @@ console.log(
     targets.push(['747 full-year contribution ≥ 0 (JUMBO, v0.9 fix)', contrib >= 0, k$(contrib)]);
     softTargets.push(['a crew change at a fuel stop flown (JUMBO; ≥ 2 of seeds 1–6)', (g.stats.v09?.slips ?? 0) >= 1, `${g.stats.v09?.slips ?? 0} (offers ${slipSeen.size})`]);
   }
+  if (b744.length) {
+    // v0.14 (--b744 or JUMBO=1) each 747's own margin since it joined, on the v0.14 type costs: its legs' share of their
+    // contracts' invoices (fuel re-bills included) less its fuel where we pay it, maintenance (maintBH), C-check
+    // reserves, insurance, rent and five crew sets. Target 10–20 % when busy.
+    const t = typeOf('b744');
+    for (const id of b744) {
+      const ac = g.fleet[id];
+      let bh = 0;
+      let fuel = 0;
+      const all = new Map<string, number>();
+      const ours = new Map<string, number>();
+      for (const l of legsFlown.values()) {
+        all.set(l.contractId, (all.get(l.contractId) ?? 0) + l.bh);
+        if (l.aircraftId !== id) continue;
+        ours.set(l.contractId, (ours.get(l.contractId) ?? 0) + l.bh);
+        bh += l.bh;
+        const k = g.contracts[l.contractId];
+        if (!k || k.product.kind !== 'wet') fuel += l.bh * t.fuelTBH * g.market.fuelPrice;
+      }
+      let rev = 0;
+      const jobs: string[] = [];
+      for (const [cid, b] of ours) {
+        const share = b / Math.max(1e-9, all.get(cid) ?? 0);
+        const r = ((g.contracts[cid]?.invoiced ?? 0) + g.finance.receivables.filter((x) => x.contractId === cid && /^Fuel re-billed/.test(x.desc)).reduce((n, x) => n + x.amount, 0)) * share;
+        rev += r;
+        const k = g.contracts[cid];
+        jobs.push(`${k?.archetype ?? '?'} ${k?.requirements.minSeats ?? ''}s ${k?.product.kind ?? ''} ${b.toFixed(0)} BH ${k$(r)}`);
+      }
+      const months = Math.max(0, g.now - Math.max(ac.deliveredAt ?? 0, g.started)) / (30.44 * DAY);
+      const rent = ac.ownership.kind === 'dryLeaseIn' ? ac.ownership.rentPerMonth * months : 0;
+      const crewSets = BAL.crewSetsPerAircraft * complement('b744', ac.cabin.total).reduce((n, r) => n + salaryFor(r, 'B747'), 0) * months;
+      const cRes = ((t.cCheck ?? 0) / Math.max(1, t.cCheckMonths)) * months;
+      const cost = fuel + bh * t.maintBH + (t.insuranceMonth ?? 0) * months + rent + crewSets + cRes;
+      const net = rev - cost;
+      console.log(`747 ${ac.reg}: ${months.toFixed(1)} months, ${bh.toFixed(0)} BH (${(bh / Math.max(1e-9, months)).toFixed(0)}/month), revenue ${k$(rev)}, fuel ${k$(fuel)}, maintenance ${k$(bh * t.maintBH)}, C-check reserve ${k$(cRes)}, insurance ${k$((t.insuranceMonth ?? 0) * months)}, rent ${k$(rent)}, crew sets ${k$(crewSets)} → net ${k$(net)} (${rev > 0 ? ((net / rev) * 100).toFixed(1) : '–'} %)`);
+      console.log(`  747 ${ac.reg} jobs: ${jobs.join(' · ')}`);
+  }
+  }
   console.log(
     `v0.9: heads unlocked ${unl} · hired ${hs.filter((h) => h.hired).length} · handled ${handled} (mistakes ${hs.reduce((n, h) => n + h.mistakes, 0)}, overridden ${hs.reduce((n, h) => n + h.overridden, 0)}) · ` +
       `achievements ${ach}/24 · slips ${v9?.slips ?? 0} (offers ${slipOffers}) · out of hours red ${v9?.oohRed ?? 0} amber ${v9?.oohAmber ?? 0} · ` +
@@ -2506,7 +2567,7 @@ console.log(
     const crisisOffers = c.crises.reduce((s2, x) => s2 + ((g.world?.events ?? []).find((e) => e.id === x.eventId)?.offerIds.length ?? 0), 0);
     console.log(
       `v0.14 commercial: tenders ${c.tenders.length} (rounds ${Object.entries(c.rounds ?? {}).map(([k, v]) => `${k} ${v}`).join(', ') || '-'}; open ${by('open')}, closed ${by('closed')}, won ${by('won')}, lost ${by('lost')}, no bid ${by('noBid')}) · ` +
-        `bids ${st.bids}, won ${st.won} (signed ${signed}), lost ${st.lost} · trips ${st.trips} (leads ${st.leads}) · crises ${st.crises} (${kinds}; ${crisisOffers} requests) · ` +
+        `bids ${st.bids}, won ${st.won} (signed ${signed}; on another aircraft ${tenderResigned}), lost ${st.lost} · trips ${st.trips} (leads ${st.leads}) · crises ${st.crises} (${kinds}; ${crisisOffers} requests) · ` +
         `written off ${k$(st.written)}, claims paid ${k$(claims)} · sales and travel ${k$(salesCost)}`,
     );
   }
