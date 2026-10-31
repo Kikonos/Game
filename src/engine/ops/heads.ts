@@ -724,6 +724,11 @@ function positionPlans(g: GameState, h: Head): void {
     if (fs.some((f) => f.contractId === c.id && f.kind === 'revenue' && f.status !== 'cancelled' && f.std < f0.std)) continue;
     const pos = fs.filter((f) => f.kind === 'positioning' && f.contractId === c.id && f.status === 'scheduled' && f.sta <= f0.std && f.sta > f0.std - F.arriveBeforeMin);
     if (!pos.length || pos[pos.length - 1].to !== f0.from) continue;
+    // v0.14 never the last day of a move still under way (a ferry home in crew-change days, its earlier days not flown):
+    // moved alone it was re-planned from where the aircraft is, the whole move made anew, its crew and tickets lost,
+    // every other day as the next Riga wave became the first (b744 seed 4: CS-TIF's KTM–EVN–RIX, a "late change, no crew"
+    // alarm each time while the aircraft sat at Kathmandu).
+    if (fs.some((f) => (f.kind === 'positioning' || f.kind === 'ferry') && f.status === 'scheduled' && f.to === pos[0].from && f.sta <= pos[0].std)) continue;
     const d = f0.dutyId ? g.duties[f0.dutyId] : undefined;
     const day = [...pos, ...(d ? d.flightIds.map((id) => g.flights[id]).filter((x): x is Flight => !!x && x.std >= f0.std) : [f0])].sort((a, b) => a.std - b.std);
     const need = dutyNeed(g, ac.typeId, restOf(g, ac.id), shapeOf(day));

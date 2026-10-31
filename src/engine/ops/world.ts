@@ -25,7 +25,8 @@ import { ceaseRival, isActive } from '../contracts/rivals';
 import { creditCancelledLeg } from '../contracts/billing';
 import { addShock, setPhase } from './market';
 import { ask } from './events';
-import { applyHold, delayChain, moveFlight, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLegs, underClosure } from './flights';
+import { applyHold, cancelCost, cancelLegs, delayChain, moveFlight, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLegs, underClosure } from './flights';
+import { ticketBlock } from './commercial';
 import { subcharter, subcharterQuotes } from './subcharter';
 import { contractOf, isRevenue, turnOf, usd } from './util';
 import { tourStopAsk } from './tourStop';
@@ -762,6 +763,94 @@ export function setClosureTicketHook(fn: typeof closureTicketHook): void {
 /** v0.12.1 a closure started or was extended: the offers hook runs (airspace or airport actually closed only). */
 function closureOffers(g: GameState, e: WorldEvent): void {
   if (e.closed || (e.airportClosedUntil && e.airportClosedUntil > g.now)) closureOfferHook?.(g, e);
+}
+
+/**
+ * v0.14 where a move that starts with `f` ends: its last empty leg (the chain of empty legs from f, each leaving where
+ * the one before landed). Pure.
+ */
+function moveEnd(g: GameState, f: Flight): Flight {
+  let last = f;
+  // Its later legs may sit among the very legs it can't reach (in STD order): only empty legs that go on are followed.
+  for (const x of flightsOf(g, f.aircraftId ?? '').filter((y) => y.status === 'scheduled' && y.std > f.std && !isRevenue(y)).sort((a, b) => a.std - b.std)) {
+    if (x.from !== last.to || x.std < last.sta || x.std - last.sta > 30 * 60) break;
+    last = x;
+  }
+  return last;
+}
+
+/** v0.14 the revenue legs an aircraft on its way home from a far outstation can't fly: leaving before it lands (and turns). Pure. */
+export function farStrandedLegs(g: GameState, ac: Aircraft, arrive: Minute): Flight[] {
+  const until = arrive + typeOf(ac.typeId).turnMin;
+  return flightsOf(g, ac.id).filter((x) => x.status === 'scheduled' && isRevenue(x) && x.std >= g.now && x.std < until).sort((a, b) => a.std - b.std);
+}
+
+/**
+ * v0.14 ONE card when the planner sends an aircraft home from a far outstation (contracts/schedule.ts relink: a long
+ * airline ticket from home, no crew aboard) on a move that leaves only when a crew flown out can be there, and lands
+ * after its next work has started: "CS-TIF can't reach Riga for airBaltic before 4 Oct: sub-charter or swap aircraft".
+ * Asked once per move (`strandAsked` on its first leg), never while one is open for the aircraft. Before it, the move
+ * was re-planned every few hours, a "late change, no crew" alarm each time, and the base's flights were cancelled one
+ * by one at their departure for two weeks (CS-TIF at Manila, October). Default: a rival flies them.
+ */
+export function farStrandedAsk(g: GameState, f: Flight, arrive: Minute): void {
+  const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
+  if (!ac || f.strandAsked) return;
+  if (g.decisions.some((d) => d.kind === 'farStranded' && d.data?.aircraftId === ac.id)) return;
+  const lost = farStrandedLegs(g, ac, arrive);
+  if (!lost.length) return;
+  f.strandAsked = true;
+  const k = contractOf(g, lost[0]);
+  const who = (k && g.clients[k.clientId]?.name) || 'the client';
+  const end = moveEnd(g, f);
+  const rivalId = pickRival(g, ac.typeId, lost);
+  const sub = subcharterCost(g, lost, 1.5 * rivalFactor(g, rivalId));
+  const pen = cancelCost(g, lost);
+  const swap = findSwapHook?.(g, ac, lost, lost[0].from) ?? null;
+  const n = lost.length;
+  const legs = `${n} leg${n > 1 ? 's' : ''}`;
+  const days = Math.max(1, Math.round((end.sta - f.std) / DAY));
+  ask(g, {
+    kind: 'farStranded', title: `${ac.reg} can't reach ${city(end.to)} for ${who} before ${fmtDay(arrive)}: sub-charter or swap aircraft`,
+    body: `${ac.reg} is at ${city(f.from)} with no crew, ${Math.round(ticketBlock(g.company.homeBase, f.from) / 60)} h from home by airline. A crew flies out and rests first: the ferry ${f.from}–${end.to} leaves ${fmtDay(f.std)} (${days} day${days > 1 ? 's' : ''}, crew-change nights on the way). ${legs} for ${who} from ${fmtDay(lost[0].std)} can't be flown by ${ac.reg}.`,
+    options: [
+      { id: 'subcharter', label: `Sub-charter to ${g.rivals.find((r) => r.id === rivalId)?.name ?? 'a rival'}`, desc: 'A rival flies them meanwhile; we still bill the client.', tone: 'warn', chips: [usd(-sub), legs] },
+      swap
+        ? { id: 'swap', label: `Swap in ${swap.ac.reg}`, desc: `${swap.ac.reg} takes over the legs${swap.from === lost[0].from ? '' : ` (ferry ${swap.from}–${lost[0].from})`}.`, tone: 'good', chips: [`First leg ${fmtDay(swap.moves[0]?.std ?? swap.arrive)}`, legs] }
+        : { id: 'swap', label: 'Swap aircraft', desc: 'No other aircraft of the type is free for them.', tone: 'bad', chips: ['Unavailable'] },
+      { id: 'cancel', label: 'Cancel those legs', desc: `${who} is compensated; the reliability record takes the hit.`, tone: 'bad', chips: [usd(-pen), legs] },
+    ],
+    defaultOption: swap ? 'swap' : rivalId ? 'subcharter' : 'cancel', expires: g.now + 12 * 60, ref: { kind: 'aircraft', id: ac.id },
+    data: { aircraftId: ac.id, flightId: f.id, arrive, rivalId },
+  }, true);
+}
+
+/** Resolver of 'farStranded' (v0.14): the legs the far ferry can't reach go to a rival, to another aircraft, or are cancelled. */
+export function resolveFarStranded(g: GameState, d: Decision, opt: string): ActionResult {
+  const f = g.flights[String(d.data?.flightId ?? '')];
+  const ac = g.fleet[String(d.data?.aircraftId ?? '')];
+  if (!f || !ac || f.status !== 'scheduled') return { ok: true, msg: 'The aircraft is on its way' };
+  // Read again: the move may have waited longer for its crew since the card was asked.
+  const lost = farStrandedLegs(g, ac, Math.max(Number(d.data?.arrive ?? 0), moveEnd(g, f).sta));
+  if (!lost.length) return { ok: true, msg: 'Nothing is lost any more' };
+  if (opt === 'subcharter') {
+    const rival = String(d.data?.rivalId ?? '') || pickRival(g, ac.typeId, lost);
+    const n = subcharterLegs(g, lost, rival, subcharterCost(g, lost, 1.5 * rivalFactor(g, rival)));
+    return { ok: true, msg: `${g.rivals.find((r) => r.id === rival)?.name ?? 'A rival'} flies ${n} leg${n === 1 ? '' : 's'} for us` };
+  }
+  if (opt === 'swap') {
+    const sw = findSwapHook?.(g, ac, lost, lost[0].from);
+    if (!sw) return { ok: false, error: 'No aircraft can take them over now' };
+    for (const { f: x, std } of sw.moves) if (x.status === 'scheduled' && std !== x.std) moveFlight(g, x, std, 'Aircraft swap');
+    for (const { f: x } of sw.moves) x.delay = 0;
+    reassignFlights(g, sw.moves.map((x) => x.f.id), sw.ac.id);
+    return { ok: true, msg: `${sw.ac.reg} takes over ${lost.length} leg${lost.length === 1 ? '' : 's'} from ${ac.reg}` };
+  }
+  if (opt === 'cancel') {
+    const pen = cancelLegs(g, lost, 'Aircraft out of position', 0);
+    return { ok: true, msg: `${lost.length} leg${lost.length === 1 ? '' : 's'} cancelled${pen ? ` (compensation ${usd(pen)})` : ''}` };
+  }
+  return { ok: false, error: 'Unknown option' };
 }
 
 /** Resolver of 'stranded' (v0.12.1): the legs the wait would drop go to a rival, to another aircraft, or are cancelled. */

@@ -31,7 +31,7 @@ import { ticketBlock } from './commercial';
 import { bumpReliable, contractOf, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, favourChip, levelOf, statsV08 } from '../contracts/relations';
 import { mghFor } from '../contracts/billing';
-import { cancelForceMajeure, closureCause, resolveAirspace, resolveStranded, resolveUninsurable, setFindSwap } from './world';
+import { cancelForceMajeure, closureCause, resolveAirspace, resolveFarStranded, resolveStranded, resolveUninsurable, setFindSwap } from './world';
 import { optionalFactor } from './director';
 import { resolveTourStop } from './tourStop';
 
@@ -70,6 +70,8 @@ const CAT: Record<string, MessageCat> = {
   clientFee: 'commercial', airspace: 'ops', uninsurable: 'ops',
   // v0.12.1
   stranded: 'ops',
+  // v0.14
+  farStranded: 'ops',
   // v0.11
   sickAway: 'crew', birdStrike: 'tech',
 };
@@ -1098,6 +1100,8 @@ const RESOLVERS: Record<string, Resolver> = {
   uninsurable: (g, d, opt) => resolveUninsurable(g, d, opt),
   // v0.12.1 an aircraft held by a closure that a later job needs (sub-charter, swap or cancel those legs).
   stranded: (g, d, opt) => resolveStranded(g, d, opt),
+  // v0.14 an aircraft at a far outstation that no crew can reach before its next job (sub-charter, swap or cancel).
+  farStranded: (g, d, opt) => resolveFarStranded(g, d, opt),
   // v0.12.1 a world tour's stop closed: another stop, or skip it (ops/tourStop.ts).
   tourStop: (g, d, opt) => resolveTourStop(g, d, opt),
   clientFee: (g, d, opt) => resolveClientFee(g, d, opt),

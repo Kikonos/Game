@@ -21,7 +21,8 @@ import { loadRest, loadRest074, rollRestFor } from '../crew/restPlan';
 import { dailyClientCabin } from './clientCabin';
 import { DAY } from '../core/time';
 import { dailyDryLeases, onLeaseBack, onLeaseFerryHome, onLeaseOut } from './dryLease';
-import { dailyWorld, healStranded, loadWorld, onWorldEnd } from './world';
+import { dailyWorld, farStrandedAsk, healStranded, loadWorld, onWorldEnd } from './world';
+import { setFarLateHook } from '../contracts/schedule';
 import { relinkPositioning } from '../contracts/schedule';
 import { retireTypes } from './retired';
 import { registerResolvers } from './events';
@@ -37,6 +38,8 @@ import { DAY as DAY_MIN } from '../core/time';
 registerResolvers(DISRUPT_RESOLVERS);
 // v0.12.1 a leg that needs an approval we won't hold by its departure.
 registerResolvers({ approvalLate: resolveApprovalLate }, 'company');
+// v0.14 a move home from a far outstation that lands after the work it was planned for: one card (ops/world.ts).
+setFarLateHook(farStrandedAsk);
 
 /** v0.11 load / init: the director and the operations record (older saves: a first audit at least 60 days off). */
 function loadOps(g: GameState): void {

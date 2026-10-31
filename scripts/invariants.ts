@@ -24,7 +24,9 @@
 // - money: no NaN / Infinity anywhere, statements chain (cash end → next cash start), cash moved only by the ledger
 //   (opts.spy: a cash setter that checks its caller);
 // - flights and loose ends: no leg overdue and still scheduled, no hold loop (pushed again and again), decisions and
-//   timed disruptions resolved, no references to missing flights, duties, pairings, crew or aircraft.
+//   timed disruptions resolved, no references to missing flights, duties, pairings, crew or aircraft;
+// - v0.14 re-plan loops (a warning): the same empty move of an aircraft planned anew, as a new leg, more than
+//   REPLAN_MAX times in 24 h.
 
 import { readFileSync } from 'node:fs';
 import { DAY, fmtDateTime } from '../src/engine/core/time';
@@ -33,6 +35,8 @@ import type { GameState, Minute, Role } from '../src/engine/core/types';
 import { offsetAt } from '../src/engine/crew/rules';
 
 const H = 60;
+/** v0.14 new copies of one empty move in 24 h above which it is a re-plan loop (a hop out and back is two). */
+export const REPLAN_MAX = 3;
 
 export interface Issue {
   /** Short code, e.g. 'rest', 'teleport'. */
@@ -134,6 +138,9 @@ export function createChecker(opts: CheckerOpts = {}) {
   const flights = new Map<string, FlightRec>();
   const crew = new Map<string, CrewHist>();
   const lastStd = new Map<string, { std: Minute; n: number; first: Minute }>();
+  /** v0.14 empty legs already seen, and per aircraft and route when each new one (a re-plan) was first seen, with its STD. */
+  const emptySeen = new Set<string>();
+  const replans = new Map<string, { t: Minute; std: Minute }[]>();
   const fdpSeen = new Set<string>();
   /** v0.12.1 passenger flights whose riders were checked; crew rides on them seen. */
   const ridesSeen = new Set<string>();
@@ -205,6 +212,20 @@ export function createChecker(opts: CheckerOpts = {}) {
         if (c.loc !== at) err('sby-where', g.now, `${h.name}: on ${run.kind ?? 'home'} standby at ${at} ${fmtDateTime(run.from)}–${fmtDateTime(run.to)} but is at ${c.loc}`, `sw|${c.id}|${run.from}`);
       }
       for (const k of ['restUntil', 'blockYear', 'morale', 'fatigue', 'salary', 'totalHours'] as const) if (!Number.isFinite(c[k])) err('nan', g.now, `${h.name}: ${k} = ${c[k]}`);
+    }
+    // ---- v0.14 re-plan loops: the same empty move planned anew (a new leg, same aircraft and route, about the same
+    // time) more than REPLAN_MAX times in 24 h (CS-TIF's MNL–DAC re-made every few hours for two weeks, a crew alarm
+    // each). The legs there at the first step are only noted: a save's plan is not a re-plan. ----
+    for (const f of Object.values(g.flights)) {
+      if ((f.kind !== 'positioning' && f.kind !== 'ferry') || !f.aircraftId || emptySeen.has(f.id)) continue;
+      emptySeen.add(f.id);
+      if (steps === 1) continue;
+      const k = `${f.aircraftId}|${f.from}-${f.to}`;
+      const ts = (replans.get(k) ?? []).filter((x) => x.t > g.now - DAY);
+      ts.push({ t: g.now, std: f.std });
+      replans.set(k, ts);
+      const same = ts.filter((x) => Math.abs(x.std - f.std) <= 2 * DAY);
+      if (same.length > REPLAN_MAX) warn('replan-loop', g.now, `${regOf.get(f.aircraftId) ?? f.aircraftId}: empty leg ${f.from}–${f.to} planned anew ${same.length} times in 24 h (now ${f.no}, STD ${fmtDateTime(f.std)})`, `rl|${k}|${Math.floor(g.now / DAY)}`);
     }
     // ---- flights ----
     const enrouteBy = new Map<string, string>();

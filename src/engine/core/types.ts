@@ -802,6 +802,8 @@ export interface Flight {
   /** B3: held at departure for crew (counted once in stats.uncovered); crew waits so far; when ops first held it. */
   crewHeld?: boolean;
   crewTries?: number;
+  /** v0.14 the first leg of a move home from a far outstation whose stranded card was asked (ops/world farStrandedAsk). */
+  strandAsked?: true;
   heldAt?: Minute;
   /** B3: lateness the player accepted with delayFlight (minutes); recovery's lateness cap counts on top of it. */
   lateOk?: number;
