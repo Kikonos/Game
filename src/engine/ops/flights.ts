@@ -999,7 +999,9 @@ function lateLeg(g: GameState, f: Flight, c: Contract): void {
   if (!vip && lateMin > 15 && lateMin <= 180) {
     if (!forgiveDelay(g, c.clientId)) return;
     f.excused = (f.excused ?? 0) + lateMin;
-    pushMessage(g, { tone: 'info', cat: 'commercial', cue: null, title: `${g.clients[c.clientId]?.name ?? 'The client'} let it go`, body: `${f.no} left ${fmtDuration(late)} late; they forgave it (${LEVEL_NAME[levelOf(g, g.clients[c.clientId])]} client): no harm done.`, ref: { kind: 'flight', id: f.id } });
+    // v0.12.1 (review) and it counts as on time on their job (completion and the month score), so the perk matters.
+    f.forgiven = true;
+    pushMessage(g, { tone: 'info', cat: 'commercial', cue: null, title: `${g.clients[c.clientId]?.name ?? 'The client'} let it go`, body: `${f.no} left ${fmtDuration(late)} late; they forgave it (${LEVEL_NAME[levelOf(g, g.clients[c.clientId])]} client): it counts as on time.`, ref: { kind: 'flight', id: f.id } });
     return;
   }
   if (!pen.relation) return;

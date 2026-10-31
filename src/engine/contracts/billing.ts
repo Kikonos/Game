@@ -51,7 +51,8 @@ export function onFlightArrivedContracts(g: GameState, ev: SimEvent): void {
   }
   if (rev) {
     // v0.12.1 against the original schedule (ops retimes keep schedStd; a client's move re-bases it).
-    const onTime = onTimeLeg(f);
+    // v0.12.1 (review) a delay the client forgave (Trusted / Partner, up to 3 h) counts as on time for them.
+    const onTime = onTimeLeg(f) || (!!f.forgiven && excusedLate(f) <= 15);
     c.legsFlown = (c.legsFlown ?? 0) + 1;
     if (onTime) c.legsOnTime = (c.legsOnTime ?? 0) + 1;
     g.stats.blockMin += block;

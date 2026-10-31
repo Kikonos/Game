@@ -346,6 +346,11 @@ describe('delays and ripple', () => {
     expect(small.pen).toBe(0);
     expect(small.a.excused).toBeGreaterThanOrEqual(115);
     expect(small.rel).toBeGreaterThanOrEqual(0);
+    // v0.12.1 (review) on a charter it counts as on time for the job (else the perk changed nothing there).
+    expect(small.a.forgiven).toBe(true);
+    expect(small.c.legsFlown).toBe(1);
+    expect(small.c.legsOnTime).toBe(1);
+    expect(big.c.legsOnTime ?? 0).toBe(0);
   });
 
   it('v0.12.1 the delay-penalty chime only where the contract charges (A8): not for a world wait or 90 min', () => {

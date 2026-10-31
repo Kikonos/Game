@@ -793,6 +793,8 @@ export interface Flight {
   lateOk?: number;
   /** v0.12.1 minutes of lateness that are not ours (world waits, a client CTOT): no penalty, cumulative. lateOk also holds our own waits. */
   excused?: number;
+  /** v0.12.1 (review) a Trusted / Partner client forgave this leg's delay (15 min to 3 h): it counts as on time for them. */
+  forgiven?: true;
   /** B2: the crew-shortage warning was given for this flight (once; saved so a reload does not repeat it). */
   crewWarned?: boolean;
   /** v0.7: why an empty ferry flies (labels, map, ticket purpose). */
