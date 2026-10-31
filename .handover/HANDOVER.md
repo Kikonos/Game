@@ -544,3 +544,7 @@ Far-base reserve DONE acmi c0ce12c. Root cause also hits NEAR bases (sized at si
 
 1 Nov: v0.13 "Around the world" RELEASED (player pre-authorised). acmi ac37528, release e27ee4e on claude/contrail-airline-game + main, asset index-Bi-aMIKq.js. 1702/1703 tests (roster perf timing flake under load, passes alone x3).
 Pending for player (ask now): balance questions (widebody margins 24-41% vs real 5-15%; crew sets/pay; old A332 rent floor ~160K; insurance ~2x real; widebody MGH 250→300 and 3-6 month leases; A320 C-check 1.2M→0.8M; widebody-ops 97% gate→95%; bot margins mostly slightly negative after near-base resizing → overall balance pass). Also: crew-sets UX 1–7, repo rename, Update 2 Commercial, S-DEPREC.
+
+1 Nov PLAYER decisions: (1) widebody PILOT pay up only (FAs same pay all types); (2) insurance realistic (research); (3) rent realistic (research); (4) widebody 3–6 mo leases 300 MGH ok; (5) A320 C-check lower ok; (6) 95% gate ok; (7) 5–10% net ok. Start Update 2 Commercial + crew-sets UX 1–4.
+New asks: offers only hours long with no pause → fix; urgent calls reply window 20+h → minutes, in the moment; call pop-up: aircraft picker + mini timeline portal, sleek; map icons to scale (wide vs narrow) + small reg label always, sleek.
+Running 4 agents in parallel worktrees (branches bal, calls, ui2, update2 from acmi ac37528). Saves moved to /home/user/work/saves (scratchpad deprecated). Release: ask player (not pre-authorised this time).
