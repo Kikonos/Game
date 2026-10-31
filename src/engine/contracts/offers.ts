@@ -33,7 +33,7 @@ import { paintTermsText, rollPaint, sideRng } from './paintTerms';
 import { cabinTarget, cabinTermsText, rollCabin } from './cabinTerms';
 import { anchorsOf, computeWaves, flownRotations, localToUTC, longestChains, maxPax, programmeOf, route, routeMinutes, seatNeed, type ChainShape } from './plan';
 export { maxPax, seatNeed };
-import { ARCH_MULT, defaultSeats, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
+import { ARCH_MULT, defaultSeats, flownTypes, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
 import { closedAirport, closedUntil, closurePlanned, inWarZone, permitEvent, setClosureOfferHook, warRiskLandings } from '../ops/world';
@@ -1155,7 +1155,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // v0.8 fix pack: seats = passengers on every legs job (whatever the builder rounded), stretchers the only extra.
   d.req.minSeats = seatNeed(p, d.req.stretchers, d.req.minSeats);
   const sectors: [string, string][] = p.kind === 'base' ? p.dests.flatMap((x) => [[p.base, x], [x, p.base]] as [string, string][]) : p.legs.map((l) => [l.from, l.to]);
-  const ref = referenceType(d.req, sectors, p.kind === 'base', d.req.approvals.includes('ulr'));
+  const ref = referenceType(d.req, sectors, p.kind === 'base', d.req.approvals.includes('ulr'), flownTypes(g));
   if (!ref) return null;
   const airports = [...new Set(sectors.flat())];
   // v0.12.1 job legs keep out of night curfews (moved to the nearest legal time where they can).

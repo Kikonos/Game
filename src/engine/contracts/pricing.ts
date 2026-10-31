@@ -216,16 +216,30 @@ export const isJumboType = (typeId: string): boolean => (ACMI_TYPES[typeId]?.cab
 /** v0.8 fix pack: a widebody job: the client asks for one, or no narrowbody cabin seats it. Pure. */
 export const isWideJob = (req: Pick<Requirements, 'minSeats' | 'body'>): boolean => (req.body ? req.body === 'wide' : req.minSeats > NB_MAX_SEATS);
 
-export function referenceType(req: RefReq, sectors: [string, string][], noStops = false, ulr = false): string | null {
+export function referenceType(req: RefReq, sectors: [string, string][], noStops = false, ulr = false, flown?: ReadonlySet<string>): string | null {
+  // v0.14 a jumbo load (only a jumbo seats it) prices on a jumbo type the market actually flies (ours, a rival's):
+  // nobody wet-leases out a 777-300ER here, so a 450-seat load was priced at its $8,000 and every 747-400 ($9,400,
+  // the only jumbo flown) lost money on it. No such type flown: the cheapest that fits, as before.
+  if (flown && req.minSeats >= JUMBO_SEATS) {
+    const hit = refPass(req, sectors, noStops, false, ulr, flown) ?? refPass(req, sectors, noStops, true, ulr, flown);
+    if (hit) return hit;
+  }
   return refPass(req, sectors, noStops, false, ulr) ?? refPass(req, sectors, noStops, true, ulr);
 }
 
-function refPass(req: RefReq, sectors: [string, string][], noStops: boolean, unloved: boolean, ulr: boolean): string | null {
+/** v0.14 the types the ACMI market flies today: our fleet's and the active rivals' (referenceType's `flown`). */
+export function flownTypes(g: GameState): Set<string> {
+  const out = new Set(Object.values(g.fleet).map((a) => a.typeId));
+  for (const r of g.rivals) if ((r.status ?? 'active') === 'active') for (const x of r.fleet) if (x.count > 0) out.add(x.typeId);
+  return out;
+}
+
+function refPass(req: RefReq, sectors: [string, string][], noStops: boolean, unloved: boolean, ulr: boolean, flown?: ReadonlySet<string>): string | null {
   let best: { id: string; rate: number } | null = null;
   // v0.7: accepted layouts (VIP presets when the work wants one) and premium seats.
   const layouts = req.layouts ?? (req.layout ? [req.layout] : null);
   for (const t of ACMI_TYPES_LIST) {
-    if (!t.available || (t.ulr && !ulr) || UNLOVED.has(t.id) !== unloved) continue;
+    if (!t.available || (t.ulr && !ulr) || UNLOVED.has(t.id) !== unloved || (flown && !flown.has(t.id))) continue;
     if (req.families?.length && !req.families.includes(t.family)) continue;
     // v0.8 fix pack: the body the client asks for (a widebody base, Hajj, Antarctica).
     if (req.body && req.body !== t.body) continue;

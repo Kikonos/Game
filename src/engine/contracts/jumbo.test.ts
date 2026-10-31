@@ -12,7 +12,8 @@ import { advanceTo } from '../sim';
 import { acceptOffer, feasibility, generateOffer } from '.';
 import { devHajj } from './missions';
 import { forceJumbo, fmtPrice } from './offers';
-import { isJumboType, isWideJob, referenceType } from './pricing';
+import { flownTypes, isJumboType, isWideJob, referenceType } from './pricing';
+import { newGame } from './testkit';
 
 /** Margin after the aircraft's own fixed costs over the job (rent, insurance, its overhead share). */
 const margin = (g: GameState, offerId: string, acId: string) => {
@@ -43,6 +44,45 @@ describe('§Y.2 jumbo loads', () => {
       expect(o.product.fuelAtCost).toBe(true);
       expect(fmtPrice(o.product)).toMatch(/plus fuel at cost$/);
     }
+  });
+
+  it('v0.14 a jumbo load prices on a jumbo the market flies: the 747-400 ($9,400), not a 777-300ER nobody wet-leases here', () => {
+    const g = fixtureGame(101);
+    const id = devJumbo(g);
+    const o = g.offers[id];
+    const sectors = o.pattern.kind === 'legs' ? o.pattern.legs.map((l) => [l.from, l.to] as [string, string]) : [];
+    expect(o.requirements.minSeats).toBeLessThanOrEqual(450);
+    // On paper the 777-300ER (450 all-economy, $8,000) seats it; no operator here flies one.
+    expect(referenceType(o.requirements, sectors)).toBe('b77w');
+    expect(flownTypes(g).has('b77w')).toBe(false);
+    expect(referenceType(o.requirements, sectors, false, false, flownTypes(g))).toBe('b744');
+    // A 747 of a rival is enough (Air Atlanta Icelandic's): a company without one still sees the 747 rate.
+    const plain = newGame(5);
+    expect(Object.values(plain.fleet).some((a) => a.typeId === 'b744')).toBe(false);
+    expect(flownTypes(plain).has('b744')).toBe(true);
+    // With a 777-300ER of ours in the market it is the cheapest jumbo flown again.
+    devAddType(g, 'b77w');
+    expect(referenceType(o.requirements, sectors, false, false, flownTypes(g))).toBe('b77w');
+    // Under jumbo loads nothing changes: the cheapest type that fits, flown or not.
+    for (const n of [180, 300, 400]) expect(referenceType({ minSeats: n }, sectors, false, false, flownTypes(g))).toBe(referenceType({ minSeats: n }, sectors));
+  });
+
+  it('v0.14 the same jumbo load costs the client more when no 777-300ER is flown (the 747-400 rate)', async () => {
+    const { deserialize, serialize } = await import('../save');
+    const g0 = fixtureGame(101);
+    const snap = serialize(g0);
+    const price = (with77w: boolean) => {
+      const g = deserialize(snap);
+      // A rival's 777-300ER in the market (no RNG drawn): the same offer, priced off that type instead.
+      if (with77w) g.rivals[0].fleet.push({ typeId: 'b77w', count: 1 });
+      const o = g.offers[devJumbo(g)];
+      return { o, v: o.product.kind === 'charter' ? o.product.price : o.product.kind === 'wet' ? o.product.ratePerBH : 0 };
+    };
+    const a = price(false);
+    const b = price(true);
+    expect(a.o.title).toBe(b.o.title);
+    expect(a.o.requirements.minSeats).toBe(b.o.requirements.minSeats);
+    expect(a.v / b.v).toBeGreaterThan(1.05);
   });
 
   it('a 747-400 on a jumbo Hajj makes at least +15 % after its fixed costs, far more than on a 300-seat A330 season base', () => {

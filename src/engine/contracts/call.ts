@@ -22,7 +22,7 @@ import { offerExtra } from '../crew/extraSeats';
 import { acceptOffer, declineOffer } from './accept';
 import { feasibilityAll, type FeasibilityReport } from './feasibility';
 import { bumpClient } from './relations';
-import { referenceType } from './pricing';
+import { flownTypes, referenceType } from './pricing';
 
 /** Margin per BH over the reference type's standard rate that makes an urgent offer a call. */
 export const CALL_MARGIN_X = 1.5;
@@ -54,7 +54,7 @@ const passes = (r: FeasibilityReport) => !r.checks.some((c) => c.level === 'no')
 
 /** How far the offer pays above the norm: our best aircraft's margin per BH over the reference type's rate (0 = none). */
 export function callScore(g: GameState, o: ContractOffer): number {
-  const ref = referenceType(o.requirements, sectorsOf(o), !!o.requirements.noTechStops, o.requirements.approvals.includes('ulr'));
+  const ref = referenceType(o.requirements, sectorsOf(o), !!o.requirements.noTechStops, o.requirements.approvals.includes('ulr'), flownTypes(g));
   const rate = ref ? ACMI_TYPES[ref]?.rateBH : undefined;
   if (!rate) return 0;
   const best = feasibilityAll(g, o.id, callOpts(o)).filter((r) => r.level !== 'no').sort((a, b) => b.estMargin - a.estMargin)[0];
