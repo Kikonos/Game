@@ -6,6 +6,7 @@ import { clearPause, takePause } from '../core/pause';
 import { dayStart, DAY } from '../core/time';
 import type { GameState } from '../core/types';
 import { demoFlights } from '../dev';
+import { stats } from '../ops/util';
 import { advanceTo } from '../sim';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { dailySickness } from './hr';
@@ -286,6 +287,9 @@ describe('shortage and sickness', () => {
     x.morale = 0;
     let sick;
     for (let i = 0; i < 2000 && !sick; i++) {
+      // v0.12.1 (D6 pacing) a full week's decision budget auto-applies the card: keep only x's cards and the budget empty.
+      stats(g).askedAt = [];
+      g.decisions = g.decisions.filter((d) => (d.data as { crewId?: string })?.crewId === x.id);
       dailySickness(g);
       // The sick call covers the coming days (from tomorrow, or after today's duty).
       if (x.blocks?.some((b) => b.why === 'sick')) sick = x;

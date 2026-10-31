@@ -1380,7 +1380,8 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
   const tries: Archetype[] = [];
   if (archetype) tries.push(archetype, archetype, archetype);
   else {
-    const ws = weights(g).filter(([a]) => !window || fitsWindow(a, window, g.now));
+    // v0.12.1 only archetypes with a weight: every weight 0 made weightedPick return nothing and the [0] throw.
+    const ws = weights(g).filter(([a, w]) => w > 0 && (!window || fitsWindow(a, window, g.now)));
     for (let i = 0; i < 3 && ws.length; i++) {
       const a = weightedPick(g, ws, ([, w]) => w)![0];
       tries.push(a);
@@ -1405,7 +1406,7 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     }
     // v0.8 fix pack: drafts dropped as impossible (or never flyable by a Newcomer) don't thin the market: two more picks.
     if (i === tries.length - 1 && tries.length === 3 && !archetype && fixDropped) {
-      const ws = weights(g);
+      const ws = weights(g).filter(([, w]) => w > 0);
       for (let k = 0; k < 2 && ws.length; k++) tries.push(weightedPick(g, ws, ([, w]) => w)![0]);
     }
   }

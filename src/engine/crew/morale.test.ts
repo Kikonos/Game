@@ -270,12 +270,19 @@ describe('service quality', () => {
     for (const no of ['X1', 'X2']) addFlight(g, { no, aircraftId: f.aircraftId, contractId: k.id, kind: 'revenue', from: f.from, to: f.to, std: f.std + DAY, sta: f.sta + DAY }).status = 'cancelled';
     onContractDoneMorale(g, k);
     expect(g.crew[extra[0]].morale).toBe(before);
+    // v0.12.1 the client's own cancellations (the completion rule, contracts/accept.ts) do not count against them.
+    for (const x of Object.values(g.flights)) if (x.no === 'X1' || x.no === 'X2') x.delayReason = 'Condor cancelled';
+    noteService(g, f);
+    onContractDoneMorale(g, k);
+    expect(g.crew[extra[0]].morale).toBeGreaterThan(before);
+    for (const x of Object.values(g.flights)) if (x.no === 'X1' || x.no === 'X2') x.delayReason = 'AOG: engineering team';
     // And with none flown, none.
     k.legsFlown = 0;
     k.legsOnTime = 0;
+    const before0 = g.crew[extra[0]].morale;
     noteService(g, f);
     onContractDoneMorale(g, k);
-    expect(g.crew[extra[0]].morale).toBe(before);
+    expect(g.crew[extra[0]].morale).toBe(before0);
   });
 
   it('v0.8: idle client satisfaction drifts 1 a month toward neutral (not in monthlyMorale); the loyalty input still scales the price', () => {

@@ -500,6 +500,23 @@ describe('v0.12.1 cash forecast: money on the day it moves', () => {
     skip(g, t + 1);
     expect(before - g.company.cash).toBe(bill.total + checks);
   });
+  it('v0.12.1 (C12) crew who joined mid-month are billed from the day they joined, as the month-end run pays them', () => {
+    const g = newGame(27);
+    const k = monthKey(g.now);
+    const a = monthStart(k), b = monthStart(k + 1);
+    const c = Object.values(g.crew).find((x) => x.status !== 'joining')!;
+    const full = monthEndBill(g, k).salaries;
+    c.payFrom = a + Math.round((b - a) / 2);
+    const half = monthEndBill(g, k).salaries;
+    expect(full - half).toBeCloseTo(c.salary * 0.5 * (1 + BAL.onCosts), -1);
+    expect(monthEndBill(g, k + 1).salaries).toBe(full);
+    skip(g, b - 1);
+    const before = g.company.cash;
+    const bill = monthEndBill(g, k);
+    skip(g, b + 1);
+    const checks = Object.values(g.maintenance).filter((m) => m.end > b - 1 && m.end <= b + 1).reduce((s, m) => s + m.cost, 0);
+    expect(before - g.company.cash).toBe(bill.total + checks);
+  });
   it('a head hired mid-month is paid from the day they joined', () => {
     const g = newGame(27);
     const k = monthKey(g.now);

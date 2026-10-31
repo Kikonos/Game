@@ -40,7 +40,7 @@ export {
   assignCrew, dutyCandidates, dutyCrew, dutyLegality, dutyOf, swapCrew, unassignCrew, unlockCrew,
   type DutyCandidate, type DutyCrewView, type DutyLegalityView, type DutyLegalityWarning, type RosterOpts, type RosterSlotView,
 } from './rosterActions';
-export { salaryBill } from './costs';
+export { paidShare, salaryBill } from './costs';
 export { crewRev, rideRoom, rideSeats, ridersText, ridesAllowed, revenueRide, ticketPrice } from './timeline';
 export { dropTargets, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from './board';
 export {

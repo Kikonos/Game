@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
 import { addFlight, removeFlights } from '../core/entities';
-import { DAY, monthKey } from '../core/time';
+import { DAY, fmtDayRel, monthKey } from '../core/time';
 import type { Aircraft, GameState } from '../core/types';
 import { leased, newGame, run } from '../contracts/testkit';
 import { resolveDecision } from './events';
@@ -39,6 +39,9 @@ describe('the lease notice', () => {
     const ds = g.decisions.filter((d) => d.kind === 'leaseEnd');
     expect(ds).toHaveLength(1);
     const d = ds[0];
+    // v0.12.1 (D13) the end date, 120 days out, names its year when it falls in another year.
+    expect(d.title).toBe(`Lease of ${ac.reg} ends ${fmtDayRel((ac.ownership as { leaseEnd: number }).leaseEnd, g.now)}`);
+    expect(fmtDayRel(g.now + 400 * DAY, g.now)).toMatch(/\d{4}$/);
     expect(d.defaultOption).toBe('extend12');
     expect(d.options.map((o) => o.id)).toEqual(['extend12', 'extend36', 'return']);
     expect(d.expires).toBe(g.now + 14 * DAY);

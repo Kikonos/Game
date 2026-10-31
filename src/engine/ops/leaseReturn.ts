@@ -12,7 +12,7 @@ import { pushDecision, pushMessage } from '../core/messages';
 import { cardMeta, leaseReturnCard } from '../problems';
 import { etopsCap, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
-import { DAY, fmtDate, fmtDay, fmtDayRange } from '../core/time';
+import { DAY, fmtDate, fmtDay, fmtDayRange, fmtDayRel } from '../core/time';
 import type { ActionResult, Aircraft, GameState, MaintenanceEvent, Minute } from '../core/types';
 import { route, routeSpan, timeChain } from '../contracts/plan';
 import { layoutName, reinstateCost } from './cabin';
@@ -302,7 +302,7 @@ export function dailyLeases(g: GameState): void {
     const v = leaseView(g, ac.id)!;
     const [e12, e36, ret] = v.options;
     pushDecision(g, {
-      kind: 'leaseEnd', title: `Lease of ${ac.reg} ends ${fmtDay(own.leaseEnd)}`,
+      kind: 'leaseEnd', title: `Lease of ${ac.reg} ends ${fmtDayRel(own.leaseEnd, g.now)}`,
       body: `${v.lessor} offers 12 months at ${usd(e12.rent!)} (${pct(e12.rent!, own.rentPerMonth)}) or 36 months at ${usd(e36.rent!)} (${pct(e36.rent!, own.rentPerMonth)}). Returning costs about ${usd(ret.cost!)} at ${siteCity(v.returnSite)} (check, half-life, cabin, paint) and frees ${usd(own.deposit ?? 0)} deposit.`,
       options: v.options.map((o) => ({ id: o.id, label: o.label, desc: o.id === 'return' ? `Ferry to ${siteCity(v.returnSite)} and a ${BAL.leaseReturn.checkDays[wideOf(ac)]}-day return check ending ${fmtDay(own.leaseEnd)}.` : `Keep ${ac.reg} flying; the next notice comes 120 days before the new end.`, chips: o.chips, tone: o.id === 'return' ? 'warn' as const : 'good' as const })),
       defaultOption: 'extend12', expires: g.now + L.decisionDays * DAY, ref: { kind: 'aircraft', id: ac.id }, data: { aircraftId: ac.id },

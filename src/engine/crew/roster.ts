@@ -428,6 +428,42 @@ export function forgetGoneTickets(g: GameState): void {
   if (n) touchCrew(g);
 }
 
+/**
+ * v0.12.1 (EV-S01, D18) a closure has started or grown: airline tickets still to fly into or out of the shut airport
+ * (`shut`: closed at the ticket's departure or landing) are dropped and the trips re-planned on seats that exist (the
+ * ticket check reads closures), else re-checked so the roster re-crews them or Crew Control raises them. A ticket
+ * home with no trip behind it is bought again. Called by world.ts through crew control's hook.
+ */
+export function closureTickets(g: GameState, shut: (code: string, t: Minute) => boolean): number {
+  const ix = crewIx(g);
+  const hit = deadheadFlights(g).filter((f) => f.status === 'scheduled' && f.std > g.now && f.crewIds.length && (shut(f.from, f.std) || shut(f.to, f.sta)));
+  if (!hit.length) return 0;
+  const trips = new Map<string, Pairing | undefined>();
+  for (const f of hit) {
+    const d = g.duties[ix.ticketDuty.get(f.id) ?? ''];
+    const q = d && !d.done ? g.pairings[d.pairingId] : undefined;
+    for (const id of f.crewIds) if (!trips.has(id) || q) trips.set(id, q);
+  }
+  for (const f of hit) {
+    const d = g.duties[ix.ticketDuty.get(f.id) ?? ''];
+    for (const id of [...f.crewIds]) if (g.flights[f.id]) unboard(g, f, id);
+    if (d) d.deadheadIds = d.deadheadIds.filter((x) => x !== f.id);
+  }
+  touchTickets(g);
+  touchCrew(g);
+  const stuck: string[] = [];
+  let p: Pairing | undefined;
+  for (const [id, q] of trips) {
+    const c = g.crew[id];
+    if (!c) continue;
+    if (q && (q.status === 'planned' || q.status === 'active')) {
+      if (!retick(g, q, c)) stuck.push(id), (p = q);
+    } else sendHome(g, c);
+  }
+  if (stuck.length) recheckNext(g, stuck, p);
+  return hit.length;
+}
+
 /** v0.12.1 settle (after any flight change): rides lost (leg cancelled or gone) or over the seats free are re-planned. */
 export function settleRides(g: GameState): void {
   for (const [fid, ids] of takeLostRides(g)) {

@@ -7,7 +7,7 @@ import { useEffect } from 'react';
 import { ACMI_TYPES, artFor } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { acceptOffer, counterLift, declineOffer, fmtPrice, setPrice } from '../../engine/contracts';
-import { fmtDay, fmtTime } from '../../engine/core/time';
+import { fmtDay, fmtDayRel, fmtTime } from '../../engine/core/time';
 import type { ContractOffer, Flight, GameState, Product } from '../../engine/core/types';
 import { liveryOf } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
@@ -124,7 +124,7 @@ export function DeliveredModal({ aircraftId }: { aircraftId: string }) {
           <b className="mono v91-dl-reg">{ac.reg}</b>
           <span className="v91-dl-type">{t?.name ?? ac.typeId} · {ac.cabin.label}</span>
         </div>
-        <div className="small muted v91-dl-from">Handed over at {from}{dl ? ` on ${fmtDay(dl.handover)}` : ''} · {how}</div>
+        <div className="small muted v91-dl-from">Handed over at {from}{dl ? ` on ${fmtDayRel(dl.handover, g.now)}` : ''} · {how}</div>
         {ferry.length > 0 && (
           <div className="small v91-dl-ferry">Ferry home: {city(ferry[0].from)} → {city(ferry[ferry.length - 1].to)}, leaving {fmtDay(ferry[0].std)} {fmtTime(ferry[0].std, ferry[0].from)} local{ferry.length > 1 ? ` (${ferry.length} legs)` : ''}.</div>
         )}

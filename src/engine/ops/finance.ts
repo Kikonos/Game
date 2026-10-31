@@ -10,7 +10,7 @@ import { requestPause } from '../core/pause';
 import { typeOf } from '../core/perf';
 import { DAY, daysInMonth, fmtDay, fmtMonth, monthKey, monthStart } from '../core/time';
 import type { GameState, Minute, MonthKey, MonthStatement, SimEvent } from '../core/types';
-import { joinsAt, salaryBill } from '../crew';
+import { joinsAt, paidShare } from '../crew';
 import { brokerCut } from '../contracts/accept';
 import { mghFor, wetMonthLines } from '../contracts/billing';
 import { warRiskCost } from '../contracts/missionChecks';
@@ -237,13 +237,18 @@ export interface MonthEndBill { rent: number; insurance: number; overhead: numbe
 export function monthEndBill(g: GameState, k: MonthKey): MonthEndBill {
   const fc = fixedCosts(g, k);
   const end = monthStart(k + 1);
-  let joining = 0;
+  // v0.12.1 (C12) pro rata as the month-end run pays: from the day each joined (payFrom), a joiner from the day they
+  // join, so the forecast and the cash card show the bill that really comes.
+  const a = monthStart(k);
+  let pay = 0;
   for (const c of Object.values(g.crew)) {
-    if (c.status !== 'joining') continue;
-    const at = joinsAt(g, c);
-    if (at !== null && at < end) joining += c.salary;
+    if (c.status !== 'joining') pay += c.salary * paidShare(c, a, end);
+    else {
+      const at = joinsAt(g, c);
+      if (at !== null && at < end) pay += c.salary * paidShare({ ...c, payFrom: at }, a, end);
+    }
   }
-  const salaries = salaryBill(g) + Math.round(joining * (1 + BAL.onCosts));
+  const salaries = Math.round(pay * (1 + BAL.onCosts));
   const heads = headsBill(g, k);
   return { ...fc, salaries, heads, total: fc.rent + fc.insurance + fc.overhead + salaries + heads };
 }

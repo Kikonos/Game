@@ -14,7 +14,7 @@ import { aboveMinimum } from './duties';
 import { crewName } from './generate';
 import { crewIx, touchCrew } from './timeline';
 import { payLeaver } from './costs';
-import { isOurDelay } from '../ops/latePolicy';
+import { notOursCancel } from '../ops/latePolicy';
 
 export interface MoraleDriverView {
   key: MoraleDriver;
@@ -181,9 +181,10 @@ export function onContractDoneMorale(g: GameState, k: Contract): void {
   const mean = settleService(g, k);
   const flown = k.legsFlown ?? 0;
   // v0.12.1 legs we cancelled count against the score (a job with legs cut was recognised as flown on time; nothing
-  // with none flown). Cancellations that were not ours (the client, the world) do not.
+  // with none flown). Cancellations that were not ours (the client, the world) do not: the completion rule's test
+  // (contracts/accept.ts), so a client's own cancellation never costs the crews their thanks.
   let ours = 0;
-  for (const f of Object.values(g.flights)) if (f.contractId === k.id && f.status === 'cancelled' && (f.kind === 'revenue' || f.kind === 'techstop') && isOurDelay(f)) ours++;
+  for (const f of Object.values(g.flights)) if (f.contractId === k.id && f.status === 'cancelled' && (f.kind === 'revenue' || f.kind === 'techstop') && !notOursCancel(f.delayReason)) ours++;
   const onTime = flown ? (k.legsOnTime ?? 0) / (flown + ours) : 0;
   if (mean === null || mean < 0 || onTime < 0.85) return;
   const who = new Set<string>();

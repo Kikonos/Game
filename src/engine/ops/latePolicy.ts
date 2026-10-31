@@ -18,6 +18,9 @@ export const NOT_OURS = /^(ATC|Weather|Late passengers|Airport congestion|Client
 /** v0.12.1 the leg's delay reason is one we answer for. */
 export const isOurDelay = (f: Flight): boolean => !NOT_OURS.test(f.delayReason ?? '');
 
+/** v0.12.1 a leg cancelled by the client or by force majeure (a closure, a court, no war-risk cover), not by us. */
+export const notOursCancel = (why = ''): boolean => /^(Cancelled: |Closed: |Court injunction|No war-risk cover)|cancelled$/.test(why);
+
 /** v0.12.1 lateness left once the minutes that are not ours (f.excused: world waits, a client CTOT) are taken off. */
 export const excusedLate = (f: Flight): number => Math.max(0, delayOf(f) - (f.excused ?? 0));
 

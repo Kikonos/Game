@@ -21,20 +21,22 @@ import { cancelCost, cancelLegs, clearRestMarks, delayChain, liveOver, unitOf, w
 import { latePenalty } from '../ops/latePolicy';
 import { rotationOf, subcharter, subcharterQuote } from '../ops/subcharter';
 import { contractOf, isRevenue, stats, usd } from '../ops/util';
-import { closedAirport } from '../ops/world';
+import { closedAirport, setClosureTicketHook } from '../ops/world';
 import { hurtProse, mkHurt, type GaugeSpec, type ProblemCard, type ReachSpec, hm, limitTone } from '../problems/types';
 import { crewIssuesFor, openDuties, planCrew, readyAt } from './check';
 import { crewWindows } from './ftl';
 import { crewName } from './generate';
 import { moraleShock } from './morale';
 import { city, rootReason, type Reason, type ReasonCode } from './reasons';
-import { applyDiscretion, autoRoster, discretionCheck, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
+import { applyDiscretion, autoRoster, closureTickets, discretionCheck, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
 import { assignCrew, dutyCandidates, freshReport, type DutyCandidate } from './rosterActions';
 import { levelOf, LIMITS, minRest, offsetAt } from './rules';
 import { cabinEarly, crewCount, crewIx, crewRev, dhBlock, fdpLimitAt, locAt, OUT_CONNECT, posSeg, segsOf, setClosedCheck, touchCrew, typeIdOf, type TicketPlan } from './timeline';
 
 // v0.12.1 crew tickets never fly into or out of an airport a world event has closed.
 setClosedCheck((g, code, t) => !!closedAirport(g, code, t));
+// v0.12.1 (D18) a closure drops the crew tickets through the shut airport and re-plans their trips.
+setClosureTicketHook((g, e) => void closureTickets(g, (code, t) => closedAirport(g, code, t)?.id === e.id));
 import { callFromStandby, calledNow, reserveContact } from './standby';
 import { SBY_LABEL } from './calendar';
 import { dayLabel, offDaysHit, takesPublishedOff, v09Stats } from './dayPlan';

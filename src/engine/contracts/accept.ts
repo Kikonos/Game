@@ -26,6 +26,7 @@ import { bumpClient, noteJobDone, statsV08 } from './relations';
 import { noteHiredUs } from './rivals';
 import { rollRepeat } from './missions';
 import { cancelDry, recallDry, recallTerms, signDryLease } from '../ops/dryLease';
+import { notOursCancel } from '../ops/latePolicy';
 
 // ---------- offers ----------
 
@@ -537,8 +538,6 @@ export function onContractEnd(g: GameState, ev: SimEvent): void {
   completeContract(g, c);
 }
 
-/** v0.12.1 a leg cancelled by the client or by force majeure (a closure, a court, no war-risk cover), not by us. */
-const notOursCancel = (why = ''): boolean => /^(Cancelled: |Closed: |Court injunction|No war-risk cover)|cancelled$/.test(why);
 
 function completeContract(g: GameState, c: Contract): void {
   c.status = 'completed';

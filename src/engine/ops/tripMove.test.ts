@@ -10,6 +10,8 @@ import { crewIssuesFor, flightCrewStatus } from '../crew';
 import { addCrew } from '../crew/fixtures';
 import { deserialize, serialize } from '../save';
 import { advanceTo, settle } from '../sim';
+import { TPL_BY_ID } from '../../data/worldEvents';
+import { startEvent } from './world';
 import { MONEY_LINES, moneyTotal, moveTrip, quoteTripMove, tripOf, tripTargets } from './tripMove';
 
 const state = (g: GameState) => JSON.stringify((JSON.parse(serialize(g)) as { state: unknown }).state);
@@ -123,6 +125,14 @@ describe('quoteTripMove', () => {
     const crew = q.notes.find((n) => n.startsWith('Crew: '))!;
     expect(crew).not.toMatch(/come off|go on|\b0\b/);
     expect(crew).toBe(`Crew: ${q.crewOff.length || 'none'} off, ${q.crewOn.length || 'none'} on.`);
+  });
+
+  it('v0.12.1 (B5) refuses a ferry out of an airport a world event has closed, in plain words', () => {
+    const { g, a, rev } = dubBase();
+    startEvent(g, { ...TPL_BY_ID.airspaceIraq, id: 'lisShut', kind: 'strike', at: 'LIS', country: 'PT', zoneId: undefined, closeP: 0, airportDays: [9, 9], days: [9, 9], title: 'Strike closes Lisbon', body: '' });
+    const q = quoteTripMove(g, rev.id, a.id);
+    expect(q.ok).toBe(false);
+    expect(q.reasons.join(' ')).toMatch(/LIS–DUB empty: Lisbon is closed \(Strike closes Lisbon\)/);
   });
 
   it('refuses an overlap with the target’s own flying, in plain words', () => {
