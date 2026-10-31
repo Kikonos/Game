@@ -1009,15 +1009,16 @@ export function dailyDryLease(g: GameState): ContractOffer | null {
 
 // ---------- world-event work (§5.3) ----------
 
-/** One offer a world event creates (evacuation, repatriation, relief, medical, ACMI cover), tagged with the event. */
+/** One offer a world event creates (evacuation, repatriation, relief, medical, ACMI cover), tagged with the event.
+ *  v0.14 paced: no short-notice one in a quiet spell (contracts/offers.ts finalize). */
 export function eventOffer(g: GameState, kind: 'evacuation' | 'repatriation' | 'humanitarian' | 'medical' | 'aogCover' | 'acmi', at: string, eventId: string, opts: { staging?: string; client?: string; sar?: boolean } = {}): ContractOffer | null {
   const wide = chance(g, anyWide(g) ? 0.5 : 0.1);
   let o: ContractOffer | null = null;
   if (kind === 'evacuation') o = generateOffer(g, 'evacuation', { airport: at, staging: opts.staging, eventId, wide, window: false });
-  else if (kind === 'repatriation') o = generateOffer(g, 'repatriation', { airport: at, wide, window: false });
+  else if (kind === 'repatriation') o = generateOffer(g, 'repatriation', { airport: at, wide, window: false, paced: true });
   else if (kind === 'humanitarian') o = generateOffer(g, 'humanitarian', { airport: at, eventId, wide, window: false, variant: opts.sar ? 'group' : undefined });
   else if (kind === 'medical') o = generateOffer(g, 'medical', { airport: at, eventId, wide, window: false });
-  else if (kind === 'aogCover') o = generateOffer(g, 'aogCover', { client: opts.client, wide: false, window: false, start: g.now + int(g, 8, 36) * 60 });
+  else if (kind === 'aogCover') o = generateOffer(g, 'aogCover', { client: opts.client, wide: false, window: false, start: g.now + int(g, 8, 36) * 60, paced: true });
   else o = generateOffer(g, 'seasonBase', { client: opts.client, wide: false, window: false, days: int(g, 30, 45), start: g.now + int(g, 4, 10) * DAY });
   if (o) o.eventId = eventId;
   return o;

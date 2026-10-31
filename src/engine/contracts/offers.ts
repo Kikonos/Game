@@ -24,7 +24,7 @@ import type {
   AcRest, ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent, WorldEvent,
 } from '../core/types';
 import { acceptOffer, closeOffer, setPrice } from './accept';
-import { isCallOffer } from './call';
+import { callReplyMin, isCallOffer, missedCall, REPLY_MIN } from './call';
 import { answerBy, counterBase, counterOdds, halfwayPrice, leftOf } from './counter';
 import { crewChains, feasibility, ulrNeed, type UlrNeed } from './feasibility';
 import { adhocGroupClients, clientPrefix, clientsOf, isBigClub, isCruiseLine, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, ministry, rivalFor } from './clients';
@@ -69,6 +69,9 @@ export function scheduleNextOffer(g: GameState): void {
   schedule(g, Math.max(g.now + 30, afterOfferDays(g, g.now, gapDays)), 'offer.spawn');
 }
 
+/** v0.14 the opening offers are being posted: written offers, never a call (the player is finding the desk). */
+let opening = false;
+
 /** The three hand-shaped opening offers (DESIGN §5.1.1): AOG cover < 24 h, ad hoc in 3–5 days, an April season base. */
 export function openingOffers(g: GameState): void {
   // Each opener must be flyable by the starting fleet (one that isn't is re-drawn, up to 4 times).
@@ -79,11 +82,16 @@ export function openingOffers(g: GameState): void {
       delete g.offers[o.id];
     }
   };
-  opener(() => generateOffer(g, 'aogCover', { wide: false, window: false, start: g.now + int(g, 8, 20) * 60 }));
-  opener(() => generateOffer(g, 'adhoc', { wide: false, window: false, start: g.now + int(g, 3, 5) * DAY + int(g, 0, 12) * 60, variant: 'group' }));
-  const y = toDate(g.now).getUTCFullYear();
-  const april = fromUTC(y, 4, int(g, 1, 12));
-  opener(() => generateOffer(g, 'seasonBase', { wide: false, window: false, start: april > g.now + 14 * DAY ? april : g.now + 30 * DAY }));
+  opening = true;
+  try {
+    opener(() => generateOffer(g, 'aogCover', { wide: false, window: false, start: g.now + int(g, 8, 20) * 60 }));
+    opener(() => generateOffer(g, 'adhoc', { wide: false, window: false, start: g.now + int(g, 3, 5) * DAY + int(g, 0, 12) * 60, variant: 'group' }));
+    const y = toDate(g.now).getUTCFullYear();
+    const april = fromUTC(y, 4, int(g, 1, 12));
+    opener(() => generateOffer(g, 'seasonBase', { wide: false, window: false, start: april > g.now + 14 * DAY ? april : g.now + 30 * DAY }));
+  } finally {
+    opening = false;
+  }
 }
 
 // ---------- idle windows (gap-fit offers) ----------
@@ -120,6 +128,8 @@ export function idleWindows(g: GameState, minDays = 2, horizonDays = 150): IdleW
 // ---------- drafting ----------
 
 export interface OfferOpts {
+  /** v0.14 a job of the market's own rolls (the daily repatriation): the pacing director may hold it back like a drawn one. */
+  paced?: boolean;
   /** Widebody (aspirational) or narrowbody job; default from the mix. */
   wide?: boolean;
   /** Fit to this idle window, or to none (false); default from the mix. */
@@ -1065,6 +1075,8 @@ function fitsWindow(a: Archetype, w: IdleWindow, now: Minute): boolean {
 
 /** v0.8 fix pack: finalize dropped a draft no crew may fly, or one a Newcomer can never fly (generateOffer picks again). */
 let fixDropped = false;
+/** v0.14 the draft comes from the market's own draw (no archetype asked for): the pacing director may hold it back. */
+let drawn = false;
 
 /** Archetypes whose full widebody loads can be jumbo loads (§Y.2). */
 const JUMBO_ARCH = new Set<Archetype>(['hajj', 'troopRotation', 'unRotation', 'evacuation', 'repatriation', 'sports', 'adhoc']);
@@ -1255,7 +1267,16 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // v0.8 first refusal (Trusted / Partner clients): the offer lasts 48 h longer (never past the job).
   const firstRefusal = perks(g, d.client).first && d.archetype !== 'subcharterIn' && d.archetype !== 'dryLeaseOut';
   const ask = d.expiresIn + (firstRefusal ? BAL.v08.firstRefusalH * 60 : 0);
-  const expiresIn = Math.max(urgency === 'urgent' ? 60 : Math.min(2 * DAY, maxExp), Math.min(ask, maxExp));
+  // v0.14 the client wants its answer within hours (an AOG cover, a repatriation, a job starting soon): a call when
+  // we can fly it. Any other offer gets REPLY_MIN at least when the job allows (it no longer lapses within hours).
+  const shortAsk = urgency === 'urgent' && Math.min(ask, maxExp) < REPLY_MIN;
+  // v0.14 pacing: a quiet spell sends no short-notice job from the market's draw or a world event (it would ring, or
+  // lapse within hours); another is drawn instead. A job asked for by name (the opening offers, scenarios, dev) comes.
+  if (shortAsk && drawn && isQuiet(g)) {
+    fixDropped = true;
+    return null;
+  }
+  const expiresIn = Math.max(urgency === 'urgent' ? Math.max(60, Math.min(REPLY_MIN, maxExp)) : Math.min(2 * DAY, maxExp), Math.min(ask, maxExp));
   const wide = typeOf(ref).body === 'wide';
   const firstAway = p.kind === 'base' ? p.base : p.legs.flatMap((l) => [l.from, l.to]).find((c) => c !== home) ?? p.legs[0].to;
   const o: ContractOffer = {
@@ -1342,16 +1363,23 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     cl.lastTitle = o.title;
   }
   g.offers[o.id] = o;
+  // Urgent work we could actually fly stops the clock (setting) and gets an inbox line; the rest just pins the map.
+  const flyable = urgency === 'urgent' && Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no');
+  // v0.10.2 urgent and high-paying: the client phones (the call pop-up and its ring are the note; the Inbox keeps it).
+  // v0.14 short notice phones too, and a caller waits 30–90 min for the answer, not the written offer's hours.
+  // In a quiet spell only short notice rings (a job asked for by name); high pay alone waits as a written offer.
+  // The opening offers (posted the minute the company opens) are written, never a call: the player is finding the desk.
+  const call = flyable && !opening && (isQuiet(g) ? shortAsk : isCallOffer(g, o, shortAsk));
+  if (call) {
+    o.call = true;
+    o.expires = g.now + callReplyMin(o.id, lead);
+  }
   schedule(g, o.expires, 'offer.expire', o.id);
   // v0.8 a rival may be quoting for the same job (a hidden, timed bid).
   rollRivalBid(g, o);
 
-  // Urgent work we could actually fly stops the clock (setting) and gets an inbox line; the rest just pins the map.
-  if (urgency === 'urgent' && Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) {
+  if (flyable) {
     requestPause('urgentOffer');
-    // v0.10.2 urgent and high-paying: the client phones (the call pop-up and its ring are the note; the Inbox keeps it)
-    const call = isCallOffer(g, o);
-    if (call) o.call = true;
     pushMessage(g, {
       tone: 'warn', cat: 'commercial', title: call ? `Phone call: ${o.title}` : `Urgent: ${o.title}`, body: `${d.client.name} needs an answer by ${fmtDay(o.expires)} ${fmtTime(o.expires)} UTC.`,
       ref: { kind: 'offer', id: o.id }, ...cardMeta(offerFitCard(g, o.id)), hurt: { money: o.estValue, pax: 0, delayMin: 0, level: 'high' }, cue: call ? 'offerCall' : offerCue(o),
@@ -1393,6 +1421,7 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     }
   }
   fixDropped = false;
+  drawn = !archetype || !!opts.paced || !!opts.eventId;
   for (let i = 0; i < tries.length; i++) {
     const build = builderOf(tries[i]);
     if (!build) continue;
@@ -1435,7 +1464,15 @@ function rivalName(g: GameState, o: ContractOffer): string {
 const lapseHour = new WeakMap<GameState, number>();
 const lapsed = new WeakMap<GameState, Set<string>>();
 
-/** §S.3 `offerLapsing`: once per offer the player opened, when it has under 6 h left. Checked hourly from settle. */
+/** v0.14 an offer gets its one 'lapsing soon' note when it has less than this left (minutes). */
+export const LAPSE_WARN = 3 * 60;
+
+/**
+ * §S.3 `offerLapsing`: once per offer, when it has under LAPSE_WARN left. Checked hourly from settle.
+ * v0.14 (player: "contracts only available for a few hours, and the game doesn't do anything") not only the offers the
+ * player opened: any open one the fleet could fly (it no longer vanishes unseen), as an Inbox line with its chime
+ * (every chime has its note). Not a call: its pop-up is the note. A reload notes none it found lapsing.
+ */
 export function lapseCues(g: GameState): void {
   const h = Math.floor(g.now / 60);
   if (lapseHour.get(g) === h) return;
@@ -1444,9 +1481,16 @@ export function lapseCues(g: GameState): void {
   const s = lapsed.get(g) ?? new Set<string>();
   lapsed.set(g, s);
   for (const o of Object.values(g.offers)) {
-    if (!o.seen || (o.status !== 'open' && o.status !== 'countered') || o.expires <= g.now || o.expires - g.now >= 6 * 60 || s.has(o.id)) continue;
+    if (o.status !== 'open' || o.call || o.expires <= g.now || o.expires - g.now >= LAPSE_WARN || s.has(o.id)) continue;
     s.add(o.id);
-    if (!first) cue('offerLapsing', { title: `Offer lapsing soon: ${o.title}`, body: `It closes at ${fmtTime(o.expires)} UTC.`, tone: 'warn', ref: { kind: 'offer', id: o.id } });
+    if (first) continue;
+    if (!o.seen && !Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) continue;
+    const left = o.expires - g.now;
+    pushMessage(g, {
+      tone: 'warn', cat: 'commercial', title: `Offer lapsing soon: ${o.title}`,
+      body: `${g.clients[o.clientId]?.name ?? 'The client'} needs an answer within ${left >= 60 ? `${Math.floor(left / 60)} h ${String(left % 60).padStart(2, '0')} min` : `${left} min`} (by ${fmtTime(o.expires)} UTC).`,
+      ref: { kind: 'offer', id: o.id }, cue: 'offerLapsing',
+    });
   }
 }
 
@@ -1457,11 +1501,20 @@ export function onOfferExpire(g: GameState, ev: SimEvent): void {
   // v0.8 a rival bid due at or after expiry takes it now; first refusal: only 30 % go to a rival.
   const b = o.rivalBid;
   const bidder = b && !o.firstRefusal ? g.rivals.find((r) => r.id === b.rivalId && (r.status ?? 'active') === 'active') : undefined;
-  if (bidder && b) return rivalTakes(g, o, bidder, b.why);
-  const lost = chance(g, o.firstRefusal ? BAL.v08.firstRefusalLost : 0.7);
+  if (bidder && b) {
+    // v0.14 a call nobody answered is remembered whoever takes it.
+    if (o.call) missedCall(g, o);
+    return rivalTakes(g, o, bidder, b.why);
+  }
+  // v0.14 an unanswered call: the client found someone else, and remembers (a small relation note).
+  const lost = chance(g, o.firstRefusal ? BAL.v08.firstRefusalLost : 0.7) || !!o.call;
   closeOffer(g, o, lost ? 'lost' : 'expired', lost ? rivalName(g, o) : undefined);
   // The missed list always says why: here we simply let the offer lapse.
-  if (lost) o.lostWhy = 'took it when our offer lapsed without an answer';
+  if (lost) o.lostWhy = o.call ? 'took it when nobody answered their call' : 'took it when our offer lapsed without an answer';
+  if (o.call) {
+    missedCall(g, o);
+    pushMessage(g, { tone: 'info', cat: 'commercial', title: `${g.clients[o.clientId]?.name ?? 'The client'} went elsewhere: ${o.title}`, body: `Nobody answered their call in time. ${o.lostTo} is flying it.`, ref: { kind: 'offer', id: o.id }, cue: null });
+  }
 }
 
 /**
@@ -1618,7 +1671,10 @@ export function chainAugment(g: GameState, typeId: string, chains: ChainShape[])
 
 
 /** v0.9 dev helpers: a draft finalised into an open offer (no market filters beyond the programme's own). */
-export const finalizeDraft = (g: GameState, d: Draft): ContractOffer | null => finalize(g, d, true);
+export const finalizeDraft = (g: GameState, d: Draft): ContractOffer | null => {
+  drawn = false;
+  return finalize(g, d, true);
+};
 
 /**
  * v0.12.1 a closure has just started or been extended (ops/world.ts, the hook below): open offers into the airports it

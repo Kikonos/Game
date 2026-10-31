@@ -137,3 +137,13 @@ export function offerGhosts(o: Pick<ContractOffer, 'pattern' | 'requirements'>, 
   for (const [k, p] of pos.entries()) out.push({ key: `p${k}`, start: p.std, end: p.sta, kind: 'pos', label: `Empty ${p.from}–${p.to}` });
   return out.sort((a, b) => a.start - b.start);
 }
+
+/**
+ * v0.14 the phone call's one strip: the job and half a day either side, whole days (the day labels stay on midnight),
+ * from today at the earliest, two days at least and a week at most (a long base shows its first week). Pure.
+ */
+export function callSpan(o: Pick<ContractOffer, 'start' | 'end'>, now: Minute): [Minute, Minute] {
+  const from = Math.max(Math.floor(now / DAY) * DAY, Math.floor((o.start - DAY / 2) / DAY) * DAY);
+  const to = Math.min(Math.ceil((o.end + DAY / 2) / DAY) * DAY, from + 7 * DAY);
+  return [from, Math.max(to, from + 2 * DAY)];
+}

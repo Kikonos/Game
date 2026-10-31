@@ -5,6 +5,12 @@
 // top third of the offers we can fly and 5–7 calls a year on a two-aircraft start (urgent work we can fly is the limit).
 // Answering runs the offer dialog's own path: the first aircraft that passes every check, the dialog's default
 // options, acceptOffer; a blocked call says why and accepts nothing. Declining is declineOffer. No UI here.
+//
+// v0.14 (player: "the urgent ones still have 20 plus hours to reply; it should be much less and in the moment") a call
+// wants its answer within CALL_REPLY (30–90 min of game time, never past the job), and a short-notice job (the client
+// asks for an answer in under REPLY_MIN: an AOG cover, a repatriation, or a job that starts within hours) phones in too
+// when the fleet can fly it, whatever it pays. Unanswered, the client goes elsewhere and remembers it (CALL_MISSED_REL).
+// The player picks the aircraft on the call (callFit's one-word hints); Accept takes the pick when it passes.
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { ACMI_TYPES } from '../../data/acmiTypes';
@@ -15,10 +21,26 @@ import { hashUnit } from '../core/util';
 import { offerExtra } from '../crew/extraSeats';
 import { acceptOffer, declineOffer } from './accept';
 import { feasibilityAll, type FeasibilityReport } from './feasibility';
+import { bumpClient } from './relations';
 import { referenceType } from './pricing';
 
 /** Margin per BH over the reference type's standard rate that makes an urgent offer a call. */
 export const CALL_MARGIN_X = 1.5;
+/** v0.14 how long a caller waits for the answer (game minutes, 15-minute steps; never past an hour before the job). */
+export const CALL_REPLY: [number, number] = [30, 90];
+/** v0.14 an ordinary (written) offer gives at least this long to answer when the job allows; shorter is a call. */
+export const REPLY_MIN = 6 * 60;
+/** v0.14 the client's note when its call was never answered. */
+export const CALL_MISSED_REL = -1;
+
+/** v0.14 the call's reply window (minutes) for a job `lead` minutes away: 30–90 min from the offer id (no draw on the
+ *  main random stream), at most the lead less an hour, at least 20 min. Pure. */
+export function callReplyMin(offerId: string, lead: number): number {
+  const [a, b] = CALL_REPLY;
+  const steps = Math.floor((b - a) / 15) + 1;
+  const w = a + 15 * Math.min(steps - 1, Math.floor(hashUnit(`${offerId}:call`) * steps));
+  return Math.max(20, Math.min(w, lead - 60));
+}
 
 function sectorsOf(o: ContractOffer): [string, string][] {
   const p = o.pattern;
@@ -40,33 +62,61 @@ export function callScore(g: GameState, o: ContractOffer): number {
   return best.estMargin / best.estBH / rate;
 }
 
-/** The trigger: urgent and high-paying (and something in the fleet could fly it). */
-export function isCallOffer(g: GameState, o: ContractOffer): boolean {
-  return o.urgency === 'urgent' && callScore(g, o) >= CALL_MARGIN_X;
+/** The trigger: urgent and high-paying (and something in the fleet could fly it); v0.14 or `short` notice: the client
+ *  wants the answer within hours (its reply window is under REPLY_MIN). */
+export function isCallOffer(g: GameState, o: ContractOffer, short = false): boolean {
+  return o.urgency === 'urgent' && (short || callScore(g, o) >= CALL_MARGIN_X);
 }
 
 export type CallPlan = { ok: true; aircraftId: string } | { ok: false; error: string };
 
-/** What Accept on the call would do now: the dialog's first aircraft that passes every check, or why none can. Pure. */
-export function callPlan(g: GameState, offerId: string): CallPlan {
+/** The call's aircraft reports, the offer dialog's way (passing first, then by margin). Pure. */
+export function callReports(g: GameState, offerId: string): FeasibilityReport[] {
+  const o = g.offers[offerId];
+  return o ? feasibilityAll(g, o.id, callOpts(o)) : [];
+}
+
+/** What Accept on the call would do now: the picked aircraft (`aircraftId`) when it passes every check, else the
+ *  dialog's first aircraft that does (none picked), or why it can't. Pure. */
+export function callPlan(g: GameState, offerId: string, aircraftId?: string, reports?: FeasibilityReport[]): CallPlan {
   const o = g.offers[offerId];
   if (!o) return { ok: false, error: 'Offer not found' };
   if (o.status !== 'open' || o.expires <= g.now) return { ok: false, error: 'This offer is no longer on the market' };
-  const reports = feasibilityAll(g, o.id, callOpts(o));
-  const sel = reports.find(passes);
+  const all = reports ?? feasibilityAll(g, o.id, callOpts(o));
+  const picked = aircraftId ? all.find((r) => r.aircraftId === aircraftId) : undefined;
+  const sel = picked ? (passes(picked) ? picked : undefined) : all.find(passes);
   if (sel) return { ok: true, aircraftId: sel.aircraftId };
-  const r = reports[0];
+  const r = picked ?? all[0];
   const why = r?.checks.find((c) => c.level === 'no');
   return { ok: false, error: !r ? 'No aircraft in the fleet' : why ? `${why.label}${why.detail ? `: ${why.detail}` : ''}` : 'No aircraft can take it' };
 }
 
-/** Answering the call: the offer dialog's accept with its first aircraft that passes; else why not, nothing signed. */
-export function answerCall(g: GameState, offerId: string): ActionResult<{ contractId: string }> {
-  const plan = callPlan(g, offerId);
+/** Answering the call: the offer dialog's accept with the picked aircraft (v0.14) or its first that passes; else why
+ *  not, nothing signed. */
+export function answerCall(g: GameState, offerId: string, aircraftId?: string): ActionResult<{ contractId: string }> {
+  const plan = callPlan(g, offerId, aircraftId);
   if (!plan.ok) return plan;
   const o = g.offers[offerId];
   const crewExtra = o.product.kind !== 'dry' ? offerExtra(g, plan.aircraftId, o.requirements) : undefined;
   return acceptOffer(g, o.id, [plan.aircraftId], { ...callOpts(o), crewExtra });
+}
+
+/** v0.14 one word on how an aircraft fits the call (the picker's hint): Ready, Tight (passes with a caution), or what
+ *  stops it (Busy, Crew, Range, Seats, …). Pure. */
+export function callFit(r: Pick<FeasibilityReport, 'checks'>): { word: string; tone: 'good' | 'warn' | 'bad' } {
+  const no = r.checks.find((c) => c.level === 'no');
+  if (!no) return r.checks.some((c) => c.level === 'warn') ? { word: 'Tight', tone: 'warn' } : { word: 'Ready', tone: 'good' };
+  const WORD: Partial<Record<FeasibilityReport['checks'][number]['id'], string>> = {
+    availability: 'Busy', maintenance: 'Check', crew: 'Crew', clientCrew: 'Crew', range: 'Range', etops: 'ETOPS', runway: 'Runway',
+    seats: 'Seats', layout: 'Cabin', cabinReq: 'Cabin', family: 'Type', body: 'Type', approvals: 'Approval', positioning: 'Too far',
+    farBase: 'Too far', lease: 'Leased', dryLease: 'Leased', paint: 'Paint', rest: 'Rest', restSeats: 'Rest', warRisk: 'War risk', airspace: 'Airspace',
+  };
+  return { word: WORD[no.id] ?? 'No', tone: 'bad' };
+}
+
+/** v0.14 the call went unanswered: the client went elsewhere (closed by the expiry) and notes it. Action-side. */
+export function missedCall(g: GameState, o: ContractOffer): void {
+  bumpClient(g, o.clientId, CALL_MISSED_REL, 'Our phone went unanswered');
 }
 
 /** Declining on the phone is the normal decline. */

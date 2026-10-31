@@ -393,7 +393,7 @@ export function GlobalModals() {
     case 'worldEvent': return s.game ? <WorldEventModal eventId={m.eventId} /> : null;
     case 'headUnlocked': return s.game ? <HeadUnlockedModal key={m.id} id={m.id} ids={m.ids} /> : null;
     case 'counterReply': return s.game ? <CounterReplyModal {...m} /> : null;
-    case 'offerCall': return s.game ? <CallModal key={m.offerId} offerId={m.offerId} /> : null;
+    case 'offerCall': return s.game ? <CallModal key={m.offerId} offerId={m.offerId} aircraftId={m.aircraftId} /> : null;
     case 'delivered': return s.game ? <DeliveredModal aircraftId={m.aircraftId} /> : null;
     case 'followDelivery': return s.game ? <FollowDeliveryModal aircraftId={m.aircraftId} /> : null;
   }

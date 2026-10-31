@@ -1076,7 +1076,7 @@ export function dailyEvents(g: GameState): void {
   clientFees(g);
   permitDelays(g);
   seasonNudge(g);
-  if (chance(g, BAL.evacuationPerDay)) generateOffer(g, 'repatriation', { start: g.now + int(g, 20, 60) * 60 });
+  if (chance(g, BAL.evacuationPerDay)) generateOffer(g, 'repatriation', { start: g.now + int(g, 20, 60) * 60, paced: true }); // v0.14 paced: none at short notice in a quiet spell
 }
 
 // ---------- resolution ----------

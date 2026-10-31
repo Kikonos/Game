@@ -73,10 +73,15 @@ export function spanLabel(min: number): string {
   return h ? `${d} d ${h} h` : `${d} d`;
 }
 
-/** Expiry countdown in game hours (changes at most hourly). */
+/** v0.14 under this much left the countdown shows minutes ('2 h 40 min left') and ticks with the clock. */
+export const COUNTDOWN_MIN = 6 * HOUR;
+
+/** Expiry countdown in game hours (changes at most hourly); v0.14 hours and minutes in the last 6 h. */
 export function expiryLabel(now: number, expires: number): string {
-  const left = expires - now;
+  const left = Math.floor(expires - now);
   if (left <= 0) return 'Expired';
+  if (left < HOUR) return `${left} min left`;
+  if (left < COUNTDOWN_MIN) return `${Math.floor(left / HOUR)} h ${String(left % HOUR).padStart(2, '0')} min left`;
   return `${spanLabel(Math.floor(left / HOUR) * HOUR || left)} left`;
 }
 

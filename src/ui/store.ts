@@ -9,7 +9,8 @@ import type { CabinLayout, RatingFamily } from '../data/acmiTypes';
 import type { ActionResult, ApprovalId, Archetype, CrewFix, GameState, Message, PaintKind, ProblemRef, Ref, RestRefitId, Role } from '../engine/core/types';
 import { HINTS, type TermId } from '../data/glossary';
 import { problemFor } from '../engine/problems';
-import { acceptOffer, counterOffer, declineOffer, feasibilityAll, generateOffer } from '../engine/contracts';
+import { acceptOffer, callReplyMin, counterOffer, declineOffer, feasibilityAll, generateOffer } from '../engine/contracts';
+import { schedule } from '../engine/core/queue';
 import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
 import type { ClientLevel } from '../engine/contracts';
@@ -177,7 +178,7 @@ export type ModalSpec =
   /** v0.9.1 a client's answer to our counter-offer, wherever the player is (Accept / Decline as it applies). */
   | { kind: 'counterReply'; offerId?: string; contractId?: string; title: string; body: string }
   /** v0.10.2 an urgent, high-paying offer phones in (it rings while shown). */
-  | { kind: 'offerCall'; offerId: string }
+  | { kind: 'offerCall'; offerId: string; /** v0.14 the aircraft picked on the call; set when coming back to it (no second ring) */ aircraftId?: string }
   /** v0.9.1 an aircraft handed over: the celebration card, then 'Follow the delivery flight?'. */
   | { kind: 'delivered'; aircraftId: string }
   | { kind: 'followDelivery'; aircraftId: string };
@@ -994,7 +995,9 @@ class GameStore {
       if (!o) return null;
       o.urgency = 'urgent';
       o.call = true;
-      o.expires = Math.min(o.expires, g.now + 5 * 60);
+      // v0.14 a caller waits 30–90 min for the answer.
+      o.expires = Math.min(o.expires, g.now + callReplyMin(o.id, o.start - g.now));
+      schedule(g, o.expires, 'offer.expire', o.id);
       cue('offerCall', { title: `Phone call: ${o.title}`, ref: { kind: 'offer', id: o.id } });
       this.emit();
       return o.id;
