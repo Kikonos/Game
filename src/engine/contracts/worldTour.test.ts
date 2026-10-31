@@ -291,7 +291,9 @@ describe('v0.12.1 world tours: one crew', () => {
   });
 
   it('a whole tour played: the same crew on every leg, every duty legal, the aircraft home and the price earned', async () => {
-    const { g, acId } = tourGame(3);
+    // v0.14 seed 13 (the market's offer stream changed: on seed 3 a first officer now falls sick the day after the
+    // start with every A330 pilot away, as on seed 5 before; this test is the tour played, not the crew shortage).
+    const { g, acId } = tourGame(13);
     const home = g.company.homeBase;
     const o = g.offers[devWorldTour(g)];
     const k = g.contracts[signed(g, o.id, acId)];
@@ -334,7 +336,8 @@ describe('v0.14 world tours: no permit delay', () => {
     // After the v0.14 merges seed 3 drew a 12 h permit delay on the first leg: its departure turned night-time
     // (disruptive), the next recovery needed 60 h, the 37 h stop at Samarkand fell short, and the tour crew was taken off
     // the eight legs after it (all cancelled). Forced risky here, as an old save's offer could be.
-    for (const seed of [3, 7]) {
+    // v0.14 seeds 13 and 7 (seed 3's tour now meets a sick first officer on day one; see 'a whole tour played').
+    for (const seed of [13, 7]) {
       const { g, acId } = tourGame(seed);
       const o = g.offers[devWorldTour(g)];
       expect(o.risk.permit).toBe(0);
@@ -373,7 +376,8 @@ describe('v0.12.1 world tours: a stop closed', () => {
   }
 
   it('the card: another stop on the same dates, the same crew; told in four lines; the tour keeps its price', () => {
-    const { g, contractId, legIn } = closed(3)!;
+    // v0.14 seed 9 (seed 3's tour now meets a sick first officer on day one; see 'a whole tour played').
+    const { g, contractId, legIn } = closed(9)!;
     const d = g.decisions.find((x) => x.kind === 'tourStop')!;
     expect(d).toBeDefined();
     expect(d.options.map((o) => o.id)).toContain('alternate');

@@ -87,6 +87,7 @@ if (process.env.OPS_NOWAVES) OPS_LIVE.waves = false;
 import type { ProblemCard } from '../src/engine/problems/types';
 import type { ApprovalId } from '../src/engine/core/types';
 import { chainAugment } from '../src/engine/contracts/offers';
+import { marketOfCountry } from '../src/data/markets';
 import { programmeOf } from '../src/engine/contracts/plan';
 import { isWideJob } from '../src/engine/contracts/pricing';
 import { safetyTrips } from '../src/engine/core/safety';
@@ -104,7 +105,7 @@ import { createChecker } from './invariants';
 import { SETUP_BY_ID, type SetupId } from '../src/data/setups';
 import { createScenario, METRICS, SCENARIO_BY_ID, fmtValue, reliability, scenarioOutcome, scenarioView } from '../src/engine/scenario';
 import { fleetWords } from '../src/engine/newGame';
-import { bidQuote, bookTrip, com, fairsAhead, placeBid, travellers } from '../src/engine/commercial';
+import { bidQuote, bookTrip, com, fairsAhead, homeMarket, placeBid, travellers } from '../src/engine/commercial';
 
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
@@ -953,7 +954,9 @@ function fleet(g: GameState, t: Tally): void {
     if (g.company.cash >= o.deposit + 3 * (o.rentPerMonth + typeOf(o.typeId).insuranceMonth) + 1_000_000) t.wideAffordableAt ??= g.now;
     // v0.8 two months of its fixed costs after the deposit (v0.7.3: three) and $300K (was $500K) to run the airline.
     // v0.8 pre-release: --wide too (its $1M left after the deposit signed a 747 on day 13 of a Startup: insolvent).
-    if (g.company.cash < o.deposit + 2 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 300_000) continue;
+    // v0.14 far fewer offers (work for a new widebody comes slower): $1M to run the airline (seed 6 signed an A330-300
+    // for a lead's Jakarta base with $300K over and spent December $2.1M under water).
+    if (g.company.cash < o.deposit + 2 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 1_000_000) continue;
     t.wideReadyAt ??= g.now;
     // v0.7: home after the delivery ferry; a widebody job worth $1M+ starting 1–4 months after that (or, from day 150
     // on the ladder, the widebody itself: wide work follows a widebody fleet).
@@ -1431,14 +1434,21 @@ let tenderResigned = 0;
 /** v0.14 the open offers of won tenders (signed by tenderBids, never countered by offers()). */
 const wonTenderOffers = (g: GameState) => new Set(com(g).tenders.map((x) => x.result?.offerId).filter((x): x is string => !!x));
 
-/** v0.14 sales trips: you to a fair about every 80 days when cash allows (the next one reachable within 45 days). */
+/**
+ * v0.14 sales trips: you to a fair about every 80 days when cash allows (the next one reachable within 45 days), in
+ * the home region or the one other region the bot breaks into (by seed: the Middle East, North Africa, West Africa,
+ * Latin America or North America; Routes World counts for both).
+ */
+const OTHER_REGION = (['me', 'naf', 'waf', 'lat', 'nam'] as const)[(seed - 1) % 5];
 function salesTrips(g: GameState, t: Tally): void {
   // v0.14 the last booking read from the game (was a module variable: --det's second run and a loaded save played on
   // differently, the policy no longer a function of the state).
   const lastTrip = Math.max(-Infinity, ...com(g).trips.map((x) => x.booked));
   if (g.now - lastTrip < 80 * DAY || g.company.cash < 1_500_000 || travellers(g)[0].tripId) return;
+  const home = homeMarket(g);
   for (const f of fairsAhead(g)) {
     if (f.tripId || f.start - g.now > 45 * DAY || f.start - g.now < 4 * DAY) continue;
+    if (f.market !== 'world' && f.market !== home && f.market !== OTHER_REGION) continue;
     if (bookTrip(g, 'ceo', { fairId: f.id }).ok) {
       act(g, t);
       return;
@@ -1889,6 +1899,40 @@ const tally = newTally();
 const end = g.started + days * DAY;
 const seenFlight = new Set<string>();
 const seenOffer = new Set<string>();
+/**
+ * v0.14 offers counted by source and company standing (Newcomer / Established / Respected): ordinary market offers
+ * (the paced draw and the quiet-week floor), tender awards, trip leads, repeat business, world-event and crisis jobs,
+ * sub-charters, the rest; phone calls; the ordinary ones' client market and whether the fleet could fly them.
+ */
+const offerTally = {
+  lastDay: -1,
+  days: [0, 0, 0] as number[],
+  by: [{}, {}, {}] as Record<string, number>[],
+  calls: 0,
+  markets: {} as Record<string, number>,
+  fit: 0,
+  presence: [] as [string, Record<string, number>][],
+};
+function offerSource(g: GameState, o: ContractOffer): string {
+  if (o.ordinary) return 'market';
+  if (com(g).tenders.some((x) => x.result?.offerId === o.id)) return 'tender';
+  if (o.repeatOf) return 'repeat';
+  if (/they asked us first/.test(o.blurb)) return 'lead';
+  if (o.archetype === 'subcharterIn') return 'subcharter';
+  if (o.eventId) return 'event';
+  return 'other';
+}
+function countOffer(g: GameState, o: ContractOffer): void {
+  // Tender asks never reach the market (removed when built); the opening offers are 'other'.
+  const src = offerSource(g, o);
+  const by = offerTally.by[g.company.standing ?? 0];
+  by[src] = (by[src] ?? 0) + 1;
+  if (o.call) offerTally.calls++;
+  if (src !== 'market') return;
+  const m = marketOfCountry(g.clients[o.clientId]?.country ?? '');
+  offerTally.markets[m] = (offerTally.markets[m] ?? 0) + 1;
+  if (Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) offerTally.fit++;
+}
 const slipSeen = new Set<string>();
 /** v0.9 fix (JUMBO): contract legs flown by us (contract, aircraft, block hours), first seen done. */
 const legsFlown = new Map<string, { contractId: string; aircraftId: string; bh: number }>();
@@ -2015,8 +2059,15 @@ function onStep(): void {
     paintBack += r.amount;
   }
   for (const o of Object.values(g.offers)) {
+    if (!seenOffer.has(o.id)) countOffer(g, o);
     seenOffer.add(o.id);
     if (o.slip) slipSeen.add(o.id);
+  }
+  if (dayIndex(g.now) !== offerTally.lastDay) {
+    offerTally.lastDay = dayIndex(g.now);
+    offerTally.days[g.company.standing ?? 0]++;
+    // v0.14 presence by market on the 1st of each month.
+    if (toDate(g.now).getUTCDate() === 1) offerTally.presence.push([fmtDay(g.now), { ...(g.com?.presence?.m ?? {}) }]);
   }
   for (const o of g.market.aircraft) if (!seenMarket.has(o.id)) seenMarket.set(o.id, { month: monthKey(g.now), teaser: !aircraftGate(g, o.typeId).ok, newBuild: !!o.newBuild });
   // Inbox is newest first: count down to the last message seen.
@@ -2571,6 +2622,24 @@ console.log(
         `bids ${st.bids}, won ${st.won} (signed ${signed}; on another aircraft ${tenderResigned}), lost ${st.lost} · trips ${st.trips} (leads ${st.leads}) · crises ${st.crises} (${kinds}; ${crisisOffers} requests) · ` +
         `written off ${k$(st.written)}, claims paid ${k$(claims)} · sales and travel ${k$(salesCost)}`,
     );
+  }
+  {
+    // v0.14 offers per week by standing and source, the ordinary offers' markets and fleet fit, presence by month.
+    const names = ['Newcomer', 'Established', 'Respected'];
+    const lines = names.map((n, i) => {
+      const d = offerTally.days[i];
+      if (!d) return null;
+      const by = offerTally.by[i];
+      const tot = Object.values(by).reduce((a, b) => a + b, 0);
+      return `${n} ${d} d: market ${(((by.market ?? 0) * 7) / d).toFixed(1)}/wk, all ${((tot * 7) / d).toFixed(1)}/wk {${Object.entries(by).map(([k, v]) => `${k} ${v}`).join(', ')}}`;
+    }).filter(Boolean);
+    const nMarket = offerTally.by.reduce((a, b) => a + (b.market ?? 0), 0);
+    console.log(`v0.14 offers: ${lines.join(' · ')} · calls ${offerTally.calls} · ordinary fleet-fit ${nMarket ? Math.round((offerTally.fit / nMarket) * 100) : 0} % · markets ${Object.entries(offerTally.markets).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')}`);
+    if (offerTally.presence.length && Object.keys(offerTally.presence[0][1]).length) {
+      const ids = Object.keys(offerTally.presence[offerTally.presence.length - 1][1]);
+      console.log(`v0.14 presence by month: ${['month', ...ids].join(' ')}`);
+      for (const [mk, p] of offerTally.presence) console.log(`  ${mk} ${ids.map((k) => String(Math.round(p[k] ?? 0)).padStart(3)).join(' ')}`);
+    }
   }
   targets.push(['discretion never planned (v0.9)', (v9?.discretionPlanned ?? 0) === 0, `${v9?.discretionPlanned ?? 0}`]);
   targets.push(['runs in ≤ 20 s (v0.9 hard limit)', runSecs <= 20, `${runSecs.toFixed(1)} s`]);

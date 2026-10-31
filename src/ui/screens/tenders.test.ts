@@ -21,6 +21,7 @@ describe('tender board', () => {
     const t = issueTender(g) ?? issueTender(g)!;
     expect(openTenders(g)).toBe(1);
     expect(refTarget(g, { kind: 'tender', id: t.id })).toEqual({ tab: 'contracts', view: 'tenders', sel: { kind: 'tender', id: t.id } });
-    expect(refTarget(g, { kind: 'trip', id: 'tp1' })).toEqual({ tab: 'company', view: 'team', sel: { kind: 'head', id: 'sales' } });
+    // v0.14 sales trips moved to Contracts › Markets.
+    expect(refTarget(g, { kind: 'trip', id: 'tp1' })).toEqual({ tab: 'contracts', view: 'markets' });
   });
 });

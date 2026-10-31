@@ -214,6 +214,9 @@ export const RESORTS_WB = ['CUN', 'VRA', 'PUJ', 'MBJ'];
 /** Season-base client hubs (DESIGN §5.1.2) and long-haul ones for widebody bases. */
 export const BASE_HUBS_NB = ['HAM', 'DUS', 'DUB', 'ARN', 'ZAG', 'WAW', 'FRA', 'LIS', 'RIX', 'CMN', 'AMM', 'RUH'];
 export const BASE_HUBS_WB = ['AMM', 'JED', 'GRU', 'JNB', 'YYZ', 'SGN', 'DSS', 'LIM', 'BSB', 'LAD'];
+/** v0.14 the market-presence airlines' hubs (data/naming.ts CLIENT_SEEDS_V014): ordinary market offers only (their
+ *  season bases come once we are known in their market). */
+export const BASE_HUBS_MARKET = ['LOS', 'ABJ', 'LFW', 'ACC', 'NBO', 'KGL', 'DAR', 'DEL', 'CMB', 'DAC', 'ICN', 'HKG', 'PVG', 'MNL', 'KUL', 'SGN', 'SYD', 'BNE', 'MEL', 'YUL', 'YYC', 'MSP', 'BOG', 'MTY', 'EZE', 'SCL', 'SDQ', 'KWI', 'MCT', 'TUN', 'CAI'];
 
 export const CRISIS_AIRPORTS = ['KBL', 'BKO', 'JUB', 'MGQ', 'BGF', 'GOM', 'LAD', 'OXB', 'TMS', 'DIL', 'BEY', 'ADA'];
 export const MISSION_AIRPORTS = ['BKO', 'BGF', 'MGQ', 'JUB', 'DJI'];

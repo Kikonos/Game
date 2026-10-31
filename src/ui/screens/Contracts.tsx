@@ -26,8 +26,9 @@ import { ScreenHint } from '../components/ScreenHint';
 import { clientList } from '../../engine/contracts';
 import { ClientsView } from './Clients';
 import { openTenders, TendersView } from './Tenders';
+import { MarketsView } from './Markets';
 
-type View = 'market' | 'active' | 'tenders' | 'missed' | 'clients';
+type View = 'market' | 'active' | 'tenders' | 'missed' | 'clients' | 'markets';
 
 /** v0.14 the card's time left: hours and minutes ticking with the clock in the last 6 h, a phone call marked. */
 function OfferLeft({ o, now }: { o: ContractOffer; now: number }) {
@@ -290,7 +291,7 @@ export function ContractsScreen() {
   useRenderCount('contracts');
   const g = useGame();
   const nav = store.nav;
-  const view = (['market', 'active', 'tenders', 'missed', 'clients'].includes(nav.view ?? '') ? nav.view : 'market') as View;
+  const view = (['market', 'active', 'tenders', 'missed', 'clients', 'markets'].includes(nav.view ?? '') ? nav.view : 'market') as View;
   const nMarket = marketOffers(g).length;
   const nActive = Object.values(g.contracts).filter((c) => c.status === 'signed' || c.status === 'active').length;
   const nMissed = missedOffers(g).length;
@@ -307,6 +308,8 @@ export function ContractsScreen() {
           { id: 'tenders', label: 'Tenders', count: openTenders(g) || undefined },
           { id: 'missed', label: 'Missed', count: nMissed },
           { id: 'clients', label: 'Clients', count: nClients || undefined },
+          // v0.14 market presence, the trade fairs and sales trips (moved here from Company › Team).
+          { id: 'markets', label: 'Markets' },
         ]} />
       </ScreenHead>
       <ScreenHint id="contracts" />
@@ -316,6 +319,7 @@ export function ContractsScreen() {
       {view === 'tenders' && <TendersView g={g} />}
       {view === 'missed' && <Missed g={g} />}
       {view === 'clients' && <ClientsView g={g} />}
+      {view === 'markets' && <MarketsView g={g} />}
     </div>
   );
 }

@@ -320,8 +320,27 @@ export const BAL = {
     /** v0.12.1 legs that need an approval we won't hold by their departure get the card this many days ahead; red inside redH hours. */
     gateWarnDays: 14, gateRedH: 48,
   },
-  /** C4 quiet-week floor: days since the last gap-fit offer, idle-window days, open-offer cap. */
-  quietFloor: { days: 5, idleDays: 2, maxOpen: 5 },
+  /** C4 quiet-week floor: days since the last gap-fit offer, idle-window days, open-offer cap. v0.14 (far fewer
+   *  offers): days since the last ordinary market offer, 5 → 8; open offers 5 → 3. */
+  quietFloor: { days: 8, idleDays: 2, maxOpen: 3 },
+  /**
+   * v0.14 market offers (the player: "way less contracts, especially in the beginning"). Ordinary offers a week by
+   * standing (Newcomer, Established, Respected) for a fleet of `fleetRef` aircraft; each aircraft more or fewer moves
+   * it by `fleetSlope` (clamped to `fleetClamp`). They come only on busy days (director.ts QUIET_MARKET_OFFERS).
+   * Tenders, phone calls, world-event and crisis jobs, trip leads and repeat business come on top.
+   * `unfitDrop`: the share of drafts no aircraft of ours could fly that is drawn again (fit the fleet better).
+   */
+  marketOffers: {
+    perWeek: [1.5, 3.1, 4.6] as [number, number, number], fleetRef: [2, 3, 5] as [number, number, number], fleetSlope: 0.06, fleetClamp: [0.85, 1.3] as [number, number], unfitDrop: 0.85,
+    /** Fewer offers, longer work (the player's call: lean on longer jobs, not more offers): the ordinary draw's mix,
+     *  its narrowbody season bases (Newcomer, others) in days, and its share fitted to an aircraft's idle window
+     *  (BAL.gapFitShare for the rest). */
+    mix: { seasonBase: 1.5, tourSeries: 1.2, troopRotation: 1.1 } as Partial<Record<string, number>>,
+    baseDays: [[45, 90], [50, 120]] as [number, number][],
+    gapFitShare: 0.7,
+    /** Fewer offers, better paid (the player's call: lean on rates, not more offers): an ordinary offer's rate or price. */
+    ratePct: 0.04,
+  },
 
   // ---------- crew control v0.7.1 (ENGINE; UPDATE-0.7.1.md §14) ----------
   crewControl: {

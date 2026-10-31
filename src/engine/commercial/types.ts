@@ -1,6 +1,7 @@
 // v0.14 Update 2 "Commercial": the saved state of tenders, sales trips and client crises (g.com, optional: older
 // saves load with `??=` defaults in commercial/state.ts).
 
+import type { MarketId } from '../../data/markets';
 import type { ContractOffer, Minute } from '../core/types';
 
 /** A seat on an airline (same shape as a crew ticket: on the hour, door-to-door minutes from ops/commercial.ts). */
@@ -96,8 +97,9 @@ export interface SalesTrip {
   /** Costs: tickets and pass at booking, hotel and per diem on return. */
   cost: { tickets: number; pass: number; hotel: number; perDiem: number };
   status: TripStatus;
-  /** Results (on return). */
+  /** Results (on return). v0.14 `presence`: the markets it made us better known in [market, points]. */
   met?: string[];
+  presence?: [string, number][];
   leads?: TripLead[];
   why?: string;
 }
@@ -127,5 +129,13 @@ export interface CommercialState {
   /** RFPs issued per round ('S2028' → 4). */
   rounds?: Record<string, number>;
   lastCrisis?: Minute;
+  /** v0.14 market presence 0–100 by market (commercial/presence.ts); seeded on a new game or the first load. */
+  presence?: PresenceState;
   stats?: { bids: number; won: number; lost: number; trips: number; leads: number; crises: number; written: number };
+}
+
+/** v0.14 how well known we are in each market (0–100), and the last day it was updated. */
+export interface PresenceState {
+  m: Partial<Record<MarketId, number>>;
+  day: number;
 }

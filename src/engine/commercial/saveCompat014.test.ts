@@ -20,7 +20,9 @@ describe('v0.14 load', () => {
     const file = JSON.parse(text) as { state: GameState };
     expect(file.state.com).toBeUndefined();
     const g = deserialize(text);
-    expect(g.com).toEqual({ tenders: [], trips: [], crises: [] });
+    // v0.14 and the market presence, seeded from the save's base, clients and contracts.
+    expect({ ...g.com, presence: undefined }).toEqual({ tenders: [], trips: [], crises: [], presence: undefined });
+    expect(g.com!.presence!.m.seu).toBeGreaterThan(0);
     advanceTo(g, g.now + 20 * DAY);
     expect(g.gameOver).toBeNull();
   });
