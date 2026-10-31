@@ -12,10 +12,10 @@ import { DAY, fmtDay, monthKey, monthStart, fmtDayRange } from '../core/time';
 import { clamp } from '../core/util';
 import type { ActionResult, Contract, ContractOffer, CrewExtra, GameState, Minute, OfferStatus, Product, Receivable, SimEvent } from '../core/types';
 import { autoRoster, crewExtraFor, flightCrewStatus, onContractDoneMorale } from '../crew';
-import { billContractMonth, issueBill } from './billing';
+import { billContractMonth, issueBill, mghFor, mghRemaining } from './billing';
 import { feasibility } from './feasibility';
 import { baseDayOf, flownRotations, programmeOf } from './plan';
-import { mghInMonth, productValue } from './pricing';
+import { productValue } from './pricing';
 import { generateFlights, relinkPositioning } from './schedule';
 import { bookPaint, cancelPaintFor } from '../ops/paint';
 import { paintWindow, type PaintSlot } from './paintTerms';
@@ -93,6 +93,12 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   if (o.pattern.kind === 'legs') ids = ids.slice(0, 1);
   // v0.8 a dry lease out: no flying of ours but the two ferries (ops/dryLease.ts).
   if (o.product.kind === 'dry') return acceptDry(g, o, ids[0]);
+  // v0.12.1 the client met our counter halfway: that price is final and holds for the terms we countered with
+  // (paint, cabin, extra crew), so no discount is taken a second time.
+  const k = o.counter;
+  if (k?.result === 'halfway' && !opts.priced) {
+    opts = { ...opts, priced: true, paint: k.paint !== false, cabin: k.cabin, crewExtra: opts.crewExtra ?? k.crewExtra };
+  }
   const paint = !!o.paint && opts.paint !== false;
   if (o.paint?.required && !paint && !opts.priced) return { ok: false, error: 'The client requires their livery on the aircraft' };
   // v0.7.4 the client's cabin request (a quick reconfiguration before the start).
@@ -276,15 +282,19 @@ export function counterOffer(g: GameState, offerId: string, price: number, aircr
   const ids = aircraftIds.filter((id) => g.fleet[id]);
   if (!ids.length) return { ok: false, error: 'Choose an aircraft' };
   const paint = !!o.paint && opts.paint !== false;
+  // v0.12.1 the counter carries the cabin choice and the extra crew, as an accept would (signed with them on reply).
+  const cabinOn = !!o.cabin && (opts.cabin !== false || o.cabin.required);
   for (const id of ids) {
-    const no = firstNo(feasibility(g, offerId, id, { paint }), !paint);
+    const no = firstNo(feasibility(g, offerId, id, { paint, cabin: cabinOn, crewExtra: opts.crewExtra }), !paint);
     if (no) return { ok: false, error: `${g.fleet[id].reg}: ${no.label}` };
   }
   // v0.5.2: the client always answers before the offer lapses (its expiry clock pauses while the counter is
   // pending) and before the job needs to get going (an hour before the positioning leaves).
-  const replyAt = replyTime(g, o, ids, paint);
+  const replyAt = replyTime(g, o, ids, paint, cabinOn);
   o.counter = { price: Math.round(price), at: g.now, replyAt, aircraftIds: ids, left: Math.max(60, o.expires - g.now) };
   if (o.paint) o.counter.paint = paint;
+  if (o.cabin) o.counter.cabin = cabinOn;
+  if (opts.crewExtra) o.counter.crewExtra = { cabin: opts.crewExtra.cabin, pilot: opts.crewExtra.pilot ? 1 : 0 };
   o.status = 'countered';
   schedule(g, replyAt, 'offer.reply', o.id);
   const hrs = Math.max(1, Math.ceil((replyAt - g.now) / 60));
@@ -306,24 +316,23 @@ function cancelScale(c: Contract, daysBefore: number): number {
   return 1;
 }
 
-/** Penalty if we cancel now: before start value × cancelScale; active wet = 100% of unflown MGH; active charter = unflown share. */
+/**
+ * Penalty if we cancel now: before start value × cancelScale; active wet = 100% of the MGH still to come (v0.12.1
+ * Hajj: inside the phases); active charter = per trip not yet flown, its share × cancelScale by its first departure.
+ */
 export function cancelPenalty(g: GameState, contractId: string): number {
   const c = g.contracts[contractId];
   if (!c || (c.status !== 'signed' && c.status !== 'active')) return 0;
-  const n = c.aircraftIds.length;
   const p = c.product;
   // v0.8 a delivered dry lease is recalled (even a day before its start): one month's rent to the lessee.
   const recall = c.dry ? recallTerms(g, c) : null;
   if (recall) return recall.penalty;
   if (g.now < c.start) {
-    const value = p.kind === 'wet' ? productValue(p, 0, c.start, c.end) * n : p.kind === 'charter' ? p.price : productValue(p, 0, c.start, c.end);
+    // v0.12.1 wet: the guaranteed hours over the term (Hajj: the phases only), as billing counts them.
+    const value = p.kind === 'wet' ? p.ratePerBH * mghRemaining(c, c.start) : p.kind === 'charter' ? p.price : productValue(p, 0, c.start, c.end);
     return Math.round(value * cancelScale(c, (c.start - g.now) / DAY));
   }
-  if (p.kind === 'wet') {
-    let mgh = 0;
-    for (let k = monthKey(g.now); monthStart(k) < c.end; k++) mgh += mghInMonth(p.mghPerMonth, g.now, c.end, k);
-    return Math.round(p.ratePerBH * mgh * n);
-  }
+  if (p.kind === 'wet') return Math.round(p.ratePerBH * mghRemaining(c, g.now));
   if (p.kind === 'charter') return Math.round(Math.max(0, p.price * (1 - brokerCut(c)) - (c.accrued ?? 0)));
   return 0;
 }
@@ -465,7 +474,7 @@ export function contractProgress(g: GameState, contractId: string): ContractProg
   const k = monthKey(g.now);
   out.bhMonth = Math.round(((c.use[k]?.blockMin ?? 0) / 60) * 10) / 10;
   if (c.product.kind === 'wet') {
-    out.mgh = Math.round(mghInMonth(c.product.mghPerMonth, c.start, Math.min(c.end, c.cancelledAt ?? Infinity), k) * c.aircraftIds.length * 10) / 10;
+    out.mgh = Math.round(mghFor(c, k) * 10) / 10;
     const unbilled = c.billedMonths.includes(k) ? 0 : c.product.ratePerBH * out.bhMonth;
     out.revenueToDate = Math.round((c.invoiced ?? 0) + unbilled);
   } else out.revenueToDate = Math.round(c.accrued ?? 0);

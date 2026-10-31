@@ -499,8 +499,10 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const [paintOn, setPaintOn] = useState(true);
   const [cabinOn, setCabinOn] = useState(true);
   const [extra, setExtra] = useState<CrewExtra | null>(null);
-  const paint = !!o?.paint && paintOn;
-  const cabin = !!o?.cabin && (cabinOn || o.cabin.required);
+  // v0.12.1 met halfway: the price holds for the terms we countered with (paint, cabin), so those are fixed.
+  const met = o?.counter?.result === 'halfway' ? o.counter : null;
+  const paint = !!o?.paint && (met ? met.paint !== false : paintOn);
+  const cabin = !!o?.cabin && (met ? met.cabin !== false || o.cabin.required : cabinOn || o.cabin.required);
   const reports = useMemo(() => (o ? feasibilityAll(g, o.id, { paint, cabin, crewExtra: extra ?? undefined }) : []), [g, o, rev, g.now, paint, cabin, extra]); // eslint-disable-line react-hooks/exhaustive-deps
   // Paint off on a required offer: only a counter is possible, so its 'paint' row does not block the pick.
   const blocked = (r: FeasibilityReport) => r.checks.some((c) => c.level === 'no' && !(c.id === 'paint' && !paint));
@@ -517,8 +519,8 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const live = o.status === 'open' || o.status === 'countered';
   const countered = o.status === 'countered';
   const cv = counterView(g, o.id);
-  const asking = askingPrice((o.paint && !paintOn) || (o.cabin && !cabin) ? { product: termsProduct(o, { paint: paintOn, cabin }) } : o);
-  const mustPaint = !!o.paint?.required && !paintOn;
+  const asking = askingPrice(!met && ((o.paint && !paint) || (o.cabin && !cabin)) ? { product: termsProduct(o, { paint, cabin }) } : o);
+  const mustPaint = !!o.paint?.required && !paint;
   const steps = counterSteps(asking, o.product.kind === 'wet');
   const price = steps[step - 1] ?? asking;
   const fmtP = (v: number) => (o.product.kind === 'wet' ? `${usd(v)}/BH` : o.product.kind === 'dry' ? `${money(v)}/month` : money(v, 2));
@@ -610,8 +612,8 @@ export function OfferModal({ offerId }: { offerId: string }) {
               </ProblemCardView>
             );
           })()}
-          {o.paint && <PaintTermsCard g={g} o={o} typeId={sel && g.fleet[sel.aircraftId] ? artFor(g.fleet[sel.aircraftId].typeId, g.fleet[sel.aircraftId].variant) : 'a320ceo'} on={paintOn} onToggle={setPaintOn} fmtP={fmtP} />}
-          {o.cabin && <CabinTermsCard g={g} o={o} aircraftId={sel?.aircraftId ?? null} on={cabinOn} onToggle={setCabinOn} fmtP={fmtP} />}
+          {o.paint && <PaintTermsCard g={g} o={o} typeId={sel && g.fleet[sel.aircraftId] ? artFor(g.fleet[sel.aircraftId].typeId, g.fleet[sel.aircraftId].variant) : 'a320ceo'} on={paint} onToggle={met ? () => {} : setPaintOn} fmtP={fmtP} />}
+          {o.cabin && <CabinTermsCard g={g} o={o} aircraftId={sel?.aircraftId ?? null} on={cabin} onToggle={met ? () => {} : setCabinOn} fmtP={fmtP} />}
           {crewed && <ExtraCrewCard o={o} x={x} onChange={setExtra} fmtP={fmtP} asking={asking} max={extraCabinMax(g, sel?.aircraftId ?? null, o.requirements.extraCabin)} seatsNote={crewSeatsNote(g, sel?.aircraftId ?? null, o.requirements.extraCabin)} />}
           <div className="upper dim">Terms</div>
           <Terms g={g} o={o} />

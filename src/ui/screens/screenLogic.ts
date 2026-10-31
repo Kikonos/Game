@@ -1,11 +1,11 @@
 // Pure helpers for the B5 screens (labels, sorting, filtering, deep links). No React, no writes.
 
 import type { RatingFamily } from '../../data/acmiTypes';
-import { BAL } from '../../engine/core/balance';
 import { statementTotals } from '../../engine/core/ledger';
 import { problemFor } from '../../engine/problems';
 import { DAY, HOUR, fmtDay, monthKey, toLocal } from '../../engine/core/time';
-import { mghInMonth, mghLabel } from '../../engine/contracts/pricing';
+import { mghLabel } from '../../engine/contracts/pricing';
+import { wetMonthLines } from '../../engine/contracts/billing';
 import { maxPax, seatNeedText } from '../../engine/contracts/plan';
 import type { IdleWindow } from '../../engine/contracts/offers';
 import type { FeasibilityReport } from '../../engine/contracts/feasibility';
@@ -347,22 +347,16 @@ export function counterSteps(asking: number, wet: boolean): number[] {
 }
 
 /**
- * Wet-lease money earned this month but invoiced only at month end: per contract, max(flown BH, MGH pro rata
- * to today) × rate, plus short-cycle fees, minus the broker commission. Display-only estimate (pure).
+ * Wet-lease money earned this month but invoiced only at month end: per contract, the month's invoice lines with
+ * the MGH pro rata to today (billing.ts wetMonthLines). Display-only (pure).
  */
 export function earnedUnbilled(g: GameState): number {
   const k = monthKey(g.now);
   let sum = 0;
   for (const c of Object.values(g.contracts)) {
-    const p = c.product;
-    if (p.kind !== 'wet' || (c.status !== 'signed' && c.status !== 'active') || c.billedMonths.includes(k)) continue;
-    const u = c.use[k];
-    const flown = (u?.blockMin ?? 0) / 60;
-    const end = Math.min(c.end, c.cancelledAt ?? Infinity, g.now);
-    const mgh = end > c.start ? mghInMonth(p.mghPerMonth, c.start, end, k) * c.aircraftIds.length : 0;
-    let v = p.ratePerBH * Math.max(flown, mgh) + (u?.shortCycles && p.cycleFee ? u.shortCycles * p.cycleFee : 0);
-    if (c.broker) v *= 1 - BAL.brokerCommission;
-    sum += v;
+    if (c.product.kind !== 'wet' || (c.status !== 'signed' && c.status !== 'active') || c.billedMonths.includes(k)) continue;
+    // v0.12.1 the invoice's own lines up to now (cancelled hours, excess rate, Hajj phases, broker), not a copy.
+    sum += wetMonthLines(c, k, g.now).reduce((s, l) => s + l.amount, 0);
   }
   return Math.round(sum);
 }

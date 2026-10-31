@@ -7,8 +7,12 @@ import { DAY, fromUTC, monthKey } from '../core/time';
 import type { Contract, GameState } from '../core/types';
 import { cancelLegs } from '../ops/flights';
 import { acceptOffer, billContractMonth, cancelContract, cancelCost, cancelPenalty, contractProgress } from '.';
-import { noteLostLegs } from './billing';
-import { mghInMonth } from './pricing';
+import { mghFor, mghRemaining, noteLostLegs, onFlightArrivedContracts } from './billing';
+import { clientMoved, moveFlight } from '../ops/flights';
+import { feasibility } from './feasibility';
+import { devHajj } from './missions';
+import { earnedUnbilled } from '../../ui/screens/screenLogic';
+import { mghInMonth, mghTotal, productValue } from './pricing';
 import { hamBase, leased, legsOffer, newGame, owned, run } from './testkit';
 
 function signBase(g: GameState, start: number, days: number, ids: string[]): Contract {
@@ -243,5 +247,132 @@ describe('cancelling', () => {
     const near = cancelPenalty(g, c.id);
     expect(mid / far).toBeCloseTo(0.6 / 0.15, 1);
     expect(near / far).toBeCloseTo(1 / 0.15, 1);
+  });
+});
+
+describe('v0.12.1 Hajj phases (MGH inside the terms only)', () => {
+  // A signed wet contract given two phases with a gap, as a Hajj airlift has.
+  const hajjLike = () => {
+    const g = newGame(47);
+    const c = signBase(g, g.now + 140 * DAY, 66, [leased(g).id]);
+    c.terms = [[c.start, c.start + 27 * DAY], [c.start + 36 * DAY, c.end - DAY]];
+    return { g, c };
+  };
+  const phases = (c: Contract, from: number) => c.terms!.reduce((s, [a, b]) => s + (Math.min(b, c.end) > Math.max(a, from) ? mghTotal(c.product.kind === 'wet' ? c.product.mghPerMonth : 0, Math.max(a, from), b) : 0), 0);
+
+  it('before the start the penalty is rate × Σ phase MGH × cancel scale (not the whole start–end)', () => {
+    const { g, c } = hajjLike();
+    const want = rate(c) * phases(c, c.start);
+    const scale = c.penalties.cancelScale.find(([d]) => (c.start - g.now) / DAY >= d)![1];
+    expect(mghRemaining(c, c.start)).toBeCloseTo(phases(c, c.start), 6);
+    expect(cancelPenalty(g, c.id)).toBe(Math.round(want * scale));
+  });
+  it('between the phases only the second phase still to come counts', () => {
+    const { g, c } = hajjLike();
+    g.now = c.terms![0][1] + 2 * DAY;
+    c.status = 'active';
+    expect(cancelPenalty(g, c.id)).toBe(Math.round(rate(c) * phases(c, c.terms![1][0])));
+  });
+  it('a fresh Hajj offer: the offer dialog revenue equals the offer value when the hours stay under the MGH', () => {
+    const g = newGame(5);
+    const o = g.offers[devHajj(g)];
+    expect(o?.terms?.length).toBeGreaterThan(0);
+    // A guarantee above any hours flown, so the value is the phases' MGH alone.
+    if (o.product.kind === 'wet') o.product.mghPerMonth = 600;
+    o.estValue = productValue(o.product, o.estBH, o.start, o.end, o.terms);
+    const ids = Object.keys(g.fleet);
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) expect(feasibility(g, o.id, id).estRevenue).toBe(Math.round(o.estValue * (1 - (o.broker ? BAL.brokerCommission : 0))));
+    expect(o.estValue).toBeLessThan(productValue(o.product, o.estBH, o.start, o.end));
+  });
+});
+
+describe('v0.12.1 earned so far this month = the invoice lines', () => {
+  let g = newGame(41);
+  const may = monthKey(fromUTC(2027, 5, 10));
+  const mk = () => {
+    g = newGame(41);
+    const c = signBase(g, fromUTC(2027, 4, 20), 70, [leased(g).id]);
+    c.status = 'active';
+    return c;
+  };
+  const atEnd = (c: Contract) => {
+    g.now = fromUTC(2027, 5, 31) + 23 * 60 + 59;
+    const want = sum(billContractMonth(g, structuredClone(c), may));
+    // One minute short of the month's end: within a minute's share of the MGH.
+    expect(Math.abs(earnedUnbilled(g) - want)).toBeLessThanOrEqual(Math.ceil((rate(c) * 200) / (31 * 24 * 60)) + 1);
+    return want;
+  };
+  it('(a) hours we cancelled come off', () => {
+    const c = mk();
+    c.use[may] = { blockMin: 20 * 60, cycles: 8, shortCycles: 0, lostMin: 155.8 * 60 };
+    expect(atEnd(c)).toBeLessThan(Math.round(200 * rate(c)));
+  });
+  it('(b) hours over the MGH at the excess rate', () => {
+    const c = mk();
+    c.use[may] = { blockMin: 260 * 60, cycles: 100, shortCycles: 0 };
+    expect(atEnd(c)).toBe(Math.round(200 * rate(c)) + Math.round(60 * 0.95 * rate(c)));
+  });
+  it('(c) Hajj phases and (d) a broker', () => {
+    const c = mk();
+    c.terms = [[c.start, fromUTC(2027, 5, 10)], [fromUTC(2027, 5, 20), c.end]];
+    c.broker = 'Polaris Ad-hoc';
+    c.use[may] = { blockMin: 50 * 60, cycles: 20, shortCycles: 0 };
+    atEnd(c);
+  });
+  it('mid-month the MGH counts up to now only', () => {
+    const c = mk();
+    c.use[may] = { blockMin: 0, cycles: 0, shortCycles: 0 };
+    g.now = fromUTC(2027, 5, 16);
+    expect(earnedUnbilled(g)).toBe(Math.round(rate(c) * mghFor(c, may, g.now)));
+    expect(mghFor(c, may, g.now)).toBeCloseTo(200 * 15 / 31, 1);
+  });
+  it('force majeure hours come off the guarantee with their own words', () => {
+    const c = mk();
+    c.use[may] = { blockMin: 150 * 60, cycles: 60, shortCycles: 0, lostMin: 10 * 60, lostFmMin: 20 * 60 };
+    const ls = billContractMonth(g, c, may);
+    expect(sum(ls)).toBe(Math.round(170 * rate(c)));
+    expect(ls[0].desc).toContain('less 10.0 BH we cancelled');
+    expect(ls[0].desc).toContain('less 20.0 BH cancelled by force majeure');
+  });
+});
+
+describe('v0.12.1 on time = against the original schedule', () => {
+  it('a leg ops moved +60 and flown at the new time is late; a leg the client moved and flown on time counts', () => {
+    const g = newGame(42);
+    const dep = g.now + 10 * DAY;
+    const o = legsOffer(g, [['LIS', 'PMI', dep], ['PMI', 'LIS', dep + DAY], ['LIS', 'PMI', dep + 2 * DAY]]);
+    const res = acceptOffer(g, o.id, [owned(g).id]);
+    if (!res.ok) throw new Error(res.error);
+    const c = g.contracts[res.data!.contractId];
+    const legs = Object.values(g.flights).filter((f) => f.contractId === c.id && f.kind === 'revenue').sort((a, b) => a.std - b.std);
+    const land = (f: (typeof legs)[number]) => {
+      f.status = 'done';
+      f.atd = f.std + f.delay;
+      f.ata = f.atd + f.block;
+      g.now = f.ata;
+      onFlightArrivedContracts(g, { t: g.now, kind: 'flight.arr', id: f.id, v: f.ev } as never);
+    };
+    // Ops moved it an hour (fuelling): schedStd keeps the original.
+    const a = legs[0];
+    moveFlight(g, a, a.std + 60, 'Fuelling');
+    land(a);
+    expect(c.legsFlown).toBe(1);
+    expect(c.legsOnTime ?? 0).toBe(0);
+    // The client asked for 2 h later: the schedule is re-based, so it flies on time.
+    const b = legs[1];
+    moveFlight(g, b, b.std + 120, "Client's request (Condor)");
+    clientMoved(b, 120, 'Condor');
+    expect(b.schedStd).toBe(b.std);
+    land(b);
+    expect(c.legsOnTime).toBe(1);
+    // A world wait excused in full keeps the client's month whole (the contract tally stays honest).
+    const x = legs[2];
+    moveFlight(g, x, x.std + 240, 'Waiting: Storm at HAM');
+    x.excused = 240;
+    land(x);
+    expect(c.legsOnTime).toBe(1);
+    const u = c.use[monthKey(g.now)]!;
+    expect(u.onTime).toBeGreaterThanOrEqual(2);
   });
 });

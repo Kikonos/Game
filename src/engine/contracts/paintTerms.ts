@@ -91,7 +91,7 @@ export function rollPaint(game: GameState, o: ContractOffer, force?: { kind: Pai
   if (share === 0) {
     t.bonusPct = P.zeroShareBonus;
     setPrice(o, priceOf(o.product) * (1 + P.zeroShareBonus));
-    o.estValue = productValue(o.product, o.estBH, o.start, o.end);
+    o.estValue = productValue(o.product, o.estBH, o.start, o.end, o.terms);
   }
   return t;
 }

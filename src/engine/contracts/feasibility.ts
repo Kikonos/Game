@@ -647,7 +647,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const bh = revBH + prog.emptyMin / 60 + posBH;
   rep.estBH = Math.round(bh * 10) / 10;
   const product = termsProduct(o, { paint: paintOn, cabin: cabinOn });
-  rep.estRevenue = Math.round(product.kind === 'wet' ? productValue(product, revBH + (product.positioningBillable ? posBH : 0), o.start, o.end) : productValue(product, revBH, o.start, o.end) * (1 - (o.broker ? BAL.brokerCommission : 0)));
+  // v0.12.1 Hajj MGH inside the phases only (o.terms), and a broker's cut on wet work too (the invoice takes it).
+  rep.estRevenue = Math.round((product.kind === 'wet' ? productValue(product, revBH + (product.positioningBillable ? posBH : 0), o.start, o.end, o.terms) : productValue(product, revBH, o.start, o.end)) * (1 - (o.broker ? BAL.brokerCommission : 0)));
   // v0.9 §Y.2 fuel at cost: the client pays this aircraft's own burn on the revenue legs after flying.
   if (product.kind === 'charter' && product.fuelAtCost) rep.estRevenue += Math.round(revBH * t.fuelTBH * g.market.fuelPrice);
   const age = Math.max(0, toDate(g.now).getUTCFullYear() - ac.builtYear - 12);

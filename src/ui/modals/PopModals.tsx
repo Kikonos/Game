@@ -6,9 +6,9 @@ import { Check, Eye, MapPinned, PartyPopper, Plane, X } from 'lucide-react';
 import { useEffect } from 'react';
 import { ACMI_TYPES, artFor } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { acceptOffer, declineOffer, fmtPrice } from '../../engine/contracts';
+import { acceptOffer, counterLift, declineOffer, fmtPrice, setPrice } from '../../engine/contracts';
 import { fmtDay, fmtTime } from '../../engine/core/time';
-import type { Flight, GameState } from '../../engine/core/types';
+import type { ContractOffer, Flight, GameState, Product } from '../../engine/core/types';
 import { liveryOf } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { SkyArt } from '../components/SkyArt';
@@ -16,6 +16,14 @@ import { Modal } from '../components/ui';
 import { store, useGame } from '../store';
 
 /** A client's answer to our counter: Accept at the price on the table and Decline while the offer is open. */
+/** v0.12.1 the price as signed: the client-paid extra crew we countered with lifts it. */
+function liftedProduct(o: ContractOffer): Product {
+  const p = structuredClone(o.product);
+  const lift = counterLift(o);
+  if (lift !== 1) setPrice({ product: p }, (p.kind === 'wet' ? p.ratePerBH : p.kind === 'charter' ? p.price : p.rentPerMonth) * lift);
+  return p;
+}
+
 export function CounterReplyModal({ offerId, contractId, title, body }: { offerId?: string; contractId?: string; title: string; body: string }) {
   const g = useGame();
   const o = offerId ? g.offers[offerId] : undefined;
@@ -25,7 +33,9 @@ export function CounterReplyModal({ offerId, contractId, title, body }: { offerI
   const accept = () => {
     if (!o) return;
     const ids = o.counter?.aircraftIds ?? [];
-    const r = store.act((gg) => acceptOffer(gg, o.id, ids, { paint: o.counter?.paint !== false }));
+    // v0.12.1 as countered: paint, cabin and extra crew (the price on the table is final).
+    const k = o.counter;
+    const r = store.act((gg) => acceptOffer(gg, o.id, ids, { paint: k?.paint !== false, cabin: k?.cabin, crewExtra: k?.crewExtra, priced: k?.result === 'halfway' }));
     if (r.ok) close();
   };
   const decline = () => {
@@ -44,7 +54,7 @@ export function CounterReplyModal({ offerId, contractId, title, body }: { offerI
         <>
           <button className="btn" onClick={decline}><X /> Decline</button>
           <button className="btn" onClick={look}><Eye /> Open the offer</button>
-          <button className="btn btn-primary" onClick={accept} disabled={!regs}><Check /> Accept {fmtPrice(o!.product)}</button>
+          <button className="btn btn-primary" onClick={accept} disabled={!regs}><Check /> Accept {fmtPrice(liftedProduct(o!))}</button>
         </>
       ) : (
         <>

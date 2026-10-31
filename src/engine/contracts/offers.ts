@@ -1425,7 +1425,7 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
   // False when no workable time is left: the client takes a rival and the offer closes.
   const reopen = (): boolean => {
     o.status = 'open';
-    o.expires = Math.min(g.now + leftOf(o), answerBy(g, o, k.aircraftIds ?? [], k.paint !== false));
+    o.expires = Math.min(g.now + leftOf(o), answerBy(g, o, k.aircraftIds ?? [], k.paint !== false, k.cabin));
     if (o.expires > g.now + 10) {
       schedule(g, o.expires, 'offer.expire', o.id);
       return true;
@@ -1450,7 +1450,8 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
     setPrice(o, noPaint && o.paint!.required ? k.price * (1 - o.paint!.declinePct) : k.price);
     o.status = 'open';
     o.expires = Math.max(o.expires, g.now + 1);
-    const res = acceptOffer(g, o.id, k.aircraftIds ?? [], { paint: !noPaint, priced: true });
+    // v0.12.1 signed as countered: the cabin choice and the extra crew (a client-paid crew lifts the rate as shown).
+    const res = acceptOffer(g, o.id, k.aircraftIds ?? [], { paint: !noPaint, cabin: k.cabin, crewExtra: k.crewExtra, priced: true });
     if (res.ok) {
       pushMessage(g, { tone: 'good', cat: 'commercial', title: `Counter accepted: ${o.title}`, body: `${client} agreed to ${fmtPrice(o.product)}${noPaint ? ', without their colours on the aircraft' : ''}. The contract is signed.`, ref: { kind: 'contract', id: res.data!.contractId }, cue: 'counterReply' });
     } else {
