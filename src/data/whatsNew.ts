@@ -16,6 +16,48 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.13',
+    name: 'Around the world',
+    features: [
+      'World tours: Les Voyages de TMR, Abercrombie & Kent and Kuoni charter a whole widebody for 18–24 days round the world (Rio, Easter Island, Tahiti, Angkor, Samarkand and more). One augmented crew flies it all, with extra cabin crew for the service and hotels at every stop. Late game, about once a year.',
+      'Crew ride our own flights: when one of our passenger flights goes where crew need to be, they take a free seat instead of an airline ticket ("Riding EI4003 LIS–DUB · own flight, no ticket").',
+      'Buying back a day off: when only a day off stands in the way, the crew member is asked to work it (twice a day\'s pay, a day off later in the month). Company › Policies: Automatically, Ask me or Never.',
+      'Far bases (12+ hours or 4+ time zones from home) get their crew stationed there, with a spare captain and purser in every crew, so a sickness is covered on the spot.',
+      '38 new airports: Curaçao, Bonaire, Sint Maarten, Paramaribo, Réunion, Aqaba, Siem Reap, Samarkand, Ulaanbaatar, Easter Island, the Falklands, Ascension, Svalbard, Tonga and more. Some short strips take narrowbodies only.',
+      'Pop-ups stay longer (crew alarms until you close them), hold while you touch them, and open what they are about. Inbox › Recent pop-ups keeps the last 50.',
+    ],
+    improvements: [
+      'Short runways cost a little range, not half: the A330 flies Montego Bay–Amsterdam nonstop. Landing never limits a flight; high airports count as shorter. Fuel stops lie on the way.',
+      'Every aircraft type\'s range checked against real routes: the 737-800 reaches Sal, the A321 the Canaries.',
+      'Every base gets the crew its programme needs, counted from its real flights, not two crews from the day you sign.',
+      'Long empty flights stop overnight for a crew change instead of being impossible to crew.',
+      'Airbus cross crew qualification: A320 and A330 pilots convert in about 10 days and keep both types (cabin crew 3 days). Pilots who lost their A320 rating get it back.',
+      'B757/767 crews earn widebody pay while a 767 is in the fleet. Lessors offer the widebody type your pilots fly.',
+      'VIP refits are priced by the seats you fit (24 business seats on an A320: $840K, 9 days); the dialog shows the breakdown and the 2-day two-class option.',
+      'When a client asks to move flights later, their own flights cost nothing and don\'t count as late; the card shows any other client it would delay.',
+      'Delays that are not ours (weather, ATC, closures, the client) cost no compensation. Trusted clients forgive delays of 15 minutes to 3 hours.',
+      'Cancelling a charter series charges each remaining rotation by how far away it is.',
+      'Base flights are no longer planned inside night curfews; empty legs and crew tickets respect curfews too.',
+      'The profit-per-day pill spreads one-off costs over the month.',
+      'Crew-shortage cards say who is at the airport and why; timelines show the date when it isn\'t today; overlapping flights on the Schedule sit one above the other.',
+    ],
+    fixes: [
+      'An aircraft left at Port Sudan for a month: an overflight closure no longer closes airports that stay open (Port Sudan, Tel Aviv); a stranded aircraft gets one way home at once; no more back-and-forth empty legs; Ana stops asking every day.',
+      'Flights cancelled because a war or closure stops us are force majeure: no compensation, no reliability hit.',
+      'A closure that strands an aircraft another job needs gives a card (sub-charter, swap or cancel) instead of quietly dropping the flights.',
+      'Evacuations wait up to a day for a legal crew instead of being cancelled.',
+      'Pilots already at the airport stay on the flight instead of being sent home; no ticket in the past is ever offered.',
+      'A technical diversion back to the departure airport no longer cancels the return flight and flies it empty.',
+      '"Fly on, same crew" after a diversion is only offered when that crew can legally fly it.',
+      'Crew held at the gate get their real rest; crew no longer wait at an outstation for days for a ticket home; no crew tickets into closed airports.',
+      'A job whose empty positioning no crew could fly can no longer be signed (it caused a 747 base to collapse).',
+      'An aircraft only flies passengers with the approvals it needs; a late or stuck approval gives a card in advance.',
+      'Fuel re-billed to charter clients now shows as revenue; the 90-day cash forecast is much closer to the truth.',
+      'Counter-offers keep your cabin choice and the client-paid extra crew; a contract with every flight cancelled no longer counts as a success.',
+      'About 60 more fixes from a full bug hunt across operations, crew, contracts, money, events and the screens.',
+    ],
+  },
+  {
     version: 'v0.12',
     name: 'Scenarios',
     features: [
