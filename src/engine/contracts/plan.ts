@@ -256,7 +256,7 @@ export function anchorsOf(g: GameState, aircraftId: string): Anchor[] {
   // v0.12.1 the last generated landing of each contract on this aircraft (its base tail starts after it).
   const lastOn = new Map<string, Minute>();
   for (const f of liveFlightsOf(g, aircraftId)) {
-    if (f.contractId) lastOn.set(f.contractId, Math.max(lastOn.get(f.contractId) ?? -Infinity, f.sta));
+    if (f.contractId && f.kind === 'revenue') lastOn.set(f.contractId, Math.max(lastOn.get(f.contractId) ?? -Infinity, f.sta));
     if (isSoft(g, f)) continue;
     out.push({ from: f.from, to: f.to, std: f.std, sta: f.status === 'enroute' ? (f.eta ?? f.sta) : f.sta, contractId: f.contractId, kind: 'flight', id: f.id });
   }
