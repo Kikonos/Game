@@ -460,6 +460,8 @@ export function onCrewJoin(g: GameState, ev: SimEvent): void {
   const c = g.crew[ev.id];
   if (!c || c.status !== 'joining') return;
   c.status = 'available';
+  // v0.12.1 on the payroll from today (salaries pro rata).
+  c.payFrom = g.now;
   c.loc = c.base;
   clearBlock(c, 'joining');
   const h = g.hires.find((x) => x.crewId === c.id);

@@ -18,7 +18,7 @@ import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
-import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, locAt, noteRiders, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, takeLostRides, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
+import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, locAt, noteRiders, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, slotAfter, takeLostRides, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
 
@@ -101,7 +101,9 @@ function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: Tick
   const cost = clientPaysCrewTravel(g, p) ? 0 : ticketPrice(t.from, t.to) * crewIds.length;
   // v0.12.1 never a ticket already gone: an illegal plan's fallback ticket (a swap bought 'TP 311 LIS–GOM, lands 26 Oct
   // 15:15' on 27 Oct) leaves at the first hour it can still be checked in for.
-  const late = Math.max(0, Math.ceil((g.now + BAL.deadheadCheckIn) / 60) * 60 - t.std);
+  let late = Math.max(0, Math.ceil((g.now + BAL.deadheadCheckIn) / 60) * 60 - t.std);
+  // v0.12.1 a ticket home waits for a seat that exists: no closed airport, no landing in a night curfew.
+  if (t.std >= d.release) late = slotAfter(g, t.from, t.to, t.std + late, t.sta - t.std) - t.std;
   const f = addDeadhead(g, { crewIds, from: t.from, to: t.to, std: t.std + late, sta: t.sta + late, cost, contractId: p.contractId });
   leaveAfterTicket(g, crewIds, f);
   if (cost) post(g, 'deadhead', -cost);
@@ -517,6 +519,8 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void
       break;
     }
   }
+  // v0.12.1 only a seat that exists (no closed airport, no landing in a night curfew).
+  std = slotAfter(g, c.loc, c.base, std, blk);
   // v0.12.1 forced (home before a leave): the ticket home they hold stands unless this one leaves at least an hour sooner.
   if (homeHeld.some((f) => f.std <= std + 60)) return;
   if (homeHeld.length) dropPlanned(g, c.id, homeHeld.map((f) => f.id));

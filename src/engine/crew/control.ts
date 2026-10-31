@@ -21,6 +21,7 @@ import { cancelCost, cancelLegs, clearRestMarks, delayChain, liveOver, unitOf, w
 import { latePenalty } from '../ops/latePolicy';
 import { rotationOf, subcharter, subcharterQuote } from '../ops/subcharter';
 import { contractOf, isRevenue, stats, usd } from '../ops/util';
+import { closedAirport } from '../ops/world';
 import { hurtProse, mkHurt, type GaugeSpec, type ProblemCard, type ReachSpec, hm, limitTone } from '../problems/types';
 import { crewIssuesFor, openDuties, planCrew, readyAt } from './check';
 import { crewWindows } from './ftl';
@@ -30,7 +31,10 @@ import { city, rootReason, type Reason, type ReasonCode } from './reasons';
 import { applyDiscretion, autoRoster, discretionCheck, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
 import { assignCrew, dutyCandidates, freshReport, type DutyCandidate } from './rosterActions';
 import { levelOf, LIMITS, minRest, offsetAt } from './rules';
-import { cabinEarly, crewCount, crewIx, crewRev, dhBlock, fdpLimitAt, locAt, OUT_CONNECT, posSeg, segsOf, touchCrew, typeIdOf, type TicketPlan } from './timeline';
+import { cabinEarly, crewCount, crewIx, crewRev, dhBlock, fdpLimitAt, locAt, OUT_CONNECT, posSeg, segsOf, setClosedCheck, touchCrew, typeIdOf, type TicketPlan } from './timeline';
+
+// v0.12.1 crew tickets never fly into or out of an airport a world event has closed.
+setClosedCheck((g, code, t) => !!closedAirport(g, code, t));
 import { callFromStandby, calledNow, reserveContact } from './standby';
 import { SBY_LABEL } from './calendar';
 import { dayLabel, offDaysHit, takesPublishedOff, v09Stats } from './dayPlan';
@@ -161,7 +165,7 @@ interface Ctx {
   g: GameState; f: Flight; ac: Aircraft; d?: Duty; p?: Pairing; cs: FlightCrewStatus;
   missing: Role[]; need: SeatNeed[]; unit: Flight[]; pax: number; revLegs: number; dep: string;
   /** v0.9 §T seats held by crew out of hours (illegal for this duty, or a failed rest plan): a replacement takes them. */
-  replace: { role: Role; crewId: string }[];
+  replace: { role: Role; crewId: string; why: string }[];
   /** Seats a new crew member can take: the empty ones, then those of `replace` (call-in, fly in, jet). */
   seats: Role[];
   /** v0.9 round 5 (speed): the longest delay from the original departure the caller would take (the bot's cap); the delay search tries no later time. */
@@ -184,19 +188,31 @@ function freshOver(g: GameState, f: Flight, d: Duty, p: Pairing): boolean {
 const dutyOver = (g: GameState, f: Flight, d: Duty): boolean => Math.max(d.fdp - d.maxFdp, liveOver(g, f) ?? -Infinity) > (d.discretion ?? 0);
 
 /** v0.9 §T the seats held by crew out of hours on duty d: a crew-level illegal issue, or a rest plan failed at the gate. */
-function heldOoh(g: GameState, f: Flight, d: Duty | undefined, p: Pairing | undefined, cs: FlightCrewStatus): { role: Role; crewId: string }[] {
+/**
+ * v0.12.1 why a held seat's crew member comes off, in a word for the change line: 'on leave', 'sick', 'not at Goma',
+ * 'out of hours' (it said 'out of hours' whatever the reason). Pure.
+ */
+function offWhy(g: GameState, crewId: string, f: Flight, issue?: { code: string }): string {
+  const c = g.crew[crewId];
+  if (issue?.code === 'status' && c) return c.status === 'sick' ? 'sick' : c.status === 'training' ? 'in training' : c.status === 'joining' ? 'not joined yet' : 'on leave';
+  if (issue?.code === 'location') return `not at ${city(f.from)}`;
+  if (issue?.code === 'rating') return 'not rated on the type';
+  return 'out of hours';
+}
+
+function heldOoh(g: GameState, f: Flight, d: Duty | undefined, p: Pairing | undefined, cs: FlightCrewStatus): { role: Role; crewId: string; why: string }[] {
   if (!d || !p || d.done) return [];
   const rest = p.slots.some((s) => s.crewId && s.ooh?.limit === 'inflightRest');
   if (cs.level !== 'illegal' && !rest) return [];
-  const out: { role: Role; crewId: string }[] = [];
+  const out: { role: Role; crewId: string; why: string }[] = [];
   const seen = new Set<string>();
-  const add = (crewId: string) => {
+  const add = (crewId: string, issue?: { code: string }) => {
     const s = p.slots.find((y) => y.crewId === crewId);
     if (!s || seen.has(crewId)) return;
     seen.add(crewId);
-    out.push({ role: s.role, crewId });
+    out.push({ role: s.role, crewId, why: offWhy(g, crewId, f, issue) });
   };
-  if (cs.level === 'illegal') for (const b of crewIssuesFor(g, d)) add(b.crewId);
+  if (cs.level === 'illegal') for (const b of crewIssuesFor(g, d)) add(b.crewId, b.issue);
   for (const s of p.slots) if (s.crewId && s.ooh?.limit === 'inflightRest') add(s.crewId);
   // Round 4: the duty itself over its limit after a hold (a clock no re-roster shortens): every seat may go to a
   // fresh crew whose own day, from their check-in for the held departure, still fits (else fullWhy says why not).
@@ -1478,7 +1494,7 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
         const r = assignCrew(h, f.id, crewId, role, replaces && h.pairings[p!.id]?.slots.some((s) => s.crewId === replaces) ? { replace: replaces } : {});
         if (!r.ok) continue;
         const c = h.crew[crewId];
-        if (replaces && h.crew[replaces]) changes.push(`${crewName(h.crew[replaces])} comes off (out of hours)`);
+        if (replaces && h.crew[replaces]) changes.push(`${crewName(h.crew[replaces])} comes off (${x.replace.find((r) => r.crewId === replaces)?.why ?? 'out of hours'})`);
         // (placing them may already have called them out: the roster counts a placement inside a running window)
         if (fix === 'callIn' && (callFromStandby(h, crewId) || calledNow(h, crewId) || onSby)) {
           const nd = h.duties[d.id] ?? d;
@@ -1586,7 +1602,7 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
       const hp = h.pairings[p.id];
       for (const y of picks) if (y.replaces && hp?.slots.some((s) => s.crewId === y.replaces)) {
         releaseCrew(h, hp, y.replaces);
-        changes.push(`${crewName(h.crew[y.replaces])} comes off (out of hours)`);
+        changes.push(`${crewName(h.crew[y.replaces])} comes off (${x.replace.find((r) => r.crewId === y.replaces)?.why ?? 'out of hours'})`);
       }
       const r = charterJet(h, f.id, picks.map((y) => y.c.id).filter((id) => !heldBy(ctxOf(h, flightId)?.p).has(id)), cls ?? jetClassFor(picks.length, distance(picks[0].loc, x.dep) / NM));
       if (!r.ok) return { ok: false, error: r.error?.startsWith('Nobody could be seated on the trip') ? r.error.replace('Nobody could be seated on the trip', 'Even flown in by jet, nobody is legal for the trip') : r.error };

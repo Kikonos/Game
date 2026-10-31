@@ -75,7 +75,7 @@ export function crewResignedCard(g: GameState, crewId: string): ProblemCard | nu
   const days = Math.max(0, Math.ceil((leaves - g.now) / DAY));
   return {
     subject: { kind: 'crewResigned', ref: { kind: 'crew', id: c.id } }, severity: 'amber',
-    title: `${crewName(c)} leaves in ${days} days`, what: `${crewName(c)} leaves in ${days} days`,
+    title: `${crewName(c)} leaves in ${days} day${days === 1 ? '' : 's'}`, what: `${crewName(c)} leaves in ${days} day${days === 1 ? '' : 's'}`,
     why: `They resigned on ${fmtDay(c.notice.given)}; from ${fmtDay(leaves)} their trips need someone else.`,
     hurt: mkHurt({ extra: 'one fewer crew member' }),
     actions: [{ id: 'hire', label: 'Hire', open: { modal: 'hire', id: c.role }, primary: true }, { id: 'crew', label: 'Crew', open: { tab: 'crew', sel: { kind: 'crew', id: c.id } } }],

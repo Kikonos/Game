@@ -6,6 +6,7 @@ import { BAL } from '../core/balance';
 import { distance } from '../core/geo';
 import { deadheadFlights, flightsOf, flightsRev } from '../core/entities';
 import { itinerary, ticketBlock } from '../ops/commercial';
+import { curfewOk } from '../core/curfew';
 import { DAY, fmtDateTime, fmtTime, monthKey, yearOf } from '../core/time';
 import type { Archetype, CrewMember, Duty, Flight, GameState, Minute, Pairing, StandbyKind } from '../core/types';
 import { asbyRest, disruptiveKinds, extRestCut, isDisruptive, maxFdp, minRest, mkSeg, referenceTime, standbyCut, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
@@ -216,6 +217,34 @@ export const OUT_BUFFER = 180;
 export const OUT_REST_BUFFER = 180;
 export const OUT_FAR_BLOCK = 6 * 60;
 
+/**
+ * v0.12.1 an airline seat from → to leaving std, landing sta, that exists: neither airport closed by a world event then
+ * (EV-S01: crew ticketed Lisbon–Goma during the fighting near Goma), and no landing inside the destination's night
+ * curfew (EV-S04: 165 deadhead landings in curfews on seed 9; airlines keep the bans too). Our own flights flying under
+ * an event permit are rides, not tickets, and are not judged here. Pure.
+ */
+export function ticketSlotOk(g: GameState, from: string, to: string, std: Minute, sta: Minute): boolean {
+  return !(closedCheck && (closedCheck(g, from, std) || closedCheck(g, to, sta))) && curfewOk(to, sta);
+}
+
+/** v0.12.1 the world's closure check (ops/world.ts closedAirport), set by crew control (no import cycle). */
+let closedCheck: ((g: GameState, code: string, t: Minute) => boolean) | null = null;
+export function setClosedCheck(f: typeof closedCheck): void {
+  closedCheck = f;
+}
+
+/** The latest hour at or before t (not before lo) whose seat exists (ticketSlotOk), or null. Pure. */
+function slotBefore(g: GameState, from: string, to: string, t: Minute, lo: Minute, blk: number): Minute | null {
+  for (let x = t; x >= lo; x -= 60) if (ticketSlotOk(g, from, to, x, x + blk)) return x;
+  return null;
+}
+
+/** The first hour at or after t (within two days) whose seat exists, else t. Pure. */
+export function slotAfter(g: GameState, from: string, to: string, t: Minute, blk: number): Minute {
+  for (let x = t; x < t + 2 * DAY; x += 60) if (ticketSlotOk(g, from, to, x, x + blk)) return x;
+  return t;
+}
+
 /** A ticket out, or why none works (`why`: then `plan` is only the best guess, not workable). */
 export interface OutTicket {
   plan: TicketPlan;
@@ -265,7 +294,8 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
   // whole crew minutes short. The last one that rests stays the fallback when the earlier one has left already.
   const far = tz >= 4 || blk >= OUT_FAR_BLOCK;
   const buffered = far ? hour(rep - rest - blk - OUT_REST_BUFFER, false) : exact;
-  const rested = buffered >= first ? buffered : exact;
+  // v0.12.1 only seats that exist (no closed airport, no curfew landing): the next one earlier.
+  const rested = slotBefore(g, from, to, buffered >= first ? buffered : exact, first, blk) ?? slotBefore(g, from, to, exact, first - DAY, blk) ?? exact;
   if (early) return { plan: mk(rested), why: rested >= first ? null : `Rest at ${to} needed landing by ${at(rested + blk, g.now)}` };
   const disc = d.discretion ?? 0;
   /** Merged FDP and its limit for a ticket leaving at std. */
@@ -285,14 +315,15 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
     const x = fdpOf(ride.std);
     if (ride.sta + rideRest <= rep || x.fdp <= x.max) return { plan: ride, why: null };
   }
-  const pref = hour(d.report - OUT_BUFFER - blk, false);
-  const prefFits = fits(pref);
+  const pref0 = hour(d.report - OUT_BUFFER - blk, false);
+  const pref = slotBefore(g, from, to, pref0, Math.max(first, exact), blk) ?? pref0;
+  const prefFits = fits(pref) && ticketSlotOk(g, from, to, pref, pref + blk);
   if (pref >= first && prefFits) return { plan: mk(pref), why: null };
-  if (rested >= first) return { plan: mk(rested), why: null };
+  if (rested >= first && ticketSlotOk(g, from, to, rested, rested + blk)) return { plan: mk(rested), why: null };
   const last = hour(rep - OUT_CONNECT - blk, false);
   let best: Minute | null = null;
   for (let std = Math.max(first, exact + 60); std <= last; std += 60) {
-    if (!fits(std)) continue;
+    if (!fits(std) || !ticketSlotOk(g, from, to, std, std + blk)) continue;
     if (best === null || Math.abs(d.report - std - blk - OUT_BUFFER) <= Math.abs(d.report - best - blk - OUT_BUFFER)) best = std;
   }
   if (best !== null) return { plan: mk(best), why: null };
