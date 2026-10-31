@@ -334,6 +334,8 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
   const cap = (x: string) => (resting ? x : x[0].toUpperCase() + x.slice(1));
   if (last < first) {
     const arr = first + blk;
+    // v0.12.1 (C7) never a deadline already past: a duty that has reported is joined later or not at all.
+    if (rep - OUT_CONNECT <= g.now) return { plan, why: resting + cap(`earliest arrival ${to} ${t(arr)}${viaText(from, to, first, arr)}, after the crew reported (${t(rep)})`) };
     return { plan, why: resting + cap(`earliest arrival ${to} ${t(arr)}${viaText(from, to, first, arr)}, must land by ${t(rep - OUT_CONNECT)} (report ${t(rep)})`) };
   }
   const x = fdpOf(last);

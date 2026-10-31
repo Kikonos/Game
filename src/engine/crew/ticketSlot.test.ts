@@ -53,4 +53,15 @@ describe('crew tickets are seats that exist (C9, C13)', () => {
       setClosedCheck((h, code, t) => !!closedAirport(h, code, t));
     }
   });
+
+describe('a duty that has reported (C7)', () => {
+  it('never shows a must-land-by deadline already past', () => {
+    const { g, d, p } = trip('FRA', 14 * 60);
+    g.now = d.report + 60;
+    const t = outTicket(g, p, d, 'LIS');
+    expect(t.why).not.toBeNull();
+    expect(t.why).not.toMatch(/must land by/);
+    expect(t.why).toMatch(/after the crew reported/);
+  });
+});
 });

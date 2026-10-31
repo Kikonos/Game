@@ -115,7 +115,7 @@ export function rootReason(g: GameState, issues: LegalityIssue[], c: CrewMember,
   const laterT = laterD ? laterD.deadheadIds.map((id) => g.flights[id]).find((f) => !!f && f.kind === 'deadhead' && f.status === 'scheduled' && f.crewIds.includes(c.id)) : undefined;
   if (loc && laterF && laterT) set('place', `their ticket out for ${laterF.no} on ${fmtDay(laterF.std)} leaves ${city(laterT.from)}`);
   else if (loc) {
-    const arr = /earliest arrival (\w{3}) ([^,]+), must land by/i.exec(loc.text);
+    const arr = /earliest arrival (\w{3}) ([^,]+), (?:must land by|after the crew reported)/i.exec(loc.text);
     const where = /^At (\w{3}), not (\w{3})/.exec(loc.text);
     const resting = /^Resting at (\w{3}) until ([^;]+);/.exec(loc.text);
     if (arr) set('place', `in ${city(resting?.[1] ?? c.loc)}, landing ${arr[2].trim()} at the earliest`);

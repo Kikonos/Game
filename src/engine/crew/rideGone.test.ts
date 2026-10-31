@@ -5,7 +5,7 @@
 import { describe, expect, it } from 'vitest';
 import { acceptOffer } from '../contracts';
 import { leased, legsOffer, newGame } from '../contracts/testkit';
-import { addFlight, removeFlights } from '../core/entities';
+import { addDeadhead, addFlight, removeFlights } from '../core/entities';
 import { DAY } from '../core/time';
 import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
@@ -47,5 +47,16 @@ describe('a ride on an empty leg that is removed (Round B leftover)', () => {
     delete g.flights[leg.id];
     const h = deserialize(serialize(g));
     expect(h.duties[d.id].deadheadIds).not.toContain(leg.id);
+  });
+
+  it('a flown ticket pruned while its duty is still open comes off it too (S1027 duqdx / f1gl0)', () => {
+    const { g, d } = withRide();
+    const t = addDeadhead(g, { crewIds: [], from: 'LIS', to: 'PMI', std: g.now - 3 * DAY, sta: g.now - 3 * DAY + 150, cost: 0 });
+    t.status = 'done';
+    d.deadheadIds.push(t.id);
+    touchCrew(g);
+    removeFlights(g, [t.id]);
+    advanceTo(g, g.now + 1, new Set());
+    expect(d.deadheadIds).not.toContain(t.id);
   });
 });

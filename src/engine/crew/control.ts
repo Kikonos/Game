@@ -742,7 +742,11 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
     if (hereLine && !free?.standby && !offFree) why = `${hereLine}${why}`;
     for (const c of cands.slice(0, 8)) details.push(`${c.name} (${city(c.loc)}): ${c.reason?.text ?? (c.reasons.length ? c.reasons.join('; ') : c.level === 'tight' ? 'legal, close to a limit' : 'legal, free')}`);
   }
-  if (d) details.push(`Report ${fmtDateTime(d.report)} UTC at ${x.dep}; missing ${seatsText(x.need)}${x.cs.level === 'illegal' ? '; crew flagged illegal' : ''}`);
+  // v0.12.1 (C7) the report and its airport from one source: a duty under way reported at its first airport; the held
+  // leg's own airport and time are said apart (it read 'Report … at ZRH' for a duty reported at Bern 9 h before).
+  const d0 = d ? g.flights[d.flightIds[0]] : undefined;
+  const repAt = d0?.from ?? x.dep;
+  if (d) details.push(`${d.report <= g.now ? 'Reported' : 'Report'} ${fmtDateTime(d.report)} UTC at ${repAt}${repAt !== x.dep ? `; ${f.no} leaves ${x.dep} ${fmtDateTime(f.std + f.delay)} UTC` : ''}; missing ${seatsText(x.need)}${x.cs.level === 'illegal' ? '; crew flagged illegal' : ''}`);
   details.push(`A legal crew could take it from ${fmtDateTime(ready)} UTC${delayMin ? ` (${fmtDuration(delayMin)} late)` : ''}`);
   const sev = (f.std - g.now) / 60 <= CC().redH ? 'red' : 'amber';
   return {

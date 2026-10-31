@@ -414,6 +414,20 @@ function forgetRide(g: GameState, fid: string): void {
   if (n) touchCrew(g);
 }
 
+/**
+ * v0.12.1 open duties drop tickets already gone from the flight list (a flown ticket out is pruned two days after it
+ * lands; a duty whose report kept slipping still listed it: S1027 'duty duqdx lists missing ticket f1gl0').
+ */
+export function forgetGoneTickets(g: GameState): void {
+  let n = 0;
+  for (const d of Object.values(g.duties)) {
+    if (d.done || !d.deadheadIds.length || d.deadheadIds.every((id) => g.flights[id])) continue;
+    d.deadheadIds = d.deadheadIds.filter((id) => g.flights[id]);
+    n++;
+  }
+  if (n) touchCrew(g);
+}
+
 /** v0.12.1 settle (after any flight change): rides lost (leg cancelled or gone) or over the seats free are re-planned. */
 export function settleRides(g: GameState): void {
   for (const [fid, ids] of takeLostRides(g)) {
