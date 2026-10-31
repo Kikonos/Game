@@ -5,7 +5,7 @@ import { store, useStore, type Toast } from '../store';
 import { useTouch } from '../useMedia';
 import { toCss } from '../device';
 import { openMessage } from '../screens/Inbox';
-import { shownToasts } from '../toastLogic';
+import { shownToasts, withoutOpenSubject } from '../toastLogic';
 
 /** v0.12.1 what a toast (or its log line) opens: its Inbox message's target, else its ref; nothing to open: false. */
 export function openToast(t: Pick<Toast, 'msgId' | 'ref' | 'title' | 'body'>): boolean {
@@ -25,7 +25,13 @@ export function Toasts() {
   const s = useStore();
   // v0.12.1 a phone on its side shows two at most, the urgent ones first (the rest wait in the log).
   const short = typeof window !== 'undefined' && window.innerHeight < 500;
-  const list = short ? shownToasts(s.toasts, 2) : s.toasts;
+  // v0.12.1 what a dialog shows has no toast about it over its title ("Decision: …", "New offer: …").
+  const g = s.game;
+  const m = s.modal;
+  const dec = !g ? undefined : m?.kind === 'decision' ? g.decisions.find((d) => d.id === m.decisionId) : !m && s.decisionOpen ? g.decisions[0] : undefined;
+  const open = dec ? { title: dec.title, ref: dec.ref } : m?.kind === 'offer' ? { ref: { kind: 'offer' as const, id: m.offerId } } : m?.kind === 'crewControl' ? { ref: { kind: 'flight' as const, id: m.flightId } } : null;
+  const all = withoutOpenSubject(s.toasts, open);
+  const list = short ? shownToasts(all, 2) : all;
   // v0.9.1 a tap dismisses a toast (it fades and leaves the stack). v0.12.1 a tap opens what it is about when it is about
   // something; hovering or touching holds it; the urgent ones stay until closed (×); the clock button opens the log.
   return (

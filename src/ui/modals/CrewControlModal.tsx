@@ -79,7 +79,8 @@ function Row({ s, open, onOpen, children }: { s: CrewSolution; open: boolean; on
   const timing = s.chips.find((c) => /^leaves|^lands|^arrives|^wheels/i.test(c)) ?? (s.newDeparture !== null ? `leaves ${fmtTime(s.newDeparture)}` : undefined);
   // The engine's chips carry the price when there is one; our own cost chip only says 'free'.
   const chips = s.chips.filter((c) => c !== timing);
-  const priced = chips.some((c) => /^[−-]?\$/.test(c));
+  // v0.12.1 (Goma) a force-majeure cancel says so instead of 'free'.
+  const priced = chips.some((c) => /^[−-]?\$/.test(c) || c === 'Force majeure');
   // v0.12.1 'free' only when neither the fix nor the re-roster around it spends anything.
   const spend = s.cost + (s.preview.extraCost ?? 0);
   return (
@@ -187,7 +188,7 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
   return (
     <Modal size="xwide" className="cc-modal" title={<>{title}<HintButton id="crewControl" align="left" /></>} icon={icon} onClose={close} footer={
       <>
-        <span className="small dim grow cc-foot-note">{done ? `Applied: ${done[0]}` : 'Tap a solution to see what it changes, then Apply.'}</span>
+        <span className="small dim grow cc-foot-note" title={done ? `Applied: ${done[0]}` : undefined}>{done ? `Applied: ${done[0]}` : 'Tap a solution to see what it changes, then Apply.'}</span>
         <button className="btn" onClick={() => f.dutyId && store.openModal({ kind: 'duty', id: f.id })} disabled={!f.dutyId}><Users /> Adjust crew</button>
         <button className="btn btn-primary" onClick={close}>Close</button>
       </>

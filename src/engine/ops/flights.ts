@@ -12,7 +12,7 @@ import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, next, pick, range } from '../core/rng';
 import { DAY, fmtDuration, fmtTime, monthKey } from '../core/time';
-import type { ActionResult, Aircraft, Contract, Duty, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, Rival, SimEvent } from '../core/types';
+import type { ActionResult, Aircraft, Contract, Duty, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, Rival, SimEvent, WorldEvent } from '../core/types';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { distance } from '../core/geo';
 import { noteLostLegs } from '../contracts/billing';
@@ -32,7 +32,7 @@ import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, forgiveDelay, LEVEL_NAME, levelOf, statsV08 } from '../contracts/relations';
-import { closedAirport, closedAtDeparture, closedUntil, payWarRisk, permitOf, rerouteAtDeparture, strandedAsk, strikeDelay, waitAtGate, whiteout } from './world';
+import { cancelForceMajeure, closedAirport, closedAtDeparture, closedUntil, closureCause, payWarRisk, permitOf, rerouteAtDeparture, strandedAsk, strikeDelay, waitAtGate, whiteout } from './world';
 import { isActive, noteHiredThem } from '../contracts/rivals';
 import { atGate, delayCard, rollEnRoute } from './disrupt';
 import { delayOf, excusedLate, latePenalty } from './latePolicy';
@@ -345,20 +345,44 @@ function shiftCheck(g: GameState, m: MaintenanceEvent, start: Minute): void {
   schedule(g, m.start, 'maint.start', m.id, m.ev);
 }
 
+// v0.12.1 (Goma) the world closure behind the hold or cancellation under way (underClosure), else null.
+let fmCause: WorldEvent | null = null;
+/** v0.12.1 (Goma) the closure under way, for messages: ' Force majeure (…): no compensation and no reliability hit.' */
+const fmText = (e: WorldEvent, named = true) => ` Force majeure${named ? ` (${e.title})` : ''}: no compensation and no reliability hit.`;
+
+/**
+ * v0.12.1 (Goma, designer) runs `fn` with the closure that is the real cause for `f` (world.ts closureCause, or `e`):
+ * legs cancelled meanwhile are force majeure (no compensation, no relation or reliability hit, off the MGH as
+ * lostFmMin) and the lateness it adds to the aircraft's legs is excused. Without such a closure `fn` runs as usual.
+ */
+export function underClosure<T>(g: GameState, f: Flight, fn: () => T, e: WorldEvent | null = fmCause ?? closureCause(g, f)): T {
+  if (!e) return fn();
+  const was = fmCause;
+  const before = new Map(f.aircraftId ? flightsOf(g, f.aircraftId).filter((x) => x.status === 'scheduled').map((x) => [x, delayOf(x)] as const) : []);
+  fmCause = e;
+  try {
+    return fn();
+  } finally {
+    fmCause = was;
+    if (!was) excuseGrowth(before);
+  }
+}
+
 /**
  * Applies a recovery plan; dropped revenue legs are compensated and messaged once (with `subAc`, a crew wait:
- * sub-chartered instead when cheaper). Returns legs moved.
+ * sub-chartered instead when cheaper). Returns legs moved. v0.12.1 (Goma) under a closure: force majeure, no sub-charter.
  */
 export function applyHold(g: GameState, plan: HoldPlan, reason: string, moveReason?: string, cancelReason = reason, subAc?: Aircraft): number {
-  if (subAc && subcharterInstead(g, subAc, plan.cancels, `${reason}: the aircraft can't make these on time.`, false)) plan.cancels = [];
+  const fm = fmCause;
+  if (subAc && !fm && subcharterInstead(g, subAc, plan.cancels, `${reason}: the aircraft can't make these on time.`, false)) plan.cancels = [];
   const rev = plan.cancels.filter((f) => f.status === 'scheduled' && isRevenue(f));
   const pen = cancelLegs(g, plan.cancels, cancelReason, 0);
   if (rev.length) {
     const f = rev[0];
     const cap = lateCap(g, f) / 60;
     pushMessage(g, {
-      tone: 'bad', cat: 'ops', title: `${rev.length} leg${rev.length > 1 ? 's' : ''} cancelled: ${f.no}${rev.length > 1 ? '…' : ''}`,
-      body: `${reason}: ${rev.map((x) => `${x.no} ${x.from}–${x.to}`).slice(0, 4).join(', ')}${rev.length > 4 ? '…' : ''} would leave more than ${cap} h late, so ${rev.length > 1 ? 'they were' : 'it was'} dropped to keep the rest of the schedule.${pen ? ` Compensation ${usd(pen)}.` : ''}`,
+      tone: 'bad', cat: 'ops', title: `${rev.length} leg${rev.length > 1 ? 's' : ''} cancelled${fm ? ' (force majeure)' : ''}: ${f.no}${rev.length > 1 ? '…' : ''}`,
+      body: `${fm ? fm.title : reason}: ${rev.map((x) => `${x.no} ${x.from}–${x.to}`).slice(0, 4).join(', ')}${rev.length > 4 ? '…' : ''} would leave more than ${cap} h late, so ${rev.length > 1 ? 'they were' : 'it was'} dropped to keep the rest of the schedule.${fm ? fmText(fm, false) : pen ? ` Compensation ${usd(pen)}.` : ''}`,
       ref: { kind: 'flight', id: f.id }, ...penaltyMeta(g, rev, pen),
     });
   }
@@ -519,6 +543,11 @@ export function cancelLegs(g: GameState, legs: Flight[], reason: string, repPerL
   // v0.7: a delivery ferry is never cancelled (it waits at the site instead).
   const live = legs.filter((f) => f.status === 'scheduled' && f.purpose !== 'delivery');
   if (!live.length) return 0;
+  // v0.12.1 (Goma) a world closure is the cause (underClosure): force majeure, recorded as such (lostFmMin).
+  if (fmCause && !agreed) {
+    cancelForceMajeure(g, live, `Cancelled: ${fmCause.title}`);
+    return 0;
+  }
   const pen = agreed ? 0 : cancelCost(g, live);
   if (!agreed) noteLostLegs(g, live);
   let rev = 0;
@@ -1129,11 +1158,12 @@ export function subcharterInstead(g: GameState, ac: Aircraft, legs: Flight[], wh
 function dropUnit(g: GameState, ac: Aircraft, f: Flight, reason: string, why: string, cat: MessageCat): void {
   const legs = unitOf(g, ac, f);
   const rev = legs.filter(isRevenue);
+  const fm = fmCause;
   const pen = cancelLegs(g, legs, reason, 0);
   if (rev.length) {
     pushMessage(g, {
-      tone: 'bad', cat, title: `${rev[0].no} cancelled${rev.length > 1 ? ` with ${rev.length - 1} more` : ''}`,
-      body: `${why} ${rev.map((x) => `${x.no} ${x.from}–${x.to}`).join(', ')} cancelled.${pen ? ` Compensation ${usd(pen)}.` : ''}`,
+      tone: 'bad', cat, title: `${rev[0].no} cancelled${rev.length > 1 ? ` with ${rev.length - 1} more` : ''}${fm ? ' (force majeure)' : ''}`,
+      body: `${why} ${rev.map((x) => `${x.no} ${x.from}–${x.to}`).join(', ')} cancelled.${fm ? fmText(fm) : pen ? ` Compensation ${usd(pen)}.` : ''}`,
       ref: { kind: 'flight', id: rev[0].id }, ...penaltyMeta(g, rev, pen),
     });
   }
@@ -1252,13 +1282,14 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
     const tries = (f.crewTries ?? 0) + 1;
     f.crewTries = tries;
     const away = f.from !== stationOf(g, f);
+    // v0.12.1 (Goma) at an airport a closure keeps crew out of, the waits and the drop are force majeure.
     if (away ? delayOf(f) < 2 * DAY : tries <= 2) {
-      delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + Math.min(6, tries) * 60), away ? 'Waiting for a rescue crew' : 'Waiting for a legal crew', true, true);
+      underClosure(g, f, () => delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + Math.min(6, tries) * 60), away ? 'Waiting for a rescue crew' : 'Waiting for a legal crew', true, true));
       rerosterFrom(g, ac.id, g.now);
       return;
     }
     const why = `No legal crew after ${fmtDuration(heldFor(g, f))} on the ground:`;
-    if (!subcharterInstead(g, ac, unitOf(g, ac, f), why)) dropUnit(g, ac, f, 'No legal crew', why, 'crew');
+    underClosure(g, f, () => (fmCause || !subcharterInstead(g, ac, unitOf(g, ac, f), why)) && dropUnit(g, ac, f, 'No legal crew', why, 'crew'));
     return;
   }
   askCrewShort(g, f, ac);
@@ -1296,7 +1327,8 @@ function emptyLegCrew(g: GameState, f: Flight, ac: Aircraft): void {
     else cancelLegs(g, [f], 'No crew for the ferry', 0);
     return;
   }
-  delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + tries * 120), 'Waiting for crew', true, true);
+  // v0.12.1 (Goma) an empty leg out of an airport a closure keeps crew out of: the jobs it drops are force majeure.
+  underClosure(g, f, () => delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + tries * 120), 'Waiting for crew', true, true));
   rerosterFrom(g, ac.id, g.now);
 }
 
@@ -1503,10 +1535,9 @@ setClosedWaitHook((g, id) => {
   f.closedBy = e.id;
   // v0.12.1 never drops another job's legs without asking (waitAtGate's card): it waits for the answer instead.
   if (strandedAsk(g, f, e, at)) return false;
-  // v0.12.1 the wait and its knock-on on the aircraft's later legs are not ours: excused (no delay penalty).
-  const before = new Map(flightsOf(g, f.aircraftId).filter((x) => x.status === 'scheduled').map((x) => [x, delayOf(x)] as const));
-  delayChain(g, f, at, `Waiting: ${e.title}`, false);
-  excuseGrowth(before);
+  // v0.12.1 the wait and its knock-on on the aircraft's later legs are not ours: excused (no delay penalty); (Goma)
+  // a leg it drops past its cap is force majeure.
+  underClosure(g, f, () => delayChain(g, f, at, `Waiting: ${e.title}`, false), e);
   return f.status === 'scheduled' && f.std >= at;
 });
 

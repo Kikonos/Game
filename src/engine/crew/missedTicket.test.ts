@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { acceptOffer } from '../contracts';
-import { hamBase, leased, newGame, run } from '../contracts/testkit';
+import { leased, dubBase, newGame, run } from '../contracts/testkit';
 import { touchTickets } from '../core/entities';
 import { DAY } from '../core/time';
 import type { Flight, GameState, Pairing } from '../core/types';
@@ -16,11 +16,11 @@ import { planCrew } from './check';
 import { flightCrewStatus } from './roster';
 import { segsOf, touchCrew } from './timeline';
 
-/** A Hamburg base (crews fly out from Lisbon on airline tickets); the day before the second tour's ticket out. */
+/** A Dublin base (v0.12.1: was Hamburg, whose night ban now trims the third wave; crews fly out from Lisbon on airline tickets); the day before the second tour's ticket out. */
 function scenario(): { g: GameState; p: Pairing; fo: string; ticket: Flight; f0: Flight } {
   const g = newGame(21);
   const ac = leased(g);
-  const o = hamBase(g, g.now + 3 * DAY, 30);
+  const o = dubBase(g, g.now + 3 * DAY, 30);
   o.broker = undefined;
   const r = acceptOffer(g, o.id, [ac.id]);
   if (!r.ok) throw new Error(r.error);
@@ -79,7 +79,7 @@ describe('v0.10.1 a ticket out the crew member never boards', () => {
     // The flight sheet: illegal, with where she is (not "Crew legal").
     expect(flightCrewStatus(h, f.id).level).toBe('illegal');
     const card = problemAt(h, { kind: 'flight', id: f.id });
-    expect(card?.why).toMatch(/^FO .+ is in Lisbon, not Hamburg\.$/);
+    expect(card?.why).toMatch(/^FO .+ is in Lisbon, not Dublin\.$/);
     run(h, f.std + 12 * 60);
     expect(f.delayReason ?? '').not.toMatch(/rescue crew/);
     expect(f.crewTries ?? 0).toBeLessThanOrEqual(2);

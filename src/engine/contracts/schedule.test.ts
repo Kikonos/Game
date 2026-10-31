@@ -2,13 +2,13 @@
 
 import { describe, expect, it } from 'vitest';
 import { flightsOf } from '../core/entities';
-import { typeOf } from '../core/perf';
+import { blockMinutes, typeOf } from '../core/perf';
 import { DAY, fromUTC, localMinuteOfDay, monthKey } from '../core/time';
 import type { GameState } from '../core/types';
 import { acceptOffer, planPositioning } from '.';
 import { baseDays, chainBackward, chainForward, computeWaves, flownRotations, gapMoves, localToUTC, type BasePattern } from './plan';
 import { curfewOk } from '../core/curfew';
-import { hamBase, leased, legsOffer, newGame, offer, owned, run } from './testkit';
+import { dubBase, hamBase, leased, legsOffer, newGame, offer, owned, run } from './testkit';
 import { relinkPositioning } from './schedule';
 import { anchorsOf } from './plan';
 
@@ -27,9 +27,37 @@ function turnsOk(g: GameState, id: string) {
 }
 
 describe('wave times', () => {
-  it('HAM–PMI on an A320: 06:00 / 12:30 / 19:00 local, or the first two', () => {
-    expect(computeWaves('HAM', ['PMI'], 'a320ceo', 3)).toEqual([360, 750, 1140]);
+  it('HAM–PMI on an A320: 06:00 / 12:30 local (v0.12.1: a 19:00 third would land back in the night ban)', () => {
+    expect(computeWaves('HAM', ['PMI'], 'a320ceo', 3)).toEqual([360, 750]);
     expect(computeWaves('HAM', ['PMI'], 'a320ceo', 2)).toEqual([360, 750]);
+    // Without a curfew the same day keeps its three waves (Dublin, the same blocks to Palma).
+    expect(computeWaves('DUB', ['PMI'], 'a320ceo', 3)).toEqual([360, 750, 1140]);
+  });
+  it('v0.12.1 (A7) a curfew base wins a wave back by starting earlier, never before its curfew ends', () => {
+    // FRA (no movements 23:00–05:00): 06:00 / 12:00 / 18:00 to Alicante would land back at 23:25; from 05:35 it fits.
+    const fra = computeWaves('FRA', ['ALC'], 'a320ceo', 3);
+    expect(fra).toHaveLength(3);
+    expect(fra[0]).toBeGreaterThanOrEqual(300);
+    expect(fra[0]).toBeLessThan(360);
+    // Linate is shut until 07:00: the first wave waits for it.
+    expect(computeWaves('LIN', ['CTA'], 'a320ceo', 3)[0]).toBe(420);
+  });
+  it('v0.12.1 (A7) no base wave leaves, lands, turns or lands back inside a strict curfew, in any season', () => {
+    const bases = ['HAM', 'FRA', 'MUC', 'BER', 'DUS', 'ZRH', 'STR', 'LHR', 'LIN', 'BRU', 'LIS', 'DUB'];
+    const dests = [['PMI'], ['TFS'], ['AYT'], ['HRG'], ['LHR'], ['DUS', 'PMI'], ['SKG', 'HER', 'RHO'], ['FAO']];
+    for (const b of bases) for (const ds of dests) {
+      if (ds.includes(b)) continue;
+      for (const n of [2, 3]) {
+        const w = computeWaves(b, ds, 'a320ceo', n);
+        expect(w.length).toBeGreaterThanOrEqual(1);
+        expect(w.length).toBeLessThanOrEqual(n);
+        for (const k of [10, 100, 200, 300]) for (const wave of w) for (const d of ds) {
+          const dep = localToUTC(b, (Math.floor(fromUTC(2028, 1, 1) / DAY) + k) * DAY + wave);
+          const arr = dep + blockMinutes('a320ceo', b, d), back = arr + typeOf('a320ceo').turnMin, home = back + blockMinutes('a320ceo', d, b);
+          expect([curfewOk(b, dep), curfewOk(d, arr), curfewOk(d, back), curfewOk(b, home)], `${b}–${d} ${wave} day ${k}`).toEqual([true, true, true, true]);
+        }
+      }
+    }
   });
   it('long rotations get fewer waves instead of colliding', () => {
     const w = computeWaves('HAM', ['TFS'], 'a320ceo', 3);
@@ -62,7 +90,8 @@ describe('base pattern plan', () => {
   const g = newGame();
   for (const waves of [2, 3]) {
     it(`${waves} waves: maintenance nights every 7 days and monthly BH within 5% of target`, () => {
-      const o = hamBase(g, fromUTC(2027, 4, 1), 91, waves);
+      // v0.12.1 (A7) three waves at Dublin: Hamburg's night ban leaves room for two.
+      const o = (waves === 3 ? dubBase : hamBase)(g, fromUTC(2027, 4, 1), 91, waves);
       const p = o.pattern as BasePattern;
       expect(p.waves).toHaveLength(waves);
       const t = typeOf('a320ceo');

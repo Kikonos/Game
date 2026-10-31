@@ -38,6 +38,15 @@ describe('reach bar', () => {
     }
     for (const t of tight.ticks) { expect(t.lx ?? t.x).toBeLessThanOrEqual(100); expect(t.x).toBe(tight.ticks.find((u) => u.key === t.key)!.x); }
   });
+  it('v0.12.1 a label drawn right-aligned at the edge keeps its neighbour half a label further off', () => {
+    // iPad Crew Control (S1027 DE3020): now 00:00, must land by 02:00, report 03:00, earliest 03:55, departs 04:00.
+    const lay = reachLayout({ ...spec, now: 0, mustLandBy: 120, report: 180, departure: 240, earliestArrival: 235, gapMin: 115 });
+    const above = lay.ticks.filter((t) => t.side === 'above');
+    const dep = above.find((t) => t.key === 'dep')!;
+    const report = above.find((t) => t.key === 'report')!;
+    expect(dep.lx!).toBeGreaterThan(92);
+    expect(dep.lx! - report.lx!).toBeGreaterThanOrEqual(36);
+  });
   it('lays a timeline out on the same scale', () => {
     const tl: TimelineSpec = { from: 0, to: 600, marks: [{ t: 0, label: 'Fault' }, { t: 540, label: 'Repaired', tone: 'good' }], spans: [{ from: 0, to: 540, label: 'Repair', tone: 'bad' }] };
     const lay = timelineLayout(tl);

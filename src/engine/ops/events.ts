@@ -24,14 +24,14 @@ import { calledNow } from '../crew/standby';
 import { type IssueCode } from '../crew/rules';
 import { dhBlock, OUT_CONNECT, outTicket, segsOf } from '../crew/timeline';
 import { distance } from '../core/geo';
-import { applyHold, cancelCost, cancelLegs, clientMoved, crewBlocked, delayChain, delayOf, liveOver, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, settleOverlaps, stationOf, subcharterCost, subcharterLegs, subHit, unitOf, windowLegs, type SubHit } from './flights';
+import { applyHold, cancelCost, cancelLegs, clientMoved, crewBlocked, delayChain, delayOf, liveOver, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, settleOverlaps, stationOf, subcharterCost, subcharterLegs, subHit, underClosure, unitOf, windowLegs, type SubHit } from './flights';
 import { excusedLate, latePenalty } from './latePolicy';
 import { setAogEnd } from './maintenance';
 import { ticketBlock } from './commercial';
 import { bumpReliable, contractOf, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, favourChip, levelOf, statsV08 } from '../contracts/relations';
 import { mghFor } from '../contracts/billing';
-import { cancelForceMajeure, resolveAirspace, resolveStranded, resolveUninsurable, setFindSwap } from './world';
+import { cancelForceMajeure, closureCause, resolveAirspace, resolveStranded, resolveUninsurable, setFindSwap } from './world';
 import { optionalFactor } from './director';
 
 type Data = Record<string, string | number | boolean>;
@@ -438,6 +438,7 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
   const later = planRecovery(g, ac, f.from, ready, Math.min(f.std, g.now));
   const sub = subcharterCost(g, legs, factor);
   const pen = cancelCost(g, legs);
+  const fm = closureCause(g, f);
   // v0.7.1: the options read as Crew Control's solutions (the engine's pick, delay, jet, sub-charter, cancel).
   const view = crewControl(g, f.id);
   const avail = view ? view.solutions.filter((s) => s.available) : [];
@@ -453,7 +454,10 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
         tone: 'warn', chips: [`Delay ~${fmtDuration(wait)}`, ...holdChips(g, later)],
       };
     }
-    if (id === 'cancel' && !s) return { id, label: 'Cancel the trip', desc: 'Compensation and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legsChip(legs)] };
+    // v0.12.1 (Goma) a closure keeps crew out (or bars the leg): cancelling is force majeure.
+    if (id === 'cancel' && !s) return fm
+      ? { id, label: 'Cancel the trip', desc: `Force majeure (${fm.title}): no compensation and no reliability hit.`, tone: 'bad', chips: ['Force majeure', legsChip(legs)] }
+      : { id, label: 'Cancel the trip', desc: 'Compensation and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legsChip(legs)] };
     return { id, label: s!.label, desc: s!.desc, tone: tone(id), chips: s!.chips.length ? s!.chips : id === 'delay' ? [`Delay ~${fmtDuration(wait)}`, ...holdChips(g, later)] : [] };
   });
   if (canDisc && !options.some((o) => o.id === 'discretion')) options.splice(1, 0, { id: 'discretion', label: "Commander's discretion", desc: `The captain extends the duty by ${fmtDuration(over)} (up to 2 h, 3 h with an augmented crew).`, tone: 'warn', chips: ['Morale −3', `FDP +${fmtDuration(over)}`] });
@@ -500,7 +504,8 @@ function waitForCrew(g: GameState, f: Flight, ac: Aircraft): boolean {
   let t = crewReadyAt(g, f, ac);
   for (let i = 0; i < 2; i++) {
     // The first wait is the player's (its chips showed what it drops); on a second, ops sub-charter dropped waves when cheaper.
-    delayChain(g, f, t, 'Waiting for a legal crew', true, i > 0);
+    // v0.12.1 (Goma) at an airport a closure keeps crew out of, what the wait drops is force majeure.
+    underClosure(g, f, () => delayChain(g, f, t, 'Waiting for a legal crew', true, i > 0));
     rerosterFrom(g, ac.id, g.now);
     if (f.status !== 'scheduled' || !crewBlocked(g, f)) return true;
     const next = crewReadyAt(g, f, ac);
@@ -540,8 +545,8 @@ function resolveCrewShort(g: GameState, d: Decision, opt: string): ActionResult 
     case 'cancel': {
       const r = applyCrewFix(g, f.id, 'cancel', { confirmed: true });
       if (r.ok) return { ok: true, msg: r.msg };
-      const pen = cancelLegs(g, legs, 'Crew shortage', 3);
-      return { ok: true, msg: `${plural(revCount(legs), 'leg')} cancelled, ${usd(pen)} compensation` };
+      const pen = underClosure(g, f, () => cancelLegs(g, legs, 'Crew shortage', 3));
+      return { ok: true, msg: `${plural(revCount(legs), 'leg')} cancelled, ${pen ? `${usd(pen)} compensation` : 'no compensation'}` };
     }
     case 'autoFix':
     case 'deadhead':

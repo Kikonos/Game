@@ -1,5 +1,6 @@
 // Offer generation, pricing bands and the offer lifecycle (B1).
 
+import { CURFEWS } from '../../data/opsData';
 import { describe, expect, it } from 'vitest';
 import { ACMI_TYPES } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -62,7 +63,10 @@ function checkValid(g: GameState, o: ContractOffer) {
   }
   if (p.kind === 'base') {
     expect(p.maintEvery).toBe(7);
-    expect(p.waves[0]).toBe(360);
+    // v0.12.1 (A7) 06:00, or moved by a night curfew: earlier (from 05:00) to win back a wave, or later (a long-haul
+    // wave that would land back in one, a base still shut at 06:00).
+    if (!Object.keys(CURFEWS).some((x) => x === p.base || p.dests.includes(x))) expect(p.waves[0]).toBe(360);
+    expect(p.waves[0]).toBeGreaterThanOrEqual(300);
     for (let i = 1; i < p.waves.length; i++) expect(p.waves[i]).toBeGreaterThan(p.waves[i - 1]);
     expect(p.waves[p.waves.length - 1]).toBeLessThanOrEqual(21 * 60);
     expect(p.targetBH).toBeGreaterThan(0);

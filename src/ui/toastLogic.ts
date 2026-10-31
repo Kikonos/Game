@@ -64,3 +64,13 @@ export function logToast(log: ToastLogEntry[], e: ToastLogEntry): ToastLogEntry[
   const rest = log.filter((x) => !(x.title === e.title && Math.abs(x.at - e.at) <= 1));
   return [e, ...rest].slice(0, LOG_MAX);
 }
+
+/**
+ * v0.12.1 the toasts to draw while a dialog shows `open` (a decision's title, and what the dialog is about): a toast
+ * about that same thing ("Decision: …", "New offer: …" over the offer) is the dialog itself, so it does not sit over
+ * the dialog's title (iPad and iPhone: the stranded card, the Hajj offer).
+ */
+export function withoutOpenSubject<T extends { title: string; ref?: Ref }>(list: T[], open: { title?: string; ref?: Ref } | null | undefined): T[] {
+  if (!open) return list;
+  return list.filter((t) => !(open.title && t.title === `Decision: ${open.title}`) && !(open.ref && t.ref && t.ref.kind === open.ref.kind && t.ref.id === open.ref.id));
+}
