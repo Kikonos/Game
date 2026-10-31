@@ -60,4 +60,34 @@ describe('a leg held overnight at an outstation (C2)', () => {
     expect(back.dutyId).not.toBe(d.id);
     expect(g.duties[back.dutyId!].report).toBeGreaterThan(g.now);
   });
+
+  // v0.12.1 (review, CREW-8): the next leg was held to 03:35, sooner than a night's rest after the 16:12 landing, so the
+  // duty was never split while the crew waited at the gate; split later, the rest was backdated to the landing.
+  it('splits a crew past the limit even when the next leg is closer than a rest, and rests them from the split', () => {
+    const { g, p, d, back } = atPalma();
+    // Three hours after the landing at Palma, the return held two hours more: far sooner than the 10 h rest after the
+    // landing. The limit is set to have run out an hour and a half ago (as the guard reads it).
+    const now = g.now + 3 * 60;
+    retimeFlight(g, back, now + 2 * 60, now + 2 * 60 + (back.sta - back.std));
+    syncDuty(g, d, p);
+    g.now = now;
+    d.discretion = 0;
+    d.maxFdp = now - d.report - 90;
+    splitOverlong(g);
+    expect(back.dutyId).not.toBe(d.id);
+    // The duty ends when the crew left the gate, not back at the landing.
+    expect(d.release).toBe(now);
+    expect(d.heldTo).toBe(now);
+    syncDuty(g, d, p);
+    expect(d.release).toBe(now);
+    advanceTo(g, now + 60, new Set());
+    const ids = p.slots.filter((s) => s.crewId).map((s) => s.crewId!);
+    expect(ids.length).toBeGreaterThan(0);
+    for (const id of ids) {
+      const c = g.crew[id];
+      expect(c.log[c.log.length - 1].end).toBe(now);
+      // At least the duty's length, and 10 h away from base (ORO.FTL.235(b)), from the split.
+      expect(c.restUntil - now).toBeGreaterThanOrEqual(Math.max(10 * 60, now - d.report));
+    }
+  });
 });

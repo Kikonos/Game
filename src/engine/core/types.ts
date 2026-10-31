@@ -1070,6 +1070,11 @@ export interface Duty {
    * Saved, so a reloaded game reads it when the original would (absent: read now).
    */
   earlyRead?: Minute;
+  /**
+   * v0.12.1 (review, CREW-8) the crew stayed on duty at the gate until this time (a duty split after its next leg was
+   * held): the duty releases then, never back at the last landing, so the rest after it starts when it really does.
+   */
+  heldTo?: Minute;
 }
 
 /** A crew complement's trip: duties from base back to base (or a deployment at a client base). */

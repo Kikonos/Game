@@ -284,7 +284,8 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
     }
   }
   d.report = sh.report;
-  d.release = sh.release;
+  // v0.12.1 (review) a duty split late keeps the time its crew really left the gate.
+  d.release = Math.max(sh.release, d.heldTo ?? 0);
   d.fdp = sh.fdp;
   d.sectors = sh.sectors;
   applyPick(d, pa);
@@ -324,7 +325,7 @@ export function queueDuty(g: GameState, d: Duty): void {
  * (own report, FDP and rest), not one duty stretched over days. Tickets home move to the new duty. The caller
  * re-sorts the pairing (refreshPairing). The new duty, or null.
  */
-export function splitUnderWay(g: GameState, p: Pairing, d: Duty): Duty | null {
+export function splitUnderWay(g: GameState, p: Pairing, d: Duty, force = false): Duty | null {
   if (d.done || d.report > g.now) return null;
   const fl = dutyFlights(g, d).filter((f) => f.status !== 'cancelled');
   const typeId = (p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo';
@@ -337,7 +338,9 @@ export function splitUnderWay(g: GameState, p: Pairing, d: Duty): Duty | null {
     if ((a.status !== 'done' && a.status !== 'enroute') || b.status !== 'scheduled') continue;
     const landed = onBlocks(a);
     const need = minRest({ dutyMin: landed - d.report + cabinEarly(g, p, d), atHome: a.to === g.company.homeBase, augmented: d.augment > 0, tzShift: tzDeltaH(g.company.homeBase, a.to, landed), extended: !!d.ext }) + rm.report + rm.post;
-    if (b.std - landed < need) continue;
+    // v0.12.1 (review, CREW-8) `force` (the hourly guard: a crew past their limit): split even when the next leg is
+    // closer than a night's rest. Seed 9: Louis Durand waited at the Gatwick gate from 16:12 to 03:42 for EI4023.
+    if (!force && b.std - landed < need) continue;
     const later = fl.slice(i);
     const d2: Duty = {
       id: nextId(g, 'du'), pairingId: p.id, report: Number.MAX_SAFE_INTEGER, release: 0, flightIds: later.map((f) => f.id), deadheadIds: [], sectors: 0,
@@ -350,6 +353,12 @@ export function splitUnderWay(g: GameState, p: Pairing, d: Duty): Duty | null {
     d.deadheadIds = d.deadheadIds.filter((id) => !d2.deadheadIds.includes(id));
     p.dutyIds.push(d2.id);
     syncDuty(g, d, p);
+    // v0.12.1 (review, CREW-8) a split that comes after the crew should have been released: the duty and the rest
+    // after it start now, not back at the last landing (the rest "ended" before the split and they flew 5 h later).
+    if (g.now > d.release && crewCount(p) > 0) {
+      d.heldTo = g.now;
+      d.release = g.now;
+    }
     syncDuty(g, d2, p);
     if (crewCount(p) > 0) {
       queueDuty(g, d);

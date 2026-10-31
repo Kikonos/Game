@@ -1745,7 +1745,8 @@ export function splitOverlong(g: GameState): void {
     if (d.done || d.report > g.now || g.now <= d.report + d.maxFdp + (d.discretion ?? 0) + 60) continue;
     const p = g.pairings[d.pairingId];
     if (!p?.aircraftId || !crewCount(p)) continue;
-    const d2 = splitUnderWay(g, p, d);
+    // v0.12.1 (review, CREW-8) forced: a next leg sooner than a night's rest no longer keeps the crew at the gate.
+    const d2 = splitUnderWay(g, p, d, true);
     if (!d2) continue;
     const moved = new Set<string>();
     retimeTickets(g, p, d, moved);
