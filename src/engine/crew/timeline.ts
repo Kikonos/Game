@@ -224,7 +224,8 @@ export const OUT_FAR_BLOCK = 6 * 60;
  * an event permit are rides, not tickets, and are not judged here. Pure.
  */
 export function ticketSlotOk(g: GameState, from: string, to: string, std: Minute, sta: Minute): boolean {
-  return !(closedCheck && (closedCheck(g, from, std) || closedCheck(g, to, sta))) && curfewOk(to, sta);
+  // v0.12.1 nothing leaves inside the departure airport's night curfew either (a FRA–LIS seat at 02:00 local).
+  return !(closedCheck && (closedCheck(g, from, std) || closedCheck(g, to, sta))) && curfewOk(from, std) && curfewOk(to, sta);
 }
 
 /** v0.12.1 the world's closure check (ops/world.ts closedAirport), set by crew control (no import cycle). */

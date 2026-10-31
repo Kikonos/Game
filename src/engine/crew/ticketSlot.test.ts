@@ -39,6 +39,18 @@ describe('crew tickets are seats that exist (C9, C13)', () => {
     }
   });
 
+  it('never leave inside the departure airport\'s night curfew (Frankfurt 02:00 local)', () => {
+    const { g } = trip('LIS', 14 * 60);
+    const day = Math.floor(g.now / DAY) * DAY + 2 * DAY;
+    // 01:00 UTC is 02:00 or 03:00 in Frankfurt: no seat; 06:00 UTC is open.
+    expect(ticketSlotOk(g, 'FRA', 'LIS', day + 60, day + 60 + 180)).toBe(false);
+    expect(ticketSlotOk(g, 'FRA', 'LIS', day + 6 * 60, day + 9 * 60)).toBe(true);
+    for (let h = 0; h < 48; h++) {
+      const x = slotAfter(g, 'FRA', 'LIS', day + h * 60, 180);
+      expect(curfewOk('FRA', x)).toBe(true);
+    }
+  });
+
   it('never fly into or out of an airport a world event has closed', () => {
     const { g, d, p } = trip('FRA', 14 * 60);
     const shut: [Minute, Minute] = [g.now, g.now + 3 * DAY];
