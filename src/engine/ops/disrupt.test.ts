@@ -5,11 +5,11 @@ import { acceptOffer, relinkPositioning } from '../contracts';
 import { onwardPending } from '../contracts/plan';
 import { hamBase, leased, legsOffer, newGame, owned } from '../contracts/testkit';
 import { flightsOf } from '../core/entities';
-import { DAY } from '../core/time';
+import { DAY, localMinuteOfDay } from '../core/time';
 import type { Aircraft, Flight, GameState } from '../core/types';
 import { advanceTo } from '../sim';
 import { flightCrewStatus } from '../crew';
-import { devDisruption } from './disrupt';
+import { devDisruption, flowUnit } from './disrupt';
 import { resolveDecision } from './index';
 import { isRevenue, turnOf } from './util';
 
@@ -201,5 +201,53 @@ describe('A4: one cabin crew short is for the sector in hand (ORO.CC.205(c))', (
     // Landed: the empty seat is a required one again (filled, or still open for crew control: never "above").
     expect(short()).toBe(flipped - 1);
     expect(back.reducedCabin).toBeUndefined();
+  });
+});
+
+describe('A12–A14, EV-S06: card texts and times', () => {
+  it('a longer route is flown: the leg block grows by the extra minutes (A13); the slot names who gives it (EV-S06)', () => {
+    const { g, legs } = charter(5);
+    const f = legs[0];
+    skip(g, f.std - 1);
+    g.decisions.length = 0;
+    expect(devDisruption(g, 'ctot', f.id)).toBe(true);
+    const d = g.decisions.find((x) => x.kind === 'ctot')!;
+    expect(d.body).toMatch(/Eurocontrol/);
+    const block0 = f.block;
+    expect(resolveDecision(g, d.id, 'reroute').ok).toBe(true);
+    expect(f.block).toBe(block0 + Number(d.data!.extraBlock));
+    expect(f.sta - f.std).toBe(f.block);
+    expect(flowUnit('LIS')).toBe('Eurocontrol');
+    expect(flowUnit('IST')).toBe('Eurocontrol');
+    expect(flowUnit('RUH')).toBe('Air traffic control');
+    expect(flowUnit('DEL')).toBe('Air traffic control');
+  });
+
+  it('bird strike: no "wait for the morning shift" in the day shift; at night the shift is the coming 06:00 local (A14)', () => {
+    const { g, ac, legs } = charter(8);
+    const f = legs[0];
+    airborne(g, f);
+    skip(g, (f.eta ?? f.sta) + 1);
+    g.decisions.length = 0;
+    ac.status = 'available';
+    const card = () => {
+      g.decisions.length = 0;
+      expect(devDisruption(g, 'birdStrike', f.id)).toBe(true);
+      return g.decisions.find((x) => x.kind === 'birdStrike')!;
+    };
+    const day = card();
+    const local = localMinuteOfDay('FUE', g.now);
+    if (local >= 6 * 60 && local < 20 * 60) expect(day.options.some((o) => o.id === 'wait')).toBe(false);
+    // 01:00 at Fuerteventura: the morning shift is today, a few hours off, not tomorrow.
+    g.now = Math.floor(g.now / DAY) * DAY + DAY + 60;
+    const night = card();
+    const w = night.options.find((o) => o.id === 'wait');
+    if (!night.data!.own) expect(w).toBeDefined();
+    if (w) {
+      const morning = Number(night.data!.morning);
+      expect(morning - g.now).toBeLessThan(8 * 60);
+      expect(localMinuteOfDay('FUE', morning)).toBe(6 * 60);
+      expect(w.chips?.some((c) => / local \(.* UTC\)/.test(c))).toBe(true);
+    }
   });
 });

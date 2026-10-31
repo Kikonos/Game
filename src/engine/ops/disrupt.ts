@@ -18,7 +18,7 @@ import { schedule } from '../core/queue';
 import { hashUnit } from '../core/util';
 import { divPos } from '../core/query';
 import { curfewEnd, curfewOk, curfewShift, inCurfew } from '../core/curfew';
-import { DAY, dayStart, fmtDuration, fmtTime, localMinuteOfDay, yearOf } from '../core/time';
+import { DAY, dayStart, fmtDuration, fmtTime, localMinuteOfDay, toLocal, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, Decision, DecisionOption, DisruptCause, DisruptKind, Flight, GameState, MaintenanceEvent, Minute, OpsState, SimEvent } from '../core/types';
 import { bumpClient } from '../contracts/relations';
 import { afterDiversion, applyCrewFix, crewControl, flightCrewStatus, removeCrew, rerosterFrom } from '../crew';
@@ -26,7 +26,7 @@ import { continuationFits, restedDeparture } from '../crew/duties';
 import { crewName } from '../crew/generate';
 import { emergencyFactor, OPS_LIVE, optionalFactor } from './director';
 import { applyHold, delayChain, delayOf, excuseGrowth, moveFlight, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLegs, unitOf, cancelLegs } from './flights';
-import { isSoft } from '../contracts/plan';
+import { isSoft, localToUTC } from '../contracts/plan';
 import { relinkPositioning } from '../contracts/schedule';
 import { excusedLate, latePenalty } from './latePolicy';
 import { aogDecision, ask, autoDecide } from './events';
@@ -242,18 +242,25 @@ function ctotCard(g: GameState, f: Flight, ac: Aircraft, slot?: number): boolean
   const later = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled' && x !== f && x.std < f.std + DAY && x.std > f.std);
   const fdp = fdpNote(g, f, wait);
   const opts: DecisionOption[] = [
-    { id: 'wait', label: 'Wait for the slot', desc: `Off blocks about ${fmtTime(g.now + wait)} UTC. ATC delays are not our fault: no penalty.`, chips: [`${hm(wait)} late`, ...(later.length ? [`${later.length} later leg${later.length > 1 ? 's' : ''} move`] : []), ...(fdp ? [fdp] : [])] },
+    { id: 'wait', label: 'Wait for the slot', desc: `Off blocks about ${fmtTime(g.now + wait)} UTC. ATC delays are not our fault: no penalty.`, chips: [`${hm(wait)} late`, ...(later.length ? [later.length > 1 ? `${later.length} later legs move` : '1 later leg moves'] : []), ...(fdp ? [fdp] : [])] },
     { id: 'reroute', label: 'File a longer route', desc: `A routing around the busy sector gets a slot in ${hm(better)}; ${extraBlock} min more flying.`, tone: 'good', chips: [`${hm(better)} late`, `${extraBlock} min more flying`, charter ? usd(-fuel) : 'Client pays the fuel'] },
   ];
   if (later.length) opts.push({ id: 'client', label: 'Ask the client to move later legs', desc: 'They agree to the later times: no recovery cancels today, but they notice.', chips: [`${hm(wait)} late`, 'Relation −1'] });
   raise(g, {
     kind: 'ctot', title: `${f.no}: ATC slot ${hm(wait)} late`,
-    body: `${cause}. Eurocontrol gave ${f.no} ${f.from}–${f.to} a departure slot (CTOT) ${hm(wait)} after its time.`,
+    body: `${cause}. ${flowUnit(f.from)} gave ${f.no} ${f.from}–${f.to} a departure slot (CTOT) ${hm(wait)} after its time.`,
     options: opts, defaultOption: wait > 90 ? 'reroute' : 'wait', expires: g.now + 20, ref: { kind: 'flight', id: f.id },
-    data: { flightId: f.id, wait, better, extraBlock, fuel, cause, ...cardData(`${f.no} has an ATC slot ${hm(wait)} late`, `${cause}: Eurocontrol holds the flight on the ground until its slot.`, `${paxOf(g, f)} passengers ${hm(wait)} late${later.length ? `, ${later.length} later legs` : ''}; no penalty (ATC)`, charter ? 0 : 0, paxOf(g, f), wait) },
+    data: { flightId: f.id, wait, better, extraBlock, fuel, cause, ...cardData(`${f.no} has an ATC slot ${hm(wait)} late`, `${cause}: ${flowUnit(f.from)} holds the flight on the ground until its slot.`, `${paxOf(g, f)} passengers ${hm(wait)} late${later.length ? `, ${later.length} later legs` : ''}; no penalty (ATC)`, charter ? 0 : 0, paxOf(g, f), wait) },
   }, { optional: true });
   f.ops = 'ctot';
   return true;
+}
+
+/** v0.12.1 who hands out departure slots: Eurocontrol's Network Manager in its area (Europe, Turkey, the Caucasus, Israel, Morocco), else air traffic control. Pure. */
+const NM_EXTRA = new Set(['TR', 'CY', 'GE', 'AM', 'AZ', 'IL', 'MA']);
+export function flowUnit(code: string): string {
+  const A = AIRPORT_BY_CODE[code];
+  return A && (A.continent === 'EU' || NM_EXTRA.has(A.country)) ? 'Eurocontrol' : 'Air traffic control';
 }
 
 /** A crew note for a hold of `min` at the gate: within the duty / commander's discretion / a fresh crew. Pure. */
@@ -277,6 +284,16 @@ function resolveCtot(g: GameState, d: Decision, opt: string): ActionResult {
     const better = Number(d.data?.better ?? 20);
     if (isCharter(g, f)) post(g, 'fuel', -Number(d.data?.fuel ?? 0));
     delayChain(g, f, g.now + better, reason);
+    // v0.12.1 the longer routing is flown: the leg's block grows by it (its fuel was charged, its minutes were not).
+    const extra = Number(d.data?.extraBlock ?? 0);
+    const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
+    if (extra > 0 && f.status === 'scheduled' && ac) {
+      markFlightsChanged(g, ac.id, f.std);
+      f.sta += extra;
+      f.block += extra;
+      touchFlights(g);
+      settleOverlaps(g, ac);
+    }
     return { ok: true, msg: `${f.no} files a longer route, off blocks ${fmtTime(g.now + better)} UTC` };
   }
   if (opt === 'client') {
@@ -780,12 +797,16 @@ export function rollBirdStrike(g: GameState, f: Flight, ac: Aircraft): void {
   const ownMin = own ? span(g, `${key}:o`, [90, 150]) : span(g, `${key}:o`, DISRUPT.birdOwn.min);
   const localMin = span(g, `${key}:l`, DISRUPT.birdLocal.min);
   const next = flightsOf(g, ac.id).find((x) => x.status === 'scheduled' && x.from === at);
-  const morning = dayStart(g.now) + DAY + 6 * 60;
+  // v0.12.1 the station's day shift starts at 06:00 local, today when it is still night there (the card read "tomorrow
+  // 06:00 UTC" at midday, a 20 h wait); in the day shift there is no shift to wait for.
+  const lm = localMinuteOfDay(at, g.now);
+  const night = lm < 6 * 60 || lm >= 20 * 60;
+  const morning = localToUTC(at, dayStart(toLocal(at, g.now)) + 6 * 60 + (lm >= 20 * 60 ? DAY : 0));
   const opts: DecisionOption[] = [
     { id: 'own', label: own ? 'Our engineers inspect it' : 'Fly our engineer in', desc: own ? 'Our line engineers here do the inspection.' : 'Our licensed engineer comes on the next airline flight.', tone: own ? 'good' : undefined, chips: [own ? usd(-800) : usd(-DISRUPT.birdOwn.cost), `Ready in ~${hm(ownMin)}`] },
     { id: 'local', label: 'Use a local contractor', desc: 'A licensed engineer from the airport\'s maintenance company signs it off.', chips: [usd(-DISRUPT.birdLocal.cost), `Ready in ~${hm(localMin)}`] },
   ];
-  if (!own) opts.push({ id: 'wait', label: 'Wait for the morning shift', desc: 'The local station\'s day shift inspects it at no extra charge; the aircraft waits.', chips: ['No extra cost', `Ready ~${fmtTime(morning + 90)} UTC`] });
+  if (!own && night) opts.push({ id: 'wait', label: 'Wait for the morning shift', desc: 'The local station\'s day shift inspects it at no extra charge; the aircraft waits.', chips: ['No extra cost', `Ready ~${fmtTime(toLocal(at, morning + 90))} local (${fmtTime(morning + 90)} UTC)`] });
   const def = own ? 'own' : next && next.std < g.now + ownMin ? 'local' : 'own';
   raise(g, {
     kind: 'birdStrike', title: `Bird strike: ${ac.reg} at ${city(at)}`,
