@@ -252,3 +252,8 @@ button.pc-now { width: 100%; min-height: 48px; text-align: left; font: inherit; 
 .fin-loss-t { min-width: 0; font-size: 14px; line-height: 1.35; }
 .sc-recv .why { margin-left: -4px; }
 .sc-status-why { display: inline-flex; align-items: center; gap: 2px; }
+
+/* v0.12.1 Inbox tiles: the title gets the full width (up to two lines); badges and the date sit under it. */
+.sc-tile-title { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; min-width: 0; }
+.pc-now { flex-wrap: wrap; }
+.pc-now .pc-what-s { flex: 1 1 60%; min-width: 12ch; }

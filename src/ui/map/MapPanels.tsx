@@ -27,7 +27,7 @@ import { feasibilityAll, mghLabel } from '../../engine/contracts';
 import { clientless, jobName } from '../../engine/contracts/flavor';
 import { flightsOf } from '../../engine/core/entities';
 import { currentFlight, flightTimes } from '../../engine/core/query';
-import { DAY, fmtDay, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
+import { DAY, fmtDay, fmtDayRel, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
 import type { Aircraft, CrewMember, Flight, GameState, MaintenanceEvent, ProblemRef, Ref, Role } from '../../engine/core/types';
 import type { DryLeaseView } from '../../engine/ops';
 import { type CrewAlertKind, crewName, crewShortCard, dutyCrew, flightCrewStatus, outOfHours, restNow, restOf, restSeatsBlocked, restText, ridersText, sellableSeats, seatsText, slipOfFlight, slipsOfAircraft, standbyNow } from '../../engine/crew';
@@ -343,8 +343,8 @@ function LeaseBlock({ g, v }: { g: GameState; v: DryLeaseView }) {
       <div className="op-kv">
         <div><span>Lessee</span><b className="ellipsis">{v.lessee} · {cityOf(v.site)}</b></div>
         <div><span>Delivery ferry</span><b className="num">{fmtDay(v.out[0])}</b></div>
-        <div><span>Lease</span><b className="num">{fmtDay(v.lease[0])} – {fmtDay(v.lease[1])}{v.late ? <span className="warn-t"> · {v.late} d late</span> : null}</b></div>
-        <div><span>Ferry home</span><b className="num">{fmtDay(v.back[0])}</b></div>
+        <div><span>Lease</span><b className="num">{fmtDay(v.lease[0])} – {fmtDayRel(v.lease[1], g.now)}{v.late ? <span className="warn-t"> · {v.late} d late</span> : null}</b></div>
+        <div><span>Ferry home</span><b className="num">{fmtDayRel(v.back[0], g.now)}</b></div>
         <div><span>Rent</span><b className="num">{money(v.rent)}/month + {money(v.reservesPerFH)}/FH</b></div>
         {(v.phase === 'leased' || v.phase === 'returning') && <div><span>Their hours</span><b className="num">{v.fhSoFar.toLocaleString('en-US')} of ≈ {v.fhExpected.toLocaleString('en-US')} FH</b></div>}
         {v.income > 0 && <div><span>Invoiced</span><b className="num">{money(v.income)}</b></div>}
@@ -451,7 +451,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
       </div>
     );
   } else if (leasedOut(ac)) {
-    now = <div className="op-note"><KeyRound /><span>{lease ? `Leased to ${lease.lessee} until ${fmtDay(lease.lease[1])}` : 'Leased out'} · at {ap?.city ?? ac.at} ({ac.at}), flown by their crews</span></div>;
+    now = <div className="op-note"><KeyRound /><span>{lease ? `Leased to ${lease.lessee} until ${fmtDayRel(lease.lease[1], g.now)}` : 'Leased out'} · at {ap?.city ?? ac.at} ({ac.at}), flown by their crews</span></div>;
   } else if (ac.status === 'delivering') {
     now = <div className="op-note"><PackageCheck /><span>Not handed over yet · {ac.delivery ? `at ${cityOf(ac.delivery.site)} ${fmtDay(ac.delivery.handover)}` : `delivery ${fmtDay(ac.deliveredAt)}`}</span></div>;
   } else {

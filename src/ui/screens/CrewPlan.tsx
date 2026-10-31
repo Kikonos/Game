@@ -183,9 +183,11 @@ export function PlanStrip({ g, onOpen }: { g: GameState; onOpen: () => void }) {
         // v0.11.2 fix: more complete sets than needed read '9 of 5 sets'; now '5 of 5 sets · 4 spare' (as Planning).
         const of = Math.min(p.setsComplete, p.setsNeeded);
         const spare = p.setsComplete - of;
-        const sets = `${of} of ${p.setsNeeded} sets${spare ? ` · ${spare} spare` : ''}`;
+        // v0.12.1 sets that only exist once joiners start say so ('5 of 5 sets · 1 joining').
+        const joining = Math.max(0, of - p.setsNow);
+        const sets = `${of} of ${p.setsNeeded} sets${spare ? ` · ${spare} spare` : ''}${joining ? ` · ${joining} joining` : ''}`;
         return (
-          <button key={p.family} className={`cp-chip ${short ? 'short' : ''}`} onClick={onOpen} aria-label={`${p.label}: ${of} of ${p.setsNeeded} crew sets${spare ? `, ${spare} spare` : ''}. Open crew planning`}>
+          <button key={p.family} className={`cp-chip ${short ? 'short' : ''}`} onClick={onOpen} aria-label={`${p.label}: ${of} of ${p.setsNeeded} crew sets${spare ? `, ${spare} spare` : ''}${joining ? `, ${joining} still joining` : ''}. Open crew planning`}>
             <b>{p.label}</b>
             <span className={`num ${short ? 'warn' : 'good'}`}>{sets}</span>
             {short && <span className="tiny muted">short {miss}</span>}

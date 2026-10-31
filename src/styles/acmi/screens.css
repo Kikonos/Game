@@ -316,8 +316,10 @@
 /* Paint blocks: hatched in the client primary (strip: ours), maintenance height. */
 .gb-maint.gb-paint {
   background: repeating-linear-gradient(45deg, var(--pc, var(--c-bg-8a96b3)) 0 5px, color-mix(in srgb, var(--pc, var(--c-bg-8a96b3)) 55%, var(--c-bg-1b2436)) 5px 10px);
-  box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), 0.28); color: var(--on-color); text-shadow: 0 1px 2px rgba(var(--shade-rgb), calc(0.6 * var(--shade-k)));
+  box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), 0.28); color: var(--pc-ink, var(--on-color)); text-shadow: 0 1px 2px rgba(var(--shade-rgb), calc(0.6 * var(--shade-k)));
 }
+/* v0.12.1 a dark label on a light livery: no dark shadow behind it. */
+.gb-maint.gb-paint.ink-dark { text-shadow: 0 1px 1px rgba(255, 255, 255, 0.5); }
 .gl-paint { background: repeating-linear-gradient(45deg, var(--pc, var(--c-bg-8a96b3)) 0 4px, color-mix(in srgb, var(--pc, var(--c-bg-8a96b3)) 55%, var(--c-bg-1b2436)) 4px 8px); box-shadow: inset 0 0 0 1px rgba(var(--ink-rgb), 0.28); }
 .gantt-ac-reg { min-width: 0; }
 .gantt-ac-reg svg { flex-shrink: 0; }

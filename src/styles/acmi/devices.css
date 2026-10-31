@@ -218,3 +218,12 @@ kbd {
   .ng-foot { flex-wrap: wrap; row-gap: 8px; }
   .ng-foot-sum { order: -1; flex: 1 1 100%; }
 }
+
+/* v0.12.1 phone landscape (852 wide): the roster toolbar wraps instead of hiding Duty | Trip off the right edge;
+   the selects and search are a little narrower so it mostly still fits one row. */
+@media (max-height: 499.98px) and (max-width: 900px) {
+  .rb-tools { flex-wrap: wrap; overflow-x: visible; row-gap: 6px; }
+  .rb-tools .select { max-width: 116px; }
+  .rb-search { width: 100px; flex-basis: 100px; min-width: 88px; }
+  .rb-today-t { display: none; }
+}

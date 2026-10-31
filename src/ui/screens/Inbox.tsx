@@ -85,7 +85,9 @@ function Decisions({ g }: { g: GameState }) {
           <button key={d.id} className="card sc-decision-card" onClick={() => store.openModal({ kind: 'decision', decisionId: d.id })}>
             <Hourglass className="sc-ico warn" />
             <span className="grow col gap-4" style={{ minWidth: 0 }}>
-              <span className="row gap-8 wrap"><b className="ellipsis">{d.title}</b>{card && <HurtBadges badges={card.hurt.badges} level={card.hurt.level} />}</span>
+              {/* v0.12.1 the title on its own line: the badges no longer squeeze it to one letter on iPad. */}
+              <b className="sc-tile-title">{d.title}</b>
+              {card && <span className="row gap-8 wrap"><HurtBadges badges={card.hurt.badges} level={card.hurt.level} /></span>}
               <span className="small muted sc-clamp">{d.body}</span>
               <span className="tiny dim">{expiryLabel(g.now, d.expires)}{def ? ` · then: ${def.label}` : ''}</span>
             </span>
@@ -139,7 +141,7 @@ function ProblemsNow({ g }: { g: GameState }) {
       {list.slice(0, 12).map((c) => (
         <button key={`${c.subject.kind}:${c.subject.ref.id}`} className={`pc pc-compact pc-now ${c.severity}`} onClick={() => store.openModal({ kind: 'problem', subject: c.subject })}>
           <ShieldAlert className={`sc-ico-s ${c.severity === 'red' ? 'bad' : 'warn'}`} />
-          <b className="pc-what-s grow ellipsis">{c.what}</b>
+          <b className="pc-what-s grow sc-tile-title">{c.what}</b>
           <HurtBadges badges={c.hurt.badges} level={c.hurt.level} />
           <ChevronRight className="sc-ico-s dim" />
         </button>
@@ -240,7 +242,9 @@ export function InboxScreen() {
                   <button className={`sc-msg ${m.read ? 'read' : ''}`} onClick={() => openMessage(g, m)}>
                     <MsgIcon m={m} />
                     <span className="grow col gap-4" style={{ minWidth: 0 }}>
-                      <span className="row gap-8"><b className="ellipsis">{m.title}</b><MsgBadges m={m} /><span className="tiny dim nowrap">{fmtDateTime(m.t)}</span></span>
+                      {/* v0.12.1 title on its own line, badges and the date below it (iPad tiles showed 'C.'). */}
+                      <b className="sc-tile-title">{m.title}</b>
+                      <span className="row gap-8 wrap"><MsgBadges m={m} /><span className="tiny dim nowrap">{fmtDateTime(m.t)}</span></span>
                       <span className="small muted sc-clamp">{m.body}</span>
                     </span>
                     {m.ref && <ChevronRight className="sc-ico-s dim" />}

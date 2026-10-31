@@ -6,7 +6,7 @@
 
 import { CalendarClock, Undo2 } from 'lucide-react';
 import { useState } from 'react';
-import { DAY, fmtDate, fmtDay, fmtDayRange } from '../../engine/core/time';
+import { DAY, fmtDate, fmtDayRange, fmtDayRel, yearOf } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import { chooseLease, earlyReturnQuote, leaseView, returnEarly, returnQuote, type EarlyReturnQuote, type LeaseChoice } from '../../engine/ops';
 import { mkHurt, type ProblemCard } from '../../engine/problems';
@@ -26,7 +26,7 @@ export function ReturnLines({ g, aircraftId }: { g: GameState; aircraftId: strin
       {q.lines.map((l) => <div key={l.label} className="row between small"><span className="muted">{l.label}</span><span className="num">{money(l.amount)}</span></div>)}
       <div className="row between small"><b>Return costs</b><b className="num">{money(q.total)}</b></div>
       {q.deposit > 0 && <div className="row between small good"><span>Deposit back at the end</span><span className="num">+{money(q.deposit)}</span></div>}
-      {q.ferry.length > 0 && <div className="tiny dim">Return ferry {q.ferry.map((l) => `${l.from}–${l.to}`).join(', ')} {fmtDay(q.ferry[0].std)}</div>}
+      {q.ferry.length > 0 && <div className="tiny dim">Return ferry {q.ferry.map((l) => `${l.from}–${l.to}`).join(', ')} {fmtDayRel(q.ferry[0].std, g.now)}</div>}
     </div>
   );
 }
@@ -34,10 +34,10 @@ export function ReturnLines({ g, aircraftId }: { g: GameState; aircraftId: strin
 type Tab = 'renew' | 'early';
 
 /** The four-line card for an early return that signed work still blocks (local: blockers as WHY). */
-function earlyCard(reg: string, aircraftId: string, q: EarlyReturnQuote): ProblemCard {
+function earlyCard(reg: string, aircraftId: string, q: EarlyReturnQuote, now: number): ProblemCard {
   return {
     subject: { kind: 'leaseReturn', ref: { kind: 'aircraft', id: aircraftId } }, severity: 'amber',
-    title: `${reg} can't go back early on ${fmtDay(q.end)}`, what: `${reg} can't go back early on ${fmtDay(q.end)}`,
+    title: `${reg} can't go back early on ${fmtDayRel(q.end, now)}`, what: `${reg} can't go back early on ${fmtDayRel(q.end, now)}`,
     why: `${q.blockers[0]}${q.blockers.length > 1 ? ` (and ${q.blockers.length - 1} more)` : ''}.`,
     hurt: { ...mkHurt({}), text: 'Not yet: nothing lost' },
     actions: [{ id: 'schedule', label: 'Open Schedule', open: { tab: 'schedule', sel: { kind: 'aircraft', id: aircraftId } }, primary: true }],
@@ -57,17 +57,18 @@ function EarlyReturn({ g, aircraftId, end, setEnd }: { g: GameState; aircraftId:
   const r = q.returnCosts;
   return (
     <div className="col gap-12">
-      <p className="muted small">The lessor takes it back {fmtDay(q.end)} after a ferry to {r.site || 'the return site'} and the return check, for an <Term id="earlyReturn">early-return fee</Term>. It needs 30 days' notice.</p>
+      {/* v0.12.1 with the year when it is not this year's (an early return can be a year out). */}
+      <p className="muted small">The lessor takes it back {fmtDayRel(q.end, g.now)} after a ferry to {r.site || 'the return site'} and the return check, for an <Term id="earlyReturn">early-return fee</Term>. It needs 30 days' notice.</p>
       {q0.why && !q0.blockers.length ? <div className="small warn">{q0.why}</div> : (
         <>
           <div className="row gap-8 wrap" role="group" aria-label="Return date">
             {ends.map((t, i) => (
               <button key={t} className={`cv-chip rf-chip ${t === at ? 'on' : ''}`} aria-pressed={t === at} onClick={() => setEnd(t)}>
-                <b>{fmtDay(t)}</b><span className="tiny dim">{i === 0 ? 'earliest' : `+${i} month${i > 1 ? 's' : ''}`}</span>
+                <b>{fmtDayRel(t, g.now)}</b><span className="tiny dim">{i === 0 ? 'earliest' : `+${i} month${i > 1 ? 's' : ''}`}</span>
               </button>
             ))}
           </div>
-          {!q.ok && q.blockers.length > 0 && <ProblemCardView card={earlyCard(ac.reg, aircraftId, q)} g={g} />}
+          {!q.ok && q.blockers.length > 0 && <ProblemCardView card={earlyCard(ac.reg, aircraftId, q, g.now)} g={g} />}
           <div className="ls-lines">
             <div className="row between small"><span className="muted">Rent saved ({Math.round((leaseEnd - q.end) / (30.44 * DAY))} months)</span><span className="num good">+{money(q.rentSaved)}</span></div>
             {q.deposit > 0 && <div className="row between small"><span className="muted">Deposit back</span><span className="num good">+{money(q.deposit)}</span></div>}
@@ -107,7 +108,7 @@ export function LeaseModal({ aircraftId, tab: tab0 }: { aircraftId: string; tab?
       early ? (
         <>
           <button className="btn" onClick={close}>Close</button>
-          <button className="btn btn-primary" onClick={goEarly} disabled={!eq?.ok}><Undo2 /> Return on {fmtDay(eq?.end ?? g.now)} · fee {money(eq?.fee ?? 0)}</button>
+          <button className="btn btn-primary" onClick={goEarly} disabled={!eq?.ok}><Undo2 /> Return on {fmtDayRel(eq?.end ?? g.now, g.now)} · fee {money(eq?.fee ?? 0)}</button>
         </>
       ) : (
         <>
@@ -119,7 +120,7 @@ export function LeaseModal({ aircraftId, tab: tab0 }: { aircraftId: string; tab?
     }>
       <p className="muted small">
         {lv.lessor} · {money(lv.rent)}/month · ends {fmtDate(lv.ends)} ({lv.daysLeft} days).
-        {lv.returning && m ? ` Return booked: check at ${lv.returning.site} ${fmtDayRange(m.start, m.end)}.` : ' If nothing is chosen, the lessor extends 12 months.'}
+        {lv.returning && m ? ` Return booked: check at ${lv.returning.site} ${fmtDayRange(m.start, m.end)}${yearOf(m.start) !== yearOf(g.now) ? ` ${yearOf(m.start)}` : ''}.` : ' If nothing is chosen, the lessor extends 12 months.'}
       </p>
       {earlyOk && (
         <div className="mt-12"><Seg<Tab> value={tab} onChange={setTab} options={[{ value: 'renew', label: 'At the lease end' }, { value: 'early', label: 'Return early' }]} /></div>

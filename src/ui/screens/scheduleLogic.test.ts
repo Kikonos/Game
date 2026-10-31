@@ -252,3 +252,14 @@ describe('v0.12.1 round D: blocks close together stay legible', () => {
     expect(blockText(tiny, layoutRow([tiny, b], ppm)[0].room).lines).toEqual([]);
   });
 });
+
+describe('v0.12.1 paint block label', () => {
+  it('D16 a dark label on a light livery, a light one on a dark livery', async () => {
+    const { paintInk } = await import('./scheduleLogic');
+    expect(paintInk('#ffffff')).not.toBe('#ffffff');
+    expect(paintInk('#fff')).not.toBe('#ffffff');
+    expect(paintInk('#f4d03f')).not.toBe('#ffffff');
+    expect(paintInk('#0b1f4d')).toBe('#ffffff');
+    expect(paintInk('#c8102e')).toBe('#ffffff');
+  });
+});

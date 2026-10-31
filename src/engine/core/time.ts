@@ -73,11 +73,21 @@ function nthSunday(y: number, m: number, n: number, hh: number): Minute {
   return fromUTC(y, m, 1 + ((7 - first) % 7) + 7 * (n - 1), hh);
 }
 
-function dstWindow(rule: 'eu' | 'us', y: number): [Minute, Minute] {
+/** v0.12.1 last given weekday (0 = Sunday) of a month (1–12) at hh UTC. */
+function lastWeekday(y: number, m: number, wd: number, hh: number): Minute {
+  const last = new Date(Date.UTC(y, m, 0));
+  return fromUTC(y, m, last.getUTCDate() - ((last.getUTCDay() - wd + 7) % 7), hh);
+}
+
+function dstWindow(rule: 'eu' | 'us' | 'eg', y: number): [Minute, Minute] {
   const key = `${rule}${y}`;
   let w = dstCache.get(key);
   if (!w) {
-    w = rule === 'eu' ? [lastSunday(y, 3, 1), lastSunday(y, 10, 1)] : [nthSunday(y, 3, 2, 7), nthSunday(y, 11, 1, 6)];
+    // Egypt: from 00:00 local on the last Friday of April (22:00 UTC the evening before) to 24:00 local summer time on
+    // the last Thursday of October (21:00 UTC).
+    w = rule === 'eu' ? [lastSunday(y, 3, 1), lastSunday(y, 10, 1)]
+      : rule === 'eg' ? [lastWeekday(y, 4, 5, 0) - 120, lastWeekday(y, 10, 4, 21)]
+      : [nthSunday(y, 3, 2, 7), nthSunday(y, 11, 1, 6)];
     dstCache.set(key, w);
   }
   return w;
@@ -132,6 +142,19 @@ export const fmtDateAt = (code: string, t: Minute): string => fmtDate(toLocal(co
 export function fmtTime(t: Minute, airport?: string): string {
   const m = airport ? localMinuteOfDay(airport, t) : minuteOfDay(t);
   return `${p2(Math.floor(m / 60))}:${p2(m % 60)}`;
+}
+
+/** v0.12.1 'Fri 07:20' (UTC): a time in the next few days, short enough for a chip. */
+export function fmtWeekdayTime(t: Minute): string {
+  return `${WEEKDAYS[toDate(t).getUTCDay()]} ${fmtTime(t)}`;
+}
+
+/**
+ * v0.12.1 a date far off or in another year carries the year ('28 Nov 2028'); one within the coming months reads
+ * '28 Nov' as before (an early-return notice for next year's November read like this November).
+ */
+export function fmtDayRel(t: Minute, now: Minute): string {
+  return yearOf(t) !== yearOf(now) || Math.abs(t - now) > 300 * DAY ? fmtDate(t) : fmtDay(t);
 }
 
 /** '1 Mar 14:05' */

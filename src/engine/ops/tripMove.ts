@@ -22,6 +22,7 @@ import { settle } from '../sim';
 import { cabinAt, fullLoadReq, layoutName, layoutsOf } from './cabin';
 import { aircraftGate } from './company';
 import { paysFuel } from './flights';
+import { excusedLate, latePenalty } from './latePolicy';
 import { isGrounded, relinkCheckFerries } from './maintenance';
 import { ageOf, an, bodyText, isRevenue, typeWord } from './util';
 
@@ -380,13 +381,13 @@ function legMoney(g: GameState, f: Flight, ac: Aircraft, charterBlock = f.block)
   }
   const wide = t.body === 'wide' ? 1 : 0;
   const pays = paysFuel(g, f);
-  const late = (f.std - (f.schedStd ?? f.std)) > 180;
   return {
     revenue: Math.round(revenue),
     fuel: pays ? -Math.round(t.fuelTBH * bh * g.market.fuelPrice) : 0,
     maintenance: -Math.round(t.maintBH * (1 + BAL.maintAgeFactor * Math.max(0, ageOf(g, ac) - 12)) * bh),
     fees: pays ? -(BAL.airportFees[wide] + (isRevenue(f) ? BAL.catering[wide] : 0)) : 0,
-    penalties: c?.product.kind === 'charter' && isRevenue(f) && late ? -c.penalties.perDelay : 0,
+    // v0.12.1 the late-leg rule in one place (latePolicy): ours and over the limit (VIP: 30 min, × 3), else nothing.
+    penalties: c && isRevenue(f) ? -latePenalty(c, f, excusedLate(f)).money : 0,
   };
 }
 
@@ -738,7 +739,8 @@ function fullQuote(g: GameState, plan: Plan, q: TripMoveQuote): void {
   if (gone.length) notes.push(`No longer needed: ${gone.map((x) => `${x.reg} ${x.from}–${x.to}`).join(', ')}.`);
   const addS = q.positioning.filter((x) => x.added && x.aircraftId === src.id);
   if (addS.length) notes.push(`${src.reg} flies empty ${addS.map((x) => `${x.from}–${x.to} (${fmtDateTime(x.std)})`).join(' and ')} instead.`);
-  if (q.crewOff.length || q.crewOn.length) notes.push(`Crew: ${q.crewOff.length} come off, ${q.crewOn.length} go on.`);
+  // v0.12.1 'Crew: 1 off, none on' (not '1 come off, 0 go on').
+  if (q.crewOff.length || q.crewOn.length) notes.push(`Crew: ${q.crewOff.length || 'none'} off, ${q.crewOn.length || 'none'} on.`);
   else if (!was.size && !now.size) notes.push(`Crew: not picked yet; the roster names ${/^[AEIOU8]/i.test(typeWord(tgt.typeId)) ? 'an' : 'a'} ${typeWord(tgt.typeId)} crew nearer the day.`);
   else if (unrostered === moved.length) notes.push(`Crew: not rostered yet (the roster plans ${BAL.rosterHorizonDays} days ahead); ${typeWord(tgt.typeId)}-rated crew will be picked.`);
   else notes.push('Crew: the same crew fly it.');

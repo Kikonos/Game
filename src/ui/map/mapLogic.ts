@@ -6,7 +6,7 @@ import { flightsOf } from '../../engine/core/entities';
 import { haversine } from '../../engine/core/geo';
 import { isPilot } from '../../engine/core/perf';
 import { flightTimes } from '../../engine/core/query';
-import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
+import { DAY, fmtDay, fmtTime, fmtWeekdayTime } from '../../engine/core/time';
 import type { AcRest, Aircraft, Archetype, ContractOffer, CrewMember, Flight, GameState, Minute, OohLimit, Ref, RestFacility, RestKind, WorldEventKind } from '../../engine/core/types';
 import { type CrewAlertKind, crewAway, LIMIT_NAME, shortFlights, type SlipView } from '../../engine/crew';
 import { clientCode, clientLivery, clientTitles, commercialFlightsBetween, type CommercialFlight, commercialItinerary, dryLeaseOf, type FlightType, flightType, liveryOf, type ResolvedLivery } from '../../engine/ops';
@@ -510,7 +510,7 @@ export interface ChipInfo {
   tone: Tone;
   /** State line, ≤ 18 chars to fit a fixed chip: "LIS→OPO ETA 15:20", "LIS→OPO 14:05", "LIS→OPO · 5 Apr", "C-check → 9 Mar", "AOG at FAO". */
   line: string;
-  /** Compact chip line, ≤ 10 chars: "LIS→OPO", "OPO 14:05", "AOG FAO", "Idle LIS". */
+  /** Compact chip line, ≤ 10 chars: "LIS→OPO", "→OPO 14:05", "AOG FAO", "Idle LIS". */
   short: string;
 }
 
@@ -519,6 +519,11 @@ export interface ChipInfo {
 export function chipInfo(g: GameState, ac: Aircraft, t: Minute, short?: ShortRow): ChipInfo {
   if (short) {
     const tone = short.stage === 'red' ? 'bad' : 'warn';
+    // v0.12.1 a flight on another day says which ('CREW Fri 07:20'): shortages are flagged up to 48 h ahead.
+    if (Math.floor(short.std / DAY) !== Math.floor(t / DAY)) {
+      const at = fmtWeekdayTime(short.std);
+      return short.kind === 'hours' ? { tone, line: `HRS ${at}`, short: at } : { tone, line: `CREW ${at}`, short: at };
+    }
     const at = fmtTime(short.std);
     return short.kind === 'hours' ? { tone, line: `OUT OF HRS ${at}`, short: `HRS ${at}` } : { tone, line: `CREW SHORT ${at}`, short: `CREW ${at}` };
   }
@@ -557,7 +562,8 @@ export function chipInfo(g: GameState, ac: Aircraft, t: Minute, short?: ShortRow
   const dep = next.std + next.delay;
   const soon = dep - t < 20 * 60;
   const when = soon ? fmtTime(dep) : `· ${fmtDay(dep)}`;
-  return { tone: dep - t < 24 * 60 ? 'good' : 'idle', line: `${next.from}→${next.to} ${when}`, short: soon ? `${next.to} ${fmtTime(dep)}` : `${next.to} ${fmtDay(dep)}` };
+  // v0.12.1 '→OPO 14:05': the arrow says it is the next departure there, not a time at OPO.
+  return { tone: dep - t < 24 * 60 ? 'good' : 'idle', line: `${next.from}→${next.to} ${when}`, short: soon ? `→${next.to} ${fmtTime(dep)}` : `${next.to} ${fmtDay(dep)}` };
 }
 
 // ---------- v0.7.3 crew rest on the aircraft panel ----------

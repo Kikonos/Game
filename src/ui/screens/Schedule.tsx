@@ -19,7 +19,7 @@ import { Dot, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
 import { hangarWord } from './screenLogic';
 import {
-  axisTicks, blockText, chooseHits, dragStart, idleAt, layoutRow, pickBlocks, ppmOf, pressFlight, pressMaint, rowBlocks, timelineSpan, visibleWindow, type BlockPlace, type GanttBlock, type ZoomDays,
+  axisTicks, blockText, chooseHits, paintInk, dragStart, idleAt, layoutRow, pickBlocks, ppmOf, pressFlight, pressMaint, rowBlocks, timelineSpan, visibleWindow, type BlockPlace, type GanttBlock, type ZoomDays,
 } from './scheduleLogic';
 import { quoteTripMove, tripOf, type TripMoveQuote, type TripView } from '../../engine/ops/tripMove';
 import { checkMaintMove, maintWord, movableMaint, type MaintMoveCheck } from '../../engine/ops/maintMove';
@@ -104,8 +104,8 @@ function Block({ b, from, ppm, win0, place }: { b: GanttBlock; from: number; ppm
   return (
     <div
       data-k={b.key}
-      className={`gb gb-${b.kind}${b.ftype && b.ftype !== 'operating' ? ` ${b.ftype}` : ''}${b.paint ? ' gb-paint' : ''}${b.done ? ' done' : ''}${b.crew ? ` crew-${b.crew}` : ''}${b.alert ? ' crew-short' : ''}`}
-      style={{ transform: `translateX(${x.toFixed(1)}px)`, width: w, ['--kc' as string]: k, ['--pc' as string]: b.paint, ...(lanes > 1 ? laneBox(place!.lane, lanes) : {}) }}
+      className={`gb gb-${b.kind}${b.ftype && b.ftype !== 'operating' ? ` ${b.ftype}` : ''}${b.paint ? ` gb-paint${paintInk(b.paint) !== '#ffffff' ? ' ink-dark' : ''}` : ''}${b.done ? ' done' : ''}${b.crew ? ` crew-${b.crew}` : ''}${b.alert ? ' crew-short' : ''}`}
+      style={{ transform: `translateX(${x.toFixed(1)}px)`, width: w, ['--kc' as string]: k, ['--pc' as string]: b.paint, ...(b.paint ? { ['--pc-ink' as string]: paintInk(b.paint) } : {}), ...(lanes > 1 ? laneBox(place!.lane, lanes) : {}) }}
     >
       {bt.lines.length === 2
         ? <span className="gb-two"><span>{bt.lines[0]}</span><span>{bt.lines[1]}</span></span>

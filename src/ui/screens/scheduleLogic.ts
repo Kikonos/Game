@@ -136,6 +136,22 @@ export function layoutRow(blocks: GanttBlock[], ppm: number): BlockPlace[] {
   return out;
 }
 
+/**
+ * v0.12.1 the label colour on a paint block: dark on a light livery (white on a white Corendon fill was unreadable),
+ * light on a dark one. Relative luminance of the fill (sRGB), threshold 0.5. Pure.
+ */
+export function paintInk(fill: string): string {
+  const m = /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i.exec(fill.trim());
+  if (!m) return '#ffffff';
+  const hex = m[1].length === 3 ? m[1].split('').map((c) => c + c).join('') : m[1];
+  const lin = (i: number) => {
+    const c = parseInt(hex.slice(i, i + 2), 16) / 255;
+    return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const l = 0.2126 * lin(0) + 0.7152 * lin(2) + 0.0722 * lin(4);
+  return l > 0.5 ? '#0b1220' : '#ffffff';
+}
+
 /** 'Paint · Saudia' (paint-in), 'Repaint' (strip after full paint), 'Decals off'. */
 export function paintLabel(g: GameState, m: MaintenanceEvent): string {
   const c = m.paint ? g.contracts[m.paint.contractId] : undefined;
