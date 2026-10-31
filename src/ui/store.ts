@@ -14,7 +14,7 @@ import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
 import type { ClientLevel } from '../engine/contracts';
 import type { WorldEventKind } from '../engine/core/types';
-import { devCrisisNow, devFair, devTender, type CrisisKind } from '../engine/commercial';
+import { devCrisisNow, devFair, devTender, devTenderBoard, type CrisisKind } from '../engine/commercial';
 import { devDeportation, devDryLease, devEvacuation, devHajj, devLevel, devMixedCrew, devRivalBid, devWorldEvent, devWorldTour } from '../engine/dev';
 import { devTourStopClosed } from '../engine/ops/tourStop';
 import { demoFlights, devAddType, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
@@ -1343,6 +1343,15 @@ class GameStore {
       if (id) this.openModal({ kind: 'tender', tenderId: id });
       this.emit();
       return id;
+    },
+    tenderBoard: () => {
+      const g = this.game;
+      if (!g) return [] as string[];
+      const ids = devTenderBoard(g);
+      settle(g);
+      this.surfaceMessages();
+      this.navigate('contracts', { view: 'tenders' });
+      return ids;
     },
     fair: (fairId?: string) => {
       const g = this.game;

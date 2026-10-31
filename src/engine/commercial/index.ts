@@ -6,7 +6,7 @@ import type { GameState } from '../core/types';
 import { setTravelHook } from '../ops/commercial';
 import { dailyCrises, devCrisis } from './crises';
 import { loadCommercial } from './state';
-import { dailyTenders, issueTender } from './tenders';
+import { bidQuote, dailyTenders, decideTender, issueTender, placeBid } from './tenders';
 import { bookTrip, dailyTrips, fairsAhead, travelLegs } from './trips';
 import type { CrisisKind } from './types';
 
@@ -62,3 +62,34 @@ export function devCrisisNow(g: GameState, kind: CrisisKind = 'strike', clientNa
   return devCrisis(g, kind, clientName);
 }
 
+
+/**
+ * A tender board with something in each list (screens, the player's console): four RFPs, three bids; one won (signed
+ * on the tail bid), one lost to a cheaper rival, one waiting for the award, one open. The tender ids.
+ */
+export function devTenderBoard(g: GameState): string[] {
+  const ids: string[] = [];
+  for (let i = 0; i < 12 && ids.length < 4; i++) {
+    const t = issueTender(g);
+    if (t) ids.push(t.id);
+  }
+  ids.slice(0, 3).forEach((id, i) => {
+    const t = g.com!.tenders.find((x) => x.id === id)!;
+    const q = bidQuote(g, id);
+    const ac = q?.aircraft.find((a) => a.level !== 'no') ?? q?.aircraft[0];
+    if (!q || !ac) return;
+    placeBid(g, id, { rate: Math.round((q.budget * (i === 1 ? 1.06 : 0.98)) / 10) * 10, mgh: q.mgh, aircraftId: ac.id, crew: t.mixedPref ? 'mixed' : 'ours', start: q.start, end: q.end });
+    if (i === 2) {
+      t.status = 'closed';
+      t.deadline = g.now;
+      return;
+    }
+    if (i === 0) t.rivals = t.rivals.map((r) => ({ ...r, rateX: Math.max(r.rateX, 1.06) }));
+    else t.rivals = t.rivals.map((r, j) => (j === 0 ? { ...r, rateX: 0.93, quality: 0.96 } : r));
+    t.status = 'closed';
+    t.deadline = g.now;
+    t.resultAt = g.now;
+    decideTender(g, t);
+  });
+  return ids;
+}

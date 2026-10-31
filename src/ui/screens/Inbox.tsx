@@ -46,6 +46,11 @@ export function openMessage(g: GameState, m: Message) {
   if (m.ref?.kind === 'offer' && g.offers[m.ref.id]?.call && g.offers[m.ref.id].status === 'open' && g.offers[m.ref.id].expires > g.now) {
     return store.openModal({ kind: 'offerCall', offerId: m.ref.id });
   }
+  // v0.14 a tender opens its bid form on the tender board.
+  if (m.ref?.kind === 'tender' && g.com?.tenders.some((t) => t.id === m.ref!.id)) {
+    store.navigate('contracts', { view: 'tenders' });
+    return store.openModal({ kind: 'tender', tenderId: m.ref.id });
+  }
   const link = m.ref ? refTarget(g, m.ref) : null;
   if (!link) return;
   if (link.offerId) {
