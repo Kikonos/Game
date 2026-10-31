@@ -7,7 +7,7 @@ import { flightsOf } from '../core/entities';
 import { distanceNm } from '../core/geo';
 import { blockMinutes, complement, etopsCap, etopsNeeded, maxSectorNm, planSector, rangeFromNm, reportMinutes, runwayFit, typeOf, usableRangeNm } from '../core/perf';
 import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, toDate, fmtDayRange } from '../core/time';
-import type { AcRest, Aircraft, ApprovalId, ContractOffer, CrewExtra, GameState, Minute, RestRefitId } from '../core/types';
+import type { AcRest, Aircraft, ApprovalId, ContractOffer, CrewExtra, Flight, GameState, Minute, RestRefitId } from '../core/types';
 import { crewAvailability, offerExtra, type Availability } from '../crew';
 import { dutyNeed, type ChainShape, type DutyNeed } from '../crew/duties';
 import { restOf } from '../crew/restPlan';
@@ -27,6 +27,7 @@ import { possessive } from './flavor';
 import { productValue, tripTickets } from './pricing';
 import { v08Lines } from './missionChecks';
 import { dryFeasibility } from '../ops/dryLease';
+import { closedAirport, closedUntil } from '../ops/world';
 
 export type CheckId = 'seats' | 'layout' | 'family' | /** v0.8 fix pack */ 'body' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease' | 'paint' | 'restSeats' | /** v0.7.3 */ 'rest'
   /** v0.7.4 client cabin request */ | 'cabinReq'
@@ -267,6 +268,19 @@ function crewReachSoon(g: GameState, typeId: string, f: TripFit | undefined): st
   if (lands + minRest({ dutyMin: blk + BAL.deadheadCheckIn, atHome: false, augmented: false, tzShift: 0 }) <= report) return null;
   const city = AIRPORT_BY_CODE[dep]?.city ?? dep;
   return `No crew can reach ${city} before the ${fmtDateTime(report)} report`;
+}
+
+/**
+ * v0.12.1 the world event whose permit lets the aircraft leave `at` at `t`: the event of the contract whose last leg
+ * there brought it in (an evacuation keeps its aircraft inside the closure). Pure.
+ */
+function permitAt(g: GameState, aircraftId: string, at: string, t: Minute): string | undefined {
+  let prev: Flight | undefined;
+  for (const x of flightsOf(g, aircraftId)) {
+    if (x.std >= t) break;
+    if (x.status !== 'cancelled' && x.kind !== 'deadhead') prev = x;
+  }
+  return prev && prev.to === at && prev.contractId ? g.contracts[prev.contractId]?.eventId : undefined;
 }
 
 export function feasibility(g: GameState, offerId: string, aircraftId: string, opts: { paint?: boolean; cabin?: boolean; crewExtra?: CrewExtra; quick?: boolean } = {}): FeasibilityReport {
@@ -548,6 +562,26 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
         cabinCost = q.cost + q.back - q.reimbursed;
         add('cabinReq', 'ok', `Client cabin: quick reconfiguration to ${target.label}, ${fmtDayRange(slot.start, slot.end)} (${pays}, ${usd(q.cost)}${q.back ? ` + ${usd(q.back)} to put back` : ''})`, `${q.days * 24} h in our hangar; the cabin crew minimum follows the new seats.`);
       }
+    }
+  }
+
+  // 10d. v0.12.1 the empty legs (positioning, hops home, paint ferries) need open airports at both ends: a world
+  // closure stops them unless it is this job's own event or the one whose permit holds the aircraft where it is.
+  if (flyable && !availNo) {
+    const empties = [...(rep.positionAll ?? []), ...(rep.paint ? [...rep.paint.ferryIn, ...rep.paint.ferryOut] : [])];
+    for (const l of empties) {
+      const permit = o.eventId ?? permitAt(g, ac.id, l.from, l.std);
+      const out = closedAirport(g, l.from, l.std, permit);
+      const e = out ?? closedAirport(g, l.to, l.sta, permit);
+      if (!e) continue;
+      const code = out ? l.from : l.to;
+      const where = AIRPORT_BY_CODE[code]?.city ?? code;
+      const label = out ? `${ac.reg} can't leave ${where}: ${e.title} until about ${fmtDay(closedUntil(e))}` : `${ac.reg} can't fly into ${where}: ${e.title} until about ${fmtDay(closedUntil(e))}`;
+      const detail = `The empty leg ${l.from}–${l.to} on ${fmtDateTime(l.std)} UTC falls inside the closure. Force majeure: nothing flies there before it reopens.`;
+      // Replaces the 'ok' positioning line it contradicts.
+      rep.checks = rep.checks.filter((c) => !(c.id === 'positioning' && c.level === 'ok'));
+      add('positioning', 'no', label, detail);
+      break;
     }
   }
 

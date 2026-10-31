@@ -39,6 +39,7 @@ import { cardMeta, checkCard, checkClashCard } from '../problems';
 import { achievementProgress, setHeadUnlockHook } from './achievements';
 import { applyDecisionOption, crewReadyAt, setReceivableHook } from './events';
 import { cancelCheck, checkCostOf, checkStatus, nextPlanned, planA, suggestC } from './maintenance';
+import { headsBill } from './finance';
 import { usd } from './util';
 import { closedAirport } from './world';
 
@@ -546,8 +547,8 @@ export function dailyHeads(g: GameState): void {
 /** Month end (before the statement closes): salaries under 'salaries'; the crew desk's hire proposal. */
 export function monthlyHeads(g: GameState): void {
   if (!g.heads) return;
-  let pay = 0;
-  for (const h of Object.values(g.heads)) if (h.hired) pay += h.hired.salary;
+  // The closing month (this runs before onMonthEnd opens the next statement).
+  const pay = headsBill(g, g.finance.current.month);
   if (pay) post(g, 'salaries', -pay);
   acting = true;
   try {

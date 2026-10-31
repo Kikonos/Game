@@ -71,7 +71,7 @@ export { deliveryQuote, deliveryStatus, ferryRoute, ticketPurpose, type Delivery
 export { approvalName, capText, etopsFixText, etopsLine } from './etops';
 export { chooseLease, earlyReturnQuote, leaseView, returnEarly, returnQuote, type EarlyReturnQuote, type LeaseChoice, type LeaseView, type ReturnQuote } from './leaseReturn';
 export { reopenLatePayment, resolveDecision } from './events';
-export { cashForecast, fixedCosts, monthProfit, newStatement } from './finance';
+export { cashForecast, fixedCosts, forecastItems, monthEndBill, monthProfit, newStatement, type ForecastItem, type MonthEndBill } from './finance';
 export { delayFlight, delayOf, schedSta } from './flights';
 export { excusedLate, isOurDelay, latePenalty, NOT_OURS, onTimeLeg } from './latePolicy';
 export { GOALS, type GoalDef } from './goals';

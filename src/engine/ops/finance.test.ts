@@ -1,6 +1,8 @@
 // Statements, receivables, solvency and the cash forecast (B3). DESIGN.md §5.7, BUILD-PLAN B3 acceptance.
 
-import { dailyFinance } from './finance';
+import { dailyFinance, forecastItems, headsBill, monthEndBill } from './finance';
+import { bookRefit } from './cabin';
+import { cashLowCard } from '../problems/money';
 import { describe, expect, it, onTestFinished } from 'vitest';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
@@ -15,7 +17,7 @@ import { addAircraft, hamBase, leased, legsOffer, newGame, owned, run } from '..
 import { salaryBill } from '../crew';
 import { advanceTo } from '../sim';
 import { cashForecast, fixedCosts, resolveDecision } from '.';
-import { paysFuel, subcharterCost, subcharterLegs } from './flights';
+import { legCostEstimate, paysFuel, subcharterCost, subcharterLegs } from './flights';
 
 /** Advances with no auto-pause honoured (decisions expire into their defaults). */
 const skip = (g: GameState, t: Minute) => advanceTo(g, t, new Set());
@@ -449,5 +451,83 @@ describe('flying costs and billing', () => {
     expect(legs.every((f) => f.status === 'done')).toBe(true);
     const k = monthKey(legs[1].sta);
     expect(c.use[k].blockMin).toBeGreaterThanOrEqual(legs[0].block + legs[1].block);
+  });
+});
+
+describe('v0.12.1 cash forecast: money on the day it moves', () => {
+  it('a refit is paid at its start: once in work it is not counted again; planned 5 days out the drop is on day 5', () => {
+    const g = newGame(5);
+    const ac = owned(g);
+    const start = g.now + 5 * DAY + 60;
+    const r = bookRefit(g, ac.id, '24J/90Y', 'LIS', start);
+    if (!r.ok) throw new Error(r.error);
+    const m = g.maintenance[r.data!.maintId];
+    const fc = cashForecast(g, 30);
+    const cost = m.cost;
+    m.cost = 0;
+    const free = cashForecast(g, 30);
+    m.cost = cost;
+    expect(fc[4].cash).toBe(free[4].cash);
+    expect(free[5].cash - fc[5].cash).toBe(cost);
+    // In work: already paid (onMaintStart), so the forecast matches one without the cost.
+    run(g, start + 60);
+    expect(m.status).toBe('inWork');
+    const inWork = cashForecast(g, 30);
+    m.cost = 0;
+    expect(cashForecast(g, 30)).toEqual(inWork);
+    m.cost = cost;
+  });
+  it("the month-end drop is the month-end bill, heads included, and the cash really moves by it", () => {
+    const g = newGame(27);
+    const k = monthKey(g.now);
+    const h = Object.values(g.heads ?? {})[0];
+    expect(h).toBeTruthy();
+    h.hired = { name: 'Ana Costa', skill: 3, salary: 9_000, since: monthStart(k) - DAY };
+    const bill = monthEndBill(g, k);
+    expect(bill.heads).toBe(9_000);
+    expect(bill.total).toBe(bill.rent + bill.insurance + bill.overhead + salaryBill(g) + 9_000);
+    const t = monthStart(k + 1);
+    const fc = cashForecast(g, Math.ceil((t - g.now) / DAY) + 1);
+    const d = Math.floor((t - g.now) / DAY);
+    const checks = Object.values(g.maintenance).filter((m) => (m.status === 'planned' || m.status === 'inWork') && Math.floor((m.end - g.now) / DAY) === d).reduce((s, m) => s + m.cost, 0);
+    expect(fc[d - 1].cash - fc[d].cash).toBe(bill.total + checks);
+    skip(g, t - 1);
+    const before = g.company.cash;
+    skip(g, t + 1);
+    expect(before - g.company.cash).toBe(bill.total + checks);
+  });
+  it('a head hired mid-month is paid from the day they joined', () => {
+    const g = newGame(27);
+    const k = monthKey(g.now);
+    const h = Object.values(g.heads ?? {})[0];
+    const a = monthStart(k), b = monthStart(k + 1);
+    h.hired = { name: 'Ana Costa', skill: 3, salary: 9_000, since: a + Math.round((b - a) / 2) };
+    expect(headsBill(g, k)).toBeCloseTo(4_500, -1);
+    expect(headsBill(g, k + 1)).toBe(9_000);
+  });
+  it('scheduled flying costs (fuel, fees, maintenance) come off on the day the leg lands', () => {
+    const g = newGame(42);
+    const dep = g.now + 3 * DAY;
+    const o = legsOffer(g, [['LIS', 'PMI', dep], ['PMI', 'LIS', dep + DAY]]);
+    o.payment = { basis: 'onCompletion', dueDays: 7, depositPct: 0 };
+    const res = acceptOffer(g, o.id, [owned(g).id]);
+    if (!res.ok) throw new Error(res.error);
+    const legs = Object.values(g.flights).filter((f) => f.contractId === res.data!.contractId && f.aircraftId);
+    const items = forecastItems(g, 10).filter((x) => x.what.startsWith('flying costs'));
+    const want = legs.reduce((s, f) => { const x = legCostEstimate(g, f, g.fleet[f.aircraftId!]); return s + Math.round(x.maint + x.reserves + x.fuel + x.fees); }, 0);
+    expect(items.reduce((s, x) => s + x.amount, 0)).toBe(-want);
+    expect(want).toBeGreaterThan(0);
+  });
+});
+
+describe('v0.12.1 the cash card names what pulls cash under', () => {
+  it('a big refit before the month end: the WHY names the refit', () => {
+    const g = newGame(5);
+    const ac = owned(g);
+    const r = bookRefit(g, ac.id, '24J/90Y', 'LIS', g.now + 3 * DAY);
+    if (!r.ok) throw new Error(r.error);
+    g.company.cash = 500_000;
+    const card = cashLowCard(g);
+    expect(card?.why).toContain(`${ac.reg}'s cabin refit`);
   });
 });

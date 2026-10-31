@@ -8,9 +8,14 @@ import { pushMessage } from '../core/messages';
 import { cardMeta, cashLowCard, cashNegativeCard, invoiceOverdueCard, postProblem } from '../problems';
 import { requestPause } from '../core/pause';
 import { typeOf } from '../core/perf';
-import { DAY, fmtMonth, monthKey, monthStart } from '../core/time';
-import type { GameState, MonthKey, MonthStatement, SimEvent } from '../core/types';
-import { salaryBill } from '../crew';
+import { DAY, daysInMonth, fmtDay, fmtMonth, monthKey, monthStart } from '../core/time';
+import type { GameState, Minute, MonthKey, MonthStatement, SimEvent } from '../core/types';
+import { joinsAt, salaryBill } from '../crew';
+import { brokerCut } from '../contracts/accept';
+import { mghFor, wetMonthLines } from '../contracts/billing';
+import { warRiskCost } from '../contracts/missionChecks';
+import { legCostEstimate } from './flights';
+import { warRiskAt } from './world';
 import { latePaymentDecision, rescueDecision } from './events';
 import { stats, usd } from './util';
 
@@ -161,17 +166,57 @@ export function dailyFinance(g: GameState): void {
 }
 
 /**
- * Projected cash for the next `days` days from known commitments: receivables at their due dates, wet-lease
- * MGH invoices for running months, charter instalments, salaries and fixed costs at month ends, planned checks,
- * variable flying costs. Pure (no RNG).
+ * v0.12.1 department heads' pay for month k: each hired head's salary, pro-rated from the day they joined when that
+ * was inside the month (the month-end bill and the cash forecast read the same). Pure.
  */
-export function cashForecast(g: GameState, days: number): { t: number; cash: number }[] {
+export function headsBill(g: GameState, k: MonthKey = monthKey(g.now)): number {
+  let pay = 0;
+  const a = monthStart(k), b = monthStart(k + 1);
+  for (const h of Object.values(g.heads ?? {})) {
+    if (!h.hired) continue;
+    const from = Math.max(a, h.hired.since ?? a);
+    if (from < b) pay += h.hired.salary * ((b - from) / (b - a));
+  }
+  return Math.round(pay);
+}
+
+/** v0.12.1 what the month-end run of month k takes out: rent, insurance, overhead, crew and heads' pay. Pure. */
+export interface MonthEndBill { rent: number; insurance: number; overhead: number; salaries: number; heads: number; total: number }
+
+/**
+ * v0.12.1 the month-end bill of month k, the one figure the forecast, the cash card and the top bar read: fixed
+ * costs, crew salaries with on-costs (crew joining before that month end included: they are on the payroll by then)
+ * and the department heads. Pure.
+ */
+export function monthEndBill(g: GameState, k: MonthKey): MonthEndBill {
+  const fc = fixedCosts(g, k);
+  const end = monthStart(k + 1);
+  let joining = 0;
+  for (const c of Object.values(g.crew)) {
+    if (c.status !== 'joining') continue;
+    const at = joinsAt(g, c);
+    if (at !== null && at < end) joining += c.salary;
+  }
+  const salaries = salaryBill(g) + Math.round(joining * (1 + BAL.onCosts));
+  const heads = headsBill(g, k);
+  return { ...fc, salaries, heads, total: fc.rent + fc.insurance + fc.overhead + salaries + heads };
+}
+
+/** v0.12.1 one cash movement of the forecast, kept with what it is (the cash card names the biggest). */
+export interface ForecastItem { t: Minute; amount: number; what: string }
+
+/**
+ * Projected cash movements for the next `days` days from known commitments: receivables at their expected payment,
+ * wet-lease invoices (v0.12.1 the open month's own lines, MGH for later months, Hajj phases and the broker),
+ * charter instalments, the month-end bill, maintenance when it is paid (refits and returns at the start, the return
+ * deposit back at the end, checks at the end) and every scheduled leg's flying costs (fuel, fees, maintenance and
+ * reserves, war risk) with the crew's travel at this month's daily rate. Pure (no RNG).
+ */
+export function forecastItems(g: GameState, days: number): ForecastItem[] {
   const end = g.now + days * DAY;
-  const delta = new Map<number, number>();
-  const add = (t: number, v: number) => {
-    if (t > end || !v) return;
-    const d = Math.max(0, Math.floor((t - g.now) / DAY));
-    delta.set(d, (delta.get(d) ?? 0) + v);
+  const out: ForecastItem[] = [];
+  const add = (t: number, amount: number, what: string) => {
+    if (t <= end && amount) out.push({ t: Math.max(g.now, t), amount, what });
   };
   // Overdue invoices are expected at the client's typical lateness (never today); slow payers' invoices not yet
   // due likewise.
@@ -182,30 +227,67 @@ export function cashForecast(g: GameState, days: number): { t: number; cash: num
     let t = r.due;
     if (r.due < g.now) t = Math.max(r.due + mid, g.now + 7 * DAY);
     else if (cl && cl.payReliability < 0.6) t = r.due + mid;
-    add(t, r.amount);
+    add(t, r.amount, 'invoices paid');
   }
-  const salaries = salaryBill(g);
-  for (let k = monthKey(g.now); monthStart(k) <= end; k++) {
+  const k0 = monthKey(g.now);
+  for (let k = k0; monthStart(k) <= end; k++) {
     const t = monthStart(k + 1);
-    const fc = fixedCosts(g, k);
-    add(t, -(fc.rent + fc.insurance + fc.overhead + salaries));
+    add(t, -monthEndBill(g, k).total, `month-end rent, insurance and salaries on ${fmtDay(t)}`);
     for (const c of Object.values(g.contracts)) {
-      if ((c.status !== 'active' && c.status !== 'signed') || c.product.kind !== 'wet') continue;
-      const a = Math.max(c.start, monthStart(k));
-      const b = Math.min(c.end, t);
-      if (b <= a) continue;
-      add(t + c.payment.dueDays * DAY, c.product.ratePerBH * c.product.mghPerMonth * c.aircraftIds.length * ((b - a) / (t - monthStart(k))));
+      if ((c.status !== 'active' && c.status !== 'signed') || c.product.kind !== 'wet' || c.billedMonths.includes(k)) continue;
+      // The open month: its own invoice lines so far (flown, lost hours, excess); later months: the guarantee.
+      const v = k === k0 ? wetMonthLines(c, k).reduce((s, l) => s + l.amount, 0) : c.product.ratePerBH * mghFor(c, k) * (1 - brokerCut(c));
+      add(t + c.payment.dueDays * DAY, Math.round(v), 'wet-lease invoices');
     }
   }
   for (const c of Object.values(g.contracts)) {
     if (c.status !== 'active' && c.status !== 'signed') continue;
-    for (const it of c.instalments ?? []) add(it.at + c.payment.dueDays * DAY, it.amount);
+    for (const it of c.instalments ?? []) add(it.at + c.payment.dueDays * DAY, it.amount, 'charter balances');
   }
-  for (const m of Object.values(g.maintenance)) if ((m.status === 'planned' || m.status === 'inWork') && m.kind !== 'AOG') add(m.end, -m.cost);
+  for (const m of Object.values(g.maintenance)) {
+    if (m.status !== 'planned' && m.status !== 'inWork') continue;
+    const reg = g.fleet[m.aircraftId]?.reg ?? 'an aircraft';
+    if (m.kind === 'refit') {
+      // Paid when the work starts (maintenance.ts onMaintStart): in work = already paid.
+      if (m.status === 'planned') add(m.start, -m.cost, `${reg}'s cabin refit on ${fmtDay(m.start)}`);
+    } else if (m.kind === 'return') {
+      const ac = g.fleet[m.aircraftId];
+      if (m.status === 'planned') add(m.start, -((ac?.returning?.quote ?? m.cost) + (ac?.returning?.earlyFee ?? 0)), `${reg}'s lease return on ${fmtDay(m.start)}`);
+      const dep = ac?.ownership.kind === 'dryLeaseIn' ? ac.ownership.deposit ?? 0 : 0;
+      add(m.end, dep, 'lease deposit back');
+    } else add(m.end, -m.cost, `${reg}'s ${m.kind === 'AOG' ? 'repair' : m.kind === 'paint' ? 'paint' : `${m.kind}-check`} on ${fmtDay(m.end)}`);
+  }
   for (const f of Object.values(g.flights)) {
     if (f.status !== 'scheduled' || !f.aircraftId || f.std > end) continue;
     const ac = g.fleet[f.aircraftId];
-    if (ac) add(f.sta, -Math.round(typeOf(ac.typeId).maintBH * (f.block / 60)));
+    if (!ac) continue;
+    const x = legCostEstimate(g, f, ac);
+    add(f.sta, -Math.round(x.maint + x.reserves + x.fuel + x.fees), 'flying costs (fuel, fees, maintenance)');
+    const c = f.contractId ? g.contracts[f.contractId] : undefined;
+    // Fuel at cost: the client pays the burn back (invoiced on arrival).
+    if (x.fuel && c?.product.kind === 'charter' && c.product.fuelAtCost && (f.kind === 'revenue' || f.kind === 'techstop')) add(f.sta + (c.payment.basis === 'arrears' ? c.payment.dueDays : 7) * DAY, Math.round(x.fuel), 'fuel re-billed');
+    if (f.kind !== 'deadhead') {
+      const war = warRiskCost(warRiskAt(g, f.to), typeOf(ac.typeId).body === 'wide');
+      add(f.sta, -war, 'war-risk cover');
+      if (war && c?.product.kind === 'wet') add(f.sta + c.payment.dueDays * DAY, war, 'war-risk cover re-billed');
+    }
+  }
+  // Crew away (per diems, hotels, tickets): this month's daily rate so far (last month's in its first days).
+  const cur = g.finance.current;
+  const elapsed = (g.now - monthStart(cur.month)) / DAY;
+  const last = g.finance.history[g.finance.history.length - 1];
+  const travel = (l: MonthStatement['lines']) => -((l.perDiem ?? 0) + (l.hotels ?? 0) + (l.deadhead ?? 0) + (l.crewJet ?? 0));
+  const rate = elapsed >= 3 || !last ? travel(cur.lines) / Math.max(1, elapsed) : travel(last.lines) / daysInMonth(last.month);
+  if (rate > 0) for (let d = 1; d <= days; d++) add(g.now + d * DAY, -Math.round(rate), 'crew travel (per diems, hotels, tickets)');
+  return out;
+}
+
+/** Projected cash for the next `days` days (forecastItems by day). Pure (no RNG). */
+export function cashForecast(g: GameState, days: number): { t: number; cash: number }[] {
+  const delta = new Map<number, number>();
+  for (const x of forecastItems(g, days)) {
+    const d = Math.max(0, Math.floor((x.t - g.now) / DAY));
+    delta.set(d, (delta.get(d) ?? 0) + x.amount);
   }
   const out: { t: number; cash: number }[] = [];
   let cash = g.company.cash;

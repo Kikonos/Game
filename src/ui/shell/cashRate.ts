@@ -6,8 +6,7 @@
 import { DAY, daysInMonth, monthStart } from '../../engine/core/time';
 import { statementTotals } from '../../engine/core/ledger';
 import type { GameState } from '../../engine/core/types';
-import { salaryBill } from '../../engine/crew';
-import { fixedCosts } from '../../engine/ops';
+import { monthEndBill } from '../../engine/ops';
 import { earnedUnbilled } from '../screens/screenLogic';
 
 /** Below this many days into the month the rate falls back to last month's average. */
@@ -15,10 +14,8 @@ const WARMUP_DAYS = 2;
 
 /** This month's costs booked only at month end: rent, insurance, overhead, crew and department-head salaries. */
 export function monthEndCosts(g: GameState): number {
-  const fc = fixedCosts(g, g.finance.current.month);
-  let heads = 0;
-  for (const h of Object.values(g.heads ?? {})) if (h.hired) heads += h.hired.salary;
-  return fc.rent + fc.insurance + fc.overhead + salaryBill(g) + heads;
+  // v0.12.1 the engine's month-end bill (the cash card and the forecast read the same).
+  return monthEndBill(g, g.finance.current.month).total;
 }
 
 /** Profit per day (USD) and what it is based on; null when there is nothing to go on yet. */
