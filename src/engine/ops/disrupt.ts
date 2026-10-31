@@ -15,6 +15,7 @@ import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { blockMinutes, fullLength, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
+import { isolatePauses } from '../core/pause';
 import { hashUnit } from '../core/util';
 import { divPos } from '../core/query';
 import { curfewEnd, curfewOk, curfewShift, inCurfew } from '../core/curfew';
@@ -672,7 +673,7 @@ export function onDivertedArrival(g: GameState, f: Flight): void {
   // v0.12.1 the onward leg leaves and lands outside the night curfews at both ends (the next morning's opening).
   const flyAt = clearOfCurfews(alt, to0, Math.max(g.now + Math.max(45, ground), fixEnd + 30), block);
   // v0.12.1 "the crew get their legal rest": the morning leg leaves no sooner than their minimum rest allows.
-  const morning = clearOfCurfews(alt, to0, Math.max(g.now + 12 * 60, fixEnd + 30, restedDeparture(g, f) ?? 0), block);
+  let morning = clearOfCurfews(alt, to0, Math.max(g.now + 12 * 60, fixEnd + 30, restedDeparture(g, f) ?? 0), block);
   // v0.12.1 "Same crew" only when the crew's duty, flying on at flyAt, stays under its limit (the rule afterDiversion keeps it by).
   const sameCrew = continuationFits(g, f, flyAt, block);
   const next = flightsOf(g, ac.id).find((x) => x.status === 'scheduled' && x.from === to0 && x.std >= (f.schedStd ?? f.std));
@@ -681,9 +682,25 @@ export function onDivertedArrival(g: GameState, f: Flight): void {
     opts.push({ id: 'flyOn', label: `Fly on to ${place(to0)} ${cause === 'technical' ? 'after the fix' : 'today'}`, desc: `Refuel, ${cause === 'weather' ? 'wait for the weather to lift' : cause === 'medical' ? 'hand the patient to the ambulance' : 'fix it'}, then ${hm(block)} to ${to0}.`, tone: 'good', chips: [`Off ${fmtTime(flyAt)} UTC`, sameCrew ? 'Same crew, within their day' : 'Crew out of hours: a fresh crew', charter ? usd(-(2 * DISRUPT.mealPax * pax)) : 'Client pays fuel'] });
   }
   if (road <= 450) opts.push({ id: 'bus', label: 'Coach the passengers', desc: `${Math.ceil(Math.max(1, pax) / 50)} coaches, ${road} km to ${place(to0)}. The aircraft repositions empty.`, chips: [charter ? usd(-coachCost(pax, road)) : 'Client pays the coaches', `~${hm((road / 70) * 60 + 45)} by road`, 'Relation −1'] });
+  // v0.12.1 (review) who really flies it then (tried on a copy): our crew after their rest, or a fresh crew and its cost.
+  // When nobody can fly it then, the first later time a crew can (their weekly time off over, or a fresh crew there).
+  const asked = morning;
+  let hc = hotelCrew(g, f, morning, alt, to0, block, pax);
+  for (const hrs of [3, 6, 12, 18, 24, 36]) {
+    if (hc.fresh) break;
+    const t = clearOfCurfews(alt, to0, asked + hrs * 60, block);
+    const y = hotelCrew(g, f, t, alt, to0, block, pax);
+    if (y.fresh) {
+      morning = t;
+      hc = y;
+    }
+  }
   // v0.12.1 named by when it really leaves ("fly in the morning" read for an 23:05 UTC departure).
   const mh = Math.floor(localMinuteOfDay(alt, morning) / 60);
-  opts.push({ id: 'hotel', label: mh >= 4 && mh < 12 ? 'Hotels tonight, fly in the morning' : `Hotels and a rest, fly at ${fmtTime(morning)} UTC`, desc: `Passengers and crew to hotels in ${place(alt)}; the crew get their legal rest, then fly to ${to0}.`, chips: [costChip((charter ? hotelCost(pax) : 0) + crewRooms(g, f, morning)), `Off ${fmtTime(morning)} UTC`, 'Relation −1'] });
+  const later = morning > asked ? ` (no crew can fly it at ${fmtTime(asked)} UTC)` : '';
+  const crewDesc = hc.own ? `the crew get their legal rest, then fly to ${to0}${later}` : hc.fresh ? `our crew can't fly it after this rest (their weekly time off or their hours), so a fresh crew flies to ${to0}${later}` : `our crew can't fly it after this rest and no fresh crew can be there in time: Crew Control finds one`;
+  const crewChip = hc.own ? 'Same crew after their rest' : hc.fresh ? `Fresh crew${hc.cost ? ` ${usd(-hc.cost)}` : ''}` : 'No crew yet';
+  opts.push({ id: 'hotel', label: mh >= 4 && mh < 12 ? 'Hotels tonight, fly in the morning' : `Hotels and a rest, fly at ${fmtTime(morning)} UTC`, desc: `Passengers and crew to hotels in ${place(alt)}; ${crewDesc}.`, tone: hc.fresh ? undefined : 'warn', chips: [costChip((charter ? hotelCost(pax) : 0) + crewRooms(g, f, morning) + hc.cost), `Off ${fmtTime(morning)} UTC`, crewChip, 'Relation −1'] });
   if (cause === 'technical') opts.push({ id: 'subcharter', label: 'A rival flies the passengers on', desc: 'Another operator sends an aircraft; our aircraft stays for the fix.', tone: 'warn', chips: [usd(-subcharterCost(g, [f], 1.3)), 'Fast'] });
   const def = opts[0].id === 'flyOn' && sameCrew ? 'flyOn' : road <= 300 ? 'bus' : 'hotel';
   const late = Math.max(0, flyAt + block - (f.div.eta0 ?? f.sta));
@@ -709,6 +726,63 @@ export function lineMx(g: GameState, ac: Aircraft, at: string, min: number, cost
   return m.end;
 }
 
+/** The passengers' onward leg alt → to0 at std after a diversion (the 'fly on' and 'hotel' answers), the aircraft's later legs following. */
+function onwardLeg(g: GameState, f: Flight, ac: Aircraft, alt: string, to0: string, std: Minute, block: number, pax: number, why: string): Flight {
+  // v0.12.1 empty legs planned out of the alternate before the decision (an older save) give way to the passengers' leg.
+  const stale = flightsOf(g, ac.id).filter((y) => y.kind === 'positioning' && y.status === 'scheduled' && y.from === alt && (isSoft(g, y) || y.to === to0));
+  if (stale.length) removeFlights(g, stale.map((y) => y.id));
+  const x = addFlight(g, { no: f.no, aircraftId: ac.id, contractId: f.contractId, kind: 'revenue', from: alt, to: to0, std, sta: std + block, pax });
+  x.contOf = f.id;
+  f.contOf = x.id;
+  x.lateOk = Math.max(0, std - (f.schedStd ?? f.std));
+  // The aircraft's later legs from the planned destination follow (turn minima kept, the usual recovery). v0.12.1 the
+  // recovery starts from the onward leg, so the leg after it (a wave's return) is the one bringing the aircraft home:
+  // late, never dropped (seed 9: BT4063 VAR–RIX cancelled, $15K, and flown empty, billed to airBaltic).
+  applyHold(g, planRecovery(g, ac, to0, x.sta + turnOf(ac), f.schedStd ?? f.std, x), why, why, `Recovery: ${why}`);
+  settleOverlaps(g, ac);
+  // The crew's next trip starts where the aircraft now goes (seed 6: BHX–FRA re-planned DUB–FRA before the crew check).
+  relinkPositioning(g, ac.id);
+  return x;
+}
+
+/** What the hotel answer means for the crew, tried on a copy: our own crew fly it, else a fresh crew (tickets), else nobody yet. */
+interface HotelCrew {
+  own: boolean;
+  fresh: boolean;
+  /** Tickets and hotel nights the fresh crew cost (USD, ≥ 0). */
+  cost: number;
+}
+
+/**
+ * v0.12.1 (review, MOVE-1/EV-08) the 'hotel' answer tried on a copy, with the rule afterDiversion keeps the onward leg by
+ * (ownTrailOk: the crew's rest, 7-day duty, the 36 h weekly rest): do our own crew fly it at `at` after their rest, or a
+ * fresh crew the roster finds (and what their tickets cost)? Seed 9: "Hotels and a rest, fly at 00:39 UTC, the crew get
+ * their legal rest", while Louis Durand was due his 36 h off; the leg had no pilots and two legs were cancelled. Pure.
+ */
+function hotelCrew(g: GameState, f: Flight, at: Minute, alt: string, to0: string, block: number, pax: number): HotelCrew {
+  return isolatePauses(() => {
+    const h = structuredClone(g);
+    const hf = h.flights[f.id];
+    const ac = hf?.aircraftId ? h.fleet[hf.aircraftId] : undefined;
+    if (!hf || !ac || !hf.div) return { own: false, fresh: false, cost: 0 };
+    const p0 = hf.dutyId ? h.duties[hf.dutyId]?.pairingId : undefined;
+    hf.div.settled = true;
+    const crew0 = new Set(p0 ? h.pairings[p0]?.slots.filter((s) => s.crewId).map((s) => s.crewId!) ?? [] : []);
+    const spend = () => -((h.finance.current.lines.deadhead ?? 0) + (h.finance.current.lines.hotels ?? 0) + (h.finance.current.lines.crewJet ?? 0));
+    const s0 = spend();
+    const x = onwardLeg(h, hf, ac, alt, to0, at, block, pax, 'Diversion');
+    // As the answer does: the onward leg to the crew when they can fly it after their rest, then the roster's check.
+    afterDiversion(h, hf, x);
+    rerosterFrom(h, ac.id, h.now);
+    const hx = h.flights[x.id];
+    if (!hx || hx.status !== 'scheduled' || ['missing', 'illegal'].includes(flightCrewStatus(h, x.id).level)) return { own: false, fresh: false, cost: 0 };
+    const xd = hx.dutyId ? h.duties[hx.dutyId] : undefined;
+    const on = xd ? h.pairings[xd.pairingId]?.slots.filter((s) => s.crewId).map((s) => s.crewId!) ?? [] : [];
+    const own = on.length > 0 && on.every((id) => crew0.has(id));
+    return { own, fresh: true, cost: own ? 0 : Math.max(0, Math.round(spend() - s0)) };
+  });
+}
+
 function resolveOnward(g: GameState, d: Decision, opt: string): ActionResult {
   const f = g.flights[String(d.data?.flightId)];
   const ac = f?.aircraftId ? g.fleet[f.aircraftId] : undefined;
@@ -723,23 +797,7 @@ function resolveOnward(g: GameState, d: Decision, opt: string): ActionResult {
   // v0.12.1 decided: the planner may plan the aircraft's next move again (relinkPositioning waits while it is open).
   f.div.settled = true;
   const why = cause === 'technical' ? 'Technical: diversion' : cause === 'medical' ? 'Medical diversion' : 'Weather: diversion';
-  const cont = (std: Minute) => {
-    // v0.12.1 empty legs planned out of the alternate before the decision (an older save) give way to the passengers' leg.
-    const stale = flightsOf(g, ac.id).filter((y) => y.kind === 'positioning' && y.status === 'scheduled' && y.from === alt && (isSoft(g, y) || y.to === to0));
-    if (stale.length) removeFlights(g, stale.map((y) => y.id));
-    const x = addFlight(g, { no: f.no, aircraftId: ac.id, contractId: f.contractId, kind: 'revenue', from: alt, to: to0, std, sta: std + block, pax });
-    x.contOf = f.id;
-    f.contOf = x.id;
-    x.lateOk = Math.max(0, std - (f.schedStd ?? f.std));
-    // The aircraft's later legs from the planned destination follow (turn minima kept, the usual recovery). v0.12.1 the
-    // recovery starts from the onward leg, so the leg after it (a wave's return) is the one bringing the aircraft home:
-    // late, never dropped (seed 9: BT4063 VAR–RIX cancelled, $15K, and flown empty, billed to airBaltic).
-    applyHold(g, planRecovery(g, ac, to0, x.sta + turnOf(ac), f.schedStd ?? f.std, x), why, why, `Recovery: ${why}`);
-    settleOverlaps(g, ac);
-    // The crew's next trip starts where the aircraft now goes (seed 6: BHX–FRA re-planned DUB–FRA before the crew check).
-    relinkPositioning(g, ac.id);
-    return x;
-  };
+  const cont = (std: Minute) => onwardLeg(g, f, ac, alt, to0, std, block, pax, why);
   const comp = () => {
     // EU261: a technical diversion is ours (not extraordinary; C-549/07): 3 h+ late on a charter we operate.
     if (cause !== 'technical') return 0;
