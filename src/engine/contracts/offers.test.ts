@@ -183,9 +183,11 @@ describe('v0.7 cabin rules on offers (§F7.3–F7.4)', () => {
         const cabin = typeOf(u!.typeId).cabins.find((c) => c.j + c.w + c.y >= o.requirements.minSeats) ?? typeOf(u!.typeId).cabins[0];
         ac.cabin = { ...ac.cabin, j: cabin.j, w: cabin.w, y: cabin.y, total: cabin.j + cabin.w + cabin.y, layout: o.requirements.layouts?.[0] ?? cabin.layout };
         const rest = feasibility(g, o.id, ac.id).checks.find((c) => c.id === 'rest');
-        expect(rest?.level ?? 'ok', `${out.from}–${out.to} on ${u!.typeId}: ${rest?.label}`).not.toBe('no');
+        // v0.12.1 (review) the empty legs are crew duties too: from Lisbon, the hop home and back between TLL–PER and
+        // its return (LIS–PER nonstop, an 18:25 day) is more than any crew may fly; the job's own legs still are not.
+        if (rest?.level === 'no') expect(rest.label, `${out.from}–${out.to} on ${u!.typeId}`).toMatch(/^Positioning \w+→\w+: A (1[89]|2\d):\d\d day is longer than any crew may fly/);
+        else checked++;
         delete g.fleet[ac.id];
-        checked++;
       }
     }
     expect(checked).toBeGreaterThan(5);

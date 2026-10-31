@@ -148,11 +148,12 @@ describe('feasibility', () => {
 
   it('rest: long duties need the augmented approval and in-flight rest on the aircraft (v0.7.3)', () => {
     const g = newGame(30);
-    // v0.12.1 an A350 Lisbon–Jakarta nonstop (a 15:45 day). The 777's Lisbon–Hong Kong now stops midway at Tashkent,
-    // where a fresh crew can take over, so it no longer needs the augmented crew this test is about.
+    // v0.12.1 an A350 Lisbon–Bangkok nonstop. The 777's Lisbon–Hong Kong now stops midway at Tashkent, where a fresh
+    // crew can take over, so it no longer needs the augmented crew this test is about. v0.12.1 (review) the empty leg
+    // home is checked too (Bangkok–Lisbon, a 15:05 day, the longest); Jakarta's (17:30) needs a 4th pilot even in bunks.
     const wb = addAircraft(g, 'a359');
     g.company.approvals.push('etops120', 'etops180');
-    const o = legsOffer(g, [['LIS', 'CGK', g.now + 8 * DAY]], 250);
+    const o = legsOffer(g, [['LIS', 'BKK', g.now + 8 * DAY]], 250);
     const r = check(feasibility(g, o.id, wb.id), 'rest');
     expect(r.level).toBe('no');
     expect(r.label).toMatch(/augmented/);
@@ -183,6 +184,28 @@ describe('feasibility', () => {
     expect(ulr.label).toMatch(/^ULR needs bunks for pilots and cabin crew \(class 1\)/);
     wb.rest = { fc: { cls: 1, kind: 'fcrc', places: 2 }, cc: { cls: 1, kind: 'ccrc', places: 8 } };
     expect(check(feasibility(g, o.id, wb.id), 'rest').level).toBe('ok');
+  });
+
+  it('v0.12.1 (review) rest: a positioning flown as a duty of its own is checked too (seed 1 --wide meltdown)', () => {
+    // A 747 at Lisbon for short hops out of Ho Chi Minh City: the job's own days are short (2 pilots), but LIS–SGN
+    // (12:55 of block, a 14:25 day) and SGN–LIS home are empty legs our own crew must fly. Read 'Longest day 8:05'
+    // before: signed, no crew could fly the positioning, and two months of the job were sub-chartered.
+    const g = newGame(30);
+    const jumbo = addAircraft(g, 'b744');
+    const t0 = g.now + 20 * DAY;
+    const o = legsOffer(g, [['SGN', 'BKK', t0 + 3 * 60], ['BKK', 'SGN', t0 + 6 * 60], ['SGN', 'BKK', t0 + DAY + 3 * 60], ['BKK', 'SGN', t0 + DAY + 6 * 60]], 300);
+    const r = check(feasibility(g, o.id, jumbo.id), 'rest');
+    expect(r.level).toBe('no');
+    expect(r.label).toMatch(/^Positioning (LIS→SGN|SGN→LIS): A \d+:\d\d day needs an augmented crew: we have no approval for it$/);
+    expect(r.detail).toMatch(/empty leg/);
+    expect(acceptOffer(g, o.id, [jumbo.id]).ok).toBe(false);
+    // With augmented crews and the 747's bunks the roster flies them with 3 or 4 pilots: no longer a 'no'.
+    g.company.approvals.push('augmented');
+    expect(check(feasibility(g, o.id, jumbo.id), 'rest').level).not.toBe('no');
+    // An aircraft already out there flies the job without the long empty legs: the job's own short days only.
+    g.company.approvals.pop();
+    const o2 = legsOffer(g, [['LIS', 'MAD', t0 + 3 * 60], ['MAD', 'LIS', t0 + 6 * 60]], 300);
+    expect(check(feasibility(g, o2.id, jumbo.id), 'rest').level).toBe('ok');
   });
 
   it('rest: the real Table 2 limit for the report time (C7)', () => {

@@ -657,8 +657,17 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const rest = restOf(g, ac.id);
   // As the roster builds the duties: positioning in and out joined to the trip's own legs when one crew can fly
   // them as one duty (else the roster slips a fresh crew at the outstation and the trip's own chains stand).
-  const joined = crewChains(g, fits.filter((f) => f.posIn.length || f.posOut.length).flatMap((f) => chainsOf([...f.posIn, ...f.trip.legs, ...f.posOut].map((l) => ({ std: l.std, sta: l.sta, from: l.from, to: l.to })))));
-  const chains = [...prog.chains, ...joined.filter((c) => dutyNeed(g, t.id, rest, c).mode !== 'none')];
+  const legsOf = (ls: { std: Minute; sta: Minute; from: string; to: string }[]) => ls.map((l) => ({ std: l.std, sta: l.sta, from: l.from, to: l.to }));
+  const posFits = fits.filter((f) => f.posIn.length || f.posOut.length);
+  const joined = crewChains(g, posFits.flatMap((f) => chainsOf(legsOf([...f.posIn, ...f.trip.legs, ...f.posOut]))));
+  // v0.12.1 ... and when they don't join, the positioning is a duty of its own: checked on its own too (seed 1 --wide:
+  // a 747's LIS–SGN positioning, 12:55 of block, 14:25 of duty for 2 pilots, read 'Longest day 8:05'; no crew could
+  // fly it, the leg was planned again every day and two months of the job went to a rival).
+  const apart = posFits.filter((f) => chainsOf(legsOf([...f.posIn, ...f.trip.legs, ...f.posOut]), g.company.homeBase).some((c) => dutyNeed(g, t.id, rest, c).mode === 'none'));
+  // Too long as one duty, the roster cuts it at every stop (slipUnits): only a leg no crew can fly alone stays a 'no'.
+  const own = (c: ChainShape) => (dutyNeed(g, t.id, rest, c).mode !== 'none' ? [c] : c.legs.map((l) => ({ from: l.from ?? c.from, std: l.std, legs: [l] })));
+  const alone = crewChains(g, apart.flatMap((f) => [f.posIn, f.posOut].flatMap((p) => (p.length ? chainsOf(legsOf(p), g.company.homeBase).flatMap(own) : []))));
+  const chains = [...prog.chains, ...joined.filter((c) => dutyNeed(g, t.id, rest, c).mode !== 'none'), ...alone];
   const rn = restNeed(g, o, t.id, rest, chains);
   const augmented = rn.need?.mode === 'aug1' || rn.need?.mode === 'aug2';
   // v0.7 `quick` (a caller that only wants a flyable pick): no crew capacity sizing once another check says no.
@@ -677,7 +686,11 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   if (rn.line) {
     // v0.7.4 seat rest everywhere: a refit can also lift a day that is too long for the seats (recliners, class 2).
     const fix = rn.level === 'no' && (rn.need?.why === 'noRest' || rn.need?.why === 'tooLong' || rn.need?.why === 'cabin') ? restRefitFix(g, ac.id, o, t.id, chains) : null;
-    rep.checks.push({ id: 'rest', level: rn.level, label: rn.line, ...(rn.detail ? { detail: rn.detail } : {}), ...(fix ? { action: { kind: 'restRefit', option: fix } } : {}) });
+    // v0.12.1 the line names the positioning when it is the day no crew can fly.
+    const pos = rn.level === 'no' && rn.line === rn.need?.text ? alone.find((c) => dutyNeed(g, t.id, rest, c).text === rn.line) : undefined;
+    const label = pos ? `Positioning ${pos.from}→${pos.legs[pos.legs.length - 1].to}: ${rn.line}` : rn.line;
+    const detail = rn.detail ?? (pos ? 'Our own crew fly the empty leg, longer than one crew may fly in a day: an aircraft nearer the job, or augmented crews.' : undefined);
+    rep.checks.push({ id: 'rest', level: rn.level, label, ...(detail ? { detail } : {}), ...(fix ? { action: { kind: 'restRefit', option: fix } } : {}) });
     if (RANK[rn.level] > RANK[rep.level]) rep.level = rn.level;
   }
   // Seats curtained off for crew rest on the long legs (seat-based facilities only).
