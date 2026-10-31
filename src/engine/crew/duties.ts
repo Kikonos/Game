@@ -15,7 +15,8 @@ import {
 } from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
 import { bestSlip } from './slip';
-import { cabinEarly, cabinEarlyOf, crewCount, crewIx, dhBlock, dutyBlock, dutyFlights, onBlocks, touchCrew } from './timeline';
+import { aboard, cabinEarly, cabinEarlyOf, crewCount, crewIx, ctxOf, dhBlock, dutyBlock, dutyFlights, dutySegs, onBlocks, planHome, segsOf, touchCrew } from './timeline';
+import { mergeSegs, openDuties } from './check';
 import { pilotsOnlyTrip, planRest, restOf, type RestLeg, type RestPlan } from './restPlan';
 
 // ---------- duty measures ----------
@@ -858,14 +859,22 @@ export function afterDiversion(g: GameState, f: Flight, x: Flight | null): void 
     if (d.legality === 'illegal') return false;
     for (const s of p.slots) {
       const c = s.crewId ? g.crew[s.crewId] : undefined;
-      if (c && crewTrailOkHook && !crewTrailOkHook(g, p, c)) return false;
+      if (c && !ownTrailOk(g, p, c, d)) return false;
     }
     return true;
   };
   let rest: string[] = tail;
+  // v0.12.1 the onward leg after the crew's rest (hotels at the alternate) is theirs too: it heads the duty split off
+  // below when they can fly it then (seed 9: BT4062 RIX–VAR the next night left uncrewed, a red shortage, and the
+  // trip's other legs cancelled waiting for a crew while its own crew rested in Riga with two free days).
+  let after = false;
   if (x && fits([...head, x.id, ...tail])) rest = [];
   else if (!(x && fits([...head, x.id]))) {
-    if (x) x.dutyId = null;
+    if (x) {
+      x.dutyId = null;
+      rest = [x.id, ...tail];
+      after = true;
+    }
     fits(head);
   }
   if (rest.length) {
@@ -880,12 +889,83 @@ export function afterDiversion(g: GameState, f: Flight, x: Flight | null): void 
     d.deadheadIds = d.deadheadIds.filter((id) => !d2.deadheadIds.includes(id));
     p.dutyIds.push(d2.id);
     syncDuty(g, d2, p);
-    queueDuty(g, d2);
+    // A crew member who still can't fly it (no 36 h recovery this week) is replaced by the roster; when none can, or the
+    // day is too long, the onward leg goes to the roster (another crew), as before.
+    if (after && x && (d2.legality === 'illegal' || p.slots.every((s) => !s.crewId || !g.crew[s.crewId] || !ownTrailOk(g, p, g.crew[s.crewId], d2)))) {
+      x.dutyId = null;
+      d2.flightIds = tail;
+      if (tail.length) syncDuty(g, d2, p);
+      else {
+        d.deadheadIds.push(...d2.deadheadIds);
+        p.dutyIds = p.dutyIds.filter((id) => id !== d2.id);
+        delete g.duties[d2.id];
+      }
+    }
+    if (g.duties[d2.id]) queueDuty(g, d2);
   }
   queueDuty(g, d);
   refreshPairing(g, p);
   retickHook(g, p);
   touchCrew(g);
+}
+
+/**
+ * v0.12.1 can crew member c fly pairing p up to duty `upto` as it now stands, judged against the work before it
+ * (cumulative limits, the rest before it) and the way home after it? Their later duties and trips are not asked:
+ * built for where the aircraft was going (seed 6: a positioning BHX–FRA after DBB393 had gone on to Dublin), they
+ * read "At DUB, not BHX" and left the onward leg uncrewed with a red shortage. The roster re-checks them when the
+ * flights change, and splits off and re-crews a later duty its crew can no longer reach.
+ */
+function ownTrailOk(g: GameState, p: Pairing, c: CrewMember, upto: Duty): boolean {
+  const duties = openDuties(g, p).filter((x) => x === upto || x.report <= upto.report);
+  if (!duties.length) return false;
+  const first = duties[0];
+  const last = duties[duties.length - 1];
+  let out: Flight | null = null;
+  for (const fid of first.deadheadIds) {
+    const f = g.flights[fid];
+    if (f && f.status !== 'cancelled' && aboard(f, c.id) && f.sta <= first.report) out = f;
+  }
+  const home = last.restAt !== c.base ? planHome(last, c.base, cabinEarly(g, p)) : null;
+  const own: Seg[] = [];
+  for (const d of duties) own.push(...dutySegs(g, c, p, d, d === first ? out : null, d === last ? home : null, true));
+  const before = segsOf(g, c, p.id).filter((s) => s.end <= first.report);
+  return !evalSegs({ ...ctxOf(g, c), slack: BAL.rosterSlack }, mergeSegs(before, own)).some((i) => i.level === 'illegal' && i.code !== 'fdp');
+}
+
+/**
+ * v0.12.1 the onward card's "Same crew, within their day": diverted leg f's duty, flying on from where it landed to
+ * its destination at `std` for `block` minutes, stays under its limit (discretion already on record counts). The
+ * same limit afterDiversion keeps the onward leg in the duty by. Pure.
+ */
+export function continuationFits(g: GameState, f: Flight, std: Minute, block: number): boolean {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  if (!d || !p || d.done || crewCount(p) === 0) return false;
+  const i = d.flightIds.indexOf(f.id);
+  if (i < 0) return false;
+  const head = d.flightIds.slice(0, i + 1).map((id) => g.flights[id]).filter((x) => !!x && x.status !== 'cancelled');
+  const x: Flight = { ...f, id: '', from: f.to, to: f.div?.to0 ?? f.to, std, sta: std + block, block, status: 'scheduled', delay: 0, atd: undefined, ata: undefined, eta: undefined };
+  const typeId = (p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo';
+  const sh = shape(typeId, [...head, x], d.report);
+  const r = referenceTime(p.base, sh.dep, Math.min(p.start, sh.report), sh.report);
+  const pa = keepMode(d, sh, { reportLocal: r.reportLocal, acclimatised: r.state !== 'X', tz: r.tz }, restOf(g, p.aircraftId));
+  return sh.fdp <= pa.max + (d.discretion ?? 0);
+}
+
+/**
+ * v0.12.1 the earliest departure f's crew can fly again after their minimum rest where f landed (ORO.FTL.235: the
+ * duty's length, at least 12 h at their base or 10 h away; 14 h augmented): release, rest, report. null without a
+ * duty. Pure.
+ */
+export function restedDeparture(g: GameState, f: Flight): Minute | null {
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  if (!d || !p) return null;
+  const rm = reportMinutes((p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo');
+  const release = onBlocks(f) + rm.post;
+  const rest = minRest({ dutyMin: release - d.report, atHome: f.to === p.base, augmented: d.augment > 0, tzShift: 0 });
+  return release + rest + rm.report;
 }
 
 /** Hook (roster.ts): can crew member c fly pairing p as it now stands (its tickets home will be re-planned)? */

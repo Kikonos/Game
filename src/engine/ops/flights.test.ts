@@ -6,15 +6,19 @@ import { addFlight, flightsOf, removeFlights } from '../core/entities';
 import { blockMinutes, typeOf } from '../core/perf';
 import { DAY, monthKey } from '../core/time';
 import type { Aircraft, Contract, Flight, GameState, LedgerCat, Minute } from '../core/types';
-import { acceptOffer } from '../contracts';
+import { acceptOffer, relinkPositioning } from '../contracts';
 import { hamBase, leased, legsOffer, newGame, owned, run } from '../contracts/testkit';
 import { demoFlights } from '../dev';
 import { serialize } from '../save';
 import { advanceTo } from '../sim';
 import { aogChance, delayFlight, resolveDecision } from '.';
 import { cancelContract, cancelCost } from '../contracts';
-import { cancelLegs, delayChain, legCostEstimate, pickRival, planHold, pruneFlights, subcharterCost, subcharterLegs, unitOf } from './flights';
+import { cancelLegs, delayChain, legCostEstimate, pickRival, planHold, pruneFlights, settleOverlaps, subcharterCost, subcharterLegs, unitOf } from './flights';
 import { breathe } from '../../test/breathe';
+import { takeCues } from '../core/cues';
+import { closedWait } from '../crew/roster';
+import { startEvent } from './world';
+import { TPL_BY_ID } from '../../data/worldEvents';
 import { delayOf, excusedLate, isOurDelay, latePenalty, onTimeLeg } from './latePolicy';
 
 // ---------- helpers ----------
@@ -169,6 +173,46 @@ describe('departure and arrival', () => {
 
 // ---------- delays, ripple, recovery ----------
 
+describe('v0.12.1 settleOverlaps by place (A5)', () => {
+  it('a leg leaving from elsewhere waits for the empty move between; a copy of an empty leg pushes nothing', () => {
+    calm();
+    const g = newGame(3);
+    const ac = owned(g);
+    const t0 = Math.floor(g.now / DAY) * DAY + 2 * DAY;
+    const b = (a: string, c: string) => blockMinutes(ac.typeId, a, c);
+    const turn = typeOf(ac.typeId).turnMin;
+    const a = addFlight(g, { no: 'T1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'FAO', std: t0 + 39, sta: t0 + 39 + b('LIS', 'FAO'), pax: 150 });
+    const x = addFlight(g, { no: 'T2', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'MAD', std: t0 + 60, sta: t0 + 60 + b('LIS', 'MAD'), pax: 150 });
+    settleOverlaps(g, ac);
+    expect(x.std).toBeGreaterThanOrEqual(a.sta + turn + b('FAO', 'LIS') + turn);
+    // Two copies of one empty leg, then a passengers' leg from where they land: the copy is no anchor.
+    const t1 = t0 + DAY;
+    const p1 = addFlight(g, { no: 'P1', aircraftId: ac.id, contractId: null, kind: 'positioning', from: 'MAD', to: 'LIS', std: t1, sta: t1 + b('MAD', 'LIS') });
+    const p2 = addFlight(g, { no: 'P2', aircraftId: ac.id, contractId: null, kind: 'positioning', from: 'MAD', to: 'LIS', std: t1 + 10, sta: t1 + 10 + b('MAD', 'LIS') });
+    const r = addFlight(g, { no: 'R1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'OPO', std: t1 + 30, sta: t1 + 30 + b('LIS', 'OPO'), pax: 150 });
+    const p2std = p2.std;
+    settleOverlaps(g, ac);
+    expect(p2.std).toBe(p2std);
+    expect(r.std).toBe(p1.sta + turn);
+  });
+
+  it('the empty leg out of where the aircraft stands is never pushed behind legs that leave from where it is not', () => {
+    calm();
+    const g = newGame(3);
+    const ac = owned(g);
+    ac.at = 'OPO';
+    const t0 = Math.floor(g.now / DAY) * DAY + 2 * DAY;
+    const b = (x: string, y: string) => blockMinutes(ac.typeId, x, y);
+    // A wave out of Lisbon still timed before the move that brings the aircraft there (it waits at its gate for it).
+    addFlight(g, { no: 'W1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'FAO', std: t0 + 4 * 60, sta: t0 + 4 * 60 + b('LIS', 'FAO'), pax: 150 });
+    addFlight(g, { no: 'W2', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'FAO', to: 'LIS', std: t0 + 6 * 60, sta: t0 + 6 * 60 + b('FAO', 'LIS'), pax: 150 });
+    const move = addFlight(g, { no: 'P1', aircraftId: ac.id, contractId: null, kind: 'positioning', from: 'OPO', to: 'LIS', std: t0 + 7 * 60, sta: t0 + 7 * 60 + b('OPO', 'LIS') });
+    const std0 = move.std;
+    settleOverlaps(g, ac);
+    expect(move.std).toBe(std0);
+  });
+});
+
 describe('delays and ripple', () => {
   it('a player delay ripples to later legs with turn minima kept and moves a planned check behind them', async () => {
     calm();
@@ -277,6 +321,76 @@ describe('delays and ripple', () => {
     expect(o.rel).toBeLessThan(0);
   });
 
+  it('v0.12.1 a Trusted client forgives a delay of ours of 15 min to 3 h (A17); over 3 h it always costs', () => {
+    calm();
+    const fly = (min: number) => {
+      const g = newGame(5);
+      const ac = owned(g);
+      const t = g.now + 2 * DAY;
+      const c = sign(g, legsOffer(g, [['LIS', 'FAO', t], ['FAO', 'LIS', t + 3 * 60]]).id, ac);
+      const cl = g.clients[c.clientId];
+      Object.assign(cl, { relation: 70, jobs: 6, level: 'partner' });
+      const [a] = live(g, ac).filter(isRev);
+      const pen0 = line(g, 'penalties');
+      const rel0 = cl.relation;
+      expect(delayFlight(g, a.id, min, 'Late ground handling').ok).toBe(true);
+      run(g, a.sta + 30);
+      return { a, pen: line(g, 'penalties') - pen0, rel: cl.relation - rel0, c, g, forgiven: g.messages.some((m) => /let it go/.test(m.title)) };
+    };
+    const big = fly(22 * 60);
+    expect(big.forgiven).toBe(false);
+    expect(big.pen).toBe(-big.c.penalties.perDelay);
+    expect(big.rel).toBeLessThan(0);
+    const small = fly(120);
+    expect(small.forgiven).toBe(true);
+    expect(small.pen).toBe(0);
+    expect(small.a.excused).toBeGreaterThanOrEqual(115);
+    expect(small.rel).toBeGreaterThanOrEqual(0);
+  });
+
+  it('v0.12.1 the delay-penalty chime only where the contract charges (A8): not for a world wait or 90 min', () => {
+    calm();
+    const g = newGame(5);
+    const ac = owned(g);
+    const t = g.now + 2 * DAY;
+    sign(g, legsOffer(g, [['LIS', 'FAO', t], ['FAO', 'LIS', t + 3 * 60], ['LIS', 'OPO', t + DAY], ['OPO', 'LIS', t + DAY + 3 * 60]]).id, ac);
+    const [a, , b] = live(g, ac).filter(isRev);
+    takeCues();
+    delayChain(g, a, a.std + 90, 'Late ground handling');
+    expect(takeCues()).not.toContain('delayPenalty');
+    delayChain(g, a, a.std + 400, 'Waiting: Lisbon closed');
+    expect(takeCues()).not.toContain('delayPenalty');
+    delayChain(g, b, b.std + 200, 'Late ground handling');
+    expect(takeCues()).toContain('delayPenalty');
+  });
+
+  it('v0.12.1 a closure at the destination is read at the landing (A10); a wait that is not ours is excused', () => {
+    calm();
+    const g = newGame(5);
+    const ac = owned(g);
+    const t = g.now + 3 * DAY;
+    sign(g, legsOffer(g, [['LIS', 'HAM', t], ['HAM', 'LIS', t + 5 * 60]]).id, ac);
+    const [a, b] = live(g, ac).filter(isRev);
+    // Hamburg closed until 90 minutes after LIS–HAM leaves: it lands after the reopening.
+    const e = startEvent(g, { ...TPL_BY_ID.airspaceIraq, id: 'hamClosed', kind: 'strike', at: 'HAM', country: 'DE', zoneId: undefined, closeP: 0, airportDays: [1, 1], title: 'Strike closes Hamburg', body: '' });
+    e.airportClosedUntil = a.std + 90;
+    e.end = Math.max(e.end, a.std + 2 * DAY);
+    for (const f of [a, b]) {
+      delete f.closedBy;
+      f.status = 'scheduled';
+    }
+    const std0 = a.std;
+    expect(a.block).toBeGreaterThan(120);
+    expect(closedWait(g, a.id)).toBe(false);
+    expect(a.std).toBe(std0);
+    // Landing inside the closure: held to the reopening + 3 h, the wait and its knock-on excused.
+    e.airportClosedUntil = a.std + a.block + 60;
+    expect(closedWait(g, a.id)).toBe(true);
+    expect(a.std).toBeGreaterThan(std0);
+    expect(a.excused ?? 0).toBeGreaterThanOrEqual(a.std - std0 - 1);
+    if (b.std > (b.schedStd ?? b.std)) expect(b.excused ?? 0).toBeGreaterThan(0);
+  });
+
   it('v0.12.1 latePenalty: not ours costs 0; charter over 3 h perDelay; VIP over 30 min × 3 and −3; excused minutes come off', () => {
     calm();
     const g = newGame(5);
@@ -375,6 +489,40 @@ describe('schedule recovery', () => {
 });
 
 // ---------- AOG ----------
+
+describe('v0.12.1 recovery across a break in the chain (A6)', () => {
+  it('the legs the aircraft can no longer reach are dropped at the decision, not at the gate', () => {
+    calm();
+    const g = newGame(4);
+    const ac = owned(g);
+    const t0 = Math.floor(g.now / DAY) * DAY + 2 * DAY;
+    const b = (x: string, y: string) => blockMinutes(ac.typeId, x, y);
+    ac.at = 'AYT';
+    const l1 = addFlight(g, { no: 'R1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'AYT', to: 'AMS', std: t0 + 120, sta: t0 + 120 + b('AYT', 'AMS'), pax: 150 });
+    const l2 = addFlight(g, { no: 'R2', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'FAO', std: t0 + 20 * 60, sta: t0 + 20 * 60 + b('LIS', 'FAO'), pax: 150 });
+    const plan = planHold(g, ac, 'AYT', t0 + 72 * 60);
+    const touched = [...plan.cancels, ...plan.moves.map((m) => m.f)];
+    expect(touched).toContain(l1);
+    // R2 leaves Lisbon long before the aircraft could get there from Antalya: it is in the plan (dropped or moved).
+    expect(touched).toContain(l2);
+    const m2 = plan.moves.find((m) => m.f === l2);
+    if (m2) expect(m2.std).toBeGreaterThanOrEqual(t0 + 72 * 60 + b('AMS', 'LIS'));
+  });
+
+  it('a leg out of the maintenance airport is not swallowed by unplanned work: relink plans nothing beside it', () => {
+    calm();
+    const g = newGame(4);
+    const ac = owned(g);
+    const t0 = Math.floor(g.now / DAY) * DAY + 2 * DAY;
+    const b = (x: string, y: string) => blockMinutes(ac.typeId, x, y);
+    addFlight(g, { no: 'E1', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'OPO', std: t0 + 8 * 60 + 20, sta: t0 + 8 * 60 + 20 + b('LIS', 'OPO'), pax: 150 });
+    addFlight(g, { no: 'E2', aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'OPO', to: 'LIS', std: t0 + 12 * 60 + 25, sta: t0 + 12 * 60 + 25 + b('OPO', 'LIS'), pax: 150 });
+    relinkPositioning(g, ac.id);
+    g.now = t0 + 7 * 60 + 43;
+    g.maintenance.mxt = { id: 'mxt', aircraftId: ac.id, kind: 'line', at: 'LIS', start: g.now, end: g.now + 4 * 60, cost: 0, status: 'inWork', planned: false, cause: 'Ramp inspection', ev: 0 };
+    expect(relinkPositioning(g, ac.id)).toEqual([]);
+  });
+});
 
 describe('AOG', () => {
   it('pauses, posts the 5-option decision, holds departures until resolved; maint.end restores the aircraft', () => {

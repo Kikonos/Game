@@ -6,8 +6,11 @@ import { typeOf } from '../core/perf';
 import { DAY, fromUTC, localMinuteOfDay, monthKey } from '../core/time';
 import type { GameState } from '../core/types';
 import { acceptOffer, planPositioning } from '.';
-import { baseDays, computeWaves, flownRotations, gapMoves, type BasePattern } from './plan';
-import { hamBase, leased, newGame, offer, owned, run } from './testkit';
+import { baseDays, chainBackward, chainForward, computeWaves, flownRotations, gapMoves, localToUTC, type BasePattern } from './plan';
+import { curfewOk } from '../core/curfew';
+import { hamBase, leased, legsOffer, newGame, offer, owned, run } from './testkit';
+import { relinkPositioning } from './schedule';
+import { anchorsOf } from './plan';
 
 const liveFlights = (g: GameState, id: string) => flightsOf(g, id).filter((f) => f.status !== 'cancelled');
 
@@ -31,6 +34,27 @@ describe('wave times', () => {
   it('long rotations get fewer waves instead of colliding', () => {
     const w = computeWaves('HAM', ['TFS'], 'a320ceo', 3);
     expect(w.length).toBeLessThan(3);
+  });
+});
+
+describe('v0.12.1 night curfews in the empty-move planner (A7)', () => {
+  const day = (code: string, hh: number, mm = 0, d = 10) => localToUTC(code, (Math.floor(fromUTC(2027, 2, 1) / DAY) + d) * DAY + hh * 60 + mm);
+  it('backward: a move that would land in the Heathrow night lands before it starts', () => {
+    const latest = day('LHR', 5, 30);
+    const ch = chainBackward('a320ceo', 'LIS', 'LHR', latest - DAY, latest)!;
+    expect(ch).not.toBeNull();
+    for (const l of ch) expect(curfewOk(l.from, l.std) && curfewOk(l.to, l.sta)).toBe(true);
+    expect(localMinuteOfDay('LHR', ch[ch.length - 1].sta)).toBeLessThan(23 * 60 + 30);
+    // No room before the curfew: no backward move (the planner then flies it forward, late).
+    expect(chainBackward('a320ceo', 'LIS', 'LHR', latest - 3 * 60, latest)).toBeNull();
+  });
+  it('forward: leaving late in the evening, a move lands when the curfew lifts (06:00 local), never inside it', () => {
+    const ch = chainForward('a320ceo', 'LIS', 'LHR', day('LIS', 22))!;
+    for (const l of ch) expect(curfewOk(l.from, l.std) && curfewOk(l.to, l.sta)).toBe(true);
+    expect(localMinuteOfDay('LHR', ch[ch.length - 1].sta)).toBeGreaterThanOrEqual(6 * 60);
+    // A Hamburg departure at 05:00 local waits for 06:00.
+    const h = chainForward('a320ceo', 'HAM', 'PMI', day('HAM', 5))!;
+    expect(localMinuteOfDay('HAM', h[0].std)).toBeGreaterThanOrEqual(6 * 60);
   });
 });
 
@@ -269,5 +293,68 @@ describe('relinkPositioning', () => {
     const ids = liveFlights(g, ac.id).map((f) => f.id).join();
     for (let i = 0; i < 3; i++) expect(relinkPositioning(g, ac.id)).toEqual([]);
     expect(liveFlights(g, ac.id).map((f) => f.id).join()).toBe(ids);
+  });
+});
+
+describe('v0.12.1 relink keeps the plan whole (A11, A9, A16)', () => {
+  const chained = (g: GameState, id: string) => {
+    const turn = typeOf(g.fleet[id].typeId).turnMin;
+    const fl = flightsOf(g, id).filter((f) => f.status === 'scheduled').sort((a, b) => a.std - b.std);
+    for (let i = 1; i < fl.length; i++) {
+      expect(fl[i].from, `${fl[i - 1].no} ${fl[i - 1].from}-${fl[i - 1].to} then ${fl[i].no} ${fl[i].from}-${fl[i].to}`).toBe(fl[i - 1].to);
+      expect(fl[i].std).toBeGreaterThanOrEqual(fl[i - 1].sta + (fl[i].kind === 'techstop' ? 45 : turn));
+    }
+  };
+  it('a hop home whose return belongs to next week is not kept in the gap before a trip signed in between (A11)', () => {
+    const g = newGame(12);
+    const ac = owned(g);
+    const d0 = Math.floor(g.now / DAY) * DAY + 3 * DAY;
+    const a = acceptOffer(g, legsOffer(g, [['AMS', 'RHO', d0 + 8 * 60], ['RHO', 'AMS', d0 + 13 * 60], ['AMS', 'RHO', d0 + 7 * DAY + 8 * 60], ['RHO', 'AMS', d0 + 7 * DAY + 13 * 60]]).id, [ac.id]);
+    expect(a.ok).toBe(true);
+    const b = acceptOffer(g, legsOffer(g, [['AMS', 'AYT', d0 + 6 * DAY + 7 * 60], ['AYT', 'AMS', d0 + 6 * DAY + 12 * 60]]).id, [ac.id]);
+    expect(b.ok).toBe(true);
+    relinkPositioning(g, ac.id);
+    chained(g, ac.id);
+    expect(relinkPositioning(g, ac.id)).toEqual([]);
+    chained(g, ac.id);
+  });
+
+  it('a new empty leg after the last leg of a job, to our own maintenance, is not tagged to that job (A9)', () => {
+    const g = newGame(12);
+    const ac = owned(g);
+    const d0 = Math.floor(g.now / DAY) * DAY + 3 * DAY;
+    const a = acceptOffer(g, legsOffer(g, [['LIS', 'FAO', d0 + 8 * 60], ['FAO', 'OPO', d0 + 12 * 60]]).id, [ac.id]);
+    expect(a.ok).toBe(true);
+    const ka = a.ok ? a.data!.contractId : '';
+    const [l1, l2] = flightsOf(g, ac.id).filter((x) => x.contractId === ka && x.kind === 'revenue');
+    // The job's last leg is in the air; an A-check at Madrid follows (booked after it).
+    g.now = l2.std + 5;
+    l1.status = 'done';
+    l2.status = 'enroute';
+    ac.flightId = l2.id;
+    for (const f of flightsOf(g, ac.id).filter((x) => x.kind === 'positioning' && x.status === 'scheduled')) f.status = 'cancelled';
+    g.maintenance.mxa = { id: 'mxa', aircraftId: ac.id, kind: 'A', at: 'MAD', start: d0 + 2 * DAY, end: d0 + 2 * DAY + 10 * 60, cost: 0, status: 'planned', planned: true, ev: 0 };
+    const made = relinkPositioning(g, ac.id).filter((f) => f.to === 'MAD');
+    expect(made.length).toBeGreaterThan(0);
+    for (const f of made) expect(f.contractId).toBeNull();
+  });
+
+  it('the base tail starts after the last generated rotation is home, not at local midnight (A16)', () => {
+    const g = newGame(3);
+    const ac = leased(g);
+    const o = offer(g, 'seasonBase', { airport: 'LIS', dests: ['DUS'], waves: 3, start: g.now + 5 * DAY, days: 40 });
+    const r = acceptOffer(g, o.id, [ac.id]);
+    expect(r.ok).toBe(true);
+    if (!r.ok) throw new Error(r.error);
+    const c = g.contracts[r.data!.contractId];
+    const last = Math.max(...flightsOf(g, ac.id).filter((f) => f.contractId === c.id && f.status === 'scheduled').map((f) => f.sta));
+    // The schedule is generated up to a local midnight that falls between an evening wave's departure and its landing.
+    c.generatedUntil = last - 120;
+    const tail = anchorsOf(g, ac.id).find((x) => x.kind === 'base' && x.contractId === c.id)!;
+    expect(tail.std).toBeGreaterThanOrEqual(last);
+    expect(relinkPositioning(g, ac.id)).toEqual([]);
+    // No empty leg is a twin of a revenue leg.
+    const fl = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled');
+    for (const p of fl.filter((f) => f.kind === 'positioning')) expect(fl.some((f) => f.kind === 'revenue' && f.from === p.from && f.to === p.to && f.std === p.std)).toBe(false);
   });
 });

@@ -130,8 +130,10 @@ export function rangeFromNm(typeId: string, from: string): number {
  * rangeFromNm); the arrival only has to be usable at all (LANDING_SHARE: a runway that passes runwayFit is long
  * enough to land on), so a short runway at the far end no longer cuts the range.
  */
-export function maxSectorNm(typeId: string, from: string, _to?: string): number {
-  return rangeFromNm(typeId, from);
+export function maxSectorNm(typeId: string, from: string, to?: string): number {
+  // v0.12.1 a leg into an isolated aerodrome carries two hours' holding fuel instead of an alternate (ISOLATED): its
+  // range is shorter on the nonstop check too (A320 FCO–SFJ, 2,507 nm, flew nonstop).
+  return rangeFromNm(typeId, from) - (to && ISOLATED.has(to) ? typeOf(typeId).cruiseKt : 0);
 }
 
 export interface SectorLeg {
@@ -193,9 +195,8 @@ function viaStops(typeId: string, from: string, to: string): SectorPlan {
  * way (London City–Shannon).
  */
 function viaStopsAt(typeId: string, from: string, to: string, proper: boolean): SectorPlan | null {
-  const t = typeOf(typeId);
   // A leg into an isolated aerodrome carries two hours' holding fuel instead of an alternate (ISOLATED).
-  const fits = (a: string, b: string) => runwayFit(typeId, b) !== 'no' && distanceNm(a, b) <= maxSectorNm(typeId, a, b) - (ISOLATED.has(b) ? t.cruiseKt : 0);
+  const fits = (a: string, b: string) => runwayFit(typeId, b) !== 'no' && distanceNm(a, b) <= maxSectorNm(typeId, a, b);
   const left0 = distanceNm(from, to);
   // v0.8 never a fuel stop on the ice (no fuel in Antarctica) or in a war zone insurers won't cover.
   const cands = AIRPORTS.filter((x) => x.code !== from && x.code !== to && (proper ? x.size >= 2 || !!x.enroute : x.size >= 1) && !x.ice && !NO_STOP_COUNTRY.has(x.country) && !SANCTIONED.has(x.country)

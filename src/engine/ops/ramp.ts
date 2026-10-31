@@ -7,7 +7,8 @@
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { EASA_STATES, RAMP_ITEMS, RAMP_MEAN } from '../../data/opsData';
-import { nextId } from '../core/entities';
+import { nextId, touchFlights } from '../core/entities';
+import { schedule } from '../core/queue';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { hashUnit } from '../core/util';
@@ -86,8 +87,21 @@ export function inspect(g: GameState, ac: Aircraft, at: string, prog: RampProgra
   if (cats[2]) countOps(g, 'rampCat3', cats[2]);
   if (action === '3c') countOps(g, 'rampDetained');
   // Fixing before the flight: line maintenance on the spot (the next departure waits for it).
+  let ready = g.now + fixMin;
+  const inWork = ac.maintId ? g.maintenance[ac.maintId] : undefined;
   if ((action === '3b' || action === '3c') && !ac.flightId && ac.status === 'available') lineMx(g, ac, at, fixMin, cost, action === '3c' ? 'Detained after a ramp inspection (class 3c)' : 'Ramp inspection findings put right (class 3b)', 'maintenance');
-  else if (cost) lineCost(g, cost);
+  else if ((action === '3b' || action === '3c') && !ac.flightId && inWork?.status === 'inWork' && inWork.at === at) {
+    // v0.12.1 already in maintenance here (an inspection after a diversion): the work runs on until the findings are
+    // put right too (it ended first and the aircraft flew with them, the message's ready time untrue).
+    if (inWork.end < ready) {
+      inWork.end = ready;
+      inWork.ev++;
+      schedule(g, inWork.end, 'maint.end', inWork.id, inWork.ev);
+      touchFlights(g);
+    }
+    ready = inWork.end;
+    if (cost) lineCost(g, cost);
+  } else if (cost) lineCost(g, cost);
   if (cats[2]) bumpReliable(g, action === '3c' ? -2 : -1);
   else if (cats[1]) bumpReliable(g, -0.3);
   const name = prog === 'local' ? 'Ramp inspection' : `${prog} ramp inspection`;
@@ -101,7 +115,7 @@ export function inspect(g: GameState, ac: Aircraft, at: string, prog: RampProgra
   pushMessage(g, {
     tone: worst === 3 ? 'bad' : worst === 2 ? 'warn' : 'info', cat: 'tech',
     title: worst === 3 ? `${name}: ${ac.reg} ${action === '3c' ? 'detained' : 'held'} at ${where}` : `${name}: ${n} finding${n > 1 ? 's' : ''} on ${ac.reg}`,
-    body: `${items.map(([c, t]) => `Cat ${c}: ${t}`).join('. ')}.${fixMin ? ` Put right before the next flight: about ${fmtDuration(fixMin)}, ready ${fmtTime(g.now + fixMin)} UTC.` : ''}${cost ? ` ${usd(cost)}.` : ''}`,
+    body: `${items.map(([c, t]) => `Cat ${c}: ${t}`).join('. ')}.${fixMin ? ` Put right before the next flight: about ${fmtDuration(fixMin)}, ready ${fmtTime(ready)} UTC.` : ''}${cost ? ` ${usd(cost)}.` : ''}`,
     ref: { kind: 'ramp', id: r.id }, problem: { kind: 'rampFinding', ref: { kind: 'ramp', id: r.id } },
     hurt: { money: cost, pax: 0, delayMin: fixMin, level: worst === 3 ? 'high' : worst === 2 ? 'low' : 'none' },
     cue: action === '3c' ? 'opsEmergency' : worst >= 2 ? 'notice' : 'message',

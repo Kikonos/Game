@@ -10,6 +10,7 @@ import { BAL } from '../core/balance';
 import { blockMinutes, etopsRoute, NO_STOP_COUNTRY, planSector, reportMinutes, TECH_STOP_MIN, typeOf, withinEtops } from '../core/perf';
 import { DAY, dayIndex, dayStart, localOffset, monthKey, monthStart, toLocal } from '../core/time';
 import { hash } from '../core/util';
+import { curfewOk, curfewShift } from '../core/curfew';
 import type { Contract, ContractOffer, Flight, GameState, LegTemplate, Minute, Requirements, SchedulePattern } from '../core/types';
 
 export type BasePattern = Extract<SchedulePattern, { kind: 'base' }>;
@@ -88,13 +89,39 @@ export function timeChain(legs: Hop[], std: Minute, typeId?: string): ChainLeg[]
   });
 }
 
-/** Empty move landing at `latest` (as late as possible), departing no earlier than `earliest`; null: no route or no time. */
+/**
+ * v0.12.1 minutes a chain must move so that no leg leaves or lands inside a strict night curfew (core/curfew.ts):
+ * < 0 earlier ('before': it lands before the curfew starts), > 0 later ('after': from the curfew's end); 0 when
+ * clean. Pure.
+ */
+function curfewMove(legs: ChainLeg[], dir: 'before' | 'after'): number {
+  for (const l of legs) {
+    if (!curfewOk(l.from, l.std)) return curfewShift(l.from, l.std, dir) - l.std;
+    if (!curfewOk(l.to, l.sta)) return curfewShift(l.to, l.sta, dir) - l.sta;
+  }
+  return 0;
+}
+
+/**
+ * Empty move landing at `latest` (as late as possible), departing no earlier than `earliest`; null: no route or no time.
+ * v0.12.1 never leaving or landing in a night curfew: moved earlier until it is clear (AWL200 CGN–DUS landed 05:20
+ * local, its crew on 3 h rest; seed 2 legs into Heathrow at 00:45).
+ */
 export function chainBackward(typeId: string, from: string, to: string, earliest: Minute, latest: Minute, cap = Infinity): ChainLeg[] | null {
   const r = route(typeId, from, to, cap);
   if (!r) return null;
   if (!r.length) return [];
   let std = latest - routeMinutes(r);
-  if (!rerouted.has(r)) return std < earliest ? null : timeChain(r, std);
+  if (!rerouted.has(r)) {
+    let legs = timeChain(r, std);
+    for (let k = 0; k < 4; k++) {
+      const d = curfewMove(legs, 'before');
+      if (!d) break;
+      std += d;
+      legs = timeChain(r, std);
+    }
+    return std < earliest || curfewMove(legs, 'before') ? null : legs;
+  }
   // Ferry days snap their night stops to local mornings: walk the start back until the chain lands in time.
   for (let k = 0; k < 8; k++) {
     if (std < earliest) return null;
@@ -106,9 +133,19 @@ export function chainBackward(typeId: string, from: string, to: string, earliest
   return null;
 }
 
+/** Empty move leaving at `earliest` (v0.12.1 or when the night curfews at either end allow: after them). */
 export function chainForward(typeId: string, from: string, to: string, earliest: Minute, cap = Infinity): ChainLeg[] | null {
   const r = route(typeId, from, to, cap);
-  return r ? timeChain(r, earliest, typeId) : null;
+  if (!r) return null;
+  let legs = timeChain(r, earliest, typeId);
+  if (!rerouted.has(r) && legs.length) {
+    for (let k = 0; k < 4; k++) {
+      const d = curfewMove(legs, 'after');
+      if (!d) break;
+      legs = timeChain(r, legs[0].std + d, typeId);
+    }
+  }
+  return legs;
 }
 
 // ---------- ferry days ----------
@@ -195,6 +232,20 @@ export function isSoft(g: GameState, f: Flight): boolean {
 }
 
 /**
+ * v0.12.1 a diversion of this aircraft whose onward is not decided yet: turned for the alternate, or on the ground
+ * there with the onward card open. Until it is, the aircraft's next move is unknown: the passengers may fly on in it
+ * (no empty leg), go by coach (one empty leg after), or wait for the morning. Pure.
+ */
+export function onwardPending(g: GameState, aircraftId: string): boolean {
+  for (const f of liveFlightsOf(g, aircraftId)) if (f.div && f.status === 'enroute' && !f.div.settled && !f.contOf) return true;
+  return g.decisions.some((d) => {
+    if (d.kind !== 'divertOnward') return false;
+    const f = g.flights[String(d.data?.flightId)];
+    return !!f?.div && f.aircraftId === aircraftId && !f.div.settled && !f.contOf;
+  });
+}
+
+/**
  * Hard commitments of an aircraft from now on, by departure: scheduled or airborne legs except soft positioning,
  * planned or running maintenance, and the not-yet-generated tail of signed base contracts (virtual).
  * Leads with a 'start' node (where it is now) unless it is airborne.
@@ -202,7 +253,10 @@ export function isSoft(g: GameState, f: Flight): boolean {
 export function anchorsOf(g: GameState, aircraftId: string): Anchor[] {
   const ac = g.fleet[aircraftId];
   const out: Anchor[] = [];
+  // v0.12.1 the last generated landing of each contract on this aircraft (its base tail starts after it).
+  const lastOn = new Map<string, Minute>();
   for (const f of liveFlightsOf(g, aircraftId)) {
+    if (f.contractId && f.kind === 'revenue') lastOn.set(f.contractId, Math.max(lastOn.get(f.contractId) ?? -Infinity, f.sta));
     if (isSoft(g, f)) continue;
     out.push({ from: f.from, to: f.to, std: f.std, sta: f.status === 'enroute' ? (f.eta ?? f.sta) : f.sta, contractId: f.contractId, kind: 'flight', id: f.id });
   }
@@ -218,7 +272,9 @@ export function anchorsOf(g: GameState, aircraftId: string): Anchor[] {
     const p = c.pattern;
     if (c.generatedUntil >= p.to || !ac) continue;
     const slot = c.aircraftIds.indexOf(aircraftId);
-    const std = Math.max(c.generatedUntil, firstDeparture(p, ac.typeId, slot) ?? p.from);
+    // v0.12.1 not before the last generated rotation is home: generatedUntil is local midnight, an evening wave lands
+    // after it (seed 9: EW6045 LIS–DUS 23:30–02:10 and a twin empty LIS–DUS planned beside it).
+    const std = Math.max(c.generatedUntil, (lastOn.get(c.id) ?? -Infinity) + typeOf(ac.typeId).turnMin, firstDeparture(p, ac.typeId, slot) ?? p.from);
     out.push({ from: p.base, to: p.base, std, sta: Math.max(std, lastArrival(p, ac.typeId, slot) ?? p.to), contractId: c.id, kind: 'base', id: c.id });
   }
   // v0.8 a dry lease out holds the aircraft at the lessee's base between its two ferries.
