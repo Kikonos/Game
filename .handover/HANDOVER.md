@@ -529,3 +529,6 @@ Bug-hunt workflow wf_6ff50ee1-ac7 (6 hunters in /home/user/wt/hunt-{move,crew,co
 Player (31 Oct): 'When you finish, push it to main.' → release authorised once rounds B, E, bug-hunt fixes (and world tour?) are done and verified. World tour (Round C) was queued after fixes; release after all finished.
 Round B DONE acmi 0e5144a (own-flight rides; 1476 tests). Leftovers for fix lanes: Crew Control "Fly someone in: Nobody legal" while its options list an own-flight ride (ownRide.test Dublin); multi-leg rides not supported; empty ferry home not ridden (one-word switch ridesHome/rideHomeFrom).
 Round E DONE (roundE c5c8c10) merged into acmi e094ab1 with B: tsc clean, 1492/1492 tests, invariants both saves 30 d: 0 errors (orphan ticket warnings only: du15b2 f14zf, du1jfo f10t3 → for fix lanes). Bot: seed1 red 13 > limit 12, change requests accepted more (default Agree).
+Bug hunt wf_6ff50ee1-ac7 DONE: 79 confirmed (18 high/39 med/22 low), 7 unclear, 7 refuted. Plan: .handover/updates/roundF-plan.md (also scratchpad/hunt/plan.md, result.json).
+Fix workflow wf_1e53de3a-b38 running: step0 (fix0) → lanes fixA..fixD → merge into acmi + section 6 verify → review → final. Decisions: forgive 15 min–3 h; series cancel per rotation; no depreciation yet.
+After it: Round C world tour, then RELEASE (player authorised "when you finish, push it to main").
