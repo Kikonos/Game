@@ -15,6 +15,7 @@ import {
 } from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
 import { bestSlip } from './slip';
+import { dropStandby } from './standby';
 import { aboard, cabinEarly, cabinEarlyOf, crewCount, crewIx, ctxOf, dhBlock, dutyBlock, dutyFlights, dutySegs, onBlocks, planHome, segsOf, touchCrew } from './timeline';
 import { mergeSegs, openDuties } from './check';
 import { pilotsOnlyTrip, planRest, restOf, type RestLeg, type RestPlan } from './restPlan';
@@ -1260,6 +1261,12 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
       refreshPairing(g, p);
       if (crewCount(p) > 0) {
         for (const d of fresh) queueDuty(g, d);
+        // v0.12.1 the tour's crew take its new days: a standby planned on one gives way (seed 6: a whole crew at Riyadh
+        // flew a duty that grew into their 00:00-12:00 hotel standby, never called from it).
+        for (const x of p.slots) {
+          const c = x.crewId ? g.crew[x.crewId] : undefined;
+          if (c?.standby?.length) for (const d of fresh) dropStandby(g, c, d.report - 60, d.release);
+        }
         // Duties past the old ends: the crew stay on (tickets out/home move with the tour).
         if (fresh.some((d) => d.report < from || d.release > to)) retickHook(g, p);
       }
