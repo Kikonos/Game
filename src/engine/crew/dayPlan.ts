@@ -80,6 +80,17 @@ function removeOff(c: CrewMember, days: number[]): void {
   c.off = c.off.filter((k) => !s.has(k));
 }
 
+/**
+ * v0.12.1 a buy-back undone before it was worked (the crew member swapped off, the trip gone): the days bought go back
+ * to being days off and the days given in return, still to come, go back to work days. Only days not yet begun.
+ */
+export function restoreOffDays(g: GameState, c: CrewMember, days: number[], repay: number[]): void {
+  const today = dayIndex(c.base, g.now);
+  removeOff(c, repay.filter((k) => k > today));
+  addOff(c, days.filter((k) => k >= today));
+  touchCrewState(g);
+}
+
 /** Is crew member `crewId` rostered OFF on t's base-local day. Pure. */
 export function isOff(g: GameState, crewId: string, t: Minute): boolean {
   const c = g.crew[crewId];

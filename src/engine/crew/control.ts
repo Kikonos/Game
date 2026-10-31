@@ -1062,6 +1062,15 @@ function rideText(g: GameState, d: Duty, crewId: string): string {
 
 /** v0.12.1 the month's salaries line so far (negative): a fix's day-off pay is the drop. */
 const salariesNow = (h: GameState): number => -(h.finance.current.lines.salaries ?? 0);
+/**
+ * v0.12.1 day-off pay a fix booked on the flight's trip for crew new to it, paid when they report (slot.buyBack): part of
+ * the fix's cost though the ledger has not moved yet.
+ */
+function pendingPay(h: GameState, flightId: string, before: Set<string>): number {
+  const d = h.duties[h.flights[flightId]?.dutyId ?? ''];
+  const p = d ? h.pairings[d.pairingId] : undefined;
+  return (p?.slots ?? []).reduce((n, s) => n + (s.crewId && !before.has(s.crewId) ? s.buyBack?.cost ?? 0 : 0), 0);
+}
 
 /** Seats filled on the flight's pairing since `before` (crew id per slot index), as change lines. */
 function seatChanges(g: GameState, f: Flight, before: Set<string>): string[] {
@@ -1447,7 +1456,7 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
       const changes = seatChanges(h, f, before).filter((c) => !/still missing$/.test(c));
       if (!changes.length) return { ok: false, error: 'Nobody legal is free: see the other fixes' };
       // v0.12.1 a day off the roster bought back is its cost (the pay), said on the line.
-      return { ok: true, changes: [...changes, ...seatChanges(h, f, before).filter((c) => /still missing$/.test(c))], cost: Math.max(0, salariesNow(h) - sal) };
+      return { ok: true, changes: [...changes, ...seatChanges(h, f, before).filter((c) => /still missing$/.test(c))], cost: Math.max(0, salariesNow(h) - sal) + pendingPay(h, f.id, before) };
     }
     case 'deadhead':
     case 'callIn': {
@@ -1517,7 +1526,7 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
       // "free" and showed them as "tickets for other trips"). The late-leg penalty is added by the row (solutionsFor).
       const hd = h.duties[h.flights[f.id]?.dutyId ?? ''];
       const hp = hd ? h.pairings[hd.pairingId] : undefined;
-      let cost = Math.max(0, salariesNow(h) - sal);
+      let cost = Math.max(0, salariesNow(h) - sal) + pendingPay(h, f.id, before);
       const seen = new Set<string>();
       for (const did of hp?.dutyIds ?? []) for (const fid of h.duties[did]?.deadheadIds ?? []) {
         const t = h.flights[fid];
@@ -1638,7 +1647,7 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
         const cs = flightCrewStatus(h, qFirst.id);
         changes.push(cs.level === 'missing' || cs.level === 'illegal' ? `${qFirst.no} then needs ${seatsText(group(cs.missing)) || 'a legal crew'}` : `${qFirst.no} is still crewed`);
       }
-      return { ok: true, changes, cost: Math.max(0, salariesNow(h) - sal) };
+      return { ok: true, changes, cost: Math.max(0, salariesNow(h) - sal) + pendingPay(h, f.id, moved) };
     }
     case 'buyBack': {
       if (!d || !p) return { ok: false, error: 'No crew plan for this flight yet' };

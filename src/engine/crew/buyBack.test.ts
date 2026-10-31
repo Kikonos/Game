@@ -13,7 +13,8 @@ import { applyCrewFix, crewControl } from './control';
 import { dayIndex } from './dayPlan';
 import { buildDuties } from './duties';
 import { addCrew, fixtureGame } from './fixtures';
-import { autoRoster, placeCrew } from './roster';
+import { autoRoster, placeCrew, releaseCrew } from './roster';
+import { advanceTo } from '../sim';
 import { segsOf, touchCrew } from './timeline';
 
 const H = 60;
@@ -56,7 +57,10 @@ describe('v0.12.1 day-off buy-back', () => {
       expect(c.off).not.toContain(dayIndex(c.base, g.flights[g.duties[dutyId].flightIds[0]].std));
     }
     const paid = here.reduce((n, id) => n + buyBackPay(g.crew[id]), 0);
-    expect((sal0 - (g.finance.current.lines.salaries ?? 0))).toBeGreaterThanOrEqual(paid);
+    // v0.12.1 (Round F, C8) the pay waits on the seats until the pilots report.
+    expect(sal0 - (g.finance.current.lines.salaries ?? 0)).toBe(0);
+    const slots = g.pairings[g.duties[dutyId].pairingId].slots.filter((s) => s.crewId && here.includes(s.crewId));
+    expect(slots.reduce((n, s) => n + (s.buyBack?.cost ?? 0), 0)).toBeGreaterThanOrEqual(paid);
     const msgs = g.messages.filter((m) => /works the day off on .* for AW1570 \(\+\$/.test(m.title));
     expect(msgs.length).toBe(2);
     expect(msgs[0].body).toMatch(/twice a day's pay/);
@@ -65,6 +69,31 @@ describe('v0.12.1 day-off buy-back', () => {
     expect(cues.length).toBe(2);
     // No ticket was bought to fly anyone else in (only the ticket home from N'Djamena).
     expect(g.duties[dutyId].deadheadIds.map((id) => g.flights[id]).filter((t) => t.to === 'GOM')).toEqual([]);
+  });
+
+  it('v0.12.1 (C8) paid once when they report; undone, unpaid, with the day off back, when they come off first', () => {
+    const { g, dutyId, here } = goma('auto');
+    autoRoster(g, {});
+    const d = g.duties[dutyId];
+    const p = g.pairings[d.pairingId];
+    const [a, b] = here.map((id) => g.crew[id]);
+    const dayA = dayIndex(a.base, g.flights[d.flightIds[0]].std);
+    const owed = p.slots.find((s) => s.crewId === b.id)!.buyBack!.cost;
+    // One comes off before the report (a swap, a re-plan): the day off comes back and nothing is paid for it.
+    const sal0 = g.finance.current.lines.salaries ?? 0;
+    releaseCrew(g, p, a.id);
+    expect(a.off).toContain(dayA);
+    expect(a.boughtOff ?? []).toEqual([]);
+    expect(p.slots.some((s) => s.buyBack && s.crewId === null)).toBe(false);
+    expect(g.finance.current.lines.salaries ?? 0).toBe(sal0);
+    expect(g.messages[0].title).toMatch(/keeps the day off/);
+    // The other reports: paid then, once.
+    advanceTo(g, d.report + 1, new Set());
+    const sal1 = g.finance.current.lines.salaries ?? 0;
+    expect(sal0 - sal1).toBeGreaterThanOrEqual(owed);
+    expect(p.slots.find((s) => s.crewId === b.id)?.buyBack).toBeUndefined();
+    advanceTo(g, d.report + 120, new Set());
+    expect(g.finance.current.lines.salaries ?? 0).toBe(sal1);
   });
 
   it('Never: no day off is bought; Ask me: Crew Control offers "Ask … to work a day off" with its cost', () => {

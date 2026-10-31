@@ -61,6 +61,7 @@ export {
 } from './control';
 import { escalateShortages } from './control';
 import { migrateRanks } from './migrate';
+import { payBuyBack } from './buyBack';
 export { migrateRanks } from './migrate';
 // v0.7.2 (UPDATE-0.7.2.md §12).
 export { crewAway, type CrewAway } from './away';
@@ -161,6 +162,8 @@ function onDutyReport(g: GameState, ev: SimEvent): void {
     }
     const own = dutySegs(g, c, p, d, out, null).find((x) => x.kind === 'duty')?.start ?? d.report;
     noteRecovery(c, Math.min(d.report, own), g);
+    // v0.12.1 a day off bought back for this trip is paid now that they report for it.
+    if (s.buyBack) payBuyBack(g, s);
     c.status = 'onDuty';
     if (c.awaySince === null && (dep !== c.base || d.restAt !== c.base)) c.awaySince = g.now;
   }

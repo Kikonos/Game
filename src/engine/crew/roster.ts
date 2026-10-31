@@ -12,7 +12,7 @@ import { acceptable, crewIds, crewIssuesFor, crewKey, mergeSegs, openDuties, oth
 import { deletePairing, dutyLegality, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './standby';
-import { applyBuyBack, buyBackFor, buyBackMode, type BuyBack } from './buyBack';
+import { applyBuyBack, buyBackFor, buyBackMode, undoBuyBack, type BuyBack } from './buyBack';
 import { fitStandby, midnight, monthFloorIssue, offDaysHit, offMovable, offSwappable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
 import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
@@ -206,6 +206,17 @@ export function buyTickets(g: GameState, p: Pairing, plans: Map<string, CrewPlan
     }
   }
   for (const gr of groups.values()) buyTicket(g, p, gr.d, gr.ids, gr.t, res);
+  // v0.12.1 later trips whose ticket out this one leaves wrong are re-ticketed from where the crew will be (read on the
+  // timeline with this trip in it).
+  if ([...plans.values()].some((x) => x.retick?.length)) touchCrew(g);
+  for (const [id, plan] of plans) {
+    const c = g.crew[id];
+    for (const qid of plan.retick ?? []) {
+      const q = g.pairings[qid];
+      // (Else that trip is re-checked now: the roster re-crews it while there is time.)
+      if (c && q && q.status === 'planned' && !retick(g, q, c) && q.aircraftId && recheckPairing(g, q).level === 'illegal' && g.company.policies.autoRoster) rerosterFrom(g, q.aircraftId, g.now);
+    }
+  }
 }
 
 /** v0.6: the crew member whose own absence (sickness, course, leaving) is being rostered around: no late-change hit. */
@@ -216,6 +227,8 @@ export function releaseCrew(g: GameState, p: Pairing, crewId: string): void {
   if (crewId !== ownRelease && p.slots.some((s) => s.crewId === crewId)) lateChange(g, crewId, nextReport(g, p));
   for (const s of p.slots) {
     if (s.crewId !== crewId) continue;
+    // v0.12.1 a day off bought for this seat and not worked yet comes back, unpaid.
+    if (s.buyBack && g.crew[crewId]) undoBuyBack(g, g.crew[crewId], s);
     s.crewId = null;
     delete s.locked;
     delete s.from;
@@ -231,8 +244,13 @@ export function releaseCrew(g: GameState, p: Pairing, crewId: string): void {
     }
   }
   dropTickets(g, p, crewId);
-  touchCrew(g);
   const c = g.crew[crewId];
+  // v0.12.1 a loose ticket (no duty holds it) out of a station they are not at goes too, before the way home is
+  // planned: it was the ticket home of a trip cut short elsewhere.
+  if (c && c.status !== 'onDuty') for (const f of [...(crewIx(g).tickets.get(crewId) ?? [])]) {
+    if (f.kind === 'deadhead' && f.status === 'scheduled' && f.std > g.now && f.from !== c.loc && !crewIx(g).ticketDuty.has(f.id) && aboard(f, crewId)) unboard(g, f, crewId);
+  }
+  touchCrew(g);
   if (c && p.status === 'active') sendHome(g, c, p);
 }
 
@@ -855,6 +873,15 @@ function detachDuty(g: GameState, p: Pairing, d: Duty): void {
     // ticket home (loose, it still shapes their timeline).
     if (!rest.length) {
       if (p.status === 'planned' && f.status === 'scheduled' && f.std > g.now) removeFlights(g, [f.id]);
+      // v0.12.1 only one leaving where they are (or where the leg in the air lands): a ticket home from a station the
+      // cancelled leg never reached is dropped (S1118: ten crew at Lisbon kept a VRA–LIS ticket).
+      else if (f.status === 'scheduled' && f.std > g.now) {
+        const air = d.flightIds.map((id) => g.flights[id]).find((x) => x?.status === 'enroute');
+        for (const id of passengers(f)) {
+          const c = g.crew[id];
+          if (c && f.from !== c.loc && f.from !== air?.to) unboard(g, f, id);
+        }
+      }
       continue;
     }
     const target = f.sta <= d.report ? rest[0] : rest[rest.length - 1];
@@ -1252,7 +1279,8 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
     callIfOnStandby(g, c.id, openDuties(g, p)[0]?.report);
     dropSbyFor(g, c, plan);
     // v0.9 a tour's duties on planned days off: the planner moves them to the tour's free days (no morale).
-    if (bb) applyBuyBack(g, c, plan.segs, bb, f0?.no ?? 'a trip', f0 ? { kind: 'flight', id: f0.id } : undefined);
+    // v0.12.1 the pay waits on the seat until the crew member reports (undone if they come off first).
+    if (bb) applyBuyBack(g, c, plan.segs, bb, f0?.no ?? 'a trip', f0 ? { kind: 'flight', id: f0.id } : undefined, false, p.slots.find((s) => s.crewId === c.id));
     else if (plan.issues.some((i) => i.code === 'daysOff')) takeOffDays(g, c, plan.segs, true);
     lateChange(g, c.id, nextReport(g, p));
     if (plan.drop) ctx.segs.set(c.id, ctx.of(c).filter((x) => !x.ticketId || !plan.drop!.includes(x.ticketId)));
@@ -2111,7 +2139,7 @@ export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember,
   const offHit = od.length > 0 && plan.issues.some((i) => i.code === 'daysOff') && plan.segs.length > 0;
   // A published day off taken costs its own −6 (the confirm's number): no late-change shock on top.
   const brokeOff = offHit && takesPublishedOff(g, c, plan.segs[0].start, plan.segs[plan.segs.length - 1].end);
-  if (bb && offHit) applyBuyBack(g, c, plan.segs, bb, buy!.what, undefined, buy!.quiet);
+  if (bb && offHit) applyBuyBack(g, c, plan.segs, bb, buy!.what, undefined, buy!.quiet, p.slots[slot]);
   else if (offHit) takeOffDays(g, c, plan.segs);
   if (!brokeOff && !(bb && offHit)) lateChange(g, c.id, nextReport(g, p));
   buyTickets(g, p, new Map([[c.id, plan]]), emptyResult());
