@@ -16,6 +16,11 @@ export interface WorldEventTpl {
   zoneId?: string;
   /** Chance the zone's airspace closes (0 = never, 1 = always). */
   closeP?: number;
+  /**
+   * v0.12.1 airports inside the closed zone that stay open (the evacuation hub the text names): flights in and out of
+   * them run, routed over open airspace (half the zone's detour); everything else in the zone stays closed.
+   */
+  openAirports?: string[];
   /** The focus airport closes for [min, max] days (disasters, national strikes). */
   airportDays?: [number, number];
   warRisk?: 1 | 2 | 3;
@@ -180,13 +185,13 @@ export const WORLD_EVENT_TPLS: WorldEventTpl[] = [
   },
   // ---------- wars ----------
   {
-    id: 'warSudan', kind: 'war', at: 'PZU', country: 'SD', zoneId: 'sudan', closeP: 0.5, warRisk: 3, work: ['evacuation'],
+    id: 'warSudan', kind: 'war', at: 'PZU', country: 'SD', zoneId: 'sudan', closeP: 0.5, warRisk: 3, work: ['evacuation'], openAirports: ['PZU'],
     title: 'Fighting reaches Khartoum: Sudan closes its airspace', reopen: "Sudan's airspace has reopened",
     body: "Heavy fighting has spread from Khartoum. Sudan's airspace is closed to overflights until at least {until}; foreign ministries are evacuating through Port Sudan to Jeddah.",
     open: { title: "Fighting reaches Khartoum: insurers pull cover for Sudan", body: "Heavy fighting has spread from Khartoum. Sudan's airspace stays open, but war-risk insurers list the whole country until at least {until}; foreign ministries are evacuating through Port Sudan to Jeddah." },
   },
   {
-    id: 'warLebanon', kind: 'war', at: 'BEY', country: 'LB', zoneId: 'levant', closeP: 0.3, warRisk: 3, work: ['evacuation'],
+    id: 'warLebanon', kind: 'war', at: 'BEY', country: 'LB', zoneId: 'levant', closeP: 0.3, warRisk: 3, work: ['evacuation'], openAirports: ['TLV'],
     title: 'Israel–Lebanon escalation: Lebanese airspace closes', reopen: 'Beirut and Tel Aviv airspace has reopened',
     body: "Strikes and rocket fire across the border: Lebanon's airspace is closed until at least {until} and war-risk insurers have re-priced Beirut and Tel Aviv. Foreign ministries want their citizens out via Larnaca.",
     open: { title: 'Israel–Lebanon escalation: insurers re-price Beirut', body: "Strikes and rocket fire across the border: war-risk insurers have re-priced Beirut and Tel Aviv until at least {until}. Foreign ministries want their citizens out via Larnaca." },

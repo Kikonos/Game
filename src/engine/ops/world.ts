@@ -7,7 +7,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { TPL_BY_ID, WORLD_EVENT_TPLS, type WorldEventTpl } from '../../data/worldEvents';
 import { inRing, WORLD_ZONES, ZONE_BY_ID, type WorldZone } from '../../data/worldZones';
 import { BAL } from '../core/balance';
-import { cancelFlight, nextId, removeFlights, retimeFlight } from '../core/entities';
+import { cancelFlight, flightsOf, nextId, reassignFlights, removeFlights, retimeFlight } from '../core/entities';
 import { distance, interpolateGC } from '../core/geo';
 import { invoice, post } from '../core/ledger';
 import { cue } from '../core/cues';
@@ -17,7 +17,7 @@ import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick, type RngHolder } from '../core/rng';
 import { DAY, fmtDay, monthKey, toDate } from '../core/time';
 import { hash, hashUnit } from '../core/util';
-import type { ActionResult, Contract, Decision, Flight, GameState, Minute, SimEvent, WorldEvent, WorldEventKind } from '../core/types';
+import type { ActionResult, Aircraft, Contract, Decision, Flight, GameState, Minute, SimEvent, WorldEvent, WorldEventKind } from '../core/types';
 import { warRiskCost } from '../contracts/missionChecks';
 import { eventOffer } from '../contracts/missions';
 import { statsV08 } from '../contracts/relations';
@@ -25,9 +25,9 @@ import { ceaseRival, isActive } from '../contracts/rivals';
 import { creditCancelledLeg, noteLostLegs } from '../contracts/billing';
 import { addShock, setPhase } from './market';
 import { ask } from './events';
-import { delayChain, moveFlight } from './flights';
+import { cancelCost, cancelLegs, delayChain, moveFlight, pickRival, planRecovery, rivalFactor, subcharterCost, subcharterLegs } from './flights';
 import { subcharter, subcharterQuotes } from './subcharter';
-import { contractOf, isRevenue } from './util';
+import { contractOf, isRevenue, usd } from './util';
 
 export type { WorldEvent, WorldEventKind };
 
@@ -101,14 +101,41 @@ export function warRiskAt(g: GameState, code: string): 0 | 1 | 2 | 3 {
   return lv as 0 | 1 | 2 | 3;
 }
 
+/**
+ * v0.12.1 an airport the closure leaves open (Port Sudan while Sudan's airspace is closed to overflights: ministries
+ * evacuate through it): its flights run, out over open airspace. Pure.
+ */
+export const openDuring = (e: WorldEvent, code: string): boolean => !!TPL_BY_ID[e.tpl]?.openAirports?.includes(code) && !(e.airportClosedUntil && e.at === code);
+
 /** The live event closing this airport at t (its airspace or the airport itself); never `exempt` (the event whose own work it is: an evacuation or relief permit). Pure. */
 export function closedAirport(g: GameState, code: string, t: Minute = g.now, exempt?: string): WorldEvent | null {
   for (const e of eventsOf(g)) {
     if (e.done || t < e.start || t >= e.end || e.id === exempt) continue;
     if (e.airportClosedUntil && e.at === code && t < e.airportClosedUntil) return e;
-    if (e.closed && e.zoneId && ZONE_BY_ID[e.zoneId] && inZone(ZONE_BY_ID[e.zoneId], code)) return e;
+    if (e.closed && e.zoneId && ZONE_BY_ID[e.zoneId] && inZone(ZONE_BY_ID[e.zoneId], code) && !openDuring(e, code)) return e;
   }
   return null;
+}
+
+/**
+ * v0.12.1 the world event whose permit a leg flies under: its contract's event (an evacuation, a relief flight), or,
+ * for an empty leg (ferry, positioning), the event whose work flew the aircraft to where the leg leaves: the permit
+ * that let it in lets it out (an aircraft stranded after an evacuation was held in the war zone for a month). Pure.
+ */
+export function permitOf(g: GameState, f: Flight): string | undefined {
+  const own = f.contractId ? g.contracts[f.contractId]?.eventId : undefined;
+  if (own || !f.aircraftId || (f.kind !== 'positioning' && f.kind !== 'ferry')) return own;
+  let prev: Flight | undefined;
+  for (const x of flightsOf(g, f.aircraftId)) {
+    if (x.std >= f.std) break;
+    if (x !== f && x.status !== 'cancelled' && x.kind !== 'deadhead') prev = x;
+  }
+  return prev && prev.to === f.from && prev.contractId ? g.contracts[prev.contractId]?.eventId : undefined;
+}
+
+/** v0.12.1 minutes a leg flies around a closed zone: the zone's detour over it, half that out of an open airport inside it. */
+export function detourFor(e: WorldEvent, z: WorldZone, f: Pick<Flight, 'from' | 'to'>): number {
+  return (openDuring(e, f.from) && inZone(z, f.from)) || (openDuring(e, f.to) && inZone(z, f.to)) ? Math.round(z.detourMin / 2) : z.detourMin;
 }
 
 // ---------- views ----------
@@ -117,6 +144,8 @@ function effectsOf(g: GameState, e: WorldEvent): string[] {
   const out: string[] = [];
   const z = e.zoneId ? ZONE_BY_ID[e.zoneId] : undefined;
   if (e.closed && z) out.push(`${z.adj} airspace closed: flights into it wait, flights over it fly about ${z.detourMin} min longer`);
+  // v0.12.1 the airports it leaves open, said once.
+  for (const code of TPL_BY_ID[e.tpl]?.openAirports ?? []) if (e.closed && z && openDuring(e, code)) out.push(`${city(code)} stays open: its flights leave over open airspace (about ${Math.round(z.detourMin / 2)} min longer)`);
   if (e.airportClosedUntil && e.airportClosedUntil > g.now) out.push(`${city(e.at)} airport closed`);
   if (e.warRisk) out.push(`War-risk cover level ${e.warRisk} at ${z ? z.name : city(e.at)} airports`);
   for (const s of g.market.shocks ?? []) if (s.eventId === e.id && s.until > g.now) out.push(`${s.delta > 0 ? '+' : '−'}${Math.round(Math.abs(s.delta) * 100)} % ${s.seg === 'all' ? '' : `${s.seg}body `}demand`.replace('  ', ' '));
@@ -192,9 +221,10 @@ export function closureHits(g: GameState, e: WorldEvent): { held: Flight[]; over
   const z = e.zoneId ? ZONE_BY_ID[e.zoneId] : undefined;
   for (const f of Object.values(g.flights)) {
     if (f.status !== 'scheduled' || !f.aircraftId || f.kind === 'deadhead' || f.std >= e.end + 1440) continue;
-    // The event's own work (evacuation, relief) flies under a permit.
-    if (f.contractId && g.contracts[f.contractId]?.eventId === e.id) continue;
-    const touch = (code: string) => (e.airportClosedUntil && code === e.at) || (e.closed && z && inZone(z, code));
+    // The event's own work (evacuation, relief) flies under a permit; v0.12.1 so does the aircraft's empty leg out after it.
+    if (permitOf(g, f) === e.id) continue;
+    // v0.12.1 an airport the closure leaves open (Port Sudan) is not held: its legs route around the zone.
+    const touch = (code: string) => (e.airportClosedUntil && code === e.at) || (e.closed && z && inZone(z, code) && !openDuring(e, code));
     if (touch(f.from) || touch(f.to)) held.push(f);
     else if (e.closed && z && crosses(z, f.from, f.to)) over.push(f);
   }
@@ -396,8 +426,8 @@ function applyClosure(g: GameState, e: WorldEvent, first: boolean, again = false
   let rerouted = 0;
   for (const f of over) {
     if (f.detour || !z) continue;
-    f.detour = z.detourMin;
-    retimeFlight(g, f, f.std, f.sta + z.detourMin);
+    f.detour = detourFor(e, z, f);
+    retimeFlight(g, f, f.std, f.sta + f.detour);
     rerouted++;
   }
   v8.legsRerouted += rerouted;
@@ -505,6 +535,10 @@ export function waitAtGate(g: GameState, f: Flight, e: WorldEvent): boolean {
   const at = closedUntil(e) + 3 * 60;
   if (at <= g.now + 60 || f.status !== 'scheduled') return false;
   f.closedBy = e.id;
+  // v0.12.1 a wait that would drop another job's legs (late past their cap) asks first, once: sub-charter, swap or
+  // cancel them (CS-TTL held at Port Sudan dropped 36 legs for Wamos Air in Antalya, $1.44M, without a word). The leg
+  // keeps its hourly hold meanwhile (the caller), which never drops anything.
+  if (strandedAsk(g, f, e, at)) return false;
   const k = f.contractId ? g.contracts[f.contractId] : undefined;
   if (k && k.pattern.kind !== 'base') waitLegs(g, k, e);
   if (f.status === 'scheduled' && f.std < at) {
@@ -512,6 +546,88 @@ export function waitAtGate(g: GameState, f: Flight, e: WorldEvent): boolean {
     delayChain(g, f, at, `Waiting: ${e.title}`, false);
   }
   return f.status !== 'scheduled' || f.std + f.delay >= at;
+}
+
+/** v0.12.1 other jobs' revenue legs a wait of f until `at` would drop (late past their cap), in departure order. Pure. */
+export function strandedLegs(g: GameState, f: Flight, at: Minute): Flight[] {
+  const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
+  if (!ac) return [];
+  const plan = planRecovery(g, ac, f.to, at + f.block + typeOf(ac.typeId).turnMin, f.std, f);
+  // A trip's own legs wait with it (waitLegs: accepted lateness); a positioning's job, or any other job, is dropped.
+  const k = contractOf(g, f);
+  const waits = isRevenue(f) && !!k && k.pattern.kind !== 'base';
+  return plan.cancels.filter((x) => x.status === 'scheduled' && isRevenue(x) && !(waits && x.contractId === f.contractId)).sort((a, b) => a.std - b.std);
+}
+
+/**
+ * v0.12.1 the card when a closure strands an aircraft that a later job needs: "CS-TTL can't reach Antalya for Wamos
+ * Air: sub-charter or swap aircraft". Asked once per aircraft and event while open; true while it is open (the leg
+ * waits for the answer), false when nothing would be dropped.
+ */
+export function strandedAsk(g: GameState, f: Flight, e: WorldEvent, at: Minute): boolean {
+  const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
+  if (!ac) return false;
+  if (g.decisions.some((d) => d.kind === 'stranded' && d.data?.aircraftId === ac.id && d.data?.eventId === e.id)) return true;
+  const lost = strandedLegs(g, f, at);
+  if (!lost.length) return false;
+  const k = contractOf(g, lost[0]);
+  const who = (k && g.clients[k.clientId]?.name) || 'the client';
+  const where = city(lost[0].from);
+  const rivalId = pickRival(g, ac.typeId, lost);
+  const sub = subcharterCost(g, lost, 1.5 * rivalFactor(g, rivalId));
+  const pen = cancelCost(g, lost);
+  const swap = findSwapHook?.(g, ac, lost, lost[0].from) ?? null;
+  const n = lost.length;
+  const legs = `${n} leg${n > 1 ? 's' : ''}`;
+  ask(g, {
+    kind: 'stranded', title: `${ac.reg} can't reach ${where} for ${who}: sub-charter or swap aircraft`,
+    body: `${ac.reg} is held at ${city(f.from)} until about ${fmtDay(at)} (${e.title}). ${legs} for ${who} from ${fmtDay(lost[0].std)} can't be flown in time.`,
+    options: [
+      { id: 'subcharter', label: `Sub-charter to ${g.rivals.find((r) => r.id === rivalId)?.name ?? 'a rival'}`, desc: 'A rival flies them; we still bill the client.', tone: 'warn', chips: [usd(-sub), legs] },
+      swap
+        ? { id: 'swap', label: `Swap in ${swap.ac.reg}`, desc: `${swap.ac.reg} takes over the legs${swap.from === lost[0].from ? '' : ` (ferry ${swap.from}–${lost[0].from})`}.`, tone: 'good', chips: [`First leg ${fmtDay(swap.moves[0]?.std ?? swap.arrive)}`, legs] }
+        : { id: 'swap', label: 'Swap aircraft', desc: 'No other aircraft of the type is free for them.', tone: 'bad', chips: ['Unavailable'] },
+      { id: 'cancel', label: 'Cancel those legs', desc: 'Compensation to the client and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legs] },
+    ],
+    defaultOption: swap ? 'swap' : sub < pen ? 'subcharter' : 'cancel', expires: g.now + 12 * 60, ref: { kind: 'aircraft', id: ac.id },
+    data: { aircraftId: ac.id, eventId: e.id, flightId: f.id, rivalId },
+  }, true);
+  return g.decisions.some((d) => d.kind === 'stranded' && d.data?.aircraftId === ac.id);
+}
+
+/** v0.12.1 events.ts findSwap (the AOG swap's search), set there: world.ts must not import events' internals at load. */
+// eslint-disable-next-line no-var -- set while modules load in a cycle (var: no temporal dead zone)
+var findSwapHook: ((g: GameState, ac: Aircraft, legs: Flight[], at: string) => { ac: Aircraft; from: string; arrive: Minute; moves: { f: Flight; std: Minute }[] } | null) | null | undefined;
+export function setFindSwap(fn: typeof findSwapHook): void {
+  findSwapHook = fn;
+}
+
+/** Resolver of 'stranded' (v0.12.1): the legs the wait would drop go to a rival, to another aircraft, or are cancelled. */
+export function resolveStranded(g: GameState, d: Decision, opt: string): ActionResult {
+  const f = g.flights[String(d.data?.flightId ?? '')];
+  const ac = g.fleet[String(d.data?.aircraftId ?? '')];
+  const e = eventsOf(g).find((x) => x.id === String(d.data?.eventId ?? ''));
+  if (!f || !ac || !e || f.status !== 'scheduled') return { ok: true, msg: 'The aircraft is on its way' };
+  const lost = strandedLegs(g, f, Math.max(f.std, closedUntil(e) + 3 * 60));
+  if (!lost.length) return { ok: true, msg: 'Nothing is lost any more' };
+  if (opt === 'subcharter') {
+    const rival = String(d.data?.rivalId ?? '') || pickRival(g, ac.typeId, lost);
+    const n = subcharterLegs(g, lost, rival, subcharterCost(g, lost, 1.5 * rivalFactor(g, rival)));
+    return { ok: true, msg: `${g.rivals.find((r) => r.id === rival)?.name ?? 'A rival'} flies ${n} leg${n === 1 ? '' : 's'} for us` };
+  }
+  if (opt === 'swap') {
+    const sw = findSwapHook?.(g, ac, lost, lost[0].from);
+    if (!sw) return { ok: false, error: 'No aircraft can take them over now' };
+    for (const { f: x, std } of sw.moves) if (x.status === 'scheduled' && std !== x.std) moveFlight(g, x, std, 'Aircraft swap');
+    for (const { f: x } of sw.moves) x.delay = 0;
+    reassignFlights(g, sw.moves.map((x) => x.f.id), sw.ac.id);
+    return { ok: true, msg: `${sw.ac.reg} takes over ${lost.length} leg${lost.length === 1 ? '' : 's'} from ${ac.reg}` };
+  }
+  if (opt === 'cancel') {
+    const pen = cancelLegs(g, lost, `${ac.reg} held: ${e.title}`, 3);
+    return { ok: true, msg: `${lost.length} legs cancelled, ${usd(pen)} compensation` };
+  }
+  return { ok: false, error: 'Unknown option' };
 }
 
 /** Resolver of 'airspace' decisions: wait (retime) or cancel as force majeure. */
@@ -562,9 +678,26 @@ export function strikeDelay(g: GameState, f: Flight): { min: number; reason: str
   return null;
 }
 
+/**
+ * v0.12.1 departure: a leg planned since the day's closure pass (a way home out of Port Sudan) is rerouted around a
+ * live closed zone it would cross, once, like the daily pass does (it flew straight over Sudan).
+ */
+export function rerouteAtDeparture(g: GameState, f: Flight): void {
+  if (f.detour || f.kind === 'deadhead' || !f.aircraftId) return;
+  for (const e of eventsOf(g)) {
+    const z = e.zoneId ? ZONE_BY_ID[e.zoneId] : undefined;
+    if (!isLive(g, e) || !e.closed || !z || permitOf(g, f) === e.id || !crosses(z, f.from, f.to)) continue;
+    f.detour = detourFor(e, z, f);
+    retimeFlight(g, f, f.std, f.sta + f.detour);
+    e.rerouted = (e.rerouted ?? 0) + 1;
+    statsV08(g).legsRerouted++;
+    return;
+  }
+}
+
 /** Departure check (ops flights.ts): a leg to or from a closed airport does not leave; true when held. */
 export function closedAtDeparture(g: GameState, f: Flight): WorldEvent | null {
-  const own = f.contractId ? g.contracts[f.contractId]?.eventId : undefined;
+  const own = permitOf(g, f);
   return closedAirport(g, f.from, g.now, own) ?? closedAirport(g, f.to, g.now, own);
 }
 
@@ -697,6 +830,43 @@ export function whiteout(g: GameState, f: Flight): boolean {
 /** Load: the world block (none in older saves). */
 export function loadWorld(g: GameState): void {
   g.world ??= { events: [] };
+}
+
+/**
+ * v0.12.1 load: legs a closure held that it no longer holds (an airport it leaves open, an aircraft leaving on the
+ * permit that let it in) are released; an empty one moved by that wait (a ferry or positioning, no job's own leg with a
+ * purpose) is dropped so the schedule plans one fresh way out from now. Then orphan out-and-backs: an empty X–Y leg
+ * of no job followed by Y–X of no job, with nothing after them needing the aircraft at Y (CS-TTL's PZU–LIS–PZU before
+ * its ferry home). Returns the aircraft touched (the caller re-plans their empty legs).
+ */
+export function healStranded(g: GameState): string[] {
+  const touched = new Set<string>();
+  const drop: string[] = [];
+  for (const f of Object.values(g.flights)) {
+    if (f.status !== 'scheduled' || !f.closedBy || !f.aircraftId) continue;
+    const e = eventsOf(g).find((x) => x.id === f.closedBy);
+    const own = permitOf(g, f);
+    if (e && !e.done && (closedAirport(g, f.from, g.now, own) === e || closedAirport(g, f.to, g.now, own) === e)) continue;
+    delete f.closedBy;
+    if ((f.kind === 'positioning' || (f.kind === 'ferry' && !f.purpose)) && /^(Waiting:|Late inbound aircraft)/.test(f.delayReason ?? '')) drop.push(f.id);
+    touched.add(f.aircraftId);
+  }
+  for (const ac of Object.values(g.fleet)) {
+    const legs = flightsOf(g, ac.id).filter((f) => (f.status === 'scheduled' || f.status === 'enroute') && !drop.includes(f.id));
+    for (let i = 0; i + 1 < legs.length; i++) {
+      const a = legs[i];
+      const b = legs[i + 1];
+      const empty = (f: Flight) => f.status === 'scheduled' && f.kind === 'positioning' && !f.contractId;
+      if (!empty(a) || !empty(b) || a.to !== b.from || b.to !== a.from) continue;
+      const next = legs[i + 2];
+      if (next && next.from !== a.from) continue;
+      drop.push(a.id, b.id);
+      touched.add(ac.id);
+      i++;
+    }
+  }
+  if (drop.length) removeFlights(g, drop);
+  return [...touched];
 }
 
 /** Starts a world event now (kind or template; random allowed otherwise); its id ('' when none). Dev/test helper. */

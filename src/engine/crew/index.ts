@@ -655,6 +655,8 @@ export const crewModule: SimModule = {
     repairCutStandby(g);
     repairDiverted(g);
     repairMixedTrips(g);
+    // v0.12.1 legs a load repair moved or removed (ops: a closure's held legs, orphan out-and-backs): duties follow now.
+    for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);

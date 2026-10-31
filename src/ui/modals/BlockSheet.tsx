@@ -126,7 +126,8 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   const rows: [ReactNode, ReactNode][] = [
     ['Aircraft', rival ? `Sub-chartered to ${rival}` : ac ? `${ac.reg}${ac.name ? ` · ${ac.name}` : ''}` : '—'],
     ['Type', <span className="row gap-8 sc-ft-row"><FlightTypeChip type={type} />{f.kind === 'techstop' && <span className="small muted">fuel stop</span>}</span>],
-    ['Status', `${STATUS[f.status]}${f.delay ? ` · ${fmtDuration(f.delay)} late${f.delayReason ? ` (${f.delayReason})` : ''}` : ''}`],
+    // v0.12.1 a move the client asked for, said as theirs (no penalty, not late).
+    ['Status', `${STATUS[f.status]}${f.delay ? ` · ${fmtDuration(f.delay)} late${f.delayReason ? ` (${f.delayReason})` : ''}` : ''}${f.asked ? ` · moved ${fmtDuration(f.asked.min)} later at ${f.asked.by}'s request, no penalty` : ''}`],
     ['Departs', both(f.atd ?? f.std + f.delay, f.from)],
     ['Arrives', both(f.ata ?? f.eta ?? f.sta + f.delay, f.to)],
     ['Block', fmtDuration(f.block)],

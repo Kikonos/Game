@@ -32,7 +32,7 @@ import { crewReadyAt, crewShortDecision, hasOpenDecision } from './events';
 import { aogChance, isGrounded, missCheck, startAog } from './maintenance';
 import { ageF, ageOf, bumpReliable, contractOf, isBaseLeg, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, forgiveDelay, LEVEL_NAME, levelOf, statsV08 } from '../contracts/relations';
-import { closedAirport, closedAtDeparture, closedUntil, payWarRisk, strikeDelay, waitAtGate, whiteout } from './world';
+import { closedAirport, closedAtDeparture, closedUntil, payWarRisk, permitOf, rerouteAtDeparture, strandedAsk, strikeDelay, waitAtGate, whiteout } from './world';
 import { isActive, noteHiredThem } from '../contracts/rivals';
 import { atGate, delayCard, rollEnRoute } from './disrupt';
 
@@ -74,6 +74,18 @@ export function settleOverlaps(g: GameState, ac: Aircraft): number {
     n++;
   }
   return n;
+}
+
+/**
+ * v0.12.1 a leg moved `shift` minutes later by its own client (a favour asked, their late change): the schedule moves
+ * with it, so the lateness is theirs: no delay penalty or compensation, not late for on-time or reliability. It reads
+ * "Client's request (name)" on the flight card.
+ */
+export function clientMoved(f: Flight, shift: number, name: string): void {
+  if (shift <= 0) return;
+  f.schedStd = (f.schedStd ?? f.std) + shift;
+  f.asked = { min: (f.asked?.min ?? 0) + shift, by: name };
+  f.delayReason = `Client's request (${name})`;
 }
 
 /** Moves a scheduled leg to `std` (block kept), remembering the original STD. */
@@ -119,8 +131,14 @@ function plannedChecks(g: GameState, acId: string, from: Minute): MaintenanceEve
 /** How late (vs the original STD) a rotation may start before recovery drops it instead: base waves 6 h, trips 24 h. */
 export function lateCap(g: GameState, f: Flight): number {
   if (!isRevenue(f)) return Infinity;
-  return isBaseLeg(g, f) ? BAL.holdMax : BAL.tripHoldMax;
+  if (isBaseLeg(g, f)) return BAL.holdMax;
+  // v0.12.1 an evacuation or repatriation waits a day longer: late beats not at all for the people waiting.
+  return waitsFirst(contractOf(g, f)) ? BAL.tripHoldMax + BAL.missionHoldExtra : BAL.tripHoldMax;
 }
+
+/** v0.12.1 work whose passengers would rather leave late than not at all: evacuations, repatriations, relief, medical. */
+const WAIT_FIRST = new Set<string>(['evacuation', 'repatriation', 'humanitarian', 'medical']);
+export const waitsFirst = (c: Contract | undefined): boolean => !!c && WAIT_FIRST.has(c.archetype);
 
 /** Where the aircraft's crews are based for this leg: the client base of a base programme, else our home base. */
 export function stationOf(g: GameState, f: Flight): string {
@@ -155,6 +173,9 @@ function unitAt(g: GameState, legs: Flight[], i: number): Unit {
     out.push(legs[j]);
   }
   if (j >= legs.length || (out.length && legs[j].from !== out[out.length - 1].to)) return { legs: out, rev: null };
+  // v0.12.1 empty legs days before the revenue leg are no part of it (a positioning on 15 Nov read "498 passengers,
+  // $80K penalty" for a trip on 19 Dec): they move, or wait, on their own.
+  if (out.length && legs[j].std - out[out.length - 1].sta > 2 * DAY) return { legs: out, rev: null };
   const rev = legs[j];
   const station = stationOf(g, rev);
   out.push(rev);
@@ -696,6 +717,8 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
     return quietHold(g, f, 60);
   }
   if (whiteout(g, f)) return;
+  // v0.12.1 around a closed zone (a leg planned since the day's pass), once.
+  rerouteAtDeparture(g, f);
   // Grounded past the check tolerance: revenue legs stay on the ground; empty legs fly on a ferry permit.
   if (isRevenue(f) && isGrounded(g, ac)) {
     return dropUnit(g, ac, f, 'Aircraft grounded: check overdue', `${ac.reg} is grounded: a check is overdue (book it on the Fleet screen).`, 'tech');
@@ -1378,12 +1401,14 @@ export function pruneFlights(g: GameState): void {
 setClosedWaitHook((g, id) => {
   const f = g.flights[id];
   if (!f || f.status !== 'scheduled' || !f.aircraftId) return false;
-  const own = f.contractId ? g.contracts[f.contractId]?.eventId : undefined;
+  const own = permitOf(g, f);
   const e = closedAirport(g, f.from, f.std, own) ?? closedAirport(g, f.to, f.std, own);
   if (!e) return false;
   const at = closedUntil(e) + 3 * 60;
   if (at <= f.std) return false;
   f.closedBy = e.id;
+  // v0.12.1 never drops another job's legs without asking (waitAtGate's card): it waits for the answer instead.
+  if (strandedAsk(g, f, e, at)) return false;
   delayChain(g, f, at, `Waiting: ${e.title}`, false);
   return f.status === 'scheduled' && f.std >= at;
 });

@@ -5,7 +5,7 @@
 
 import { JET_BASES, JET_CLASS_LABEL, JET_CLASSES, JETS } from '../../data/jets';
 import { BAL } from '../core/balance';
-import { addDeadhead, flightsRev, liveFlightsOf, removeFlights, takeFlightChanges } from '../core/entities';
+import { addDeadhead, flightsOf, flightsRev, liveFlightsOf, removeFlights, takeFlightChanges } from '../core/entities';
 import { distance } from '../core/geo';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
@@ -17,7 +17,7 @@ import { hashUnit } from '../core/util';
 import { relinkPositioning } from '../contracts/schedule';
 import { commercialItinerary, itinerary, itineraryText } from '../ops/commercial';
 import { crewReadyAt } from '../ops/events';
-import { cancelCost, cancelLegs, clearRestMarks, delayChain, liveOver, unitOf } from '../ops/flights';
+import { cancelCost, cancelLegs, clearRestMarks, delayChain, liveOver, unitOf, waitsFirst } from '../ops/flights';
 import { rotationOf, subcharter, subcharterQuote } from '../ops/subcharter';
 import { contractOf, isRevenue, stats, usd } from '../ops/util';
 import { hurtProse, mkHurt, type GaugeSpec, type ProblemCard, type ReachSpec, hm, limitTone } from '../problems/types';
@@ -990,11 +990,32 @@ export function charterJet(g: GameState, flightId: string, crewIds: string[], cl
 
 // ---------- cancel (§3.4 i) ----------
 
+/**
+ * v0.12.1 the empty legs flying the aircraft in to fetch the unit's passengers (an evacuation's empty JED–PZU before
+ * the PZU–JED it cancels; a positioning in): cancelled with it, or the aircraft flies empty into where nothing takes it
+ * out (CS-TTL, Port Sudan). Same job, not left yet, landing where the unit starts. Pure.
+ */
+export function feedersOf(g: GameState, flightId: string): Flight[] {
+  const f = g.flights[flightId];
+  if (!f?.aircraftId) return [];
+  const legs = flightsOf(g, f.aircraftId).filter((y) => y.status === 'scheduled');
+  const out: Flight[] = [];
+  let at = f.from;
+  for (let i = legs.indexOf(f) - 1; i >= 0; i--) {
+    const y = legs[i];
+    const empty = y.kind === 'positioning' || (isRevenue(y) && !(y.pax ?? 0));
+    if (y.to !== at || y.contractId !== f.contractId || !f.contractId || !empty || y.std + y.delay <= g.now) break;
+    out.unshift(y);
+    at = y.from;
+  }
+  return out;
+}
+
 /** Cancels the unit the flight starts (wave or trip) for want of crew: compensation, reliability −3 (revenue legs), one message unless `quiet`. */
 export function cancelTrip(g: GameState, flightId: string, quiet = false): ActionResult<{ legs: number; empty: number; penalty: number }> {
   const x = ctxOf(g, flightId);
   if (!x) return { ok: false, error: 'Flight not found or already left' };
-  const legs = x.unit.filter((l) => l.status === 'scheduled' && l.purpose !== 'delivery');
+  const legs = [...feedersOf(g, flightId), ...x.unit].filter((l) => l.status === 'scheduled' && l.purpose !== 'delivery');
   const rev = legs.filter(isRevenue).length;
   const penalty = cancelLegs(g, legs, 'Crew shortage', rev ? CC().cancelRep : 0);
   if (!quiet) pushMessage(g, {
@@ -2038,7 +2059,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
   // i. cancel
   if (want('cancel')) {
     const s = base('cancel');
-    const live = x.unit.filter((l) => l.status === 'scheduled' && l.purpose !== 'delivery');
+    const live = [...feedersOf(g, f.id), ...x.unit].filter((l) => l.status === 'scheduled' && l.purpose !== 'delivery');
     if (!live.length) out.push(no(s, 'Nothing to cancel'));
     else {
       s.cost = cancelCost(g, live);
@@ -2049,12 +2070,15 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
       out.push(run(s));
     }
   }
+  // v0.12.1 an evacuation or repatriation: any fix that gets a legal crew within a day (a delay too) ranks above
+  // cancelling it (CS-TTL's last evacuation legs were cancelled for crew when a wait would have flown them).
+  const waitWins = waitsFirst(contractOf(g, f)) && out.some((s) => s.available && s.id !== 'cancel' && (s.id === 'delay' || (previews && !BAD(s.preview.after.level))) && (s.newDeparture ?? f.std) - f.std <= BAL.missionHoldExtra);
   // Ranking: available first, by (hurt after fix) + cost + lateness, ties in table order.
   const score = (s: CrewSolution) => {
     const bad = BAD(s.preview.after.level) ? 1e9 : 0;
     const late = s.newDeparture ? Math.max(0, s.newDeparture - f.std) * 100 : 0;
     const rip = s.preview.ripple.reduce((n, l) => n + (l.tone === 'bad' ? 20_000 : 2_000), 0);
-    return bad + s.cost + (s.preview.extraCost ?? 0) + late + rip + (s.id === 'cancel' ? x.pax * 500 : 0);
+    return bad + s.cost + (s.preview.extraCost ?? 0) + late + rip + (s.id === 'cancel' ? x.pax * 500 + (waitWins ? 5e8 : 0) : 0);
   };
   // A jet not offered (v0.8 fix pack) goes last: the panel shows it as one muted line under the rows.
   // v0.9 §T crew out of hours: a call-in from standby leads at equal cost, as the card says ('Replace X: Y is on standby').
@@ -2110,6 +2134,7 @@ export function applyCrewFix(g: GameState, flightId: string, fix: CrewFix, opts:
   if (!s.available) return { ok: false, error: s.why ?? 'Not available' };
   if (s.confirm && !opts.confirmed) return { ok: false, error: 'Needs confirmation' };
   const kind = crewAlertKind(g, flightId);
+  const feed = fix === 'cancel' ? feedersOf(g, flightId).map((l) => l.id) : [];
   // The departure the row previewed (delay, jet + rest) is the one applied.
   const r = runFix(g, flightId, fix, (fix === 'delay' || fix === 'jet') && opts.at === undefined && s.newDeparture ? { ...opts, at: s.newDeparture } : opts);
   if (!r.ok) return r;
@@ -2122,7 +2147,7 @@ export function applyCrewFix(g: GameState, flightId: string, fix: CrewFix, opts:
   const fixed = !cs || !BAD(cs.level);
   // One message per event: a cancellation posts its own (with the hurt) from here.
   if (fix === 'cancel') {
-    const unit = view.unit.flightIds.map((id) => g.flights[id]).filter((l): l is Flight => !!l && l.status === 'cancelled');
+    const unit = [...feed, ...view.unit.flightIds].map((id) => g.flights[id]).filter((l): l is Flight => !!l && l.status === 'cancelled');
     // v0.9 round 4 (§V): 'cancelled' once (the title), the leg count once; the legs, the reason and what it costs.
     pushMessage(g, {
       tone: view.unit.revenueLegs ? 'bad' : 'info', cat: 'crew', title: `${view.no} cancelled${unit.length > 1 ? ` with ${unit.length - 1} more` : ''}: ${kind === 'hours' ? 'crew out of hours' : 'crew shortage'}`,
