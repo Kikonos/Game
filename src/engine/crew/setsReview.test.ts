@@ -233,3 +233,29 @@ describe('v0.12.1 relief pilots counted by pairing', () => {
     expect(after - before).toBeGreaterThan(Math.ceil(sets * (tours.length / all) - 1e-9));
   });
 });
+
+describe('v0.12.1 the offer crew check counts relief pilots', () => {
+  it('augmented work needs its relief pilots: the offer’s own sets, and another programme’s held sets', () => {
+    const g = fixtureGame();
+    const acId = Object.keys(g.fleet)[0];
+    const k = seasonBase(g, acId, 'HAM', 'PMI', [6 * 60, 12 * 60 + 30], 28);
+    planAircraft(g, acId, g.now);
+    addCrew(g, { CPT: 20, FO: 20, PUR: 10, CC: 30 });
+    const t = g.fleet[acId].typeId;
+    const win = [k.start + DAY, k.start + 15 * DAY] as const;
+    // The offer itself: four pilots a set (200 BH a month: 6 captains with the reserve factor, not 4).
+    const days = Math.ceil((win[1] - win[0]) / DAY);
+    const two = crewAvailability(g, 'A320', t, win[0], win[1], 200);
+    const four = crewAvailability(g, 'A320', t, win[0], win[1], 200, undefined, 0, undefined, 2);
+    expect(two.byRole.CPT!.need).toBe(4 * days);
+    expect(four.byRole.CPT!.need).toBe(6 * days);
+    expect(four.byRole.FO!.need).toBe(6 * days);
+    expect(four.byRole.PUR!.need).toBe(two.byRole.PUR!.need);
+    // Another programme flown with four pilots holds its relief pilots too: fewer captains free for the offer.
+    const h = structuredClone(g);
+    for (const p of Object.values(h.pairings)) if (p.contractId === k.id) for (const id of p.dutyIds) if (h.duties[id]) h.duties[id].augment = 2;
+    const held = crewAvailability(h, 'A320', t, win[0], win[1], 200);
+    expect(held.byRole.CPT!.free).toBeLessThan(two.byRole.CPT!.free);
+    expect(held.byRole.PUR!.free).toBe(two.byRole.PUR!.free);
+  });
+});

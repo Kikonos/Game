@@ -703,7 +703,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const farRes = far ? reserveRoles(t.id) : [];
   const farNeed: Partial<Record<Role, number>> = {};
   for (const r of farRes) farNeed[r] = (farNeed[r] ?? 0) + farSets;
-  rep.crew = flyable && !(opts.quick && rep.level === 'no') ? crewAvailability(g, t.family, t.id, winFrom, Math.max(winFrom + DAY, winTo), progBH, xc, rn.extraSets, farNeed) : empty;
+  rep.crew = flyable && !(opts.quick && rep.level === 'no') ? crewAvailability(g, t.family, t.id, winFrom, Math.max(winFrom + DAY, winTo), progBH, xc, rn.extraSets, farNeed, rn.need?.mode === 'aug2' ? 2 : rn.need?.mode === 'aug1' ? 1 : 0) : empty;
   const shorts = Object.entries(rep.crew.byRole).filter(([, r]) => r && r.short > 0) as [string, { short: number }][];
   const reach = flyable ? crewReach(g, o, t.id, fits[0]) : null;
   const soon = flyable && !reach ? crewReachSoon(g, t.id, fits[0]) : null;

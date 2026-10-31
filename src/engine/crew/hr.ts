@@ -217,7 +217,7 @@ const countRoles = (roles: Role[]) => roles.reduce<Partial<Record<Role, number>>
  * v0.7: crewAvailability's per-crew timelines and per-contract block totals, kept while the clock, the crew
  * plan and the flights stand still (offers are sized many times between two clock steps). Runtime only.
  */
-const availMemo = new WeakMap<GameState, { key: string; segs: Map<string, Seg[]>; blk: Map<string, number>; homes?: { of: Map<string, RatingFamily>; fleet: Set<RatingFamily> } }>();
+const availMemo = new WeakMap<GameState, { key: string; segs: Map<string, Seg[]>; blk: Map<string, number>; homes?: { of: Map<string, RatingFamily>; fleet: Set<RatingFamily> }; aug?: Map<string, number> }>();
 function memoOf(g: GameState) {
   // (Hires, contracts and deployments change who counts where: their counts are in the key.)
   const key = `${g.now}:${crewRev(g)}:${flightsRev(g)}:${Object.keys(g.crew).length}:${Object.keys(g.contracts).length}:${Object.keys(g.deployments).length}`;
@@ -238,13 +238,39 @@ function homesOf(g: GameState, memo: ReturnType<typeof memoOf>): { of: Map<strin
   return memo.homes;
 }
 
-export function crewAvailability(g: GameState, family: RatingFamily, typeId: string, from: Minute, to: Minute, programmeBH: number, extra?: CrewExtra, extraSets = 0, reserve?: Partial<Record<Role, number>>): Availability {
+/**
+ * v0.12.1 relief pilots in a set (as staffing counts them: a pairing's seats are its most demanding duty's): augment 1
+ * adds a relief pilot (sized as a first officer), 2 a second captain and first officer. Mutates and returns `per`.
+ */
+function withRelief(per: Partial<Record<Role, number>>, augment: number): Partial<Record<Role, number>> {
+  if (augment >= 1) per.FO = (per.FO ?? 0) + 1;
+  if (augment >= 2) per.CPT = (per.CPT ?? 0) + 1;
+  return per;
+}
+
+/** v0.12.1 the most pilots any planned duty of each contract needs (augment 0–2), memoised with the timelines. */
+function contractAug(g: GameState, memo: ReturnType<typeof memoOf>): Map<string, number> {
+  if (memo.aug) return memo.aug;
+  const out = new Map<string, number>();
+  for (const p of Object.values(g.pairings)) {
+    if (!p.contractId || p.status === 'done' || p.status === 'broken') continue;
+    for (const id of p.dutyIds) {
+      const a = g.duties[id]?.augment ?? 0;
+      if (a > (out.get(p.contractId) ?? 0)) out.set(p.contractId, a);
+    }
+  }
+  return (memo.aug = out);
+}
+
+export function crewAvailability(g: GameState, family: RatingFamily, typeId: string, from: Minute, to: Minute, programmeBH: number, extra?: CrewExtra, extraSets = 0, reserve?: Partial<Record<Role, number>>, augment: 0 | 1 | 2 = 0): Availability {
   const days = Math.max(1, Math.ceil((to - from) / DAY));
   const t = typeOf(typeId);
   const seats = t.cabins[0] ? t.cabins[0].j + t.cabins[0].w + t.cabins[0].y : 180;
   // v0.6: the programme's crew with its extra crew (the spare pilot sized as a first officer).
   const x = extra ?? { cabin: g.company.policies.extraCabin, pilot: 0 };
-  const per = countRoles(rolesWithExtra(typeId, seats, x).map((r) => (r === 'CRP' ? 'FO' : r)));
+  // v0.12.1 with the relief pilots of augmented work (was two pilots a set whatever the days: an augmented 747 base
+  // at Jeddah read 'Crew OK' on half its captains).
+  const per = withRelief(countRoles(rolesWithExtra(typeId, seats, x).map((r) => (r === 'CRP' ? 'FO' : r))), augment);
   const need = sizing(per, programmeBH / Math.max(1, days / 30.44));
   // v0.9 round 4 §W: a crew change at a fuel stop puts a second crew in the air at once: one whole set more per slip.
   if (extraSets > 0) for (const r of ROLES) if (per[r]) need[r] = (need[r] ?? 0) + per[r]! * extraSets;
@@ -302,7 +328,7 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
       bhMonth = blk / 60 / Math.max(1, (k.end - k.start) / DAY / 30.44);
     }
     const kx = crewExtraFor(g, ac[0].id, k.id);
-    const kPer = countRoles(rolesWithExtra(ac[0].typeId, ac[0].cabin.total, kx, k.requirements.extraCabin).map((r) => (r === 'CRP' ? 'FO' : r)));
+    const kPer = withRelief(countRoles(rolesWithExtra(ac[0].typeId, ac[0].cabin.total, kx, k.requirements.extraCabin).map((r) => (r === 'CRP' ? 'FO' : r))), contractAug(g, memo).get(k.id) ?? 0);
     const kNeed = sizing(kPer, bhMonth);
     if (k.pattern.kind === 'base') {
       // v0.12.1 a base holds at least the sets it stations (duties.ts: sized on its programme; its pattern until the
