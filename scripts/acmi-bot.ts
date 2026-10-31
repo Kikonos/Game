@@ -1432,13 +1432,14 @@ let tenderResigned = 0;
 const wonTenderOffers = (g: GameState) => new Set(com(g).tenders.map((x) => x.result?.offerId).filter((x): x is string => !!x));
 
 /** v0.14 sales trips: you to a fair about every 80 days when cash allows (the next one reachable within 45 days). */
-let lastTrip = -Infinity;
 function salesTrips(g: GameState, t: Tally): void {
+  // v0.14 the last booking read from the game (was a module variable: --det's second run and a loaded save played on
+  // differently, the policy no longer a function of the state).
+  const lastTrip = Math.max(-Infinity, ...com(g).trips.map((x) => x.booked));
   if (g.now - lastTrip < 80 * DAY || g.company.cash < 1_500_000 || travellers(g)[0].tripId) return;
   for (const f of fairsAhead(g)) {
     if (f.tripId || f.start - g.now > 45 * DAY || f.start - g.now < 4 * DAY) continue;
     if (bookTrip(g, 'ceo', { fairId: f.id }).ok) {
-      lastTrip = g.now;
       act(g, t);
       return;
     }
