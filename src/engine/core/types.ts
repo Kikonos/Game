@@ -250,6 +250,8 @@ export type Ownership =
       /** v0.7: redelivery airport (load ??= homeBase); cabin at delivery (load ??= current); new-build; 120-day notice given. */
       returnSite?: string; deliveredLayout?: CabinLayout; newBuild?: boolean; noticeGiven?: boolean;
       /** v0.7: the market index the rent was set at (absent = 1); extensions move rent by the index since. */ index?: number;
+      /** v0.14.1 an extension's rent, from the old lease end (`from`); applied then (rentPerMonth, index). */ nextRent?: { from: Minute; rent: number; index: number };
+      /** v0.14.1 the rent before the last change, until `until` (the month of a change is billed at both). */ prevRent?: { until: Minute; rent: number };
     };
 
 /** v0.7: handover abroad and the delivery ferry home. */
@@ -1318,7 +1320,9 @@ export type LedgerCat =
   /** v0.11 a ferry company (or the seller) delivering an aircraft we may not ferry ourselves (ETOPS). */
   | 'delivery'
   /** v0.14 sales trips and trade fairs (tickets, passes, hotels); receivables written off when a client fails. */
-  | 'sales' | 'badDebt';
+  | 'sales' | 'badDebt'
+  /** v0.14.1 a lessor's consent to sub-lease (a dry lease out of a leased-in airframe); was booked as rent. */
+  | 'consent';
 
 export interface MonthStatement {
   month: MonthKey;

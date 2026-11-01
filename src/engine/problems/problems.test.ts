@@ -8,6 +8,8 @@ import { BAL } from '../core/balance';
 import { addFlight } from '../core/entities';
 import { blockMinutes } from '../core/perf';
 import { DAY } from '../core/time';
+import { pushMessage } from '../core/messages';
+import { daysOverdue } from '../ops/finance';
 import type { GameState, Receivable } from '../core/types';
 import { addCrew, fixtureContract, fixtureGame } from '../crew/fixtures';
 import { devCrewShortage, demoFlights } from '../dev';
@@ -284,5 +286,41 @@ describe('v0.9 round 4 (§V): the card under Crew Control\'s out-of-hours strip'
     expect(two.what).toBe('Out of hours for AWQ105 with 1 other');
     expect(two.why).toBe('Day would run 17:10 after the 2:40 delay.');
     expect(cardUnderStrip(card, [], 'AWQ105')).toBe(card);
+  });
+});
+
+describe('v0.14.1 money and penalty cards (UI-6, UI-9, CODE-03)', () => {
+  it('UI-6 a loss month names the cost lines that grew, from the statement itself; idle only when revenue fell', () => {
+    const g = game();
+    g.finance.history.push({ month: 0, lines: { acmiRevenue: 6_900_000, rent: -767_000, insurance: -237_000, overhead: -430_000, fuel: -3_200_000, checks: -50_000 }, bh: 700, cashStart: 0, cashEnd: 0, closed: true });
+    g.finance.history.push({ month: 1, lines: { acmiRevenue: 6_760_000, rent: -767_000, insurance: -237_000, overhead: -430_000, fuel: -3_200_000, checks: -535_000, approvals: -600_000, subcharter: -413_000, warRisk: -305_000, hiring: -355_000 }, bh: 646, cashStart: 0, cashEnd: 0, closed: true });
+    const loss = problemFor(g, { kind: 'lossMonth', ref: { kind: 'statement', id: '1' } })!;
+    expect(loss.why).not.toMatch(/idle/);
+    expect(loss.why).toMatch(/^Revenue \$6\.76M did not cover costs of \$.+\. Costs up on .+: approvals \+\$600K, checks \+\$485K, sub-charters \+\$413K\.$/);
+    expect(loss.details).toContain('Rent, insurance and overhead $1.43M');
+    expect(loss.actions[0].id).toBe('finance');
+    // Revenue down and nothing else: fewer hours flown, find work.
+    g.finance.history[1].lines = { acmiRevenue: 1_000_000, rent: -767_000, insurance: -237_000, overhead: -430_000, fuel: -300_000, checks: -50_000 };
+    g.finance.history[1].bh = 120;
+    const idle = problemFor(g, { kind: 'lossMonth', ref: { kind: 'statement', id: '1' } })!;
+    expect(idle.why).toMatch(/Revenue fell \$5\.90M on .+: 120 block hours flown \(700 before\)\./);
+    expect(idle.actions[0].id).toBe('findWork');
+  });
+
+  it('UI-9 an invoice 10.4 days past due is 10 days late on the card and in Finance alike', () => {
+    const g = game();
+    const cl = Object.values(g.clients)[0];
+    const r: Receivable = { id: 'r-x', clientId: cl.id, contractId: null, desc: 'Test', amount: 427_000, issued: g.now - 40 * DAY, due: g.now - 10.4 * DAY, payAt: g.now + DAY, paid: null, cat: 'charterRevenue' };
+    g.finance.receivables.push(r);
+    expect(problemFor(g, { kind: 'invoiceOverdue', ref: { kind: 'contract', id: r.id } })!.what).toBe(`${cl.name} is 10 days late with $427K`);
+    expect(daysOverdue(g, r)).toBe(10);
+  });
+
+  it('CODE-03 a penalty message (ref: the flight) explains with the penalty card for its contract', () => {
+    const g = game();
+    pushMessage(g, { tone: 'warn', cat: 'commercial', title: 'Penalty: AWQ101 4 h late', body: 'Compensation under the contract.', ref: { kind: 'flight', id: 'f-1' }, problem: { kind: 'penalty', ref: { kind: 'contract', id: 'k-1' } }, hurt: { money: 12_000, pax: 150, delayMin: 240, level: 'high' } });
+    const card = problemFor(g, { kind: 'penalty', ref: { kind: 'contract', id: 'k-1' } });
+    expect(card?.what).toBe('Penalty: AWQ101 4 h late');
+    expect(card?.actions[0].open).toEqual({ modal: 'contract', id: 'k-1' });
   });
 });

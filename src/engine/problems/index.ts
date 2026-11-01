@@ -42,8 +42,10 @@ export function problemFor(g: GameState, subject: ProblemRef): ProblemCard | nul
     case 'counterExpiry': return counterExpiryCard(g, id);
     case 'changeRequest': return changeRequestCard(g, id);
     case 'penalty': {
-      const m = g.messages.find((x) => x.problem?.kind === 'penalty' && x.ref?.id === id);
-      return m ? penaltyCard(g, m) : null;
+      // v0.14.1 (CODE-03) by the problem's own ref (the contract): the message's ref is the flight that was late or
+      // cancelled, so matching on it never found one. The card opens the contract.
+      const m = g.messages.find((x) => x.problem?.kind === 'penalty' && x.problem.ref.id === id);
+      return m ? penaltyCard(g, { ...m, ref: m.problem!.ref }) : null;
     }
     case 'contractCancelled': return contractCancelledCard(g, id);
     case 'cashLow': return cashLowCard(g);

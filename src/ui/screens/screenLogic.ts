@@ -228,6 +228,8 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   disruption: 'Disruptions', compliance: 'Safety & compliance', delivery: 'Ferry companies',
   // v0.14
   sales: 'Sales and travel', badDebt: 'Bad debts',
+  // v0.14.1
+  consent: 'Lessor consent fees',
 };
 
 // v0.12.1 the engine's lists (statementTotals splits the same way).

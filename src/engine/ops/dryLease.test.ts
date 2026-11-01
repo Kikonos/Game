@@ -8,12 +8,12 @@ import { typeOf } from '../core/perf';
 import { DAY, monthKey, monthStart } from '../core/time';
 import { addFlight } from '../core/entities';
 import type { Contract, GameState, SimEvent } from '../core/types';
-import { acceptOffer, cancelContract, cancelCost } from '../contracts';
+import { acceptOffer, cancelContract, cancelCost, contractProgress } from '../contracts';
 import { feasibility } from '../contracts/feasibility';
 import { devDryLease } from '../contracts/missions';
 import { hamBase, newGame, owned, run } from '../contracts/testkit';
 import { consentFor, dryPlan, dailyDryLeases, dryLeaseOf, dryLeaseView, leasedText, onLeaseBack, onLeaseFerryHome, onLeaseOut } from './dryLease';
-import { fixedCosts } from './finance';
+import { fixedCosts, forecastItems } from './finance';
 
 /** BAL.v08.dry with the two risks writable (tests force them). */
 const D = BAL.v08.dry as unknown as { late: number; damage: number; lateDays: readonly [number, number]; lesseeShare: number };
@@ -299,5 +299,45 @@ describe('v0.12.1 the ferry out leaves from where the aircraft is then', () => {
     const plan = dryPlan(g, { start, end: start + 90 * DAY, dry: { site: 'WAW' } as never }, ac);
     expect(plan?.from).toBe('PRG');
     expect(plan?.out[0]?.from).toBe('PRG');
+  });
+});
+
+describe('v0.14.1 (M2) the cash forecast sees a dry lease out', () => {
+  it('rent on each 1st, reserves in arrears, and the deposit back when she is home, each at its due date', () => {
+    const { g, c } = signed();
+    deliver(g, c);
+    const d = c.dry!;
+    const p = c.product as Extract<Contract['product'], { kind: 'dry' }>;
+    const end = d.leaseEnd ?? c.end;
+    const due = c.payment.dueDays * DAY;
+    const days = Math.ceil((end - g.now) / DAY) + 20;
+    const its = forecastItems(g, days);
+    const money = its.filter((x) => x.what === 'dry-lease rent and reserves');
+    // Rent: every month start before the lease end, pro rata to it, a month ahead.
+    const MONTH = 30.44 * DAY;
+    for (let k = monthKey(g.now) + 1; monthStart(k) < end; k++) {
+      const m = monthStart(k);
+      const rent = Math.round((p.rentPerMonth * (Math.min(end, monthStart(k + 1)) - m)) / MONTH);
+      expect(money.some((x) => x.t === m + due && x.amount >= rent)).toBe(true);
+    }
+    // Reserves: about the lessee's hours × the rate over the lease.
+    const rents = [...Array(40).keys()].map((i) => monthStart(monthKey(g.now) + 1 + i)).filter((m) => m < end).reduce((s, m) => s + Math.round((p.rentPerMonth * (Math.min(end, monthStart(monthKey(m) + 1)) - m)) / MONTH), 0);
+    const reserves = money.reduce((s, x) => s + x.amount, 0) - rents;
+    const want = (d.fhPerMonth * (end - g.now)) / MONTH * p.reservesPerFH;
+    expect(reserves).toBeGreaterThan(0.9 * want);
+    expect(reserves).toBeLessThan(1.1 * want);
+    // The deposit back when the return ferry lands.
+    const back = Math.max(...d.backIds.map((id) => g.flights[id].sta));
+    expect(its.filter((x) => x.what === 'dry-lease deposit back')).toEqual([{ t: back, amount: -d.deposit, what: 'dry-lease deposit back' }]);
+  });
+});
+
+describe('v0.14.1 (UI-5) a dry lease earns what it invoiced', () => {
+  it('the contract card reads the rent invoiced at the handover (was $0)', () => {
+    const { g, c } = signed();
+    deliver(g, c);
+    expect(c.invoiced ?? 0).toBeGreaterThan(0);
+    expect(contractProgress(g, c.id).revenueToDate).toBe(Math.round(c.invoiced!));
+    expect(dryLeaseView(g, c.id)!.income).toBe(Math.round(c.invoiced!));
   });
 });

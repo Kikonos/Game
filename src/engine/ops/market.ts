@@ -3,7 +3,7 @@
 // rare teaser), rare new-build slots, and a real handover site (lessor site, factory or previous operator's hub)
 // from which the aircraft is ferried home.
 
-import { ACMI_TYPES_LIST, ageFactor, rentForAge, type AcmiType } from '../../data/acmiTypes';
+import { ACMI_TYPES_LIST, ageFactor, floorRent, rentForAge, type AcmiType } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { checkRegistration, cleanAircraftName } from './registration';
 import { EX_OPERATORS, FACTORIES, LESSOR_SITES, NEW_BUILD, type Site } from '../../data/market';
@@ -24,6 +24,7 @@ import { familyLabel } from '../crew/conversion';
 import { fittedRest, migrateRest, rollRest } from '../crew/restPlan';
 import { aircraftGate, APPROVALS, ratedPilots, type AircraftGate } from './company';
 import { deliveryQuote, handoverMessage, planDeliveryFerry, type DeliveryQuote } from './delivery';
+import { applyRentStep } from './leaseReturn';
 import { usedHoursCycles } from './sale';
 import { usd } from './util';
 
@@ -128,8 +129,9 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
     const ageAdj = ageFactor(age);
     const canBuy = t.body === 'narrow' || old;
     const buy = opts.kind ? opts.kind === 'buy' && canBuy : !opts.lease && canBuy && chance(r, 0.3);
-    // v0.14 the rent never below the type's floor for old airframes (rentForAge).
-    const rent = Math.round((rentForAge(t, age) * range(r, 0.9, 1.15) * index) / 1000) * 1000;
+    // v0.14 the rent never below the type's floor for old airframes (rentForAge); v0.14.1 (M6) after the noise and the
+    // index too (floorRent), so a weak market no longer quotes an old A330-200 at $96K.
+    const rent = floorRent(t, Math.round((rentForAge(t, age) * range(r, 0.9, 1.15) * index) / 1000) * 1000);
     // v0.7.2 priced like a sale (the market index included), so buying and selling straight back loses the spread.
     const price = buy ? Math.round((t.valueUsed * range(r, 0.95, 1.12) * ageAdj * index) / 10_000) * 10_000 : 0;
     o = {
@@ -413,6 +415,8 @@ export function onDelivery(g: GameState, ev: SimEvent): void {
 /** 'lease.end': a booked return ends with its check (leaseReturn.ts); else return at base when free, or roll on a month at +10%. */
 export function onLeaseEnd(g: GameState, ev: SimEvent): void {
   const ac = g.fleet[ev.id];
+  // v0.14.1 (M3) an extension agreed earlier starts now (its rent).
+  if (ac) applyRentStep(g, ac);
   if (!ac || ac.ownership.kind !== 'dryLeaseIn' || ac.ownership.leaseEnd > g.now || ac.returning) return;
   const busy = ac.status !== 'available' || ac.at !== g.company.homeBase || flightsOf(g, ac.id).some((f) => f.status === 'scheduled' || f.status === 'enroute')
     || Object.values(g.contracts).some((c) => (c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(ac.id));
@@ -421,6 +425,8 @@ export function onLeaseEnd(g: GameState, ev: SimEvent): void {
   const terms = !!ac.ownership.returnSite;
   if (busy || terms) {
     ac.ownership.leaseEnd = g.now + Math.round(MONTH);
+    // v0.14.1 (M3) the +10 % from today: the days of this month before the roll keep the old rent.
+    ac.ownership.prevRent = { until: g.now, rent: ac.ownership.rentPerMonth };
     ac.ownership.rentPerMonth = Math.round(ac.ownership.rentPerMonth * 1.1);
     ac.ownership.noticeGiven = false;
     schedule(g, ac.ownership.leaseEnd, 'lease.end', ac.id);
