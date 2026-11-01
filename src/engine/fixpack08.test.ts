@@ -194,7 +194,7 @@ describe('v0.8 fix pack: the Boeing 747-400 is back (item 6)', () => {
     if (hajj) {
       const r = feasibility(g, hajj.id, id);
       expect(r.checks.find((c) => c.id === 'seats')?.level).toBe('ok');
-      expect(r.checks.find((c) => c.id === 'etops')?.label).toBe('Four engines: no ETOPS approval needed');
+      expect(r.checks.find((c) => c.id === 'etops')?.label).toBe('Four engines: no ETOPS limits');
       const sectors = hajj.pattern.kind === 'legs' ? hajj.pattern.legs.map((l) => [l.from, l.to] as [string, string]) : [];
       const ref = referenceType(hajj.requirements, sectors)!;
       expect(ref).toBe('b744');

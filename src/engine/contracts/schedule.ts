@@ -2,7 +2,7 @@
 
 import { BAL } from '../core/balance';
 import { curfewOk } from '../core/curfew';
-import { addFlight, flightsOf, liveFlightsOf, ownFlightNo, removeFlights, retimeFlight } from '../core/entities';
+import { addFlight, flightsOf, liveFlightsOf, ownFlightNo, removeFlights, retimeFlight, touchFlights } from '../core/entities';
 import { etopsCap, reportMinutes, TECH_STOP_MIN, typeOf } from '../core/perf';
 import { ticketBlock } from '../ops/commercial';
 import { safetyTrip } from '../core/safety';
@@ -507,13 +507,17 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
   let pending: Flight[] = [];
   const add = (chain: ChainLeg[], contractId: string | null) => {
     const old = pending.splice(0, chain.length);
-    // v0.14.1 (CREW-1) the same route is the same leg whatever job it is tagged to: retimed, its crew kept. It keeps a
-    // live job's tag (the ferry home after the pilgrimage stays the pilgrimage's once its last flight is airborne) and
-    // takes the plan's otherwise. Matched on the job too, a 4-min ETA slip re-made the crewed FCO–LIS with no crew.
+    // v0.14.1 (CREW-1) the same route is the same leg whatever job it is tagged to: retimed, its crew kept, and it takes
+    // the plan's tag, except a live job's tag the plan would only drop (the ferry home after the pilgrimage stays the
+    // pilgrimage's once its last flight is airborne). Matched on the job too, a 4-min ETA slip re-made the crewed
+    // FCO–LIS with no crew.
     const same = old.length === chain.length && old.every((f, i) => f.from === chain[i].from && f.to === chain[i].to && f.status === 'scheduled');
     if (same) {
       old.forEach((f, i) => {
-        if (f.contractId !== contractId && !live(g, f.contractId)) f.contractId = contractId;
+        if (f.contractId !== contractId && (contractId !== null || !live(g, f.contractId))) {
+          f.contractId = contractId;
+          touchFlights(g);
+        }
         if (f.std !== chain[i].std || f.sta !== chain[i].sta) retimeFlight(g, f, chain[i].std, chain[i].sta);
       });
       // v0.12.1 (review) a leg moved past a closure's reopening asks about what it strands, as a new one does.

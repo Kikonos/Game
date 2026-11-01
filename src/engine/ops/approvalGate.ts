@@ -38,8 +38,9 @@ export function legApprovals(g: GameState, f: Flight): ApprovalId[] {
   const ac = g.fleet[f.aircraftId];
   if (!ac) return [];
   const t = typeOf(ac.typeId);
-  // v0.14.1 (OPS-6) no ETOPS for three or four engines: the same rule as the offer sheet ("Four engines: no ETOPS").
-  const out = [...gateApprovals(t.tier, t.engines)];
+  // v0.14.1 (OPS-6) a tier-3 quad (A380, A340-500, 747-8) needs ETOPS 180 here as the 180-minute EDTO approval for
+  // long-haul passenger work; the offer sheet says so too (feasibility: "no ETOPS limits; … needs ETOPS 180").
+  const out = [...gateApprovals(t.tier)];
   if (t.engines === 2) {
     const need = etopsNeeded(ac.typeId, f.from, f.to);
     if (need > 0) out.push(ETOPS_ID(need));

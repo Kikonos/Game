@@ -8,7 +8,8 @@ import { blockMinutes } from '../core/perf';
 import { DAY } from '../core/time';
 import type { Aircraft, Flight, GameState, Minute, SimEvent } from '../core/types';
 import { acceptOffer } from '../contracts';
-import { addAircraft, hamBase, leased, newGame } from '../contracts/testkit';
+import { addAircraft, hamBase, leased, legsOffer, newGame } from '../contracts/testkit';
+import { feasibility } from '../contracts/feasibility';
 import { legApprovals } from './approvalGate';
 import { changeRequestFor } from './events';
 import { delayChain, onFlightDep, unitOf } from './flights';
@@ -117,15 +118,18 @@ describe('OPS-2: an extra rotation is planned clear of the night curfews', () =>
   });
 });
 
-describe('OPS-6: ETOPS is a twin-engine approval', () => {
-  it('an A380 leg needs widebody and augmented crews, not ETOPS 180; a 777 still does', () => {
+describe('OPS-6: four engines and ETOPS: the gate and the offer sheet agree (EDTO 180 for the long-haul quads)', () => {
+  it('an A380 leg needs ETOPS 180 at the gate, and its offer sheet says so instead of "no ETOPS limits"', () => {
     const g = newGame(56);
     const a = addAircraft(g, 'a388');
     const f = addFlight(g, { no: ownFlightNo(g), aircraftId: a.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'MAD', std: day(g, 2), sta: day(g, 2) + 80, pax: 300 });
-    expect(legApprovals(g, f)).toEqual(['widebody', 'augmented']);
-    const b = addAircraft(g, 'b77w');
-    const h = addFlight(g, { no: ownFlightNo(g), aircraftId: b.id, contractId: null, kind: 'revenue', from: 'LIS', to: 'MAD', std: day(g, 2), sta: day(g, 2) + 80, pax: 300 });
-    expect(legApprovals(g, h)).toContain('etops180');
+    expect(legApprovals(g, f)).toContain('etops180');
+    const o = legsOffer(g, [['LIS', 'JFK', day(g, 20)]], 300);
+    const etops = feasibility(g, o.id, a.id).checks.find((c) => c.id === 'etops')!;
+    expect(etops.label).toMatch(/ETOPS 180/);
+    // A tier-2 quad (747-400) keeps no ETOPS limit and no approval.
+    const b = addAircraft(g, 'b744');
+    expect(feasibility(g, o.id, b.id).checks.find((c) => c.id === 'etops')!.label).toBe('Four engines: no ETOPS limits');
   });
 });
 

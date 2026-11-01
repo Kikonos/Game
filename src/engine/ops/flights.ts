@@ -239,12 +239,19 @@ export function unitOf(g: GameState, ac: Aircraft, f: Flight): Flight[] {
   return i < 0 ? [f] : unitAt(g, legs, i).legs;
 }
 
+/**
+ * v0.14.1 (OPS-1) where recovery puts a leg the aircraft reaches at `ready`: its own time, or, pushed later, the first
+ * departure after `ready` that leaves and lands outside the night curfews (S1027: BLU923 DUS–FNC rippled to 01:55 local
+ * inside the Düsseldorf ban, the empty move into it then planned after it, the chain broken). Pure.
+ */
+const movedTo = (y: Flight, ready: Minute): Minute => (ready > y.std ? clearOfCurfews(y.from, y.to, ready, y.block) : y.std);
+
 /** Minutes the unit's revenue leg would leave beyond `cap` when the aircraft is ready at `ready` (≤ 0: fine). Pure. */
 function overCap(u: Unit, ready: Minute, turn: number, cap: number): number {
   if (!u.rev) return 0;
   let t = ready;
   for (const y of u.legs) {
-    const std = Math.max(y.std, t);
+    const std = movedTo(y, t);
     if (y === u.rev) return std - (y.schedStd ?? y.std) - (y.lateOk ?? 0) - cap;
     t = std + y.block + turn;
   }
@@ -331,7 +338,7 @@ function recover(g: GameState, ac: Aircraft, legs: Flight[], at: string, ready: 
         plan.cancels.push(...u.legs.slice(k));
         for (const y of u.legs.slice(0, k)) {
           if (y !== x) shiftChecks(y.std);
-          const std = Math.max(y.std, ready);
+          const std = movedTo(y, ready);
           plan.moves.push({ f: y, std });
           loc = y.to;
           ready = std + y.block + turn;
@@ -345,7 +352,7 @@ function recover(g: GameState, ac: Aircraft, legs: Flight[], at: string, ready: 
     }
     for (const y of u.legs) {
       if (y !== x) shiftChecks(y.std);
-      const std = Math.max(y.std, ready);
+      const std = movedTo(y, ready);
       plan.moves.push({ f: y, std });
       loc = y.to;
       ready = std + y.block + turn;
