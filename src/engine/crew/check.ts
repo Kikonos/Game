@@ -193,7 +193,7 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
   } else {
     // Still at the departure airport with a ticket home around this trip: they stay on instead.
     // Not onto a tour: its crews come out fresh for the rotation.
-    const drop = p.tour ? [] : droppableHome(g, c, base, dep, first.report, last.release);
+    const drop = p.tour ? [] : droppableHome(g, c, base, dep, first.report, last.release, last.restAt);
     if (drop.length) {
       base = withoutTickets(base, drop);
       dropped.push(...drop);
