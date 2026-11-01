@@ -5,7 +5,7 @@
 
 import { onStandby, readyMinOf, standbyFor } from './standby';
 import { canFill, reportMinutes, typeOf } from '../core/perf';
-import { fmtDay, fmtTime } from '../core/time';
+import { DAY, fmtDateTime, fmtDay, fmtTime } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role, StandbyKind } from '../core/types';
 import { atomic } from './atomic';
 import { issueLevelFor, openDuties, planCrew } from './check';
@@ -91,6 +91,9 @@ export function dutyCrew(g: GameState, dutyOrFlightId: string): DutyCrewView | n
     dutyIds: [...p.dutyIds], report: d.report, release: d.release, slots, inProgress: !!inProgress(g, p),
   };
 }
+
+/** v0.14.1 a duty's release, dated when it falls on another UTC day than the report ('2 Mar 06:50'). Pure. */
+export const releaseText = (report: Minute, release: Minute): string => (Math.floor(release / DAY) === Math.floor(report / DAY) ? fmtTime(release) : fmtDateTime(release));
 
 /**
  * v0.9 round 4 (§Y.1): the report of a crew member who takes a seat after the duty reported: their own check-in for
