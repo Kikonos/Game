@@ -8,6 +8,8 @@ import { addFlight } from '../core/entities';
 import { DAY } from '../core/time';
 import type { CrewMember, GameState } from '../core/types';
 import { run } from '../contracts/testkit';
+import { breathe } from '../../test/breathe';
+import { slowTimeout } from '../../test/perf';
 import { priceProduct } from '../contracts/pricing';
 import { fromUTC } from '../core/time';
 import { monthlyMorale } from './morale';
@@ -18,6 +20,14 @@ import { dailyMorale, legService, noteService, onContractDoneMorale, onDutyMoral
 import {
   applyDiscretion, autoRoster, crewCalendar, crewStatusView, flightCrewStatus, moraleOf, moraleSummary, moraleTarget, policyPreview, resignChance, resignNow, rosterOf, sickMult,
 } from '.';
+
+/** v0.14.1 (CODE-07) a long run in 10-day steps that let the test worker's event loop turn. */
+async function runBreathing(g: GameState, until: number): Promise<void> {
+  while (g.now < until && !g.gameOver) {
+    run(g, Math.min(until, g.now + 10 * DAY));
+    await breathe();
+  }
+}
 
 const avg = (g: GameState) => Object.values(g.crew).reduce((s, c) => s + c.morale, 0) / Object.keys(g.crew).length;
 const one = (g: GameState, role = 'CC') => Object.values(g.crew).find((c) => c.role === role)!;
@@ -31,39 +41,41 @@ describe('morale target and drift', () => {
     expect(moraleTarget({ perDiemPct: 90, rotationWeeks: 5 })).toBe(62);
   });
 
-  it('over 180 days default policies settle at 60–70, stingy ones lower, generous ones higher', () => {
-    const settle = (perDiemPct: number, rotationWeeks: 4 | 5 | 6, hotelTier: 3 | 4 | 5) => {
+  // v0.14.1 (CODE-07) 120 days (was 180): morale has settled by then (63.5 / 52.8 / 72.2 at 120 days, 63.4 / 52.4 / 72.3
+  // at 180), in steps that let the worker breathe, with a timeout scaled to the machine.
+  it('over 120 days default policies settle at 60–70, stingy ones lower, generous ones higher', async () => {
+    const settle = async (perDiemPct: number, rotationWeeks: 4 | 5 | 6, hotelTier: 3 | 4 | 5) => {
       const g = fixtureGame(11);
       g.company.cash = 50_000_000;
       Object.assign(g.company.policies, { perDiemPct, rotationWeeks, hotelTier });
       demoFlights(g, ['FAO', 'FNC', 'PMI', 'OPO'], 4, 'revenue');
-      run(g, g.started + 180 * DAY);
+      await runBreathing(g, g.started + 120 * DAY);
       return avg(g);
     };
-    const def = settle(100, 5, 4);
+    const def = await settle(100, 5, 4);
     expect(def).toBeGreaterThanOrEqual(60);
     expect(def).toBeLessThanOrEqual(70);
-    expect(settle(80, 6, 3)).toBeLessThan(def - 3);
-    expect(settle(120, 4, 5)).toBeGreaterThan(def + 3);
-  }, 30_000);
+    expect(await settle(80, 6, 3)).toBeLessThan(def - 3);
+    expect(await settle(120, 4, 5)).toBeGreaterThan(def + 3);
+  }, slowTimeout(30_000));
 
-  it('stingy policies settle at 55 or below with at least 1.5× the resignation odds and +20% sick calls', () => {
-    const settle = (perDiemPct: number, rotationWeeks: 4 | 5 | 6, hotelTier: 3 | 4 | 5) => {
+  it('stingy policies settle at 55 or below with at least 1.5× the resignation odds and +20% sick calls', async () => {
+    const settle = async (perDiemPct: number, rotationWeeks: 4 | 5 | 6, hotelTier: 3 | 4 | 5) => {
       const g = fixtureGame(12);
       g.company.cash = 50_000_000;
       Object.assign(g.company.policies, { perDiemPct, rotationWeeks, hotelTier });
       demoFlights(g, ['FAO', 'FNC', 'PMI', 'OPO'], 4, 'revenue');
-      run(g, g.started + 150 * DAY);
+      await runBreathing(g, g.started + 120 * DAY);
       const cs = Object.values(g.crew).filter((c) => !c.notice);
       const mean = (f: (c: CrewMember) => number) => cs.reduce((s, c) => s + f(c), 0) / cs.length;
       return { m: avg(g), resign: mean((c) => resignChance(g, c)), sick: mean((c) => sickMult(c.morale)) };
     };
-    const def = settle(100, 5, 4);
-    const cheap = settle(80, 6, 3);
+    const def = await settle(100, 5, 4);
+    const cheap = await settle(80, 6, 3);
     expect(cheap.m).toBeLessThanOrEqual(55);
     expect(cheap.resign / def.resign).toBeGreaterThanOrEqual(1.5);
     expect(cheap.sick / def.sick).toBeGreaterThanOrEqual(1.15);
-  }, 30_000);
+  }, slowTimeout(30_000));
 
   it('the policy preview shows the target and cost change before commit (pure)', () => {
     const g = fixtureGame();
@@ -216,7 +228,7 @@ describe('notice and leaving', () => {
     expect(crewStatusView(g, c.id).label).toBe('—');
     expect(moraleOf(g, c.id).value).toBe(0);
     run(g, g.now + 40 * DAY);
-  }, 30_000);
+  }, slowTimeout(30_000));
 
   it('the company summary: averages, low, leaving; weekly history keeps 12 weeks', () => {
     const g = fixtureGame();
