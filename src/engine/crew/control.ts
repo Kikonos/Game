@@ -845,7 +845,9 @@ export function crewGauges(g: GameState, crewId: string, dutyId?: string): Gauge
   }
   if (need > 0) {
     const ok = taken >= need;
-    out.push({ id: 'rest', label: 'Rest', value: Math.min(taken, need), limit: need, unit: 'hm', text: `${hm(Math.min(taken, need))} of ${hm(need)}${ok ? '' : ` by ${fmtTime(ends)}`}`, tone: ok ? 'good' : taken >= need * 0.75 ? 'warn' : 'bad', by: ends, crewId });
+    // v0.14.1 (UI-13) a rest past its minimum shows the real rest ('21:30 · min 10:00'; the bar stays full), never
+    // '10:00 of 10:00' for a crew member who rested 21 h.
+    out.push({ id: 'rest', label: 'Rest', value: Math.min(taken, need), limit: need, unit: 'hm', text: ok ? `${hm(taken)} · min ${hm(need)}` : `${hm(taken)} of ${hm(need)} by ${fmtTime(ends)}`, tone: ok ? 'good' : taken >= need * 0.75 ? 'warn' : 'bad', by: ends, crewId });
   }
   const w = crewWindows(g, c, t);
   const cum = (id: GaugeSpec['id'], label: string, v: number, lim: number) => out.push({ id, label, value: v, limit: lim, unit: 'hm', text: `${hm(v)} of ${hm(lim)}`, tone: limitTone(v, lim), crewId });

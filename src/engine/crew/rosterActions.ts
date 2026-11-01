@@ -81,7 +81,8 @@ export function dutyCrew(g: GameState, dutyOrFlightId: string): DutyCrewView | n
       const plan = planCrew(g, c, p, segsOf(g, c, p.id), true);
       // As seen from this duty: a later duty's problem only warns (flightCrewStatus agrees).
       for (const i of plan.issues) if (i.code !== 'fdp') level = worst(level ?? 'legal', issueLevelFor(g, p, d, i));
-      level ??= 'legal';
+      // v0.14.1 (UI-2) the duty's own day length is every seat's: never 'Legal' above a red 'Day length 17:40 of 12:15'.
+      level = worst(level ?? 'legal', d.done ? 'legal' : d.legality);
     }
     return { index, role: s.role, crewId: s.crewId, name: c ? crewName(c) : null, locked: !!s.locked, extra: !!s.extra, above: !!s.above, ...(s.reserve ? { reserve: true as const } : {}), level };
   });
