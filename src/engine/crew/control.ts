@@ -589,6 +589,9 @@ function p_hasOoh(g: GameState, f: Flight): boolean {
 
 // ---------- the card (§3.6–§3.8, §9) ----------
 
+/** v0.14.1 a reason after a name: 'is resting until 14:00'; one that is already a verb phrase keeps its own verb. Pure. */
+export const isText = (t: string): string => (/^(finished|needs|has|had|was|can't|cannot)\b/.test(t) ? t : `is ${t}`);
+
 // v0.12.1 days off first: the one blocker a buy-back lifts (BLU1565 read 'free in Lisbon' for captains on days off).
 const CAUSE_ORDER: ReasonCode[] = ['daysOff', 'place', 'rest', 'fdp', 'hours', 'recovery', 'busy', 'sick', 'leave', 'training', 'joining', 'rating'];
 
@@ -654,7 +657,7 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
     if (first && r) {
       // v0.10.1 not at the departure airport: which seat ('FO Teresa Martins is in Lisbon, not Antalya').
       const seat = r.code === 'place' ? p?.slots.find((s) => s.crewId === first.id)?.role : undefined;
-      why = `${seat ? `${seat} ` : ''}${crewName(first)} is ${r.text}${r.code === 'rest' && d ? `, after the ${fmtTime(d.report)} report` : ''}.`;
+      why = `${seat ? `${seat} ` : ''}${crewName(first)} ${isText(r.text)}${r.code === 'rest' && d ? `, after the ${fmtTime(d.report)} report` : ''}.`;
       for (const b of bad) details.push(`${crewName(g.crew[b.crewId])}: ${b.issue.text}`);
       if (r.code === 'rest' || r.code === 'fdp' || r.code === 'hours' || r.code === 'recovery') visuals.gauges = crewGauges(g, first.id, d?.id);
       if (r.code === 'place' && p && d) visuals.reach = reachFor(g, p, d, first, f.std);
@@ -699,7 +702,7 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
     // two pilots sat in Goma): who is there and what holds them back; and whoever only a day off holds back.
     const bbs = buyBackPicks(g, f.id);
     const here = cands.filter((c) => c.loc === x.dep && c.level === 'illegal' && c.reason && c.crewId !== pick?.crewId && !inTheAir(g, c.crewId) && !bbs.some((y) => y.c.id === c.crewId));
-    const hereLine = here.length ? `In ${city(x.dep)}: ${here.slice(0, 2).map((c) => `${c.name} is ${c.reason!.text}`).join('; ')}${here.length > 2 ? `; ${here.length - 2} more` : ''}. ` : '';
+    const hereLine = here.length ? `In ${city(x.dep)}: ${here.slice(0, 2).map((c) => `${c.name} ${isText(c.reason!.text)}`).join('; ')}${here.length > 2 ? `; ${here.length - 2} more` : ''}. ` : '';
     if (bbs.length) {
       const y = bbs[0];
       const mode = buyBackMode(g);
@@ -709,7 +712,11 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
       why = `${free.name} is on ${SBY_WORD[free.standby.kind]} at ${city(x.dep)} and can take the ${word[0]} seat: call them in (no overtime).`;
       terms.push('standby');
     } else if (offFree) {
-      why = `${offFree.name} is on a day off at ${city(x.dep)}: calling them in costs overtime and morale −${Math.abs(BAL.v09.roster.morale.broken)}.`;
+      // v0.14.1 (CREW-5) Call in never takes a day off (v0.12.1: only the buy-back does), and none is offered here: say
+      // why, never 'calling them in costs overtime' beside a Call in that is not there.
+      const oc = g.crew[offFree.crewId];
+      const soon = d.report - g.now <= BAL.v09.roster.buyBack.horizonH * 60;
+      why = `${offFree.name} is on a day off at ${city(x.dep)} and cannot be asked to work it: ${oc?.boughtOff?.length ? 'they already worked a day off this month' : soon ? 'a day off is bought back at most once a month each, never below the legal days off' : `that is possible from ${BAL.v09.roster.buyBack.horizonH} h before the report (twice a day's pay)`}.`;
       terms.push('daysOff');
     } else if (free) {
       why = `${free.name} is free${free.loc !== x.dep ? ` in ${city(free.loc)}` : ` at ${city(x.dep)}`} and could take the ${word[0]} seat: the roster has not placed them yet.`;
@@ -750,18 +757,18 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
       visuals.gauges = crewGauges(g, cm.id, d.id);
       terms.push('fdp');
     } else if (r.code === 'hours') {
-      why = `${crewName(cm)} is ${r.text}; everyone else rated on the ${fam} is busy or away.`;
+      why = `${crewName(cm)} ${isText(r.text)}; everyone else rated on the ${fam} is busy or away.`;
       visuals.gauges = crewGauges(g, cm.id, d?.id);
       terms.push('blockHours');
     } else if (r.code === 'recovery') {
-      why = `${crewName(cm)} is ${r.text}; everyone else rated on the ${fam} is busy or away.`;
+      why = `${crewName(cm)} ${isText(r.text)}; everyone else rated on the ${fam} is busy or away.`;
       visuals.gauges = crewGauges(g, cm.id, d?.id);
       terms.push('recovery');
     } else if (r.code === 'busy') {
       why = `Every rated ${word[0]} is busy on another trip (${crewName(cm)} ${r.text.replace(/^busy /, '')}).`;
       terms.push('standby');
     } else {
-      why = `${crewName(cm)} is ${r.text}, and nobody else rated on the ${fam} is free.`;
+      why = `${crewName(cm)} ${isText(r.text)}, and nobody else rated on the ${fam} is free.`;
       terms.push('standby');
     }
     if (hereLine && !free?.standby && !offFree) why = `${hereLine}${why}`;
