@@ -1038,7 +1038,11 @@ export interface CrewSlot {
   /** v0.9 round 4 (§Y.1): a replacement who joined after the duty reported: their own report (a fresh day). Cleared with the seat. */
   from?: Minute;
   /** v0.12.1 a day-off buy-back planned for this seat, not yet paid: the pay, the base-local month, the days bought and the days given back. */
-  buyBack?: { cost: number; month: string; days: number[]; repay: number[] };
+  buyBack?: {
+    cost: number; month: string; days: number[]; repay: number[];
+    /** v0.14.1 (merge) when it was bought and its notice (taken back with it when given back the same minute); absent on older saves. */
+    at?: Minute; msgId?: string;
+  };
 }
 
 /** v0.9 the legal limit a crew member reached (UPDATE-0.9.md §T.1). */

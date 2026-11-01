@@ -13,6 +13,7 @@ import { buildDuties } from './duties';
 import { addCrew, fixtureGame } from './fixtures';
 import { autoRoster, releaseCrew } from './roster';
 import { touchCrew } from './timeline';
+import { deserialize, serialize } from '../save';
 
 function goma(): { g: GameState; dutyId: string; here: string[] } {
   const g = fixtureGame();
@@ -56,5 +57,18 @@ describe('v0.14.1 a buy-back undone in the same minute', () => {
     for (const id of here) releaseCrew(g, p, id);
     expect(notes(g).filter((t) => /keeps/.test(t)).length).toBe(2);
     expect(notes(g).filter((t) => /works/.test(t)).length).toBe(2);
+  });
+
+  it('v0.14.1 (merge) a game saved between the buy-back and its undo does the same (no runtime memory)', () => {
+    const { g, dutyId, here } = goma();
+    autoRoster(g, {});
+    const h = deserialize(serialize(g));
+    for (const x of [g, h]) {
+      const p = x.pairings[x.duties[dutyId].pairingId];
+      for (const id of here) releaseCrew(x, p, id);
+    }
+    expect(notes(h)).toEqual(notes(g));
+    expect(notes(h)).toEqual([]);
+    expect(h.seq).toBe(g.seq);
   });
 });

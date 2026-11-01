@@ -54,8 +54,6 @@ export function buyBackFor(g: GameState, c: CrewMember, plan: CrewPlan, base: Se
 
 /** Runtime: who had a day bought back at which minute (a fix's change lines say so; never saved). */
 const recent = new WeakMap<GameState, Map<string, number>>();
-/** Runtime: the notice of the latest buy-back per crew member (its message id): taken back if undone the same minute. */
-const notices = new WeakMap<GameState, Map<string, { id: string; chimed: boolean }>>();
 /** Whether c's day off was bought back this minute (Crew Control's lines). */
 export const boughtNow = (g: GameState, crewId: string): boolean => recent.get(g)?.get(crewId) === g.now;
 
@@ -90,9 +88,12 @@ export function applyBuyBack(g: GameState, c: CrewMember, segs: Seg[], bb: BuyBa
     body: `Paid at twice a day's pay${slot ? ' once they report' : ''}. ${repayText(c, bb)}`.trim(),
     ...(ref ? { ref } : {}),
   });
-  let n = notices.get(g);
-  if (!n) notices.set(g, (n = new Map()));
-  n.set(c.id, { id: msg.id, chimed: saveCues().some((e) => e.msgId === msg.id) });
+  // v0.14.1 (merge) the notice is kept on the seat's saved buy-back (it was a runtime map: a game loaded from a save
+  // posted 'keeps the day off' where the same game unsaved took the notice back, and the two played on differently).
+  if (slot?.buyBack) {
+    slot.buyBack.at = g.now;
+    slot.buyBack.msgId = msg.id;
+  }
 }
 
 function paid(g: GameState, cost: number): void {
@@ -122,15 +123,12 @@ export function undoBuyBack(g: GameState, c: CrewMember, slot: CrewSlot): void {
   if (!c.boughtOff.length) delete c.boughtOff;
   // v0.14.1 bought and given back in the same minute (the roster re-planned the seat at once): nothing happened for the
   // player, so the 'works the day off' notice and its chime are taken back instead of a 'keeps the day off' beside it.
-  const note = notices.get(g)?.get(c.id);
-  if (note && recent.get(g)?.get(c.id) === g.now) {
-    notices.get(g)!.delete(c.id);
-    const i = g.messages.findIndex((m) => m.id === note.id && m.t === g.now);
-    const cues = saveCues();
-    // (A chime the screen already played keeps its notice: then the day off given back is said too.)
-    if (i >= 0 && (!note.chimed || cues.some((e) => e.msgId === note.id))) {
+  // (From the seat's saved record only, so a reloaded game does the same.)
+  if (bb.msgId && bb.at === g.now) {
+    const i = g.messages.findIndex((m) => m.id === bb.msgId && m.t === g.now);
+    if (i >= 0) {
       g.messages.splice(i, 1);
-      restoreCues(cues.filter((e) => e.msgId !== note.id));
+      restoreCues(saveCues().filter((e) => e.msgId !== bb.msgId));
       return;
     }
   }
