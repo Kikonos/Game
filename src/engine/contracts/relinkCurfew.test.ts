@@ -132,3 +132,30 @@ describe('CREW-1: a few minutes of ETA slip retime the crewed ferry home, whatev
     expect(g.flights[out.id]?.std).toBe(outStd);
   });
 });
+
+describe('v0.14.1 a held empty chain keeps its legs (no re-plan loop)', () => {
+  it('GOM–NDJ held for a crew, then NDJ–DJE–MAN (the route on from NDJ): kept as it is, the held leg too', () => {
+    const g = newGame(45);
+    const ac = leased(g);
+    ac.at = 'GOM';
+    const t0 = Math.floor(g.now / DAY) * DAY + 4 * DAY;
+    addFlight(g, { no: ownFlightNo(g), aircraftId: ac.id, contractId: null, kind: 'revenue', from: 'MAN', to: 'MAH', std: t0 + 13 * H, sta: t0 + 15 * H + 30, pax: 150 });
+    relinkPositioning(g, ac.id);
+    const first = pos(g, ac.id);
+    expect(first.map((f) => `${f.from}-${f.to}`)).toEqual(['GOM-NDJ', 'NDJ-TUN', 'TUN-MAN']);
+    // The gate held GOM–NDJ for a crew and recovery moved the chain behind it; the next stop's own route goes over Djerba.
+    const blk = (a: string, b: string) => blockMinutes(ac.typeId, a, b);
+    const s0 = first[0].std + 120;
+    retimeFlight(g, first[0], s0, s0 + blk('GOM', 'NDJ'));
+    first[0].crewTries = 1;
+    const s1 = first[0].sta + 40;
+    retimeFlight(g, first[1], s1, s1 + blk('NDJ', 'DJE'));
+    first[1].to = 'DJE';
+    const s2 = first[1].sta + 40;
+    retimeFlight(g, first[2], s2, s2 + blk('DJE', 'MAN'));
+    first[2].from = 'DJE';
+    const ids = pos(g, ac.id).map((f) => `${f.id}@${f.std}`).join();
+    for (let i = 0; i < 3; i++) expect(relinkPositioning(g, ac.id)).toEqual([]);
+    expect(pos(g, ac.id).map((f) => `${f.id}@${f.std}`).join()).toBe(ids);
+  });
+});

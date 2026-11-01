@@ -385,7 +385,12 @@ function chainSane(typeId: string, legs: Flight[], X: string, Y: string | null, 
   const path = [legs[0].from, ...legs.map((f) => f.to)];
   // End of the schedule: only the way home is ever planned.
   if (Y === null) return X !== home && samePath(path, routePath(typeId, X, home, cap, day));
-  if (X !== Y && samePath(path, routePath(typeId, X, Y, cap, day))) return true;
+  const direct = X !== Y ? routePath(typeId, X, Y, cap, day) : null;
+  if (X !== Y && samePath(path, direct)) return true;
+  // v0.14.1 a chain that makes the planner's first stop and then flies the planner's route on from there is its move too
+  // (the fuel stops after the first may differ: GOM–NDJ then NDJ–DJE–MAN where GOM–MAN goes on over Tunis). Read as an
+  // orphan, the leg on from the first stop was re-made on every settle once the first leg was too near to re-plan.
+  if (direct && direct.length > 2 && path.length > 2 && path[1] === direct[1] && samePath(path.slice(1), routePath(typeId, path[1], Y, cap, day))) return true;
   if (!allowHop || X === home || Y === home) return false;
   const k = path.indexOf(home);
   return k > 0 && samePath(path.slice(0, k + 1), routePath(typeId, X, home, cap, day)) && samePath(path.slice(k), routePath(typeId, home, Y, cap, day));
@@ -510,23 +515,25 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     // v0.14.1 (CREW-1) the same route is the same leg whatever job it is tagged to: retimed, its crew kept, and it takes
     // the plan's tag, except a live job's tag the plan would only drop (the ferry home after the pilgrimage stays the
     // pilgrimage's once its last flight is airborne). Matched on the job too, a 4-min ETA slip re-made the crewed
-    // FCO–LIS with no crew.
-    const same = old.length === chain.length && old.every((f, i) => f.from === chain[i].from && f.to === chain[i].to && f.status === 'scheduled');
-    if (same) {
-      old.forEach((f, i) => {
-        if (f.contractId !== contractId && (contractId !== null || !live(g, f.contractId))) {
-          f.contractId = contractId;
-          touchFlights(g);
-        }
-        if (f.std !== chain[i].std || f.sta !== chain[i].sta) retimeFlight(g, f, chain[i].std, chain[i].sta);
-      });
-      // v0.12.1 (review) a leg moved past a closure's reopening asks about what it strands, as a new one does.
-      const from = pushed.get(chain[0]);
-      if (from !== undefined && old[0]) retimedAsks.push([old[0], from]);
-      return;
+    // FCO–LIS with no crew (S1027: BLU1183 DUS–LIS, 7 crew, re-made crewless). And leg by leg from the first: the legs
+    // that still fly the plan's route are kept (their crews, a crew wait held at the gate) and only the rest re-made.
+    // All or nothing, a chain held at Goma for a crew (GOM–NDJ–DJE–MAN) lost its wait to a re-route over Tunis, was
+    // planned to leave at once, held again, and re-made 37 times in a day.
+    let k = 0;
+    while (k < old.length && k < chain.length && old[k].from === chain[k].from && old[k].to === chain[k].to && old[k].status === 'scheduled') k++;
+    for (let i = 0; i < k; i++) {
+      const f = old[i];
+      if (f.contractId !== contractId && (contractId !== null || !live(g, f.contractId))) {
+        f.contractId = contractId;
+        touchFlights(g);
+      }
+      if (f.std !== chain[i].std || f.sta !== chain[i].sta) retimeFlight(g, f, chain[i].std, chain[i].sta);
     }
-    remove.push(...old.map((f) => f.id));
-    for (const l of chain) planned.push({ l, contractId });
+    // v0.12.1 (review) a leg moved past a closure's reopening asks about what it strands, as a new one does.
+    const from = k ? pushed.get(chain[0]) : undefined;
+    if (from !== undefined) retimedAsks.push([old[0], from]);
+    remove.push(...old.slice(k).map((f) => f.id));
+    for (const l of chain.slice(k)) planned.push({ l, contractId });
   };
   const replacing = (legs: Flight[]) => {
     remove.push(...pending.map((f) => f.id));
