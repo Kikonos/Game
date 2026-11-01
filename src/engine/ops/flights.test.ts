@@ -15,6 +15,7 @@ import { aogChance, delayFlight, resolveDecision } from '.';
 import { cancelContract, cancelCost } from '../contracts';
 import { cancelLegs, delayChain, legCostEstimate, pickRival, planHold, pruneFlights, settleOverlaps, subcharterCost, subcharterLegs, unitOf } from './flights';
 import { breathe } from '../../test/breathe';
+import { slowTimeout } from '../../test/perf';
 import { takeCues } from '../core/cues';
 import { closedWait } from '../crew/roster';
 import { startEvent } from './world';
@@ -732,5 +733,5 @@ describe('determinism', () => {
     const a = await play(41);
     expect((await play(41)) === a).toBe(true);
     expect((await play(42)) === a).toBe(false);
-  }, 60_000);
+  }, slowTimeout(60_000));
 });

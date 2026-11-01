@@ -10,6 +10,7 @@ import { addDeadhead } from '../core/entities';
 import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
 import { advanceTo } from '../sim';
+import { isText } from './control';
 import { openDuties, planCrew } from './check';
 import { placeCrew, recheckPairing } from './roster';
 import { rootReason } from './reasons';
@@ -71,8 +72,11 @@ describe("a later trip's ticket out from where the crew are (C6)", () => {
     const { c, p, q, t } = setup(g);
     const qd = openDuties(g, q)[0];
     const r = rootReason(g, [{ code: 'location', level: 'illegal', text: 'At LIS, not HAM', dutyId: qd.id }], c, p);
-    expect(r?.text).toMatch(/^their ticket out for \S+ on .+ leaves Hamburg$/);
+    expect(r?.text).toMatch(/^due in Hamburg for their ticket out to \S+ on .+$/);
     expect(r?.text).not.toMatch(/not Hamburg/);
+    // v0.14.1 (CREW-7) it reads after a name as every reason does ('In Chania: Nuno is their ticket out …').
+    expect(`${c.first} ${isText(r!.text)}`).toMatch(new RegExp(`^${c.first} is due in Hamburg for their ticket out to `));
+    expect(isText('finished late: needs a whole local night before an early start')).toMatch(/^finished late/);
     expect(t.from).toBe('HAM');
   });
 });

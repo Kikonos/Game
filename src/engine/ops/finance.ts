@@ -8,7 +8,7 @@ import { pushMessage } from '../core/messages';
 import { cardMeta, cashLowCard, cashNegativeCard, invoiceOverdueCard, postProblem } from '../problems';
 import { requestPause } from '../core/pause';
 import { typeOf } from '../core/perf';
-import { DAY, daysInMonth, fmtDay, fmtMonth, monthKey, monthStart, yearOf } from '../core/time';
+import { DAY, daysInMonth, fmtDay, fmtMonth, monthKey, monthStart, nextMonthStart, yearOf } from '../core/time';
 import { ageFactor } from '../../data/acmiTypes';
 import type { Aircraft, GameState, Minute, MonthKey, MonthStatement, SimEvent } from '../core/types';
 import { joinsAt, paidShare } from '../crew';
@@ -53,6 +53,29 @@ function leasedOutShare(g: GameState, ac: GameState['fleet'][string], k: MonthKe
   return Math.min(1, out / (monthStart(k + 1) - a));
 }
 
+type Lease = Extract<Aircraft['ownership'], { kind: 'dryLeaseIn' }>;
+
+/**
+ * v0.14.1 (M3) a lease's rent over [x, y), as a share of a `len`-minute month: the rent before the last change until
+ * it (prevRent), the current rent, an agreed extension's rent from its start (nextRent). Was the current rent over the
+ * whole month, so an extension agreed 120 days ahead changed the rent at once. Pure.
+ */
+export function rentOver(own: Lease, x: Minute, y: Minute, len: number): number {
+  let a = x;
+  let sum = 0;
+  const seg = (to: Minute, rate: number) => {
+    const b = Math.min(y, to);
+    if (b > a) {
+      sum += rate * (b - a);
+      a = b;
+    }
+  };
+  if (own.prevRent) seg(own.prevRent.until, own.prevRent.rent);
+  seg(own.nextRent ? own.nextRent.from : Infinity, own.rentPerMonth);
+  if (own.nextRent) seg(Infinity, own.nextRent.rent);
+  return sum / len;
+}
+
 /**
  * v0.12.1 rent of a leased-in aircraft for month k: its days on lease, and a holdover past the lease end while it
  * is still with us (the lessor's +10%), so an aircraft kept after its lease never flies rent-free.
@@ -61,7 +84,9 @@ function rentOf(g: GameState, ac: GameState['fleet'][string], k: MonthKey, leave
   if (ac.ownership.kind !== 'dryLeaseIn') return 0;
   const own = ac.ownership;
   const a = monthStart(k), b = monthStart(k + 1);
-  let rent = own.rentPerMonth * shareOfMonth(ac, k, leaveAt);
+  const from = Math.max(a, ac.deliveredAt);
+  const to = Math.min(b, leaveAt ?? b, Math.max(own.leaseEnd, from));
+  let rent = rentOver(own, from, to, b - a);
   const end = Math.min(b, leaveAt ?? b);
   const held = Math.max(a, own.leaseEnd, ac.deliveredAt);
   if (own.leaseEnd <= g.now && !ac.returning && end > held) rent += own.rentPerMonth * 1.1 * ((end - held) / (b - a));
@@ -142,6 +167,9 @@ export function onMonthEnd(g: GameState, ev: SimEvent): void {
   requestPause('monthEnd');
 }
 
+/** v0.14.1 (UI-9) whole days an invoice is past its due date (the card, the reminders and Finance count alike). Pure. */
+export const daysOverdue = (g: Pick<GameState, 'now'>, r: { due: Minute }): number => Math.floor((g.now - r.due) / DAY);
+
 /** 'payment': collect a receivable (cashOnly) and message when it was late. */
 export function onPayment(g: GameState, ev: SimEvent): void {
   const r = g.finance.receivables.find((x) => x.id === ev.id);
@@ -168,7 +196,7 @@ export function dailyFinance(g: GameState): void {
   const week = new Map<string, GameState['finance']['receivables']>();
   for (const r of f.receivables) {
     if (r.paid !== null) continue;
-    const over = Math.floor((g.now - r.due) / DAY);
+    const over = daysOverdue(g, r);
     if (over >= 30 && (r.nudged ?? 0) < 30) {
       r.nudged = 30;
       if (g.decisions.length < BAL.maxOpenDecisions) latePaymentDecision(g, r);
@@ -189,7 +217,7 @@ export function dailyFinance(g: GameState): void {
     const r0 = rs[0];
     pushMessage(g, {
       tone: 'info', cat: 'finance', title: `Invoice overdue: ${g.clients[clientId]?.name ?? 'client'}`,
-      body: rs.length === 1 ? `${usd(r0.amount)} for ${r0.desc}, ${Math.floor((g.now - r0.due) / DAY)} days past due. ${tail}` : `${rs.length} invoices, ${usd(amount)}, a week or more past due. ${tail}`,
+      body: rs.length === 1 ? `${usd(r0.amount)} for ${r0.desc}, ${daysOverdue(g, r0)} days past due. ${tail}` : `${rs.length} invoices, ${usd(amount)}, a week or more past due. ${tail}`,
     });
   }
   if (f.receivables.length > 80) f.receivables = f.receivables.filter((r) => r.paid === null || r.paid > g.now - 120 * DAY);
@@ -306,13 +334,20 @@ export function forecastItems(g: GameState, days: number): ForecastItem[] {
       if ((c.status !== 'active' && c.status !== 'signed') || c.product.kind !== 'wet' || c.billedMonths.includes(k)) continue;
       // The open month: its own invoice lines so far (flown, lost hours, excess); later months: the guarantee.
       const v = k === k0 ? wetMonthLines(c, k).reduce((s, l) => s + l.amount, 0) : c.product.ratePerBH * mghFor(c, k) * (1 - brokerCut(c));
-      add(t + c.payment.dueDays * DAY, Math.round(v), 'wet-lease invoices');
+      // v0.14.1 (M2) a contract ending inside the month is billed when it completes, not at the month end.
+      const billed = c.end < t ? Math.max(c.end, g.now) : t;
+      add(billed + c.payment.dueDays * DAY, Math.round(v), 'wet-lease invoices');
     }
   }
   for (const c of Object.values(g.contracts)) {
     if (c.status !== 'active' && c.status !== 'signed') continue;
-    for (const it of c.instalments ?? []) add(it.at + c.payment.dueDays * DAY, it.amount, 'charter balances');
+    // v0.14.1 (M7) as accept.ts bill() invoices them: due in 7 days, a government's on its own terms (arrears).
+    const due = c.payment.basis === 'arrears' ? c.payment.dueDays : 7;
+    for (const it of c.instalments ?? []) add(it.at + due * DAY, it.amount, 'charter balances');
+    if (c.dry && c.product.kind === 'dry') dryLeaseItems(g, c, add);
   }
+  // v0.14.1 (M2) an administrator's payout on our claim (commercial/crises.ts), on its date.
+  for (const x of g.com?.crises ?? []) if (x.claim && !x.claim.paid && x.claim.amount > 0) add(x.claim.payAt, x.claim.amount, "administrators' claims");
   for (const m of Object.values(g.maintenance)) {
     if (m.status !== 'planned' && m.status !== 'inWork') continue;
     const reg = g.fleet[m.aircraftId]?.reg ?? 'an aircraft';
@@ -351,18 +386,68 @@ export function forecastItems(g: GameState, days: number): ForecastItem[] {
   return out;
 }
 
-/** Projected cash for the next `days` days (forecastItems by day). Pure (no RNG). */
+/**
+ * Projected cash for the next `days` days (forecastItems by day). Pure (no RNG). v0.14.1 (UI-3) by calendar day: point
+ * d is the cash at the end of that day, stamped with the day itself (today: now), so a bill at 1 Mar 00:00 reads as
+ * 1 Mar. Was by 24 h from now, stamped with the bucket's start: 'Cash runs out on 29 Feb' for the 1 Mar bill.
+ */
 export function cashForecast(g: GameState, days: number): { t: number; cash: number }[] {
+  const day0 = Math.floor(g.now / DAY);
   const delta = new Map<number, number>();
   for (const x of forecastItems(g, days)) {
-    const d = Math.max(0, Math.floor((x.t - g.now) / DAY));
+    const d = Math.max(0, Math.floor(x.t / DAY) - day0);
     delta.set(d, (delta.get(d) ?? 0) + x.amount);
   }
   const out: { t: number; cash: number }[] = [];
   let cash = g.company.cash;
   for (let d = 0; d <= days; d++) {
     cash += delta.get(d) ?? 0;
-    out.push({ t: g.now + d * DAY, cash: Math.round(cash) });
+    out.push({ t: d === 0 ? g.now : (day0 + d) * DAY, cash: Math.round(cash) });
   }
   return out;
+}
+
+/**
+ * v0.14.1 (M2) a dry lease out's money to come (ops/dryLease.ts): the rent invoiced a month ahead on the 1st (the first
+ * part-month at the handover), the reserves on the lessee's hours in arrears (on the 1st and at the lease end), our
+ * own reserves to our lessor on those hours (a leased-in airframe, daily), and the deposit back when she is home.
+ * Each invoice at its due date. Pure.
+ */
+function dryLeaseItems(g: GameState, c: GameState['contracts'][string], add: (t: number, amount: number, what: string) => void): void {
+  const d = c.dry;
+  const p = c.product;
+  if (!d || p.kind !== 'dry') return;
+  const due = c.payment.dueDays * DAY;
+  const ac = g.fleet[c.aircraftIds[0]];
+  const leaseEnd = d.leaseEnd ?? c.end;
+  const outEnd = Math.max(0, ...d.outIds.map((id) => g.flights[id]).filter((f) => f && f.status !== 'cancelled').map((f) => f!.sta));
+  const start = d.leasedAt ?? Math.max(g.now, outEnd || c.start);
+  const MONTH_MIN = 30.44 * DAY;
+  const fhPerMin = d.fhPerMonth / MONTH_MIN;
+  if (d.returnedAt === undefined) {
+    // Rent: the first part-month at the handover (not yet delivered), then each month on its 1st.
+    if (d.leasedAt === undefined) add(start + due, Math.round((p.rentPerMonth * (Math.min(leaseEnd, nextMonthStart(start)) - start)) / MONTH_MIN), 'dry-lease rent and reserves');
+    for (let m = nextMonthStart(Math.max(g.now, start)); m < leaseEnd; m = nextMonthStart(m)) {
+      add(m + due, Math.round((p.rentPerMonth * (Math.min(leaseEnd, nextMonthStart(m)) - m)) / MONTH_MIN), 'dry-lease rent and reserves');
+    }
+    // Reserves in arrears: the hours flown and still to fly up to each 1st, and the rest at the lease end.
+    let fh = d.fh - (d.fhBilled ?? 0);
+    let from = Math.max(g.now, start);
+    for (let m = nextMonthStart(from); ; m = nextMonthStart(m)) {
+      const to = Math.min(m, leaseEnd);
+      fh += Math.max(0, to - from) * fhPerMin;
+      if (fh >= 1) add(to + due, Math.round(fh * p.reservesPerFH), 'dry-lease rent and reserves');
+      fh = 0;
+      from = to;
+      if (to >= leaseEnd) break;
+    }
+    // Our reserves to our own lessor on the lessee's hours (posted daily).
+    if (ac?.ownership.kind === 'dryLeaseIn' && ac.ownership.reservesPerFH) {
+      const perDay = fhPerMin * DAY * ac.ownership.reservesPerFH;
+      for (let t = Math.max(g.now, start) + DAY; t <= leaseEnd; t += DAY) add(t, -Math.round(perDay), 'reserves on the dry lease');
+    }
+  }
+  // The deposit goes back when she is home (the return ferry lands).
+  const back = Math.max(0, ...d.backIds.map((id) => g.flights[id]).filter((f) => f && f.status !== 'cancelled').map((f) => f!.sta));
+  if (d.deposit) add(back || leaseEnd + 2 * DAY, -d.deposit, 'dry-lease deposit back');
 }

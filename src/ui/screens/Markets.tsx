@@ -61,7 +61,17 @@ function QuoteCard({ q, who, onBook, onClose }: { q: TripQuote; who: Traveller; 
         <button className="btn btn-ghost btn-icon" onClick={onClose} aria-label="Close"><X /></button>
       </div>
       <span className="small muted">{q.where} · meetings {span(q.start, q.end)} · {q.meets}</span>
-      {q.ok ? (
+      {q.ok && q.local ? (
+        <>
+          {/* v0.14.1 in our home city: no flights, no hotel. */}
+          <span className="small muted">Here in {city(q.at)}: no flights and no hotel needed.</span>
+          <span className="small">{q.pass ? `Pass ${money(q.pass)} · ` : ''}local costs {money(q.perDiem)}</span>
+          <div className="row between">
+            <b>Total {money(q.total)}</b>
+            <button className="btn btn-primary" onClick={onBook}><Briefcase /> Book {who === 'ceo' ? 'my' : 'the'} day{q.end - q.start > DAY ? 's' : ''}</button>
+          </div>
+        </>
+      ) : q.ok ? (
         <>
           <Legs legs={q.legsOut} label="Out" icon={<PlaneTakeoff className="sc-ico-s" />} />
           <Legs legs={q.legsBack} label="Back" icon={<PlaneLanding className="sc-ico-s" />} />
@@ -134,7 +144,7 @@ export function MarketsView({ g }: { g: GameState }) {
     return [...by.values()].sort((a, b) => order(a) - order(b));
   }, [fairs, home]); // eslint-disable-line react-hooks/exhaustive-deps
   const q = useMemo(() => (pick ? tripQuote(g, who, pick) : null), [g, who, pick, Math.floor(g.now / 60), store.editCount]); // eslint-disable-line react-hooks/exhaustive-deps
-  const clients = useMemo(() => Object.values(g.clients).filter((c) => (c.kind === 'airline' || c.kind === 'tourOperator') && !c.rivalId && c.ceased === undefined && AIRPORT_BY_CODE[c.base] && c.base !== g.company.homeBase)
+  const clients = useMemo(() => Object.values(g.clients).filter((c) => (c.kind === 'airline' || c.kind === 'tourOperator') && !c.rivalId && c.ceased === undefined && AIRPORT_BY_CODE[c.base])
     .sort((a, b) => b.relation - a.relation || a.name.localeCompare(b.name)), [g, day]); // eslint-disable-line react-hooks/exhaustive-deps
   const trips = tripsView(g);
   const book = () => {
@@ -217,9 +227,10 @@ export function MarketsView({ g }: { g: GameState }) {
             <div key={t.id} className={`v14-trip ${t.status}`}>
               <div className="row between gap-8">
                 <b className="ellipsis small">{t.who === 'ceo' ? 'You' : t.name.split(' ')[0]} · {tripTitle(t)}</b>
-                <span className="tiny muted nowrap">{fmtDay(t.out.std)} – {fmtDay(t.back.sta)}</span>
+                <span className="tiny muted nowrap">{span(t.out.std, t.back.sta)}</span>
               </div>
-              <span className="tiny muted">{tripNow(g, t)} · {money(t.cost.tickets + t.cost.pass + t.cost.hotel + t.cost.perDiem)}</span>
+              {/* v0.14.1 a trip called off shows what was paid (the seats kept; the pass refunded). */}
+              <span className="tiny muted">{tripNow(g, t)} · {t.status === 'cancelled' ? (t.cost.tickets ? `${money(t.cost.tickets)} paid` : 'nothing paid') : money(t.cost.tickets + t.cost.pass + t.cost.hotel + t.cost.perDiem)}</span>
               {t.status === 'done' && (
                 <span className="tiny">
                   Met {t.met?.length ? t.met.map((id) => g.clients[id]?.name).filter(Boolean).join(', ') : 'nobody new'}

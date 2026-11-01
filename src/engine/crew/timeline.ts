@@ -1039,10 +1039,16 @@ const onTour = (g: GameState, x: Seg): boolean => !!(x.dutyId && g.pairings[g.du
  * (a positioning seg, or a ticket merged into the duty before it) and stay on instead of flying home and back out
  * (DESIGN §5.3: a hotel night is cheaper than two tickets). Not tickets already checked in, nor a tour's. Pure.
  */
-export function droppableHome(g: GameState, c: CrewMember, segs: Seg[], dep: string, report: Minute, release: Minute): string[] {
+export function droppableHome(g: GameState, c: CrewMember, segs: Seg[], dep: string, report: Minute, release: Minute, endsAt?: string): string[] {
   const out: string[] = [];
   const now = g.now;
-  const near = (start: Minute) => start + CHECKIN() > now && start >= report - 2 * 1440 && start < release + 1440;
+  // v0.14.1 a trip that takes them away from the station and ends elsewhere also makes a later ticket home from that
+  // station (within the week) useless: they are no longer there. Kept, it read as 'At LIS, not GOM' and broke the
+  // 168 h recovery on the card of a captain who had been off in Goma for 90 h (S1027 BLU1573, a ticket home bought
+  // for after the airport reopened).
+  const near = (start: Minute) => start + CHECKIN() > now && start >= report - 2 * 1440
+    && (start < release + 1440 || (endsAt !== undefined && endsAt !== dep && start >= release && start < release + 7 * 1440
+      && !segs.some((y) => y.kind !== 'log' && y.start >= release && y.start < start)));
   for (const x of segs) {
     if (onTour(g, x)) continue;
     if (x.kind === 'pos' && x.ticketId && x.from === dep && x.at === c.base && near(x.start) && locAt(c, segs, x.start) === dep) out.push(x.ticketId);

@@ -16,7 +16,7 @@ import { ProblemCardView } from '../components/ProblemCard';
 import { Empty, Seg } from '../components/ui';
 import { money } from '../format';
 import { store } from '../store';
-import { offerModal } from './screenLogic';
+import { offerModal, workDays } from './screenLogic';
 import { ArchIcon } from './common';
 
 const KIND_ICON: Record<ClientKind, ReactNode> = {
@@ -98,7 +98,7 @@ export function ClientDetail({ g, v, inModal }: { g: GameState; v: ClientView; i
             if (!c) return null;
             return (
               <button key={id} className="v8-link" onClick={go(() => store.navigate('contracts', { view: 'active', sel: { kind: 'contract', id } }))}>
-                <ArchIcon a={c.archetype} /><span className="grow ellipsis">{c.title}</span><span className="small dim nowrap">{fmtDay(c.start)} – {fmtDay(c.end)}</span><ChevronRight className="sc-ico-s dim" />
+                <ArchIcon a={c.archetype} /><span className="grow ellipsis">{c.title}</span><span className="small dim nowrap">{workDays(c)}</span><ChevronRight className="sc-ico-s dim" />
               </button>
             );
           })}

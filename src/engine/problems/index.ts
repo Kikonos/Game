@@ -42,8 +42,10 @@ export function problemFor(g: GameState, subject: ProblemRef): ProblemCard | nul
     case 'counterExpiry': return counterExpiryCard(g, id);
     case 'changeRequest': return changeRequestCard(g, id);
     case 'penalty': {
-      const m = g.messages.find((x) => x.problem?.kind === 'penalty' && x.ref?.id === id);
-      return m ? penaltyCard(g, m) : null;
+      // v0.14.1 (CODE-03) by the problem's own ref (the contract): the message's ref is the flight that was late or
+      // cancelled, so matching on it never found one. The card opens the contract.
+      const m = g.messages.find((x) => x.problem?.kind === 'penalty' && x.problem.ref.id === id);
+      return m ? penaltyCard(g, { ...m, ref: m.problem!.ref }) : null;
     }
     case 'contractCancelled': return contractCancelledCard(g, id);
     case 'cashLow': return cashLowCard(g);
@@ -51,7 +53,6 @@ export function problemFor(g: GameState, subject: ProblemRef): ProblemCard | nul
     case 'invoiceOverdue': return invoiceOverdueCard(g, id);
     case 'lossMonth': return lossMonthCard(g);
     case 'leaseDue': return leaseDueCard(g, id);
-    case 'goalMiss': return null;
     case 'deliveryWait': return deliveryWaitCard(g, id);
     case 'noFerry': return noFerryCard(g, id);
     case 'ferryUncrewed': return ferryUncrewedCard(g, id);
@@ -91,7 +92,7 @@ export function problemFor(g: GameState, subject: ProblemRef): ProblemCard | nul
 const SEV = { red: 0, amber: 1 } as const;
 const KIND_RANK: ProblemKind[] = [
   'aog', 'grounded', 'crewHours', 'crewShort', 'crewIllegal', 'ferryUncrewed', 'cashNegative', 'cashLow', 'checkOverdue', 'checkClash', 'deliveryWait', 'crewSick', 'counterExpiry', 'changeRequest',
-  'invoiceOverdue', 'checkDue', 'checkNoSlot', 'offerFit', 'noFerry', 'leaseReturn', 'leaseDue', 'refit', 'crewResigned', 'crewTight', 'lossMonth', 'penalty', 'contractCancelled', 'crewReach', 'crewRest', 'crewFdp', 'goalMiss',
+  'invoiceOverdue', 'checkDue', 'checkNoSlot', 'offerFit', 'noFerry', 'leaseReturn', 'leaseDue', 'refit', 'crewResigned', 'crewTight', 'lossMonth', 'penalty', 'contractCancelled', 'crewReach', 'crewRest', 'crewFdp',
   // v0.7.2
   'restSeats', 'captainAsFo', 'sale',
   // v0.7.3

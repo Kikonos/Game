@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { defineConfig, type Plugin } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
+import { loadFactor } from './src/test/perf';
 
 // Tests run in forked workers (one process per file at a time). CI (GitHub's 4-vCPU runners, slower per core than the
 // dev box): 2 workers, so the heavy save-compat and season-long tests don't starve the runner; locally the default
@@ -71,9 +72,28 @@ export default defineConfig({
       },
     }),
   ],
-  test: { pool: 'forks', testTimeout: ci ? 40_000 : 20_000, hookTimeout: 60_000, teardownTimeout: 30_000, ...(ci ? { maxWorkers: 2, minWorkers: 1 } : {}) },
+  // v0.14.1 (CODE-07) the default timeout scales with the load when the run starts (loadFactor: the 1-minute load per
+  // core, 1–4): on a box shared with other work, ordinary tests were failed for waiting, not for being wrong.
+  test: { pool: 'forks', testTimeout: Math.round((ci ? 40_000 : 20_000) * loadFactor()), hookTimeout: 60_000, teardownTimeout: 30_000, ...(ci ? { maxWorkers: 2, minWorkers: 1 } : {}) },
   build: {
     target: 'es2022',
     chunkSizeWarningLimit: 2000,
+    // v0.14.1 (CODE-08) the 2.8 MB main chunk split by what changes together: the libraries (vendor), the engine and
+    // its data, and the aircraft art (generated sprites). The app shell stays small; the PWA precaches every chunk.
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (id.includes('/node_modules/')) {
+            // world-atlas stays in its own lazily loaded chunk (the map's land outline).
+            if (id.includes('/world-atlas/')) return undefined;
+            if (id.includes('/country-flag-icons/')) return 'flags';
+            return 'vendor';
+          }
+          if (id.includes('/src/ui/components/aircraft/')) return 'aircraft';
+          if (id.includes('/src/engine/') || id.includes('/src/data/')) return 'engine';
+          return undefined;
+        },
+      },
+    },
   },
 });

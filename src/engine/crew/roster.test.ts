@@ -13,7 +13,7 @@ import { addCrew, fixtureContract, fixtureGame, seasonBase } from './fixtures';
 import { autoRoster, buildDuties, captainAsFo, crewWindows, dutyCandidates, flightCrewStatus, rosterOf } from '.';
 import { recheckSoon } from './roster';
 import { canFill, seatLabel } from '../core/perf';
-import { perfBudgetFactor } from '../../test/perf';
+import { perfBudgetFactor, slowTimeout } from '../../test/perf';
 
 const scheduled = (g: GameState) => Object.values(g.flights).filter((f) => f.aircraftId && f.status === 'scheduled');
 const crewedDuties = (g: GameState): Duty[] => Object.values(g.duties).filter((d) => g.pairings[d.pairingId]?.slots.some((s) => s.crewId));
@@ -410,49 +410,61 @@ describe('performance', () => {
     return g;
   };
   /**
-   * v0.9 round 3: a fixed pure-JS workload (allocate, sort, hash 20,000 records) timed next to each roster run. On an
-   * idle machine it takes about CALIB_IDLE_MS (8–9 ms on the dev container); when parallel test files load the machine both slow down alike, so the
-   * budget is scaled by how much slower the reference ran (never below the 120 ms budget itself).
+   * v0.14.1 (CODE-07) a reference workload that allocates like autoRoster does (records with strings and nested
+   * objects, sorts, maps of lists, spreads, a JSON dump), timed just before and just after each roster run. The
+   * assertion is on the ratio roster ÷ reference, so a loaded machine slows both alike and the ratio holds (the old
+   * reference sorted 20,000 plain numbers in ~9 ms, GC-light: under load it barely moved while autoRoster tripled, and
+   * the scaled budget failed 3 runs in 3). About 2 at the 50 ms target; the budget is 5 (120 ms of the target's 50).
    */
-  const CALIB_IDLE_MS = 9;
+  const RATIO_BUDGET = 5;
   const calibrate = (): number => {
     const t0 = performance.now();
     let acc = 0;
-    const a = Array.from({ length: 20_000 }, (_, i) => ({ k: (i * 7919) % 20_011, v: i }));
-    a.sort((x, y) => x.k - y.k);
-    const m = new Map(a.map((x) => [x.k, x.v]));
-    for (const [k, v] of m) acc += k ^ v;
+    for (let r = 0; r < 6; r++) {
+      const recs = Array.from({ length: 6_000 }, (_, i) => ({ id: `c${(i * 7919) % 6_007}`, k: (i * 104_729) % 6_007, tags: [i % 7, i % 11, i % 13], at: { day: i % 31, h: i % 24 } }));
+      recs.sort((x, y) => x.k - y.k || (x.id < y.id ? -1 : 1));
+      const by = new Map<string, typeof recs>();
+      for (const x of recs) {
+        const key = `${x.at.day}:${x.tags[0]}`;
+        const l = by.get(key) ?? [];
+        l.push({ ...x, tags: [...x.tags, r] });
+        by.set(key, l);
+      }
+      for (const [k, l] of by) acc += k.length + l.filter((x) => x.tags.includes(3)).reduce((sum, x) => sum + x.at.h, 0);
+      acc += JSON.stringify(recs.slice(0, 500)).length;
+    }
     if (acc === 42) throw new Error('unreachable');
     return performance.now() - t0;
   };
-  it('rosters a month of flights for 4 aircraft and ~120 crew quickly (50 ms target, 120 ms budget scaled to the load), deterministically', () => {
+  it('rosters a month of flights for 4 aircraft and ~120 crew quickly (50 ms target; budget 5× an allocating reference run beside it), deterministically', () => {
     const measure = () => {
       // Best of 6 fresh games (the first is the JIT warm-up), so parallel test files don't make it flaky.
       const times: number[] = [];
-      const ref: number[] = [];
+      const ratios: number[] = [];
       const sigs: string[] = [];
       for (let k = 0; k < 6; k++) {
         const g = month();
-        ref.push(calibrate());
+        const c0 = calibrate();
         const t0 = performance.now();
         const res = autoRoster(g, { to: g.now + 31 * DAY });
-        times.push(performance.now() - t0);
+        const t = performance.now() - t0;
+        const c1 = calibrate();
+        times.push(t);
+        ratios.push(t / ((c0 + c1) / 2));
         expect(res.uncovered).toEqual([]);
         expect(Object.keys(g.crew).length).toBe(120);
         sigs.push(JSON.stringify(Object.values(g.pairings).map((p) => p.slots.map((s) => s.crewId))));
       }
       expect(new Set(sigs).size).toBe(1);
-      const load = Math.max(1, Math.min(...ref) / CALIB_IDLE_MS);
       // on a slower machine (CI) the budget scales by its factor too: the roster's own work, not just the load
-      return { best: Math.min(...times), budget: 120 * load * perfBudgetFactor(), times, load };
+      return { best: Math.min(...ratios), budget: RATIO_BUDGET * perfBudgetFactor(), times };
     };
-    // v0.7 C5: the 50 ms target stays in the log; the assertion budget is 120 ms on an idle machine. One retry: a
-    // burst of load from another file can land on the roster runs and miss the reference.
+    // One retry: a burst of load from another file can land on a roster run and miss its reference runs.
     let r = measure();
     if (r.best >= r.budget) r = measure();
-    console.log(`autoRoster (month, 4 aircraft, 120 crew): ${r.times.map((t) => t.toFixed(1)).join(' / ')} ms (target 50 ms, budget ${r.budget.toFixed(0)} ms at load ×${r.load.toFixed(2)}, machine ×${perfBudgetFactor()})`);
+    console.log(`autoRoster (month, 4 aircraft, 120 crew): ${r.times.map((t) => t.toFixed(1)).join(' / ')} ms (target 50 ms); best ratio to the reference ${r.best.toFixed(2)} (budget ${r.budget.toFixed(1)})`);
     expect(r.best).toBeLessThan(r.budget);
-  });
+  }, slowTimeout(30_000));
 });
 
 describe('flights added outside an accept', () => {

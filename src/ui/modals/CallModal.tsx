@@ -96,7 +96,8 @@ export function CallModal({ offerId, aircraftId }: { offerId: string; aircraftId
       <p className="v10-line" title={script.line}>“{script.line}”</p>
       <div className="v14-facts small">
         <span className="ellipsis">{script.route} <i>·</i> {script.seats} seats</span>
-        <span className="ellipsis"><i className="v14-join">·</i><b>{fmtDayAt(script.firstFrom, dep)} {fmtTime(dep, script.firstFrom)}</b> local <span className="dim v14-more">({fmtTime(dep)} UTC)</span> <i>·</i> <b>{fmtPrice(o.product)}</b>{o.product.kind === 'wet' ? <span className="dim v14-more"> · about {money(o.estValue)}</span> : null}</span>
+        {/* v0.14.1 the UTC time and the total on every screen (the phone used to drop them, leaving a stray '·'). */}
+        <span className="ellipsis"><b>{fmtDayAt(script.firstFrom, dep)} {fmtTime(dep, script.firstFrom)}</b> local <span className="dim">({fmtTime(dep)} UTC)</span> <i>·</i> <b>{o.product.kind === 'charter' ? `${money(o.product.price)}${o.product.fuelAtCost ? ' plus fuel' : ''}` : fmtPrice(o.product)}</b>{o.product.kind === 'wet' ? <span className="dim"> · about {money(o.estValue)}</span> : null}</span>
       </div>
       {open && reports.length > 0 && (
         <div className="v14-pick" role="radiogroup" aria-label="Aircraft">

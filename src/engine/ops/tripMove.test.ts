@@ -173,7 +173,7 @@ describe('quoteTripMove', () => {
     const legs = charter(g, a.id, [['LIS', 'LBV', g.now + 3 * DAY + 8 * 60], ['LBV', 'LIS', g.now + 3 * DAY + 17 * 60]]);
     const q = quoteTripMove(g, legs[0].id, c.id);
     expect(q.ok).toBe(false);
-    expect(q.reasons[0]).toMatch(/^An A321 can't fly this [\d,]+ km leg \(LIS–LBV\) without a fuel stop$/);
+    expect(q.reasons[0]).toMatch(/^An A321 can't fly this [\d,]+ nm leg \(LIS–LBV\) without a fuel stop$/);
   });
 
   it('refuses a cabin the client did not ask for', () => {

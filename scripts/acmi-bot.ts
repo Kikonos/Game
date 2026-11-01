@@ -2298,6 +2298,8 @@ for (const st of [...g.finance.history, g.finance.current]) {
   );
 }
 
+/** v0.14.1 a save's stored size budget (KB, compressed as the game stores it). */
+const SAVE_KB_MAX = 600;
 const finalRaw = serialize(g);
 if (finalRaw.length > peakSave.length) peakSave = finalRaw;
 const t0 = performance.now();
@@ -2389,7 +2391,10 @@ const targets: [string, boolean, string][] = [
   ['1–3 AOGs per aircraft-year', aogRate >= 0.995 && aogRate <= 3.005, `${aogRate.toFixed(2)} (${s.aogs ?? 0} in ${acYears.toFixed(1)} ac-yr)`],
   // v0.6: pooled over seeds 1–6 (≥ 60% late); per seed it is printed (a seed sees only a handful of invoices).
   ['governments pay late (info; pool seeds 1–6)', true, `${govLate}/${gov.length} invoices late`],
-  ['save < 300 KB (and with 10 aircraft)', saveKB < 300 && bigKB < 300, `peak ${saveKB.toFixed(0)} KB (compress ${saveMs.toFixed(0)} ms), with 10 aircraft ${bigKB.toFixed(0)} KB (${bigNote})`],
+  // v0.14.1 the budget is the browser's: 7 slots (autosave, scenario, 1–5) of SAVE_KB_MAX fit Safari's 5 MB local
+  // storage with room to spare. Was 300 KB, which the players' own saves pass at 8–12 months (340–400 KB, mostly crew
+  // records, which are pruned to 28 days, and closed contracts, about +55 KB a year).
+  [`save < ${SAVE_KB_MAX} KB (and with 10 aircraft)`, saveKB < SAVE_KB_MAX && bigKB < SAVE_KB_MAX, `peak ${saveKB.toFixed(0)} KB (compress ${saveMs.toFixed(0)} ms), with 10 aircraft ${bigKB.toFixed(0)} KB (${bigNote})`],
   // v0.7: 12 s (the v0.7 market, deliveries and ladder add work; machines under load vary).
   ['runs in < 12 s', runSecs < 12, `${runSecs.toFixed(1)} s`],
   // v0.6

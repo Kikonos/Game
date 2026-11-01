@@ -22,6 +22,7 @@ import { addAircraft, hamBase, legsOffer, newGame, offer, run } from './testkit'
 import { TPL_BY_ID } from '../../data/worldEvents';
 import { startEvent } from '../ops/world';
 import { breathe } from '../../test/breathe';
+import { slowTimeout } from '../../test/perf';
 
 const ARCHETYPES: Archetype[] = ['seasonBase', 'aogCover', 'adhoc', 'sports', 'repatriation', 'tourSeries', 'troopRotation', 'vip'];
 
@@ -459,11 +460,12 @@ describe('quiet-week floor', () => {
     expect(BAL.quietFloor).toEqual({ days: 8, idleDays: 2, maxOpen: 3 });
   });
 
-  it('v0.14 tops up a dry spell, no more: the floor adds under a third to the ordinary offers (6 seeds, 120 days)', async () => {
+  // v0.14.1 (CODE-07) 4 seeds × 90 days (was 6 × 120, ~90 s): about 170 ordinary offers each way, plenty for a third.
+  it('v0.14 tops up a dry spell, no more: the floor adds under a third to the ordinary offers (4 seeds, 90 days)', async () => {
     const count = async (seed: number) => {
       const g = newGame(seed);
       const seen = new Set<string>();
-      const end = g.started + 120 * DAY;
+      const end = g.started + 90 * DAY;
       for (let t = g.now + DAY; t <= end && !g.gameOver; t += DAY) {
         advanceTo(g, t, new Set());
         for (const o of Object.values(g.offers)) if (o.ordinary) seen.add(o.id);
@@ -474,15 +476,15 @@ describe('quiet-week floor', () => {
     let a = 0;
     let b = 0;
     try {
-      for (let s = 1; s <= 6; s++) a += await count(s);
+      for (let s = 1; s <= 4; s++) a += await count(s);
       PACING.quietFloor = false;
-      for (let s = 1; s <= 6; s++) b += await count(s);
+      for (let s = 1; s <= 4; s++) b += await count(s);
     } finally {
       PACING.quietFloor = true;
     }
     expect(a).toBeGreaterThanOrEqual(b);
     expect((a - b) / b).toBeLessThan(1 / 3);
-  }, 90_000);
+  }, slowTimeout(60_000));
 });
 
 describe('v0.7.2 contract titles (F4)', () => {

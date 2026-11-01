@@ -3,7 +3,7 @@
 // capacity leases (the exclusive reward), rivals hiring us (sub-charter in) and dry leases out. Builders return a
 // Draft for offers.ts finalize; dry leases build their own offer (no flying of ours but the ferries).
 
-import { ACMI_TYPES, rentForAge } from '../../data/acmiTypes';
+import { ACMI_TYPES, floorRent, rentForAge } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
 import { fliesFamily } from '../../data/naming';
 import { nextHajj } from '../../data/worldCalendar';
@@ -24,7 +24,7 @@ import { isDisruptive, LIMITS, nightsIn } from '../crew/rules';
 import { dutyNeed } from '../crew/duties';
 import { restOf } from '../crew/restPlan';
 import { closedAirport, warRiskAt } from '../ops/world';
-import { acceptOffer } from './accept';
+import { acceptOffer, jobDays } from './accept';
 import { clientPrefix, clientsOf, ensureClient, ministry, roleOf } from './clients';
 import * as F from './flavor';
 import {
@@ -920,7 +920,7 @@ export function rollRepeat(g: GameState, contractId: string): ContractOffer | nu
     o.hook = `Repeat business from ${cl.name}`;
     // Round 4 (§V): the client once (the title); the new title only when it is not the old one (or it plus a month).
     const as = o.title === c.title || o.title.startsWith(`${c.title} (`) ? '' : ` as ${o.title}`;
-    pushMessage(g, { tone: 'good', cat: 'commercial', title: `Repeat business from ${cl.name}`, body: `They liked ${c.title} and ask for it again${as} from ${fmtDay(o.start)}.`, ref: { kind: 'offer', id: o.id }, cue: null });
+    pushMessage(g, { tone: 'good', cat: 'commercial', title: `Repeat business from ${cl.name}`, body: `They liked ${c.title} and ask for it again${as} from ${jobDays(o)[0]}.`, ref: { kind: 'offer', id: o.id }, cue: null });
   }
   return o;
 }
@@ -930,7 +930,8 @@ export function rollRepeat(g: GameState, contractId: string): ContractOffer | nu
 /** Market rent of an airframe (dry), index-adjusted; v0.14 by its age as the market leases one in (rentForAge; was the mid-life rent at any age). */
 const rentOf = (g: GameState, ac: Aircraft, r: { rng: number }) => {
   const t = ACMI_TYPES[ac.typeId];
-  return Math.round((rentForAge(t, Math.max(0, yearOf(g.now) - ac.builtYear)) * segIndex(g, t.body === 'wide' ? 'wide' : 'narrow') * range(r, 0.95, 1.1)) / 1000) * 1000;
+  // v0.14.1 (M6) the type's floor after the index and noise as well.
+  return floorRent(t, Math.round((rentForAge(t, Math.max(0, yearOf(g.now) - ac.builtYear)) * segIndex(g, t.body === 'wide' ? 'wide' : 'narrow') * range(r, 0.95, 1.1)) / 1000) * 1000);
 };
 
 /** Airline clients outside our home market (and outside Europe) that could take the aircraft at their base. */

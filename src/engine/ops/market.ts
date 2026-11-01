@@ -3,7 +3,7 @@
 // rare teaser), rare new-build slots, and a real handover site (lessor site, factory or previous operator's hub)
 // from which the aircraft is ferried home.
 
-import { ACMI_TYPES_LIST, ageFactor, rentForAge, type AcmiType } from '../../data/acmiTypes';
+import { ACMI_TYPES_LIST, ageFactor, floorRent, rentForAge, type AcmiType } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { checkRegistration, cleanAircraftName } from './registration';
 import { EX_OPERATORS, FACTORIES, LESSOR_SITES, NEW_BUILD, type Site } from '../../data/market';
@@ -24,6 +24,7 @@ import { familyLabel } from '../crew/conversion';
 import { fittedRest, migrateRest, rollRest } from '../crew/restPlan';
 import { aircraftGate, APPROVALS, ratedPilots, type AircraftGate } from './company';
 import { deliveryQuote, handoverMessage, planDeliveryFerry, type DeliveryQuote } from './delivery';
+import { applyRentStep } from './leaseReturn';
 import { usedHoursCycles } from './sale';
 import { usd } from './util';
 
@@ -128,8 +129,9 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
     const ageAdj = ageFactor(age);
     const canBuy = t.body === 'narrow' || old;
     const buy = opts.kind ? opts.kind === 'buy' && canBuy : !opts.lease && canBuy && chance(r, 0.3);
-    // v0.14 the rent never below the type's floor for old airframes (rentForAge).
-    const rent = Math.round((rentForAge(t, age) * range(r, 0.9, 1.15) * index) / 1000) * 1000;
+    // v0.14 the rent never below the type's floor for old airframes (rentForAge); v0.14.1 (M6) after the noise and the
+    // index too (floorRent), so a weak market no longer quotes an old A330-200 at $96K.
+    const rent = floorRent(t, Math.round((rentForAge(t, age) * range(r, 0.9, 1.15) * index) / 1000) * 1000);
     // v0.7.2 priced like a sale (the market index included), so buying and selling straight back loses the spread.
     const price = buy ? Math.round((t.valueUsed * range(r, 0.95, 1.12) * ageAdj * index) / 10_000) * 10_000 : 0;
     o = {
@@ -413,6 +415,8 @@ export function onDelivery(g: GameState, ev: SimEvent): void {
 /** 'lease.end': a booked return ends with its check (leaseReturn.ts); else return at base when free, or roll on a month at +10%. */
 export function onLeaseEnd(g: GameState, ev: SimEvent): void {
   const ac = g.fleet[ev.id];
+  // v0.14.1 (M3) an extension agreed earlier starts now (its rent).
+  if (ac) applyRentStep(g, ac);
   if (!ac || ac.ownership.kind !== 'dryLeaseIn' || ac.ownership.leaseEnd > g.now || ac.returning) return;
   const busy = ac.status !== 'available' || ac.at !== g.company.homeBase || flightsOf(g, ac.id).some((f) => f.status === 'scheduled' || f.status === 'enroute')
     || Object.values(g.contracts).some((c) => (c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(ac.id));
@@ -421,6 +425,8 @@ export function onLeaseEnd(g: GameState, ev: SimEvent): void {
   const terms = !!ac.ownership.returnSite;
   if (busy || terms) {
     ac.ownership.leaseEnd = g.now + Math.round(MONTH);
+    // v0.14.1 (M3) the +10 % from today: the days of this month before the roll keep the old rent.
+    ac.ownership.prevRent = { until: g.now, rent: ac.ownership.rentPerMonth };
     ac.ownership.rentPerMonth = Math.round(ac.ownership.rentPerMonth * 1.1);
     ac.ownership.noticeGiven = false;
     schedule(g, ac.ownership.leaseEnd, 'lease.end', ac.id);
@@ -549,6 +555,9 @@ export function addShock(g: GameState, x: Omit<MarketShock, 'id'>): void {
  * v0.14 ordinary market offers a week (the player: far fewer, especially while earning a name): by company standing
  * (Newcomer 1.5, Established 3.1, Respected 4.6) for its usual fleet, a little more or less per aircraft. Pure.
  */
+/** Seasonal demand by month, Jan–Dec (DESIGN §5.1.1; v0.14.1 here, so the outlook counts it as the offer draw does). */
+export const SEASON_F = [0.7, 0.9, 1.1, 1.2, 1.1, 1.0, 1.0, 0.9, 0.9, 0.9, 0.8, 0.9];
+
 export function marketPerWeek(g: GameState): number {
   const M = BAL.marketOffers;
   const s = Math.min(2, g.company.standing ?? 0);
@@ -612,7 +621,8 @@ export function marketOutlook(g: GameState): MarketOutlook {
   const hajjIn = nextH ? Math.ceil((nextH.pre[0] - g.now) / DAY) : 0;
   if (nextH && hajjIn <= 120) season.name = `${season.name} · Hajj in ${hajjIn} d`;
   // v0.14 the ordinary market offers a week at our standing and size (tenders, calls and leads come on top).
-  const perWeek = marketPerWeek(g) * demandFactor(g);
+  // v0.14.1 with this month's season and the scenario's pace, as contracts/offers.ts offerRate draws them.
+  const perWeek = marketPerWeek(g) * SEASON_F[mo] * demandFactor(g) * (g.scen?.rate ?? 1);
   return {
     phase: cy.phase, phaseText: PHASE_LINE[cy.phase],
     narrow: { index: n, trend: nt, text: `Narrowbody demand ${arrow(nt)} ${levelWord(n)}`.replace('  ', ' ') },
@@ -622,7 +632,7 @@ export function marketOutlook(g: GameState): MarketOutlook {
     hajj: hj.map((h) => ({ arafah: h.arafah, pre: h.pre, post: h.post, ah: h.ah })),
     antarctic: antarcticSeason(g.now),
     shocks: (m.shocks ?? []).filter((x) => x.until > g.now).map((x) => ({ text: `${x.text}: ${x.delta > 0 ? '+' : '−'}${Math.round(Math.abs(x.delta) * 100)} % ${x.seg === 'all' ? '' : `${x.seg}body `}demand until ${fmtDay(x.until)}`.replace('  ', ' '), until: x.until })),
-    offersText: `About ${Math.round(perWeek * 10) / 10} new offers a week at our standing and size`,
+    offersText: `About ${Math.round(perWeek * 10) / 10} new market offers a week at our standing and size; urgent calls, repeat work and leads come on top`,
   };
 }
 

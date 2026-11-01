@@ -250,6 +250,8 @@ export type Ownership =
       /** v0.7: redelivery airport (load ??= homeBase); cabin at delivery (load ??= current); new-build; 120-day notice given. */
       returnSite?: string; deliveredLayout?: CabinLayout; newBuild?: boolean; noticeGiven?: boolean;
       /** v0.7: the market index the rent was set at (absent = 1); extensions move rent by the index since. */ index?: number;
+      /** v0.14.1 an extension's rent, from the old lease end (`from`); applied then (rentPerMonth, index). */ nextRent?: { from: Minute; rent: number; index: number };
+      /** v0.14.1 the rent before the last change, until `until` (the month of a change is billed at both). */ prevRent?: { until: Minute; rent: number };
     };
 
 /** v0.7: handover abroad and the delivery ferry home. */
@@ -874,7 +876,7 @@ export type ProblemKind =
   | 'crewShort' | 'crewIllegal' | 'crewTight' | 'crewReach' | 'crewRest' | 'crewFdp' | 'crewSick' | 'crewResigned'
   | 'aog' | 'checkDue' | 'checkOverdue' | 'checkClash' | 'checkNoSlot' | 'grounded'
   | 'offerFit' | 'counterExpiry' | 'changeRequest' | 'penalty' | 'contractCancelled'
-  | 'cashLow' | 'invoiceOverdue' | 'lossMonth' | 'leaseDue' | 'goalMiss'
+  | 'cashLow' | 'invoiceOverdue' | 'lossMonth' | 'leaseDue'
   /** v0.9 round 4 (§S): cash below zero, the day it happens. */
   | 'cashNegative'
   | 'deliveryWait' | 'ferryUncrewed' | 'refit' | 'leaseReturn'
@@ -1036,7 +1038,11 @@ export interface CrewSlot {
   /** v0.9 round 4 (§Y.1): a replacement who joined after the duty reported: their own report (a fresh day). Cleared with the seat. */
   from?: Minute;
   /** v0.12.1 a day-off buy-back planned for this seat, not yet paid: the pay, the base-local month, the days bought and the days given back. */
-  buyBack?: { cost: number; month: string; days: number[]; repay: number[] };
+  buyBack?: {
+    cost: number; month: string; days: number[]; repay: number[];
+    /** v0.14.1 (merge) when it was bought and its notice (taken back with it when given back the same minute); absent on older saves. */
+    at?: Minute; msgId?: string;
+  };
 }
 
 /** v0.9 the legal limit a crew member reached (UPDATE-0.9.md §T.1). */
@@ -1318,7 +1324,9 @@ export type LedgerCat =
   /** v0.11 a ferry company (or the seller) delivering an aircraft we may not ferry ourselves (ETOPS). */
   | 'delivery'
   /** v0.14 sales trips and trade fairs (tickets, passes, hotels); receivables written off when a client fails. */
-  | 'sales' | 'badDebt';
+  | 'sales' | 'badDebt'
+  /** v0.14.1 a lessor's consent to sub-lease (a dry lease out of a leased-in airframe); was booked as rent. */
+  | 'consent';
 
 export interface MonthStatement {
   month: MonthKey;

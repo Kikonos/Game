@@ -4,7 +4,7 @@
 
 import { dropClientSeats } from './clientCrew';
 import { BAL } from '../core/balance';
-import { flightsOf, nextId, removeFlights } from '../core/entities';
+import { flightsOf, nextId, removeFlights, touchTickets } from '../core/entities';
 import { cabinMinimum, extraCabinRoom, isPilot, reportMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { DAY, dayStart, yearOf } from '../core/time';
@@ -19,7 +19,7 @@ import { bestSlip } from './slip';
 import { dropStandby } from './standby';
 import { aboard, cabinEarly, cabinEarlyOf, crewCount, crewIx, ctxOf, dhBlock, dutyBlock, dutyFlights, dutySegs, onBlocks, planHome, segsOf, touchCrew } from './timeline';
 import { mergeSegs, openDuties } from './check';
-import { pilotsOnlyTrip, planRest, restOf, type RestLeg, type RestPlan } from './restPlan';
+import { pilotsOnlyTrip, planRest, restOf, restShort, type RestLeg, type RestPlan } from './restPlan';
 
 // ---------- duty measures ----------
 
@@ -50,7 +50,7 @@ function shape(typeId: string, fl: Flight[], keepReport?: Minute): Shape {
 /** v0.7.3 how a duty is made legal (UPDATE-0.7.3.md §2.3): Table 2/3, split duty, planned extension, 3 or 4 pilots. */
 export type PlanMode = 'basic' | 'split' | 'ext' | 'aug1' | 'aug2';
 /** Partition cost of each mode (fewest duties first, then the cheapest way to make them legal). */
-const MODE_COST: Record<PlanMode, number> = { basic: 0, split: 0.25, ext: 0.5, aug1: 1, aug2: 2 };
+export const MODE_COST: Record<PlanMode, number> = { basic: 0, split: 0.25, ext: 0.5, aug1: 1, aug2: 2 };
 
 interface PlanPick {
   mode: PlanMode;
@@ -281,7 +281,17 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
     const stale = d.deadheadIds.filter((id) => { const t = g.flights[id]; return !!t && t.status === 'scheduled' && t.std >= was && t.sta <= sh.report; });
     if (stale.length) {
       d.deadheadIds = d.deadheadIds.filter((id) => !stale.includes(id));
-      removeFlights(g, stale);
+      // v0.14.1 only airline tickets are removed: a ride on one of our own legs keeps the leg (its passengers and its
+      // own crew); just this trip's crew come off it.
+      removeFlights(g, stale.filter((id) => g.flights[id].kind === 'deadhead'));
+      const mine = new Set(p.slots.map((s) => s.crewId).filter((x): x is string => !!x));
+      for (const id of stale) {
+        const t = g.flights[id];
+        if (!t || t.kind === 'deadhead' || !t.riders) continue;
+        t.riders = t.riders.filter((x) => !mine.has(x));
+        if (!t.riders.length) delete t.riders;
+        touchTickets(g);
+      }
     }
   }
   d.report = sh.report;
@@ -321,13 +331,16 @@ export function queueDuty(g: GameState, d: Duty): void {
 }
 
 /**
+ * v0.14.1 `planned`: the same for a duty not yet reported whose legs a re-plan moved a night's rest apart (an empty move
+ * retimed to the evening before its job, relinkPositioning): two duties of the same trip, the crew resting between,
+ * never one FDP over the night (CS-TTL's FRA–AMS moved to 22:30 read a 25:50 day).
  * v0.5.2: a duty under way whose next leg now leaves a night-stop after the last landing (an AOG or a long hold
  * away from base) ends at that landing (v0.10.2: or at the estimated landing of the leg in the air): the crew go to the hotel and the later legs become a duty of their own
  * (own report, FDP and rest), not one duty stretched over days. Tickets home move to the new duty. The caller
  * re-sorts the pairing (refreshPairing). The new duty, or null.
  */
-export function splitUnderWay(g: GameState, p: Pairing, d: Duty, force = false): Duty | null {
-  if (d.done || d.report > g.now) return null;
+export function splitUnderWay(g: GameState, p: Pairing, d: Duty, force = false, planned = false): Duty | null {
+  if (d.done || (planned ? d.report <= g.now : d.report > g.now)) return null;
   const fl = dutyFlights(g, d).filter((f) => f.status !== 'cancelled');
   const typeId = (p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo';
   const rm = reportMinutes(typeId);
@@ -336,7 +349,7 @@ export function splitUnderWay(g: GameState, p: Pairing, d: Duty, force = false):
     const b = fl[i];
     // v0.10.2 also while the leg before is still in the air (its estimated on-blocks): a later leg moved days out (an
     // empty leg re-linked to the next job) otherwise kept the crew on one duty stretched over days until its gate.
-    if ((a.status !== 'done' && a.status !== 'enroute') || b.status !== 'scheduled') continue;
+    if ((planned ? a.status !== 'scheduled' : a.status !== 'done' && a.status !== 'enroute') || b.status !== 'scheduled') continue;
     const landed = onBlocks(a);
     const need = minRest({ dutyMin: landed - d.report + cabinEarly(g, p, d), atHome: a.to === g.company.homeBase, augmented: d.augment > 0, tzShift: tzDeltaH(g.company.homeBase, a.to, landed), extended: !!d.ext }) + rm.report + rm.post;
     // v0.12.1 (review, CREW-8) `force` (the hourly guard: a crew past their limit): split even when the next leg is
@@ -356,7 +369,7 @@ export function splitUnderWay(g: GameState, p: Pairing, d: Duty, force = false):
     syncDuty(g, d, p);
     // v0.12.1 (review, CREW-8) a split that comes after the crew should have been released: the duty and the rest
     // after it start now, not back at the last landing (the rest "ended" before the split and they flew 5 h later).
-    if (g.now > d.release && crewCount(p) > 0) {
+    if (!planned && g.now > d.release && crewCount(p) > 0) {
       d.heldTo = g.now;
       d.release = g.now;
     }
@@ -1496,4 +1509,82 @@ export function dutyNeed(g: GameState, typeId: string, rest: AcRest, chain: Chai
   }
   if (sh.sectors > AUG_MAX_SECTORS) return { mode: 'none', fdp: sh.fdp, max: pa.max, plan: null, text: `A ${day} day with ${sh.sectors} sectors: in-flight rest allows at most 3`, why: 'tooLong' };
   return { mode: 'none', fdp: sh.fdp, max: pa.max, plan: null, text: `A ${day} day is longer than ${kindWords(rest).toLowerCase()} allow even with 4 pilots`, why: 'tooLong' };
+}
+
+// ---------- v0.14.1 positioning before a job ----------
+
+/** Legs of an empty move or a job's first sector (UTC). */
+export interface MoveLeg { from: string; to: string; std: Minute; sta: Minute }
+
+/**
+ * v0.14.1 the ground time an empty move must leave before a job's first departure so that its crew have a day of their
+ * own and a full rest at the station before the job (the evening before): the move's post-flight, the minimum rest after
+ * it (as buildTrips asks before one crew flies on: the day's length, 10 h away / 12 h at home, 14 h across 4+ zones),
+ * the job's report and the cabin crew's earlier one, and 30 min of slack. Pure.
+ */
+export function restBeforeJob(g: GameState, typeId: string, move: MoveLeg[], jobStd: Minute): number {
+  const rm = reportMinutes(typeId);
+  const early = cabinEarlyOf(typeId);
+  const home = g.company.homeBase;
+  const at = move[move.length - 1].to;
+  const day = rm.report + early + (move[move.length - 1].sta - move[0].std) + rm.post;
+  return rm.post + minRest({ dutyMin: day, atHome: at === home, augmented: false, tzShift: tzDeltaH(home, at, jobStd), extended: false }) + rm.report + early + 30;
+}
+
+/**
+ * v0.14.1 how an empty move into a job's first sector (`op`: the leg and its tech stops) sits with the crew who fly the
+ * job (CS-TTL: FRA–AMS kept at 05:45 after Corendon moved AMS–VRA from 08:30 to 11:30, one crew's day 17:40 of
+ * 12:15). 0: the move lands a full rest before the job (restBeforeJob), or flying both in one day needs no more than
+ * the sector alone; 1: one day legal only with more (a split duty, an extension, a 3rd or 4th pilot); 2: no one crew can
+ * fly both, whatever the in-flight rest. Read on the stricter of the departure and home clocks, as the roster plans. Pure.
+ */
+export function positioningFit(g: GameState, typeId: string, rest: AcRest, move: MoveLeg[], op: MoveLeg[]): 0 | 1 | 2 {
+  if (!move.length || !op.length) return 0;
+  if (op[0].std - move[move.length - 1].sta >= restBeforeJob(g, typeId, move, op[0].std)) return 0;
+  // Memo (relinkPositioning asks on every settle): the answer reads only these.
+  const legKey = (ls: MoveLeg[]) => ls.map((l) => `${l.from}${l.std}-${l.to}${l.sta}`).join(',');
+  const key = `${typeId}|${rest.fc?.kind}${rest.fc?.cls}${rest.fc?.places}|${rest.cc?.kind}${rest.cc?.cls}${rest.cc?.places}|${g.company.approvals.includes('augmented')}|${g.company.homeBase}|${legKey(move)}|${legKey(op)}`;
+  const hit = fitMemo.get(key);
+  if (hit !== undefined) return hit;
+  const shapeOf = (legs: MoveLeg[]): ChainShape => ({ from: legs[0].from, std: legs[0].std, legs });
+  const both = dutyNeed(g, typeId, rest, shapeOf([...move, ...op]), { stricter: true });
+  const alone = both.mode === 'none' ? null : dutyNeed(g, typeId, rest, shapeOf(op), { stricter: true });
+  const fit: 0 | 1 | 2 = both.mode === 'none' ? 2 : alone && alone.mode !== 'none' && MODE_COST[both.mode] > MODE_COST[alone.mode] ? 1 : 0;
+  if (fitMemo.size > 20_000) fitMemo.clear();
+  fitMemo.set(key, fit);
+  return fit;
+}
+const fitMemo = new Map<string, 0 | 1 | 2>();
+
+/**
+ * v0.14.1 the In-flight rest line of a duty planned without it (flight sheet). Within its limit: 'Not needed: 10:40 of
+ * 12:15'. Over it: what in-flight rest on this airframe allows, from the same rule the roster plans with (augPick: the
+ * facilities' CS FTL.1.205(c) limit, ≤ 3 sectors, a rest plan that fits the cruise): 'Needs in-flight rest: 17:40 of
+ * 12:15 with 2 pilots; 3 pilots (bunks (class 1)) allow 17:00'; or why it cannot help. The old line read 'No in-flight
+ * rest needed: 17:40 of 12:15' on CS-TTL's illegal day. Pure.
+ */
+export function restNeedLine(g: GameState, d: Duty): { needed: boolean; text: string } {
+  const p = g.pairings[d.pairingId];
+  const acId = p?.aircraftId ?? null;
+  const typeId = (acId && g.fleet[acId]?.typeId) || 'a320ceo';
+  const fl = dutyFlights(g, d).filter((f) => f.status !== 'cancelled');
+  const hmm = (m: number) => `${Math.floor(Math.max(0, m) / 60)}:${String(Math.round(Math.max(0, m) % 60)).padStart(2, '0')}`;
+  const max = d.maxFdp + (d.discretion ?? 0);
+  if (d.fdp <= max || !fl.length) return { needed: false, text: `Not needed: ${hmm(d.fdp)} of ${hmm(max)}` };
+  const head = `Needs in-flight rest: ${hmm(d.fdp)} of ${hmm(max)} with ${2 + d.augment} pilots`;
+  const rest = restOf(g, acId);
+  if (!rest.fc || !rest.cc) return { needed: true, text: `${head}, and ${acId ? g.fleet[acId].reg : 'the aircraft'} has no crew rest` };
+  if (!g.company.approvals.includes('augmented')) return { needed: true, text: `${head}; an augmented crew needs the approval` };
+  const sh = shape(typeId, fl);
+  if (sh.sectors > AUG_MAX_SECTORS) return { needed: true, text: `${head}; in-flight rest allows at most ${AUG_MAX_SECTORS} sectors` };
+  const ctx: PlanCtx = { rest, canAug: true, split: false, ext: false, cabinN: planCabinN(g, acId, fl, p) };
+  for (const a of [1, 2] as const) {
+    if (a <= d.augment) continue;
+    const x = augPick(sh, ctx, d.basicFdp ?? d.maxFdp, a);
+    if (x) return { needed: true, text: `${head}; ${2 + a} pilots (${restShort(rest.fc)}) allow ${hmm(x.max)}` };
+  }
+  const lim = augLimitOf(rest.fc.cls, rest.cc.cls, 2, longSector(sh.sectors, sh.longest), sh.early);
+  if (sh.fdp > lim.max) return { needed: true, text: `${head}; too long even for 4 pilots (${restShort(rest.fc)} allow ${hmm(lim.max)})` };
+  const plan = planRest(legsOf(fl), rest, 2, sh.fdp + lim.early, ctx.cabinN);
+  return { needed: true, text: `${head}; ${plan.why ? plan.why.charAt(0).toLowerCase() + plan.why.slice(1) : 'the rest plan does not fit the cruise'}` };
 }

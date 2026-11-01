@@ -87,7 +87,10 @@ export function fdpWhy(g: GameState, dutyId: string): FdpWhy | null {
     cabin = need !== null
       ? `Cabin crew: ${hm(cfdp)} day (${rep}) → each needs ${hm(need)} rest (band ${cabinBand(cfdp)}, class ${rest.cc.cls}).`
       : `Cabin crew: a ${hm(cfdp)} day is more than class ${rest.cc.cls} rest allows (${hm(cabinFdpCap(rest.cc.cls))}).`;
-  } else if (early) cabin = `Cabin crew: ${hm(d.fdp + early)} day (report ${early} min earlier); no in-flight rest needed.`;
+  } else if (early) {
+    // v0.14.1 "no in-flight rest needed" only when the day is within its limit (CS-TTL read it on a 17:40 day of 12:15).
+    cabin = `Cabin crew: ${hm(d.fdp + early)} day (report ${early} min earlier); ${d.fdp > limit ? 'over the limit: the day needs in-flight rest' : 'no in-flight rest needed'}.`;
+  }
   // Notes.
   const notes: string[] = [`Report ${local} ${ref.tz === dep ? 'local' : `${ref.tz} time`}, ${sec}${acclim ? '' : ', unknown acclimatisation (Table 3)'}.`];
   if (d.ext) {

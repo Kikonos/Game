@@ -170,7 +170,7 @@ describe('offers weighted by presence', () => {
 
   it('ordinary offers a week by standing: Newcomer 1.5, Established 3.1, Respected 4.6 (their usual fleets)', () => {
     const g = newGame(7, 'LIS', true);
-    expect(marketPerWeek(g)).toBeCloseTo(1.5, 5);
+    expect(marketPerWeek(g)).toBeCloseTo(BAL.marketOffers.perWeek[0], 5);
     g.company.standing = 1;
     expect(marketPerWeek(g)).toBeCloseTo(3.1 * (1 + BAL.marketOffers.fleetSlope * (2 - 3)), 5);
     g.company.standing = 2;
@@ -260,7 +260,7 @@ describe('fairs build presence', () => {
     expect(lk.relation).toBeGreaterThanOrEqual(12);
     expect(presenceText(t)).toMatch(/^South Asia \(\+\d+\)/);
     const msg = g.messages.find((m) => m.ref?.kind === 'offer' || m.ref?.kind === 'trip' || m.ref?.kind === 'tender');
-    expect(g.messages.some((m) => /is back from Routes Asia/.test(m.title) && /Better known in South Asia/.test(m.body))).toBe(true);
+    expect(g.messages.some((m) => /(is|are) back from Routes Asia/.test(m.title) && /Better known in South Asia/.test(m.body))).toBe(true);
     expect(msg).toBeDefined();
     // The clients met are from its region.
     for (const id of t.met ?? []) expect(['sas', 'sea', 'eas']).toContain(marketOfCountry(g.clients[id].country));

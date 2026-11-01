@@ -6,7 +6,7 @@ import { memo, useMemo, useState } from 'react';
 import { statementTotals } from '../../engine/core/ledger';
 import { DAY, fmtDay, fmtMonth } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
-import { cashForecast } from '../../engine/ops';
+import { cashForecast, daysOverdue } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
 import { LineChart, PairBars } from '../components/charts';
 import { ProblemCardView } from '../components/ProblemCard';
@@ -105,7 +105,7 @@ function Receivables({ g }: { g: GameState }) {
             </div>
             <div className="right nowrap">
               <b className="num">{money(r.amount)}</b>
-              <div className={`tiny ${late > 0 ? 'warn' : 'dim'}`}>{late > 0 ? `${Math.ceil(late / DAY)} d overdue` : `due ${fmtDay(r.due)}`}</div>
+              <div className={`tiny ${late > 0 ? 'warn' : 'dim'}`}>{late > 0 ? (daysOverdue(g, r) >= 1 ? `${daysOverdue(g, r)} d overdue` : 'overdue today') : `due ${fmtDay(r.due)}`}</div>
             </div>
           </div>
         );
@@ -153,7 +153,8 @@ export function FinanceScreen() {
         <div className="fin-loss">
           <Dot tone="warn" />
           <span className="grow fin-loss-t"><b>{loss.what}.</b> <span className="muted">{loss.why}</span></span>
-          <button className="btn btn-sm" onClick={() => store.navigate('contracts')}>Find work</button>
+          {/* v0.14.1 (UI-6) only when too little work is what lost the month (one-off costs: the statement is below). */}
+          {loss.actions[0]?.id === 'findWork' && <button className="btn btn-sm" onClick={() => store.navigate('contracts')}>Find work</button>}
           <button className="btn btn-ghost btn-icon" onClick={() => setLossHidden(loss.subject.ref.id)} aria-label="Put this away"><X /></button>
         </div>
       )}

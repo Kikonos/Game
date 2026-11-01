@@ -19,9 +19,9 @@ export type LegsPattern = Extract<SchedulePattern, { kind: 'legs' }>;
 /** Idle time at an outstation after which the aircraft goes home between trips. */
 export const TRIP_GAP = 48 * 60;
 /** Minimum time at home that makes a home hop worth it. */
-const HOME_HOP_MIN = 12 * 60;
+export const HOME_HOP_MIN = 12 * 60;
 /** Moving on to another station: a wait this long is spent at home instead (shorter waits stay put). */
-const AWAY_GAP = 5 * 24 * 60;
+export const AWAY_GAP = 5 * 24 * 60;
 /** Positioning lead before a deployment (arrive the evening before) and extra slack before a charter. */
 export const DEPLOY_LEAD = 12 * 60;
 export const CHARTER_SLACK = 30;
@@ -114,25 +114,45 @@ export function timeChain(legs: Hop[], std: Minute, typeId?: string): ChainLeg[]
  * clean. Pure.
  */
 function curfewMove(legs: ChainLeg[], dir: 'before' | 'after'): number {
+  // v0.14.1 (OPS-3) moved earlier, a chain lands (or leaves) half an hour before the curfew starts, not its last minute:
+  // PRG–LHR planned to land 23:29 landed 23:31 and 23:33, inside Heathrow's 23:30 quota curfew.
+  const pad = dir === 'before' ? CURFEW_PAD : 0;
   for (const l of legs) {
-    if (!curfewOk(l.from, l.std)) return curfewShift(l.from, l.std, dir) - l.std;
-    if (!curfewOk(l.to, l.sta)) return curfewShift(l.to, l.sta, dir) - l.sta;
+    if (!curfewOk(l.from, l.std)) return curfewShift(l.from, l.std, dir) - pad - l.std;
+    if (!curfewOk(l.to, l.sta)) return curfewShift(l.to, l.sta, dir) - pad - l.sta;
   }
   return 0;
 }
+
+/** v0.14.1 the margin an empty move moved earlier for a curfew keeps before the curfew starts. */
+export const CURFEW_PAD = 30;
 
 /**
  * Empty move landing at `latest` (as late as possible), departing no earlier than `earliest`; null: no route or no time.
  * v0.12.1 never leaving or landing in a night curfew: moved earlier until it is clear (AWL200 CGN–DUS landed 05:20
  * local, its crew on 3 h rest; seed 2 legs into Heathrow at 00:45).
  */
-export function chainBackward(typeId: string, from: string, to: string, earliest: Minute, latest: Minute, cap = Infinity, day = Infinity): ChainLeg[] | null {
+export function chainBackward(typeId: string, from: string, to: string, earliest: Minute, latest: Minute, cap = Infinity, day = Infinity, soft = 0): ChainLeg[] | null {
   const r = route(typeId, from, to, cap, day);
   if (!r) return null;
   if (!r.length) return [];
   let std = latest - routeMinutes(r);
   if (!rerouted.has(r)) {
     let legs = timeChain(r, std);
+    // v0.14.1 (OPS-3) `soft`: minutes `latest` holds only as slack (a charter's half hour before the turn). A landing
+    // that falls inside a curfew ending within that slack waits for its end, the same morning, rather than flying the
+    // night before (PRG–LHR 21:39–23:29 for a 07:00 departure, where 04:30–06:20 was clean).
+    if (soft > 0 && curfewMove(legs, 'after')) {
+      let s0 = std;
+      let la = legs;
+      for (let k = 0; k < 4; k++) {
+        const d = curfewMove(la, 'after');
+        if (!d) break;
+        s0 += d;
+        la = timeChain(r, s0);
+      }
+      if (!curfewMove(la, 'after') && s0 >= earliest && la[la.length - 1].sta <= latest + soft) return la;
+    }
     for (let k = 0; k < 4; k++) {
       const d = curfewMove(legs, 'before');
       if (!d) break;

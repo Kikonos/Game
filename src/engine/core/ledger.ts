@@ -36,6 +36,8 @@ export const COST_CATS: readonly LedgerCat[] = [
   'training', 'hiring', 'penalties', 'subcharter', 'approvals', 'interest', 'capex', 'refit', 'leaseReturn', 'warRisk', 'disruption', 'compliance', 'delivery',
   // v0.14 sales trips and fairs; receivables written off.
   'sales', 'badDebt',
+  // v0.14.1 a lessor's sub-lease consent fee (was under rent).
+  'consent',
 ];
 
 /**

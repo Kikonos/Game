@@ -7,7 +7,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../../engine/core/balance';
 import { DAY, fmtDateTime, fmtDay, fmtDayRel, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { Aircraft, Duty, Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
-import { clientCrewOf, crewAlertKind, crewName, dutyCrew, slipOfFlight, dutyLegality, flightCrewStatus, restOf, restPlanForFlight, restSeatsBlocked, restShort, restVerdict, ridersText } from '../../engine/crew';
+import { clientCrewOf, crewAlertKind, crewName, dutyCrew, slipOfFlight, dutyLegality, flightCrewStatus, restOf, restNeedLine, restPlanForFlight, restSeatsBlocked, restShort, restVerdict, ridersText } from '../../engine/crew';
 import { seatLabel, typeOf } from '../../engine/core/perf';
 import { cabinOptions, cancelCheck, checkStatus, delayFlight, dryLeaseView, flightCrewAboard, flightType, flightZone, refitSlots } from '../../engine/ops';
 import { ClientCrewRow } from './v08Bits';
@@ -44,10 +44,12 @@ function RestSection({ g, f, ac, d, legal }: { g: GameState; f: Flight; ac: Airc
   const plan = restPlanForFlight(g, f.id);
   if (!plan) {
     if (!d || typeOf(ac.typeId).body !== 'wide' || d.fdp < 10 * 60) return null;
+    // v0.14.1 truthful: over its limit the day needs in-flight rest (what this airframe's rest allows), never "not needed".
+    const line = restNeedLine(g, d);
     return (
-      <div className="rt-sec off">
+      <div className={`rt-sec${line.needed ? '' : ' off'}`}>
         <span className="upper dim"><Term id="inflightRest">In-flight rest</Term></span>
-        <span className="small muted">No in-flight rest needed: {hm(d.fdp)} of {hm(d.maxFdp)}</span>
+        <span className={`small ${line.needed ? 'bad' : 'muted'}`}>{line.text}</span>
       </div>
     );
   }

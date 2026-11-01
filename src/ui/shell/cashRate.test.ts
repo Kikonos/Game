@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { newGame } from '../../engine/contracts/testkit';
 import { DAY, daysInMonth, monthStart } from '../../engine/core/time';
+import { monthEndBill, settleDeparture } from '../../engine/ops/finance';
 import { profitPerDay } from './cashRate';
 
 describe('v0.12 profit per day (top bar)', () => {
@@ -42,5 +43,31 @@ describe('v0.12 profit per day (top bar)', () => {
     const r = profitPerDay(g)!;
     expect(r.basis).toBe('lastMonth');
     expect(r.perDay).toBeCloseTo(-310_000 / daysInMonth(k - 1));
+  });
+  it('v0.14.1 (M4) a write-off, a fair pass, a factoring fee or a consent fee counts once for the month', () => {
+    const g = newGame();
+    const k = g.finance.current.month;
+    g.now = monthStart(k) + 3 * DAY;
+    g.finance.current.lines = {};
+    const base = profitPerDay(g)!.perDay;
+    for (const cat of ['badDebt', 'sales', 'interest', 'consent'] as const) {
+      g.finance.current.lines = { [cat]: -600_000 } as typeof g.finance.current.lines;
+      expect(profitPerDay(g)!.perDay - base).toBeCloseTo(-600_000 / daysInMonth(k));
+    }
+  });
+  it('v0.14.1 (M5) an aircraft leaving mid-month: the rate shows the saving at once', () => {
+    const g = newGame();
+    const k = g.finance.current.month;
+    g.now = monthStart(k) + 17 * DAY;
+    g.finance.current.lines = {};
+    const before = profitPerDay(g)!.perDay;
+    const ac = Object.values(g.fleet).find((a) => a.ownership.kind === 'dryLeaseIn')!;
+    const bill0 = monthEndBill(g, k).total;
+    settleDeparture(g, ac);
+    delete g.fleet[ac.id];
+    const paid = -((g.finance.current.lines.rent ?? 0) + (g.finance.current.lines.insurance ?? 0) + (g.finance.current.lines.overhead ?? 0));
+    const saved = bill0 - monthEndBill(g, k).total - paid;
+    expect(saved).toBeGreaterThan(0);
+    expect(profitPerDay(g)!.perDay - before).toBeCloseTo(saved / daysInMonth(k));
   });
 });

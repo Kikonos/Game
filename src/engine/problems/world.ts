@@ -57,11 +57,16 @@ export function airspaceClosedCard(g: GameState, eventId: string): ProblemCard |
       pax += f.pax ?? 0;
     } else if (f.detour && f.std < e.end + DAY && f.std >= e.start) rerouted++;
   }
-  const what = z && e.closed ? `${z.adj} airspace is closed` : `${city(e.at)} airport is closed`;
+  // v0.14.1 (merge) the title starts with a capital ('eastern Congolese airspace is closed' read lowercase).
+  const adj = z ? z.adj.charAt(0).toUpperCase() + z.adj.slice(1) : '';
+  const what = z && e.closed ? `${adj} airspace is closed` : `${city(e.at)} airport is closed`;
+  // v0.14.1 (merge) the hurt line answers 'does it hurt us?' first, as every card's does.
+  const hit = held || rerouted;
+  const legsText = `${held} leg${held === 1 ? '' : 's'} held, ${rerouted} rerouted${z ? ` (+${z.detourMin} min each)` : ''}`;
   return {
     subject: { kind: 'airspaceClosed', ref: { kind: 'event', id: e.id } }, severity: held ? 'red' : 'amber', title: what, what,
     why: `${e.title}.`,
-    hurt: { ...mkHurt({ pax, legs: held }), text: `${held} leg${held === 1 ? '' : 's'} held, ${rerouted} rerouted${z ? ` (+${z.detourMin} min each)` : ''}; force majeure: no penalties` },
+    hurt: { ...mkHurt({ pax, legs: held }), text: hit ? `Yes: ${legsText}; force majeure: no penalties` : 'No: none of our legs is held or rerouted' },
     actions: [{ id: 'event', label: 'Event', open: { modal: 'worldEvent', id: e.id }, primary: true }],
     details: [`Expected to reopen ${fmtDay(e.end)}`, 'Wait for the reopening (default) or cancel the legs without penalty'],
     visuals: {}, terms: ['forceMajeure'], by: e.end,

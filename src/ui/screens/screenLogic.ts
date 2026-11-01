@@ -5,12 +5,13 @@ import { COST_CATS, REVENUE_CATS, statementTotals } from '../../engine/core/ledg
 import { problemFor } from '../../engine/problems';
 import { DAY, HOUR, fmtDay, monthKey, toLocal } from '../../engine/core/time';
 import { mghLabel } from '../../engine/contracts/pricing';
+import { jobDays } from '../../engine/contracts/accept';
 import { wetMonthLines } from '../../engine/contracts/billing';
 import { maxPax, seatNeedText } from '../../engine/contracts/plan';
 import type { IdleWindow } from '../../engine/contracts/offers';
 import type { FeasibilityReport } from '../../engine/contracts/feasibility';
 import type {
-  Aircraft, AircraftOffer, Archetype, Minute, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
+  Aircraft, AircraftOffer, Archetype, Contract, Minute, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
 } from '../../engine/core/types';
 import { money } from '../format';
 import type { ModalSpec, Tab } from '../store';
@@ -34,6 +35,15 @@ export function offerDays(o: Pick<ContractOffer, 'pattern' | 'start' | 'end'>): 
   return o.pattern.kind === 'base' ? [toLocal(o.pattern.base, o.start), toLocal(o.pattern.base, o.end - 1)] : [o.start, o.end];
 }
 
+/**
+ * v0.14.1 (merge) a contract's days as the client says them (contracts/accept jobDays): a base programme on the base's
+ * local calendar ('1 Jun – 31 Aug', never the UTC '31 May' of its local-midnight start), other work by its UTC days. Pure.
+ */
+export const workDays = (c: Pick<Contract, 'pattern' | 'start' | 'end'>): string => {
+  const [a, b] = jobDays(c);
+  return a === b ? a : `${a} – ${b}`;
+};
+
 export const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
 export const ROLE_LABEL: Record<Role, string> = { CPT: 'Captain', FO: 'First officer', CRP: 'Relief pilot', PUR: 'Purser', CC: 'Cabin crew' };
 export const isPilotRole = (r: Role) => r === 'CPT' || r === 'FO' || r === 'CRP';
@@ -52,7 +62,8 @@ const URGENCY_RANK: Record<ContractOffer['urgency'], number> = { urgent: 0, shor
 /** Open (and countered) offers: urgent first, then by value. */
 export function marketOffers(g: GameState): ContractOffer[] {
   return Object.values(g.offers)
-    .filter((o) => o.status === 'open' || o.status === 'countered')
+    // v0.14.1 an open offer past its time is not on the market (it lapses at its 'offer.expire'; never shown as live).
+    .filter((o) => (o.status === 'open' && o.expires > g.now) || o.status === 'countered')
     .sort((a, b) => URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency] || b.estValue - a.estValue || a.expires - b.expires);
 }
 
@@ -228,6 +239,8 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   disruption: 'Disruptions', compliance: 'Safety & compliance', delivery: 'Ferry companies',
   // v0.14
   sales: 'Sales and travel', badDebt: 'Bad debts',
+  // v0.14.1
+  consent: 'Lessor consent fees',
 };
 
 // v0.12.1 the engine's lists (statementTotals splits the same way).
@@ -354,6 +367,10 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
       return { tab: 'contracts', view: 'tenders', sel: ref };
     case 'trip':
       return { tab: 'contracts', view: 'markets' };
+    // v0.14.1 (CODE-04) a ramp inspection or an audit: the Safety card on Company › Overview (was: nowhere).
+    case 'ramp':
+    case 'audit':
+      return { tab: 'company', view: 'overview' };
   }
   return null;
 }

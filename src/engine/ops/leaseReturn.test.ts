@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
 import { addFlight, removeFlights } from '../core/entities';
-import { DAY, fmtDayRel, monthKey } from '../core/time';
+import { DAY, fmtDayRel, monthKey, monthStart } from '../core/time';
 import type { Aircraft, GameState } from '../core/types';
 import { leased, newGame, run } from '../contracts/testkit';
 import { resolveDecision } from './events';
@@ -53,7 +53,9 @@ describe('the lease notice', () => {
     const rent0 = own.rentPerMonth;
     const end0 = own.leaseEnd;
     expect(resolveDecision(g, d.id, 'extend12').ok).toBe(true);
-    expect(own.rentPerMonth).toBe(Math.round((rent0 * 0.97 * g.market.narrowIndex) / 1000) * 1000);
+    // v0.14.1 (M3) the new rent from the old lease end; until then the old one.
+    expect(own.rentPerMonth).toBe(rent0);
+    expect(own.nextRent).toEqual({ from: end0, rent: Math.round((rent0 * 0.97 * g.market.narrowIndex) / 1000) * 1000, index: g.market.narrowIndex });
     expect(own.leaseEnd).toBe(Math.round(end0 + 12 * MONTH));
     expect(own.noticeGiven).toBe(false);
     expect(g.stats.leaseExtensions).toBe(1);
@@ -290,5 +292,92 @@ describe('v0.12.1 a return that falls through', () => {
     const k = monthKey(g.now) + 2;
     ac.ownership.leaseEnd = g.now - DAY;
     expect(fixedCosts(g, k).rent).toBeGreaterThanOrEqual(Math.round(ac.ownership.rentPerMonth * 1.1) - 1);
+  });
+});
+
+describe('v0.14.1 lease money (M1, M3, M6)', () => {
+  it('M1 a return with the C-check due and not done pays for the check; one booked before the return restarts the clock', () => {
+    const { g, ac } = ending(4, 200);
+    const own = ac.ownership as Extract<Aircraft['ownership'], { kind: 'dryLeaseIn' }>;
+    const interval = 24 * MONTH;
+    ac.maint.fhSinceC = 0;
+    const halfAt = (f: number) => {
+      ac.maint.lastC = own.leaseEnd - f * interval;
+      const q = returnQuote(g, ac.id)!;
+      return { half: q.lines.find((l) => l.label === 'Half-life compensation')?.amount ?? 0, check: q.lines.find((l) => l.label === 'C-check due before the return')?.amount ?? 0, total: q.total };
+    };
+    const at99 = halfAt(0.99);
+    expect(at99.half).toBeGreaterThan(0);
+    expect(at99.check).toBe(0);
+    // Past 100 % (inside the overdue tolerance): never cheaper than at 99 % (was $0 half-life, the check skipped).
+    for (const f of [1.01, 1.05, 1.09]) {
+      const q = halfAt(f);
+      expect(q.check).toBe(Math.round(BAL.checkCost.C[0] * (1 - BAL.cReserveCover)));
+      expect(q.half).toBe(0);
+      expect(q.total).toBeGreaterThan(at99.total);
+    }
+    // A C-check booked to end before the return restarts the clock: a small share, no check line.
+    ac.maint.lastC = own.leaseEnd - 1.05 * interval;
+    g.maintenance['mx-c'] = { id: 'mx-c', aircraftId: ac.id, kind: 'C', at: 'LIS', start: own.leaseEnd - 60 * DAY, end: own.leaseEnd - 46 * DAY, cost: 350_000, status: 'planned', planned: true, ev: 0 } as never;
+    const q = returnQuote(g, ac.id)!;
+    expect(q.lines.map((l) => l.label)).not.toContain('C-check due before the return');
+    expect(q.lines.map((l) => l.label)).not.toContain('Half-life compensation');
+  });
+
+  it('M3 an extension agreed 100 days ahead bills the old rent until the old end, the new one after', () => {
+    const { g, ac } = ending(4, 100);
+    const own = ac.ownership as Extract<Aircraft['ownership'], { kind: 'dryLeaseIn' }>;
+    g.market.narrowIndex = 1.2;
+    const rent0 = own.rentPerMonth;
+    const end0 = own.leaseEnd;
+    const k = monthKey(g.now);
+    const before = fixedCosts(g, k).rent;
+    const before1 = fixedCosts(g, k + 1).rent;
+    expect(chooseLease(g, ac.id, 'extend12').ok).toBe(true);
+    const rent1 = own.nextRent!.rent;
+    expect(rent1).toBeGreaterThan(rent0);
+    // This month and the months before the old end: unchanged (was the new rent at once).
+    expect(fixedCosts(g, k).rent).toBe(before);
+    expect(fixedCosts(g, k + 1).rent).toBe(before1);
+    // The month of the old end: split at it; after it: the new rent.
+    const kEnd = monthKey(end0);
+    const a = monthStart(kEnd), b = monthStart(kEnd + 1);
+    const split = rent0 * ((end0 - a) / (b - a)) + rent1 * ((b - end0) / (b - a));
+    expect(Math.abs(fixedCosts(g, kEnd).rent - split)).toBeLessThanOrEqual(1);
+    expect(fixedCosts(g, kEnd + 1).rent).toBe(rent1);
+    // At the old end it takes over, with the month still billed at both.
+    g.now = end0 + DAY;
+    dailyLeases(g);
+    expect(own.rentPerMonth).toBe(rent1);
+    expect(own.nextRent).toBeUndefined();
+    expect(Math.abs(fixedCosts(g, kEnd).rent - split)).toBeLessThanOrEqual(1);
+    // One extension at a time.
+    expect(chooseLease(g, ac.id, 'extend12').ok).toBe(true);
+    expect(chooseLease(g, ac.id, 'extend36').ok).toBe(false);
+  });
+
+  it('M3 the +10 % roll at the lease end runs from that day, not over the whole month', () => {
+    const { g, ac } = ending(3, 20);
+    const own = ac.ownership as Extract<Aircraft['ownership'], { kind: 'dryLeaseIn' }>;
+    const rent0 = own.rentPerMonth;
+    const end = own.leaseEnd;
+    g.now = end;
+    onLeaseEnd(g, { t: end, kind: 'lease.end', id: ac.id } as never);
+    const k = monthKey(end);
+    const a = monthStart(k), b = monthStart(k + 1);
+    const want = rent0 * ((end - a) / (b - a)) + Math.round(rent0 * 1.1) * ((b - end) / (b - a));
+    expect(Math.abs(fixedCosts(g, k).rent - want)).toBeLessThanOrEqual(1);
+  });
+
+  it('M6 an extension never goes under the type\'s rent floor (an old A330-200: $150K)', () => {
+    const { g, ac } = ending(4, 100);
+    const own = ac.ownership as Extract<Aircraft['ownership'], { kind: 'dryLeaseIn' }>;
+    ac.typeId = 'a332';
+    own.rentPerMonth = 110_000;
+    own.index = 1;
+    g.market.wideIndex = 1;
+    const v = leaseView(g, ac.id)!;
+    expect(v.options[0].rent).toBe(150_000);
+    expect(v.options[1].rent).toBe(150_000);
   });
 });

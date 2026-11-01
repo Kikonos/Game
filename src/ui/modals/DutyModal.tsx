@@ -5,6 +5,7 @@
 
 import { RankMark } from '../components/RankMark';
 import { clientCrewOf, crewAlertKind, slipOfFlight } from '../../engine/crew';
+import { releaseText } from '../../engine/crew/rosterActions';
 import { ClientCrewRow } from './v08Bits';
 import { ArrowLeftRight, BedDouble, ChevronDown, ChevronLeft, ChevronRight, Lock, LockOpen, Plus, Repeat, UserMinus, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
@@ -353,7 +354,7 @@ export function DutyModal({ id }: { id: string }) {
         <div className="sc-duty-head">
           <div className="col gap-4" style={{ minWidth: 0 }}>
             <span className="small muted">
-              Report {fmtDateTime(d.report)} UTC{first ? ` (${fmtTime(d.report, first.from)} at ${first.from})` : ''} · release {fmtTime(d.release)} UTC
+              Report {fmtDateTime(d.report)} UTC{first ? ` (${fmtTime(d.report, first.from)} at ${first.from})` : ''} · release {releaseText(d.report, d.release)} UTC
             </span>
             <DayLength g={g} dutyId={d.id} ac={ac?.reg} />
             <SlipLine g={g} d={d} />

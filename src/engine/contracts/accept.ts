@@ -8,7 +8,7 @@ import { accrue, cashOnly, invoice, post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
-import { DAY, fmtDay, monthKey, monthStart, fmtDayRange } from '../core/time';
+import { DAY, fmtDay, fmtDayAt, monthKey, monthStart, fmtDayRange } from '../core/time';
 import { clamp } from '../core/util';
 import type { ActionResult, Contract, ContractOffer, CrewExtra, Flight, GameState, Minute, OfferStatus, Product, Receivable, SimEvent } from '../core/types';
 import { autoRoster, crewExtraFor, flightCrewStatus, onContractDoneMorale } from '../crew';
@@ -199,7 +199,7 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   }
   autoRoster(g, { aircraftIds: ids });
   const regs = ids.map((id) => g.fleet[id].reg).join(' + ');
-  pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Client'} · ${regs} · ${fmtDayRange(c.start, c.end)}.`, ref: { kind: 'contract', id: c.id }, cue: 'contractSigned' });
+  pushMessage(g, { tone: 'good', cat: 'commercial', title: `Signed: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'Client'} · ${regs} · ${jobDayRange(c)}.`, ref: { kind: 'contract', id: c.id }, cue: 'contractSigned' });
   return { ok: true, msg: `Signed: ${c.title}`, data: { contractId: c.id } };
 }
 
@@ -295,12 +295,30 @@ export function dailyContracts(g: GameState): void {
   }
 }
 
+/**
+ * v0.14.1 a job's first and last day as the client says them: a base programme on the base's local calendar (it starts
+ * at local midnight, the evening before in UTC: '31 May' read for a 1 Jun start), other work by its UTC days. Pure.
+ */
+export function jobDays(x: { pattern: { kind: string; base?: string }; start: Minute; end: Minute }): [string, string] {
+  const b = x.pattern.kind === 'base' ? x.pattern.base : undefined;
+  return b ? [fmtDayAt(b, x.start), fmtDayAt(b, x.end - 1)] : [fmtDay(x.start), fmtDay(x.end)];
+}
+export const jobDayRange = (x: Parameters<typeof jobDays>[0]): string => {
+  const [a, b] = jobDays(x);
+  return a === b ? a : `${a}–${b}`;
+};
+
+/** v0.14.1 the offer a won tender put back on the market (signed at our bid; never countered). Pure. */
+export const isTenderOffer = (g: GameState, offerId: string): boolean => !!g.com?.tenders?.some((t) => t.result?.offerId === offerId);
+
 /** Proposes a different price (rate per BH or charter price); the client replies before the offer lapses (counter.ts). */
 export function counterOffer(g: GameState, offerId: string, price: number, aircraftIds: string[], opts: SignOpts = {}): ActionResult {
   const o = g.offers[offerId];
   if (!o) return { ok: false, error: 'Offer not found' };
   if (o.status !== 'open') return { ok: false, error: o.status === 'countered' ? 'Waiting for the client to answer' : 'This offer is no longer on the market' };
   if (o.counter) return { ok: false, error: 'The client already answered a counter on this one' };
+  // v0.14.1 a won tender is signed at the bid we sent: no counter (it could raise the price above the winning bid).
+  if (isTenderOffer(g, offerId)) return { ok: false, error: 'A won tender is signed at our bid: no counter' };
   if (!(price > 0)) return { ok: false, error: 'Enter a price' };
   const ids = aircraftIds.filter((id) => g.fleet[id]);
   if (!ids.length) return { ok: false, error: 'Choose an aircraft' };
@@ -529,6 +547,9 @@ export function contractProgress(g: GameState, contractId: string): ContractProg
     out.mgh = Math.round(mghFor(c, k) * 10) / 10;
     const unbilled = c.billedMonths.includes(k) ? 0 : c.product.ratePerBH * out.bhMonth;
     out.revenueToDate = Math.round((c.invoiced ?? 0) + unbilled);
+  } else if (c.product.kind === 'dry') {
+    // v0.14.1 (UI-5) a dry lease earns by its invoices (rent ahead, reserves behind), never by accrual: was $0.
+    out.revenueToDate = Math.round(Math.max(c.invoiced ?? 0, c.accrued ?? 0));
   } else out.revenueToDate = Math.round(c.accrued ?? 0);
   out.legsDone = c.legsFlown ?? 0;
   out.legsTotal += out.legsDone;

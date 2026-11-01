@@ -25,6 +25,7 @@ import { createGame, type NewGameOptions } from '../engine/newGame';
 import { autosaveSlot, saveToSlot, serialize } from '../engine/save';
 import { createScenario, scenarioOutcome } from '../engine/scenario';
 import { advanceTo, settle } from '../engine/sim';
+import { guarded, previewCopy, restoreState } from '../engine/crew/atomic';
 import { prepareAsyncSave, saveTextAsync, supersedeAsyncSave } from './asyncSave';
 import { autoplay } from './devPlay';
 import { type Ambience, sound, type SoundEvent } from './sound';
@@ -45,10 +46,12 @@ export type { GameSpeed } from '../engine/core/time';
 export type AppScreen = 'loading' | 'title' | 'newgame' | 'game' | /** v0.12 */ 'scenarios';
 export type Tab = 'map' | 'contracts' | 'schedule' | 'crew' | 'fleet' | 'finance' | 'company' | 'inbox';
 
+/** v0.14.1 (merge) game minutes between the frame loop's fallback copies. */
+const FRAME_SNAP_MIN = 6 * 60;
+
 export const SPEED_LABEL: Record<GameSpeed, string> = { 1: '1×', 2: '2×', 4: '4×' };
 
 export interface Settings {
-  units: 'km' | 'nm';
   sound: boolean;
   volume: number;
   autosave: boolean;
@@ -91,7 +94,6 @@ export interface Settings {
 export interface ScenarioBest { stars: number; value: number; at: number }
 
 const DEFAULT_SETTINGS: Settings = {
-  units: 'km',
   sound: true,
   volume: 0.6,
   autosave: true,
@@ -612,8 +614,17 @@ class GameStore {
     const target = Math.floor(this.exact);
     if (target > g.now) {
       const month = monthKey(g.now);
+      // v0.14.1 (merge) a step back to fall back on when the engine throws mid-frame (a copy every 6 game hours: ~8 ms,
+      // under 0.3 % of a frame budget at 4×), never a game left half-stepped.
+      if (!this.frameSnap || this.frameSnap.g !== g || g.now - this.frameSnap.at >= FRAME_SNAP_MIN || g.now < this.frameSnap.at) this.frameSnap = { g, at: g.now, copy: previewCopy(g) };
       // Only reasons the settings honour stop the loop; the others are dropped inside advanceTo.
-      const res = advanceTo(g, target, this.honoured());
+      let res: ReturnType<typeof advanceTo>;
+      try {
+        res = advanceTo(g, target, this.honoured());
+      } catch (e) {
+        this.frameThrew(g, e);
+        return;
+      }
       const hour = res.hourChanged;
       if (res.pause) this.autoPause(res.pause);
       if (monthKey(g.now) !== month) this.scheduleAutosave();
@@ -626,6 +637,24 @@ class GameStore {
       this.clockLabel = label;
       this.emitClock();
     }
+  }
+
+  /** v0.14.1 (merge) the frame loop's fallback state (crew/atomic previewCopy) and the game minute it was taken. */
+  private frameSnap: { g: GameState; at: number; copy: GameState } | null = null;
+
+  /**
+   * v0.14.1 (merge) the engine threw inside a frame: the game goes back to the last step back (at most 6 game hours),
+   * pauses and says so; the error is logged. Never a half-applied step running on.
+   */
+  frameThrew(g: GameState, e: unknown): void {
+    console.error('[frame] the game step failed; going back to', this.frameSnap?.at, e);
+    const snap = this.frameSnap;
+    this.frameSnap = null;
+    if (snap && snap.g === g) restoreState(g, snap.copy);
+    this.exact = g.now;
+    this.paused = true;
+    this.toast('bad', 'Something went wrong', 'The game stepped back a little and paused. Press play to go on.');
+    this.emit();
   }
 
   /** Pause reasons the settings honour. */
@@ -779,16 +808,18 @@ class GameStore {
     if (!g) return { ok: false, error: 'No game loaded' };
     clearPause();
     this.edits++;
-    let res: ActionResult<T>;
-    try {
-      res = fn(g);
-    } catch (e) {
-      // An engine throw must not take the UI down; report it as a refused action.
+    // An engine throw must not take the UI down; report it as a refused action. v0.14.1 (merge) nor leave the game
+    // half-changed: the state goes back to before the action (a copy, ~8 ms on a seven-aircraft save). The cross-module
+    // follow-ups (e.g. crew re-sync) run inside the guard too.
+    const res: ActionResult<T> = guarded(g, () => {
+      const r = fn(g);
+      settle(g);
+      return r;
+    }, (e) => {
       console.warn('[act]', e);
-      res = { ok: false, error: 'Something went wrong with that action.' };
-    }
-    // Cross-module follow-ups (e.g. crew re-sync) and pauses the action raised (e.g. crewShortage on accept).
-    settle(g);
+      return { ok: false, error: 'Something went wrong with that action: nothing was changed.' };
+    });
+    // Pauses the action raised (e.g. crewShortage on accept).
     const pause = takePause(this.honoured());
     if (pause && pause !== 'decision') this.autoPause(pause);
     // v0.9.1 the action's cues show (and chime) with their notes; the result toast only when none did.

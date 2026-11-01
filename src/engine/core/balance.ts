@@ -331,7 +331,9 @@ export const BAL = {
    * `unfitDrop`: the share of drafts no aircraft of ours could fly that is drawn again (fit the fleet better).
    */
   marketOffers: {
-    perWeek: [1.5, 3.1, 4.6] as [number, number, number], fleetRef: [2, 3, 5] as [number, number, number], fleetSlope: 0.06, fleetClamp: [0.85, 1.3] as [number, number], unfitDrop: 0.85,
+    // v0.14.1 a Newcomer 1.1 (was 1.5: with the spring season and the quiet-week floor it measured 1.8–2.3 a week, over the
+    // promised 1–2).
+    perWeek: [1.1, 3.1, 4.6] as [number, number, number], fleetRef: [2, 3, 5] as [number, number, number], fleetSlope: 0.06, fleetClamp: [0.85, 1.3] as [number, number], unfitDrop: 0.85,
     /** Fewer offers, longer work (the player's call: lean on longer jobs, not more offers): the ordinary draw's mix,
      *  its narrowbody season bases (Newcomer, others) in days, and its share fitted to an aircraft's idle window
      *  (BAL.gapFitShare for the rest). */

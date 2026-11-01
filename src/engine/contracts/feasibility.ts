@@ -118,7 +118,8 @@ function describe(g: GameState, a: Anchor): string {
     return m ? `${maintWord(m)} at ${m.at} ${fmtDayRange(m.start, m.end)}` : 'maintenance';
   }
   const c = a.contractId ? g.contracts[a.contractId] : undefined;
-  if (c) return `${c.title} (${fmtDayRange(a.std, a.sta)})`;
+  // v0.14.1 (UI-7) a base programme by its own dates (its flights are only generated a few weeks ahead).
+  if (c) return `${c.title} (${c.pattern.kind === 'base' ? fmtDayRange(c.pattern.from, c.pattern.to) : fmtDayRange(a.std, a.sta)})`;
   const f = g.flights[a.id];
   return f ? `${f.kind === 'ferry' ? 'ferry' : 'flight'} ${f.no} ${f.from}–${f.to} ${fmtDateTime(f.std)}` : 'another commitment';
 }
@@ -436,7 +437,9 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   if (hold && t.engines === 2) etops = Math.max(etops, 180);
   const firstLeg = Math.min(o.start, rep.positionIn[0]?.std ?? Infinity);
   const tourGrant = hold && have < etops ? ETOPS_APPROVALS.map(([id, min]) => ({ min, p: g.company.pendingApprovals.find((x) => x.id === id) })).find((x) => x.min >= etops && x.p && !x.p.waiting && x.p.done <= firstLeg)?.p : undefined;
-  if (t.engines === 4) add('etops', 'ok', 'Four engines: no ETOPS limits');
+  // v0.14.1 (OPS-6) the same rule as the Ladder's gate (ops/company.ts gateApprovals): a three- or four-engine type has
+  // no ETOPS route limit, but the long-haul quads (tier 3) fly under the 180-minute EDTO approval, held as ETOPS 180.
+  if (t.engines !== 2) add('etops', 'ok', `${t.engines === 4 ? 'Four' : 'Three'} engines: no ETOPS limits${gateApprovals(t.tier).includes('etops180') ? `; long-haul work (EDTO) needs ETOPS 180 on the AOC` : ''}`);
   else if (!etops) add('etops', 'ok', 'No ETOPS needed');
   else if (t.etopsMax < etops) add('etops', 'no', `Routing needs ETOPS ${etops}; the ${t.short} is certified to ${t.etopsMax || 'none'}`);
   else if (tourGrant) add('etops', 'warn', `Routing needs ETOPS ${etops}: pending, due ${fmtDate(tourGrant.done)} (before the tour leaves)`, 'If the grant slips, the tour cannot leave: every leg is checked at departure.');
@@ -529,7 +532,9 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
       const arr = late.lateArrival!;
       const missBy = arr + turn - late.trip.std;
       if (base && missBy < DAY && late === fits[0]) add('positioning', 'warn', `Arrives ${fmtDateTime(arr)} UTC: misses the first ${fmtDuration(missBy)} of flying`, `${routeText(late.posIn)} ${fmtDuration(chainMin(late.posIn))}. MGH still applies.`);
-      else add('positioning', 'no', `Can't get there in time: earliest arrival ${fmtDateTime(arr)} UTC, first departure ${fmtDateTime(late.trip.std)} UTC`, late.posIn.length ? `${routeText(late.posIn)} takes ${fmtDuration(chainMin(late.posIn))}.` : undefined);
+      // v0.14.1 the turnaround named when the arrival is before the departure ('lands 01:40, first departure 02:00' read
+      // as in time).
+      else add('positioning', 'no', `Can't get there in time: earliest arrival ${fmtDateTime(arr)} UTC, first departure ${fmtDateTime(late.trip.std)} UTC${arr < late.trip.std ? ` (a ${fmtDuration(turn)} turnaround needed)` : ''}`, late.posIn.length ? `${routeText(late.posIn)} takes ${fmtDuration(chainMin(late.posIn))}.` : undefined);
     } else {
       const pay = wet ? 'billable to the client' : 'priced into the charter';
       const lastFit = fits[fits.length - 1];
@@ -655,7 +660,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   } else if (aBooked) {
     add('maintenance', 'ok', `A-check booked ${fmtDay(aBooked.start)} at ${aBooked.at}`, `C-check due ${fmtDay(cDue)}.`);
   } else if (aDue > winTo) {
-    add('maintenance', 'ok', `No check due: A-check in ${Math.max(0, Math.round(aLeft))} FH / ${Math.max(0, Math.round((aCal - g.now) / DAY))} days`, `C-check due ${fmtDay(cDue)}.`);
+    add('maintenance', 'ok', `No check due: A-check in ${Math.max(0, Math.round(aLeft))} FH / ${Math.max(0, Math.round((aCal - g.now) / DAY))} day${Math.max(0, Math.round((aCal - g.now) / DAY)) === 1 ? '' : 's'}`, `C-check due ${fmtDay(cDue)}.`);
   } else if (aDue <= winFrom) {
     add('maintenance', 'warn', `A-check due ${fmtDay(Math.max(g.now, aDue))} (${why}), before the job starts`, `Book it first: ${t.aCheckHours} h in the hangar at ${home}.`);
   } else if (base && o.pattern.kind === 'base' && o.pattern.maintEvery > 0) {

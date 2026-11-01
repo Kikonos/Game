@@ -218,7 +218,7 @@ function etopsMxReq(g: GameState, filing: boolean): Req {
 
 function heldReq(g: GameState, id: ApprovalId, days: number): Req {
   const d = heldDays(g, id);
-  return { label: `${nameOf(id)} held ${days} days`, ok: d !== null && d >= days, have: d === null ? 'not held' : `${d} days`, need: `${days} days`, why: d === null ? `Needs ${nameOf(id)} first` : `${nameOf(id)} must be held ${days} days (${d} so far)` };
+  return { label: `${nameOf(id)} held ${days} days`, ok: d !== null && d >= days, have: d === null ? 'not held' : `${d} day${d === 1 ? '' : 's'}`, need: `${days} days`, why: d === null ? `Needs ${nameOf(id)} first` : `${nameOf(id)} must be held ${days} days (${d} so far)` };
 }
 
 /** Every requirement of an approval (prerequisites first), with the text naming the first failure. `filing`: what it takes
@@ -241,7 +241,7 @@ function reqsOf(g: GameState, id: ApprovalId, filing: boolean): Req[] {
       break;
     }
     case 'widebody': {
-      out.push({ label: '90 days of operations', ok: opsDays >= 90, have: `${opsDays} days`, need: '90 days', why: `Needs 90 days of operations (${opsDays} so far)` });
+      out.push({ label: '90 days of operations', ok: opsDays >= 90, have: `${opsDays} day${opsDays === 1 ? '' : 's'}`, need: '90 days', why: `Needs 90 days of operations (${opsDays} so far)` });
       out.push(crewReq(g, wideFamilies(), 4, booked, 'a widebody family'));
       out.push(reliabilityReq(g, 62), techReq(g, id, 90), cleanReq(g, 90));
       break;
@@ -289,7 +289,7 @@ function reqsOf(g: GameState, id: ApprovalId, filing: boolean): Req[] {
       break;
     }
     case 'iosa':
-      out.push({ label: '12 months of operations', ok: g.now - g.started >= 365 * DAY, have: `${opsDays} days`, need: '365 days', why: 'Needs 12 months of operations' });
+      out.push({ label: '12 months of operations', ok: g.now - g.started >= 365 * DAY, have: `${opsDays} day${opsDays === 1 ? '' : 's'}`, need: '365 days', why: 'Needs 12 months of operations' });
       break;
     default:
       break;

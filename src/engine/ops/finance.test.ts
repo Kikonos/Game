@@ -10,7 +10,7 @@ import { COST_CATS, invoice, REVENUE_CATS, statementTotals } from '../core/ledge
 import { LEDGER_LABEL } from '../../ui/screens/screenLogic';
 import { typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
-import { DAY, daysInMonth, fromUTC, monthKey, monthStart } from '../core/time';
+import { DAY, daysInMonth, fmtDay, fromUTC, monthKey, monthStart } from '../core/time';
 import type { Client, Contract, Flight, GameState, LedgerCat, Minute } from '../core/types';
 import { acceptOffer } from '../contracts';
 import { mghInMonth } from '../contracts/pricing';
@@ -590,5 +590,52 @@ describe('v0.12.1 statement totals by category', () => {
   it('every ledger category is a revenue or a cost row (crew jets included)', () => {
     for (const cat of Object.keys(LEDGER_LABEL) as LedgerCat[]) expect(REVENUE_CATS.includes(cat) !== COST_CATS.includes(cat)).toBe(true);
     expect(COST_CATS).toContain('crewJet');
+  });
+});
+
+describe('v0.14.1 the forecast: money on the day it really moves (M2, M7, UI-3)', () => {
+  it('UI-3 a bill at 1 Mar 00:00 seen at 08:00 two days before: cash runs out on the 1st, not the day before', () => {
+    const g = newGame(5);
+    const k = monthKey(g.now);
+    const ms = monthStart(k + 1);
+    g.now = ms - 40 * 60;
+    g.company.cash = 100_000;
+    const fc = cashForecast(g, 30);
+    const first = fc.find((p) => p.cash < 0)!;
+    expect(first.t).toBe(ms);
+    const card = cashLowCard(g)!;
+    expect(card.what).toBe(`Cash runs out on ${fmtDay(ms)}`);
+    expect(card.why).toContain('month-end rent, insurance and salaries');
+  });
+
+  it('M2 a wet contract ending mid-month is invoiced when it ends, not at the month end', () => {
+    const g = newGame(28);
+    skip(g, g.now + DAY);
+    const c = signBase(g, g.now + 5 * DAY, 45, [leased(g).id]);
+    const kEnd = monthKey(c.end);
+    const its = forecastItems(g, 90).filter((x) => x.what === 'wet-lease invoices');
+    const last = its[its.length - 1];
+    expect(c.end).toBeLessThan(monthStart(kEnd + 1));
+    expect(last.t).toBe(c.end + c.payment.dueDays * DAY);
+  });
+
+  it('M7 charter balances are expected 7 days after they fall due (a government\'s on its own terms)', () => {
+    const g = newGame(5);
+    const at = g.now + 5 * DAY;
+    g.contracts.kx = { id: 'kx', status: 'active', product: { kind: 'charter', price: 500_000 }, payment: { basis: 'advance', dueDays: 4 }, instalments: [{ at, amount: 250_000 }], aircraftIds: [], billedMonths: [] } as never;
+    const it = forecastItems(g, 30).find((x) => x.what === 'charter balances')!;
+    expect(it.t).toBe(at + 7 * DAY);
+    (g.contracts.kx.payment as { basis: string }).basis = 'arrears';
+    expect(forecastItems(g, 30).find((x) => x.what === 'charter balances')!.t).toBe(at + 4 * DAY);
+  });
+
+  it("M2 an administrator's payout on our claim is expected on its date", () => {
+    const g = newGame(5);
+    const payAt = g.now + 20 * DAY;
+    const claim: { amount: number; payAt: number; pct: number; paid?: number } = { amount: 120_000, payAt, pct: 0.2 };
+    g.com = { tenders: [], trips: [], crises: [{ claim }] } as never;
+    expect(forecastItems(g, 30).filter((x) => x.what === "administrators' claims")).toEqual([{ t: payAt, amount: 120_000, what: "administrators' claims" }]);
+    claim.paid = g.now;
+    expect(forecastItems(g, 30).some((x) => x.what === "administrators' claims")).toBe(false);
   });
 });

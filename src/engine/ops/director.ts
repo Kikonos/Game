@@ -80,14 +80,6 @@ export function spellAt(g: GameState, t: Minute = g.now): Spell {
 
 export const isQuiet = (g: GameState, t: Minute = g.now): boolean => OPS_LIVE.on && spellAt(g, t)[2] === 0;
 
-/** Offer rate multiplier at t: a trickle in quiet spells, a wave in busy ones (the year's mean stays 1). */
-export function offerFactor(g: GameState, t: Minute = g.now): number {
-  if (!OPS_LIVE.on) return 1;
-  if (isQuiet(g, t)) return QUIET_OFFERS;
-  const b = busyShare(director(g).pace);
-  return (1 - (1 - b) * QUIET_OFFERS) / b;
-}
-
 /** Optional disruptions (and client requests): none in quiet spells, their yearly rate packed into the busy days. */
 export function optionalFactor(g: GameState, t: Minute = g.now): number {
   if (!OPS_LIVE.on) return 1;

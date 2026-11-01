@@ -11,6 +11,7 @@
 import { BAL } from '../core/balance';
 import { fmtTime } from '../core/time';
 import { post } from '../core/ledger';
+import { restoreCues, saveCues } from '../core/cues';
 import { pushMessage } from '../core/messages';
 import type { BuyBackMode, CrewMember, CrewSlot, GameState, Ref } from '../core/types';
 import { usd } from '../ops/util';
@@ -82,11 +83,17 @@ export function applyBuyBack(g: GameState, c: CrewMember, segs: Seg[], bb: BuyBa
   if (slot) slot.buyBack = { cost: bb.cost, month: String(bb.month), days: moved.map(([k]) => k), repay: moved.map(([, to]) => to).filter((k): k is number => k !== null) };
   else paid(g, bb.cost);
   if (quiet) return;
-  pushMessage(g, {
+  const msg = pushMessage(g, {
     tone: 'info', cat: 'crew', title: buyBackTitle(c, bb, what),
     body: `Paid at twice a day's pay${slot ? ' once they report' : ''}. ${repayText(c, bb)}`.trim(),
     ...(ref ? { ref } : {}),
   });
+  // v0.14.1 (merge) the notice is kept on the seat's saved buy-back (it was a runtime map: a game loaded from a save
+  // posted 'keeps the day off' where the same game unsaved took the notice back, and the two played on differently).
+  if (slot?.buyBack) {
+    slot.buyBack.at = g.now;
+    slot.buyBack.msgId = msg.id;
+  }
 }
 
 function paid(g: GameState, cost: number): void {
@@ -114,6 +121,17 @@ export function undoBuyBack(g: GameState, c: CrewMember, slot: CrewSlot): void {
   restoreOffDays(g, c, bb.days, bb.repay);
   c.boughtOff = (c.boughtOff ?? []).filter((m) => String(m) !== bb.month);
   if (!c.boughtOff.length) delete c.boughtOff;
+  // v0.14.1 bought and given back in the same minute (the roster re-planned the seat at once): nothing happened for the
+  // player, so the 'works the day off' notice and its chime are taken back instead of a 'keeps the day off' beside it.
+  // (From the seat's saved record only, so a reloaded game does the same.)
+  if (bb.msgId && bb.at === g.now) {
+    const i = g.messages.findIndex((m) => m.id === bb.msgId && m.t === g.now);
+    if (i >= 0) {
+      g.messages.splice(i, 1);
+      restoreCues(saveCues().filter((e) => e.msgId !== bb.msgId));
+      return;
+    }
+  }
   const back = bb.days.filter((k) => k >= 0).map(dayLabel);
   pushMessage(g, { cue: null, tone: 'info', cat: 'crew', title: `${crewName(c)} keeps the day off${back.length ? ` on ${back.join(' and ')}` : ''}`, body: 'The trip it was bought for changed: nothing is paid.' });
 }

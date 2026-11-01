@@ -503,6 +503,14 @@ export const ageFactor = (age: number): number => Math.min(1.15, Math.max(0.55, 
 /** v0.14 the dry-lease rent of a type at an age before market noise and index: rentMonth × the age factor, never below the type's floor. Pure. */
 export const rentForAge = (t: AcmiType, age: number): number => Math.max(t.rentFloor ?? 0.55 * t.rentMonth, t.rentMonth * ageFactor(age));
 
+/**
+ * v0.14.1 (M6) a market rent quote (after its noise and the market index) never below the type's floor: the floor is
+ * what an old airframe's green time is worth whatever the market does (an old A330-200 about $150K, an A320ceo
+ * $110K). Was applied before the noise and index only, under the 0.55 age clamp, so for most types it never bound.
+ * Types without a floor: unchanged. Pure.
+ */
+export const floorRent = (t: Pick<AcmiType, 'rentFloor'>, rent: number): number => (t.rentFloor ? Math.max(t.rentFloor, rent) : rent);
+
 export function acmiType(id: string): AcmiType {
   const t = ACMI_TYPES[id];
   if (!t) throw new Error(`Unknown ACMI type ${id}`);

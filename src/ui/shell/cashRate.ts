@@ -23,6 +23,13 @@ const WARMUP_DAYS = 2;
  */
 export const LUMP_CATS: readonly LedgerCat[] = [
   'approvals', 'refit', 'checks', 'hiring', 'training', 'penalties', 'capex', 'leaseReturn', 'delivery', 'paint', 'compliance', 'assetSale', 'leaseIncome',
+  // v0.14.1 (M4) a write-off and an administrator's payout on it, a sales trip or fair booked in one go, a factoring
+  // fee, a lessor's consent fee.
+  'badDebt', 'sales', 'interest', 'consent',
+  // v0.14.1 (M5) the month-end lines booked before the month end are an aircraft leaving (its part-month rent,
+  // insurance and overhead) or a leaver's pay, severance or a bought-back day off: once each, while the month-end bill
+  // no longer counts them.
+  'rent', 'insurance', 'overhead', 'salaries',
 ];
 
 /** This month's costs booked only at month end: rent, insurance, overhead, crew and department-head salaries. */

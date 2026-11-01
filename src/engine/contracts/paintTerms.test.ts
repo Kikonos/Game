@@ -12,6 +12,7 @@ import { newGame, offer, run } from './testkit';
 import { liveryOf } from '../ops/paint';
 import { deserialize, serialize } from '../save';
 import { breathe } from '../../test/breathe';
+import { slowTimeout } from '../../test/perf';
 
 type Opts = OfferOpts;
 const line = (g: GameState, cat: 'paint' | 'otherRevenue') =>
@@ -70,7 +71,7 @@ describe('paint requests on offers', () => {
     near('un', BAL.paint.unRotation);
     near('tour56', BAL.paint.tourSeries);
     for (const k of ['aogCover', 'repatriation', 'gov', 'tour']) expect(rate(k), k).toBe(0);
-  }, 60_000);
+  }, slowTimeout(60_000));
 
   it('quotes cost per aircraft, the share and the price without paint', () => {
     const g = newGame(3);
@@ -231,23 +232,33 @@ describe('paint on contracts', () => {
     expect(seen.size).toBe(2);
   });
 
-  it('is deterministic: same seed, same paint; a save mid-paint plays on identically', () => {
-    const play = (save?: number) => {
+  // v0.14.1 (CODE-07) two plays, not three: a straight run and one saved and reloaded mid-paint agree only if the seed
+  // decides everything (determinism) and the save keeps everything (the reload); in 10-day steps that let the worker
+  // breathe, with a timeout scaled to the machine.
+  it('is deterministic: same seed, same paint; a save mid-paint plays on identically', async () => {
+    const play = async (save?: number) => {
       let g = newGame(9);
       const o = paintBase(g, 'full', true, 40);
       acceptOffer(g, o.id, [firstOk(g, o)]);
-      const end = g.now + 70 * DAY;
+      const t0 = g.now;
+      const end = t0 + 70 * DAY;
+      // Steps on a fixed 10-day grid, so both plays stop at the same times (the reload adds day 35 only).
+      const to = async (t: number) => {
+        while (g.now < t && !g.gameOver) {
+          run(g, Math.min(t, t0 + (Math.floor((g.now - t0) / (10 * DAY)) + 1) * 10 * DAY));
+          await breathe();
+        }
+      };
       if (save) {
-        run(g, g.now + save * DAY);
+        await to(g.now + save * DAY);
         g = deserialize(serialize(g));
       }
-      run(g, end);
+      await to(end);
       return JSON.stringify(JSON.parse(serialize(g)).state);
     };
-    const a = play();
-    expect(play()).toBe(a);
-    expect(play(35)).toBe(a);
-  }, 20_000);
+    const a = await play();
+    expect(await play(35)).toBe(a);
+  }, slowTimeout(30_000));
 
   it('paintWindow is pure and finds a strip slot after the job', () => {
     const g = newGame(10);

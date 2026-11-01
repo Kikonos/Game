@@ -8,13 +8,17 @@ import {
 } from './screenLogic';
 
 const offer = (id: string, urgency: ContractOffer['urgency'], estValue: number, status: ContractOffer['status'] = 'open') =>
-  ({ id, urgency, estValue, status, expires: 1000 }) as ContractOffer;
+  // v0.14.1 a live offer expires in the future (marketOffers leaves out an open one past its expiry).
+  ({ id, urgency, estValue, status, expires: 100_000_000 }) as ContractOffer;
 
 describe('contracts helpers', () => {
   it('orders the market urgent first, then by value; closed offers stay out', () => {
     const g = newGame();
     g.offers = { a: offer('a', 'normal', 900), b: offer('b', 'urgent', 100), c: offer('c', 'short', 500), d: offer('d', 'urgent', 5000, 'lost'), e: offer('e', 'normal', 2000, 'countered') };
     expect(marketOffers(g).map((o) => o.id)).toEqual(['b', 'c', 'e', 'a']);
+    // v0.14.1 (COMM-H1) an open offer past its expiry is not on the market.
+    g.offers.a.expires = g.now;
+    expect(marketOffers(g).map((o) => o.id)).toEqual(['b', 'c', 'e']);
   });
   it('v0.14 a live call opens its call card from the market (and any offer list); a lapsed or written one the offer dialog', () => {
     const g = newGame();
@@ -102,6 +106,9 @@ describe('finance and inbox helpers', () => {
     const open = Object.values(g.offers).find((o) => o.status === 'open');
     if (open) expect(refTarget(g, { kind: 'offer', id: open.id })?.offerId).toBe(open.id);
     expect(filterMessages(g.messages, 'goal').every((m) => m.cat === 'goal')).toBe(true);
+    // v0.14.1 (CODE-04) ramp and audit messages open the Safety card (Company › Overview).
+    expect(refTarget(g, { kind: 'ramp', id: 'rp1' })).toEqual({ tab: 'company', view: 'overview' });
+    expect(refTarget(g, { kind: 'audit', id: 'au1' })).toEqual({ tab: 'company', view: 'overview' });
   });
 });
 
@@ -148,5 +155,16 @@ describe('v0.7 market, cabin and inbox helpers', () => {
     expect(reqChips({ ...base, layouts: ['two-class', 'three-class', 'vip'], minPremium: 20 }).map((c) => c.label)).toEqual(expect.arrayContaining(['Premium cabin', 'Premium 20+']));
     expect(reqChips({ ...base, minSeats: 180, layouts: ['all-economy'] }).map((c) => c.label)).toContain('Max seats 180+');
     expect(reqChips({ ...base, minSeats: 180, layouts: ['all-economy'] }).map((c) => c.label)).not.toContain('180+ seats');
+  });
+});
+
+describe('v0.14.1 (merge) workDays: a contract by the client\'s days (Clients screen)', () => {
+  it('a base programme starting at local midnight reads its local first and last day, not the UTC eve', async () => {
+    const { workDays } = await import('./screenLogic');
+    const { fromUTC } = await import('../../engine/core/time');
+    const pattern = { kind: 'base', base: 'LIS' } as never;
+    // Lisbon summer time (UTC+1): 1 Jun 00:00 local is 31 May 23:00 UTC; the job ends at local midnight after 31 Aug.
+    expect(workDays({ pattern, start: fromUTC(2027, 5, 31, 23, 0), end: fromUTC(2027, 8, 31, 23, 0) })).toBe('1 Jun – 31 Aug');
+    expect(workDays({ pattern: { kind: 'legs', legs: [] } as never, start: fromUTC(2027, 6, 2, 8, 0), end: fromUTC(2027, 6, 2, 20, 0) })).toBe('2 Jun');
   });
 });

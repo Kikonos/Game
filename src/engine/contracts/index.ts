@@ -6,13 +6,13 @@ import type { Archetype, GameState, SimEvent } from '../core/types';
 import { dailyContracts, onContractEnd, onContractStart } from './accept';
 import { onFlightArrivedContracts, onMonthContracts } from './billing';
 import { loadClients, seedClients, seedRivals } from './clients';
-import { dailyOffers, lapseCues, loadCounters, onOfferExpire, onOfferReply, onOfferSpawn, openingOffers, scheduleNextOffer } from './offers';
+import { dailyOffers, lapseCues, loadCounters, loadStuckOffers, onOfferExpire, onOfferReply, onOfferSpawn, openingOffers, scheduleNextOffer } from './offers';
 import { extendBaseSchedules, relinkPositioning } from './schedule';
 import { dailyRelations, loadRelations, monthlyRelationDrift } from './relations';
 import { loadRivals, onRivalBid, refreshRivals } from './rivals';
 import { dailyDryLease, dailyRepeats, dailySubIn, dailyWorldTour } from './missions';
 
-export { acceptOffer, askingPrice, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, leadDays, setPrice, type ContractProgress, type SignOpts } from './accept';
+export { acceptOffer, askingPrice, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, isTenderOffer, leadDays, setPrice, type ContractProgress, type SignOpts } from './accept';
 export { paintQuote, paintTermsText, paintWindow, type PaintSlot } from './paintTerms';
 export { cabinQuote, cabinTarget, cabinTermsText, rollCabin, termsProduct } from './cabinTerms';
 export { billContractMonth, type BillingLine } from './billing';
@@ -96,6 +96,7 @@ export const contractsModule: SimModule = {
     loadRelations(g);
     loadCounters(g);
     loadBodies(g);
+    loadStuckOffers(g);
   },
   /** Keeps empty legs linking commitments after any flight change (delays, swaps, cancellations by other modules). */
   settle(g, full) {

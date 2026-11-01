@@ -2,10 +2,10 @@
 // a rent due when the forecast dips. Numbers from ops/finance read APIs. Pure.
 
 import { BAL } from '../core/balance';
-import { statementTotals } from '../core/ledger';
+import { COST_CATS, statementTotals } from '../core/ledger';
 import { DAY, fmtDay, fmtMonth, monthKey, nextMonthStart } from '../core/time';
-import type { GameState } from '../core/types';
-import { cashForecast, fixedCosts, forecastItems, monthEndBill } from '../ops/finance';
+import type { GameState, LedgerCat, MonthStatement } from '../core/types';
+import { cashForecast, daysOverdue, forecastItems, monthEndBill } from '../ops/finance';
 import { usd } from '../ops/util';
 import { mkHurt, type ProblemCard, type TimelineSpec } from './types';
 
@@ -22,7 +22,9 @@ export function cashLowCard(g: GameState): ProblemCard | null {
   const monthEnd = nextMonthStart(g.now);
   // v0.12.1 WHY names what really pulls it under: the biggest outgoing up to the first day below zero.
   const by = new Map<string, number>();
-  for (const x of forecastItems(g, 30)) if (x.amount < 0 && x.t < first.t + DAY) by.set(x.what, (by.get(x.what) ?? 0) + x.amount);
+  // v0.14.1 (UI-3) up to the end of that calendar day (the forecast's points are calendar days).
+  const dayEnd = (Math.floor(first.t / DAY) + 1) * DAY;
+  for (const x of forecastItems(g, 30)) if (x.amount < 0 && x.t < dayEnd) by.set(x.what, (by.get(x.what) ?? 0) + x.amount);
   const top = [...by].sort((a, b) => a[1] - b[1])[0];
   const timeline: TimelineSpec = {
     from: g.now, to: g.now + 30 * DAY,
@@ -41,7 +43,9 @@ export function cashLowCard(g: GameState): ProblemCard | null {
       ...(decision ? [{ id: 'factor', label: 'Sell an invoice', open: { modal: 'decision' as const, id: decision.id } }] : []),
     ],
     details: [`Cash now ${usd(g.company.cash)}`, `Month end ${fmtDay(monthEnd)}: fixed costs ${usd(bill.rent + bill.insurance + bill.overhead)}, salaries ${usd(bill.salaries + bill.heads)}`, `Outstanding invoices ${usd(g.finance.receivables.filter((r) => r.paid === null).reduce((s, r) => s + r.amount, 0))}`],
-    visuals: { timeline, gauges: [{ id: 'cash', label: 'Cash', value: Math.max(0, g.company.cash), limit: Math.max(1, g.company.cash - low.cash), unit: 'usd', text: `${usd(g.company.cash)} now, ${usd(low.cash)} at the low`, tone: 'bad', by: low.t }] },
+    // v0.14.1 no `by` on the gauge (it prints a time of day only: '00:00' now the points are calendar days); the hurt
+    // line has the date.
+    visuals: { timeline, gauges: [{ id: 'cash', label: 'Cash', value: Math.max(0, g.company.cash), limit: Math.max(1, g.company.cash - low.cash), unit: 'usd', text: `${usd(g.company.cash)} now, ${usd(low.cash)} at the low`, tone: 'bad' }] },
     terms: ['blockHours'], by: first.t,
   };
 }
@@ -52,7 +56,7 @@ export function invoiceOverdueCard(g: GameState, receivableId: string): ProblemC
     ?? g.finance.receivables.filter((x) => x.contractId === receivableId && x.paid === null && x.due <= g.now - 7 * DAY).sort((a, b) => a.due - b.due)[0];
   if (!r || r.paid !== null || r.due > g.now - 7 * DAY) return null;
   const cl = g.clients[r.clientId];
-  const days = Math.floor((g.now - r.due) / DAY);
+  const days = daysOverdue(g, r);
   const decision = g.decisions.find((d) => d.kind === 'latePayment' && d.data?.receivableId === r.id);
   const gov = cl?.kind === 'government';
   return {
@@ -66,20 +70,56 @@ export function invoiceOverdueCard(g: GameState, receivableId: string): ProblemC
   };
 }
 
+const FIXED: readonly LedgerCat[] = ['rent', 'insurance', 'overhead', 'salaries'];
+
+/** v0.14.1 (UI-6) cost lines as the loss card names them (lower case, in a sentence). */
+const COST_WORD: Partial<Record<LedgerCat, string>> = {
+  fuel: 'fuel', airportFees: 'airport fees', rent: 'rent', reserves: 'maintenance reserves', salaries: 'salaries', perDiem: 'per diems',
+  hotels: 'crew hotels', deadhead: 'crew deadheads', crewJet: 'crew jets', maintenance: 'line maintenance', checks: 'checks', paint: 'paint',
+  insurance: 'insurance', overhead: 'overhead', training: 'training', hiring: 'hiring', penalties: 'penalties', subcharter: 'sub-charters',
+  approvals: 'approvals', interest: 'interest', capex: 'aircraft bought', refit: 'cabin refits', leaseReturn: 'lease returns', warRisk: 'war-risk cover',
+  disruption: 'disruptions', compliance: 'safety and compliance', delivery: 'ferry companies', sales: 'sales trips', badDebt: 'bad debts', consent: 'lessor consent fees',
+};
+
+/**
+ * A closed month that lost money. v0.14.1 (UI-6) the WHY reads the statement itself: the cost lines that grew most on
+ * the month before (or the biggest, with no month before), and 'fewer hours flown' only when revenue fell and that,
+ * not the costs, is what turned it. Was a re-estimate of rent, insurance and overhead from today's fleet and 'the
+ * aircraft sat idle' whenever under 150 BH an aircraft, whatever the cause.
+ */
 export function lossMonthCard(g: GameState): ProblemCard | null {
-  const st = g.finance.history[g.finance.history.length - 1];
+  const h = g.finance.history;
+  const st = h[h.length - 1];
   if (!st || !st.closed) return null;
   const tot = statementTotals(st.lines);
   if (tot.profit >= 0) return null;
-  const fx = fixedCosts(g, st.month);
+  const prev = h.length >= 2 && h[h.length - 2].month === st.month - 1 ? h[h.length - 2] : null;
+  const before = prev ? statementTotals(prev.lines) : null;
   const bh = Math.round(st.bh);
+  const cost = (l: MonthStatement['lines'], c: LedgerCat) => (COST_CATS.includes(c) ? -(l[c] ?? 0) : 0);
+  // The lines that drove it: the biggest rises on last month (the biggest lines with no month before).
+  const rises = COST_CATS.map((c) => ({ c, v: cost(st.lines, c), d: cost(st.lines, c) - (prev ? cost(prev.lines, c) : 0) }))
+    .filter((x) => x.d >= Math.max(10_000, 0.05 * -tot.profit)).sort((a, b) => b.d - a.d).slice(0, 3);
+  const revDrop = before ? before.revenue - tot.revenue : 0;
+  const costRise = before ? -tot.costs - -before.costs : Infinity;
+  const fewer = before !== null && revDrop > 0 && revDrop >= costRise;
+  // Only the running costs (rent, insurance, overhead, pay) behind it: too little work for the fleet.
+  const idle = fewer || rises.every((x) => FIXED.includes(x.c));
+  const named = rises.map((x) => `${COST_WORD[x.c] ?? x.c} ${prev ? `+${usd(x.d)}` : usd(x.v)}`).join(', ');
+  const pm = prev ? fmtMonth(prev.month, false) : '';
+  const why = `Revenue ${usd(tot.revenue)} did not cover costs of ${usd(-tot.costs)}.`
+    + (fewer ? ` Revenue fell ${usd(revDrop)} on ${pm}: ${bh} block hours flown (${Math.round(prev!.bh)} before).` : '')
+    + (named ? ` ${prev ? `Costs up on ${pm}` : 'Biggest costs'}: ${named}.` : '');
   return {
     subject: { kind: 'lossMonth', ref: { kind: 'statement', id: String(st.month) } }, severity: 'amber',
     title: `${fmtMonth(st.month, false)} lost ${usd(-tot.profit)}`, what: `${fmtMonth(st.month, false)} lost ${usd(-tot.profit)}`,
-    why: `${bh} block hours flown against ${usd(fx.rent + fx.insurance + fx.overhead)} of rent, insurance and overhead${bh < 150 * Object.keys(g.fleet).length ? ': the aircraft sat idle' : ''}.`,
+    why,
     hurt: mkHurt({ money: -tot.profit, what: 'lost' }),
-    actions: [{ id: 'findWork', label: 'Find work', open: { tab: 'contracts' }, primary: true }, { id: 'finance', label: 'Finance', open: { tab: 'finance' } }],
-    details: [`Revenue ${usd(tot.revenue)}, costs ${usd(tot.costs)}`], visuals: {}, terms: ['blockHours', 'mgh'], by: nextMonthStart(g.now),
+    actions: idle
+      ? [{ id: 'findWork', label: 'Find work', open: { tab: 'contracts' }, primary: true }, { id: 'finance', label: 'Finance', open: { tab: 'finance' } }]
+      : [{ id: 'finance', label: 'Finance', open: { tab: 'finance' }, primary: true }, { id: 'findWork', label: 'Find work', open: { tab: 'contracts' } }],
+    details: [`Revenue ${usd(tot.revenue)}, costs ${usd(-tot.costs)}`, `Rent, insurance and overhead ${usd(cost(st.lines, 'rent') + cost(st.lines, 'insurance') + cost(st.lines, 'overhead'))}`, `${bh} block hours flown`],
+    visuals: {}, terms: ['blockHours'], by: nextMonthStart(g.now),
   };
 }
 
@@ -119,7 +159,7 @@ export function cashNegativeCard(g: GameState): ProblemCard | null {
     subject: { kind: 'cashNegative', ref: { kind: 'cash', id: 'cash' } }, severity: 'red',
     title: `Cash is below zero (${usd(cash)})`, what: `Cash is below zero (${usd(cash)})`,
     why: `Costs outran what came in: about ${usd(bill.total)} a month in rent, insurance and salaries before any flying${owed ? `; ${usd(owed)} of invoices are still unpaid` : ''}.`,
-    hurt: mkHurt({ money: -cash, what: 'short', extra: again ? `the company fails after ${BAL.rescueDays} days in the red` : `in ${daysLeft} days an investor offers a rescue for a quarter of the company` }),
+    hurt: mkHurt({ money: -cash, what: 'short', extra: again ? `the company fails after ${BAL.rescueDays} days in the red` : `in ${daysLeft} day${daysLeft === 1 ? '' : 's'} an investor offers a rescue for a quarter of the company` }),
     actions: [
       { id: 'finance', label: 'Finance', open: { tab: 'finance' }, primary: true },
       { id: 'findWork', label: 'Find work', open: { tab: 'contracts' } },

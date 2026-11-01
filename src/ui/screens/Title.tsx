@@ -8,6 +8,7 @@ import { latestSave, loadFromSlot } from '../../engine/save';
 import { AircraftArt } from '../components/AircraftArt';
 import { LogoMark } from '../components/Logo';
 import { GlobalModals } from '../game/Modals';
+import { ErrorBoundary } from '../ErrorBoundary';
 import { money } from '../format';
 import { WorldMap, type MapRoute } from '../map/WorldMap';
 import { offline, promptInstall } from '../offline';
@@ -129,7 +130,7 @@ export function Title() {
             </div>
             <div className="showcase-specs">
               <div><span className="dim small">Seats</span><b>{t.typicalSeats}–{t.maxSeats}</b></div>
-              <div><span className="dim small">Range</span><b>{t.rangeKm.toLocaleString()} km</b></div>
+              <div><span className="dim small">Range</span><b>{(Math.round(t.rangeKm / 1.852 / 10) * 10).toLocaleString('en-US')} nm</b></div>
               <div><span className="dim small">Price</span><b>{money(t.price, 0)}</b></div>
             </div>
             <p className="small muted showcase-fact">{t.fact}</p>
@@ -153,7 +154,9 @@ export function Title() {
         )}
         <span className="dim small">{CURRENT.version} {CURRENT.name} · {AIRPORTS.length} airports · {ACMI_TYPES_LIST.filter((x) => x.available).length} aircraft types</span>
       </div>
-      <GlobalModals />
+      <ErrorBoundary scope="modal" resetKey={store.modal}>
+        <GlobalModals />
+      </ErrorBoundary>
     </div>
   );
 }

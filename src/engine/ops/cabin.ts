@@ -324,6 +324,13 @@ function busyText(g: GameState, ac: Aircraft, t: Minute): string | null {
     if (m.aircraftId !== ac.id || (m.status !== 'planned' && m.status !== 'inWork') || m.start >= t) continue;
     if (!last || m.end > last.end) last = { end: m.end, what: m.kind === 'A' || m.kind === 'C' ? `in its ${m.kind}-check` : m.kind === 'refit' ? 'in a refit' : `in the hangar (${m.kind})` };
   }
+  // v0.14.1 (UI-7) a signed base programme holds the aircraft to its end, though its flights are only generated a few
+  // weeks ahead (was 'busy until' the last generated leg: 27 Mar for a deployment to 11 Jun).
+  for (const c of Object.values(g.contracts)) {
+    if ((c.status !== 'signed' && c.status !== 'active') || c.pattern.kind !== 'base' || !c.aircraftIds.includes(ac.id) || c.pattern.from >= t) continue;
+    const end = Math.min(c.pattern.to, t);
+    if (!last || end > last.end) last = { end, what: `flies ${c.title}` };
+  }
   return last ? `Busy until ${fmtDay(last.end)}: ${last.what}` : null;
 }
 

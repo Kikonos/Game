@@ -74,18 +74,22 @@ describe('competing bids (§3.3)', () => {
   it('an urgent offer far from our aircraft: "closer" and "could fly tonight"', () => {
     const g = newGame(13);
     let found = false;
-    for (let i = 0; i < 200 && !found; i++) {
+    let tonight = false;
+    for (let i = 0; i < 200 && !(found && tonight); i++) {
       const o = generateOffer(g, 'aogCover', { wide: false, window: false, start: g.now + 20 * 60 });
       if (!o) continue;
       o.rivalBid = undefined;
       o.firstRefusal = undefined;
       rollRivalBid(g, o);
       const bid = o.rivalBid as ContractOffer['rivalBid'];
-      if (bid && /had an? .+ at .+, ours were [\d,]+ km away/.test(bid.why)) found = true;
-      if (bid && o.urgency === 'urgent' && !/quoted/.test(bid.why)) expect(bid.why).toMatch(/could fly tonight|km away/);
+      // v0.14.1 (merge) distances in nm (fx-money).
+      if (bid && /had an? .+ at .+, ours were [\d,]+ nm away/.test(bid.why)) found = true;
+      // v0.14.1 (ids shift with the queue) 'answered first' is right when the rival was not nearer; 'tonight' turns up.
+      if (bid && o.urgency === 'urgent' && /could fly tonight/.test(bid.why)) tonight = true;
       delete g.offers[o.id];
     }
     expect(found).toBe(true);
+    expect(tonight).toBe(true);
   });
 
   it('rival.bid closes only open (or unanswered countered) offers, is stale-safe and never touches first refusal', () => {

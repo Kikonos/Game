@@ -187,7 +187,7 @@ export function moreReasons(reason: Reason): string[] {
 
 /**
  * The rest gauge measured NOW rather than at the next report (the crew card): a person resting shows '7:30 of 10:00
- * by 02:30' in amber; rest complete drops the 'by'. A rest that has not started yet (between two later duties) is
+ * by 02:30' in amber; rest complete drops the 'by' and reads the rest taken so far ('21:30 · min 10:00'). A rest that has not started yet (between two later duties) is
  * left as planned.
  */
 export function restNow(spec: GaugeSpec, now: Minute): GaugeSpec {
@@ -196,8 +196,10 @@ export function restNow(spec: GaugeSpec, now: Minute): GaugeSpec {
   if (left > spec.limit) return spec;
   const taken = Math.max(0, Math.min(spec.limit, spec.limit - left));
   const ok = taken >= spec.limit;
+  // v0.14.1 (merge) a finished rest shows the rest really taken ('21:30 · min 10:00', as the duty sheet's gauge, crew
+  // control crewGauges); the bar stays full. It read 'N of N' for anyone rested past the minimum.
   return {
-    ...spec, value: taken, text: `${hm(taken)} of ${hm(spec.limit)}`,
+    ...spec, value: taken, text: ok ? `${hm(spec.limit - left)} · min ${hm(spec.limit)}` : `${hm(taken)} of ${hm(spec.limit)}`,
     tone: ok ? 'good' : taken >= spec.limit * 0.75 ? 'warn' : 'bad', by: ok ? undefined : spec.by,
   };
 }

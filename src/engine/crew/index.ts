@@ -81,7 +81,7 @@ export {
   crewMonth, dayIndex, isOff, offBreak, planLeave, planOffDays, planStandby, publishedTo, rosterStats, standbyNow,
   type CrewMonthView, type OffBreak,
 } from './dayPlan';
-export { dutyNeed, type ChainShape, type DutyNeed } from './duties';
+export { dutyNeed, restNeedLine, type ChainShape, type DutyNeed } from './duties';
 export {
   EXT_TABLE, extFdp, disruptiveKinds, FTL_TYPE, STANDBY, standbyAwakeOk, standbyCut, TZ_NIGHTS, tzNights, WOCL, cabinFdpCap,
 } from './rules';
@@ -217,9 +217,14 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
   const block = dutyBlock(g, d);
   // v0.9 §W a duty that took over at a fuel stop: one crew change flown.
   if (d.slipAt && g.flights[d.flightIds[0]]?.from === d.slipAt) v09Stats(g).slips++;
+  // v0.14.1 (merge) the legs flown on this duty: crew placed on the trip after them (a call-out for its next duty) never
+  // worked it, so they are not logged, rested or moved to where it ended (bot seed 2: three crew called in at Dublin
+  // after EI4040 had flown to Ibiza 'rested' at Ibiza without flying there).
+  const flown = fl.filter((f) => f.status === 'done');
   for (const s of p.slots) {
     const c = s.crewId ? g.crew[s.crewId] : undefined;
     if (!c) continue;
+    if (flown.length && !flown.some((f) => f.crewIds.includes(c.id) || aboard(f, c.id)) && !d.deadheadIds.some((id) => { const t = g.flights[id]; return !!t && t.status === 'done' && aboard(t, c.id); })) continue;
     let out = null;
     let home = null;
     for (const fid of d.deadheadIds) {
@@ -301,7 +306,9 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
   const f = g.flights[ev.id];
   if (!f || f.ev !== ev.v || f.status !== 'done') return;
   const ix = crewIx(g);
-  const pax = passengers(f);
+  // v0.14.1 (merge) each passenger once: a crew member listed twice moved with the first entry, then the second read
+  // them as 'not at the departure' and took them off the flight they had just flown.
+  const pax = [...new Set(passengers(f))];
   const did = pax.length ? ix.ticketDuty.get(f.id) : undefined;
   const d = did ? g.duties[did] : undefined;
   const rest = minRest({ dutyMin: f.sta - f.std + CHECKIN(), atHome: false, augmented: false, tzShift: 0 });

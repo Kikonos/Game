@@ -25,7 +25,7 @@ import { sideRng } from '../contracts/paintTerms';
 import { chainBackward, type ChainLeg } from '../contracts/plan';
 import { bumpClient, LEVEL_NAME, LEVEL_ORDER, levelOf } from '../contracts/relations';
 import { planPositioning } from '../contracts/schedule';
-import { applyCrewFix, crewControl, flightCrewStatus, rerosterFrom, setHourlyHook, shortFlights } from '../crew';
+import { applyCrewFix, crewControl, flightCrewStatus, rerosterFrom, seatsText, setHourlyHook, shortFlights } from '../crew';
 import { setFixHook } from '../crew/control';
 import { takesPublishedOff, v09Stats } from '../crew/dayPlan';
 import { dutyNeed, type ChainShape } from '../crew/duties';
@@ -851,31 +851,58 @@ const DESK_FIXES = ['deadhead', 'callIn', 'jet'] as const;
 /** v0.12.1 the crew desk's note: the fix's own line, its cost added only when the line does not already say it ('($671 overtime, morale −4) ($671)'). Pure. */
 export const deskFixBody = (msg: string, cost: number): string => `${msg}${cost && !msg.includes(usd(cost)) ? ` (${usd(cost)})` : ''}.`;
 
-/** Crew desk (every 6 h): the cheapest Crew Control fix within the limit on amber flights (at most 3 a round). */
+/**
+ * Crew desk (every 6 h): on amber flights, the cheapest Crew Control fix within its limits that crews the flight
+ * (at most 3 a round). v0.14.1 (S0228 BLU1254/BLU1278, S1027 BLU1570): each fix is tried on a copy first (its preview)
+ * and only one that leaves the flight fully crewed is applied: never a jet for some of the seats, never a ticket that
+ * leaves it short. A flight it acted on (or could not crew) is left alone until that shortage is over: no new tickets
+ * every 6 h for the same seats. When nothing within its limits works it says so once, quietly.
+ */
 export function crewDeskHour(g: GameState): number {
   const h = active(g, 'crewDesk');
   if (!h) return 0;
   const R = rulesOf(h);
+  const rows = shortFlights(g);
+  // Flights the desk already handled in this shortage (kept on the head, `fired`: 'desk:<flightId>').
+  const live = new Set(rows.map((r) => `desk:${r.flightId}`));
+  const seen = new Set((h.fired ?? []).filter((k) => live.has(k)));
   let n = 0;
-  for (const row of shortFlights(g)) {
-    if (n >= 3) break;
-    if (row.stage !== 'amber') continue;
-    // Availability and cost only (no state copies): the desk weighs cheap fixes; a jet only when its limit allows one.
-    const v = crewControl(g, row.flightId, { previews: false, only: (R.jetMax ?? 0) > 0 ? DESK_FIXES : DESK_FIXES.slice(0, 2) });
+  let tried = 0;
+  for (const row of rows) {
+    if (n >= 3 || tried >= 6) break;
+    if (row.stage !== 'amber' || seen.has(`desk:${row.flightId}`)) continue;
+    tried++;
+    // Previews of the desk's own fixes only (a ticket, a call-in and, within its limit, a jet): what each leaves.
+    const v = crewControl(g, row.flightId, { previews: true, noCard: true, only: (R.jetMax ?? 0) > 0 ? DESK_FIXES : DESK_FIXES.slice(0, 2) });
     if (!v) continue;
-    const best = v.solutions
-      .filter((s) => s.available && (s.id === 'jet' ? (R.jetMax ?? 0) > 0 && s.cost <= R.jetMax! : s.cost <= (R.fixMax ?? 8_000)))
-      .sort((a, b) => a.cost - b.cost)[0];
-    if (!best) continue;
-    const r = applyCrewFix(g, row.flightId, best.id, { confirmed: true });
+    const spend = (s: (typeof v.solutions)[number]) => s.cost + (s.preview.extraCost ?? 0);
+    const within = v.solutions.filter((s) => s.available && (s.id === 'jet' ? (R.jetMax ?? 0) > 0 && spend(s) <= R.jetMax! : spend(s) <= (R.fixMax ?? 8_000)));
+    const crews = (s: (typeof v.solutions)[number]) => s.preview.after.level !== 'missing' && s.preview.after.level !== 'illegal';
+    const best = within.filter(crews).sort((a, b) => spend(a) - spend(b))[0];
+    seen.add(`desk:${row.flightId}`);
+    if (!best) {
+      // A fix within its limits that would only crew part of it is not bought: said once per shortage, without a
+      // chime (the flight's own alarms carry on). Nothing within its limits at all: nothing to say.
+      const part = within.sort((a, b) => spend(a) - spend(b))[0];
+      if (part) pushMessage(g, {
+        tone: 'info', cat: 'crew', topic: 'head', title: `The crew desk left ${v.no} to you`,
+        body: `${part.label} (${usd(spend(part))}) would still leave ${part.preview.after.missing.length ? `${seatsText(part.preview.after.missing)} missing` : 'the crew illegal'}, so it was not bought. Open Crew Control to choose.`,
+        ref: { kind: 'flight', id: row.flightId }, cue: null,
+      });
+      continue;
+    }
+    const r = applyCrewFix(g, row.flightId, best.id, { confirmed: true, quiet: true });
     if (!r.ok) continue;
     n++;
     const f = g.flights[row.flightId];
     const mistake = slips(g, h);
     if (mistake) post(g, 'deadhead', -1_900);
-    done(g, h, 'crew', `The crew desk fixed ${f?.no ?? 'a flight'}: ${best.label.toLowerCase()}`, deskFixBody(r.msg ?? '', best.cost), { kind: 'flight', id: row.flightId },
+    const still = !!r.data?.after;
+    const changes = r.data?.changes.length ? r.data.changes.join('. ') : r.msg ?? '';
+    done(g, h, 'crew', `The crew desk ${still ? 'partly crewed' : 'crewed'} ${f?.no ?? v.no}: ${best.label.toLowerCase()}`, deskFixBody(changes, spend(best)), { kind: 'flight', id: row.flightId },
       mistake ? 'They bought a $1,900 ticket where a standby was free.' : undefined);
   }
+  h.fired = [...(h.fired ?? []).filter((k) => !k.startsWith('desk:')), ...seen];
   return n;
 }
 
