@@ -302,8 +302,8 @@ function basicChecks(g: GameState, p: Pairing, c: CrewMember, role: Role, replac
  * assignments are refused unless `force` (then kept and flagged red). The assignment is locked.
  */
 export function assignCrew(g: GameState, dutyOrFlightId: string, crewId: string, role: Role, opts: RosterOpts & { replace?: string } = {}): ActionResult<{ pairingId: string; slot: number; level: Legality }> {
-  // v0.14.1 all or nothing (crew/atomic.ts): a placement that throws leaves the trip as it was.
-  return atomic(g, 'assign crew', (error) => ({ ok: false, error }), () => assignRaw(g, dutyOrFlightId, crewId, role, opts));
+  // v0.14.1 all or nothing (crew/atomic.ts): a placement that throws, or is refused, leaves the trip as it was.
+  return atomic(g, 'assign crew', (error) => ({ ok: false, error }), () => assignRaw(g, dutyOrFlightId, crewId, role, opts), (r) => !r.ok);
 }
 
 function assignRaw(g: GameState, dutyOrFlightId: string, crewId: string, role: Role, opts: RosterOpts & { replace?: string }): ActionResult<{ pairingId: string; slot: number; level: Legality }> {

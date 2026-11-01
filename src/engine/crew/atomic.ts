@@ -43,24 +43,34 @@ function copyData<T>(v: T): T {
 
 let depth = 0;
 
+/** Puts the state back to a copy taken before a change (previewCopy) and moves every runtime index on. */
+function restore(g: GameState, snap: GameState): void {
+  const gg = g as unknown as Record<string, unknown>;
+  for (const k of Object.keys(gg)) if (!(k in snap)) delete gg[k];
+  Object.assign(g, snap);
+  touchFlights(g);
+  touchCrew(g);
+  touchCrewState(g);
+}
+
 /**
  * v0.14.1 runs a crew change all or nothing: when it throws, the state is put back as it was (a copy taken first),
  * the bug is reported (core/safety: thrown in tests, logged in the game) and `fail` answers the caller. Nested calls
  * run inside the outermost one's copy.
+ * v0.14.1 (merge) `refused`: a change that answers 'not possible' is put back too. Crew Control's fly-in took the
+ * out-of-hours crew off their seats, then found the jet could seat nobody and said so, leaving the trip with no crew
+ * (bot seed 2, EI4041 at Ibiza: its flown first leg then 'released' crew called in at Dublin there).
  */
-export function atomic<T>(g: GameState, where: string, fail: (msg: string) => T, fn: () => T): T {
+export function atomic<T>(g: GameState, where: string, fail: (msg: string) => T, fn: () => T, refused?: (r: T) => boolean): T {
   if (depth > 0) return fn();
   const snap = previewCopy(g);
   depth++;
   try {
-    return fn();
+    const r = fn();
+    if (refused?.(r)) restore(g, snap);
+    return r;
   } catch (e) {
-    const gg = g as unknown as Record<string, unknown>;
-    for (const k of Object.keys(gg)) if (!(k in snap)) delete gg[k];
-    Object.assign(g, snap);
-    touchFlights(g);
-    touchCrew(g);
-    touchCrewState(g);
+    restore(g, snap);
     safetyTrip(where, String((e as Error)?.stack ?? e));
     return fail('That change could not be made: nothing was changed.');
   } finally {

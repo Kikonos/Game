@@ -658,7 +658,9 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void
     return f.sta <= recoveryAnchor(ctx, segs, t - ci) + LIMITS.recoveryEvery;
   });
   if (ride) {
-    ride.riders = [...(ride.riders ?? []), c.id];
+    // v0.14.1 (merge) never twice on one ride (a second entry read as 'never boarded' on landing: bot seed 2, Bruno
+    // Silva rode EI4022 home to Lisbon and came off its passenger list as if he had missed it).
+    ride.riders = [...new Set([...(ride.riders ?? []), c.id])];
     noteRiders(g, ride);
     touchTickets(g);
     leaveAfterTicket(g, [c.id], ride);

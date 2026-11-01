@@ -566,7 +566,7 @@ function standbyCallOut(g: GameState, flightId: string): boolean {
     const span: [Minute, Minute] = [fix === 'callIn' ? x.d.report : x.d.report - DAY, openDuties(g, x.p).at(-1)?.release ?? x.d.release];
     const picks = pickCrew(x, lists, undefined, (id) => !takesPublishedOff(g, g.crew[id], span[0], span[1]));
     if (picks.length < x.seats.length) continue;
-    const r = atomic<Run>(g, `standby call-out on ${x.f.no}`, (error) => ({ ok: false, error }), () => runFix(g, flightId, fix, { crewIds: picks.map((y) => y.crewId) }));
+    const r = atomic<Run>(g, `standby call-out on ${x.f.no}`, (error) => ({ ok: false, error }), () => runFix(g, flightId, fix, { crewIds: picks.map((y) => y.crewId) }), (r) => !r.ok);
     if (!r.ok || BAD(flightCrewStatus(g, flightId, { live: false }).level)) continue;
     pushMessage(g, { tone: 'info', cat: 'crew', title: `${x.f.no} crewed ${fix === 'callIn' ? 'from standby' : 'on a ticket'}`, body: `${r.changes.join('. ')}.`, ref: { kind: 'flight', id: flightId } });
     return true;
@@ -2287,7 +2287,7 @@ export function applyCrewFix(g: GameState, flightId: string, fix: CrewFix, opts:
   const kind = crewAlertKind(g, flightId);
   const feed = fix === 'cancel' ? feedersOf(g, flightId).map((l) => l.id) : [];
   // The departure the row previewed (delay, jet + rest) is the one applied.
-  const r = atomic<Run>(g, `crew fix ${fix} on ${view.no}`, (error) => ({ ok: false, error }), () => runFix(g, flightId, fix, (fix === 'delay' || fix === 'jet') && opts.at === undefined && s.newDeparture ? { ...opts, at: s.newDeparture } : opts));
+  const r = atomic<Run>(g, `crew fix ${fix} on ${view.no}`, (error) => ({ ok: false, error }), () => runFix(g, flightId, fix, (fix === 'delay' || fix === 'jet') && opts.at === undefined && s.newDeparture ? { ...opts, at: s.newDeparture } : opts), (r) => !r.ok);
   if (!r.ok) return r;
   const st = stats(g);
   st.crewFixes = { ...(st.crewFixes ?? {}), [fix]: ((st.crewFixes ?? {})[fix] ?? 0) + 1 };
