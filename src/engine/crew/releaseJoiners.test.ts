@@ -35,9 +35,9 @@ describe('v0.14.1 crew changes and releases (merge)', () => {
     expect(JSON.stringify(g.pairings[p.id].slots)).toBe(before);
     expect(g.company.cash).toBe(cash);
     // A change that goes through stays.
-    atomic(g, 'test', (error) => ({ ok: false as const, error }), () => {
+    atomic<{ ok: boolean; error?: string }>(g, 'test', (error) => ({ ok: false, error }), () => {
       g.company.cash -= 1000;
-      return { ok: true as const };
+      return { ok: true };
     }, (x) => !x.ok);
     expect(g.company.cash).toBe(cash - 1000);
   });
