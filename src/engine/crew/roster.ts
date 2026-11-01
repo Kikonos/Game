@@ -2357,8 +2357,14 @@ export function repairGoneCrew(g: GameState): Pairing[] {
  * the flights, duty events, legality. No checks: callers validate (rosterActions.ts, replaceCrew).
  */
 export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember, buy?: { what: string; quiet?: boolean }): CrewPlan {
-  const cur = p.slots[slot].crewId;
+  // v0.14.1 the seat object, not its index: releasing the holder of an extra seat drops that seat (releaseCrew), so the
+  // replacement is written into it and the seat put back (a call-out or Replace for an added crew member threw here).
+  const seat = p.slots[slot];
+  if (!seat) throw new Error(`placeCrew: no seat ${slot} on ${p.id}`);
+  const cur = seat.crewId;
   if (cur) releaseCrew(g, p, cur);
+  if (!p.slots.includes(seat)) p.slots.splice(Math.min(slot, p.slots.length), 0, seat);
+  slot = p.slots.indexOf(seat);
   const hadCrew = crewCount(p) > 0;
   const plan = planCrew(g, c, p, segsOf(g, c, p.id));
   // v0.12.1 Crew Control's buy-back: the day is worked for pay and repaid (crew/buyBack.ts), no broken-day morale.

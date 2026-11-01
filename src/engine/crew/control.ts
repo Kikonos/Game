@@ -23,6 +23,7 @@ import { rotationOf, subcharter, subcharterQuote } from '../ops/subcharter';
 import { contractOf, isRevenue, stats, usd } from '../ops/util';
 import { closedAirport, closedUntil, closureCause, eventsOf, permitOf, setClosureTicketHook } from '../ops/world';
 import { hurtProse, mkHurt, type GaugeSpec, type ProblemCard, type ReachSpec, hm, limitTone } from '../problems/types';
+import { atomic, previewCopy } from './atomic';
 import { crewIssuesFor, openDuties, planCrew, readyAt } from './check';
 import { crewWindows } from './ftl';
 import { crewName } from './generate';
@@ -562,7 +563,7 @@ function standbyCallOut(g: GameState, flightId: string): boolean {
     const span: [Minute, Minute] = [fix === 'callIn' ? x.d.report : x.d.report - DAY, openDuties(g, x.p).at(-1)?.release ?? x.d.release];
     const picks = pickCrew(x, lists, undefined, (id) => !takesPublishedOff(g, g.crew[id], span[0], span[1]));
     if (picks.length < x.seats.length) continue;
-    const r = runFix(g, flightId, fix, { crewIds: picks.map((y) => y.crewId) });
+    const r = atomic<Run>(g, `standby call-out on ${x.f.no}`, (error) => ({ ok: false, error }), () => runFix(g, flightId, fix, { crewIds: picks.map((y) => y.crewId) }));
     if (!r.ok || BAD(flightCrewStatus(g, flightId, { live: false }).level)) continue;
     pushMessage(g, { tone: 'info', cat: 'crew', title: `${x.f.no} crewed ${fix === 'callIn' ? 'from standby' : 'on a ticket'}`, body: `${r.changes.join('. ')}.`, ref: { kind: 'flight', id: flightId } });
     return true;
@@ -1432,41 +1433,6 @@ function delayTimes(g: GameState, x: Ctx): Minute[] {
   return [...times].sort((a, b) => a - b).slice(0, 6);
 }
 
-/**
- * v0.8 speed: a copy of the state for a preview. Duty logs and the inbox only ever grow by new entries, so the copy
- * gets its own arrays holding the same entries (a third cheaper than cloning them).
- */
-export function previewCopy(g: GameState): GameState {
-  const { crew, messages, ...rest } = g;
-  const h = copyData(rest) as GameState;
-  h.crew = {};
-  for (const id in crew) {
-    const { log, ...c } = crew[id];
-    h.crew[id] = { ...copyData(c), log: log?.slice() ?? log };
-  }
-  h.messages = messages.slice();
-  return h;
-}
-
-/**
- * v0.9 round 4 speed: a deep copy of save data (plain objects, arrays and primitives: what serialize writes), key
- * order and undefined values kept as structuredClone keeps them, at a third of its cost for this shape. Anything
- * else (nothing in a GameState) still goes through structuredClone.
- */
-function copyData<T>(v: T): T {
-  if (typeof v !== 'object' || v === null) return v;
-  if (Array.isArray(v)) {
-    const out = new Array<unknown>(v.length);
-    for (let i = 0; i < v.length; i++) out[i] = copyData(v[i]);
-    return out as T;
-  }
-  const proto = Object.getPrototypeOf(v);
-  if (proto !== Object.prototype && proto !== null) return structuredClone(v);
-  const out: Record<string, unknown> = {};
-  for (const k in v) out[k] = copyData((v as Record<string, unknown>)[k]);
-  return out as T;
-}
-
 /** The soonest of delayTimes at which the roster crews the flight, tried on copies; null when none works. Memoized per step. */
 function delayPlan(g: GameState, x: Ctx): { at: Minute } | null {
   return memoOf(g, `dp:${x.f.id}:${x.maxDelay ?? ''}`, () => {
@@ -2298,7 +2264,7 @@ export function applyCrewFix(g: GameState, flightId: string, fix: CrewFix, opts:
   const kind = crewAlertKind(g, flightId);
   const feed = fix === 'cancel' ? feedersOf(g, flightId).map((l) => l.id) : [];
   // The departure the row previewed (delay, jet + rest) is the one applied.
-  const r = runFix(g, flightId, fix, (fix === 'delay' || fix === 'jet') && opts.at === undefined && s.newDeparture ? { ...opts, at: s.newDeparture } : opts);
+  const r = atomic<Run>(g, `crew fix ${fix} on ${view.no}`, (error) => ({ ok: false, error }), () => runFix(g, flightId, fix, (fix === 'delay' || fix === 'jet') && opts.at === undefined && s.newDeparture ? { ...opts, at: s.newDeparture } : opts));
   if (!r.ok) return r;
   const st = stats(g);
   st.crewFixes = { ...(st.crewFixes ?? {}), [fix]: ((st.crewFixes ?? {})[fix] ?? 0) + 1 };
@@ -2330,4 +2296,4 @@ export function applyCrewFix(g: GameState, flightId: string, fix: CrewFix, opts:
 
 /** Legs this fix covers for ops' crew-short decision chips. */
 export const tripPax = (ac: Aircraft, legs: Flight[]) => unitPax(ac, legs);
-export { minRest };
+export { minRest, previewCopy };

@@ -4,7 +4,7 @@
 
 import { dropClientSeats } from './clientCrew';
 import { BAL } from '../core/balance';
-import { flightsOf, nextId, removeFlights } from '../core/entities';
+import { flightsOf, nextId, removeFlights, touchTickets } from '../core/entities';
 import { cabinMinimum, extraCabinRoom, isPilot, reportMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { DAY, dayStart, yearOf } from '../core/time';
@@ -281,7 +281,17 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
     const stale = d.deadheadIds.filter((id) => { const t = g.flights[id]; return !!t && t.status === 'scheduled' && t.std >= was && t.sta <= sh.report; });
     if (stale.length) {
       d.deadheadIds = d.deadheadIds.filter((id) => !stale.includes(id));
-      removeFlights(g, stale);
+      // v0.14.1 only airline tickets are removed: a ride on one of our own legs keeps the leg (its passengers and its
+      // own crew); just this trip's crew come off it.
+      removeFlights(g, stale.filter((id) => g.flights[id].kind === 'deadhead'));
+      const mine = new Set(p.slots.map((s) => s.crewId).filter((x): x is string => !!x));
+      for (const id of stale) {
+        const t = g.flights[id];
+        if (!t || t.kind === 'deadhead' || !t.riders) continue;
+        t.riders = t.riders.filter((x) => !mine.has(x));
+        if (!t.riders.length) delete t.riders;
+        touchTickets(g);
+      }
     }
   }
   d.report = sh.report;
