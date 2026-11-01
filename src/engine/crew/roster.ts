@@ -360,6 +360,17 @@ function dropTickets(g: GameState, p: Pairing, crewId: string): void {
  * of the trip, left the old tickets unworkable). True when the crew member is acceptable again with new tickets.
  */
 function retick(g: GameState, p: Pairing, c: CrewMember): boolean {
+  // v0.14.1 (CREW-6) in the air on their ticket out, landing at the trip's departure before it reports: that ticket
+  // gets them there; only the way home is re-planned. Planned afresh, a second ticket out was bought from the city
+  // they had just left (it still read as where they were), and the re-check then took the whole crew off the trip
+  // ('At CMN, not LIS for the ticket to CMN') while they slept at the departure (bot seed 7, AT1060).
+  const first = openDuties(g, p)[0];
+  const dep = first ? g.flights[first.flightIds[0]]?.from ?? first.restAt : undefined;
+  const air = (crewIx(g).tickets.get(c.id) ?? []).find((f) => f.status === 'scheduled' && f.std <= g.now && f.sta > g.now && aboard(f, c.id));
+  if (first && air && air.to === dep && air.sta <= first.report) {
+    rehome(g, p, new Set([c.id]));
+    return acceptable(g, planCrew(g, c, p, segsOf(g, c, p.id), true));
+  }
   const plan = planCrew(g, c, p, segsOf(g, c, p.id));
   if (!acceptable(g, plan)) return false;
   dropTickets(g, p, c.id);
@@ -2111,13 +2122,13 @@ setCrewTrailOkHook((g, p, c) => {
 });
 
 /** A trip under way whose end moved: the crew's tickets home are re-planned from its new last duty (one per group). */
-function rehome(g: GameState, p: Pairing): void {
+function rehome(g: GameState, p: Pairing, only?: Set<string>): void {
   const duties = openDuties(g, p);
   if (!duties.length) return;
   const last = duties[duties.length - 1];
   const plans = new Map<string, CrewPlan>();
   for (const s of p.slots) {
-    const c = s.crewId ? g.crew[s.crewId] : undefined;
+    const c = s.crewId && (!only || only.has(s.crewId)) ? g.crew[s.crewId] : undefined;
     if (!c) continue;
     for (const d of duties) {
       for (const fid of [...d.deadheadIds]) {
