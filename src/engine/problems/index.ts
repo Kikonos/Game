@@ -53,7 +53,6 @@ export function problemFor(g: GameState, subject: ProblemRef): ProblemCard | nul
     case 'invoiceOverdue': return invoiceOverdueCard(g, id);
     case 'lossMonth': return lossMonthCard(g);
     case 'leaseDue': return leaseDueCard(g, id);
-    case 'goalMiss': return null;
     case 'deliveryWait': return deliveryWaitCard(g, id);
     case 'noFerry': return noFerryCard(g, id);
     case 'ferryUncrewed': return ferryUncrewedCard(g, id);
@@ -93,7 +92,7 @@ export function problemFor(g: GameState, subject: ProblemRef): ProblemCard | nul
 const SEV = { red: 0, amber: 1 } as const;
 const KIND_RANK: ProblemKind[] = [
   'aog', 'grounded', 'crewHours', 'crewShort', 'crewIllegal', 'ferryUncrewed', 'cashNegative', 'cashLow', 'checkOverdue', 'checkClash', 'deliveryWait', 'crewSick', 'counterExpiry', 'changeRequest',
-  'invoiceOverdue', 'checkDue', 'checkNoSlot', 'offerFit', 'noFerry', 'leaseReturn', 'leaseDue', 'refit', 'crewResigned', 'crewTight', 'lossMonth', 'penalty', 'contractCancelled', 'crewReach', 'crewRest', 'crewFdp', 'goalMiss',
+  'invoiceOverdue', 'checkDue', 'checkNoSlot', 'offerFit', 'noFerry', 'leaseReturn', 'leaseDue', 'refit', 'crewResigned', 'crewTight', 'lossMonth', 'penalty', 'contractCancelled', 'crewReach', 'crewRest', 'crewFdp',
   // v0.7.2
   'restSeats', 'captainAsFo', 'sale',
   // v0.7.3

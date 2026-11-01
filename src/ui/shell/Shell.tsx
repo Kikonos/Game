@@ -10,6 +10,7 @@ import { fmtDate, fmtTime } from '../../engine/core/time';
 import { TailBadge } from '../components/Logo';
 import { money, moneyDelta } from '../format';
 import { GameModals, GlobalModals } from '../game/Modals';
+import { ErrorBoundary } from '../ErrorBoundary';
 import { OpsMap } from '../map/OpsMap';
 import { CompanyScreen } from '../screens/Company';
 import { ContractsScreen } from '../screens/Contracts';
@@ -261,6 +262,8 @@ export function Shell() {
       <TopBar compact={tier === 'compact'} />
       <Rail />
       <main className={`main ${tab === 'map' ? 'no-scroll' : ''}`}>
+        {/* v0.14.1 (CODE-06) a screen that fails to draw shows a calm panel; the bar, the rail and the game go on. */}
+        <ErrorBoundary scope="screen" resetKey={tab}>
         {tab === 'map' && <OpsMap />}
         {/* The map hint sits where the selection panel opens: hidden while one is open. */}
         {tab === 'map' && !s.nav.sel && <ScreenHint id="map" className="float" />}
@@ -271,9 +274,12 @@ export function Shell() {
         {tab === 'finance' && <FinanceScreen />}
         {tab === 'company' && <CompanyScreen />}
         {tab === 'inbox' && <InboxScreen />}
+        </ErrorBoundary>
       </main>
-      <GameModals />
-      <GlobalModals />
+      <ErrorBoundary scope="modal" resetKey={s.modal}>
+        <GameModals />
+        <GlobalModals />
+      </ErrorBoundary>
     </div>
   );
 }

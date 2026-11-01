@@ -356,6 +356,10 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
       return { tab: 'contracts', view: 'tenders', sel: ref };
     case 'trip':
       return { tab: 'contracts', view: 'markets' };
+    // v0.14.1 (CODE-04) a ramp inspection or an audit: the Safety card on Company › Overview (was: nowhere).
+    case 'ramp':
+    case 'audit':
+      return { tab: 'company', view: 'overview' };
   }
   return null;
 }

@@ -8,6 +8,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { serialize } from './engine/save';
 import { App } from './ui/App';
+import { ErrorBoundary } from './ui/ErrorBoundary';
 import { registerOffline } from './ui/offline';
 import { setResumeSave, store } from './ui/store';
 import { installTouchClass } from './ui/useMedia';
@@ -40,7 +41,9 @@ function start(data: { save?: string } = {}) {
   if (data.save) setResumeSave(data.save);
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <App />
+      <ErrorBoundary scope="app">
+        <App />
+      </ErrorBoundary>
     </StrictMode>,
   );
   registerOffline();

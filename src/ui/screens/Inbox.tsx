@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { fmtDateTime, fmtTime } from '../../engine/core/time';
 import type { GameState, Message } from '../../engine/core/types';
 import { hurtBadges, messageBadges, problemAt, problemFor, problems, usdShort } from '../../engine/problems';
+import { markRead } from '../../engine/core/messages';
 import { reopenLatePayment } from '../../engine/ops';
 import { HurtBadges, ProblemCardView } from '../components/ProblemCard';
 import { Empty, Tabs } from '../components/ui';
@@ -24,10 +25,8 @@ const PAGE = 80;
 
 /** Marks a message read and follows its ref (v0.12.1 exported: a toast and its log line open the same way). */
 export function openMessage(g: GameState, m: Message) {
-  if (!m.read) store.update((gg) => {
-    const x = gg.messages.find((y) => y.id === m.id);
-    if (x) x.read = true;
-  });
+  // v0.14.1 (CODE-09) the engine's own action (was a copy of it here).
+  if (!m.read) store.update((gg) => void markRead(gg, [m.id]));
   // v0.7: a market alert opens Fleet → Market at its card, unless the offer has gone.
   if (m.ref?.kind === 'market' && !g.market.aircraft.some((o) => o.id === m.ref!.id && o.expires > g.now)) {
     store.toast('info', 'This offer has gone', 'The seller placed the aircraft elsewhere. New offers come every few weeks.');
@@ -208,9 +207,7 @@ export function InboxScreen() {
     if (m.topic === 'world') counts.set('world', (counts.get('world') ?? 0) + 1);
     if (isProblemMessage(m, g)) counts.set('problems', (counts.get('problems') ?? 0) + 1);
   }
-  const markAll = () => store.update((gg) => {
-    for (const m of gg.messages) if (store.shows(m)) m.read = true;
-  });
+  const markAll = () => store.update((gg) => void markRead(gg, gg.messages.filter((m) => store.shows(m)).map((m) => m.id)));
   const anyProblem = problems(g).length > 0 || g.decisions.length > 0 || msgs.some((m) => m.tone === 'bad' && g.now - m.t <= PROBLEM_RECENT);
   const cats: { id: MsgFilter; label: string }[] = [
     MSG_CATS[0],

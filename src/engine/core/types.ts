@@ -876,7 +876,7 @@ export type ProblemKind =
   | 'crewShort' | 'crewIllegal' | 'crewTight' | 'crewReach' | 'crewRest' | 'crewFdp' | 'crewSick' | 'crewResigned'
   | 'aog' | 'checkDue' | 'checkOverdue' | 'checkClash' | 'checkNoSlot' | 'grounded'
   | 'offerFit' | 'counterExpiry' | 'changeRequest' | 'penalty' | 'contractCancelled'
-  | 'cashLow' | 'invoiceOverdue' | 'lossMonth' | 'leaseDue' | 'goalMiss'
+  | 'cashLow' | 'invoiceOverdue' | 'lossMonth' | 'leaseDue'
   /** v0.9 round 4 (§S): cash below zero, the day it happens. */
   | 'cashNegative'
   | 'deliveryWait' | 'ferryUncrewed' | 'refit' | 'leaseReturn'

@@ -101,7 +101,7 @@ describe('settings and UI size', () => {
   it('settings saved before devices: Device and Size on Auto; a stored choice stays; junk falls back', () => {
     expect(settingsFrom({}).device).toBe('auto');
     expect(settingsFrom({}).uiSize).toBe('auto');
-    expect(settingsFrom({ units: 'nm' }).device).toBe('auto');
+    expect(settingsFrom({ sound: true }).device).toBe('auto');
     expect(settingsFrom({ device: 'ipad', uiSize: 'large' })).toMatchObject({ device: 'ipad', uiSize: 'large' });
     expect(settingsFrom({ device: 'toaster' as never, uiSize: 9 as never })).toMatchObject({ device: 'auto', uiSize: 'auto' });
   });

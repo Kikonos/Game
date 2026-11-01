@@ -102,6 +102,9 @@ describe('finance and inbox helpers', () => {
     const open = Object.values(g.offers).find((o) => o.status === 'open');
     if (open) expect(refTarget(g, { kind: 'offer', id: open.id })?.offerId).toBe(open.id);
     expect(filterMessages(g.messages, 'goal').every((m) => m.cat === 'goal')).toBe(true);
+    // v0.14.1 (CODE-04) ramp and audit messages open the Safety card (Company › Overview).
+    expect(refTarget(g, { kind: 'ramp', id: 'rp1' })).toEqual({ tab: 'company', view: 'overview' });
+    expect(refTarget(g, { kind: 'audit', id: 'au1' })).toEqual({ tab: 'company', view: 'overview' });
   });
 });
 

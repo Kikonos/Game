@@ -81,8 +81,8 @@ describe('competing bids (§3.3)', () => {
       o.firstRefusal = undefined;
       rollRivalBid(g, o);
       const bid = o.rivalBid as ContractOffer['rivalBid'];
-      if (bid && /had an? .+ at .+, ours were [\d,]+ km away/.test(bid.why)) found = true;
-      if (bid && o.urgency === 'urgent' && !/quoted/.test(bid.why)) expect(bid.why).toMatch(/could fly tonight|km away/);
+      if (bid && /had an? .+ at .+, ours were [\d,]+ nm away/.test(bid.why)) found = true;
+      if (bid && o.urgency === 'urgent' && !/quoted/.test(bid.why)) expect(bid.why).toMatch(/could fly tonight|nm away/);
       delete g.offers[o.id];
     }
     expect(found).toBe(true);

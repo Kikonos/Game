@@ -87,11 +87,19 @@ function Why({ g, tone, ref }: { g: GameState; tone: string; ref: Ref }) {
   );
 }
 
+/** v0.14.1 (CODE-06) each distinct failure is logged to the console once (was silent: a bug read as a plausible 'ok'). */
+const logged = new Set<string>();
+
 /** Never let a module stub or a half-built API take the map down. */
 function safe<T>(fn: () => T, fallback: T): T {
   try {
     return fn();
-  } catch {
+  } catch (e) {
+    const key = `${e instanceof Error ? e.message : String(e)}|${fn.toString().slice(0, 80)}`;
+    if (!logged.has(key)) {
+      logged.add(key);
+      console.warn('[Block Hours] a map panel read failed; showing a fallback', e);
+    }
     return fallback;
   }
 }
