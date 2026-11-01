@@ -16,6 +16,37 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.14.1',
+    name: 'Fix pack',
+    features: [
+      'Empty flights into a job are planned around the crew who fly it: if the aircraft is free it flies there the evening before and the crew sleep there; otherwise extra pilots with in-flight rest, or a separate ferry crew while the flight crew travel by airline.',
+      'Night curfews are kept on every flight. A flight that would leave or land inside one gets a card (wait for the opening, divert or cancel); an empty flight waits for the morning.',
+      'If a screen or window ever fails to draw, the game pauses, saves and tells you calmly instead of going blank.',
+    ],
+    improvements: [
+      'The flight sheet says when a day needs in-flight rest ("3 pilots with bunks allow 17:00") and only says "Not needed" when it really is.',
+      'The crew desk only pays for a fix that fully crews the flight; when it can\'t, it says so once and leaves it to you.',
+      'The cash forecast sees dry leases, administrators\' payouts and contracts ending mid-month; "Cash runs out" names the right day; the top bar counts one-off costs once.',
+      'A month that lost money says which costs grew. Dry leases show what they invoiced. Dates of base programmes and tenders are the local days.',
+      'Fairs and clients in your home city need no flights or hotel. Tenders are decided weeks before the job starts. A Newcomer sees about 1–2 offers a week.',
+      'Offer cards name the real problem and offer Book A-check when a check is due. Lease extensions start their new rent when the old lease ends, never below the type\'s floor.',
+      'The game loads faster. Distances are in nautical miles throughout (the unused units setting is gone).',
+    ],
+    fixes: [
+      'A crewed day made illegal by a client\'s retime is re-planned, not just flagged "Crew illegal" (CS-TTL FRA–AMS before AMS–VRA).',
+      'A few minutes\' delay no longer re-makes a crewed empty flight with no crew; a card on an empty flight no longer cancels paid flights two weeks later.',
+      'Crew at the gate stay on their flight when only their ticket home is stale; crew in the air are no longer bought a second ticket and taken off.',
+      'Replacing a crew member in an added seat no longer crashes; a crew change never stops half-way.',
+      'A paid flight that crew ride on is never deleted with their trip.',
+      'Duty dialog: no "Legal" on a too-long day; rest shows the real rest; release shows its date.',
+      'Handing a lease back with its C-check due now costs the check instead of nothing.',
+      'Leads from sales trips expire properly; airlines in administration stop sending work; a won tender can\'t be countered.',
+      'An aircraft idle abroad before its check at home flies home straight away.',
+      'A world tour short of crew at the start slips or drops only the stops it can\'t reach, instead of being cancelled whole.',
+      'Penalty cards open again; ramp and audit messages open the Safety card.',
+    ],
+  },
+  {
     version: 'v0.14',
     name: 'Commercial',
     features: [
