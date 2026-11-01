@@ -13,13 +13,15 @@ import { MARKET_BY_ID, marketOfCountry, type MarketId } from '../../data/markets
 import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
 import { post } from '../core/ledger';
+import { schedule } from '../core/queue';
 import { pushMessage } from '../core/messages';
 import { chance, int, weightedPick } from '../core/rng';
 import { DAY, fmtDay, fmtTime, fromUTC, localOffset, toDate } from '../core/time';
 import type { ActionResult, Archetype, Client, GameState, Minute } from '../core/types';
 import { ticketPrice, ticketSlotOk, slotAfter } from '../crew/timeline';
 import { itinerary, ticketBlock, type CommercialLeg } from '../ops/commercial';
-import { generateOffer } from '../contracts/offers';
+import { closedAirport } from '../ops/world';
+import { generateOffer, setClosureTripsHook } from '../contracts/offers';
 import { hajjTender } from '../contracts/missions';
 import { bumpClient } from '../contracts/relations';
 import { issueTender, roundAt } from './tenders';
@@ -151,6 +153,8 @@ export interface TripQuote {
   nights: number;
   /** Who you will meet ('Tour operators and leisure airlines'). */
   meets: string;
+  /** v0.14.1 at our home base: no flights, no hotel (the pass and local costs). */
+  local?: boolean;
 }
 
 /** What a trip would cost and when it would fly (the planner's card). Pure. */
@@ -175,6 +179,7 @@ export function tripQuote(g: GameState, who: Traveller, target: { fairId?: strin
   } else {
     const c = target.clientId ? g.clients[target.clientId] : undefined;
     if (!c || !AIRPORT_BY_CODE[c.base]) return emptyQuote('Choose a client to visit');
+    if (c.ceased !== undefined) return emptyQuote(`${c.name} no longer flies`);
     kind = 'visit';
     at = c.base;
     where = `${city(c.base)}, ${c.name}`;
@@ -190,6 +195,17 @@ export function tripQuote(g: GameState, who: Traveller, target: { fairId?: strin
   if (who === 'analyst' && !g.heads?.analyst?.hired) return { ...q, why: 'Hire a commercial analyst first' };
   const busy = travellers(g).find((x) => x.who === who)?.tripId;
   if (busy) return { ...q, why: 'Already on a trip' };
+  // v0.14.1 a fair (or a client) in our home city: no flights and no hotel, the pass and a per diem a day.
+  if (at === home) {
+    const leave = start - 60;
+    if (g.now + 60 > leave) return { ...q, why: 'Too late: it has started' };
+    const back = end + 60;
+    const perDiem = Math.max(1, Math.ceil((end - start) / DAY)) * TRIPS.perDiem;
+    return {
+      ...q, ok: true, local: true, out: { from: home, to: home, std: leave, sta: leave }, back: { from: home, to: home, std: back, sta: back },
+      perDiem, total: pass + perDiem,
+    };
+  }
   const plan = planTickets(g, home, at, start, end);
   if ('why' in plan) return { ...q, why: plan.why };
   const { out, back } = plan;
@@ -217,11 +233,12 @@ export function bookTrip(g: GameState, who: Traveller, target: { fairId?: string
   const t: SalesTrip = {
     id: nextId(g, 'tp'), who, name, kind: q.kind, ...(target.fairId ? { fairId: target.fairId } : {}), ...(target.clientId ? { clientId: target.clientId } : {}),
     at: q.at, start: q.start, end: q.end, out: q.out, back: q.back, booked: g.now,
-    cost: { tickets: q.tickets, pass: q.pass, hotel: q.hotel, perDiem: q.perDiem }, status: 'planned',
+    cost: { tickets: q.tickets, pass: q.pass, hotel: q.hotel, perDiem: q.perDiem }, status: 'planned', ...(q.local ? { local: true } : {}),
   };
   com(g).trips.push(t);
   post(g, 'sales', -(q.tickets + q.pass));
   comStats(g).trips++;
+  if (q.local) return { ok: true, msg: `${name === 'You' ? 'You go' : `${name} goes`} to ${q.title} here in ${city(q.at)} from ${fmtDay(q.start)}: no flights needed`, data: { tripId: t.id } };
   const leg = q.legsOut[0];
   return { ok: true, msg: `${name === 'You' ? 'You fly' : `${name} flies`} to ${city(q.at)} ${fmtDay(q.out.std)} ${fmtTime(q.out.std)} UTC (${fmtTime(q.out.std, q.out.from)} local)${leg ? ` on ${leg.no}` : ''}`, data: { tripId: t.id } };
 }
@@ -231,25 +248,28 @@ export function cancelTrip(g: GameState, tripId: string): ActionResult {
   const t = com(g).trips.find((x) => x.id === tripId);
   if (!t || t.status !== 'planned') return { ok: false, error: 'Only a trip that has not left can be called off' };
   if (g.now >= t.out.std) return { ok: false, error: 'Already on the way' };
-  callOff(g, t, 'You called it off');
-  return { ok: true, msg: `Trip called off: ${usdK(t.cost.pass)} pass refunded` };
+  const pass = t.cost.pass;
+  callOff(g, t, 'You called it off', false);
+  return { ok: true, msg: pass ? `Trip called off: ${usdK(pass)} pass refunded` : 'Trip called off' };
 }
 
-function callOff(g: GameState, t: SalesTrip, why: string): void {
+/**
+ * Calls a trip off: the pass refunded, and (v0.14.1) the seats too when a closure stopped the airline's flights. The
+ * trip's cost then reads what was really paid (the seats we keep, nothing for a hotel or per diem never spent).
+ */
+function callOff(g: GameState, t: SalesTrip, why: string, refundSeats: boolean): void {
   t.status = 'cancelled';
   t.why = why;
-  if (t.cost.pass) post(g, 'sales', t.cost.pass);
+  const back = t.cost.pass + (refundSeats ? t.cost.tickets : 0);
+  if (back) post(g, 'sales', back);
+  t.cost = { tickets: refundSeats ? 0 : t.cost.tickets, pass: 0, hotel: 0, perDiem: 0 };
 }
 
 // ---------- daily: departures, closures, the way home ----------
 
 export function dailyTrips(g: GameState): void {
+  recheckTrips(g);
   for (const t of com(g).trips) {
-    if (t.status === 'planned' && t.out.std > g.now && !ticketSlotOk(g, t.out.from, t.out.to, t.out.std, t.out.sta)) {
-      callOff(g, t, `${city(t.at)} is closed`);
-      pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Trip called off: ${tripTitle(t)}`, body: `${city(t.at)} is closed for now. The pass is refunded; the seats are not.`, ref: { kind: 'trip', id: t.id }, cue: 'notice' });
-      continue;
-    }
     if (t.status === 'planned' && g.now >= t.out.std) t.status = 'away';
     if (t.status === 'away' && g.now >= t.back.sta) tripDone(g, t);
   }
@@ -257,6 +277,41 @@ export function dailyTrips(g: GameState): void {
   const c = com(g);
   if (c.trips.length > 30) c.trips = c.trips.filter((t) => t.status === 'planned' || t.status === 'away' || g.now - t.back.sta < 365 * DAY);
 }
+
+/**
+ * v0.14.1 the seats against closures (daily, and when a closure starts), as crew tickets are: a trip not yet left
+ * whose outbound seat no longer exists is called off (pass and seats refunded: the airline's flight cannot go); a
+ * way home that no longer exists (the traveller is there, or will be) is rebooked on the first seat after it, with the
+ * extra hotel nights and per diem, and a note. Local trips fly nothing.
+ */
+export function recheckTrips(g: GameState): void {
+  for (const t of com(g).trips) {
+    if (t.local || (t.status !== 'planned' && t.status !== 'away')) continue;
+    if (t.status === 'planned' && t.out.std > g.now && !ticketSlotOk(g, t.out.from, t.out.to, t.out.std, t.out.sta)) {
+      const shut = closedAirport(g, t.out.from, t.out.std) ? t.out.from : t.at;
+      callOff(g, t, `${city(shut)} is closed`, true);
+      pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Trip called off: ${tripTitle(t)}`, body: `${city(shut)} is closed for now, so the flight cannot go. The pass and the seats are refunded.`, ref: { kind: 'trip', id: t.id }, cue: 'notice' });
+      continue;
+    }
+    const b = t.back;
+    if (b.std <= g.now || ticketSlotOk(g, b.from, b.to, b.std, b.sta)) continue;
+    const seat = seatAfter(g, b.from, b.to, Math.max(b.std, g.now) + 60);
+    // None within the search horizon: try again tomorrow (the trip waits, a day later).
+    const next = seat ?? { ...b, std: b.std + DAY, sta: b.sta + DAY };
+    const extra = Math.max(1, Math.round((next.std - b.std) / DAY));
+    t.back = next;
+    t.cost = { ...t.cost, hotel: t.cost.hotel + extra * hotelRate(g), perDiem: t.cost.perDiem + extra * TRIPS.perDiem };
+    t.why = `${city(b.from)} closed: home ${fmtDay(next.std)}`;
+    const shut = closedAirport(g, b.from, b.std) ? b.from : b.to;
+    pushMessage(g, {
+      tone: 'warn', cat: 'commercial', title: `${t.name === 'You' ? 'You are' : `${t.name} is`} stuck in ${city(b.from)}`,
+      body: `${city(shut)} is closed, so the flight home cannot go. ${seat ? `Rebooked ${fmtDay(seat.std)} ${fmtTime(seat.std)} UTC (${fmtTime(seat.std, seat.from)} local)` : 'No seat yet: we try again tomorrow'}; ${extra} more night${extra > 1 ? 's' : ''} of hotel and per diem.`,
+      ref: { kind: 'trip', id: t.id }, cue: 'notice',
+    });
+  }
+}
+
+setClosureTripsHook(recheckTrips);
 
 export const tripTitle = (t: SalesTrip): string => (t.kind === 'fair' ? FAIR_BY_ID[t.fairId ?? '']?.name ?? 'Trade fair' : `Visit to ${city(t.at)}`);
 
@@ -282,7 +337,9 @@ function tripDone(g: GameState, t: SalesTrip): void {
   if (f) {
     const pool = audience(g, f);
     // The airlines of the tender issuers not in the game yet may be met too (added on meeting).
-    const extra = TENDER_CLIENT_SEEDS.filter((s) => f.meets.includes('airline') && inAudience(f, s.country) && !pool.some((c) => c.name === s.name));
+    // v0.14.1 not one that is in the game and has stopped flying (audience leaves it out; it came back as an extra).
+    const gone = new Set(Object.values(g.clients).filter((c) => c.ceased !== undefined || c.rivalId).map((c) => c.name));
+    const extra = TENDER_CLIENT_SEEDS.filter((s) => f.meets.includes('airline') && inAudience(f, s.country) && !pool.some((c) => c.name === s.name) && !gone.has(s.name));
     const n = int(r, TRIPS.meet[0], TRIPS.meet[1]);
     const cands: (Client | string)[] = [...pool, ...extra.map((s) => s.name)];
     for (let i = 0; i < n && cands.length; i++) {
@@ -302,9 +359,9 @@ function tripDone(g: GameState, t: SalesTrip): void {
         bumpClient(g, c.id, TRIPS.fairKnownRel, `We were at ${f.name}`);
       }
     }
-  } else if (t.clientId && g.clients[t.clientId]) {
+  } else if (t.clientId && g.clients[t.clientId] && g.clients[t.clientId].ceased === undefined) {
     met.push(g.clients[t.clientId]);
-    bumpClient(g, t.clientId, TRIPS.visitRel, `${t.name} visited them`);
+    bumpClient(g, t.clientId, TRIPS.visitRel, `${t.name === 'You' ? 'You' : t.name} visited them`);
     // v0.14 a visit makes us better known in the client's market.
     const id = clientMarket(g.clients[t.clientId]);
     gains = [{ id, gain: bumpPresence(g, id, PRESENCE.visit * (0.8 + 0.4 * skill)) }];
@@ -327,7 +384,7 @@ function tripDone(g: GameState, t: SalesTrip): void {
     : 'no firm leads this time';
   const known = presenceText(t);
   pushMessage(g, {
-    tone: leads.length ? 'good' : 'info', cat: 'commercial', title: `${t.name} is back from ${tripTitle(t)}`,
+    tone: leads.length ? 'good' : 'info', cat: 'commercial', title: `${t.name === 'You' ? 'You are' : `${t.name} is`} ${t.local ? 'back in the office from' : 'back from'} ${tripTitle(t)}`,
     body: `Met ${names.length ? names.join(', ') : 'nobody new'}. ${leads.length ? 'Leads' : 'Result'}: ${leadText}.${known ? ` Better known in ${known}.` : ''} Cost ${usdK(t.cost.tickets + t.cost.pass + t.cost.hotel + t.cost.perDiem)}.`,
     ref: leads[0]?.offerId ? { kind: 'offer', id: leads[0].offerId } : leads[0]?.tenderId ? { kind: 'tender', id: leads[0].tenderId } : { kind: 'trip', id: t.id },
   });
@@ -342,6 +399,8 @@ export function presenceText(t: SalesTrip): string {
 
 /** One lead: in tender season an airline's invitation to tender; else an offer asked of us first (no rival bidding). */
 function makeLead(g: GameState, t: SalesTrip, c: Client, f: Fair | undefined): TripLead | null {
+  // v0.14.1 an airline in administration asks for nothing.
+  if (c.ceased !== undefined) return null;
   const round = roundAt(g.now);
   const c0 = com(g);
   if (round && c.kind === 'airline' && TENDER_ISSUERS.some((x) => x.name === c.name && (round.kind === 'summer' || x.winter)) && !c0.tenders.some((x) => x.clientId === c.id && x.status === 'open')) {
@@ -357,8 +416,14 @@ function makeLead(g: GameState, t: SalesTrip, c: Client, f: Fair | undefined): T
     }
     o.firstRefusal = true;
     delete o.rivalBid;
+    // v0.14.1 a lead is a written offer asked of us by name (never a call), with at least 5 days to answer. The
+    // longer expiry gets its own 'offer.expire': the one generateOffer queued fires early and finds it still due
+    // (it used to sit 'open' forever, past the job's start, blocking that client's next request).
+    delete o.call;
+    const was = o.expires;
     o.expires = Math.max(o.expires, Math.min(o.start - 12 * 60, g.now + 5 * DAY));
-    o.blurb = `${t.kind === 'fair' ? `Met at ${f?.name ?? 'the fair'}` : `After ${t.name}'s visit`}: they asked us first. ${o.blurb}`;
+    if (o.expires !== was) schedule(g, o.expires, 'offer.expire', o.id);
+    o.blurb = `${t.kind === 'fair' ? `Met at ${f?.name ?? 'the fair'}` : t.name === 'You' ? 'After your visit' : `After ${t.name}'s visit`}: they asked us first. ${o.blurb}`;
     return { clientId: c.id, kind: 'offer', offerId: o.id };
   }
   return null;
@@ -410,13 +475,15 @@ export function tripNow(g: GameState, t: SalesTrip): string {
   const now = g.now;
   if (t.status === 'cancelled') return `Called off${t.why ? `: ${t.why}` : ''}`;
   if (t.status === 'done') return `Back ${fmtDay(t.back.sta)}`;
+  // v0.14.1 a fair or a client in our home city: no flights.
+  if (t.local) return now < t.start ? `Goes ${fmtDay(t.start)} (here in ${city(t.at)})` : `At ${tripTitle(t)}`;
   const legOf = (k: TravelTicket) => itinerary(k.from, k.to, k.std, k.sta).find((l) => l.dep <= now && now < l.arr);
   if (now < t.out.std) return `Leaves ${fmtDay(t.out.std)} ${fmtTime(t.out.std)} UTC (${fmtTime(t.out.std, t.out.from)} local)`;
   if (now < t.out.sta) {
     const l = legOf(t.out);
     return l ? `Flying ${l.from}–${l.to} on ${l.no}` : `Connecting on the way to ${city(t.at)}`;
   }
-  if (now < t.back.std) return now < t.start ? `In ${city(t.at)}, meetings from ${fmtDay(t.start)}` : `At ${tripTitle(t)}`;
+  if (now < t.back.std) return now < t.start ? `In ${city(t.at)}, meetings from ${fmtDay(t.start)}` : now > t.end && t.why ? `In ${city(t.at)}: ${t.why}` : `At ${tripTitle(t)}`;
   const l = legOf(t.back);
   return l ? `Flying home on ${l.no}` : 'On the way home';
 }
@@ -425,7 +492,7 @@ export function tripNow(g: GameState, t: SalesTrip): string {
 export function travelLegs(g: GameState, t0: Minute, t1: Minute): { ticketId: string; legs: CommercialLeg[]; who: string; tripId: string }[] {
   const out: { ticketId: string; legs: CommercialLeg[]; who: string; tripId: string }[] = [];
   for (const t of g.com?.trips ?? []) {
-    if (t.status === 'cancelled') continue;
+    if (t.status === 'cancelled' || t.local) continue;
     for (const [k, tk] of [['o', t.out], ['b', t.back]] as const) {
       if (tk.std >= t1 || tk.sta <= t0) continue;
       out.push({ ticketId: `${t.id}~${k}`, legs: itinerary(tk.from, tk.to, tk.std, tk.sta), who: t.name, tripId: t.id });

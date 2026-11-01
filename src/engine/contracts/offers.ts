@@ -40,7 +40,7 @@ import { closedAirport, closedUntil, closurePlanned, inWarZone, permitEvent, set
 import { setClosurePlannedHook, setOpenFromHook } from './schedule';
 import { curfewOk, curfewShift } from '../core/curfew';
 import type { HajjDates } from '../../data/worldCalendar';
-import { demandFactor, marketPerWeek } from '../ops/market';
+import { demandFactor, marketPerWeek, SEASON_F } from '../ops/market';
 export { marketPerWeek };
 import { afterOfferDays, isQuiet, QUIET_MARKET_OFFERS } from '../ops/director';
 import { marketTilt, presenceWeight } from '../commercial/presence';
@@ -48,8 +48,6 @@ import { clientCrewOnCabin, fuelFactor, MISSION_BUILDERS, missionWeights, presid
 
 // ---------- process ----------
 
-/** Seasonal demand by month, Jan–Dec (DESIGN §5.1.1). */
-const SEASON_F = [0.7, 0.9, 1.1, 1.2, 1.1, 1.0, 1.0, 0.9, 0.9, 0.9, 0.8, 0.9];
 
 /** Offer rate per day: v0.14 marketPerWeek × seasonF (was BAL.offersPerWeek × fleetF × seasonF × repF). */
 export function offerRate(g: GameState): number {
@@ -283,7 +281,11 @@ export function inMarket(client: Client, a: Airport): boolean {
  */
 export function nearClient(ctx: Ctx, list: Client[]): Client | undefined {
   const at = ctx.window?.at ?? ctx.g.company.homeBase;
-  if (ctx.o.client) return list.find((c) => c.id === ctx.o.client) ?? ctx.g.clients[ctx.o.client];
+  // v0.14.1 a client asked for by name (a lead, a tender's ask, repeat work) that has stopped flying sends nothing.
+  if (ctx.o.client) {
+    const c = list.find((x) => x.id === ctx.o.client) ?? ctx.g.clients[ctx.o.client];
+    return c && c.ceased === undefined ? c : undefined;
+  }
   // v0.14 the market-presence clients (data/naming.ts CLIENT_SEEDS_V014) come through the market and our trips only:
   // an ordinary offer, or one asked of them by name (a lead, repeat business, a tender).
   if (!ctx.o.ordinary) list = list.filter((c) => !isMarketClient(c));
@@ -984,7 +986,7 @@ function troopRotation(ctx: Ctx): Draft | null {
   return {
     archetype: 'troopRotation', client,
     title: titleFor(ctx, un ? 'unRotation' : 'troopRotation', client, { from: home, to: mission, n, start: legs[0].dep, event: ms?.name, pk: ms?.pk }, un ? `UN rotation to ${city(mission)}` : `Troop rotation to ${city(mission)}`),
-    blurb: `${client.name}: ${n} rotations ${home}–${mission} ${pick(g, F.MISSIONS)}, every ${step || 1} days or so from ${fmtDay(legs[0].dep)}. Night-stop at ${mission}, security-vetted crew, payment in arrears.`,
+    blurb: `${client.name}: ${n} rotations ${home}–${mission} ${pick(g, F.MISSIONS)}, every ${(step || 1) === 1 ? 'day' : `${step} days`} or so from ${fmtDay(legs[0].dep)}. Night-stop at ${mission}, security-vetted crew, payment in arrears.`,
     pattern: { kind: 'legs', legs },
     // v0.8 fix pack: seats = passengers (the contingent); the UN wants all-economy.
     req: { minSeats: pax, ...(un ? { layouts: ['all-economy'] as CabinLayout[] } : {}), extraCabin: 0, approvals: [] },
@@ -1189,6 +1191,8 @@ export function lookAlike(g: GameState, o: ContractOffer): ContractOffer | undef
 
 function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null {
   const home = g.company.homeBase;
+  // v0.14.1 an airline in administration sends no work at all (asked for by name, a mission, repeat business).
+  if (g.clients[d.client.id]?.ceased !== undefined) return null;
   // One live request per client and kind of job.
   if (Object.values(g.offers).some((x) => x.clientId === d.client.id && x.archetype === d.archetype && (x.status === 'open' || x.status === 'countered'))) return null;
   const p = d.pattern;
@@ -1516,7 +1520,9 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
 
 /** 'offer.spawn': generate an offer, schedule the next spawn. */
 export function onOfferSpawn(g: GameState, _ev: SimEvent): void {
-  if (!generateOffer(g, undefined, { ordinary: true })) generateOffer(g, undefined, { ordinary: true });
+  // v0.14.1 none in a quiet spell, even when the spawn lands on one (a gap rounded onto a busy spell's end, a spawn
+  // queued by an older save or before a pace change): it waits for the next busy day.
+  if (!isQuiet(g) && !generateOffer(g, undefined, { ordinary: true })) generateOffer(g, undefined, { ordinary: true });
   scheduleNextOffer(g);
 }
 
@@ -1562,7 +1568,10 @@ export function lapseCues(g: GameState): void {
 /** 'offer.expire': open offers lapse; most go to a rival (named in the missed list). Countered offers wait for the reply. */
 export function onOfferExpire(g: GameState, ev: SimEvent): void {
   const o = g.offers[ev.id];
-  if (!o || o.status !== 'open' || g.now < o.expires) return;
+  if (!o || o.status !== 'open') return;
+  // v0.14.1 an expiry moved later after this event was queued (a trip's lead, a won tender): it waits for the new
+  // time instead of leaving the offer open for ever (a duplicate is harmless: the offer is closed by then).
+  if (g.now < o.expires) return schedule(g, o.expires, 'offer.expire', o.id);
   // v0.8 a rival bid due at or after expiry takes it now; first refusal: only 30 % go to a rival.
   const b = o.rivalBid;
   const bidder = b && !o.firstRefusal ? g.rivals.find((r) => r.id === b.rivalId && (r.status ?? 'active') === 'active') : undefined;
@@ -1669,6 +1678,21 @@ export function loadCounters(g: GameState): void {
   }
 }
 
+/**
+ * v0.14.1 load: an open offer whose time ran out with no 'offer.expire' left to close it (a trip's lead whose expiry was
+ * moved later, before the fix) lapses now, quietly; one still running with no expiry queued gets one.
+ */
+export function loadStuckOffers(g: GameState): void {
+  const queued = new Set(g.queue.filter((e) => e.type === 'offer.expire').map((e) => e.id));
+  for (const o of Object.values(g.offers)) {
+    if (o.status !== 'open' || queued.has(o.id)) continue;
+    if (o.expires <= g.now) {
+      delete o.call;
+      closeOffer(g, o, 'expired');
+    } else schedule(g, o.expires, 'offer.expire', o.id);
+  }
+}
+
 export function fmtPrice(p: Product): string {
   if (p.kind === 'wet') return `$${p.ratePerBH.toLocaleString('en-US')}/BH`;
   if (p.kind === 'charter') return `$${p.price.toLocaleString('en-US')}${p.fuelAtCost ? ' plus fuel at cost' : ''}`;
@@ -1747,6 +1771,8 @@ export const finalizeDraft = (g: GameState, d: Draft): ContractOffer | null => {
  * shuts are withdrawn or adopted. A stub until Round F lane B (B9) fills it in.
  */
 export function sweepOffersForClosure(g: GameState, e: WorldEvent): void {
+  // v0.14.1 our sales travellers' seats too (commercial/trips.ts recheckTrips: called off, or rebooked home).
+  closureTripsHook?.(g);
   const gone: ContractOffer[] = [];
   for (const o of Object.values(g.offers)) {
     if ((o.status !== 'open' && o.status !== 'countered') || o.eventId === e.id) continue;
@@ -1769,6 +1795,13 @@ export function sweepOffersForClosure(g: GameState, e: WorldEvent): void {
     body: `${e.title}: the client${gone.length === 1 ? ' withdrew it' : 's withdrew them'}, nothing can fly there while it is closed.${gone.length > 1 ? ` ${names}${gone.length > 3 ? ' and more' : ''}.` : ''}`,
     ref: gone.length === 1 ? { kind: 'offer', id: gone[0].id } : { kind: 'event', id: e.id },
   });
+}
+
+/** v0.14.1 commercial/trips.ts recheckTrips, set there (trips import this module). */
+// eslint-disable-next-line no-var -- set while modules load in a cycle (var: no temporal dead zone)
+var closureTripsHook: ((g: GameState) => void) | null | undefined;
+export function setClosureTripsHook(fn: (g: GameState) => void): void {
+  closureTripsHook = fn;
 }
 
 /** v0.12.1 mission work that flies into a closure under its event's permit (the rest is withdrawn). */

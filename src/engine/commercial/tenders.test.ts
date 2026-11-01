@@ -3,6 +3,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { takeCues } from '../core/cues';
+import { BAL } from '../core/balance';
 import { DAY, fromUTC } from '../core/time';
 import { TENDER_ISSUERS, winterIssuer } from '../../data/fairs';
 import type { GameState } from '../core/types';
@@ -186,15 +187,17 @@ describe('bidding', () => {
     expect(bidAircraft(g, b.id).find((x) => x.id === ac.id)!.otherBids).toBe(overlap ? 1 : 0);
   });
 
-  it('offerWithBid moves the dates by whole days and carries our rate, MGH and their cabin crew', () => {
+  it('offerWithBid moves the dates by whole days and carries our rate, MGH and their cabin crew (v0.14.1 with the cut)', () => {
     const g = newGame(13);
     const t = tender(g);
     const o = offerWithBid(t, { rate: 3000, mgh: 180, start: t.ask.start + 7 * DAY, end: t.ask.end - 14 * DAY, crew: 'mixed' }, 'a320ceo', 180);
     expect(o.start).toBe(t.ask.start + 7 * DAY);
     expect(o.end).toBe(t.ask.end - 14 * DAY);
     expect(o.pattern.kind === 'base' && o.pattern.from).toBe(t.ask.pattern.kind === 'base' && t.ask.pattern.from + 7 * DAY);
-    expect(o.product.kind === 'wet' && o.product.ratePerBH).toBe(3000);
-    expect(o.requirements.clientCabin?.n).toBeGreaterThan(0);
+    const n = o.requirements.clientCabin?.n ?? 0;
+    expect(n).toBeGreaterThan(0);
+    // v0.14.1 (COMM-M2) Mixed: −$75/BH for each of their cabin crew, as the form says.
+    expect(o.product.kind === 'wet' && o.product.ratePerBH).toBe(3000 - BAL.v08.mixedCrew.perCabinBH * n);
     // The ask itself is unchanged.
     expect(t.ask.start).not.toBe(o.start);
   });

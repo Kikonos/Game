@@ -24,7 +24,7 @@ import { isDisruptive, LIMITS, nightsIn } from '../crew/rules';
 import { dutyNeed } from '../crew/duties';
 import { restOf } from '../crew/restPlan';
 import { closedAirport, warRiskAt } from '../ops/world';
-import { acceptOffer } from './accept';
+import { acceptOffer, jobDays } from './accept';
 import { clientPrefix, clientsOf, ensureClient, ministry, roleOf } from './clients';
 import * as F from './flavor';
 import {
@@ -920,7 +920,7 @@ export function rollRepeat(g: GameState, contractId: string): ContractOffer | nu
     o.hook = `Repeat business from ${cl.name}`;
     // Round 4 (§V): the client once (the title); the new title only when it is not the old one (or it plus a month).
     const as = o.title === c.title || o.title.startsWith(`${c.title} (`) ? '' : ` as ${o.title}`;
-    pushMessage(g, { tone: 'good', cat: 'commercial', title: `Repeat business from ${cl.name}`, body: `They liked ${c.title} and ask for it again${as} from ${fmtDay(o.start)}.`, ref: { kind: 'offer', id: o.id }, cue: null });
+    pushMessage(g, { tone: 'good', cat: 'commercial', title: `Repeat business from ${cl.name}`, body: `They liked ${c.title} and ask for it again${as} from ${jobDays(o)[0]}.`, ref: { kind: 'offer', id: o.id }, cue: null });
   }
   return o;
 }

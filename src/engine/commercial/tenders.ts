@@ -17,7 +17,7 @@ import { chance, int, range, weightedPick } from '../core/rng';
 import { DAY, fmtDay, fromUTC, toDate } from '../core/time';
 import { clamp } from '../core/util';
 import type { ActionResult, ContractOffer, GameState, Minute, Rival } from '../core/types';
-import { acceptOffer } from '../contracts/accept';
+import { acceptOffer, jobDayRange, jobDays } from '../contracts/accept';
 import { feasibility, type CheckLevel } from '../contracts/feasibility';
 import { generateOffer } from '../contracts/offers';
 import { productValue } from '../contracts/pricing';
@@ -45,6 +45,15 @@ export const TENDER = {
   w: { base: 0.55, rate: 1.2, mgh: 0.25, rel: 0.8, age: 0.006, ageFrom: 8, fam: 0.06, crew: 0.03, crewOff: 0.02, cover: 0.3, noise: 0.03 },
   level: { unhappy: -0.1, new: 0, known: 0.02, trusted: 0.05, partner: 0.08 } as Record<string, number>,
   standing: [-0.04, 0, 0.02],
+  /**
+   * v0.14.1 the award comes at least this many days before the earliest start a bid may ask (the ask's start +
+   * startShift[0]); the deadline and the award are cut short near the end of a round, and an RFP that cannot leave
+   * a week to bid and a week to decide asks for a later start (or is not issued). The award may wait up to
+   * `quietWait` days for a busy day.
+   */
+  awardLead: 21,
+  minDays: 7,
+  quietWait: 4,
   /** A won tender left unsigned (no aircraft) lapses after this many days; relation lost. */
   signDays: 7,
   lapseRelation: -10,
@@ -124,9 +133,17 @@ export function issueTender(g: GameState, opts: { clientId?: string; invited?: b
       if (opts.clientId) return null;
       continue;
     }
+    // v0.14.1 an airline in administration issues nothing (it came back by name from the issuers' list).
+    if (client.ceased !== undefined) {
+      if (opts.clientId) return null;
+      continue;
+    }
     const meta = TENDER_ISSUERS.find((x) => x.name === client.name);
-    const [m, d] = spec.starts[int(r, 0, spec.starts.length - 1)];
-    const start = fromUTC(round.year, m, d);
+    // v0.14.1 a start that leaves a week to bid and a week to decide before the award lead (else the next one).
+    let si = int(r, 0, spec.starts.length - 1);
+    while (si < spec.starts.length && latestAward(fromUTC(round.year, ...spec.starts[si])) < g.now + (2 * TENDER.minDays + 1) * DAY) si++;
+    if (si >= spec.starts.length) return null;
+    const start = fromUTC(round.year, ...spec.starts[si]);
     const days = int(r, spec.days[0], spec.days[1]);
     const o = withStream(g, `ask:${key}:${tries}`, () => generateOffer(g, 'seasonBase', { client: client.id, wide: false, window: false, start, days, paint: false, cabin: false }), true);
     if (!o) continue;
@@ -138,13 +155,31 @@ export function issueTender(g: GameState, opts: { clientId?: string; invited?: b
     delete o.requirements.layout;
     o.requirements.layouts = ['all-economy', 'two-class'];
     o.blurb = o.blurb.replace(', two-class cabin', '');
+    // v0.14.1 the ask is all our crew at the market rate: the crew is the bidder's choice (Mixed takes the cut). A
+    // client cabin rolled by the builder is taken back out, with its rate cut.
+    const cc = o.requirements.clientCabin;
+    if (cc) {
+      delete o.requirements.clientCabin;
+      if (o.product.kind === 'wet') {
+        o.product.ratePerBH += BAL.v08.mixedCrew.perCabinBH * cc.n;
+        o.estValue = productValue(o.product, o.estBH, o.start, o.end, o.terms);
+      }
+    }
     o.status = 'declined';
     const invited = !!opts.invited;
     const n = invited ? int(r, 0, 1) : int(r, TENDER.rivals[0], TENDER.rivals[1]);
-    const deadline = g.now + int(r, TENDER.deadline[0], TENDER.deadline[1]) * DAY;
+    // v0.14.1 the award before the earliest start a bid may ask, by the award lead: late in a round the deadline
+    // and the decision are shorter (a week each at least).
+    let deadline = g.now + int(r, TENDER.deadline[0], TENDER.deadline[1]) * DAY;
+    let resultAt = deadline + int(r, TENDER.decide[0], TENDER.decide[1]) * DAY;
+    const last = Math.floor(latestAward(o.start) / DAY) * DAY;
+    if (resultAt > last) {
+      resultAt = last;
+      deadline = Math.min(deadline, resultAt - TENDER.minDays * DAY);
+    }
+    if (deadline < g.now + TENDER.minDays * DAY) continue;
     const t: Tender = {
-      id: nextId(g, 'tn'), round: round.key, clientId: client.id, ask: o, issued: g.now, deadline,
-      resultAt: deadline + int(r, TENDER.decide[0], TENDER.decide[1]) * DAY,
+      id: nextId(g, 'tn'), round: round.key, clientId: client.id, ask: o, issued: g.now, deadline, resultAt,
       ...(invited ? { invited } : {}), ...(meta?.fam ? { family: meta.fam } : {}), ...(meta?.mixed ? { mixedPref: true } : {}),
       rivals: rivalBids(g, o, n, key), status: 'open',
     };
@@ -152,12 +187,25 @@ export function issueTender(g: GameState, opts: { clientId?: string; invited?: b
     (c.rounds ??= {})[round.key] = (c.rounds[round.key] ?? 0) + 1;
     pushMessage(g, {
       tone: 'info', cat: 'commercial', title: `${invited ? 'Invitation to tender' : 'Tender'}: ${client.name}, ${roundName(round.key)}`,
-      body: `${client.name} wants ${aircraftWanted(t)} based at ${city(o.pattern.kind === 'base' ? o.pattern.base : client.base)} from ${fmtDay(o.start)} to ${fmtDay(o.end - 1)}. Bids close ${fmtDay(deadline)} (00:00 UTC).`,
+      body: `${client.name} wants ${aircraftWanted(t)} based at ${city(o.pattern.kind === 'base' ? o.pattern.base : client.base)} from ${jobDays(o)[0]} to ${jobDays(o)[1]}. Bids close ${fmtDay(deadline)} (00:00 UTC).`,
       ref: { kind: 'tender', id: t.id }, cue: 'offerNew',
     });
     return t;
   }
   return null;
+}
+
+/** v0.14.1 the latest award for an ask starting then: the earliest start a bid may ask, less the award lead and the wait for a busy day. Pure. */
+const latestAward = (start: Minute): Minute => start + TENDER.startShift[0] * DAY - (TENDER.awardLead + TENDER.quietWait) * DAY;
+
+/**
+ * v0.14.1 the earliest start a bid may ask: the ask's start less TENDER.startShift (whole days), and never inside the
+ * award lead after the award (a tender from an older save decided late). Pure.
+ */
+export function earliestBidStart(t: Tender): Minute {
+  const lo = t.ask.start + TENDER.startShift[0] * DAY;
+  const need = t.resultAt + TENDER.quietWait * DAY + TENDER.minDays * DAY;
+  return lo >= need ? lo : t.ask.start + Math.ceil((need - t.ask.start) / DAY) * DAY;
 }
 
 /** The next round's window (dev helper outside the seasons): the coming summer round. */
@@ -245,14 +293,21 @@ export function offerWithBid(t: Tender, bid: Pick<TenderBid, 'rate' | 'mgh' | 's
     o.pattern.from += ds;
     o.pattern.to += de;
   }
-  if (o.product.kind === 'wet') {
-    o.product.ratePerBH = Math.round(bid.rate);
-    o.product.mghPerMonth = Math.round(bid.mgh);
-    o.estValue = productValue(o.product, o.estBH, o.start, o.end, o.terms);
-  }
+  // v0.14.1 'ours' flies all our crew (never a client cabin left in the ask); 'mixed' their cabin crew under our
+  // purser, the rate cut by perCabinBH each as the form says (the award scores the bid as sent, before the cut).
+  delete o.requirements.clientCabin;
+  let cut = 0;
   if (bid.crew === 'mixed' && typeId) {
     const M = complement(typeId, seats ?? o.requirements.minSeats).filter((x) => x === 'PUR' || x === 'CC').length;
-    if (M > 1) o.requirements.clientCabin = { n: M - 1, of: M, leads: false };
+    if (M > 1) {
+      o.requirements.clientCabin = { n: M - 1, of: M, leads: false };
+      cut = mixedCutPerBH() * (M - 1);
+    }
+  }
+  if (o.product.kind === 'wet') {
+    o.product.ratePerBH = Math.max(1000, Math.round(bid.rate) - cut);
+    o.product.mghPerMonth = Math.round(bid.mgh);
+    o.estValue = productValue(o.product, o.estBH, o.start, o.end, o.terms);
   }
   return o;
 }
@@ -311,8 +366,8 @@ export function bidQuote(g: GameState, tenderId: string): BidQuote | null {
   const home = g.company.homeBase;
   return {
     tenderId, budget, mgh, rateMin: r10(budget * 0.85), rateMax: r10(budget * 1.15), mghMin: Math.round(mgh * 0.8), mghMax: Math.round(mgh * 1.2),
-    start: bid0.start, end: bid0.end,
-    startRange: [o.start + TENDER.startShift[0] * DAY, o.start + TENDER.startShift[1] * DAY], endRange: [o.end + TENDER.endShift[0] * DAY, o.end + TENDER.endShift[1] * DAY],
+    start: Math.max(bid0.start, earliestBidStart(t)), end: bid0.end,
+    startRange: [earliestBidStart(t), o.start + TENDER.startShift[1] * DAY], endRange: [o.end + TENDER.endShift[0] * DAY, o.end + TENDER.endShift[1] * DAY],
     aircraft, crewLabel: `Crew based in ${countryName(AIRPORT_BY_CODE[home]?.country ?? '') || home}`, mixedCut: mixedCutPerBH(), mixedPref: !!t.mixedPref, rivals: t.rivals.length,
   };
 }
@@ -327,7 +382,7 @@ export function placeBid(g: GameState, tenderId: string, bid: Omit<TenderBid, 'a
   if (typeOf(ac.typeId).body !== 'narrow') return { ok: false, error: `${ac.reg} is a widebody: they want a narrowbody` };
   const o = t.ask;
   if (!(bid.rate > 0) || !(bid.mgh > 0)) return { ok: false, error: 'Rate and MGH must be above zero' };
-  if (bid.start < o.start + TENDER.startShift[0] * DAY || bid.start > o.start + TENDER.startShift[1] * DAY) return { ok: false, error: 'Start too far from their dates' };
+  if (bid.start < earliestBidStart(t) || bid.start > o.start + TENDER.startShift[1] * DAY) return { ok: false, error: bid.start < earliestBidStart(t) && bid.start >= o.start + TENDER.startShift[0] * DAY ? `Too soon: they decide ${fmtDay(t.resultAt)}` : 'Start too far from their dates' };
   if (bid.end < o.end + TENDER.endShift[0] * DAY || bid.end > o.end + TENDER.endShift[1] * DAY || bid.end - bid.start < 30 * DAY) return { ok: false, error: 'End too far from their dates' };
   // v0.14 the offer dialog's feasibility on our terms: no bid on a tail that cannot fly it (busy over the window, …).
   const fit = fitOn(g, offerWithBid(t, bid, ac.typeId, ac.cabin.total), ac.id);
@@ -448,12 +503,19 @@ const round3 = (v: number) => Math.round(v * 1000) / 1000;
 
 /** A won tender: the offer back on the market with our terms (no rival, 7 days), signed on the tail we bid when it can. */
 function award(g: GameState, t: Tender): void {
-  const bid = t.bid!;
-  const ac = g.fleet[bid.aircraftId];
+  const bid0 = t.bid!;
+  const ac = g.fleet[bid0.aircraftId];
+  // v0.14.1 an award that came too late for our start (a tender from an older save): the client takes us from a few
+  // days on (whole days, the end kept), and a lapse is on them, not us.
+  const soonest = g.now + 3 * DAY;
+  const late = bid0.start < soonest;
+  const bid = late ? { ...bid0, start: bid0.start + Math.ceil((soonest - bid0.start) / DAY) * DAY } : bid0;
+  if (late) t.result!.late = true;
   const o = offerWithBid(t, bid, ac?.typeId, ac?.cabin.total);
   o.id = nextId(g, 'o');
   o.created = g.now;
-  o.expires = g.now + TENDER.signDays * DAY;
+  // Seven days to sign, but never past the day before the first departure.
+  o.expires = Math.max(g.now + DAY, Math.min(g.now + TENDER.signDays * DAY, o.start - 12 * 60));
   o.status = 'open';
   o.firstRefusal = true;
   o.seen = true;
@@ -470,14 +532,14 @@ function award(g: GameState, t: Tender): void {
     t.result!.contractId = res.data!.contractId;
     pushMessage(g, {
       tone: 'good', cat: 'commercial', title: `Tender won: ${name}, ${roundName(t.round)}`,
-      body: `${t.result!.why[0].toUpperCase()}${t.result!.why.slice(1)}. Signed on ${ac!.reg}: $${bid.rate.toLocaleString('en-US')}/BH, MGH ${bid.mgh}, ${fmtDay(o.start)}–${fmtDay(o.end - 1)}.`,
+      body: `${t.result!.why[0].toUpperCase()}${t.result!.why.slice(1)}. Signed on ${ac!.reg}: $${bid.rate.toLocaleString('en-US')}/BH, MGH ${bid.mgh}, ${jobDayRange(o)}${late ? ` (they decided late: from ${jobDays(o)[0]}, not ${jobDays({ ...o, start: bid0.start })[0]})` : ''}.`,
       ref: { kind: 'contract', id: res.data!.contractId }, cue: 'contractSigned',
     });
     return;
   }
   pushMessage(g, {
     tone: 'warn', cat: 'commercial', title: `Tender won: choose an aircraft for ${name}`,
-    body: `${res.ok ? '' : `${ac?.reg ?? 'The aircraft we bid'} can no longer take it (${res.error}). `}Sign it on another aircraft by ${fmtDay(o.expires)}, or it lapses and ${name} will remember.`,
+    body: `${late ? `They decided late: the job now starts ${jobDays(o)[0]}. ` : ''}${res.ok ? '' : `${ac?.reg ?? 'The aircraft we bid'} can no longer take it (${res.error}). `}Sign it on another aircraft by ${fmtDay(o.expires)}${late ? ', or it lapses.' : `, or it lapses and ${name} will remember.`}`,
     ref: { kind: 'offer', id: o.id }, cue: 'counterReply',
   });
 }
@@ -494,7 +556,8 @@ function lapseWon(g: GameState): void {
     }
     if ((o.status === 'expired' || o.status === 'lost' || o.status === 'declined') && !t.result.why.endsWith('(not signed)')) {
       t.result.why = `${t.result.why} (not signed)`;
-      bumpClient(g, t.clientId, TENDER.lapseRelation, 'We won their tender and did not sign');
+      // v0.14.1 not when they decided too late for our dates (their timing, not ours).
+      if (!t.result.late) bumpClient(g, t.clientId, TENDER.lapseRelation, 'We won their tender and did not sign');
     }
   }
 }
@@ -544,7 +607,8 @@ export function tenderBoard(g: GameState): { open: TenderRow[]; mine: TenderRow[
   return {
     open: all.filter((t) => t.status === 'open').sort((a, b) => a.deadline - b.deadline),
     mine: all.filter((t) => t.status === 'closed' || (t.status === 'open' && t.bid)).sort((a, b) => a.resultAt - b.resultAt),
-    results: all.filter((t) => t.status === 'won' || t.status === 'lost' || t.status === 'noBid').sort((a, b) => b.resultAt - a.resultAt).slice(0, 20),
+    // v0.14.1 a tender withdrawn (the airline in administration) is a result too: our bid did not just vanish.
+    results: all.filter((t) => t.status === 'won' || t.status === 'lost' || t.status === 'noBid' || t.status === 'withdrawn').sort((a, b) => b.resultAt - a.resultAt).slice(0, 20),
   };
 }
 

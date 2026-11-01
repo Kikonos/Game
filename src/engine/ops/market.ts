@@ -549,6 +549,9 @@ export function addShock(g: GameState, x: Omit<MarketShock, 'id'>): void {
  * v0.14 ordinary market offers a week (the player: far fewer, especially while earning a name): by company standing
  * (Newcomer 1.5, Established 3.1, Respected 4.6) for its usual fleet, a little more or less per aircraft. Pure.
  */
+/** Seasonal demand by month, Jan–Dec (DESIGN §5.1.1; v0.14.1 here, so the outlook counts it as the offer draw does). */
+export const SEASON_F = [0.7, 0.9, 1.1, 1.2, 1.1, 1.0, 1.0, 0.9, 0.9, 0.9, 0.8, 0.9];
+
 export function marketPerWeek(g: GameState): number {
   const M = BAL.marketOffers;
   const s = Math.min(2, g.company.standing ?? 0);
@@ -612,7 +615,8 @@ export function marketOutlook(g: GameState): MarketOutlook {
   const hajjIn = nextH ? Math.ceil((nextH.pre[0] - g.now) / DAY) : 0;
   if (nextH && hajjIn <= 120) season.name = `${season.name} · Hajj in ${hajjIn} d`;
   // v0.14 the ordinary market offers a week at our standing and size (tenders, calls and leads come on top).
-  const perWeek = marketPerWeek(g) * demandFactor(g);
+  // v0.14.1 with this month's season and the scenario's pace, as contracts/offers.ts offerRate draws them.
+  const perWeek = marketPerWeek(g) * SEASON_F[mo] * demandFactor(g) * (g.scen?.rate ?? 1);
   return {
     phase: cy.phase, phaseText: PHASE_LINE[cy.phase],
     narrow: { index: n, trend: nt, text: `Narrowbody demand ${arrow(nt)} ${levelWord(n)}`.replace('  ', ' ') },
@@ -622,7 +626,7 @@ export function marketOutlook(g: GameState): MarketOutlook {
     hajj: hj.map((h) => ({ arafah: h.arafah, pre: h.pre, post: h.post, ah: h.ah })),
     antarctic: antarcticSeason(g.now),
     shocks: (m.shocks ?? []).filter((x) => x.until > g.now).map((x) => ({ text: `${x.text}: ${x.delta > 0 ? '+' : '−'}${Math.round(Math.abs(x.delta) * 100)} % ${x.seg === 'all' ? '' : `${x.seg}body `}demand until ${fmtDay(x.until)}`.replace('  ', ' '), until: x.until })),
-    offersText: `About ${Math.round(perWeek * 10) / 10} new offers a week at our standing and size`,
+    offersText: `About ${Math.round(perWeek * 10) / 10} new market offers a week at our standing and size; urgent calls, repeat work and leads come on top`,
   };
 }
 

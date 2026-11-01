@@ -529,7 +529,9 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
       const arr = late.lateArrival!;
       const missBy = arr + turn - late.trip.std;
       if (base && missBy < DAY && late === fits[0]) add('positioning', 'warn', `Arrives ${fmtDateTime(arr)} UTC: misses the first ${fmtDuration(missBy)} of flying`, `${routeText(late.posIn)} ${fmtDuration(chainMin(late.posIn))}. MGH still applies.`);
-      else add('positioning', 'no', `Can't get there in time: earliest arrival ${fmtDateTime(arr)} UTC, first departure ${fmtDateTime(late.trip.std)} UTC`, late.posIn.length ? `${routeText(late.posIn)} takes ${fmtDuration(chainMin(late.posIn))}.` : undefined);
+      // v0.14.1 the turnaround named when the arrival is before the departure ('lands 01:40, first departure 02:00' read
+      // as in time).
+      else add('positioning', 'no', `Can't get there in time: earliest arrival ${fmtDateTime(arr)} UTC, first departure ${fmtDateTime(late.trip.std)} UTC${arr < late.trip.std ? ` (a ${fmtDuration(turn)} turnaround needed)` : ''}`, late.posIn.length ? `${routeText(late.posIn)} takes ${fmtDuration(chainMin(late.posIn))}.` : undefined);
     } else {
       const pay = wet ? 'billable to the client' : 'priced into the charter';
       const lastFit = fits[fits.length - 1];
@@ -655,7 +657,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   } else if (aBooked) {
     add('maintenance', 'ok', `A-check booked ${fmtDay(aBooked.start)} at ${aBooked.at}`, `C-check due ${fmtDay(cDue)}.`);
   } else if (aDue > winTo) {
-    add('maintenance', 'ok', `No check due: A-check in ${Math.max(0, Math.round(aLeft))} FH / ${Math.max(0, Math.round((aCal - g.now) / DAY))} days`, `C-check due ${fmtDay(cDue)}.`);
+    add('maintenance', 'ok', `No check due: A-check in ${Math.max(0, Math.round(aLeft))} FH / ${Math.max(0, Math.round((aCal - g.now) / DAY))} day${Math.max(0, Math.round((aCal - g.now) / DAY)) === 1 ? '' : 's'}`, `C-check due ${fmtDay(cDue)}.`);
   } else if (aDue <= winFrom) {
     add('maintenance', 'warn', `A-check due ${fmtDay(Math.max(g.now, aDue))} (${why}), before the job starts`, `Book it first: ${t.aCheckHours} h in the hangar at ${home}.`);
   } else if (base && o.pattern.kind === 'base' && o.pattern.maintEvery > 0) {

@@ -210,7 +210,9 @@ export function rollRivalBid(g: GameState, o: ContractOffer): void {
   // 'Sooner' only when they really were nearer (or none of ours was near); else they simply answered first.
   if (o.urgency === 'urgent' && why.length < 2 && theirs < ours) why.push('could fly tonight');
   if (!why.length) why.push(styleOf(rival) === 'premium' ? 'offered a better cabin' : 'answered first');
-  o.rivalBid = { rivalId: rival.id, at: Math.max(o.created + 15, t), factor: rival.priceFactor, why: why.slice(0, 2).join(' and ') };
+  // v0.14.1 a caller waits for our answer until its countdown ends: a rival takes a call only when nobody answered
+  // (at its expiry, onOfferExpire), never while the phone is still ringing.
+  o.rivalBid = { rivalId: rival.id, at: o.call ? Math.max(o.expires, t) : Math.max(o.created + 15, t), factor: rival.priceFactor, why: why.slice(0, 2).join(' and ') };
   if (o.rivalBid.at < o.expires) schedule(g, o.rivalBid.at, 'rival.bid', o.id);
 }
 
@@ -244,6 +246,8 @@ export function onRivalBid(g: GameState, ev: SimEvent): void {
   const o = g.offers[ev.id];
   const b = o?.rivalBid;
   if (!o || !b || g.now < b.at || o.firstRefusal) return;
+  // v0.14.1 (an older save's queued bid) not while a call's countdown runs.
+  if (o.call && g.now < o.expires) return;
   if (o.status !== 'open' && !(o.status === 'countered' && !o.counter?.result)) return;
   const rival = g.rivals.find((r) => r.id === b.rivalId);
   if (!rival || !isActive(rival)) return;

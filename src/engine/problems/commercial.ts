@@ -23,6 +23,11 @@ function plainCheck(g: GameState, o: ContractOffer, r: FeasibilityReport, c: Fea
   const t = typeOf(ac.typeId);
   switch (c.id) {
     case 'crew': {
+      // v0.14.1 only a real shortfall is a hire: a crew that can't get there in time (or lands too late to rest) is
+      // fixed by a later start or an aircraft nearer, and a hire that joins in weeks can't help (the card said Hire).
+      if (!/^Short of crew/.test(c.label)) {
+        return { why: `${c.label.replace(/\.$/, '')}.${c.detail ? ` ${c.detail}` : ''}`, action: { id: 'review', label: 'Review offer', open: { modal: 'offer', id: o.id }, primary: true } };
+      }
       const short = Object.entries(r.crew.byRole).filter(([, v]) => v && v.short > 0).map(([role, v]) => `${v!.short} ${role}`);
       const list = short.length > 1 ? `${short.slice(0, -1).join(', ')} and ${short[short.length - 1]}` : short[0] ?? 'crew';
       return { why: `You are ${list} short${r.crew.firstShort !== null ? ` from ${fmtDay(r.crew.firstShort)}` : ''}; hires take weeks to join.`, action: { id: 'hire', label: 'Hire', open: { modal: 'hire', id: t.family }, primary: true } };
@@ -37,8 +42,20 @@ function plainCheck(g: GameState, o: ContractOffer, r: FeasibilityReport, c: Fea
       return { why: `The client needs a ${(o.requirements.layouts?.join(' or ') ?? o.requirements.layout ?? 'different').replace('vip', 'VIP')} cabin; ${ac.reg} is ${ac.cabin.label}.`, action: c.action ? { id: 'refit', label: 'Plan refit', open: { modal: 'refit', id: ac.id }, primary: true } : { id: 'review', label: 'Review offer', open: { modal: 'offer', id: o.id }, primary: true } };
     case 'paint':
       return { why: `The client wants their livery on the aircraft and no paint-shop slot fits before the start.`, action: { id: 'counterNoPaint', label: 'Counter without paint', open: { modal: 'offer', id: o.id }, primary: true } };
-    case 'positioning':
-      return { why: `${ac.reg} can't get to ${city(o.pin)} in time: ${lowerFirst(c.label)}.`, action: { id: 'review', label: 'Review offer', open: { modal: 'offer', id: o.id }, primary: true } };
+    case 'positioning': {
+      // v0.14.1 the first departure's airport (where the aircraft must be), not the job's pin, and the label's own
+      // 'Can't get there in time' said once.
+      const first = o.pattern.kind === 'base' ? o.pattern.base : o.pattern.legs[0]?.from ?? o.pin;
+      const late = /^Can't get there in time: /.test(c.label);
+      const why = late ? `${ac.reg} can't get to ${city(first)} in time: ${lowerFirst(c.label.replace(/^Can't get there in time: /, ''))}.`
+        : c.label.startsWith(ac.reg) ? `${c.label}.` : `${ac.reg}: ${lowerFirst(c.label)}.`;
+      return { why, action: { id: 'review', label: 'Review offer', open: { modal: 'offer', id: o.id }, primary: true } };
+    }
+    case 'maintenance': {
+      // v0.14.1 a check due before (or inside) the job: book it from the maintenance planner.
+      const cCheck = /C-check/.test(c.label);
+      return { why: `${ac.reg}: ${c.label}.${c.detail ? ` ${c.detail}` : ''}`, action: { id: 'planCheck', label: cCheck ? 'Plan C-check' : 'Book A-check', open: { modal: 'check', id: ac.id }, primary: true } };
+    }
     case 'approvals':
     case 'etops':
       return { why: `${c.label}.`, action: { id: 'ladder', label: 'Ladder', open: { tab: 'company', view: 'ladder' }, primary: true } };

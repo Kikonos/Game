@@ -64,6 +64,8 @@ export interface Tender {
     /** The offer put back on the market for us (won), and the contract once signed. */
     offerId?: string;
     contractId?: string;
+    /** v0.14.1 awarded too late for our start (the dates moved; no relation lost if it lapses). */
+    late?: boolean;
   };
 }
 
@@ -97,6 +99,8 @@ export interface SalesTrip {
   /** Costs: tickets and pass at booking, hotel and per diem on return. */
   cost: { tickets: number; pass: number; hotel: number; perDiem: number };
   status: TripStatus;
+  /** v0.14.1 in our home city: no flights (out and back are the hour before and after the meetings, at home). */
+  local?: boolean;
   /** Results (on return). v0.14 `presence`: the markets it made us better known in [market, points]. */
   met?: string[];
   presence?: [string, number][];
