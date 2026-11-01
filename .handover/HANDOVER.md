@@ -563,3 +563,4 @@ Open for later: S-DEPREC (depreciation), repo rename to Block-Hours (player), Up
 1 Nov: v0.14 released (1e60096). PLAYER: BLU1278 FRA–AMS pos + BLU1254 AMS–VRA = 17:40 illegal duty; fix agent on acmi. PLAYER: 'find any more bugs, fix them, then release' → RELEASE AUTHORISED after fixes. Bug hunt 2: 5 hunters in /home/user/wt/h-{crew,ops,comm,money,ui} at 44907c7, brief /home/user/work/hunt2/BRIEF.md, findings to /home/user/work/hunt2/<area>/findings.json.
 hunt2 h-ui DONE: 13 (1 high: crew desk claims fixed while still short, re-buys tickets every 6 h). findings /home/user/work/hunt2/h-ui/findings.json
 hunt2 h-crew DONE: 7 (5 high: 4-min slip remakes crewed empty leg uncrewed; shortage card counts revenue 13 d later; crew at GOM released for broken later ticket; crew desk 'fixed' without checking; duplicate ticket for airborne crew).
+hunt2 h-comm DONE: 14 (2 high: trip leads never lapse; late tenders awarded after job start). Remaining hunters: ops, money, code.
