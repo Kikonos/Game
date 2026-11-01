@@ -209,5 +209,5 @@ export function monthRelation(g: GameState, c: Contract, month: MonthKey): void 
   const share = (u.onTime ?? 0) / u.legs;
   const R = BAL.v08.rel.wetMonth;
   const d = share >= 0.9 ? R[0] : share >= 0.75 ? R[1] : R[2];
-  bumpClient(g, c.clientId, d, `${fmtMonth(month)}: ${Math.round(share * 100)} % of ${u.legs} legs on time`);
+  bumpClient(g, c.clientId, d, `${fmtMonth(month)}: ${Math.round(share * 100)} % of ${u.legs} leg${u.legs === 1 ? '' : 's'} on time`);
 }

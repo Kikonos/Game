@@ -152,8 +152,13 @@ export function favourChip(g: GameState, clientId: string, delta: number): strin
   const lv = LEVEL_NAME[levelOf(g, c)];
   const rel = Math.round(c.relation + delta);
   const L = V.levels;
-  const need = nx?.level === 'trusted' ? L.trusted[0] : nx?.level === 'partner' ? L.partner[0] : null;
-  return nx && need !== null ? `${c.name}: ${lv} → ${rel}/${need} to ${LEVEL_NAME[nx.level]}` : `${c.name}: ${lv}, relation ${rel}`;
+  const req = nx?.level === 'trusted' ? L.trusted : nx?.level === 'partner' ? L.partner : null;
+  if (!nx || !req) return `${c.name}: ${lv}, relation ${rel}`;
+  const [need, jobsNeed] = req;
+  if (rel < need) return `${c.name}: ${lv} → ${rel}/${need} to ${LEVEL_NAME[nx.level]}`;
+  // v0.14.1 the relation is there: what is still missing is jobs ('31/30 to Trusted' read as done when it was not).
+  const short = jobsNeed - (c.jobs ?? 0);
+  return short > 0 ? `${c.name}: ${lv} · ${short === 1 ? 'one more job' : `${short} more jobs`} to ${LEVEL_NAME[nx.level]}` : `${c.name}: ${lv} → ${LEVEL_NAME[nx.level]} tomorrow`;
 }
 
 /** 'Fly their next job on time…' — why a client is unhappy, from the log's worst recent reasons. Pure. */
@@ -306,7 +311,7 @@ export function standing(g: GameState): Standing {
     ];
     const miss: string[] = [];
     if (done < t.done) miss.push(`${t.done - done} more contract${t.done - done === 1 ? '' : 's'}`);
-    if (days < t.days) miss.push(`${t.days - days} days`);
+    if (days < t.days) miss.push(t.days - days === 1 ? 'one more day' : `${t.days - days} days`);
     if (reliable < t.reliable) miss.push(`reliability ${t.reliable}`);
     if (tier === 1 && clean < S.resp.clean) miss.push(`clean ${S.resp.clean}`);
     next = `${miss.length ? miss.join(' and ') : 'nothing more'} to ${STANDING_NAME[(tier + 1) as 1 | 2]}`;

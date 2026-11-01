@@ -81,7 +81,8 @@ function heldAtGate(seed: number, holdMin: number, cabin: (ac: Aircraft) => void
 describe('§Y.1 re-checked with the actual off-block time (round 4)', () => {
   it('a hold that only breaks the cabin crew\'s rest plan, inside discretion: the commander extends their day and it departs legally', () => {
     // Two curtained business seats for six cabin crew: 2:45 of hold lifts their rest band past what the cruise fits.
-    const { g, fid, ill0 } = heldAtGate(44, 165, (ac) => { ac.cabin.j = 4; });
+    // v0.14.1 seed 45 (the Newcomer offer pace moved the draws: seed 44's flight now also meets a random 30 min delay).
+    const { g, fid, ill0 } = heldAtGate(45, 165, (ac) => { ac.cabin.j = 4; });
     const f = g.flights[fid];
     expect(f.status).toBe('enroute');
     const d = g.duties[f.dutyId!];

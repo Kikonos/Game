@@ -5,13 +5,15 @@ import { CalendarClock, FileSignature, Gavel, Trophy } from 'lucide-react';
 import { useMemo } from 'react';
 import { flag } from '../../data/countries';
 import { roundAt, roundName, tenderBoard, type TenderRow } from '../../engine/commercial';
-import { DAY, fmtDay, toDate } from '../../engine/core/time';
+import { DAY, fmtDay, fmtDayAt, toDate, toLocal } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import { Empty } from '../components/ui';
 import { store } from '../store';
 
 const days = (t: number, now: number) => Math.max(0, Math.ceil((t - now) / DAY));
-const span = (t: TenderRow) => `${fmtDay(t.start)} – ${fmtDay(t.end - 1)} ${toDate(t.start).getUTCFullYear()}`;
+// v0.14.1 the programme's days on the base's local calendar (it starts at local midnight: the evening before in UTC),
+// as the airline's own text says them.
+const span = (t: TenderRow) => `${fmtDayAt(t.base, t.start)} – ${fmtDayAt(t.base, t.end - 1)} ${toDate(toLocal(t.base, t.start)).getUTCFullYear()}`;
 
 /** The season line: the round open now, or when the next one opens. */
 export function seasonLine(now: number): string {
@@ -35,12 +37,13 @@ function Row({ g, t, kind }: { g: GameState; t: TenderRow; kind: 'open' | 'mine'
           <span className={`small ellipsis ${t.status === 'won' ? 'good' : 'warn'}`}>{t.status === 'won' ? `Won: ${t.result.why}` : `${t.result.winnerName}: ${t.result.why}`}</span>
         )}
         {kind === 'result' && t.status === 'noBid' && <span className="small dim">You did not bid</span>}
+        {kind === 'result' && t.status === 'withdrawn' && <span className="small dim">Withdrawn: the airline no longer flies{t.bid ? ' (our bid with it)' : ''}</span>}
         {t.bid && kind !== 'result' && <span className="small accent ellipsis">Your bid: ${t.bid.rate.toLocaleString('en-US')}/BH · MGH {t.bid.mgh} · {t.bid.reg}</span>}
       </span>
       <span className="right small nowrap">
         {kind === 'open' && <span className={`num ${left <= 3 ? 'warn' : 'muted'}`}>{left ? `closes in ${left} d` : 'closes today'}</span>}
         {kind === 'mine' && <span className="muted">result about {fmtDay(t.resultAt)}</span>}
-        {kind === 'result' && <span className={t.status === 'won' ? 'good' : t.status === 'lost' ? 'warn' : 'dim'}>{t.status === 'won' ? 'Won' : t.status === 'lost' ? 'Lost' : 'No bid'}</span>}
+        {kind === 'result' && <span className={t.status === 'won' ? 'good' : t.status === 'lost' ? 'warn' : 'dim'}>{t.status === 'won' ? 'Won' : t.status === 'lost' ? 'Lost' : t.status === 'withdrawn' ? 'Withdrawn' : 'No bid'}</span>}
         {kind === 'open' && !t.bid && <span className="btn btn-primary v14-bid-btn">Bid</span>}
       </span>
     </button>

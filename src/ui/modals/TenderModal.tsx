@@ -6,8 +6,8 @@ import { Check, CircleAlert, CircleX, FileSignature, Undo2 } from 'lucide-react'
 import { useMemo, useState } from 'react';
 import { flag } from '../../data/countries';
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { bidAircraft, bidQuote, placeBid, TENDER, tenderById, tenderRow, withdrawBid } from '../../engine/commercial';
-import { DAY, fmtDay } from '../../engine/core/time';
+import { bidAircraft, bidQuote, offerWithBid, placeBid, TENDER, tenderById, tenderRow, withdrawBid } from '../../engine/commercial';
+import { DAY, fmtDay, fmtDayAt } from '../../engine/core/time';
 import { Modal, Seg, Stepper } from '../components/ui';
 import { store, useGame } from '../store';
 
@@ -33,6 +33,11 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
   const fits = useMemo(() => (q ? bidAircraft(g, tenderId, { rate, mgh, start, end, crew }) : []), [g, q, tenderId, start, end, crew, Math.floor(g.now / DAY)]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!t || !row) return null;
   const ac = fits.find((a) => a.id === acId);
+  // v0.14.1 Mixed: their cabin crew on our aircraft, the rate cut by mixedCut each (what we are paid is shown).
+  const acFull = g.fleet[acId];
+  const mixedTerms = crew === 'mixed' && acFull ? offerWithBid(t!, { rate, mgh, start, end, crew }, acFull.typeId, acFull.cabin.total) : null;
+  const theirCabin = mixedTerms?.requirements.clientCabin?.n ?? 0;
+  const netRate = mixedTerms && mixedTerms.product.kind === 'wet' ? mixedTerms.product.ratePerBH : rate;
   const close = () => store.closeModal();
   const send = () => {
     const r = store.act((gg) => placeBid(gg, tenderId, { rate, mgh, aircraftId: acId, crew, start, end }));
@@ -44,6 +49,8 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
     if (!r.ok) setErr(r.error);
   };
   const p = t.ask.pattern;
+  // v0.14.1 programme days on the base's local calendar (the airline's own dates; UTC is the evening before).
+  const day = (m: number) => fmtDayAt(row.base, m);
   const footer = q ? (
     <div className="row gap-8 between wrap">
       {t.bid ? <button className="btn" onClick={withdraw}><Undo2 /> Withdraw</button> : <span />}
@@ -58,7 +65,7 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
       <div className="col gap-12">
         <div className="v8-box col gap-4">
           <b>{row.wanted.replace(/^a/, (m) => m.toUpperCase())} based at {city(row.base)}</b>
-          <span className="small muted">{fmtDay(row.start)} – {fmtDay(row.end - 1)}{p.kind === 'base' ? ` · ${p.waves.length} wave${p.waves.length > 1 ? 's' : ''} a day to ${row.dests.map(city).slice(0, 5).join(', ')}${row.dests.length > 5 ? '…' : ''}` : ''}</span>
+          <span className="small muted">{day(row.start)} – {day(row.end - 1)}{p.kind === 'base' ? ` · ${p.waves.length} wave${p.waves.length > 1 ? 's' : ''} a day to ${row.dests.map(city).slice(0, 5).join(', ')}${row.dests.length > 5 ? '…' : ''}` : ''}</span>
           <span className="small muted">{row.status === 'open' ? `Bids close ${fmtDay(row.deadline)} · about ${row.rivals || 'no'} other operator${row.rivals === 1 ? '' : 's'} bidding` : `Award about ${fmtDay(row.resultAt)}`}{row.invited ? ' · they invited us' : ''}</span>
         </div>
         {q && (
@@ -85,16 +92,16 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
               ))}
             </div>
             <div className="set-row v14-field">
-              <div><b>Crew</b><div className="tiny dim">{crew === 'ours' ? q.crewLabel : `Their cabin crew with our pilots and purser (−${usd(q.mixedCut)}/BH each)`}{q.mixedPref ? ' · they like their own cabin crew on board' : ''}</div></div>
+              <div><b>Crew</b><div className="tiny dim">{crew === 'ours' ? q.crewLabel : theirCabin ? `${theirCabin} of their cabin crew with our pilots and purser: −${usd(q.mixedCut)}/BH each, ${usd(netRate)}/BH to us` : `Their cabin crew with our pilots and purser (−${usd(q.mixedCut)}/BH each)`}{q.mixedPref ? ' · they like their own cabin crew on board' : ''}</div></div>
               <Seg<'ours' | 'mixed'> value={crew} onChange={setCrew} options={[{ value: 'ours', label: 'Our crew' }, { value: 'mixed', label: 'Mixed' }]} />
             </div>
             <div className="set-row v14-field">
-              <div><b>Start</b><div className="tiny dim">They ask {fmtDay(t.ask.start)}</div></div>
-              <Stepper value={ds} min={Math.round((q.startRange[0] - t.ask.start) / DAY)} max={Math.round((q.startRange[1] - t.ask.start) / DAY)} step={7} onChange={setDs} format={(v) => fmtDay(t.ask.start + v * DAY)} />
+              <div><b>Start</b><div className="tiny dim">They ask {day(t.ask.start)}{q.startRange[0] > t.ask.start + TENDER.startShift[0] * DAY ? ` · not before ${day(q.startRange[0])}: they decide ${fmtDay(row.resultAt)}` : ''}</div></div>
+              <Stepper value={ds} min={Math.round((q.startRange[0] - t.ask.start) / DAY)} max={Math.round((q.startRange[1] - t.ask.start) / DAY)} step={7} onChange={setDs} format={(v) => day(t.ask.start + v * DAY)} />
             </div>
             <div className="set-row v14-field">
-              <div><b>End</b><div className="tiny dim">They ask {fmtDay(t.ask.end - 1)}</div></div>
-              <Stepper value={de} min={Math.round((q.endRange[0] - t.ask.end) / DAY)} max={Math.round((q.endRange[1] - t.ask.end) / DAY)} step={7} onChange={setDe} format={(v) => fmtDay(t.ask.end - 1 + v * DAY)} />
+              <div><b>End</b><div className="tiny dim">They ask {day(t.ask.end - 1)}</div></div>
+              <Stepper value={de} min={Math.round((q.endRange[0] - t.ask.end) / DAY)} max={Math.round((q.endRange[1] - t.ask.end) / DAY)} step={7} onChange={setDe} format={(v) => day(t.ask.end - 1 + v * DAY)} />
             </div>
             {ac?.level === 'no' && <div className="small bad">{ac.reg} cannot fly it on these dates{ac.note ? `: ${ac.note}` : ''}. Choose another aircraft or other dates.</div>}
             {ac?.level !== 'no' && <div className="tiny dim">Checked again at the award: if {ac?.reg ?? 'the aircraft'} can no longer fly it then, you have {TENDER.signDays} days to sign it on another aircraft.</div>}
@@ -102,7 +109,7 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
           </>
         )}
         {!q && t.bid && (
-          <div className="small">Your bid: {usd(t.bid.rate)}/BH · MGH {t.bid.mgh} · {g.fleet[t.bid.aircraftId]?.reg ?? '—'} · {t.bid.crew === 'mixed' ? 'mixed crew' : 'our crew'} · {fmtDay(t.bid.start)} – {fmtDay(t.bid.end - 1)}</div>
+          <div className="small">Your bid: {usd(t.bid.rate)}/BH · MGH {t.bid.mgh} · {g.fleet[t.bid.aircraftId]?.reg ?? '—'} · {t.bid.crew === 'mixed' ? 'mixed crew' : 'our crew'} · {day(t.bid.start)} – {day(t.bid.end - 1)}</div>
         )}
         {row.result && (
           <div className={`small ${row.status === 'won' ? 'good' : 'warn'}`}>{row.status === 'won' ? `Won: ${row.result.why}.` : `${row.result.winnerName} won: ${row.result.why}.`}</div>

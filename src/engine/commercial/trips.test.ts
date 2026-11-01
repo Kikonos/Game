@@ -82,7 +82,7 @@ describe('tickets as crew deadheads', () => {
     expect(t.status).toBe('done');
     expect(sales(g) - before).toBe(-(t.cost.tickets + t.cost.pass + t.cost.hotel + t.cost.perDiem));
     expect(t.met!.length).toBeGreaterThanOrEqual(3);
-    expect(g.messages.some((m) => m.title.includes('is back from ITB Berlin'))).toBe(true);
+    expect(g.messages.some((m) => /^You are back from ITB Berlin/.test(m.title))).toBe(true);
   });
 
   it('the traveller rides the airline leg on the map (no crew aboard, their name), and says where they are', () => {
@@ -119,8 +119,11 @@ describe('tickets as crew deadheads', () => {
     bookTrip(g, 'ceo', { fairId: 'itb' });
     const t = com(g).trips[0];
     const after = sales(g);
+    const { pass, tickets } = t.cost;
     expect(cancelTrip(g, t.id).ok).toBe(true);
-    expect(sales(g) - after).toBe(t.cost.pass);
+    expect(sales(g) - after).toBe(pass);
+    // v0.14.1 (COMM-L3) the trip then shows what was paid: the seats.
+    expect(t.cost).toEqual({ tickets, pass: 0, hotel: 0, perDiem: 0 });
     expect(t.status).toBe('cancelled');
     expect(commercialFlightsBetween(g, t.out.std, t.out.sta).some((c) => c.tripId === t.id)).toBe(false);
   });

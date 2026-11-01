@@ -34,6 +34,8 @@ export const CRISIS = {
   weights: { strike: 0.45, grounding: 0.3, bankruptcy: 0.25 } as Record<CrisisKind, number>,
   /** An administration at most this often. */
   bankruptcyGap: 150,
+  /** v0.14.1 a client hit by a crisis is not hit again until this many days after it ended. */
+  clientGap: 180,
   days: { strike: [4, 10], grounding: [60, 120], bankruptcy: [60, 60] } as Record<CrisisKind, [number, number]>,
   /** Share of the written-off debt the administrator pays back, and when (days). */
   claimPct: [0.1, 0.3] as [number, number],
@@ -80,7 +82,8 @@ const openDebt = (g: GameState, c: Client) => g.finance.receivables.filter((r) =
 function candidates(g: GameState, kind: CrisisKind): { c: Client; w: number; engine?: (typeof ENGINES)[number] }[] {
   const home = g.company.homeBase;
   const near = (c: Client) => (AIRPORT_BY_CODE[home] && distance(c.base, home) < 3000 ? 2 : 1) * (knowsUs(g, c) ? 3 : 1);
-  const live = new Set(com(g).crises.filter((x) => g.now < x.end).map((x) => x.clientId));
+  // v0.14.1 nor one whose last crisis ended less than clientGap days ago (TAP grounded again a week after the last).
+  const live = new Set(com(g).crises.filter((x) => g.now < x.end + CRISIS.clientGap * DAY).map((x) => x.clientId));
   const ok = (c: Client | undefined): c is Client => !!c && c.kind === 'airline' && !c.rivalId && c.ceased === undefined && !live.has(c.id) && !!AIRPORT_BY_CODE[c.base];
   if (kind === 'grounding') {
     const out: { c: Client; w: number; engine: (typeof ENGINES)[number] }[] = [];
@@ -169,19 +172,21 @@ export function startCrisis(g: GameState, kind: CrisisKind, clientId?: string, r
   if (c.crises.length > 30) c.crises.splice(0, c.crises.length - 30);
   c.lastCrisis = g.now;
   comStats(g).crises++;
-  if (kind === 'bankruptcy') administration(g, x, cl, r);
-  makeWork(g, x, e, cl, seg === 'wide');
-  const ours = knowsUs(g, cl) || (x.written ?? 0) > 0;
+  const bids = kind === 'bankruptcy' ? administration(g, x, cl, r) : 0;
+  makeWork(g, x, e, cl, seg === 'wide', hit.engine);
+  const ours = knowsUs(g, cl) || (x.written ?? 0) > 0 || bids > 0;
+  // v0.14.1 a bid on its tender is withdrawn with it: said here (it used to vanish from My bids without a word).
+  const bidText = bids ? ` Its tender${bids > 1 ? 's are' : ' is'} withdrawn, with our bid.` : '';
   pushMessage(g, {
-    tone: kind === 'bankruptcy' && x.written ? 'bad' : 'warn', cat: 'commercial', title, body: `${body}${x.written ? ` It owes us ${usdK(x.written)}: written off, and a claim is filed with the administrator.` : ''}`,
+    tone: kind === 'bankruptcy' && x.written ? 'bad' : 'warn', cat: 'commercial', title, body: `${body}${x.written ? ` It owes us ${usdK(x.written)}: written off, and a claim is filed with the administrator.` : ''}${bidText}`,
     ref: { kind: 'event', id: e.id },
     ...(ours ? { problem: { kind: 'clientCrisis' as const, ref: { kind: 'event' as const, id: e.id } }, cue: x.written ? 'clientCollapse' as const : 'worldEventOurs' as const } : { topic: 'world' as const }),
   });
   return x;
 }
 
-/** An administration: open receivables written off (bad debt), a claim filed; its open offers and tenders lapse. */
-function administration(g: GameState, x: Crisis, cl: Client, r: RngHolder): void {
+/** An administration: open receivables written off (bad debt), a claim filed; its open offers and tenders lapse. Our bids withdrawn (count). */
+function administration(g: GameState, x: Crisis, cl: Client, r: RngHolder): number {
   let written = 0;
   for (const rc of g.finance.receivables) {
     if (rc.clientId !== cl.id || rc.paid !== null || rc.written) continue;
@@ -198,7 +203,15 @@ function administration(g: GameState, x: Crisis, cl: Client, r: RngHolder): void
     comStats(g).written += written;
   }
   for (const o of Object.values(g.offers)) if (o.clientId === cl.id && (o.status === 'open' || o.status === 'countered')) closeOffer(g, o, 'expired');
-  for (const t of com(g).tenders) if (t.clientId === cl.id && (t.status === 'open' || t.status === 'closed')) t.status = 'withdrawn';
+  let bids = 0;
+  for (const t of com(g).tenders) {
+    if (t.clientId !== cl.id || (t.status !== 'open' && t.status !== 'closed')) continue;
+    if (t.bid) bids++;
+    t.status = 'withdrawn';
+    // v0.14.1 the results list shows it (newest first by its award date: now).
+    t.resultAt = Math.min(t.resultAt, g.now);
+  }
+  return bids;
 }
 
 function payClaim(g: GameState, x: Crisis): void {
@@ -211,7 +224,7 @@ function payClaim(g: GameState, x: Crisis): void {
 }
 
 /** The crisis's work: urgent cover and short wet leases for the airline (or, after an administration, its neighbours). */
-function makeWork(g: GameState, x: Crisis, e: WorldEvent, cl: Client, wide: boolean): void {
+function makeWork(g: GameState, x: Crisis, e: WorldEvent, cl: Client, wide: boolean, engine?: (typeof ENGINES)[number]): void {
   const nearest = Object.values(g.clients)
     .filter((c) => c.kind === 'airline' && c.id !== cl.id && !c.rivalId && c.ceased === undefined && AIRPORT_BY_CODE[c.base])
     .sort((a, b) => distance(a.base, cl.base) - distance(b.base, cl.base) || (a.id < b.id ? -1 : 1)).slice(0, 3);
@@ -219,11 +232,16 @@ function makeWork(g: GameState, x: Crisis, e: WorldEvent, cl: Client, wide: bool
   const jobs: (() => ContractOffer | null)[] = [];
   const cover = (client: string, w: boolean) => () => generateOffer(g, 'aogCover', { client, wide: w, window: false, start: g.now + int(r, 10, 36) * 60, paint: false, cabin: false });
   const lease = (client: string, w: boolean) => () => generateOffer(g, 'seasonBase', { client, wide: w, window: false, days: int(r, 30, 45), start: g.now + int(r, 4, 10) * DAY, paint: false, cabin: false });
+  // v0.14.1 one request per airline (a cover and a lease from one client at one airport looked like the same job twice):
+  // a strike's cover for the airline on strike, its passengers rebooked on the nearest airline (a lease there); a
+  // grounding's lease for the airline, AOG cover for another operator of the same engine.
   if (x.kind === 'strike') {
     jobs.push(cover(cl.id, false));
-    if (chance(r, 0.6)) jobs.push(lease(cl.id, false));
+    if (nearest[0] && chance(r, 0.6)) jobs.push(lease(nearest[0].id, false));
   } else if (x.kind === 'grounding') {
-    jobs.push(lease(cl.id, wide), cover(cl.id, wide));
+    jobs.push(lease(cl.id, wide));
+    const other = (engine?.clients ?? []).map((n) => Object.values(g.clients).find((c) => c.name === n)).find((c) => c && c.id !== cl.id && c.ceased === undefined && !c.rivalId && AIRPORT_BY_CODE[c.base]);
+    if (other && chance(r, 0.6)) jobs.push(cover(other.id, wide));
   } else {
     jobs.push(() => generateOffer(g, 'repatriation', { airport: cl.base, wide: false, window: false }));
     for (const n of nearest.slice(0, 2)) jobs.push(lease(n.id, false));
@@ -255,7 +273,9 @@ export function clientCrisisCard(g: GameState, eventId: string): ProblemCard | n
   const why = x.kind === 'strike' ? `${e.title.replace(`${name} `, '').replace(/^\w/, (m) => m.toUpperCase())}: they walked out over pay and rosters.`
     : x.kind === 'grounding' ? `${x.engine} inspections keep the engines off wing for months.`
     : 'It ran out of cash and stopped flying.';
-  const hurtText = x.written ? `Yes: ${usdK(x.written)} it owed us is written off; the administrator may pay back about ${Math.round((x.claim?.pct ?? 0.2) * 100)} % by ${fmtDay(x.claim?.payAt ?? g.now)}`
+  // v0.14.1 once the claim is paid, the card says what came back (not 'may pay back').
+  const hurtText = x.written && x.claim?.paid ? `Yes: ${usdK(x.written)} it owed us was written off; the administrator paid back ${usdK(x.claim.amount)} (${Math.round(x.claim.pct * 100)} %) on ${fmtDay(x.claim.paid)}`
+    : x.written ? `Yes: ${usdK(x.written)} it owed us is written off; the administrator may pay back about ${Math.round((x.claim?.pct ?? 0.2) * 100)} % by ${fmtDay(x.claim?.payAt ?? g.now)}`
     : offers.length ? `No: it means work for us (${offers.length} request${offers.length === 1 ? '' : 's'} open)` : 'No: nothing of ours is affected';
   return {
     subject: { kind: 'clientCrisis', ref: { kind: 'event', id: e.id } }, severity: x.written ? 'red' : 'amber', title: what, what, why,
@@ -266,7 +286,7 @@ export function clientCrisisCard(g: GameState, eventId: string): ProblemCard | n
     ],
     details: [
       `${KIND_WHAT[x.kind]} from ${fmtDay(x.start)}${x.kind === 'bankruptcy' ? '' : ` to about ${fmtDay(x.end)}`}`,
-      ...(x.claim ? [`Claim filed: ${usdK(x.claim.amount)} expected ${fmtDay(x.claim.payAt)}${x.claim.paid ? ' (paid)' : ''}`] : []),
+      ...(x.claim ? [x.claim.paid ? `Claim paid: ${usdK(x.claim.amount)} on ${fmtDay(x.claim.paid)}` : `Claim filed: ${usdK(x.claim.amount)} expected ${fmtDay(x.claim.payAt)}`] : []),
       'Urgent requests pay a premium; they go to whoever answers first.',
     ],
     visuals: {}, terms: [], by: x.kind === 'bankruptcy' ? undefined : x.end,

@@ -176,7 +176,7 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
           <b className="ellipsis">{c.title}</b>
           <span className={`badge ${c.status === 'active' ? 'good' : c.status === 'cancelled' ? 'bad' : ''}`}>{STATUS_LABEL[c.status]}</span>
         </div>
-        <div className="small muted ellipsis">{cl?.name ?? 'Client'} · <span className="mono">{regs}</span> · {fmtDay(c.start)} – {fmtDay(c.end)} · {productLine(c.product, c)}</div>
+        <div className="small muted ellipsis">{cl?.name ?? 'Client'} · <span className="mono">{regs}</span> · {offerDays(c).map(fmtDay).join(' – ')} · {productLine(c.product, c)}</div>
         {c.paint?.accepted && open && <div className="small muted ellipsis row gap-4"><Palette className="sc-ico-s" />{paintLine(g, c)}</div>}
         {c.cabin?.accepted && open && <div className="small muted ellipsis">Their cabin: {c.cabin.layout === 'two-class' ? 'two-class' : 'all economy'} · {c.cabin.clientShare >= 1 ? 'they pay' : 'they pay half'}{c.cabin.revert ? ' · put back after' : ''}</div>}
         {open && (

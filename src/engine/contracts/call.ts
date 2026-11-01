@@ -172,6 +172,29 @@ export function whenSaid(g: GameState, t: number, at: string): string {
 }
 
 /** The call as the player hears it. Pure. */
+/**
+ * v0.14.1 the call card's route: a chain 'LIS–FAO–LIS'; legs that do not chain are separate flights, repeats counted
+ * ('MGQ–LIS ×3', not 'MGQ–LIS–LIS–LIS'); more than four legs: the first and how many more. Pure.
+ */
+export function legsRoute(legs: { from: string; to: string }[]): string {
+  if (!legs.length) return '';
+  const segs: string[][] = [];
+  for (const l of legs) {
+    const s = segs[segs.length - 1];
+    if (s && s[s.length - 1] === l.from) s.push(l.to);
+    else segs.push([l.from, l.to]);
+  }
+  const parts: [string, number][] = [];
+  for (const s of segs.map((x) => x.join('–'))) {
+    const last = parts[parts.length - 1];
+    if (last && last[0] === s) last[1]++;
+    else parts.push([s, 1]);
+  }
+  if (parts.length === 1 && (parts[0][1] > 1 || legs.length <= 4)) return parts[0][1] > 1 ? `${parts[0][0]} ×${parts[0][1]}` : parts[0][0];
+  if (legs.length <= 4) return parts.map(([s, n]) => (n > 1 ? `${s} ×${n}` : s)).join(', ');
+  return `${legs[0].from}–${legs[0].to} + ${legs.length - 1} more legs`;
+}
+
 export function callScript(g: GameState, offerId: string): CallScript | null {
   const o = g.offers[offerId];
   if (!o) return null;
@@ -181,7 +204,7 @@ export function callScript(g: GameState, offerId: string): CallScript | null {
   const firstDep = p.kind === 'base' ? p.from : p.legs[0].dep;
   const route = p.kind === 'base'
     ? `Based at ${firstFrom}: ${p.dests.join(', ')}`
-    : p.legs.length <= 4 ? [p.legs[0].from, ...p.legs.map((l) => l.to)].join('–') : `${p.legs[0].from}–${p.legs[0].to} + ${p.legs.length - 1} more legs`;
+    : legsRoute(p.legs);
   const seats = Math.max(o.requirements.minSeats, ...(p.kind === 'legs' ? p.legs.map((l) => l.pax ?? 0) : [0]));
   const when = whenSaid(g, firstDep, firstFrom);
   const there = city(p.kind === 'base' ? p.base : p.legs.find((l) => l.from !== g.company.homeBase)?.from ?? p.legs[0].to);

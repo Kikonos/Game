@@ -8,13 +8,17 @@ import {
 } from './screenLogic';
 
 const offer = (id: string, urgency: ContractOffer['urgency'], estValue: number, status: ContractOffer['status'] = 'open') =>
-  ({ id, urgency, estValue, status, expires: 1000 }) as ContractOffer;
+  // v0.14.1 a live offer expires in the future (marketOffers leaves out an open one past its expiry).
+  ({ id, urgency, estValue, status, expires: 100_000_000 }) as ContractOffer;
 
 describe('contracts helpers', () => {
   it('orders the market urgent first, then by value; closed offers stay out', () => {
     const g = newGame();
     g.offers = { a: offer('a', 'normal', 900), b: offer('b', 'urgent', 100), c: offer('c', 'short', 500), d: offer('d', 'urgent', 5000, 'lost'), e: offer('e', 'normal', 2000, 'countered') };
     expect(marketOffers(g).map((o) => o.id)).toEqual(['b', 'c', 'e', 'a']);
+    // v0.14.1 (COMM-H1) an open offer past its expiry is not on the market.
+    g.offers.a.expires = g.now;
+    expect(marketOffers(g).map((o) => o.id)).toEqual(['b', 'c', 'e']);
   });
   it('v0.14 a live call opens its call card from the market (and any offer list); a lapsed or written one the offer dialog', () => {
     const g = newGame();

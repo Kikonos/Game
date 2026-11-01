@@ -35,12 +35,9 @@
   .v14-call .v10-ring > svg { width: 18px; height: 18px; }
   .v14-call .v10-call-head { gap: 10px; margin-bottom: 6px; }
   .v14-call .v10-caller { font-size: 15px; }
-  .v14-call .v10-line { font-size: 13.5px; line-height: 1.4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom: 4px; }
-  /* The terms on one line: the UTC time and the estimate are in the details. */
-  .v14-facts { flex-direction: row; margin-bottom: 6px; gap: 0; }
-  .v14-facts > span:first-child { flex: none; max-width: 50%; }
-  .v14-facts .v14-join { display: inline; }
-  .v14-facts .v14-more { display: none; }
+  /* v0.14.1 the caller's words on up to two lines (the job's length was cut off); the terms keep the UTC time and the total. */
+  .v14-call .v10-line { font-size: 13.5px; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 4px; }
+  .v14-facts { margin-bottom: 6px; gap: 0; }
   .v14-pick { margin-bottom: 6px; }
   .v14-wait { padding: 4px 9px; }
   .v14-wait > span { display: none; }

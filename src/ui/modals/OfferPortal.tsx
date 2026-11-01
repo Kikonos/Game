@@ -19,6 +19,7 @@ import type { FeasibilityReport } from '../../engine/contracts';
 import { quoteTripMove, tripOf } from '../../engine/ops/tripMove';
 import { subleaseTrip } from '../../engine/ops/sublease';
 import { contractColor } from '../screens/palette';
+import { offerDays } from '../screens/screenLogic';
 import { store, type ModalSpec } from '../store';
 import { toCss } from '../device';
 import { money } from '../format';
@@ -356,7 +357,7 @@ export function SchedulePortal({ g, o, aircraftId, candidates, report, open = fa
             </span>
           ))}
           {/* v0.12 the job as one block only when it has no flights yet (a base programme); otherwise its flights, ghosted */}
-          {(o.pattern.kind !== 'legs' || !ghosts.some((x) => x.kind === 'rev')) && jobTo > jobFrom && <span className="v91-job" style={{ left: x(jobFrom), width: x(jobTo) - x(jobFrom) }} title={`This job: ${fmtDay(o.start)} – ${fmtDay(o.end)}`} />}
+          {(o.pattern.kind !== 'legs' || !ghosts.some((x) => x.kind === 'rev')) && jobTo > jobFrom && <span className="v91-job" style={{ left: x(jobFrom), width: x(jobTo) - x(jobFrom) }} title={`This job: ${offerDays(o).map(fmtDay).join(' – ')}`} />}
           {blocks.map((b) => {
             const w = Math.max(b.kind === 'cont' ? 12 : 4, x(Math.min(b.end, to)) - x(Math.max(b.start, from)));
             const style: React.CSSProperties = { left: x(b.start), width: w };

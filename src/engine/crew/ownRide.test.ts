@@ -147,8 +147,14 @@ describe('v0.12.1 crew riding our own passenger flights', () => {
     // first ride here is 32 h out: cancelling the LIS–DUB leg leaves the aircraft at Lisbon, schedule recovery flies it
     // to Dublin empty, and the riders (in Lisbon, due in Dublin) are its crew: no ticket needed, and they get there.
     // v0.14 seed 22: the market's offer stream changed the draws (on seed 21 the first ride is now 80 h out).
+    // v0.14.1 the offer stream moved again (the Newcomer pace): the clock goes on to 32 h before the next ride, so the
+    // case no longer hangs on where a seed's first ride falls.
     const { g, k } = dublin(22);
-    const { f, p } = rideOut(g, k);
+    let { f, p } = rideOut(g, k);
+    if (f.std - g.now >= 2 * DAY) {
+      run(g, f.std - 32 * 60);
+      ({ f, p } = rideOut(g, k, g.now));
+    }
     expect(f.std - g.now).toBeLessThan(2 * DAY);
     const ids = [...f.riders!];
     cancelFlight(g, f, 'Test');
