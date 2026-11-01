@@ -11,6 +11,7 @@
 import { BAL } from '../core/balance';
 import { fmtTime } from '../core/time';
 import { post } from '../core/ledger';
+import { restoreCues, saveCues } from '../core/cues';
 import { pushMessage } from '../core/messages';
 import type { BuyBackMode, CrewMember, CrewSlot, GameState, Ref } from '../core/types';
 import { usd } from '../ops/util';
@@ -53,6 +54,8 @@ export function buyBackFor(g: GameState, c: CrewMember, plan: CrewPlan, base: Se
 
 /** Runtime: who had a day bought back at which minute (a fix's change lines say so; never saved). */
 const recent = new WeakMap<GameState, Map<string, number>>();
+/** Runtime: the notice of the latest buy-back per crew member (its message id): taken back if undone the same minute. */
+const notices = new WeakMap<GameState, Map<string, { id: string; chimed: boolean }>>();
 /** Whether c's day off was bought back this minute (Crew Control's lines). */
 export const boughtNow = (g: GameState, crewId: string): boolean => recent.get(g)?.get(crewId) === g.now;
 
@@ -82,11 +85,14 @@ export function applyBuyBack(g: GameState, c: CrewMember, segs: Seg[], bb: BuyBa
   if (slot) slot.buyBack = { cost: bb.cost, month: String(bb.month), days: moved.map(([k]) => k), repay: moved.map(([, to]) => to).filter((k): k is number => k !== null) };
   else paid(g, bb.cost);
   if (quiet) return;
-  pushMessage(g, {
+  const msg = pushMessage(g, {
     tone: 'info', cat: 'crew', title: buyBackTitle(c, bb, what),
     body: `Paid at twice a day's pay${slot ? ' once they report' : ''}. ${repayText(c, bb)}`.trim(),
     ...(ref ? { ref } : {}),
   });
+  let n = notices.get(g);
+  if (!n) notices.set(g, (n = new Map()));
+  n.set(c.id, { id: msg.id, chimed: saveCues().some((e) => e.msgId === msg.id) });
 }
 
 function paid(g: GameState, cost: number): void {
@@ -114,6 +120,20 @@ export function undoBuyBack(g: GameState, c: CrewMember, slot: CrewSlot): void {
   restoreOffDays(g, c, bb.days, bb.repay);
   c.boughtOff = (c.boughtOff ?? []).filter((m) => String(m) !== bb.month);
   if (!c.boughtOff.length) delete c.boughtOff;
+  // v0.14.1 bought and given back in the same minute (the roster re-planned the seat at once): nothing happened for the
+  // player, so the 'works the day off' notice and its chime are taken back instead of a 'keeps the day off' beside it.
+  const note = notices.get(g)?.get(c.id);
+  if (note && recent.get(g)?.get(c.id) === g.now) {
+    notices.get(g)!.delete(c.id);
+    const i = g.messages.findIndex((m) => m.id === note.id && m.t === g.now);
+    const cues = saveCues();
+    // (A chime the screen already played keeps its notice: then the day off given back is said too.)
+    if (i >= 0 && (!note.chimed || cues.some((e) => e.msgId === note.id))) {
+      g.messages.splice(i, 1);
+      restoreCues(cues.filter((e) => e.msgId !== note.id));
+      return;
+    }
+  }
   const back = bb.days.filter((k) => k >= 0).map(dayLabel);
   pushMessage(g, { cue: null, tone: 'info', cat: 'crew', title: `${crewName(c)} keeps the day off${back.length ? ` on ${back.join(' and ')}` : ''}`, body: 'The trip it was bought for changed: nothing is paid.' });
 }

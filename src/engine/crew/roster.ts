@@ -360,6 +360,17 @@ function dropTickets(g: GameState, p: Pairing, crewId: string): void {
  * of the trip, left the old tickets unworkable). True when the crew member is acceptable again with new tickets.
  */
 function retick(g: GameState, p: Pairing, c: CrewMember): boolean {
+  // v0.14.1 (CREW-6) in the air on their ticket out, landing at the trip's departure before it reports: that ticket
+  // gets them there; only the way home is re-planned. Planned afresh, a second ticket out was bought from the city
+  // they had just left (it still read as where they were), and the re-check then took the whole crew off the trip
+  // ('At CMN, not LIS for the ticket to CMN') while they slept at the departure (bot seed 7, AT1060).
+  const first = openDuties(g, p)[0];
+  const dep = first ? g.flights[first.flightIds[0]]?.from ?? first.restAt : undefined;
+  const air = (crewIx(g).tickets.get(c.id) ?? []).find((f) => f.status === 'scheduled' && f.std <= g.now && f.sta > g.now && aboard(f, c.id));
+  if (first && air && air.to === dep && air.sta <= first.report) {
+    rehome(g, p, new Set([c.id]));
+    return acceptable(g, planCrew(g, c, p, segsOf(g, c, p.id), true));
+  }
   const plan = planCrew(g, c, p, segsOf(g, c, p.id));
   if (!acceptable(g, plan)) return false;
   dropTickets(g, p, c.id);
@@ -1908,11 +1919,18 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
     const under = firstOpen.report <= g.now;
     if (under && !p.tour && g.flights[firstOpen.flightIds[0]]?.status === 'scheduled') {
       // Reported but not yet off blocks: crew who are not at the departure airport are replaced.
+      // v0.14.1 (CREW-3) only those really elsewhere: a location break after the duty (a ticket home from where a
+      // re-plan no longer takes them) is tagged with this duty too, and took crew standing at the gate off it (S1027
+      // BLU1573: both pilots in Goma, 'At NDJ, not MAN', a red alarm at a closed airport). Those are re-ticketed.
+      const dep = g.flights[firstOpen.flightIds[0]]?.from;
       for (const s of [...p.slots]) {
         const c = s.crewId && !s.locked ? g.crew[s.crewId] : undefined;
         if (!c) continue;
         const plan = planCrew(g, c, p, segsOf(g, c, p.id), true);
-        if (plan.issues.some((i) => i.code === 'location' && i.level === 'illegal' && i.dutyId === firstOpen.id)) releaseCrew(g, p, c.id);
+        if (!plan.issues.some((i) => i.code === 'location' && i.level === 'illegal' && i.dutyId === firstOpen.id)) continue;
+        const flying = (crewIx(g).tickets.get(c.id) ?? []).some((t) => t.status === 'scheduled' && t.std <= g.now && t.sta > g.now);
+        if (c.loc !== dep || flying) releaseCrew(g, p, c.id);
+        else retick(g, p, c);
       }
       setFlightsCrew(g, p);
     }
@@ -2104,13 +2122,13 @@ setCrewTrailOkHook((g, p, c) => {
 });
 
 /** A trip under way whose end moved: the crew's tickets home are re-planned from its new last duty (one per group). */
-function rehome(g: GameState, p: Pairing): void {
+function rehome(g: GameState, p: Pairing, only?: Set<string>): void {
   const duties = openDuties(g, p);
   if (!duties.length) return;
   const last = duties[duties.length - 1];
   const plans = new Map<string, CrewPlan>();
   for (const s of p.slots) {
-    const c = s.crewId ? g.crew[s.crewId] : undefined;
+    const c = s.crewId && (!only || only.has(s.crewId)) ? g.crew[s.crewId] : undefined;
     if (!c) continue;
     for (const d of duties) {
       for (const fid of [...d.deadheadIds]) {
@@ -2357,8 +2375,14 @@ export function repairGoneCrew(g: GameState): Pairing[] {
  * the flights, duty events, legality. No checks: callers validate (rosterActions.ts, replaceCrew).
  */
 export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember, buy?: { what: string; quiet?: boolean }): CrewPlan {
-  const cur = p.slots[slot].crewId;
+  // v0.14.1 the seat object, not its index: releasing the holder of an extra seat drops that seat (releaseCrew), so the
+  // replacement is written into it and the seat put back (a call-out or Replace for an added crew member threw here).
+  const seat = p.slots[slot];
+  if (!seat) throw new Error(`placeCrew: no seat ${slot} on ${p.id}`);
+  const cur = seat.crewId;
   if (cur) releaseCrew(g, p, cur);
+  if (!p.slots.includes(seat)) p.slots.splice(Math.min(slot, p.slots.length), 0, seat);
+  slot = p.slots.indexOf(seat);
   const hadCrew = crewCount(p) > 0;
   const plan = planCrew(g, c, p, segsOf(g, c, p.id));
   // v0.12.1 Crew Control's buy-back: the day is worked for pay and repaid (crew/buyBack.ts), no broken-day morale.

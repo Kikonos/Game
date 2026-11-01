@@ -5,8 +5,9 @@
 
 import { onStandby, readyMinOf, standbyFor } from './standby';
 import { canFill, reportMinutes, typeOf } from '../core/perf';
-import { fmtDay, fmtTime } from '../core/time';
+import { DAY, fmtDateTime, fmtDay, fmtTime } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role, StandbyKind } from '../core/types';
+import { atomic } from './atomic';
 import { issueLevelFor, openDuties, planCrew } from './check';
 import { crewName } from './generate';
 import { rootReason, type Reason } from './reasons';
@@ -80,7 +81,8 @@ export function dutyCrew(g: GameState, dutyOrFlightId: string): DutyCrewView | n
       const plan = planCrew(g, c, p, segsOf(g, c, p.id), true);
       // As seen from this duty: a later duty's problem only warns (flightCrewStatus agrees).
       for (const i of plan.issues) if (i.code !== 'fdp') level = worst(level ?? 'legal', issueLevelFor(g, p, d, i));
-      level ??= 'legal';
+      // v0.14.1 (UI-2) the duty's own day length is every seat's: never 'Legal' above a red 'Day length 17:40 of 12:15'.
+      level = worst(level ?? 'legal', d.done ? 'legal' : d.legality);
     }
     return { index, role: s.role, crewId: s.crewId, name: c ? crewName(c) : null, locked: !!s.locked, extra: !!s.extra, above: !!s.above, ...(s.reserve ? { reserve: true as const } : {}), level };
   });
@@ -89,6 +91,9 @@ export function dutyCrew(g: GameState, dutyOrFlightId: string): DutyCrewView | n
     dutyIds: [...p.dutyIds], report: d.report, release: d.release, slots, inProgress: !!inProgress(g, p),
   };
 }
+
+/** v0.14.1 a duty's release, dated when it falls on another UTC day than the report ('2 Mar 06:50'). Pure. */
+export const releaseText = (report: Minute, release: Minute): string => (Math.floor(release / DAY) === Math.floor(report / DAY) ? fmtTime(release) : fmtDateTime(release));
 
 /**
  * v0.9 round 4 (§Y.1): the report of a crew member who takes a seat after the duty reported: their own check-in for
@@ -297,6 +302,11 @@ function basicChecks(g: GameState, p: Pairing, c: CrewMember, role: Role, replac
  * assignments are refused unless `force` (then kept and flagged red). The assignment is locked.
  */
 export function assignCrew(g: GameState, dutyOrFlightId: string, crewId: string, role: Role, opts: RosterOpts & { replace?: string } = {}): ActionResult<{ pairingId: string; slot: number; level: Legality }> {
+  // v0.14.1 all or nothing (crew/atomic.ts): a placement that throws leaves the trip as it was.
+  return atomic(g, 'assign crew', (error) => ({ ok: false, error }), () => assignRaw(g, dutyOrFlightId, crewId, role, opts));
+}
+
+function assignRaw(g: GameState, dutyOrFlightId: string, crewId: string, role: Role, opts: RosterOpts & { replace?: string }): ActionResult<{ pairingId: string; slot: number; level: Legality }> {
   const x = ctxOfId(g, dutyOrFlightId);
   if (!x) return { ok: false, error: 'Duty not found' };
   const { p } = x;
@@ -320,11 +330,13 @@ export function assignCrew(g: GameState, dutyOrFlightId: string, crewId: string,
     p.slots.push({ role, crewId: null, extra: true });
     slot = p.slots.length - 1;
   }
+  const seat = p.slots[slot];
   placeCrew(g, p, slot, c);
-  p.slots[slot].locked = true;
+  slot = p.slots.indexOf(seat);
+  seat.locked = true;
   // v0.9 round 4 (§Y.1): a replacement at the gate starts a fresh day: their own check-in for the held departure, not the duty's report.
   const d0 = openDuties(g, p)[0];
-  if (opts.replace && d0 && d0.report <= g.now) p.slots[slot].from = freshReport(g, p, d0);
+  if (opts.replace && d0 && d0.report <= g.now) seat.from = freshReport(g, p, d0);
   touchCrew(g);
   const name = crewName(c);
   const msg = check.level === 'illegal' ? `${name} assigned, flagged illegal: ${check.text}` : check.level === 'tight' ? `${name} assigned (tight)` : `${name} assigned`;

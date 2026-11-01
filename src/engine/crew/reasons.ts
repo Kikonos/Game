@@ -102,7 +102,7 @@ export function rootReason(g: GameState, issues: LegalityIssue[], c: CrewMember,
   if (day && !codes.has('fdp')) {
     // The standby's start from the rule's own words ('On standby from 06:00: …').
     const since = day.code === 'standby' ? /from (\d\d:\d\d)/.exec(day.text)?.[1] : undefined;
-    set('fdp', day.code === 'ext7d' ? 'already 2 extended days this week' : day.code === 'standby' ? `on standby since ${since ?? 'early morning'}: standby plus the day would pass 18 h awake` : 'a second night in a row with more than 4 sectors');
+    set('fdp', day.code === 'ext7d' ? 'at 2 extended days this week already' : day.code === 'standby' ? `on standby since ${since ?? 'early morning'}: standby plus the day would pass 18 h awake` : 'on a second night in a row with more than 4 sectors');
   }
   const rest2 = has('lateEarly') ?? has('tzRest');
   if (rest2 && !codes.has('rest')) set('rest', rest2.code === 'lateEarly' ? 'finished late: needs a whole local night before an early start' : 'back from a trip across time zones: needs local nights at home first');
@@ -113,7 +113,8 @@ export function rootReason(g: GameState, issues: LegalityIssue[], c: CrewMember,
   const laterD = loc?.dutyId && p && !p.dutyIds.includes(loc.dutyId) ? g.duties[loc.dutyId] : undefined;
   const laterF = laterD ? g.flights[laterD.flightIds[0]] : undefined;
   const laterT = laterD ? laterD.deadheadIds.map((id) => g.flights[id]).find((f) => !!f && f.kind === 'deadhead' && f.status === 'scheduled' && f.crewIds.includes(c.id)) : undefined;
-  if (loc && laterF && laterT) set('place', `their ticket out for ${laterF.no} on ${fmtDay(laterF.std)} leaves ${city(laterT.from)}`);
+  // v0.14.1 (CREW-7) worded to follow 'X is …' as every reason is ('In Chania: Nuno Rodrigues is their ticket out …').
+  if (loc && laterF && laterT) set('place', `due in ${city(laterT.from)} for their ticket out to ${laterF.no} on ${fmtDay(laterF.std)}`);
   else if (loc) {
     const arr = /earliest arrival (\w{3}) ([^,]+), (?:must land by|after the crew reported)/i.exec(loc.text);
     const where = /^At (\w{3}), not (\w{3})/.exec(loc.text);

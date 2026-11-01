@@ -80,6 +80,8 @@ describe('v0.12.1 day-off buy-back', () => {
     const dayA = dayIndex(a.base, g.flights[d.flightIds[0]].std);
     const owed = p.slots.find((s) => s.crewId === b.id)!.buyBack!.cost;
     // One comes off before the report (a swap, a re-plan): the day off comes back and nothing is paid for it.
+    // (A minute later: given back the same minute, nothing is said at all: buyBackSameMinute.test.ts.)
+    advanceTo(g, g.now + 1, new Set());
     const sal0 = g.finance.current.lines.salaries ?? 0;
     releaseCrew(g, p, a.id);
     expect(a.off).toContain(dayA);
