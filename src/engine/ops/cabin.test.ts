@@ -5,10 +5,10 @@ import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
 import { cabinMinimum, isPilot } from '../core/perf';
 import { demoFlights } from '../dev';
-import { DAY } from '../core/time';
+import { DAY, fmtDay } from '../core/time';
 import type { GameState } from '../core/types';
 import { acceptOffer, feasibility } from '../contracts';
-import { addAircraft, legsOffer, newGame, owned, run } from '../contracts/testkit';
+import { addAircraft, hamBase, legsOffer, newGame, owned, run } from '../contracts/testkit';
 import { cancelCheck } from './maintenance';
 import { bookRefit, loadRefits, restAfterRefit, bookRestSeats, cabinOptions, REST_SEATS, refitQuote, refitSlots, refitStations, refitTerms, restRefitOptions, restSeatsQuote, twoClassInstead } from './cabin';
 import { leased } from '../contracts/testkit';
@@ -297,5 +297,20 @@ describe('v0.12.1 cabin wording', () => {
     expect(cabinBreak(c, req)).toMatch(/^needs an all-economy cabin/);
     const c2 = { total: 180, j: 0, w: 0, y: 180, layout: 'all-economy', label: '180Y' } as never;
     expect(cabinBreak(c2, { minSeats: 150, layout: 'two-class' } as never)).toMatch(/^needs a two-class cabin/);
+  });
+});
+
+describe('v0.14.1 (UI-7) busy until the programme ends', () => {
+  it('a base deployment generated a few weeks ahead: busy until its last day, not its last generated leg', () => {
+    const g = newGame(3);
+    const ac = owned(g);
+    const o = hamBase(g, g.now + 3 * DAY, 100);
+    const s = acceptOffer(g, o.id, [ac.id]);
+    if (!s.ok) throw new Error(s.error);
+    const c = g.contracts[s.data!.contractId];
+    expect(c.generatedUntil ?? 0).toBeLessThan(c.pattern.kind === 'base' ? c.pattern.to : 0);
+    const r = refitSlots(g, ac.id, '12J/156Y');
+    expect(r.slots[0].start).toBeGreaterThan(c.pattern.kind === 'base' ? c.pattern.to : 0);
+    expect(r.busyWhy).toBe(`Busy until ${fmtDay(c.pattern.kind === 'base' ? c.pattern.to : 0)}: flies ${c.title}`);
   });
 });

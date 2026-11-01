@@ -8,7 +8,7 @@ import { paleOnLight, resolveTheme, THEME_COLOR } from './theme';
 
 describe('Appearance (v0.11)', () => {
   it('settings saved before themes keep the dark look; a stored choice stays', () => {
-    expect(settingsFrom({ units: 'nm' }).theme).toBe('dark');
+    expect(settingsFrom({ sound: true }).theme).toBe('dark');
     expect(settingsFrom({}).theme).toBe('dark');
     expect(settingsFrom({ theme: 'light' }).theme).toBe('light');
     expect(settingsFrom({ theme: 'system' }).theme).toBe('system');

@@ -1,4 +1,3 @@
-import { store } from './store';
 
 /** '$2.30M', '$12.4M', '$412K', '$1.2K', '$900' (the engine's usd() style); `digits` fixes the M decimals. */
 export function money(v: number, digits?: number): string {
@@ -16,10 +15,6 @@ export function moneyDelta(v: number, digits?: number): string {
   return v > 0 ? `+${money(v, digits)}` : money(v, digits);
 }
 
-export function fare(v: number): string {
-  return `$${Math.round(v).toLocaleString('en-US')}`;
-}
-
 export function int(v: number): string {
   return Math.round(v).toLocaleString('en-US');
 }
@@ -35,11 +30,6 @@ export function compact(v: number): string {
 
 export function pct(v: number, digits = 0): string {
   return `${(v * 100).toFixed(digits)}%`;
-}
-
-export function dist(km: number): string {
-  if (store.settings.units === 'nm') return `${int(km / 1.852)} nm`;
-  return `${int(km)} km`;
 }
 
 export function hours(h: number): string {

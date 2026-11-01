@@ -547,6 +547,9 @@ export function contractProgress(g: GameState, contractId: string): ContractProg
     out.mgh = Math.round(mghFor(c, k) * 10) / 10;
     const unbilled = c.billedMonths.includes(k) ? 0 : c.product.ratePerBH * out.bhMonth;
     out.revenueToDate = Math.round((c.invoiced ?? 0) + unbilled);
+  } else if (c.product.kind === 'dry') {
+    // v0.14.1 (UI-5) a dry lease earns by its invoices (rent ahead, reserves behind), never by accrual: was $0.
+    out.revenueToDate = Math.round(Math.max(c.invoiced ?? 0, c.accrued ?? 0));
   } else out.revenueToDate = Math.round(c.accrued ?? 0);
   out.legsDone = c.legsFlown ?? 0;
   out.legsTotal += out.legsDone;

@@ -118,7 +118,8 @@ function describe(g: GameState, a: Anchor): string {
     return m ? `${maintWord(m)} at ${m.at} ${fmtDayRange(m.start, m.end)}` : 'maintenance';
   }
   const c = a.contractId ? g.contracts[a.contractId] : undefined;
-  if (c) return `${c.title} (${fmtDayRange(a.std, a.sta)})`;
+  // v0.14.1 (UI-7) a base programme by its own dates (its flights are only generated a few weeks ahead).
+  if (c) return `${c.title} (${c.pattern.kind === 'base' ? fmtDayRange(c.pattern.from, c.pattern.to) : fmtDayRange(a.std, a.sta)})`;
   const f = g.flights[a.id];
   return f ? `${f.kind === 'ferry' ? 'ferry' : 'flight'} ${f.no} ${f.from}–${f.to} ${fmtDateTime(f.std)}` : 'another commitment';
 }

@@ -3,6 +3,7 @@
 // return costs (check, half-life, cabin reinstatement, repaint) are posted when the check starts, the deposit comes
 // back and the aircraft leaves the fleet when it ends.
 
+import { floorRent } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { LESSOR_SITES } from '../../data/market';
 import { BAL } from '../core/balance';
@@ -17,8 +18,8 @@ import type { ActionResult, Aircraft, GameState, MaintenanceEvent, Minute } from
 import { route, routeSpan, timeChain } from '../contracts/plan';
 import { layoutName, reinstateCost } from './cabin';
 import type { DeliveryLeg } from './delivery';
-import { settleDeparture } from './finance';
-import { cCheckGross, scheduleCheck } from './maintenance';
+import { rentOver, settleDeparture } from './finance';
+import { cCheckGross, checkCostOf, checkUsedAt, nextPlanned, scheduleCheck } from './maintenance';
 import { maintWord, usd } from './util';
 
 export interface ReturnQuote { site: string; lines: { label: string; amount: number }[]; total: number; deposit: number; checkDays: number; ferry: DeliveryLeg[] }
@@ -82,7 +83,8 @@ export function earlyReturnQuote(g: GameState, aircraftId: string, end?: Minute)
   const rq = returnQuote(g, ac.id, e)!;
   const monthsLeft = (own.leaseEnd - e) / MONTH;
   const fee = Math.round((Math.max(E.feeMinMonths, E.feeShare * monthsLeft) * own.rentPerMonth) / 1000) * 1000;
-  const rentSaved = Math.round((monthsLeft * own.rentPerMonth) / 1000) * 1000;
+  // v0.14.1 an agreed extension's rent counts from its start.
+  const rentSaved = Math.round((rentOver(own, e, own.leaseEnd, MONTH)) / 1000) * 1000;
   const deposit = own.deposit ?? 0;
   const net = rentSaved + deposit - fee - rq.total;
   return { ok: !blockers.length, why: blockers.length ? blockers[0] : null, end: e, fee, rentSaved, returnCosts: rq, deposit, net, blockers };
@@ -130,22 +132,51 @@ const lessorOf = (ac: Aircraft) => (ac.ownership.kind === 'dryLeaseIn' ? ac.owne
 
 const indexOf = (g: GameState, ac: Aircraft) => (typeOf(ac.typeId).body === 'wide' ? g.market.wideIndex : g.market.narrowIndex);
 
-/** Rent for an extension: today's rent × the term factor × the market's move since the rent was set. */
+/**
+ * Rent for an extension: today's rent × the term factor × the market's move since the rent was set. v0.14.1 (M6) never
+ * below the type's rent floor (an old A330-200 about $150K): a pre-v0.14 lease no longer extends forever under it.
+ */
 function extendedRent(g: GameState, ac: Aircraft, months: 12 | 36): number {
   if (ac.ownership.kind !== 'dryLeaseIn') return 0;
-  return Math.round((ac.ownership.rentPerMonth * BAL.leaseReturn.extend[months] * (indexOf(g, ac) / (ac.ownership.index ?? 1))) / 1000) * 1000;
+  const raw = Math.round((ac.ownership.rentPerMonth * BAL.leaseReturn.extend[months] * (indexOf(g, ac) / (ac.ownership.index ?? 1))) / 1000) * 1000;
+  return floorRent(typeOf(ac.typeId), raw);
+}
+
+/**
+ * v0.14.1 (M3) an agreed extension's rent takes over at its start (the old lease end): the rent before it is kept for
+ * that month's bill (finance.ts rentOver). Daily and at 'lease.end'.
+ */
+export function applyRentStep(g: GameState, ac: Aircraft): void {
+  if (ac.ownership.kind !== 'dryLeaseIn') return;
+  const own = ac.ownership;
+  const next = own.nextRent;
+  if (!next || next.from > g.now) return;
+  own.prevRent = { until: next.from, rent: own.rentPerMonth };
+  own.rentPerMonth = next.rent;
+  own.index = next.index;
+  delete own.nextRent;
 }
 
 const pct = (a: number, b: number) => `${a <= b ? '−' : '+'}${Math.abs(Math.round((1 - a / b) * 100))}%`;
 
-/** Share of the C-check interval used at the lease end: the C-checks due before then reset it (calendar share mod 1);
- *  with none due first, the larger of today's flight-hour share and the calendar share. In [0, 1]. */
-function usedC(g: GameState, ac: Aircraft, at: Minute): number {
+/**
+ * Share of the C-check interval used at the lease end. v0.14.1 (M1) a C-check booked to end before then restarts the
+ * clock (calendar share from its end). With none booked, the flight-hour and calendar shares at `at` (scheduled legs
+ * counted): under 100 % it is the half-life share; from 100 % to the overdue tolerance the check is due and not done,
+ * so it is ours to pay (`overdue`); past the tolerance the aircraft is grounded and the check forced before then, so
+ * the clock has restarted (the share past 100 %, mod 1, as over a long lease). Was the calendar share mod 1 from
+ * 100 %: an airframe handed back with its C-check due went back free.
+ */
+function usedC(g: GameState, ac: Aircraft, at: Minute): { used: number; overdue: boolean } {
   const t = typeOf(ac.typeId);
-  const fhLimit = t.body === 'wide' ? BAL.cCheckFH.wide : BAL.cCheckFH.narrow;
-  const cal = (Math.max(at, g.now) - ac.maint.lastC) / (t.cCheckMonths * MONTH);
-  const frac = cal >= 1 ? cal % 1 : Math.max(ac.maint.fhSinceC / fhLimit, cal);
-  return Math.min(1, Math.max(0, frac));
+  const interval = t.cCheckMonths * MONTH;
+  const when = Math.max(at, g.now);
+  const c = nextPlanned(g, ac.id, 'C');
+  if (c && c.end <= when) return { used: Math.min(1, Math.max(0, ((when - c.end) / interval) % 1)), overdue: false };
+  const u = checkUsedAt(g, ac, 'C', when).used;
+  if (u < 1) return { used: Math.max(0, u), overdue: false };
+  if (u <= 1 + BAL.overdueTolerance) return { used: 1, overdue: true };
+  return { used: Math.min(1, (u - 1) % 1), overdue: false };
 }
 
 /** The return: ferry to the return site, check, half-life, cabin back as delivered, white repaint; deposit back. Pure. */
@@ -160,7 +191,11 @@ export function returnQuote(g: GameState, aircraftId: string, at?: Minute): Retu
   const site = own.returnSite ?? g.company.homeBase;
   const checkDays = L.checkDays[w];
   const lines: { label: string; amount: number }[] = [{ label: 'Return check', amount: L.checkCost[w] }];
-  const half = Math.round((Math.max(0, usedC(g, ac, endAt) - 0.5) * cCheckGross(ac.typeId) * L.halfLifeShare) / 1000) * 1000;
+  const c = usedC(g, ac, endAt);
+  // v0.14.1 (M1) a C-check due and not done at the return is ours: the lessor has it done on our money (what it costs
+  // us to do it, the reserves paying their share), in place of the half-life.
+  if (c.overdue) lines.push({ label: 'C-check due before the return', amount: checkCostOf(ac, 'C') });
+  const half = c.overdue ? 0 : Math.round((Math.max(0, c.used - 0.5) * cCheckGross(ac.typeId) * L.halfLifeShare) / 1000) * 1000;
   if (half > 0) lines.push({ label: 'Half-life compensation', amount: half });
   const cabin = reinstateCost(ac);
   if (cabin) lines.push({ label: `Cabin back to ${layoutName(own.deliveredLayout ?? ac.cabin.layout)}`, amount: cabin });
@@ -242,18 +277,23 @@ export function chooseLease(g: GameState, aircraftId: string, choice: LeaseChoic
     return r;
   }
   const months = choice === 'extend36' ? 36 : 12;
+  // v0.14.1 (M3) one agreed extension at a time: its rent starts at the old lease end.
+  if (own.nextRent) return { ok: false, error: `Already extended to ${fmtDate(own.leaseEnd)}: ${usd(own.nextRent.rent)}/month from ${fmtDay(own.nextRent.from)}` };
   const u = unbook(g, ac);
   if (!u.ok) return u;
   const rent = extendedRent(g, ac, months);
+  // v0.14.1 (M3) the new rent runs from the old lease end (was: at once, up to 120 days early); a lease already past its
+  // end (rolling on at +10 %) takes it now.
+  const from = Math.max(g.now, own.leaseEnd);
   own.leaseEnd = Math.round(own.leaseEnd + months * MONTH);
-  own.rentPerMonth = rent;
-  own.index = indexOf(g, ac);
+  own.nextRent = { from, rent, index: indexOf(g, ac) };
+  applyRentStep(g, ac);
   own.noticeGiven = false;
   schedule(g, own.leaseEnd, 'lease.end', ac.id);
   g.stats.leaseExtensions = (g.stats.leaseExtensions ?? 0) + 1;
   if (dec) g.decisions.splice(g.decisions.indexOf(dec), 1);
   touchFlights(g);
-  pushMessage(g, { tone: 'good', cat: 'company', title: `Lease extended: ${ac.reg}`, body: `${months} more months from ${lessorOf(ac)} at ${usd(rent)}/month, to ${fmtDate(own.leaseEnd)}.`, ref: { kind: 'aircraft', id: ac.id } });
+  pushMessage(g, { tone: 'good', cat: 'company', title: `Lease extended: ${ac.reg}`, body: `${months} more months from ${lessorOf(ac)} at ${usd(rent)}/month${from > g.now ? ` from ${fmtDay(from)}` : ''}, to ${fmtDate(own.leaseEnd)}.`, ref: { kind: 'aircraft', id: ac.id } });
   return { ok: true, msg: `${ac.reg} leased to ${fmtDate(own.leaseEnd)} at ${usd(rent)}/month` };
 }
 
@@ -286,6 +326,7 @@ export function dailyLeases(g: GameState): void {
   for (const ac of Object.values(g.fleet)) {
     if (ac.ownership.kind !== 'dryLeaseIn') continue;
     const own = ac.ownership;
+    applyRentStep(g, ac);
     if (ac.returning) {
       const m = g.maintenance[ac.returning.maintId];
       if (!m || m.status === 'cancelled') {
@@ -335,7 +376,7 @@ export function onReturnEnd(g: GameState, m: MaintenanceEvent): void {
   delete g.fleet[ac.id];
   g.stats.leaseReturns = (g.stats.leaseReturns ?? 0) + 1;
   touchFlights(g);
-  const parts = (q?.lines ?? []).map((l) => `${l.label.replace(/^Return check$/, 'check').replace(/^Half-life compensation$/, 'half-life').replace(/^Strip and white repaint$/, 'repaint').replace(/^Cabin back to /, 'cabin back to ')} ${usd(l.amount)}`);
+  const parts = (q?.lines ?? []).map((l) => `${l.label.replace(/^Return check$/, 'check').replace(/^Half-life compensation$/, 'half-life').replace(/^C-check due before the return$/, 'the C-check that was due').replace(/^Strip and white repaint$/, 'repaint').replace(/^Cabin back to /, 'cabin back to ')} ${usd(l.amount)}`);
   pushMessage(g, {
     tone: 'info', cat: 'company', title: `${ac.reg} returned to ${lessorOf(ac)}`,
     body: `Redelivered at ${siteCity(m.at)} after a ${Math.round((m.end - m.start) / DAY)}-day return check. Return costs ${usd(ac.returning?.quote ?? m.cost)}${parts.length ? ` (${parts.join(', ')})` : ''}.${own.deposit ? ` Deposit ${usd(own.deposit)} refunded.` : ''}${ac.returning?.ferryIds.length ? ' The ferry crew deadheads home.' : ''}`,

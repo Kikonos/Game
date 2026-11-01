@@ -205,7 +205,7 @@ export function rollRivalBid(g: GameState, o: ContractOffer): void {
   if (ours - theirs >= R.closerKm) {
     const fam = rival.fleet.find((f) => rivalFits({ ...rival, fleet: [f] }, o));
     const what = fam ? `${aOrAn(shortType(fam.typeId))} ${shortType(fam.typeId)}` : 'an aircraft';
-    why.push(`had ${what} at ${AIRPORT_BY_CODE[rival.base]?.city ?? rival.base}, ours were ${(Math.round(ours / 100) * 100).toLocaleString('en-US')} km away`);
+    why.push(`had ${what} at ${AIRPORT_BY_CODE[rival.base]?.city ?? rival.base}, ours were ${(Math.round(ours / 1.852 / 100) * 100).toLocaleString('en-US')} nm away`);
   }
   // 'Sooner' only when they really were nearer (or none of ours was near); else they simply answered first.
   if (o.urgency === 'urgent' && why.length < 2 && theirs < ours) why.push('could fly tonight');

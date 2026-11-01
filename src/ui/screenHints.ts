@@ -29,7 +29,7 @@ export type HintMode = 'strip' | 'fold' | 'off';
 /** v0.12 the hint's mode from the saved lists ('Don't show again' wins; seen once → folded). Pure. */
 export function hintMode(id: ScreenHintId, s: { screenHintsSeen: readonly string[]; screenHintsFolded?: readonly string[] }): HintMode {
   if (s.screenHintsSeen.includes(id)) return 'off';
-  if (hiddenThisSession(id) || s.screenHintsFolded?.includes(id)) return 'fold';
+  if (s.screenHintsFolded?.includes(id)) return 'fold';
   return 'strip';
 }
 
@@ -39,7 +39,3 @@ export const foldHint = (folded: readonly string[] | undefined, id: ScreenHintId
 /** A strip shown at least this long (real ms) counts as seen when its screen closes. */
 export const HINT_SEEN_MS = 1500;
 
-/** Hidden for this session; not saved (v0.12: folded into '?' instead of hidden). */
-const sessionHidden = new Set<ScreenHintId>();
-export const hiddenThisSession = (id: ScreenHintId) => sessionHidden.has(id);
-export const hideForSession = (id: ScreenHintId) => void sessionHidden.add(id);

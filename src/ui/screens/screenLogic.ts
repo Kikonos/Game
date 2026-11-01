@@ -229,6 +229,8 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   disruption: 'Disruptions', compliance: 'Safety & compliance', delivery: 'Ferry companies',
   // v0.14
   sales: 'Sales and travel', badDebt: 'Bad debts',
+  // v0.14.1
+  consent: 'Lessor consent fees',
 };
 
 // v0.12.1 the engine's lists (statementTotals splits the same way).
@@ -355,6 +357,10 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
       return { tab: 'contracts', view: 'tenders', sel: ref };
     case 'trip':
       return { tab: 'contracts', view: 'markets' };
+    // v0.14.1 (CODE-04) a ramp inspection or an audit: the Safety card on Company › Overview (was: nowhere).
+    case 'ramp':
+    case 'audit':
+      return { tab: 'company', view: 'overview' };
   }
   return null;
 }

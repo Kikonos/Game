@@ -82,7 +82,8 @@ describe('competing bids (§3.3)', () => {
       o.firstRefusal = undefined;
       rollRivalBid(g, o);
       const bid = o.rivalBid as ContractOffer['rivalBid'];
-      if (bid && /had an? .+ at .+, ours were [\d,]+ km away/.test(bid.why)) found = true;
+      // v0.14.1 (merge) distances in nm (fx-money).
+      if (bid && /had an? .+ at .+, ours were [\d,]+ nm away/.test(bid.why)) found = true;
       // v0.14.1 (ids shift with the queue) 'answered first' is right when the rival was not nearer; 'tonight' turns up.
       if (bid && o.urgency === 'urgent' && /could fly tonight/.test(bid.why)) tonight = true;
       delete g.offers[o.id];

@@ -48,7 +48,6 @@ export type Tab = 'map' | 'contracts' | 'schedule' | 'crew' | 'fleet' | 'finance
 export const SPEED_LABEL: Record<GameSpeed, string> = { 1: '1×', 2: '2×', 4: '4×' };
 
 export interface Settings {
-  units: 'km' | 'nm';
   sound: boolean;
   volume: number;
   autosave: boolean;
@@ -91,7 +90,6 @@ export interface Settings {
 export interface ScenarioBest { stars: number; value: number; at: number }
 
 const DEFAULT_SETTINGS: Settings = {
-  units: 'km',
   sound: true,
   volume: 0.6,
   autosave: true,

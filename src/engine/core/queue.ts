@@ -44,13 +44,6 @@ export function pop(g: GameState): SimEvent | undefined {
   return top;
 }
 
-/** Drop queued events matching a predicate (rarely needed: prefer bumping the entity's ev). */
-export function unschedule(g: GameState, match: (e: SimEvent) => boolean): void {
-  const keep = g.queue.filter((e) => !match(e));
-  g.queue = [];
-  for (const e of keep.sort((a, b) => a.t - b.t || a.seq - b.seq)) g.queue.push(e);
-}
-
 /** Versioned event families: entity collection per type prefix (stale = missing entity or ev mismatch). */
 const VERSIONED: [string, (g: GameState) => Record<string, { ev: number }>][] = [
   ['flight.', (g) => g.flights],

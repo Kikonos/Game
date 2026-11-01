@@ -218,7 +218,8 @@ function payClaim(g: GameState, x: Crisis): void {
   const k = x.claim!;
   k.paid = g.now;
   if (k.amount <= 0) return;
-  post(g, 'otherRevenue', k.amount);
+  // v0.14.1 (M4) a recovery of the bad debt (was other revenue: the top bar read it as daily income).
+  post(g, 'badDebt', k.amount);
   const name = g.clients[x.clientId]?.name ?? 'the airline';
   pushMessage(g, { tone: 'good', cat: 'finance', title: `The administrator of ${name} paid our claim`, body: `${usdK(k.amount)}: ${Math.round(k.pct * 100)} % of the ${usdK(x.written ?? 0)} written off.`, cue: 'paymentIn' });
 }

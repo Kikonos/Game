@@ -154,7 +154,8 @@ function tripNeed(g: GameState, typeId: string, rest: ReturnType<typeof restOf>,
 }
 
 /** 'A330', '737', 'A321' (the plain type name a player says), from 'Airbus A330-200'. */
-const km = (a: string, b: string) => `${Math.round(distance(a, b) / 100) * 100 >= 1000 ? (Math.round(distance(a, b) / 100) * 100).toLocaleString('en-US') : Math.round(distance(a, b))} km`;
+// v0.14.1 (CODE-05) in nautical miles, as every other distance in the game.
+const nmText = (a: string, b: string) => { const d = distance(a, b) / 1.852; return `${d >= 1000 ? (Math.round(d / 100) * 100).toLocaleString('en-US') : Math.round(d)} nm`; };
 /** '20h 00m' up to two days, then '20 days' / '3 days 4h'. */
 const span = (min: number) => (min < 2 * DAY ? fmtDuration(min) : `${Math.floor(min / DAY)} days${Math.floor((min % DAY) / 60) ? ` ${Math.floor((min % DAY) / 60)}h` : ''}`);
 const until = (g: GameState, t: Minute) => (t - g.now < 2 * DAY ? `${fmtDay(t)} ${fmtTime(t)}` : fmtDay(t));
@@ -257,7 +258,7 @@ function planMove(g: GameState, flightId: string, targetId: string): Plan | { er
       break;
     }
     if (!sp.ok || sp.legs.length > 1) {
-      reasons.push(`${an(typeWord(tgt.typeId))} ${typeWord(tgt.typeId)} can't fly this ${km(f.from, f.to)} leg (${f.from}–${f.to}) without a fuel stop`);
+      reasons.push(`${an(typeWord(tgt.typeId))} ${typeWord(tgt.typeId)} can't fly this ${nmText(f.from, f.to)} leg (${f.from}–${f.to}) without a fuel stop`);
       break;
     }
     const need = etopsNeeded(tgt.typeId, f.from, f.to);

@@ -1,10 +1,10 @@
 // v0.7.1 the four-line card every problem is told with (UPDATE-0.7.1.md §1, §5): WHAT, WHY (one sentence), DOES IT
 // HURT? (money, passengers, delay) and WHAT YOU CAN DO (the action buttons), the visual aid of the main cause between
 // them (reach bar, gauges, mini-map, timeline) and the jargon behind a Details tap. Compact (Inbox): WHAT + badges.
-// Glossary words are wrapped in <Term>. The MAP lane's MiniMap is loaded when its file exists (import.meta.glob).
+// Glossary words are wrapped in <Term>. The mini-map is the MAP lane's MiniMap.
 
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { lazy, Suspense, useState, type ComponentType, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { fmtDateTime } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import type { MiniMapSpec, ProblemAction, ProblemCard } from '../../engine/problems/types';
@@ -14,25 +14,14 @@ import { actionTarget, reachLimited } from './problemLogic';
 import { ReachBar } from './ReachBar';
 import { Plain } from './Term';
 import { Timeline } from './Timeline';
+import { MiniMap } from '../map/MiniMap';
 
-type MiniMapProps = { spec: MiniMapSpec; width?: number };
-const MINI = import.meta.glob('../map/MiniMap.tsx') as Record<string, () => Promise<Record<string, unknown>>>;
-const miniLoader = MINI['../map/MiniMap.tsx'];
-const MiniMapLazy: ComponentType<MiniMapProps> | null = miniLoader
-  ? lazy(() => miniLoader().then((m) => ({ default: (m.MiniMap ?? m.default) as ComponentType<MiniMapProps> })))
-  : null;
-
-/** The mini-map for a location cause, when the MAP lane's component is in the tree (else the itinerary as text). */
+/**
+ * The mini-map for a location cause. v0.14.1 (CODE-08) imported directly: the map panels import it anyway, so the old
+ * lazy import moved nothing out of the main chunk (Vite warned on every build).
+ */
 export function MiniMapSlot({ spec }: { spec: MiniMapSpec }) {
-  if (MiniMapLazy) {
-    return (
-      <Suspense fallback={<div className="pc-mini-fallback small dim">Map…</div>}>
-        <MiniMapLazy spec={spec} />
-      </Suspense>
-    );
-  }
-  const who = spec.crew.map((c) => `${c.name} at ${c.at}`).join(', ');
-  return <div className="pc-mini-fallback small muted">{who}{spec.path.length ? ` → ${spec.path.map((p) => `${p.no ?? (p.jet ? 'jet' : 'flight')} ${p.from}–${p.to}`).join(', ')} → ${spec.to}` : ` · needed at ${spec.to}`}</div>;
+  return <MiniMap spec={spec} />;
 }
 
 /** Runs a card action: opens the modal it names or navigates there (closing the current dialog first). */

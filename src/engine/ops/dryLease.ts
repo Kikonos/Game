@@ -236,7 +236,8 @@ export function signDryLease(g: GameState, c: Contract, o: ContractOffer): Actio
   c.dry = { site: d.site, fhPerMonth: d.fhPerMonth, deposit: d.deposit, outIds: out.map((f) => f.id), backIds: back.map((f) => f.id), fh: 0, leaseEnd: c.end, consent, ...(d.paint ? { paint: d.paint } : {}) };
   c.generatedUntil = c.end;
   cashOnly(g, d.deposit);
-  if (consent) post(g, 'rent', -consent);
+  // v0.14.1 (M5) its own line (was rent: the top bar read it as rent running all month).
+  if (consent) post(g, 'consent', -consent);
   const arr = out.length ? out[out.length - 1].sta : c.start - DAY;
   schedule(g, Math.max(g.now + 1, arr + 5), 'lease.out', c.id);
   statsV08(g).dryLeases++;
