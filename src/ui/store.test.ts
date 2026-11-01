@@ -84,3 +84,50 @@ describe('v0.10.2 the phone call pop-up', () => {
     vi.unstubAllGlobals();
   });
 });
+
+describe('v0.14.1 (merge) an engine throw never leaves the game half-changed', () => {
+  it('store.act: an action that throws half-way is undone and refused', async () => {
+    vi.stubGlobal('requestAnimationFrame', () => 0);
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const g = fixtureGame(5);
+    store.loadGame(g);
+    const cash = g.company.cash;
+    const crew = Object.keys(g.crew).length;
+    const r = store.act((gg) => {
+      gg.company.cash -= 1_000_000;
+      delete gg.crew[Object.keys(gg.crew)[0]];
+      throw new Error('boom');
+    });
+    expect(r.ok).toBe(false);
+    expect(store.game!.company.cash).toBe(cash);
+    expect(Object.keys(store.game!.crew).length).toBe(crew);
+    warn.mockRestore();
+    store.quitToTitle();
+    vi.unstubAllGlobals();
+  });
+
+  it('the frame loop: a step that throws goes back to the last step back and pauses', async () => {
+    vi.stubGlobal('requestAnimationFrame', () => 0);
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    const err = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { previewCopy } = await import('../engine/crew/atomic');
+    const g = fixtureGame(5);
+    store.loadGame(g);
+    store.paused = false;
+    const now = g.now;
+    const cash = g.company.cash;
+    (store as unknown as { frameSnap: unknown }).frameSnap = { g, at: g.now, copy: previewCopy(g) };
+    // Half a step applied, then the throw.
+    g.now += 45;
+    g.company.cash -= 5000;
+    store.frameThrew(g, new Error('boom'));
+    expect(g.now).toBe(now);
+    expect(g.company.cash).toBe(cash);
+    expect(store.paused).toBe(true);
+    expect(err).toHaveBeenCalled();
+    err.mockRestore();
+    store.quitToTitle();
+    vi.unstubAllGlobals();
+  });
+});

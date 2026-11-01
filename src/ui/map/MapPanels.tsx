@@ -46,6 +46,7 @@ import { archLabel, capFirst, expiryLabel, hangarWord, offerDays, offerModal } f
 import { ALERT_BANNER, ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, deliveryTag, EVENT_KIND_LABEL, EVENT_TONE, hotelCount, leasedOut, mapLivery, OOH_SHORT, oohLine, parseCommercialId, parseSlipId, PURPOSE_LABEL, purposeChain, restChip, restingLine, restSeatNoun, shortIndex, type ShortRow, slipLine, slipSelId, slipWindow, upcomingLegs } from './mapLogic';
 import { MiniMap } from './MiniMap';
 import { eventIcon } from './WorldLayer';
+import { safe } from './safe';
 
 const ROLE_ORDER = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
 const LEVEL_TONE = { ok: 'good', tight: 'warn', missing: 'bad', illegal: 'bad' } as const;
@@ -85,23 +86,6 @@ function Why({ g, tone, ref }: { g: GameState; tone: string; ref: Ref }) {
       <Dot tone={tone} />
     </button>
   );
-}
-
-/** v0.14.1 (CODE-06) each distinct failure is logged to the console once (was silent: a bug read as a plausible 'ok'). */
-const logged = new Set<string>();
-
-/** Never let a module stub or a half-built API take the map down. */
-function safe<T>(fn: () => T, fallback: T): T {
-  try {
-    return fn();
-  } catch (e) {
-    const key = `${e instanceof Error ? e.message : String(e)}|${fn.toString().slice(0, 80)}`;
-    if (!logged.has(key)) {
-      logged.add(key);
-      console.warn('[Block Hours] a map panel read failed; showing a fallback', e);
-    }
-    return fallback;
-  }
 }
 
 const utcOff = (min: number) => `UTC${min >= 0 ? '+' : '−'}${Math.floor(Math.abs(min) / 60)}${Math.abs(min) % 60 ? `:${String(Math.abs(min) % 60).padStart(2, '0')}` : ''}`;

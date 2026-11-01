@@ -5,12 +5,13 @@ import { COST_CATS, REVENUE_CATS, statementTotals } from '../../engine/core/ledg
 import { problemFor } from '../../engine/problems';
 import { DAY, HOUR, fmtDay, monthKey, toLocal } from '../../engine/core/time';
 import { mghLabel } from '../../engine/contracts/pricing';
+import { jobDays } from '../../engine/contracts/accept';
 import { wetMonthLines } from '../../engine/contracts/billing';
 import { maxPax, seatNeedText } from '../../engine/contracts/plan';
 import type { IdleWindow } from '../../engine/contracts/offers';
 import type { FeasibilityReport } from '../../engine/contracts/feasibility';
 import type {
-  Aircraft, AircraftOffer, Archetype, Minute, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
+  Aircraft, AircraftOffer, Archetype, Contract, Minute, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
 } from '../../engine/core/types';
 import { money } from '../format';
 import type { ModalSpec, Tab } from '../store';
@@ -33,6 +34,15 @@ export function archLabel(o: Pick<ContractOffer, 'archetype' | 'start' | 'end'>)
 export function offerDays(o: Pick<ContractOffer, 'pattern' | 'start' | 'end'>): [number, number] {
   return o.pattern.kind === 'base' ? [toLocal(o.pattern.base, o.start), toLocal(o.pattern.base, o.end - 1)] : [o.start, o.end];
 }
+
+/**
+ * v0.14.1 (merge) a contract's days as the client says them (contracts/accept jobDays): a base programme on the base's
+ * local calendar ('1 Jun – 31 Aug', never the UTC '31 May' of its local-midnight start), other work by its UTC days. Pure.
+ */
+export const workDays = (c: Pick<Contract, 'pattern' | 'start' | 'end'>): string => {
+  const [a, b] = jobDays(c);
+  return a === b ? a : `${a} – ${b}`;
+};
 
 export const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
 export const ROLE_LABEL: Record<Role, string> = { CPT: 'Captain', FO: 'First officer', CRP: 'Relief pilot', PUR: 'Purser', CC: 'Cabin crew' };

@@ -34,16 +34,13 @@ import { EventPinsLayer, hatchUnit, ZoneGround, ZoneLabels } from './WorldLayer'
 import { type FocusAt, type MapAirport, type MapLayerCtx, type Pad, type View, WorldMap } from './WorldMap';
 import { HintNote } from '../components/ScreenHint';
 import { cssRect } from '../device';
+import { safe } from './safe';
 
 /** Panel width (px) kept clear when revealing a selection, and the fleet strip's height. */
 const PANEL_W = 360;
 const STRIP_H = 70;
 /** Screen px around an aircraft icon its labels can reach (left, top, right, bottom: reg and DELIVERY tag under it). */
 const AC_LABEL_BOX: [number, number, number, number] = [36, 20, 36, 46];
-/** Never let a half-built engine view take the map down. */
-function safe<T>(fn: () => T, fallback: T): T {
-  try { return fn(); } catch { return fallback; }
-}
 
 /** The aircraft of a crew-change selection id. */
 const slipAcOf = (g: GameState, id: string) => {

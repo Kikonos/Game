@@ -44,7 +44,7 @@ function copyData<T>(v: T): T {
 let depth = 0;
 
 /** Puts the state back to a copy taken before a change (previewCopy) and moves every runtime index on. */
-function restore(g: GameState, snap: GameState): void {
+export function restoreState(g: GameState, snap: GameState): void {
   const gg = g as unknown as Record<string, unknown>;
   for (const k of Object.keys(gg)) if (!(k in snap)) delete gg[k];
   Object.assign(g, snap);
@@ -67,13 +67,28 @@ export function atomic<T>(g: GameState, where: string, fail: (msg: string) => T,
   depth++;
   try {
     const r = fn();
-    if (refused?.(r)) restore(g, snap);
+    if (refused?.(r)) restoreState(g, snap);
     return r;
   } catch (e) {
-    restore(g, snap);
+    restoreState(g, snap);
     safetyTrip(where, String((e as Error)?.stack ?? e));
     return fail('That change could not be made: nothing was changed.');
   } finally {
     depth--;
+  }
+}
+
+/**
+ * v0.14.1 (merge) the UI's guard for a player action (store.act): fn on the live state; when it throws, the state is put
+ * back to the copy taken before (never half-applied) and `onThrow` answers. Independent of atomic(): the engine's own
+ * all-or-nothing changes inside fn still take their own copies (a refused one is still put back).
+ */
+export function guarded<T>(g: GameState, fn: () => T, onThrow: (e: unknown) => T): T {
+  const snap = previewCopy(g);
+  try {
+    return fn();
+  } catch (e) {
+    restoreState(g, snap);
+    return onThrow(e);
   }
 }

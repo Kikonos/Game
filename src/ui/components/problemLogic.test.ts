@@ -120,7 +120,9 @@ describe('v0.7.1 fix round 1: plain-language helpers', () => {
     expect(resting.by).toBe(150);
     expect(resting.tone).toBe('warn');
     expect(resting.value).toBe(450);
-    expect(restNow(spec, 200)).toMatchObject({ text: '10:00 of 10:00', tone: 'good', by: undefined });
+    // v0.14.1 (merge) a finished rest reads the rest really taken (started at 150 − 600), never '10:00 of 10:00'.
+    expect(restNow(spec, 200)).toMatchObject({ text: '10:50 · min 10:00', value: 600, tone: 'good', by: undefined });
+    expect(restNow(spec, 150 + 11 * 60 + 30)).toMatchObject({ text: '21:30 · min 10:00' });
     expect(restNow({ ...spec, value: 120, text: '2:00 of 10:00', tone: 'bad' }, 0)).toMatchObject({ text: '7:30 of 10:00', tone: 'warn', by: 150 });
     // a rest between two later duties has not started: left as planned
     expect(restNow({ ...spec, by: 2000 }, 0)).toMatchObject({ by: 2000, text: '10:00 of 10:00' });
