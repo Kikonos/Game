@@ -48,9 +48,11 @@ export interface CheckStatus {
 const MONTH = 30.44 * DAY;
 const cLimitFH = (ac: Aircraft) => (typeOf(ac.typeId).body === 'wide' ? BAL.cCheckFH.wide : BAL.cCheckFH.narrow);
 /** What a check costs us: a C-check is mostly paid out of maintenance reserves (leased) or the per-BH provision (owned). */
+/** v0.14 a type's gross C-check cost (its own `cCheck`, else BAL.checkCost.C by body). Pure. */
+export const cCheckGross = (typeId: string): number => typeOf(typeId).cCheck ?? BAL.checkCost.C[typeOf(typeId).body === 'wide' ? 1 : 0];
 /** A check's price; v0.12.1 an A-check `at` an airport other than `home` costs +20 % (line engineers sent out). */
 export const checkCostOf = (ac: Aircraft, kind: 'A' | 'C', at?: string, home?: string) =>
-  Math.round(BAL.checkCost[kind][typeOf(ac.typeId).body === 'wide' ? 1 : 0] * (kind === 'C' ? 1 - BAL.cReserveCover : 1) * (kind === 'A' && at && home && at !== home ? 1 + BAL.v09.heads.maint.outstation : 1));
+  Math.round((kind === 'C' ? cCheckGross(ac.typeId) * (1 - BAL.cReserveCover) : BAL.checkCost.A[typeOf(ac.typeId).body === 'wide' ? 1 : 0]) * (kind === 'A' && at && home && at !== home ? 1 + BAL.v09.heads.maint.outstation : 1));
 export const durationOf = (ac: Aircraft, kind: 'A' | 'C') => (kind === 'A' ? typeOf(ac.typeId).aCheckHours * 60 : typeOf(ac.typeId).cCheckDays * DAY);
 
 export function nextPlanned(g: GameState, acId: string, kind: MaintKind): MaintenanceEvent | undefined {

@@ -133,7 +133,7 @@ describe('§S.3 previews leak nothing (v0.9 round 4)', () => {
 });
 
 describe('§S.3 sources', () => {
-  it('a new offer chimes; an opened offer with under 6 h left chimes once', () => {
+  it('a new offer chimes; an opened offer with under 3 h left chimes once (v0.14: was 6 h)', () => {
     const g = fixtureGame(63);
     lapseCues(g);
     takeCues();
@@ -145,7 +145,7 @@ describe('§S.3 sources', () => {
     expect(c.some((x) => x === 'offerNew' || x === 'evacuation')).toBe(true);
     o.seen = true;
     o.status = 'open';
-    o.expires = g.now + 5 * 60 + 30;
+    o.expires = g.now + 3 * 60 + 30;
     g.now += 60;
     lapseCues(g);
     expect(takeCues()).toEqual(['offerLapsing']);

@@ -12,6 +12,7 @@ import { ArchIcon } from '../screens/common';
 import { ClientDetail } from '../screens/Clients';
 import { RivalDetail } from '../screens/Rivals';
 import { store, useGame } from '../store';
+import { offerModal } from '../screens/screenLogic';
 import { EventIcon } from './v08Bits';
 
 export function ClientModal({ clientId }: { clientId: string }) {
@@ -223,7 +224,7 @@ export function WorldEventModal({ eventId }: { eventId: string }) {
               const o = g.offers[id];
               if (!o) return null;
               return (
-                <button key={id} className="v8-link" onClick={() => store.openModal({ kind: 'offer', offerId: id })}>
+                <button key={id} className="v8-link" onClick={() => store.openModal(offerModal(g, id))}>
                   <ArchIcon a={o.archetype} /><span className="grow ellipsis">{o.title}</span><span className="small dim nowrap">{money(o.estValue)}</span><ChevronRight className="sc-ico-s dim" />
                 </button>
               );

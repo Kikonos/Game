@@ -60,7 +60,17 @@ export function route(typeId: string, from: string, to: string, cap = Infinity, 
   const within = cap === Infinity || p.legs.every((l) => withinEtops(typeId, l.from, l.to, cap));
   // v0.12.1 `day` (schedule.ts emptyDay): a leg longer than one crew's day of empty flying is split at a crew-change
   // stop and flown as ferry days (a night stop between), as a delivery is; kept as it was when no such way exists.
-  if (within && p.legs.every((l) => l.block <= day)) return p.legs;
+  if (within && p.legs.every((l) => l.block <= day)) {
+    // v0.14 so is a chain of sectors each within the day but longer than it together (fuel stops included): MNL–KTM–
+    // TBS–LIS was timed as one 19 h duty, a relief pilot short of legal; the crew at Manila could not fly CS-TIF home,
+    // were moved to other work, and the aircraft sat there for weeks.
+    if (day !== Infinity && p.legs.length > 1 && routeMinutes(p.legs) > day) {
+      const d = [...p.legs];
+      rerouted.add(d);
+      return d;
+    }
+    return p.legs;
+  }
   if (within) {
     const d = etopsRoute(typeId, from, to, cap, { maxBlock: day, noStop: NO_STOP_COUNTRY }, 'day');
     if (!d) return p.legs;

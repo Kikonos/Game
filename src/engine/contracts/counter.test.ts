@@ -40,6 +40,8 @@ describe('counter state machine', () => {
     const o = offer(g, 'aogCover');
     o.urgency = 'urgent';
     o.expires = g.now + 90;
+    // v0.14 it rang as a call (a 30–90 min window), so its rival's bid falls inside the reply: no rival here.
+    o.rivalBid = undefined;
     const asking = askingPrice(o);
     expect(counterOffer(g, o.id, Math.round(asking * 1.09), [fit(g, o)]).ok).toBe(true);
     const k = o.counter!;

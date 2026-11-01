@@ -67,6 +67,8 @@ export const WORLD_NAMES: Record<string, NameKit> = {
   GH: kit('Akosua, Ama, Abena, Efua, Adwoa, Esi, Akua, Yaa', 'Kwame, Kofi, Kwabena, Yaw, Kojo, Kwaku, Kwesi, Nana', 'Mensah, Asante, Owusu, Boateng, Osei, Agyeman, Appiah, Darko, Ofori, Addo', ['tw']),
   SN: kit('Aminata, Fatou, Awa, Mariama, Khady, Ndeye, Coumba, Astou', 'Moussa, Mamadou, Cheikh, Ousmane, Ibrahima, Abdoulaye, Modou, Pape', 'Diop, Ndiaye, Fall, Sow, Diallo, Ba, Sarr, Faye, Gueye, Mbaye', ['fr', 'wo']),
   CI: kit('Aya, Adjoua, Affoué, Mariam, Fatou, Nadège, Christelle, Awa', 'Koffi, Kouassi, Yao, Konan, Didier, Serge, Moussa, Arnaud', 'Kouassi, Koné, Kouamé, Yao, Coulibaly, Traoré, Konan, Bamba, N\'Guessan, Ouattara', ['fr', 'dyu']),
+  // v0.14 Togo (ASKY Airlines, Lomé).
+  TG: kit('Afi, Akosua, Ama, Edem, Mawuli, Elom, Kafui, Yawa', 'Kodjo, Koffi, Komlan, Kossi, Yao, Edem, Sena, Mawuena', 'Mensah, Agbeko, Amegah, Kpodar, Lawson, Adjavon, Akakpo, Ayité, Dossou, Gnassingbé', ['fr', 'ee']),
   ML: kit('Aïssata, Fatoumata, Mariam, Kadiatou, Oumou, Assitan, Rokia, Awa', 'Modibo, Boubacar, Seydou, Bakary, Souleymane, Adama, Moussa, Mamadou', 'Traoré, Keïta, Coulibaly, Diarra, Konaté, Touré, Sangaré, Cissé, Dembélé, Sidibé', ['fr', 'bm']),
   ET: kit('Selam, Hana, Meron, Tigist, Bethlehem, Liya, Mahlet, Rahel', 'Dawit, Yonas, Abel, Biniam, Samuel, Henok, Solomon, Yared', 'Tesfaye, Bekele, Girma, Haile, Tadesse, Alemu, Kebede, Wolde, Assefa, Getachew', ['am']),
   KE: kit('Wanjiku, Akinyi, Faith, Grace, Njeri, Achieng, Mercy, Chebet', 'Brian, Kevin, Dennis, Collins, Samuel, Kibet, Otieno, Kamau', 'Kamau, Otieno, Mwangi, Odhiambo, Njoroge, Wafula, Ochieng, Kariuki, Kiprono, Mutua', ['sw']),

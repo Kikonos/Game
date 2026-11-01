@@ -20,7 +20,8 @@ describe('a tour growing into a planned standby', () => {
     const k = g.contracts[r.data!.contractId];
     run(g, k.start + 10 * DAY);
     // A crewed tour's last day, taken off it as if not generated yet (its flights without a duty).
-    const p = Object.values(g.pairings).filter((q) => q.tour && q.status !== 'done' && q.slots.some((s) => s.crewId) && q.dutyIds.length > 2).sort((a, b) => a.start - b.start)[0];
+    // v0.14 (the offer stream moved: reply windows) the first such tour whose last day is still more than a day away.
+    const p = Object.values(g.pairings).filter((q) => q.tour && q.status !== 'done' && q.slots.some((s) => s.crewId) && q.dutyIds.length > 2 && (g.duties[q.dutyIds[q.dutyIds.length - 1]]?.report ?? 0) > g.now + DAY).sort((a, b) => a.start - b.start)[0];
     expect(p).toBeTruthy();
     const d = g.duties[p.dutyIds[p.dutyIds.length - 1]];
     expect(d.report).toBeGreaterThan(g.now + DAY);

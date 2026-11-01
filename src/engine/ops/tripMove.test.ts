@@ -75,6 +75,8 @@ describe('tripOf', () => {
     const a = owned(g);
     const legs = charter(g, a.id, [['LIS', 'DUS', g.now + DAY + 8 * 60], ['DUS', 'LIS', g.now + DAY + 13 * 60]]);
     advanceTo(g, legs[0].std + 40);
+    // v0.14 a random delay (late passengers) may have moved it: on to its new time.
+    advanceTo(g, Math.max(g.now, g.flights[legs[0].id].std + 40));
     expect(['enroute', 'done']).toContain(g.flights[legs[0].id].status);
     expect(tripOf(g, legs[0].id).ok).toBe(false);
     const t = tripOf(g, legs[1].id);

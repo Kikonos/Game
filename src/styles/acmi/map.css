@@ -109,7 +109,7 @@ div.worldmap { overflow: clip; }
 }
 
 .ops-ac { cursor: pointer; }
-.ops-ac .sel-ring, .ops-ac .aog-ring, .ops-ac .hangar, .ops-ac .badge, .ops-ac .reg { display: none; }
+.ops-ac .sel-ring, .ops-ac .aog-ring, .ops-ac .hangar, .ops-ac .badge { display: none; }
 .ops-ac.sel .sel-ring { display: block; }
 .ops-ac .aog-ring { fill: rgba(var(--bad-rgb), 0.14); stroke: var(--bad); stroke-width: 2; }
 .ops-ac .hangar { fill: rgba(var(--warn-rgb), 0.12); stroke: rgba(var(--warn-rgb), 0.7); stroke-width: 1.2; stroke-linejoin: round; }
@@ -124,13 +124,15 @@ div.worldmap { overflow: clip; }
 .ops-ac[data-phase='delivering'] { opacity: 0.4; }
 /* v0.7: not handed over yet (being built, or prepared at the seller's): not on the map. */
 .ops-ac[data-phase='hidden'] { display: none; }
+/* v0.14 every aircraft of ours wears its mark at all times: small, light, a soft halo for both themes; under the
+   icon (--rp parked, --ry airborne: set per icon size by the map loop). The selected one reads a step brighter. */
 .ops-ac .reg {
-  fill: var(--c-mark-e6eeff); font: 600 11px var(--font-mono); text-anchor: middle; pointer-events: none;
-  paint-order: stroke; stroke: rgba(var(--halo-rgb), 0.9); stroke-width: 3px; stroke-linejoin: round;
+  fill: var(--c-mark-e6eeff); fill-opacity: 0.82; font: 500 9.5px var(--font-mono); letter-spacing: 0.04em; text-anchor: middle; pointer-events: none;
+  paint-order: stroke; stroke: rgba(var(--halo-rgb), 0.78); stroke-width: 2.5px; stroke-linejoin: round;
+  transform: translateY(var(--rp, 25px));
 }
-.ops-aircraft.labels .ops-ac .reg, .ops-ac.sel .reg { display: block; }
-.ops-aircraft.labels .ops-ac.crowd:not(.sel) .reg { display: none; }
-.touch .ops-ac .reg { font-size: 12px; }
+.ops-ac.sel .reg { fill-opacity: 1; font-weight: 600; }
+.touch .ops-ac .reg { font-size: 10.5px; }
 /* FERRY tag above an airborne ferry (pilots only, empty). */
 .ops-ac .tag {
   display: none; fill: var(--warn); font: 700 9.5px var(--font-mono); letter-spacing: 0.06em; text-anchor: middle; pointer-events: none;
@@ -146,15 +148,15 @@ div.worldmap { overflow: clip; }
 .ops-ac.dlv .op-delivery-tag { display: block; }
 .ops-ac.dlv .tag { display: none !important; }
 /* Parked, it sits under the icon (the airport code is above the dot), the reg below it. */
-.ops-ac.dlv:not([data-phase='airborne']) .op-delivery-tag { transform: translateY(42px); }
-.ops-ac.dlv:not([data-phase='airborne']) .reg { transform: translateY(13px); }
+.ops-ac.dlv:not([data-phase='airborne']) .op-delivery-tag { transform: translateY(calc(var(--rp, 25px) + 17px)); }
+.ops-ac.dlv:not([data-phase='airborne']) .reg { transform: translateY(calc(var(--rp, 25px) + 13px)); }
 .touch .ops-ac .op-delivery-tag { font-size: 10.5px; }
 /* Airborne near an airport: the reg slides above the icon (the FERRY tag with it), or fades where both sides are taken. */
 .ops-ac .reg, .ops-ac .tag, .ops-ac .op-delivery-tag { transition: transform 0.35s ease, opacity 0.35s ease; }
 /* v0.12 a bigger silhouette (wide-bodies) keeps its reg and FERRY tag clear of its wings (per-aircraft offsets). */
-.ops-ac[data-phase='airborne'] .reg { transform: translateY(var(--ry, 0px)); }
-.ops-ac[data-phase='airborne'] .tag { transform: translateY(var(--ty, 0px)); }
-.ops-ac.reg-up .reg { transform: translateY(var(--ru, -42px)); }
+.ops-ac[data-phase='airborne'] .reg { transform: translateY(var(--ry, 25px)); }
+.ops-ac[data-phase='airborne'] .tag, .ops-ac[data-phase='airborne'] .op-delivery-tag { transform: translateY(var(--ty, 0px)); }
+.ops-ac[data-phase='airborne'].reg-up .reg { transform: translateY(var(--ru, -17px)); }
 .ops-ac.reg-up .tag, .ops-ac.reg-up .op-delivery-tag { transform: translateY(calc(var(--ty, 0px) - 15px)); }
 .ops-ac.reg-off .reg { opacity: 0; }
 
@@ -442,8 +444,10 @@ div.worldmap { overflow: clip; }
   display: none; fill: var(--c-mark-b5bdcc); font: 700 9.5px var(--font-mono); letter-spacing: 0.06em; text-anchor: middle; pointer-events: none;
   paint-order: stroke; stroke: rgba(var(--halo-rgb), 0.92); stroke-width: 3px; stroke-linejoin: round;
 }
-.ops-ac.lsd .op-leased-tag { display: block; transform: translateY(42px); }
-.ops-ac.lsd:not([data-phase='airborne']) .reg { transform: translateY(13px); }
+.ops-ac.lsd:not([data-phase='airborne']) .op-leased-tag { display: block; transform: translateY(calc(var(--rp, 25px) + 17px)); }
+/* v0.14 dry-leased out and flying the lessee's legs (cosmetic): their flight number above it, quiet grey. */
+.ops-ac.lsd[data-phase='airborne'] .lsn { display: block; fill: var(--text-2); font-weight: 600; letter-spacing: 0.02em; }
+.ops-ac.lsd:not([data-phase='airborne']) .reg { transform: translateY(calc(var(--rp, 25px) + 13px)); }
 .touch .ops-ac .op-leased-tag { font-size: 10.5px; }
 .op-leased-tag.chip { color: var(--c-fg-c3cad6); border-color: rgba(var(--c-line-195-202-214-rgb), 0.4); font: 700 12px var(--font-mono); letter-spacing: 0.06em; }
 

@@ -143,22 +143,39 @@ export const SIL_TYPES = Object.keys(OWN);
 
 // ---------- size on the map ----------
 
-/** Screen px of the largest dimension of an A320 (the reference) and the power that keeps big types big, not huge. */
-const REF_PX = 24;
-const REF_M = 37.6;
-const SIZE_POW = 0.7;
+/**
+ * v0.14 to scale: every aircraft on the map shares ONE pixels-per-metre, so an A330 (60.3 m span) is drawn 1.7 times
+ * an A320 (35.8 m) and a 747 (70.6 m long) twice its length, at every zoom (v0.12 grew icons with the 0.7 power of the
+ * real size and shrank widebodies to fit their stands, so the two read alike). The scale grows gently as the map zooms
+ * in (the 0.22 power of the zoom), clamped for the whole set together: the smallest type in the set never under
+ * SIL_MIN_PX (still tappable; the tap target is bigger anyway), the largest never over SIL_MAX_PX.
+ */
+export const SIL_MIN_PX = 18;
+export const SIL_MAX_PX = 64;
+/** Largest dimension (m) of the smallest and the largest type with a silhouette (A320 37.6 m; A380 79.8 m span). */
+const dimOf = (id: string) => { const s = silSpec(id); return Math.max(s.L, s.S); };
+export const SIL_MIN_M = Math.min(...SIL_TYPES.map(dimOf));
+export const SIL_MAX_M = Math.max(...SIL_TYPES.map(dimOf));
+/** Px per metre at the whole-world zoom (k = 1): the smallest type at SIL_MIN_PX; and how fast it grows with the zoom. */
+const ZOOM_POW = 0.22;
 
-/** Screen px per metre for a type on the map: its largest dimension grows with the real one (A320 24 px, A380 41). */
-export function silScale(s: Pick<SilSpec, 'L' | 'S'>): number {
-  const m = Math.max(s.L, s.S);
-  return (REF_PX * (m / REF_M) ** SIZE_POW) / m;
+/** v0.14 screen px per metre for every aircraft at map zoom k (1 = the whole world). Pure. */
+export function mapPxPerM(k: number): number {
+  const lo = SIL_MIN_PX / SIL_MIN_M;
+  const hi = SIL_MAX_PX / SIL_MAX_M;
+  return Math.max(lo, Math.min(hi, lo * Math.max(1, k) ** ZOOM_POW));
 }
 
-/** Largest dimension in screen px on the map. */
-export const silPx = (s: Pick<SilSpec, 'L' | 'S'>) => Math.max(s.L, s.S) * silScale(s);
+/** v0.14 silhouettes are built once at this px per metre; the map scales each glyph by mapPxPerM(k) / SIL_BUILD_K. */
+export const SIL_BUILD_K = 0.6;
 
-/** A parked aircraft fits its stand (stands are PARK_GAP = 26 px apart): this share of its flying size. */
-export const parkedFit = (s: Pick<SilSpec, 'L' | 'S'>) => Math.min(1, 24 / (s.S * silScale(s)), 28 / (s.L * silScale(s)));
+/** Screen px per metre for a type as built (the same for every type: to scale). */
+export function silScale(_s?: Pick<SilSpec, 'L' | 'S'>): number {
+  return SIL_BUILD_K;
+}
+
+/** Largest dimension in screen px as built. */
+export const silPx = (s: Pick<SilSpec, 'L' | 'S'>) => Math.max(s.L, s.S) * silScale(s);
 
 // ---------- geometry ----------
 

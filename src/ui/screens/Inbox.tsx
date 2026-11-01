@@ -17,7 +17,7 @@ import { store, useGame, useStore } from '../store';
 import { openToast } from '../game/Toasts';
 import type { ToastLogEntry } from '../toastLogic';
 import { Dot, ScreenHead, useRenderCount } from './common';
-import { expiryLabel, filterMessages, isOpportunity, isProblemMessage, MSG_CATS, PROBLEM_RECENT, refTarget, type MsgFilter } from './screenLogic';
+import { expiryLabel, filterMessages, isOpportunity, isProblemMessage, MSG_CATS, offerModal, PROBLEM_RECENT, refTarget, type MsgFilter } from './screenLogic';
 import { ScreenHint } from '../components/ScreenHint';
 
 const PAGE = 80;
@@ -42,15 +42,18 @@ export function openMessage(g: GameState, m: Message) {
     if (g.decisions.some((d) => d.id === m.ref!.id)) store.openModal({ kind: 'decision', decisionId: m.ref.id });
     return;
   }
-  // v0.10.2 a phone call still open rings again from its Inbox line
-  if (m.ref?.kind === 'offer' && g.offers[m.ref.id]?.call && g.offers[m.ref.id].status === 'open' && g.offers[m.ref.id].expires > g.now) {
-    return store.openModal({ kind: 'offerCall', offerId: m.ref.id });
+  // v0.10.2 a phone call still open rings again from its Inbox line (v0.14 screenLogic offerModal)
+  if (m.ref?.kind === 'offer' && offerModal(g, m.ref.id).kind === 'offerCall') return store.openModal(offerModal(g, m.ref.id));
+  // v0.14 a tender opens its bid form on the tender board.
+  if (m.ref?.kind === 'tender' && g.com?.tenders.some((t) => t.id === m.ref!.id)) {
+    store.navigate('contracts', { view: 'tenders' });
+    return store.openModal({ kind: 'tender', tenderId: m.ref.id });
   }
   const link = m.ref ? refTarget(g, m.ref) : null;
   if (!link) return;
   if (link.offerId) {
     store.navigate('contracts', { view: 'market' });
-    store.openModal({ kind: 'offer', offerId: link.offerId });
+    store.openModal(offerModal(g, link.offerId));
   } else store.navigate(link.tab, { sel: link.sel, view: link.view });
   // Crew problems on a flight still to fly: its sheet carries 'Adjust crew'.
   if (m.cat === 'crew' && m.ref?.kind === 'flight' && g.flights[m.ref.id]?.status === 'scheduled') store.openModal({ kind: 'sheet', refs: [m.ref] });

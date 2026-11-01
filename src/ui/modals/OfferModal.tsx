@@ -277,8 +277,7 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal
             <div key={`${c.id}-${i}`} className="sc-check">
               <Dot tone={LEVEL_TONE[c.level]} />
               <span className="grow"><span>{SLIP_RE.test(c.label) ? <Term id="slipCrew">{c.label}</Term> : c.label}</span>{c.detail && <span className="small muted"> · {c.detail}</span>}</span>
-              {/* v0.12 the trips in the way can be handed to another operator (listed under the timeline above). */}
-              {c.id === 'availability' && c.level === 'no' && <SubleaseButtons g={g} r={r} offerId={offerId} />}
+              {/* v0.13.1 (player) no Sub-lease buttons on the Busy line: the timeline above and WHAT YOU CAN DO offer them. */}
               {c.action?.kind === 'refit' && <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'refit', aircraftId: r.aircraftId, layout: c.action!.layout, offerId })}>Plan refit…</button>}
               {/* v0.7.3 §2.9: the cheapest crew rest refit that makes the job legal; the seats check offers the section too. */}
               {c.action?.kind === 'restRefit' && <button className="btn btn-sm" onClick={() => openRest(c)}>Plan a refit…</button>}

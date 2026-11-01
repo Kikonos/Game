@@ -501,6 +501,7 @@ export function refreshPairing(g: GameState, p: Pairing): string[] {
   duties.sort((a, b) => a.report - b.report);
   p.dutyIds = duties.map((d) => d.id);
   if (!duties.length) return [];
+  dropGoneCrew(g, p);
   if (p.status === 'planned') p.start = duties[0].report;
   // Crew-planning round: a crewed duty this refresh re-measures (a leg dropped) re-queues its report and release; the
   // flight-change pass that would have done it then finds the duty matching its flights. (Invariant seed 1: a fuel-stop
@@ -552,6 +553,48 @@ export function refreshPairing(g: GameState, p: Pairing): string[] {
   p.legality = lg;
   delete p.illegalFrom;
   return dropped;
+}
+
+/**
+ * v0.14 a seat held by someone who has left the company (their record gone) is emptied on a pairing with work still
+ * to fly, and they come off its flights, tickets and rides (bot seeds 3 and 4: a finished tour that grew again at Dublin
+ * and Warsaw kept a cabin crew member and an FO who had resigned in its seats; they "flew" three weeks after leaving).
+ * Finished pairings keep their seats as the record. True when a seat was emptied.
+ */
+export function dropGoneCrew(g: GameState, p: Pairing): boolean {
+  const gone = new Set(p.slots.filter((s) => s.crewId && !g.crew[s.crewId]).map((s) => s.crewId!));
+  if (!gone.size || !p.dutyIds.some((id) => g.duties[id] && !g.duties[id].done)) return false;
+  for (const s of p.slots) {
+    if (!s.crewId || !gone.has(s.crewId)) continue;
+    s.crewId = null;
+    delete s.locked;
+    delete s.from;
+    delete s.buyBack;
+  }
+  if (p.slots.some((s) => s.extra && !s.crewId)) p.slots = p.slots.filter((s) => !(s.extra && !s.crewId));
+  unboardGone(g, gone);
+  return true;
+}
+
+/** v0.14 crew who have left come off every flight still to leave: operating crew, tickets (an empty one goes) and rides. */
+export function unboardGone(g: GameState, gone: Set<string>): void {
+  const empty: string[] = [];
+  for (const f of Object.values(g.flights)) {
+    if (f.status !== 'scheduled' || (f.kind === 'deadhead' && f.std <= g.now)) continue;
+    if (f.crewIds.some((id) => gone.has(id))) {
+      f.crewIds = f.crewIds.filter((id) => !gone.has(id));
+      if (f.kind === 'deadhead' && !f.crewIds.length) empty.push(f.id);
+    }
+    if (f.riders?.some((id) => gone.has(id))) {
+      f.riders = f.riders.filter((id) => !gone.has(id));
+      if (!f.riders.length) delete f.riders;
+    }
+  }
+  if (empty.length) {
+    for (const d of Object.values(g.duties)) if (!d.done && d.deadheadIds.some((id) => empty.includes(id))) d.deadheadIds = d.deadheadIds.filter((id) => !empty.includes(id));
+    removeFlights(g, empty);
+  }
+  touchCrew(g);
 }
 
 function newPairing(g: GameState, duties: Duty[], acId: string, deploymentId: string | null, tour?: Pairing['tour']): Pairing {
@@ -1339,6 +1382,9 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
       const [from, to] = [p.start, p.end];
       for (const d of fresh) d.pairingId = p.id;
       p.dutyIds.push(...fresh.map((d) => d.id));
+      // v0.14 a finished tour that grows again is live again: the roster, the re-checks, sickness and leaving all
+      // skip a 'done' pairing (seeds 3 and 4: it flew three weeks on with a crew member who had left in its seat).
+      if (p.status === 'done' || p.status === 'broken') p.status = p.dutyIds.some((id) => g.duties[id]?.done) ? 'active' : 'planned';
       refreshPairing(g, p);
       if (crewCount(p) > 0) {
         for (const d of fresh) queueDuty(g, d);

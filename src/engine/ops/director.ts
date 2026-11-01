@@ -31,6 +31,8 @@ export const PACE_HINT: Record<Pace, string> = {
 
 /** Contract offers in a quiet spell: this share of the usual rate (a trickle). */
 export const QUIET_OFFERS = 0.35;
+/** v0.14 (player's call: let time pass) ordinary market offers in a quiet spell: none; the busy days carry the year's volume. */
+export const QUIET_MARKET_OFFERS = 0;
 /** Emergencies (medical, bird strike, technical diversion, sick crew away) in a quiet spell: this share of their rate. */
 export const QUIET_EMERGENCY = 0.2;
 /** Optional disruptions in a busy spell run at most this many times their yearly rate (they are all in the busy days). */
@@ -99,15 +101,16 @@ export const emergencyFactor = (g: GameState, t: Minute = g.now): number => (isQ
 /**
  * The time after `from` when `count` base-rate days of offers have accrued with the director's factor applied
  * (the next offer's arrival: gamma gaps are drawn in base days and laid over the spells). Pure but for drawing spells.
+ * `quiet`: the quiet spells' share of the rate (v0.14 ordinary offers: QUIET_MARKET_OFFERS, none).
  */
-export function afterOfferDays(g: GameState, from: Minute, count: number): Minute {
+export function afterOfferDays(g: GameState, from: Minute, count: number, quiet = QUIET_OFFERS): Minute {
   if (!OPS_LIVE.on || !OPS_LIVE.waves) return from + Math.round(count * DAY);
   const d = director(g);
   let t = from;
   let left = count;
   for (let i = 0; i < 400 && left > 0; i++) {
     const s = spellAt(g, t);
-    const f = s[2] ? (1 - (1 - busyShare(d.pace)) * QUIET_OFFERS) / busyShare(d.pace) : QUIET_OFFERS;
+    const f = s[2] ? (1 - (1 - busyShare(d.pace)) * quiet) / busyShare(d.pace) : quiet;
     const room = ((s[1] - t) / DAY) * f;
     if (room >= left) return t + Math.round((left / f) * DAY);
     left -= room;

@@ -16,6 +16,34 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.14',
+    name: 'Commercial',
+    features: [
+      'Tender season: from November to February airlines (Jet2, TUI, Corendon, Condor, easyJet, Wizz, SAS…) ask for next summer\'s capacity, and Gulf and North African carriers do the same for winter in June–August. Bid a rate, guaranteed hours, an aircraft, the crew and the dates in Contracts › Tenders; rivals bid too and the airline decides weeks later.',
+      'Market presence: Contracts › Markets shows how well known you are in 13 regions of the world. Most offers come from where you are known; it grows with fairs, client visits, work flown there and happy clients, and fades slowly.',
+      'Trade fairs and sales trips on every continent: ITB, Routes Europe, Routes Asia, Routes Americas, FITUR, Arabian Travel Market, AviaDev, Akwaaba, the Singapore and Dubai airshows and more. Send yourself or your analyst; they fly on airline seats like your crew and you can follow them on the map.',
+      'Far fewer offers: about 1–2 a week while you earn your name, about 3 once established, 4–5 when respected, none on quiet days. No more look-alikes, and more of them fit your fleet.',
+      'Client crises: strikes, engine groundings and airlines going into administration make the news, bring urgent work nearby, and can leave unpaid invoices.',
+      'Urgent calls are in the moment: the caller waits 30–90 minutes for an answer. Pick the aircraft on the call and see its schedule around the job in one strip.',
+      'Aircraft on the map are drawn to scale, each with its tail mark (TTL). A dry-leased aircraft flies for its lessee, just for show.',
+    ],
+    improvements: [
+      'Balance from real market figures: insurance about a third of before (A320 about $12,500 a month), today\'s lease rents with floors for old aircraft, C-checks priced per type (A320 about $0.7M).',
+      'Cabin crew and pursers earn the same on every type; widebody pilots earn more.',
+      'Widebody wet leases run 3–6 months with at least 300 guaranteed hours; the widebody approval needs 95 % reliability.',
+      'Narrowbody ACMI rates up a little, widebody rates trimmed, a 747 jumbo job is priced at the 747\'s rate.',
+      'Offers about to lapse get one note and a chime; short-notice work comes as a call.',
+      'Crew: one plain line per fleet, each person\'s home fleet on their card, an "i" on the sets cards, a quieter Round up. Rank stripes and wings redrawn.',
+      'Offer card: no Sub-lease buttons on the Busy line; check lines keep their full width.',
+    ],
+    fixes: [
+      'An aircraft stranded far from home (Manila) gets one way back planned for when a crew can reach it, instead of being re-planned every few hours; one card asks about the jobs it can\'t reach.',
+      'Crew who have left the company can no longer stay on a trip and fly.',
+      'A ticket home moved by a night curfew no longer breaks the weekly rest.',
+      'A tender bid checks that the aircraft is free; a won tender whose aircraft is busy can be signed on another.',
+    ],
+  },
+  {
     version: 'v0.13',
     name: 'Around the world',
     features: [

@@ -3,7 +3,7 @@ import { newGame } from '../../engine/contracts/testkit';
 import { DAY, HOUR } from '../../engine/core/time';
 import type { ContractOffer, CrewMember, MonthStatement } from '../../engine/core/types';
 import {
-  counterSteps, expiryLabel, filterCrew, filterMessages, limitTone, marketOffers, NO_FILTER, productLine, refTarget, reqChips, riskChips, routeSummary, spanLabel,
+  counterSteps, expiryLabel, filterCrew, filterMessages, limitTone, marketOffers, NO_FILTER, offerModal, productLine, refTarget, reqChips, riskChips, routeSummary, spanLabel,
   statementView, v09Chips,
 } from './screenLogic';
 
@@ -16,12 +16,29 @@ describe('contracts helpers', () => {
     g.offers = { a: offer('a', 'normal', 900), b: offer('b', 'urgent', 100), c: offer('c', 'short', 500), d: offer('d', 'urgent', 5000, 'lost'), e: offer('e', 'normal', 2000, 'countered') };
     expect(marketOffers(g).map((o) => o.id)).toEqual(['b', 'c', 'e', 'a']);
   });
+  it('v0.14 a live call opens its call card from the market (and any offer list); a lapsed or written one the offer dialog', () => {
+    const g = newGame();
+    g.offers = { c: { ...offer('c', 'urgent', 900), call: true, expires: g.now + 45 }, w: offer('w', 'urgent', 900) };
+    expect(offerModal(g, 'c')).toEqual({ kind: 'offerCall', offerId: 'c' });
+    expect(offerModal(g, 'w')).toEqual({ kind: 'offer', offerId: 'w' });
+    g.offers.c.expires = g.now;
+    expect(offerModal(g, 'c')).toEqual({ kind: 'offer', offerId: 'c' });
+    g.offers.c.expires = g.now + 45;
+    g.offers.c.status = 'accepted';
+    expect(offerModal(g, 'c')).toEqual({ kind: 'offer', offerId: 'c' });
+  });
   it('counts expiry down in whole game hours', () => {
     expect(expiryLabel(0, 30 * HOUR + 59)).toBe('30 h left');
     expect(expiryLabel(0, 3 * DAY + 5 * HOUR + 10)).toBe('3 d 5 h left');
     expect(expiryLabel(0, 40)).toBe('40 min left');
     expect(expiryLabel(10, 5)).toBe('Expired');
     expect(spanLabel(2 * DAY)).toBe('2 d');
+  });
+  it('v0.14 the last 6 h count down in hours and minutes (a clear countdown on the market)', () => {
+    expect(expiryLabel(0, 2 * HOUR + 40)).toBe('2 h 40 min left');
+    expect(expiryLabel(0, 5 * HOUR + 5)).toBe('5 h 05 min left');
+    expect(expiryLabel(0, 6 * HOUR)).toBe('6 h left');
+    expect(expiryLabel(0, 59.5)).toBe('59 min left');
   });
   it('summarises routes and products', () => {
     expect(routeSummary({ kind: 'legs', legs: [{ from: 'LIS', to: 'OLB', dep: 0, flightNo: '', pax: 1 }, { from: 'OLB', to: 'LIS', dep: 5, flightNo: '', pax: 1 }] })).toBe('LIS ⇄ OLB');

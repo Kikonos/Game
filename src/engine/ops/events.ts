@@ -31,7 +31,7 @@ import { ticketBlock } from './commercial';
 import { bumpReliable, contractOf, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, favourChip, levelOf, statsV08 } from '../contracts/relations';
 import { mghFor } from '../contracts/billing';
-import { cancelForceMajeure, closureCause, resolveAirspace, resolveStranded, resolveUninsurable, setFindSwap } from './world';
+import { cancelForceMajeure, closureCause, resolveAirspace, resolveFarStranded, resolveStranded, resolveUninsurable, setFindSwap } from './world';
 import { optionalFactor } from './director';
 import { resolveTourStop } from './tourStop';
 
@@ -70,6 +70,8 @@ const CAT: Record<string, MessageCat> = {
   clientFee: 'commercial', airspace: 'ops', uninsurable: 'ops',
   // v0.12.1
   stranded: 'ops',
+  // v0.14
+  farStranded: 'ops',
   // v0.11
   sickAway: 'crew', birdStrike: 'tech',
 };
@@ -944,7 +946,9 @@ function permitDelays(g: GameState): void {
   const risks = (s.permits ??= {});
   for (const id of Object.keys(risks)) if (!g.contracts[id]) delete risks[id];
   for (const c of Object.values(g.contracts)) {
-    if ((c.status !== 'signed' && c.status !== 'active') || c.pattern.kind !== 'legs') {
+    // v0.14 never on a world tour: the tour operator files the whole itinerary's permits months ahead (a first leg
+    // moved half a day turned its first stop's rest disruptive, and the one crew lost its weekly rest mid-tour).
+    if ((c.status !== 'signed' && c.status !== 'active') || c.pattern.kind !== 'legs' || c.archetype === 'worldTour') {
       delete risks[c.id];
       continue;
     }
@@ -1076,7 +1080,7 @@ export function dailyEvents(g: GameState): void {
   clientFees(g);
   permitDelays(g);
   seasonNudge(g);
-  if (chance(g, BAL.evacuationPerDay)) generateOffer(g, 'repatriation', { start: g.now + int(g, 20, 60) * 60 });
+  if (chance(g, BAL.evacuationPerDay)) generateOffer(g, 'repatriation', { start: g.now + int(g, 20, 60) * 60, paced: true }); // v0.14 paced: none at short notice in a quiet spell
 }
 
 // ---------- resolution ----------
@@ -1096,6 +1100,8 @@ const RESOLVERS: Record<string, Resolver> = {
   uninsurable: (g, d, opt) => resolveUninsurable(g, d, opt),
   // v0.12.1 an aircraft held by a closure that a later job needs (sub-charter, swap or cancel those legs).
   stranded: (g, d, opt) => resolveStranded(g, d, opt),
+  // v0.14 an aircraft at a far outstation that no crew can reach before its next job (sub-charter, swap or cancel).
+  farStranded: (g, d, opt) => resolveFarStranded(g, d, opt),
   // v0.12.1 a world tour's stop closed: another stop, or skip it (ops/tourStop.ts).
   tourStop: (g, d, opt) => resolveTourStop(g, d, opt),
   clientFee: (g, d, opt) => resolveClientFee(g, d, opt),

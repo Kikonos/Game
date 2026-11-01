@@ -49,6 +49,12 @@ function brand(basis: string, titles: string, color: string, code: string, secon
   return { basis, fin: [color, second ?? W, 'solid'], body: { engines: color }, titles: [titles, color, 700], mark: { code: [code, second ?? W] }, decalInk: color };
 }
 
+/** v0.14 the market-presence airlines (data/naming.ts CLIENT_SEEDS_V014): white fuselage, the fin in the airline's
+ *  colours with its code, titles in its main colour. Approximated from their 2025 liveries. */
+function simple(basis: string, titles: string, color: string, code: string, second?: string, style: TailStyle = 'solid', ink = W): ClientLiveryRecipe {
+  return { basis, approx: true, fin: [color, second ?? color, style], body: { engines: color }, titles: [titles, color, 700], mark: { code: [code, ink] }, decalInk: color };
+}
+
 export const CLIENT_LIVERIES: Record<string, ClientLiveryRecipe> = {
   // ---------- airlines ----------
   'SAS Scandinavian Airlines': {
@@ -180,6 +186,39 @@ export const CLIENT_LIVERIES: Record<string, ClientLiveryRecipe> = {
     fin: ['#e2001a', '#e2001a', 'solid'], body: { engines: W, stripes: [{ color: '#e2001a', y: 0.58, h: 0.025 }] }, titles: ['AIR ALGÉRIE', '#e2001a', 700], mark: { logo: ['swift', W, W] }, approx: true,
   },
 
+  // ---------- v0.14 market-presence airlines (approximated) ----------
+  'Air Peace': simple('Air Peace: white fuselage, blue tail, blue titles', 'AIR PEACE', '#1b3f8b', 'P4', '#d71920', 'split'),
+  'Air Côte d’Ivoire': simple('Air Côte d’Ivoire: white fuselage, orange and green tail (the flag), green titles', 'AIR COTE D’IVOIRE', '#f77f00', 'HF', '#009e60', 'split'),
+  'ASKY Airlines': simple('ASKY: white fuselage, blue tail, blue titles', 'ASKY', '#00539b', 'KP', '#7ab800', 'sweep'),
+  'Africa World Airlines': simple('Africa World Airlines: white fuselage, red tail with gold, red titles', 'AFRICA WORLD AIRLINES', '#b5121b', 'AW', '#d4a843', 'split'),
+  'Kenya Airways': simple('Kenya Airways: white fuselage, red and black tail, red titles', 'KENYA AIRWAYS', '#c8102e', 'KQ', '#1d1d1b', 'stripe'),
+  RwandAir: simple('RwandAir: white fuselage, light blue tail with the yellow sun, blue titles', 'RWANDAIR', '#00a1de', 'WB', '#fad201', 'sweep'),
+  'Air Tanzania': simple('Air Tanzania: white fuselage, green and blue tail, blue titles', 'AIR TANZANIA', '#00a3dd', 'TC', '#1eb53a', 'split'),
+  IndiGo: simple('IndiGo: white fuselage, indigo tail and titles', 'INDIGO', '#001b94', '6E'),
+  SpiceJet: simple('SpiceJet: white fuselage, red tail and titles', 'SPICEJET', '#e2231a', 'SG', '#f7a600', 'sweep'),
+  'SriLankan Airlines': simple('SriLankan: white fuselage, blue and green peacock tail, blue titles', 'SRILANKAN', '#004b8d', 'UL', '#00a651', 'sweep'),
+  'US-Bangla Airlines': simple('US-Bangla: white fuselage, blue tail and titles', 'US-BANGLA', '#1d4f91', 'BS', '#e31b23', 'split'),
+  'Jeju Air': simple('Jeju Air: white fuselage, orange tail and titles', 'JEJU AIR', '#ff5000', '7C'),
+  'Hong Kong Airlines': simple('Hong Kong Airlines: white fuselage, red tail with the gold mark, red titles', 'HONG KONG AIRLINES', '#c8102e', 'HX', undefined, 'solid', '#d4a843'),
+  'Juneyao Air': simple('Juneyao: white fuselage, red tail, red titles', 'JUNEYAO AIR', '#c8102e', 'HO', '#f2a900', 'split'),
+  'Cebu Pacific': simple('Cebu Pacific: white fuselage, yellow and blue tail, blue titles', 'CEBU PACIFIC', '#0072bc', '5J', '#fdb913', 'split'),
+  AirAsia: simple('AirAsia: white fuselage, red tail and titles', 'AIRASIA', '#ed1c24', 'AK'),
+  'VietJet Air': simple('VietJet: white fuselage, red and yellow tail, red titles', 'VIETJET', '#ed1c24', 'VJ', '#fcd116', 'split'),
+  Qantas: simple('Qantas: white fuselage, red tail with the white kangaroo, red titles', 'QANTAS', '#e40000', 'QF'),
+  'Virgin Australia': simple('Virgin Australia: white fuselage, red tail, red titles', 'VIRGIN AUSTRALIA', '#e10a0a', 'VA', '#5b2c86', 'sweep'),
+  'Jetstar Airways': simple('Jetstar: white fuselage, black tail with the orange star, orange titles', 'JETSTAR', '#ff5a00', 'JQ', '#1f1f1f', 'split'),
+  'Air Transat': simple('Air Transat: white fuselage, blue tail, blue titles', 'AIR TRANSAT', '#1a3d7c', 'TS', '#00a3e0', 'sweep'),
+  WestJet: simple('WestJet: white fuselage, teal and blue tail, teal titles', 'WESTJET', '#00a5b5', 'WS', '#003a70', 'split'),
+  'Sun Country Airlines': simple('Sun Country: white fuselage, navy and orange tail, navy titles', 'SUN COUNTRY', '#0a2240', 'SY', '#f15a22', 'sweep'),
+  Avianca: simple('Avianca 2023: white fuselage, red tail and titles', 'AVIANCA', '#da291c', 'AV'),
+  'Viva Aerobus': simple('Viva Aerobus: white fuselage, green tail and titles', 'VIVA', '#00a650', 'VB'),
+  'Aerolíneas Argentinas': simple('Aerolíneas Argentinas: white fuselage, navy and light blue tail, navy titles', 'AEROLINEAS ARGENTINAS', '#003c71', 'AR', '#74acdf', 'split'),
+  'Sky Airline': simple('Sky Airline: white fuselage, purple tail and titles', 'SKY', '#5a2d81', 'H2'),
+  Arajet: simple('Arajet: white fuselage, light blue tail and titles', 'ARAJET', '#00a3e0', 'DM', '#003a70', 'split'),
+  'Kuwait Airways': simple('Kuwait Airways: white fuselage, blue tail and titles', 'KUWAIT AIRWAYS', '#0f4c81', 'KU'),
+  'Oman Air': simple('Oman Air: white fuselage, teal tail with gold, teal titles', 'OMAN AIR', '#00a3ad', 'WY', undefined, 'solid', '#d4a843'),
+  Tunisair: simple('Tunisair: white fuselage, red tail and titles', 'TUNISAIR', '#e70013', 'TU'),
+  EgyptAir: simple('EgyptAir: white fuselage, navy tail with the gold mark, navy titles', 'EGYPTAIR', '#002d6b', 'MS', undefined, 'solid', '#d4a843'),
   // ---------- tour operators ----------
   'TUI Deutschland': {
     basis: 'TUI: white fuselage, light-blue tail and engines with the red smile, blue titles',

@@ -2,6 +2,7 @@
 // v0.7 market model (age, market index) adjusted for hours, cycles, C-check life and cabin; it closes 10–20 days
 // after agreement with the handover at home base (a ferry home when it would be elsewhere).
 
+import { ageFactor } from '../../data/acmiTypes';
 import { EX_OPERATORS } from '../../data/market';
 import { BAL } from '../core/balance';
 import { flightsOf, removeFlights, touchFlights } from '../core/entities';
@@ -15,7 +16,7 @@ import { clamp, hashUnit } from '../core/util';
 import { planPositioning } from '../contracts';
 import { settleDeparture } from './finance';
 import { cancelLegs, subcharterInstead } from './flights';
-import { checkStatus } from './maintenance';
+import { cCheckGross, checkStatus } from './maintenance';
 import { isRevenue, usd } from './util';
 
 export interface SaleQuote {
@@ -56,8 +57,7 @@ export function usedHoursCycles(typeId: string, age: number, spread = 1): { hour
 export function usedMarketValue(g: GameState, typeId: string, builtYear: number): number {
   const t = typeOf(typeId);
   const age = Math.max(0, yearOf(g.now) - builtYear);
-  const ageAdj = clamp(1 - (age - 12) * 0.02 - Math.max(0, age - 18) * 0.04, 0.55, 1.15);
-  return t.valueUsed * ageAdj * (t.body === 'wide' ? g.market.wideIndex : g.market.narrowIndex);
+  return t.valueUsed * ageFactor(age) * (t.body === 'wide' ? g.market.wideIndex : g.market.narrowIndex);
 }
 
 /** A booking that blocks a sale: cancel it, or sell after `until` (its ferry home landed). */
@@ -98,7 +98,7 @@ export function saleQuote(g: GameState, aircraftId: string): SaleQuote {
   const cyclesAdj = clamp(1 - 0.1 * (ac.cycles / ((yrs * S.fhYear[w]) / hoursPerCycle(ac.typeId)) - 1), 0.85, 1.1);
   const use = market * (hoursAdj * cyclesAdj - 1);
   const cUsed = Math.min(1, Math.max(0, checkStatus(g, ac).cUsed));
-  const cLife = cUsed * BAL.checkCost.C[w] * S.cLifeShare;
+  const cLife = cUsed * cCheckGross(ac.typeId) * S.cLifeShare;
   const vip = ac.cabin.layout === 'vip' ? (market + use) * S.vipAdj : 0;
   const gross = market + use - cLife + vip;
   // A quick sale to a trader, then the broker; in the first year never above what we paid (moved by the index since).

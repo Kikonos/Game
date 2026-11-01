@@ -13,7 +13,7 @@ import type {
   Aircraft, AircraftOffer, Archetype, Minute, ContractOffer, CrewMember, CrewStatus, GameState, LedgerCat, Message, MessageCat, MonthStatement, Product, Ref, Requirements, Role, SchedulePattern,
 } from '../../engine/core/types';
 import { money } from '../format';
-import type { Tab } from '../store';
+import type { ModalSpec, Tab } from '../store';
 
 export const ARCH_LABEL: Record<Archetype, string> = {
   seasonBase: 'Season ACMI base', aogCover: 'AOG cover', adhoc: 'Ad hoc charter', sports: 'Sports charter', repatriation: 'Repatriation',
@@ -73,10 +73,15 @@ export function spanLabel(min: number): string {
   return h ? `${d} d ${h} h` : `${d} d`;
 }
 
-/** Expiry countdown in game hours (changes at most hourly). */
+/** v0.14 under this much left the countdown shows minutes ('2 h 40 min left') and ticks with the clock. */
+export const COUNTDOWN_MIN = 6 * HOUR;
+
+/** Expiry countdown in game hours (changes at most hourly); v0.14 hours and minutes in the last 6 h. */
 export function expiryLabel(now: number, expires: number): string {
-  const left = expires - now;
+  const left = Math.floor(expires - now);
   if (left <= 0) return 'Expired';
+  if (left < HOUR) return `${left} min left`;
+  if (left < COUNTDOWN_MIN) return `${Math.floor(left / HOUR)} h ${String(left % HOUR).padStart(2, '0')} min left`;
   return `${spanLabel(Math.floor(left / HOUR) * HOUR || left)} left`;
 }
 
@@ -221,6 +226,8 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   approvals: 'Approvals', interest: 'Interest', capex: 'Aircraft purchases', assetSale: 'Asset sales', paint: 'Paint & livery',
   refit: 'Cabin refits', leaseReturn: 'Lease returns', leaseIncome: 'Lease income', warRisk: 'War-risk cover',
   disruption: 'Disruptions', compliance: 'Safety & compliance', delivery: 'Ferry companies',
+  // v0.14
+  sales: 'Sales and travel', badDebt: 'Bad debts',
 };
 
 // v0.12.1 the engine's lists (statementTotals splits the same way).
@@ -278,6 +285,16 @@ export function showLossMonth(g: GameState): boolean {
   return closed.length >= 2 && statementTotals(closed[0].lines).profit < 0 && statementTotals(closed[1].lines).profit < 0;
 }
 
+/**
+ * v0.14 the dialog an offer opens from a list (Contracts › Market, the map, a card, the Inbox): the call card while
+ * it is a live phone call (open, not yet lapsed), else the offer dialog. The call card's own 'details' still opens
+ * the offer dialog. Pure.
+ */
+export function offerModal(g: GameState, offerId: string): ModalSpec {
+  const o = g.offers[offerId];
+  return o?.call && o.status === 'open' && o.expires > g.now ? { kind: 'offerCall', offerId } : { kind: 'offer', offerId };
+}
+
 export interface DeepLink {
   tab: Tab;
   sel?: Ref;
@@ -332,6 +349,11 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     // v0.9 round 4 credit control's note: the receivable on Finance.
     case 'receivable':
       return { tab: 'finance', sel: ref };
+    // v0.14 a tender: Contracts › Tenders; a sales trip: Contracts › Markets (was Company › Team).
+    case 'tender':
+      return { tab: 'contracts', view: 'tenders', sel: ref };
+    case 'trip':
+      return { tab: 'contracts', view: 'markets' };
   }
   return null;
 }

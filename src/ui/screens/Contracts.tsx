@@ -1,7 +1,7 @@
 // Contracts (B5): Market (offer cards, urgent first), Active (MGH progress, next flight, crew problems,
 // cancel with penalty) and Missed. DESIGN.md §6.3.
 
-import { AlertTriangle, CalendarRange, ChevronDown, ChevronRight, CircleSlash, FileSearch, Handshake, Inbox as InboxIcon, Medal, Palette, Users } from 'lucide-react';
+import { AlertTriangle, CalendarRange, ChevronDown, ChevronRight, CircleSlash, Clock, FileSearch, Handshake, Inbox as InboxIcon, Medal, Palette, PhoneIncoming, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { flag } from '../../data/countries';
 import { cancelContract, cancelCost, contractProgress, counterView, idleWindows, type IdleWindow, leadDays, offerClientLine, offerCompetition, standing } from '../../engine/contracts';
@@ -17,16 +17,33 @@ import { ProblemCardView } from '../components/ProblemCard';
 import { Why } from '../components/Why';
 import { Bar, Empty, Stepper, Tabs, Toggle } from '../components/ui';
 import { money } from '../format';
-import { store, useGame } from '../store';
+import { store, useClock, useGame } from '../store';
 import { ArchIcon, Chips, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
-import { archLabel, expiryLabel, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays, v09Chips } from './screenLogic';
+import { archLabel, COUNTDOWN_MIN, expiryLabel, offerModal, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays, v09Chips } from './screenLogic';
 import { analystView } from '../../engine/ops';
 import { ScreenHint } from '../components/ScreenHint';
 import { clientList } from '../../engine/contracts';
 import { ClientsView } from './Clients';
+import { openTenders, TendersView } from './Tenders';
+import { MarketsView } from './Markets';
 
-type View = 'market' | 'active' | 'missed' | 'clients';
+type View = 'market' | 'active' | 'tenders' | 'missed' | 'clients' | 'markets';
+
+/** v0.14 the card's time left: hours and minutes ticking with the clock in the last 6 h, a phone call marked. */
+function OfferLeft({ o, now }: { o: ContractOffer; now: number }) {
+  const left = o.expires - now;
+  return left < COUNTDOWN_MIN ? <OfferCountdown o={o} /> : <span className={`small num ${left < 12 * 60 ? 'warn' : 'muted'}`}>{expiryLabel(now, o.expires)}</span>;
+}
+function OfferCountdown({ o }: { o: ContractOffer }) {
+  const now = Math.floor(useClock());
+  const left = o.expires - now;
+  return (
+    <span className={`small num row gap-4 nowrap v14-left ${left <= 60 ? 'bad' : 'warn'}`}>
+      {o.call ? <PhoneIncoming className="sc-ico-s" /> : <Clock className="sc-ico-s" />}{expiryLabel(now, o.expires)}
+    </span>
+  );
+}
 
 function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows: IdleWindow[] }) {
   const hook = liveHook(g, o, windows);
@@ -44,7 +61,7 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
   // v0.7.1 §13: a WHY? dot when the offer can't be flown as it stands or a counter is about to expire.
   const prob = problemAt(g, { kind: 'offer', id: o.id });
   return (
-    <button className={`card sc-offer ${o.urgency}`} onClick={() => store.openModal({ kind: 'offer', offerId: o.id })}>
+    <button className={`card sc-offer ${o.urgency}`} onClick={() => store.openModal(offerModal(g, o.id))}>
       <div className="row between sc-offer-top">
         <span className="row gap-8 upper dim ellipsis"><ArchIcon a={o.archetype} />{archLabel(o)}</span>
         <span className="row gap-8 nowrap">
@@ -53,7 +70,7 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
           {pending ? (
             <span className="small accent nowrap" data-tip="The offer cannot lapse while the client considers your counter">Clock paused</span>
           ) : (
-            <span className={`small num ${o.expires - g.now < 12 * 60 ? 'warn' : 'muted'}`}>{expiryLabel(g.now, o.expires)}</span>
+            <OfferLeft o={o} now={g.now} />
           )}
         </span>
       </div>
@@ -274,7 +291,7 @@ export function ContractsScreen() {
   useRenderCount('contracts');
   const g = useGame();
   const nav = store.nav;
-  const view = (['market', 'active', 'missed', 'clients'].includes(nav.view ?? '') ? nav.view : 'market') as View;
+  const view = (['market', 'active', 'tenders', 'missed', 'clients', 'markets'].includes(nav.view ?? '') ? nav.view : 'market') as View;
   const nMarket = marketOffers(g).length;
   const nActive = Object.values(g.contracts).filter((c) => c.status === 'signed' || c.status === 'active').length;
   const nMissed = missedOffers(g).length;
@@ -287,16 +304,22 @@ export function ContractsScreen() {
         <Tabs<View> value={view} onChange={(v) => store.navigate('contracts', { view: v })} tabs={[
           { id: 'market', label: 'Market', count: nMarket },
           { id: 'active', label: 'Active', count: nActive },
+          // v0.14 the tender board.
+          { id: 'tenders', label: 'Tenders', count: openTenders(g) || undefined },
           { id: 'missed', label: 'Missed', count: nMissed },
           { id: 'clients', label: 'Clients', count: nClients || undefined },
+          // v0.14 market presence, the trade fairs and sales trips (moved here from Company › Team).
+          { id: 'markets', label: 'Markets' },
         ]} />
       </ScreenHead>
       <ScreenHint id="contracts" />
       <HeadStrip g={g} />
       {view === 'market' && <Market g={g} />}
       {view === 'active' && <Active g={g} sel={nav.sel?.kind === 'contract' ? nav.sel.id : null} />}
+      {view === 'tenders' && <TendersView g={g} />}
       {view === 'missed' && <Missed g={g} />}
       {view === 'clients' && <ClientsView g={g} />}
+      {view === 'markets' && <MarketsView g={g} />}
     </div>
   );
 }

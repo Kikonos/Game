@@ -313,7 +313,8 @@ describe('offer flow (acceptance: 30/60 days from a new game)', () => {
 });
 
 describe('pricing', () => {
-  it('A320 wet rates stay in the $3,200–4,800/BH band', () => {
+  // v0.14 the 737-800 reference rate 3,700 → 4,000 (2024–25 summer market): the band's top 4,800 → 5,000.
+  it('A320 wet rates stay in the $3,200–5,000/BH band', () => {
     const g = newGame(6);
     for (let seed = 0; seed < 120; seed++) {
       g.rng = seed * 31 + 7;
@@ -321,7 +322,7 @@ describe('pricing', () => {
       const o = generateOffer(g, 'seasonBase', { wide: false, window: false, airport: 'HAM' });
       if (!o || o.product.kind !== 'wet') continue;
       expect(o.product.ratePerBH).toBeGreaterThanOrEqual(3200);
-      expect(o.product.ratePerBH).toBeLessThanOrEqual(4800);
+      expect(o.product.ratePerBH).toBeLessThanOrEqual(5000);
       expect(o.product.mghPerMonth).toBe(BAL.mgh.narrow);
       expect(o.product.excessRate).toBe(0.95);
     }
@@ -431,52 +432,57 @@ describe('offer lifecycle', () => {
 
 // v0.6 pacing (UPDATE-0.6.md §C2).
 describe('quiet-week floor', () => {
-  it('spawns one gap-fit offer when none came for 5 days (at most one per 5 days), not with 5 offers open (v0.7 §C4)', () => {
+  it('spawns one gap-fit offer when no market offer came for 8 days (at most one per 8 days), not with 3 offers open (v0.7 §C4, v0.14)', () => {
     const g = newGame(3);
     for (const o of Object.values(g.offers)) o.status = 'expired';
-    g.stats.lastGapOfferAt = g.now - 6 * DAY;
+    g.stats.lastGapOfferAt = g.now - 9 * DAY;
+    g.stats.lastMarketOfferAt = g.now - 9 * DAY;
     const o = quietWeekOffer(g);
     expect(o).toBeTruthy();
     expect(o!.hook).toMatch(/^(Fits|Follow-on)/);
+    // v0.14 an ordinary market offer (weighted by presence, fitted to the fleet).
+    expect(o!.ordinary).toBe(true);
     expect(g.stats.lastGapOfferAt).toBe(g.now);
+    expect(g.stats.lastMarketOfferAt).toBe(g.now);
     expect(quietWeekOffer(g)).toBeNull();
-    g.now += 4 * DAY;
+    g.now += 6 * DAY;
     expect(quietWeekOffer(g)).toBeNull();
-    g.now += 2 * DAY;
+    // v0.14 any ordinary market offer resets the wait, not only a gap-fit one.
+    g.now += 3 * DAY;
+    g.stats.lastMarketOfferAt = g.now - 2 * DAY;
+    expect(quietWeekOffer(g)).toBeNull();
     const open = Object.values(g.offers).filter((x) => x.status === 'open').length;
-    for (let i = open; i < 5; i++) generateOffer(g, 'adhoc', { window: false });
-    g.stats.lastGapOfferAt = g.now - 6 * DAY;
+    for (let i = open; i < 3; i++) generateOffer(g, 'adhoc', { window: false });
+    g.stats.lastGapOfferAt = g.now - 9 * DAY;
+    g.stats.lastMarketOfferAt = g.now - 9 * DAY;
     expect(quietWeekOffer(g)).toBeNull();
-    expect(BAL.quietFloor).toEqual({ days: 5, idleDays: 2, maxOpen: 5 });
+    expect(BAL.quietFloor).toEqual({ days: 8, idleDays: 2, maxOpen: 3 });
   });
 
-  it('keeps the yearly offer count within ±10% of v0.5.2 (3.7/week, no floor) over 10 seeds', async () => {
+  it('v0.14 tops up a dry spell, no more: the floor adds under a third to the ordinary offers (6 seeds, 120 days)', async () => {
     const count = async (seed: number) => {
       const g = newGame(seed);
       const seen = new Set<string>();
       const end = g.started + 120 * DAY;
       for (let t = g.now + DAY; t <= end && !g.gameOver; t += DAY) {
         advanceTo(g, t, new Set());
-        for (const id of Object.keys(g.offers)) seen.add(id);
+        for (const o of Object.values(g.offers)) if (o.ordinary) seen.add(o.id);
         await breathe();
       }
       return seen.size;
     };
-    const B = BAL as { offersPerWeek: number };
-    const now = B.offersPerWeek;
     let a = 0;
     let b = 0;
     try {
-      for (let s = 1; s <= 10; s++) a += await count(s);
-      B.offersPerWeek = 3.7;
+      for (let s = 1; s <= 6; s++) a += await count(s);
       PACING.quietFloor = false;
-      for (let s = 1; s <= 10; s++) b += await count(s);
+      for (let s = 1; s <= 6; s++) b += await count(s);
     } finally {
-      B.offersPerWeek = now;
       PACING.quietFloor = true;
     }
-    expect(Math.abs(a - b) / b).toBeLessThan(0.1);
-  }, 60_000);
+    expect(a).toBeGreaterThanOrEqual(b);
+    expect((a - b) / b).toBeLessThan(1 / 3);
+  }, 90_000);
 });
 
 describe('v0.7.2 contract titles (F4)', () => {

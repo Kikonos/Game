@@ -3,7 +3,7 @@
 // capacity leases (the exclusive reward), rivals hiring us (sub-charter in) and dry leases out. Builders return a
 // Draft for offers.ts finalize; dry leases build their own offer (no flying of ours but the ferries).
 
-import { ACMI_TYPES } from '../../data/acmiTypes';
+import { ACMI_TYPES, rentForAge } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
 import { fliesFamily } from '../../data/naming';
 import { nextHajj } from '../../data/worldCalendar';
@@ -16,9 +16,9 @@ import { pushMessage } from '../core/messages';
 import { blockMinutes, complement, etopsCap, maxSectorNm, planSector, typeOf, usableRangeNm } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
-import { DAY, fmtDay, fromUTC, toDate } from '../core/time';
+import { DAY, fmtDay, fromUTC, toDate, yearOf } from '../core/time';
 import type { CabinLayout } from '../../data/acmiTypes';
-import type { Archetype, ApprovalId, Client, ContractOffer, GameState, LegTemplate, Minute, Requirements, Rival } from '../core/types';
+import type { Aircraft, Archetype, ApprovalId, Client, ContractOffer, GameState, LegTemplate, Minute, Requirements, Rival } from '../core/types';
 import { segIndex } from '../ops/market';
 import { isDisruptive, LIMITS, nightsIn } from '../crew/rules';
 import { dutyNeed } from '../crew/duties';
@@ -496,7 +496,8 @@ function capacityLease(ctx: Ctx): Draft | null {
   const fam = wide ? 'widebody' : d.req.families?.[0] === 'B737' ? '737' : 'A320';
   d.archetype = 'capacityLease';
   d.mult = V.arch.capacity;
-  d.mghPerMonth = wide ? 280 : 220;
+  // v0.14 a widebody capacity lease guarantees 330 BH (was 280: under the 300 of any widebody wet lease now).
+  d.mghPerMonth = wide ? 330 : 220;
   if (d.pattern.kind === 'base') d.pattern.targetBH = Math.round(d.mghPerMonth * 1.15);
   const mon = (t: Minute) => fmtDay(t).replace(/^\d+ /, '');
   d.title = `Capacity lease: one ${fam} for ${d.client.name}, ${mon(d.start)}–${mon(d.end)}`;
@@ -726,7 +727,7 @@ function worldTour(ctx: Ctx): Draft | null {
     pattern: { kind: 'legs', legs, hold: true },
     req: { minSeats: pax, layouts: ['two-class', 'three-class', 'vip'], extraCabin: extra, approvals: [], standards: 'vip', body: 'wide' },
     start: legs[0].dep, end: end + 8 * 60, expiresIn: range(g, T.expires[0], T.expires[1]) * DAY,
-    mult: T.mult, extraBH: T.idleBH * days, effects: { reliable: 2, clean: 1, morale: 3 }, risk: { disruption: 0.4, politics: 0.1, permit: 0.3 },
+    mult: T.mult, extraBH: T.idleBH * days, effects: { reliable: 2, clean: 1, morale: 3 }, risk: { disruption: 0.4, politics: 0.1, permit: 0 }, // v0.14 permits filed by the tour operator (ops/events.ts permitDelays)
     pin: tpl.gateway, hook: hookFor(ctx),
   };
 }
@@ -876,7 +877,8 @@ export function dailySubIn(g: GameState): ContractOffer | null {
   const ends = clientsOf(g, ['airline'], (c) => exists(c.base) && !c.rivalId);
   const end = weightedPick(r, ends, (c) => 1 / (1 + km(c.base, rival.base) / 1500));
   if (!end) return null;
-  return generateOffer(g, 'subcharterIn', { window: w, wide, rival: rival.id, endClient: end.id, variant: aog ? undefined : 'oneway', client: rivalClient(g, rival)!.id });
+  // v0.14 paced: a rival's request at short notice waits for a busy spell (a quiet spell rings no phone).
+  return generateOffer(g, 'subcharterIn', { window: w, wide, rival: rival.id, endClient: end.id, variant: aog ? undefined : 'oneway', client: rivalClient(g, rival)!.id, paced: true });
 }
 
 /** Daily: repeat business for base programmes 45 days before they end. */
@@ -925,10 +927,10 @@ export function rollRepeat(g: GameState, contractId: string): ContractOffer | nu
 
 // ---------- dry lease out (§6.1) ----------
 
-/** Market rent of a type (dry), index-adjusted. */
-const rentOf = (g: GameState, typeId: string, r: { rng: number }) => {
-  const t = ACMI_TYPES[typeId];
-  return Math.round((t.rentMonth * segIndex(g, t.body === 'wide' ? 'wide' : 'narrow') * range(r, 0.95, 1.1)) / 1000) * 1000;
+/** Market rent of an airframe (dry), index-adjusted; v0.14 by its age as the market leases one in (rentForAge; was the mid-life rent at any age). */
+const rentOf = (g: GameState, ac: Aircraft, r: { rng: number }) => {
+  const t = ACMI_TYPES[ac.typeId];
+  return Math.round((rentForAge(t, Math.max(0, yearOf(g.now) - ac.builtYear)) * segIndex(g, t.body === 'wide' ? 'wide' : 'narrow') * range(r, 0.95, 1.1)) / 1000) * 1000;
 };
 
 /** Airline clients outside our home market (and outside Europe) that could take the aircraft at their base. */
@@ -970,7 +972,7 @@ export function makeDryLeaseOffer(g: GameState, w?: IdleWindow, clientId?: strin
   const months = int(r, lo, Math.min(hi, maxMonths));
   const end = start + Math.round(months * 30.44) * DAY;
   if (ac.ownership.kind === 'dryLeaseIn' && ac.ownership.leaseEnd < end + 30 * DAY) return null;
-  const rent = rentOf(g, ac.typeId, r);
+  const rent = rentOf(g, ac, r);
   const reserves = wide ? D.reserves.wide : D.reserves.narrow;
   const fh = wide ? D.fh.wide : D.fh.narrow;
   const consent = ac.ownership.kind === 'dryLeaseIn' ? (wide ? D.consent.wide : D.consent.narrow) : 0;
@@ -1009,15 +1011,16 @@ export function dailyDryLease(g: GameState): ContractOffer | null {
 
 // ---------- world-event work (§5.3) ----------
 
-/** One offer a world event creates (evacuation, repatriation, relief, medical, ACMI cover), tagged with the event. */
+/** One offer a world event creates (evacuation, repatriation, relief, medical, ACMI cover), tagged with the event.
+ *  v0.14 paced: no short-notice one in a quiet spell (contracts/offers.ts finalize). */
 export function eventOffer(g: GameState, kind: 'evacuation' | 'repatriation' | 'humanitarian' | 'medical' | 'aogCover' | 'acmi', at: string, eventId: string, opts: { staging?: string; client?: string; sar?: boolean } = {}): ContractOffer | null {
   const wide = chance(g, anyWide(g) ? 0.5 : 0.1);
   let o: ContractOffer | null = null;
   if (kind === 'evacuation') o = generateOffer(g, 'evacuation', { airport: at, staging: opts.staging, eventId, wide, window: false });
-  else if (kind === 'repatriation') o = generateOffer(g, 'repatriation', { airport: at, wide, window: false });
+  else if (kind === 'repatriation') o = generateOffer(g, 'repatriation', { airport: at, wide, window: false, paced: true });
   else if (kind === 'humanitarian') o = generateOffer(g, 'humanitarian', { airport: at, eventId, wide, window: false, variant: opts.sar ? 'group' : undefined });
   else if (kind === 'medical') o = generateOffer(g, 'medical', { airport: at, eventId, wide, window: false });
-  else if (kind === 'aogCover') o = generateOffer(g, 'aogCover', { client: opts.client, wide: false, window: false, start: g.now + int(g, 8, 36) * 60 });
+  else if (kind === 'aogCover') o = generateOffer(g, 'aogCover', { client: opts.client, wide: false, window: false, start: g.now + int(g, 8, 36) * 60, paced: true });
   else o = generateOffer(g, 'seasonBase', { client: opts.client, wide: false, window: false, days: int(g, 30, 45), start: g.now + int(g, 4, 10) * DAY });
   if (o) o.eventId = eventId;
   return o;

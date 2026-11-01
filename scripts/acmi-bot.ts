@@ -87,6 +87,7 @@ if (process.env.OPS_NOWAVES) OPS_LIVE.waves = false;
 import type { ProblemCard } from '../src/engine/problems/types';
 import type { ApprovalId } from '../src/engine/core/types';
 import { chainAugment } from '../src/engine/contracts/offers';
+import { marketOfCountry } from '../src/data/markets';
 import { programmeOf } from '../src/engine/contracts/plan';
 import { isWideJob } from '../src/engine/contracts/pricing';
 import { safetyTrips } from '../src/engine/core/safety';
@@ -104,6 +105,7 @@ import { createChecker } from './invariants';
 import { SETUP_BY_ID, type SetupId } from '../src/data/setups';
 import { createScenario, METRICS, SCENARIO_BY_ID, fmtValue, reliability, scenarioOutcome, scenarioView } from '../src/engine/scenario';
 import { fleetWords } from '../src/engine/newGame';
+import { bidQuote, bookTrip, com, fairsAhead, homeMarket, placeBid, travellers } from '../src/engine/commercial';
 
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
@@ -402,7 +404,10 @@ function offers(g: GameState, t: Tally): void {
     .sort((a, b) => Number(isBase(b)) - Number(isBase(a)) || levelRank(g, b) - levelRank(g, a) || b.estValue - a.estValue);
   // v0.7: a calendar under half full over the next month takes ad hoc work up to 45 days out.
   const hungry = open.length > 0 && committed(g, 30) < 0.5;
+  const won = wonTenderOffers(g);
   for (const o of open) {
+    // v0.14 a won tender's offer is tenderBids' (its terms are the bid's: never countered).
+    if (won.has(o.id)) continue;
     const span = Math.max(1, (o.end - o.start) / DAY);
     // v0.8 dry leases have their own policy; deportation at most once a year and only with a clean record (70+);
     // no evacuation into level-3 war risk.
@@ -949,7 +954,9 @@ function fleet(g: GameState, t: Tally): void {
     if (g.company.cash >= o.deposit + 3 * (o.rentPerMonth + typeOf(o.typeId).insuranceMonth) + 1_000_000) t.wideAffordableAt ??= g.now;
     // v0.8 two months of its fixed costs after the deposit (v0.7.3: three) and $300K (was $500K) to run the airline.
     // v0.8 pre-release: --wide too (its $1M left after the deposit signed a 747 on day 13 of a Startup: insolvent).
-    if (g.company.cash < o.deposit + 2 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 300_000) continue;
+    // v0.14 far fewer offers (work for a new widebody comes slower): $1M to run the airline (seed 6 signed an A330-300
+    // for a lead's Jakarta base with $300K over and spent December $2.1M under water).
+    if (g.company.cash < o.deposit + 2 * wideMonth(o.rentPerMonth, o.typeId, o.cabin.total) + 1_000_000) continue;
     t.wideReadyAt ??= g.now;
     // v0.7: home after the delivery ferry; a widebody job worth $1M+ starting 1–4 months after that (or, from day 150
     // on the ladder, the widebody itself: wide work follows a widebody fleet).
@@ -1381,9 +1388,72 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     if (!NOSIGN) {
       refits(g, t);
       dryLeases(g, t);
+      // v0.14 Commercial: bid on the season's tenders, a fair now and then.
+      tenderBids(g, t);
+      salesTrips(g, t);
     }
   }
   if ((newDay || urgent) && !NOSIGN) offers(g, t);
+}
+
+/**
+ * v0.14 tenders: a bid on each open RFP the bot can fly: a tail that fits and is in no other bid over the window
+ * (younger first, the client's family first), the client's MGH, 1–6 % under the market rate (more under as a
+ * Newcomer), their cabin crew when they like it.
+ */
+function tenderBids(g: GameState, t: Tally): void {
+  // v0.14 a won tender the bid tail can no longer take (busy since, or gone): signed on another aircraft within the
+  // week, as a player would (the same pick as any offer; the winning terms kept).
+  for (const tn of com(g).tenders) {
+    if (tn.status !== 'won' || !tn.result?.offerId || tn.result.contractId) continue;
+    const o = g.offers[tn.result.offerId];
+    if (!o || o.status !== 'open' || o.expires <= g.now) continue;
+    const best = bestFit(g, o);
+    if (!best) continue;
+    hireFor(g, t, best);
+    if (acceptOffer(g, o.id, [best.aircraftId], { priced: true }).ok) {
+      tenderResigned++;
+      t.accepted++;
+      act(g, t);
+    }
+  }
+  for (const tn of com(g).tenders) {
+    if (tn.status !== 'open' || tn.bid || g.now > tn.deadline - DAY) continue;
+    const q = bidQuote(g, tn.id);
+    if (!q) continue;
+    const ac = q.aircraft.filter((a) => a.level !== 'no' && a.otherBids === 0).sort((a, b) => Number(b.family === tn.family) - Number(a.family === tn.family) || a.age - b.age)[0];
+    if (!ac) continue;
+    const cut = (g.company.standing ?? 0) === 0 ? 0.06 : 0.01 + (hash(tn.id) % 5) / 100;
+    const res = placeBid(g, tn.id, { rate: Math.round((q.budget * (1 - cut)) / 10) * 10, mgh: q.mgh, aircraftId: ac.id, crew: tn.mixedPref ? 'mixed' : 'ours', start: q.start, end: q.end });
+    if (res.ok) act(g, t);
+  }
+}
+
+/** v0.14 won tenders signed on another aircraft than the one bid (tenderBids). */
+let tenderResigned = 0;
+/** v0.14 the open offers of won tenders (signed by tenderBids, never countered by offers()). */
+const wonTenderOffers = (g: GameState) => new Set(com(g).tenders.map((x) => x.result?.offerId).filter((x): x is string => !!x));
+
+/**
+ * v0.14 sales trips: you to a fair about every 80 days when cash allows (the next one reachable within 45 days), in
+ * the home region or the one other region the bot breaks into (by seed: the Middle East, North Africa, West Africa,
+ * Latin America or North America; Routes World counts for both).
+ */
+const OTHER_REGION = (['me', 'naf', 'waf', 'lat', 'nam'] as const)[(seed - 1) % 5];
+function salesTrips(g: GameState, t: Tally): void {
+  // v0.14 the last booking read from the game (was a module variable: --det's second run and a loaded save played on
+  // differently, the policy no longer a function of the state).
+  const lastTrip = Math.max(-Infinity, ...com(g).trips.map((x) => x.booked));
+  if (g.now - lastTrip < 80 * DAY || g.company.cash < 1_500_000 || travellers(g)[0].tripId) return;
+  const home = homeMarket(g);
+  for (const f of fairsAhead(g)) {
+    if (f.tripId || f.start - g.now > 45 * DAY || f.start - g.now < 4 * DAY) continue;
+    if (f.market !== 'world' && f.market !== home && f.market !== OTHER_REGION) continue;
+    if (bookTrip(g, 'ceo', { fairId: f.id }).ok) {
+      act(g, t);
+      return;
+    }
+  }
 }
 
 /** Crew-planning round: when the player was first told a leg was short of crew (any notice on it or its trip). */
@@ -1829,6 +1899,40 @@ const tally = newTally();
 const end = g.started + days * DAY;
 const seenFlight = new Set<string>();
 const seenOffer = new Set<string>();
+/**
+ * v0.14 offers counted by source and company standing (Newcomer / Established / Respected): ordinary market offers
+ * (the paced draw and the quiet-week floor), tender awards, trip leads, repeat business, world-event and crisis jobs,
+ * sub-charters, the rest; phone calls; the ordinary ones' client market and whether the fleet could fly them.
+ */
+const offerTally = {
+  lastDay: -1,
+  days: [0, 0, 0] as number[],
+  by: [{}, {}, {}] as Record<string, number>[],
+  calls: 0,
+  markets: {} as Record<string, number>,
+  fit: 0,
+  presence: [] as [string, Record<string, number>][],
+};
+function offerSource(g: GameState, o: ContractOffer): string {
+  if (o.ordinary) return 'market';
+  if (com(g).tenders.some((x) => x.result?.offerId === o.id)) return 'tender';
+  if (o.repeatOf) return 'repeat';
+  if (/they asked us first/.test(o.blurb)) return 'lead';
+  if (o.archetype === 'subcharterIn') return 'subcharter';
+  if (o.eventId) return 'event';
+  return 'other';
+}
+function countOffer(g: GameState, o: ContractOffer): void {
+  // Tender asks never reach the market (removed when built); the opening offers are 'other'.
+  const src = offerSource(g, o);
+  const by = offerTally.by[g.company.standing ?? 0];
+  by[src] = (by[src] ?? 0) + 1;
+  if (o.call) offerTally.calls++;
+  if (src !== 'market') return;
+  const m = marketOfCountry(g.clients[o.clientId]?.country ?? '');
+  offerTally.markets[m] = (offerTally.markets[m] ?? 0) + 1;
+  if (Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) offerTally.fit++;
+}
 const slipSeen = new Set<string>();
 /** v0.9 fix (JUMBO): contract legs flown by us (contract, aircraft, block hours), first seen done. */
 const legsFlown = new Map<string, { contractId: string; aircraftId: string; bh: number }>();
@@ -1904,6 +2008,17 @@ function wideTiming(): void {
   }
 }
 
+let idProbeSig = '';
+function idProbe(g: GameState, id: string): void {
+  const ps = Object.values(g.pairings).filter((p) => p.slots.some((s) => s.crewId === id))
+    .map((p) => `${p.id}:${p.status}:${p.dutyIds.map((d) => (g.duties[d] ? `${fmtDateTime(g.duties[d].report)}/${g.duties[d].flightIds.map((f) => g.flights[f]?.no).join('+')}` : d)).join(',')}`).join(' ; ');
+  const fl = Object.values(g.flights).filter((f) => f.status !== 'done' && (f.crewIds.includes(id) || f.riders?.includes(id))).map((f) => `${f.no}${f.kind === 'deadhead' ? '(DH)' : ''}@${fmtDateTime(f.std)}`).join(' ');
+  const sig = `${!!g.crew[id]} ${ps} || ${fl}`;
+  if (sig === idProbeSig) return;
+  idProbeSig = sig;
+  console.error(`${fmtDateTime(g.now)} IDPROBE ${g.crew[id] ? `at ${g.crew[id].loc}` : 'gone'} ${ps} || ${fl}`);
+}
+
 function onStep(): void {
   if (process.env.PROG) console.error(`step ${fmtDateTime(g.now)}`);
   wideTiming();
@@ -1916,6 +2031,9 @@ function onStep(): void {
   }
   // Debugging: CREWPROBE=First_Last: that crew member's state, duties, tickets and standby whenever they change (stderr).
   if (process.env.CREWPROBE) crewProbe(g, process.env.CREWPROBE.replace(/_/g, ' '));
+  // Debugging (v0.14): IDPROBE=<crew id>: the pairings holding that id and the flights still to fly carrying it, whenever
+  // they change (stderr; also once the record is gone: crew who have left).
+  if (process.env.IDPROBE) idProbe(g, process.env.IDPROBE);
   INV?.observe(g);
   const m = mon(monthKey(g.now));
   if (WHYHELD) noteOffShare(g);
@@ -1955,8 +2073,15 @@ function onStep(): void {
     paintBack += r.amount;
   }
   for (const o of Object.values(g.offers)) {
+    if (!seenOffer.has(o.id)) countOffer(g, o);
     seenOffer.add(o.id);
     if (o.slip) slipSeen.add(o.id);
+  }
+  if (dayIndex(g.now) !== offerTally.lastDay) {
+    offerTally.lastDay = dayIndex(g.now);
+    offerTally.days[g.company.standing ?? 0]++;
+    // v0.14 presence by market on the 1st of each month.
+    if (toDate(g.now).getUTCDate() === 1) offerTally.presence.push([fmtDay(g.now), { ...(g.com?.presence?.m ?? {}) }]);
   }
   for (const o of g.market.aircraft) if (!seenMarket.has(o.id)) seenMarket.set(o.id, { month: monthKey(g.now), teaser: !aircraftGate(g, o.typeId).ok, newBuild: !!o.newBuild });
   // Inbox is newest first: count down to the last message seen.
@@ -2440,6 +2565,44 @@ console.log(
     targets.push(['747 full-year contribution ≥ 0 (JUMBO, v0.9 fix)', contrib >= 0, k$(contrib)]);
     softTargets.push(['a crew change at a fuel stop flown (JUMBO; ≥ 2 of seeds 1–6)', (g.stats.v09?.slips ?? 0) >= 1, `${g.stats.v09?.slips ?? 0} (offers ${slipSeen.size})`]);
   }
+  if (b744.length) {
+    // v0.14 (--b744 or JUMBO=1) each 747's own margin since it joined, on the v0.14 type costs: its legs' share of their
+    // contracts' invoices (fuel re-bills included) less its fuel where we pay it, maintenance (maintBH), C-check
+    // reserves, insurance, rent and five crew sets. Target 10–20 % when busy.
+    const t = typeOf('b744');
+    for (const id of b744) {
+      const ac = g.fleet[id];
+      let bh = 0;
+      let fuel = 0;
+      const all = new Map<string, number>();
+      const ours = new Map<string, number>();
+      for (const l of legsFlown.values()) {
+        all.set(l.contractId, (all.get(l.contractId) ?? 0) + l.bh);
+        if (l.aircraftId !== id) continue;
+        ours.set(l.contractId, (ours.get(l.contractId) ?? 0) + l.bh);
+        bh += l.bh;
+        const k = g.contracts[l.contractId];
+        if (!k || k.product.kind !== 'wet') fuel += l.bh * t.fuelTBH * g.market.fuelPrice;
+      }
+      let rev = 0;
+      const jobs: string[] = [];
+      for (const [cid, b] of ours) {
+        const share = b / Math.max(1e-9, all.get(cid) ?? 0);
+        const r = ((g.contracts[cid]?.invoiced ?? 0) + g.finance.receivables.filter((x) => x.contractId === cid && /^Fuel re-billed/.test(x.desc)).reduce((n, x) => n + x.amount, 0)) * share;
+        rev += r;
+        const k = g.contracts[cid];
+        jobs.push(`${k?.archetype ?? '?'} ${k?.requirements.minSeats ?? ''}s ${k?.product.kind ?? ''} ${b.toFixed(0)} BH ${k$(r)}`);
+      }
+      const months = Math.max(0, g.now - Math.max(ac.deliveredAt ?? 0, g.started)) / (30.44 * DAY);
+      const rent = ac.ownership.kind === 'dryLeaseIn' ? ac.ownership.rentPerMonth * months : 0;
+      const crewSets = BAL.crewSetsPerAircraft * complement('b744', ac.cabin.total).reduce((n, r) => n + salaryFor(r, 'B747'), 0) * months;
+      const cRes = ((t.cCheck ?? 0) / Math.max(1, t.cCheckMonths)) * months;
+      const cost = fuel + bh * t.maintBH + (t.insuranceMonth ?? 0) * months + rent + crewSets + cRes;
+      const net = rev - cost;
+      console.log(`747 ${ac.reg}: ${months.toFixed(1)} months, ${bh.toFixed(0)} BH (${(bh / Math.max(1e-9, months)).toFixed(0)}/month), revenue ${k$(rev)}, fuel ${k$(fuel)}, maintenance ${k$(bh * t.maintBH)}, C-check reserve ${k$(cRes)}, insurance ${k$((t.insuranceMonth ?? 0) * months)}, rent ${k$(rent)}, crew sets ${k$(crewSets)} → net ${k$(net)} (${rev > 0 ? ((net / rev) * 100).toFixed(1) : '–'} %)`);
+      console.log(`  747 ${ac.reg} jobs: ${jobs.join(' · ')}`);
+  }
+  }
   console.log(
     `v0.9: heads unlocked ${unl} · hired ${hs.filter((h) => h.hired).length} · handled ${handled} (mistakes ${hs.reduce((n, h) => n + h.mistakes, 0)}, overridden ${hs.reduce((n, h) => n + h.overridden, 0)}) · ` +
       `achievements ${ach}/24 · slips ${v9?.slips ?? 0} (offers ${slipOffers}) · out of hours red ${v9?.oohRed ?? 0} amber ${v9?.oohAmber ?? 0} · ` +
@@ -2457,6 +2620,40 @@ console.log(
         `findings open ${(au?.findings ?? []).filter((f) => !f.closed).length} (started ${(au?.findings ?? []).filter((f) => !f.closed && f.started).length}, overdue ${(au?.findings ?? []).filter((f) => f.overdue && !f.closed).length}) · suspended ${au?.suspended ? 'yes' : 'no'}`,
     );
     softTargets.push(['quiet days 45–75 % (v0.11 director, Normal pace)', quietShare(g) >= 0.45 && quietShare(g) <= 0.75, `${(quietShare(g) * 100).toFixed(0)} %`]);
+  }
+  {
+    // v0.14 Commercial: tenders by status, bids, wins (signed), trips and leads, crises by kind, money written off and back.
+    const c = com(g);
+    const st = c.stats ?? { bids: 0, won: 0, lost: 0, trips: 0, leads: 0, crises: 0, written: 0 };
+    const by = (s: string) => c.tenders.filter((x) => x.status === s).length;
+    const signed = c.tenders.filter((x) => x.result?.contractId).length;
+    const kinds = ['strike', 'grounding', 'bankruptcy'].map((k) => `${k} ${c.crises.filter((x) => x.kind === k).length}`).join('/');
+    const claims = c.crises.reduce((s2, x) => s2 + (x.claim?.paid ? x.claim.amount : 0), 0);
+    const salesCost = [...g.finance.history, g.finance.current].reduce((s2, m) => s2 - (m.lines.sales ?? 0), 0);
+    const crisisOffers = c.crises.reduce((s2, x) => s2 + ((g.world?.events ?? []).find((e) => e.id === x.eventId)?.offerIds.length ?? 0), 0);
+    console.log(
+      `v0.14 commercial: tenders ${c.tenders.length} (rounds ${Object.entries(c.rounds ?? {}).map(([k, v]) => `${k} ${v}`).join(', ') || '-'}; open ${by('open')}, closed ${by('closed')}, won ${by('won')}, lost ${by('lost')}, no bid ${by('noBid')}) · ` +
+        `bids ${st.bids}, won ${st.won} (signed ${signed}; on another aircraft ${tenderResigned}), lost ${st.lost} · trips ${st.trips} (leads ${st.leads}) · crises ${st.crises} (${kinds}; ${crisisOffers} requests) · ` +
+        `written off ${k$(st.written)}, claims paid ${k$(claims)} · sales and travel ${k$(salesCost)}`,
+    );
+  }
+  {
+    // v0.14 offers per week by standing and source, the ordinary offers' markets and fleet fit, presence by month.
+    const names = ['Newcomer', 'Established', 'Respected'];
+    const lines = names.map((n, i) => {
+      const d = offerTally.days[i];
+      if (!d) return null;
+      const by = offerTally.by[i];
+      const tot = Object.values(by).reduce((a, b) => a + b, 0);
+      return `${n} ${d} d: market ${(((by.market ?? 0) * 7) / d).toFixed(1)}/wk, all ${((tot * 7) / d).toFixed(1)}/wk {${Object.entries(by).map(([k, v]) => `${k} ${v}`).join(', ')}}`;
+    }).filter(Boolean);
+    const nMarket = offerTally.by.reduce((a, b) => a + (b.market ?? 0), 0);
+    console.log(`v0.14 offers: ${lines.join(' · ')} · calls ${offerTally.calls} · ordinary fleet-fit ${nMarket ? Math.round((offerTally.fit / nMarket) * 100) : 0} % · markets ${Object.entries(offerTally.markets).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')}`);
+    if (offerTally.presence.length && Object.keys(offerTally.presence[0][1]).length) {
+      const ids = Object.keys(offerTally.presence[offerTally.presence.length - 1][1]);
+      console.log(`v0.14 presence by month: ${['month', ...ids].join(' ')}`);
+      for (const [mk, p] of offerTally.presence) console.log(`  ${mk} ${ids.map((k) => String(Math.round(p[k] ?? 0)).padStart(3)).join(' ')}`);
+    }
   }
   targets.push(['discretion never planned (v0.9)', (v9?.discretionPlanned ?? 0) === 0, `${v9?.discretionPlanned ?? 0}`]);
   targets.push(['runs in ≤ 20 s (v0.9 hard limit)', runSecs <= 20, `${runSecs.toFixed(1)} s`]);

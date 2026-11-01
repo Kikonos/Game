@@ -3,7 +3,7 @@
 // rare teaser), rare new-build slots, and a real handover site (lessor site, factory or previous operator's hub)
 // from which the aircraft is ferried home.
 
-import { ACMI_TYPES_LIST, type AcmiType } from '../../data/acmiTypes';
+import { ACMI_TYPES_LIST, ageFactor, rentForAge, type AcmiType } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { checkRegistration, cleanAircraftName } from './registration';
 import { EX_OPERATORS, FACTORIES, LESSOR_SITES, NEW_BUILD, type Site } from '../../data/market';
@@ -125,10 +125,11 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
     const built = from <= to ? int(r, from, to) : int(r, Math.min(t.firstYear ?? lo, now - 1), Math.min(t.lastYear ?? now - 1, now - 1));
     const age = now - built;
     // Steeper past 18 years (lessors price old jets down fast).
-    const ageAdj = clamp(1 - (age - 12) * 0.02 - Math.max(0, age - 18) * 0.04, 0.55, 1.15);
+    const ageAdj = ageFactor(age);
     const canBuy = t.body === 'narrow' || old;
     const buy = opts.kind ? opts.kind === 'buy' && canBuy : !opts.lease && canBuy && chance(r, 0.3);
-    const rent = Math.round((t.rentMonth * range(r, 0.9, 1.15) * index * ageAdj) / 1000) * 1000;
+    // v0.14 the rent never below the type's floor for old airframes (rentForAge).
+    const rent = Math.round((rentForAge(t, age) * range(r, 0.9, 1.15) * index) / 1000) * 1000;
     // v0.7.2 priced like a sale (the market index included), so buying and selling straight back loses the spread.
     const price = buy ? Math.round((t.valueUsed * range(r, 0.95, 1.12) * ageAdj * index) / 10_000) * 10_000 : 0;
     o = {
@@ -544,6 +545,18 @@ export function addShock(g: GameState, x: Omit<MarketShock, 'id'>): void {
   list.push({ id: nextId(g, 'sh'), ...x });
 }
 
+/**
+ * v0.14 ordinary market offers a week (the player: far fewer, especially while earning a name): by company standing
+ * (Newcomer 1.5, Established 3.1, Respected 4.6) for its usual fleet, a little more or less per aircraft. Pure.
+ */
+export function marketPerWeek(g: GameState): number {
+  const M = BAL.marketOffers;
+  const s = Math.min(2, g.company.standing ?? 0);
+  const n = Object.values(g.fleet).filter((a) => a.status !== 'stored' && a.status !== 'leasedOut').length;
+  const fleetF = Math.max(M.fleetClamp[0], Math.min(M.fleetClamp[1], 1 + M.fleetSlope * (n - M.fleetRef[s])));
+  return M.perWeek[s] * fleetF;
+}
+
 /** Fleet-weighted demand: offer volume × (index)² (slump ≈ 0.67, boom ≈ 1.32). Pure. */
 export function demandFactor(g: GameState): number {
   let w = 0;
@@ -598,7 +611,8 @@ export function marketOutlook(g: GameState): MarketOutlook {
   const nextH = hj.find((h) => h.pre[0] > g.now);
   const hajjIn = nextH ? Math.ceil((nextH.pre[0] - g.now) / DAY) : 0;
   if (nextH && hajjIn <= 120) season.name = `${season.name} · Hajj in ${hajjIn} d`;
-  const perWeek = BAL.offersPerWeek * demandFactor(g);
+  // v0.14 the ordinary market offers a week at our standing and size (tenders, calls and leads come on top).
+  const perWeek = marketPerWeek(g) * demandFactor(g);
   return {
     phase: cy.phase, phaseText: PHASE_LINE[cy.phase],
     narrow: { index: n, trend: nt, text: `Narrowbody demand ${arrow(nt)} ${levelWord(n)}`.replace('  ', ' ') },
@@ -608,7 +622,7 @@ export function marketOutlook(g: GameState): MarketOutlook {
     hajj: hj.map((h) => ({ arafah: h.arafah, pre: h.pre, post: h.post, ah: h.ah })),
     antarctic: antarcticSeason(g.now),
     shocks: (m.shocks ?? []).filter((x) => x.until > g.now).map((x) => ({ text: `${x.text}: ${x.delta > 0 ? '+' : '−'}${Math.round(Math.abs(x.delta) * 100)} % ${x.seg === 'all' ? '' : `${x.seg}body `}demand until ${fmtDay(x.until)}`.replace('  ', ' '), until: x.until })),
-    offersText: `About ${Math.round(perWeek * 10) / 10} new offers a week at this size`,
+    offersText: `About ${Math.round(perWeek * 10) / 10} new offers a week at our standing and size`,
   };
 }
 

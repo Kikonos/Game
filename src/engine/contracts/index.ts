@@ -31,7 +31,7 @@ export { markOfferSeen, offerCompetition, rivalList, rivalSummary, rivalView, ST
 export { deportationCleanHit, hajjTender, tourAlternates, tourCrew, tourReady, tourSight, tourStops, WORLD_TOURS } from './missions';
 export { tourBizPct } from './pricing';
 export { warRiskCost } from './missionChecks';
-export { answerCall, CALL_MARGIN_X, callPlan, callScore, callScript, declineCall, isCallOffer, whenSaid, type CallPlan, type CallScript } from './call';
+export { answerCall, CALL_MARGIN_X, CALL_MISSED_REL, CALL_REPLY, callFit, callPlan, callReplyMin, callReports, callScore, callScript, declineCall, isCallOffer, REPLY_MIN, whenSaid, type CallPlan, type CallScript } from './call';
 
 function daily(g: GameState) {
   dailyOffers(g);

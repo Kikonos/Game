@@ -7,7 +7,7 @@ import { AIRCRAFT } from '../../data/aircraft';
 import { fromUTC } from '../../engine/core/time';
 import type { Aircraft, Decision, Flight, GameState, WorldEvent } from '../../engine/core/types';
 import { sunElevation, sunPoint } from './mapLogic';
-import { buildSilhouette, nacelles, parkedFit, SIL_FAMILY, SIL_TYPES, silPx, silScale, silSpec, silhouette, wingOutline } from './silhouettes';
+import { buildSilhouette, mapPxPerM, nacelles, SIL_FAMILY, SIL_MAX_M, SIL_MAX_PX, SIL_MIN_M, SIL_MIN_PX, SIL_TYPES, silPx, silSpec, silhouette, wingOutline } from './silhouettes';
 import { fillNight, mercLat, nightAlpha } from './sky';
 import { CONTRAIL_FT, contrailWindow, flightProfile, nextDeparture, spotList, spotNext } from './spotter';
 import { wxMarks } from './weather';
@@ -96,22 +96,35 @@ describe('silhouettes', () => {
     }
   });
 
-  it('sizes icons by the real aircraft, never too small to tap', () => {
+  it('v0.14 draws every type to one scale: size proportional to the real aircraft', () => {
     const px = (id: string) => silPx(silSpec(id));
-    expect(px('a320ceo')).toBeCloseTo(24, 0);
+    // A320 35.8 m span vs A330 60.3 m vs 747 64.4 m span, 70.6 m long: the icons keep those ratios exactly.
+    const span = (id: string) => silSpec(id).S;
+    const len = (id: string) => silSpec(id).L;
+    expect(px('a332') / px('a320ceo')).toBeCloseTo(Math.max(len('a332'), span('a332')) / Math.max(len('a320ceo'), span('a320ceo')), 5);
+    expect(silhouette('a332').hs / silhouette('a320ceo').hs).toBeCloseTo(span('a332') / span('a320ceo'), 5);
+    expect(silhouette('b744').hl / silhouette('a320ceo').hl).toBeCloseTo(len('b744') / len('a320ceo'), 5);
+    expect(silhouette('b744').hl / silhouette('a320ceo').hl).toBeGreaterThan(1.8);
     expect(px('a320ceo')).toBeLessThan(px('b752'));
-    expect(px('b752')).toBeLessThan(px('b763'));
     expect(px('b763')).toBeLessThan(px('b772'));
-    expect(px('a359')).toBeGreaterThan(px('a332'));
     expect(px('a388')).toBeGreaterThan(px('b77w'));
-    expect(px('b748')).toBeGreaterThan(px('b744'));
-    for (const t of ACMI_TYPES_LIST) {
-      expect(px(t.id)).toBeGreaterThanOrEqual(23);
-      expect(px(t.id)).toBeLessThanOrEqual(42);
-      // Parked, every silhouette fits its 26 px stand.
-      const s = silSpec(t.id);
-      expect(s.S * silScale(s) * parkedFit(s)).toBeLessThanOrEqual(24.01);
+  });
+
+  it('v0.14 grows the one scale gently with the zoom, clamped for the whole set together', () => {
+    let last = 0;
+    for (const k of [0.5, 1, 2, 4, 8, 16]) {
+      const m = mapPxPerM(k);
+      expect(m).toBeGreaterThanOrEqual(last);
+      last = m;
+      // smallest type tappable, largest never swamping the map: at every zoom
+      expect(SIL_MIN_M * m).toBeGreaterThanOrEqual(SIL_MIN_PX - 1e-9);
+      expect(SIL_MAX_M * m).toBeLessThanOrEqual(SIL_MAX_PX + 1e-9);
     }
+    expect(SIL_MIN_M * mapPxPerM(1)).toBeCloseTo(SIL_MIN_PX, 5);
+    expect(SIL_MAX_M * mapPxPerM(16)).toBeCloseTo(SIL_MAX_PX, 5);
+    // a European view (k ≈ 4): an A320 about 23 px, an A380 about twice that
+    expect(37.6 * mapPxPerM(4)).toBeGreaterThan(21);
+    expect(37.6 * mapPxPerM(4)).toBeLessThan(26);
   });
 
   it('builds closed paths at any size', () => {

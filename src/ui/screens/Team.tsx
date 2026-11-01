@@ -13,6 +13,7 @@ import { NamedIcon } from '../components/NamedIcon';
 import { Bar, Seg, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { store } from '../store';
+import { AwayLine } from './Markets';
 
 const pct = (x: number) => Math.round(x * 100);
 /** A progress worth a bar ('18 of 25 sectors'); a one-off goal ('Not yet') shows its unlock line instead. */
@@ -253,6 +254,8 @@ export function TeamView({ g }: { g: GameState }) {
     <div className="v8-split v9-team">
       <div className="card v8-pane v8-list">
         <div className="v8-list-head small muted">{earned} of {list.length} earned · {list.filter((h) => h.person).length} hired</div>
+        {/* v0.14 sales trips and fairs live in Contracts › Markets; here only who is away. */}
+        <AwayLine g={g} />
         {list.map((h) => <HeadRow key={h.id} v={h} on={h.id === v?.id} onPick={() => store.select({ kind: 'head', id: h.id })} />)}
       </div>
       <div className="card v8-pane v8-pane-r">{v && <Detail v={v} g={g} />}</div>

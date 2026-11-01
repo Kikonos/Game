@@ -17,6 +17,8 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { distance } from '../core/geo';
 import { noteLostLegs } from '../contracts/billing';
 import { isSoft, route, routeMinutes } from '../contracts/plan';
+import { farOutstation, ticketLead } from '../contracts/schedule';
+import { ticketBlock } from './commercial';
 import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, seatRiders, crewSeatsBlocked, restSeatsBlocked, setClosedWaitHook, setRestDelayHook } from '../crew';
 import { fdpLimitAt } from '../crew/timeline';
 import { dutyLegality } from '../crew/duties';
@@ -314,6 +316,25 @@ function recover(g: GameState, ac: Aircraft, legs: Flight[], at: string, ready: 
     // brings the aircraft and its passengers home: it is never dropped for lateness.
     const cont = i === 0 && u.legs[0] === u.rev && x.from !== stationOf(g, x) && !!inbound && isRevenue(inbound) && inbound.to === x.from && inbound.contractId === x.contractId;
     if (capped && !cont && u.rev && overCap(u, ready, turn, lateCap(g, u.rev)) > 0) {
+      // v0.14 the empty move out of a far outstation that leads to a dropped unit stays when the work after that unit
+      // leaves from where the move goes (the next wave of the base it was flying to): only the unit's revenue legs are
+      // dropped and the move goes on. Dropped with the wave, it was planned anew for the next one, new legs and no crew
+      // each time (CS-TIF's ferry Manila–Riga, 12 copies in a month, each a "late change" crew alarm, the aircraft never
+      // left). A move from a near station is still handed back (planned again as late as the next wave allows).
+      const k = u.legs.indexOf(u.rev);
+      const next = legs[i + u.legs.length];
+      if (k > 0 && next && u.legs[k - 1].to === next.from && farOutstation(g, u.legs[0].from)) {
+        plan.cancels.push(...u.legs.slice(k));
+        for (const y of u.legs.slice(0, k)) {
+          if (y !== x) shiftChecks(y.std);
+          const std = Math.max(y.std, ready);
+          plan.moves.push({ f: y, std });
+          loc = y.to;
+          ready = std + y.block + turn;
+        }
+        i += u.legs.length;
+        continue;
+      }
       plan.cancels.push(...u.legs);
       i += u.legs.length;
       continue;
@@ -1328,13 +1349,20 @@ function emptyLegCrew(g: GameState, f: Flight, ac: Aircraft): void {
     if (subcharterInstead(g, ac, unitOf(g, ac, f), why)) return;
     return dropUnit(g, ac, f, 'No legal crew', why, 'crew');
   }
-  if (tries > 4 && delayOf(f) > DAY) {
+  // v0.14 out of a far outstation (Manila from Lisbon) the move is the aircraft's only way back: it waits for a crew
+  // flown out (a long ticket and the rest after it, never a day at a time that no ticket can make), and it is never
+  // handed back to contracts, which planned the same move anew, with new legs, no crew and a "late change" alarm
+  // (CS-TIF at Manila for a month). Its later work is dropped as the wait passes it (sub-chartered when cheaper).
+  const far = farOutstation(g, f.from);
+  if (tries > 4 && delayOf(f) > DAY && !far) {
     if (f.kind === 'positioning') removeFlights(g, [f.id]);
     else cancelLegs(g, [f], 'No crew for the ferry', 0);
     return;
   }
+  const ready = crewReadyAt(g, f, ac);
+  const wait = far && ready - g.now >= DAY ? Math.max(ready, g.now + ticketLead(ac.typeId, ticketBlock(g.company.homeBase, f.from), true)) : Math.max(ready, g.now + tries * 120);
   // v0.12.1 (Goma) an empty leg out of an airport a closure keeps crew out of: the jobs it drops are force majeure.
-  underClosure(g, f, () => delayChain(g, f, Math.max(crewReadyAt(g, f, ac), g.now + tries * 120), 'Waiting for crew', true, true));
+  underClosure(g, f, () => delayChain(g, f, wait, 'Waiting for crew', true, true));
   rerosterFrom(g, ac.id, g.now);
 }
 

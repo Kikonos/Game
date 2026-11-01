@@ -16,6 +16,7 @@ import { ProblemCardView } from '../components/ProblemCard';
 import { Empty, Seg } from '../components/ui';
 import { money } from '../format';
 import { store } from '../store';
+import { offerModal } from './screenLogic';
 import { ArchIcon } from './common';
 
 const KIND_ICON: Record<ClientKind, ReactNode> = {
@@ -105,7 +106,7 @@ export function ClientDetail({ g, v, inModal }: { g: GameState; v: ClientView; i
             const o = g.offers[id];
             if (!o) return null;
             return (
-              <button key={id} className="v8-link" onClick={() => store.openModal({ kind: 'offer', offerId: id })}>
+              <button key={id} className="v8-link" onClick={() => store.openModal(offerModal(g, id))}>
                 <ArchIcon a={o.archetype} /><span className="grow ellipsis">Offer: {o.title}</span><span className="small dim nowrap">{money(o.estValue)}</span><ChevronRight className="sc-ico-s dim" />
               </button>
             );

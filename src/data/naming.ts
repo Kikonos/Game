@@ -78,6 +78,14 @@ export const AIRLINE_FAMILIES: Record<string, RatingFamily[]> = {
   'Vietnam Airlines': ['A320', 'B787', 'A350'], Saudia: ['A320', 'A330/340', 'B777', 'B787'], flynas: ['A320', 'A330/340'], 'Bulgaria Air': ['A320'],
   'Fiji Airways': ['B737', 'A330/340', 'A350'], 'Jet2.com': ['B737', 'A320', 'B757/767'], 'TUI fly Belgium': ['B737', 'B787'], 'Corendon Airlines': ['B737'],
   'Aegean Airlines': ['A320'], 'Garuda Indonesia': ['B737', 'A330/340', 'B777'], 'Biman Bangladesh Airlines': ['B737', 'B777', 'B787'], 'Air Algérie': ['B737', 'A330/340'],
+  // v0.14 the market-presence airlines.
+  'Air Peace': ['B737', 'B777'], 'Air Côte d’Ivoire': ['A320', 'A330/340'], 'ASKY Airlines': ['B737'], 'Africa World Airlines': [], 'Kenya Airways': ['B737', 'B787'],
+  RwandAir: ['B737', 'A330/340'], 'Air Tanzania': ['B737', 'B787'], IndiGo: ['A320', 'A330/340'], SpiceJet: ['B737'], 'SriLankan Airlines': ['A320', 'A330/340'],
+  'US-Bangla Airlines': ['B737'], 'Jeju Air': ['B737'], 'Hong Kong Airlines': ['A320', 'A330/340'], 'Juneyao Air': ['A320', 'B787'], 'Cebu Pacific': ['A320', 'A330/340'],
+  AirAsia: ['A320'], 'VietJet Air': ['A320', 'A330/340'], Qantas: ['B737', 'A330/340', 'B787'], 'Virgin Australia': ['B737'], 'Jetstar Airways': ['A320', 'B787'],
+  'Air Transat': ['A320', 'A330/340'], WestJet: ['B737', 'B787'], 'Sun Country Airlines': ['B737'], Avianca: ['A320', 'B787'], 'Viva Aerobus': ['A320'],
+  'Aerolíneas Argentinas': ['B737', 'A330/340'], 'Sky Airline': ['A320'], Arajet: ['B737'], 'Kuwait Airways': ['A320', 'A330/340', 'B777'], 'Oman Air': ['B737', 'B787'],
+  Tunisair: ['A320', 'A330/340'], EgyptAir: ['A320', 'B737', 'A330/340', 'B787'],
 };
 
 /** Whether an airline client flies this family (unknown airlines: yes). Pure. */
@@ -100,6 +108,23 @@ export const AIRLINE_MARKETS: Record<string, string[]> = {
   'Vietnam Airlines': ['VN', 'TH', 'KH', 'LA', 'SG', 'MY', 'JP', 'KR', 'TW', 'ID', 'PH', 'AU', 'IN'], 'Fiji Airways': ['FJ', 'AU', 'NZ', 'TO', 'WS', 'VU', 'US'],
   'Garuda Indonesia': ['ID', 'SG', 'MY', 'SA', 'AU', 'JP', 'TH'], 'Biman Bangladesh Airlines': ['BD', 'IN', 'SA', 'AE', 'QA', 'OM', 'KW', 'MY', 'SG', 'TH', 'NP', 'GB'],
   'Air Algérie': ['DZ', 'FR', 'ES', 'IT', 'BE', 'DE', 'GB', 'TN', 'MA', 'TR', 'SN', 'ML', 'CI'],
+  // v0.14 the market-presence airlines: their home market and regional routes.
+  'Air Peace': ['NG', 'GH', 'SN', 'CI', 'CM', 'GA', 'LR', 'SL', 'GM', 'AE', 'GB', 'ZA'], 'Air Côte d’Ivoire': ['CI', 'SN', 'GH', 'NG', 'ML', 'BF', 'GN', 'CM', 'GA', 'TG', 'BJ', 'FR'],
+  'ASKY Airlines': ['TG', 'GH', 'NG', 'CI', 'SN', 'BJ', 'BF', 'ML', 'CM', 'GA', 'CD', 'LR'], 'Africa World Airlines': ['GH', 'NG', 'SL', 'LR', 'CI', 'SN'],
+  'Kenya Airways': ['KE', 'TZ', 'UG', 'RW', 'ET', 'ZA', 'ZM', 'ZW', 'MZ', 'CD', 'AE', 'IN'], RwandAir: ['RW', 'KE', 'UG', 'TZ', 'CD', 'ZM', 'ZA', 'NG', 'GH', 'AE'],
+  'Air Tanzania': ['TZ', 'KE', 'UG', 'RW', 'ZM', 'ZW', 'ZA', 'CD', 'IN', 'AE'], IndiGo: ['IN', 'AE', 'SA', 'QA', 'OM', 'KW', 'BH', 'TH', 'SG', 'MY', 'NP', 'LK', 'MV', 'BD', 'VN', 'ID'],
+  SpiceJet: ['IN', 'AE', 'SA', 'OM', 'TH', 'NP', 'LK', 'MV', 'BD'], 'SriLankan Airlines': ['LK', 'IN', 'MV', 'AE', 'SA', 'QA', 'TH', 'SG', 'MY', 'BD', 'NP'],
+  'US-Bangla Airlines': ['BD', 'IN', 'AE', 'SA', 'OM', 'QA', 'MY', 'SG', 'TH', 'NP'], 'Jeju Air': ['KR', 'JP', 'CN', 'TW', 'VN', 'TH', 'PH', 'GU', 'MY', 'SG', 'HK', 'MO'],
+  'Hong Kong Airlines': ['HK', 'CN', 'JP', 'KR', 'TW', 'TH', 'VN', 'PH', 'SG', 'MY', 'ID'], 'Juneyao Air': ['CN', 'JP', 'KR', 'TH', 'SG', 'MY', 'VN', 'HK', 'TW'],
+  'Cebu Pacific': ['PH', 'JP', 'KR', 'HK', 'TW', 'SG', 'TH', 'VN', 'MY', 'ID', 'CN', 'MO'], AirAsia: ['MY', 'TH', 'ID', 'SG', 'VN', 'PH', 'KH', 'IN', 'CN', 'HK', 'JP', 'KR', 'AU'],
+  'VietJet Air': ['VN', 'TH', 'SG', 'MY', 'KR', 'JP', 'TW', 'HK', 'CN', 'IN', 'AU', 'KH', 'ID'], Qantas: ['AU', 'NZ', 'FJ', 'NC', 'PF', 'ID', 'SG', 'JP', 'US'],
+  'Virgin Australia': ['AU', 'NZ', 'FJ', 'VU', 'WS', 'TO', 'ID'], 'Jetstar Airways': ['AU', 'NZ', 'FJ', 'ID', 'TH', 'VN', 'JP', 'SG'],
+  'Air Transat': ['CA', 'US', 'MX', 'CU', 'DO', 'JM', 'BS', 'CR', 'FR', 'PT', 'ES', 'GB', 'IT', 'GR'], WestJet: ['CA', 'US', 'MX', 'CU', 'DO', 'JM', 'BS', 'CR'],
+  'Sun Country Airlines': ['US', 'MX', 'CR', 'JM', 'DO', 'BS', 'PR'], Avianca: ['CO', 'EC', 'PE', 'PA', 'CR', 'SV', 'GT', 'MX', 'US', 'BR', 'CL', 'AR', 'DO', 'ES'],
+  'Viva Aerobus': ['MX', 'US', 'CO', 'PE', 'CU', 'GT'], 'Aerolíneas Argentinas': ['AR', 'BR', 'UY', 'PY', 'CL', 'BO', 'PE', 'CO', 'US', 'ES', 'IT'],
+  'Sky Airline': ['CL', 'PE', 'AR', 'BR', 'UY', 'CO', 'EC'], Arajet: ['DO', 'CO', 'MX', 'PE', 'GT', 'JM', 'CR', 'PA', 'CA', 'EC', 'BR', 'AR'],
+  'Kuwait Airways': ['KW', 'AE', 'SA', 'QA', 'OM', 'BH', 'EG', 'JO', 'LB', 'TR', 'IN', 'PK', 'BD', 'LK', 'GE', 'AZ'], 'Oman Air': ['OM', 'AE', 'SA', 'QA', 'KW', 'BH', 'IN', 'PK', 'BD', 'LK', 'TH', 'EG', 'JO', 'TR', 'TZ', 'KE'],
+  Tunisair: ['TN', 'FR', 'IT', 'DE', 'BE', 'CH', 'GB', 'ES', 'DZ', 'MA', 'LY', 'EG', 'SA', 'SN', 'CI', 'ML', 'TR'], EgyptAir: ['EG', 'SA', 'AE', 'KW', 'QA', 'JO', 'LB', 'TR', 'GR', 'IT', 'FR', 'DE', 'GB', 'SD', 'ET', 'KE', 'NG', 'MA', 'TN'],
 };
 
 /** Airliner group-charter brokers (RESEARCH §2.5). */
@@ -244,6 +269,47 @@ export const CLIENT_SEEDS_V08: ClientSeed[] = [
   { name: 'White Desert', kind: 'tourOperator', country: 'ZA', base: 'CPT', role: 'polar' },
   { name: 'Norwegian Polar Institute (DROMLAN)', kind: 'government', country: 'NO', base: 'CPT', role: 'polar' },
   { name: 'Antarctic Logistics & Expeditions', kind: 'agency', country: 'US', base: 'PUQ', role: 'polar' },
+];
+
+/**
+ * v0.14 market presence: airlines and a tour operator in the markets outside Europe that wet-lease from European ACMI
+ * operators (capacity gaps, late deliveries, the peaks). Added to a new game and to an older save on load (by name).
+ * Their offers come mostly once we are known in their market (contracts/offers.ts presence weights).
+ */
+export const CLIENT_SEEDS_V014: ClientSeed[] = [
+  { name: 'Air Peace', kind: 'airline', country: 'NG', base: 'LOS' },
+  { name: 'Air Côte d’Ivoire', kind: 'airline', country: 'CI', base: 'ABJ' },
+  { name: 'ASKY Airlines', kind: 'airline', country: 'TG', base: 'LFW' },
+  { name: 'Africa World Airlines', kind: 'airline', country: 'GH', base: 'ACC' },
+  { name: 'Kenya Airways', kind: 'airline', country: 'KE', base: 'NBO' },
+  { name: 'RwandAir', kind: 'airline', country: 'RW', base: 'KGL' },
+  { name: 'Air Tanzania', kind: 'airline', country: 'TZ', base: 'DAR' },
+  { name: 'IndiGo', kind: 'airline', country: 'IN', base: 'DEL' },
+  { name: 'SpiceJet', kind: 'airline', country: 'IN', base: 'DEL' },
+  { name: 'SriLankan Airlines', kind: 'airline', country: 'LK', base: 'CMB' },
+  { name: 'US-Bangla Airlines', kind: 'airline', country: 'BD', base: 'DAC' },
+  { name: 'Jeju Air', kind: 'airline', country: 'KR', base: 'ICN' },
+  { name: 'Hong Kong Airlines', kind: 'airline', country: 'HK', base: 'HKG' },
+  { name: 'Juneyao Air', kind: 'airline', country: 'CN', base: 'PVG' },
+  { name: 'H.I.S.', kind: 'tourOperator', country: 'JP', base: 'NRT' },
+  { name: 'Cebu Pacific', kind: 'airline', country: 'PH', base: 'MNL' },
+  { name: 'AirAsia', kind: 'airline', country: 'MY', base: 'KUL' },
+  { name: 'VietJet Air', kind: 'airline', country: 'VN', base: 'SGN' },
+  { name: 'Qantas', kind: 'airline', country: 'AU', base: 'SYD' },
+  { name: 'Virgin Australia', kind: 'airline', country: 'AU', base: 'BNE' },
+  { name: 'Jetstar Airways', kind: 'airline', country: 'AU', base: 'MEL' },
+  { name: 'Air Transat', kind: 'airline', country: 'CA', base: 'YUL' },
+  { name: 'WestJet', kind: 'airline', country: 'CA', base: 'YYC' },
+  { name: 'Sun Country Airlines', kind: 'airline', country: 'US', base: 'MSP' },
+  { name: 'Avianca', kind: 'airline', country: 'CO', base: 'BOG' },
+  { name: 'Viva Aerobus', kind: 'airline', country: 'MX', base: 'MTY' },
+  { name: 'Aerolíneas Argentinas', kind: 'airline', country: 'AR', base: 'EZE' },
+  { name: 'Sky Airline', kind: 'airline', country: 'CL', base: 'SCL' },
+  { name: 'Arajet', kind: 'airline', country: 'DO', base: 'SDQ' },
+  { name: 'Kuwait Airways', kind: 'airline', country: 'KW', base: 'KWI' },
+  { name: 'Oman Air', kind: 'airline', country: 'OM', base: 'MCT' },
+  { name: 'Tunisair', kind: 'airline', country: 'TN', base: 'TUN' },
+  { name: 'EgyptAir', kind: 'airline', country: 'EG', base: 'CAI' },
 ];
 
 /**

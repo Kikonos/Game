@@ -24,24 +24,26 @@ import type {
   AcRest, ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent, WorldEvent,
 } from '../core/types';
 import { acceptOffer, closeOffer, setPrice } from './accept';
-import { isCallOffer } from './call';
+import { callReplyMin, isCallOffer, missedCall, REPLY_MIN } from './call';
 import { answerBy, counterBase, counterOdds, halfwayPrice, leftOf } from './counter';
 import { crewChains, feasibility, ulrNeed, type UlrNeed } from './feasibility';
-import { adhocGroupClients, clientPrefix, clientsOf, isBigClub, isCruiseLine, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, ministry, rivalFor } from './clients';
+import { adhocGroupClients, clientPrefix, clientsOf, isMarketClient, isBigClub, isCruiseLine, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, ministry, rivalFor } from './clients';
 import * as F from './flavor';
 import { paintTermsText, rollPaint, sideRng } from './paintTerms';
 import { cabinTarget, cabinTermsText, rollCabin } from './cabinTerms';
 import { anchorsOf, computeWaves, flownRotations, localToUTC, longestChains, maxPax, programmeOf, route, routeMinutes, seatNeed, type ChainShape } from './plan';
 export { maxPax, seatNeed };
-import { ARCH_MULT, defaultSeats, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
+import { ARCH_MULT, defaultSeats, flownTypes, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { rivalTakes, rollRivalBid } from './rivals';
 import { closedAirport, closedUntil, closurePlanned, inWarZone, permitEvent, setClosureOfferHook, warRiskLandings } from '../ops/world';
 import { setClosurePlannedHook, setOpenFromHook } from './schedule';
 import { curfewOk, curfewShift } from '../core/curfew';
 import type { HajjDates } from '../../data/worldCalendar';
-import { demandFactor } from '../ops/market';
-import { afterOfferDays, isQuiet } from '../ops/director';
+import { demandFactor, marketPerWeek } from '../ops/market';
+export { marketPerWeek };
+import { afterOfferDays, isQuiet, QUIET_MARKET_OFFERS } from '../ops/director';
+import { marketTilt, presenceWeight } from '../commercial/presence';
 import { clientCrewOnCabin, fuelFactor, MISSION_BUILDERS, missionWeights, presidential, rollClientCabin, WINDOW_FIT_V08 } from './missions';
 
 // ---------- process ----------
@@ -49,14 +51,11 @@ import { clientCrewOnCabin, fuelFactor, MISSION_BUILDERS, missionWeights, presid
 /** Seasonal demand by month, Jan–Dec (DESIGN §5.1.1). */
 const SEASON_F = [0.7, 0.9, 1.1, 1.2, 1.1, 1.0, 1.0, 0.9, 0.9, 0.9, 0.8, 0.9];
 
-/** Offer rate per day: BAL.offersPerWeek × fleetF × seasonF × repF. */
+/** Offer rate per day: v0.14 marketPerWeek × seasonF (was BAL.offersPerWeek × fleetF × seasonF × repF). */
 export function offerRate(g: GameState): number {
-  const n = Object.values(g.fleet).filter((a) => a.status !== 'stored' && a.status !== 'leasedOut').length;
-  const fleetF = 0.7 + 0.15 * n;
-  const repF = 0.6 + (0.8 * g.company.reputation.reliable) / 100;
   // v0.8 market cycle: volume × (fleet-weighted segment index)² (slump ≈ 0.67, boom ≈ 1.32).
   // v0.12 Scenarios: a scenario may run a busier (or quieter) offer stream.
-  return (BAL.offersPerWeek / 7) * fleetF * SEASON_F[toDate(g.now).getUTCMonth()] * repF * demandFactor(g) * (g.scen?.rate ?? 1);
+  return (marketPerWeek(g) / 7) * SEASON_F[toDate(g.now).getUTCMonth()] * demandFactor(g) * (g.scen?.rate ?? 1);
 }
 
 /** Queues the next 'offer.spawn': gamma(3) gaps with the Poisson mean (steadier than exponential, same rate). */
@@ -65,11 +64,18 @@ export function scheduleNextOffer(g: GameState): void {
   let sum = 0;
   for (let i = 0; i < 3; i++) sum -= Math.log(Math.max(1e-9, next(g)));
   const gapDays = sum / (3 * lambda);
-  // v0.11 the event director: the gap is laid over busy (a wave) and quiet (a trickle) spells; the year's volume holds.
-  schedule(g, Math.max(g.now + 30, afterOfferDays(g, g.now, gapDays)), 'offer.spawn');
+  // v0.11 the event director: the gap is laid over busy (a wave) and quiet spells; the year's volume holds. v0.14 no
+  // ordinary offer in a quiet spell at all (QUIET_MARKET_OFFERS): the player can let time pass.
+  schedule(g, Math.max(g.now + 30, afterOfferDays(g, g.now, gapDays, QUIET_MARKET_OFFERS)), 'offer.spawn');
 }
 
-/** The three hand-shaped opening offers (DESIGN §5.1.1): AOG cover < 24 h, ad hoc in 3–5 days, an April season base. */
+/** v0.14 the opening offers are being posted: written offers, never a call (the player is finding the desk). */
+let opening = false;
+
+/**
+ * The three hand-shaped opening offers (DESIGN §5.1.1): AOG cover < 24 h, ad hoc in 3–5 days, an April season base.
+ * v0.14 kept as they are (a new company's fair first jobs); the ordinary offers after them are far fewer.
+ */
 export function openingOffers(g: GameState): void {
   // Each opener must be flyable by the starting fleet (one that isn't is re-drawn, up to 4 times).
   const opener = (make: () => ContractOffer | null) => {
@@ -79,11 +85,16 @@ export function openingOffers(g: GameState): void {
       delete g.offers[o.id];
     }
   };
-  opener(() => generateOffer(g, 'aogCover', { wide: false, window: false, start: g.now + int(g, 8, 20) * 60 }));
-  opener(() => generateOffer(g, 'adhoc', { wide: false, window: false, start: g.now + int(g, 3, 5) * DAY + int(g, 0, 12) * 60, variant: 'group' }));
-  const y = toDate(g.now).getUTCFullYear();
-  const april = fromUTC(y, 4, int(g, 1, 12));
-  opener(() => generateOffer(g, 'seasonBase', { wide: false, window: false, start: april > g.now + 14 * DAY ? april : g.now + 30 * DAY }));
+  opening = true;
+  try {
+    opener(() => generateOffer(g, 'aogCover', { wide: false, window: false, start: g.now + int(g, 8, 20) * 60 }));
+    opener(() => generateOffer(g, 'adhoc', { wide: false, window: false, start: g.now + int(g, 3, 5) * DAY + int(g, 0, 12) * 60, variant: 'group' }));
+    const y = toDate(g.now).getUTCFullYear();
+    const april = fromUTC(y, 4, int(g, 1, 12));
+    opener(() => generateOffer(g, 'seasonBase', { wide: false, window: false, start: april > g.now + 14 * DAY ? april : g.now + 30 * DAY }));
+  } finally {
+    opening = false;
+  }
 }
 
 // ---------- idle windows (gap-fit offers) ----------
@@ -120,6 +131,11 @@ export function idleWindows(g: GameState, minDays = 2, horizonDays = 150): IdleW
 // ---------- drafting ----------
 
 export interface OfferOpts {
+  /** v0.14 a job of the market's own rolls (the daily repatriation): the pacing director may hold it back like a drawn one. */
+  paced?: boolean;
+  /** v0.14 an ordinary market offer (the paced draw, the quiet-week floor): weighted by market presence, fitted to the
+   *  fleet, never a look-alike of an open one. */
+  ordinary?: boolean;
   /** Widebody (aspirational) or narrowbody job; default from the mix. */
   wide?: boolean;
   /** Fit to this idle window, or to none (false); default from the mix. */
@@ -268,6 +284,15 @@ export function inMarket(client: Client, a: Airport): boolean {
 export function nearClient(ctx: Ctx, list: Client[]): Client | undefined {
   const at = ctx.window?.at ?? ctx.g.company.homeBase;
   if (ctx.o.client) return list.find((c) => c.id === ctx.o.client) ?? ctx.g.clients[ctx.o.client];
+  // v0.14 the market-presence clients (data/naming.ts CLIENT_SEEDS_V014) come through the market and our trips only:
+  // an ordinary offer, or one asked of them by name (a lead, repeat business, a tender).
+  if (!ctx.o.ordinary) list = list.filter((c) => !isMarketClient(c));
+  // v0.14 an ordinary market offer: by our presence in the client's market (and its season), a trickle from markets
+  // where we are unknown; near an idle window's airport still first (follow-on work), near home no longer.
+  if (ctx.o.ordinary) {
+    const near = (c: Client) => (!ctx.window ? 1 : km(c.base, at) < 1500 ? 4 : km(c.base, at) < 3500 ? 2 : 1);
+    return weightedPick(ctx.g, list, (c) => near(c) * presenceWeight(ctx.g, c.country) * clientWeight(ctx.g, c));
+  }
   return weightedPick(ctx.g, list, (c) => (km(c.base, at) < 1500 ? 4 : km(c.base, at) < 3500 ? 2 : 1) * clientWeight(ctx.g, c));
 }
 
@@ -277,6 +302,8 @@ export function nearClient(ctx: Ctx, list: Client[]): Client | undefined {
  */
 export function clientWeight(g: GameState, c: Client): number {
   const cur = g.clients[c.id] ?? c;
+  // v0.14 an airline in administration sends no more work.
+  if (cur.ceased !== undefined) return 0;
   const lv = LEVEL_PERKS[levelOf(g, cur)].offers;
   const clean = g.company.reputation.clean;
   const cf = Math.max(0.05, 1 - (cur.cleanSensitivity * Math.max(0, 60 - clean)) / 60);
@@ -377,7 +404,8 @@ function fleetSlips(g: GameState, pattern: ContractOffer['pattern'], requirement
 
 function seasonBase(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
-  const hubs = wide ? F.BASE_HUBS_WB : F.BASE_HUBS_NB;
+  // v0.14 an ordinary market offer may also come from the market-presence airlines' hubs.
+  const hubs = [...(wide ? F.BASE_HUBS_WB : F.BASE_HUBS_NB), ...(o.ordinary ? F.BASE_HUBS_MARKET : [])];
   const cands = clientsOf(g, ['airline'], (c) => (o.airport ? c.base === o.airport : hubs.includes(c.base)) && !!AIRPORT_BY_CODE[c.base]);
   const client = nearClient(ctx, cands);
   if (!client) return null;
@@ -389,12 +417,18 @@ function seasonBase(ctx: Ctx): Draft | null {
   const st = standingOf(g);
   const longShare = st === 0 ? 0 : st === 2 ? BAL.paint.longBaseShare * 2 : BAL.paint.longBaseShare;
   const long = !o.days && (o.start === undefined || o.start - g.now >= 30 * DAY) && chance(sideRng(g, `long:${g.seq}:${g.now}`), longShare);
-  let days = o.days ?? (long ? int(g, 120, 240) : int(g, 30, 92));
-  if (!o.days && st === 0) days = int(sideRng(g, `nb:${g.seq}:${g.now}`), BAL.v08.standing.newcomerBaseDays[0], BAL.v08.standing.newcomerBaseDays[1]);
-  else if (!o.days && !long) days = Math.round(days * perks(g, client).length);
-  // Gap-fit: shorten the season to the idle window (but never under a month).
+  // v0.14 a widebody wet lease runs 3–6 months (BAL.wideWetDays; was 30–92 days), for a Newcomer too.
+  const WW = BAL.wideWetDays;
+  let days = o.days ?? (wide ? int(g, WW[0], WW[1]) : long ? int(g, 120, 240) : int(g, 30, 92));
+  if (!o.days && st === 0 && !wide) days = int(sideRng(g, `nb:${g.seq}:${g.now}`), BAL.v08.standing.newcomerBaseDays[0], BAL.v08.standing.newcomerBaseDays[1]);
+  else if (!o.days && !long) days = Math.min(wide ? WW[1] : Infinity, Math.round(days * perks(g, client).length));
+  // v0.14 an ordinary market offer's narrowbody base runs longer (fewer offers, longer work: BAL.marketOffers.baseDays,
+  // a Newcomer's and an Established company's), Trusted and Partner clients longer still.
+  const BD = BAL.marketOffers.baseDays[st === 0 ? 0 : 1];
+  if (!o.days && o.ordinary && !wide && !long) days = Math.round(int(sideRng(g, `nbm:${g.seq}:${g.now}`), BD[0], BD[1]) * perks(g, client).length);
+  // Gap-fit: shorten the season to the idle window (but never under a month; v0.14 a widebody never under 3 months).
   if (!o.days && ctx.window) days = Math.min(days, roomDays(ctx, Math.max(ctx.window.from, g.now + 14 * DAY)) - 2);
-  if (days < 30) return null;
+  if (days < (wide && !o.days ? WW[0] : 30)) return null;
   // Long-haul bases are planned months ahead (time to lease a widebody and hire rated crew).
   let s = o.start ?? (wide ? pickStart(ctx, 75 * DAY, 150 * DAY, (days + 1) * DAY) : pickStart(ctx, long ? 30 * DAY : 14 * DAY, long ? 90 * DAY : 60 * DAY, (days + 1) * DAY));
   if (s === null) return null;
@@ -436,7 +470,7 @@ function seasonBase(ctx: Ctx): Draft | null {
   const ref = referenceType(req, dests.flatMap((d) => [[base, d], [d, base]] as [string, string][]), true);
   if (!ref) return null;
   let waves = computeWaves(base, dests, ref, o.waves ?? (wide ? int(g, 1, 2) : int(g, 2, 3)));
-  // v0.8 a Newcomer's MGH is lower (160 NB / 200 WB); Trusted / Partner clients guarantee 10 / 15 % more.
+  // v0.8 a Newcomer's MGH is lower (160 NB; v0.14 a widebody's stays 300); Trusted / Partner clients guarantee 10 / 15 % more.
   const S8 = BAL.v08.standing;
   const mgh = st === 0 ? S8.newcomerMgh[wide ? 1 : 0] : Math.round((wide ? BAL.mgh.wide : BAL.mgh.narrow) * (1 + perks(g, client).mgh));
   const targetBH = Math.round(mgh * range(g, ...BAL.targetOverMgh));
@@ -1026,8 +1060,9 @@ const builderOf = (a: Archetype) => BUILDERS[a] ?? MISSION_BUILDERS[a];
 /** v0.8 the season-base builder (capacity leases reuse it). */
 export const seasonBaseDraft = (ctx: Ctx) => seasonBase(ctx);
 
-/** Archetype weights for the current month (season bases before summer, sports outside June–July…). */
-function weights(g: GameState): [Archetype, number][] {
+/** Archetype weights for the current month (season bases before summer, sports outside June–July…). v0.14 `ordinary`:
+ *  leaning to the work the markets we are known in ask for (data/markets.ts tilt). */
+function weights(g: GameState, ordinary = false): [Archetype, number][] {
   const mo = toDate(g.now).getUTCMonth();
   const list: [Archetype, number][] = [
     ['seasonBase', mo <= 4 ? 0.24 : mo === 5 ? 0.12 : mo <= 7 ? 0.08 : 0.14],
@@ -1044,7 +1079,12 @@ function weights(g: GameState): [Archetype, number][] {
   const all = [...list.map(([a, w]): [Archetype, number] => [a, w * fuelFactor(g, a)]), ...missionWeights(g)];
   // v0.12 Scenarios: the scenario's bias on the kinds of work (a normal game has none).
   const bias = g.scen?.bias;
-  return bias ? all.map(([a, w]): [Archetype, number] => [a, w * (bias[a] ?? 1)]) : all;
+  const biased = bias ? all.map(([a, w]): [Archetype, number] => [a, w * (bias[a] ?? 1)]) : all;
+  if (!ordinary) return biased;
+  // v0.14 fewer offers, longer work (BAL.marketOffers.mix), leaning to what the markets we are known in ask for.
+  const tilt = marketTilt(g);
+  const mix = BAL.marketOffers.mix;
+  return biased.map(([a, w]): [Archetype, number] => [a, w * tilt(a) * (mix[a] ?? 1)]);
 }
 
 /** Per archetype: lead from now to start [min, max] and the room it needs inside a window, in days. */
@@ -1065,6 +1105,10 @@ function fitsWindow(a: Archetype, w: IdleWindow, now: Minute): boolean {
 
 /** v0.8 fix pack: finalize dropped a draft no crew may fly, or one a Newcomer can never fly (generateOffer picks again). */
 let fixDropped = false;
+/** v0.14 the draft comes from the market's own draw (no archetype asked for): the pacing director may hold it back. */
+let drawn = false;
+/** v0.14 an ordinary market offer is being drawn (OfferOpts.ordinary). */
+let ordinaryDraw = false;
 
 /** Archetypes whose full widebody loads can be jumbo loads (§Y.2). */
 const JUMBO_ARCH = new Set<Archetype>(['hajj', 'troopRotation', 'unRotation', 'evacuation', 'repatriation', 'sports', 'adhoc']);
@@ -1129,6 +1173,20 @@ function bigFull(d: Draft): boolean {
   return Math.max(0, ...d.pattern.legs.map((l) => l.pax ?? 0)) >= 250;
 }
 
+/** v0.14 some aircraft of ours could fly it (the quick feasibility). Pure. */
+export function fleetCanFly(g: GameState, offerId: string): boolean {
+  return Object.keys(g.fleet).some((id) => feasibility(g, offerId, id, { quick: true }).level !== 'no');
+}
+
+/**
+ * v0.14 an open offer it would look like on the board: the same title; the same kind of job at the same place (its
+ * pin: the base or the first stop away); the same client with the same shape of work (a base, or legs). Pure.
+ */
+export function lookAlike(g: GameState, o: ContractOffer): ContractOffer | undefined {
+  return Object.values(g.offers).find((x) => x.id !== o.id && (x.status === 'open' || x.status === 'countered')
+    && (x.title === o.title || (x.archetype === o.archetype && x.pin === o.pin) || (x.clientId === o.clientId && x.pattern.kind === o.pattern.kind)));
+}
+
 function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null {
   const home = g.company.homeBase;
   // One live request per client and kind of job.
@@ -1139,7 +1197,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // v0.8 fix pack: seats = passengers on every legs job (whatever the builder rounded), stretchers the only extra.
   d.req.minSeats = seatNeed(p, d.req.stretchers, d.req.minSeats);
   const sectors: [string, string][] = p.kind === 'base' ? p.dests.flatMap((x) => [[p.base, x], [x, p.base]] as [string, string][]) : p.legs.map((l) => [l.from, l.to]);
-  const ref = referenceType(d.req, sectors, p.kind === 'base', d.req.approvals.includes('ulr'));
+  const ref = referenceType(d.req, sectors, p.kind === 'base', d.req.approvals.includes('ulr'), flownTypes(g));
   if (!ref) return null;
   const airports = [...new Set(sectors.flat())];
   // v0.12.1 job legs keep out of night curfews (moved to the nearest legal time where they can).
@@ -1234,7 +1292,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   const product: Product = d.product ?? priceProduct(g, {
     archetype: d.archetype, typeId: ref, estBH: wet ? revBH : revBH + emptyMin / 60 + (d.extraBH ?? 0), start: d.start, end: d.end, lead: d.start - g.now,
     mult: d.mult, departures: deps, revDepartures: revDeps, roomNights, crewDays, tickets: tickets + (d.passThrough ?? 0), government: gov, mghPerMonth: d.mghPerMonth,
-    loyalty: (1 + levelPct) * (1 + standingPct) - 1, wet: d.wet, ...((d.jumbo || bigFull(d)) && !wet ? { fuelAtCostBH: revBH } : {}),
+    // v0.14 an ordinary market offer: fewer of them, better paid (BAL.marketOffers.ratePct).
+    loyalty: (1 + levelPct) * (1 + standingPct) * (ordinaryDraw ? 1 + BAL.marketOffers.ratePct : 1) - 1, wet: d.wet, ...((d.jumbo || bigFull(d)) && !wet ? { fuelAtCostBH: revBH } : {}),
     // v0.12.1 a world tour's five-star catering.
     ...(d.archetype === 'worldTour' ? { cateringX: BAL.v0121.tour.catering } : {}),
   });
@@ -1255,7 +1314,16 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // v0.8 first refusal (Trusted / Partner clients): the offer lasts 48 h longer (never past the job).
   const firstRefusal = perks(g, d.client).first && d.archetype !== 'subcharterIn' && d.archetype !== 'dryLeaseOut';
   const ask = d.expiresIn + (firstRefusal ? BAL.v08.firstRefusalH * 60 : 0);
-  const expiresIn = Math.max(urgency === 'urgent' ? 60 : Math.min(2 * DAY, maxExp), Math.min(ask, maxExp));
+  // v0.14 the client wants its answer within hours (an AOG cover, a repatriation, a job starting soon): a call when
+  // we can fly it. Any other offer gets REPLY_MIN at least when the job allows (it no longer lapses within hours).
+  const shortAsk = urgency === 'urgent' && Math.min(ask, maxExp) < REPLY_MIN;
+  // v0.14 pacing: a quiet spell sends no short-notice job from the market's draw or a world event (it would ring, or
+  // lapse within hours); another is drawn instead. A job asked for by name (the opening offers, scenarios, dev) comes.
+  if (shortAsk && drawn && isQuiet(g)) {
+    fixDropped = true;
+    return null;
+  }
+  const expiresIn = Math.max(urgency === 'urgent' ? Math.max(60, Math.min(REPLY_MIN, maxExp)) : Math.min(2 * DAY, maxExp), Math.min(ask, maxExp));
   const wide = typeOf(ref).body === 'wide';
   const firstAway = p.kind === 'base' ? p.base : p.legs.flatMap((l) => [l.from, l.to]).find((c) => c !== home) ?? p.legs[0].to;
   const o: ContractOffer = {
@@ -1282,12 +1350,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   };
   if (d.terms) o.terms = d.terms;
   if (d.jumbo) o.jumbo = true;
+  if (ordinaryDraw) o.ordinary = true;
   if (shut && !shut.offerIds.includes(o.id)) shut.offerIds.push(o.id);
-  if (isWideJob(requirements)) {
-    const v = v09Stats(g);
-    v.offersWide = (v.offersWide ?? 0) + 1;
-    if (d.jumbo) v.offersJumbo = (v.offersJumbo ?? 0) + 1;
-  }
   // The chip names the stops of the type that will fly it: a fleet type that can (seats, range, crew), else the reference.
   const shown = fleetSlips(g, p, requirements, ref) ?? slips;
   if (shown.length) o.slip = { at: [...new Set(shown.map((x) => x.at))], cost: shown.reduce((n, x) => n + slipCost(x), 0) };
@@ -1337,21 +1401,44 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   o.title = F.clientless(o.title, d.client.name);
   // v0.7.2 F4: never the same title twice in a row for a client (builders without a pool: the month appended).
   const cl = g.clients[o.clientId];
+  const lastTitle = cl?.lastTitle;
   if (cl) {
     if (cl.lastTitle === o.title) o.title = `${o.title} (${F.monthOf(o.start, p.kind === 'base' ? p.base : p.kind === 'legs' ? p.legs[0]?.from : undefined)})`;
     cl.lastTitle = o.title;
   }
   g.offers[o.id] = o;
+  // v0.14 an ordinary market offer is never a look-alike of one open now (the same title, the same kind of job to the
+  // same place, the same client's same shape of work), and one no aircraft of ours could fly is mostly drawn again
+  // (BAL.marketOffers.unfitDrop; the ladder's aspirational jobs stay).
+  if (ordinaryDraw && (lookAlike(g, o) || (!aspire && !fleetCanFly(g, o.id) && chance(sideRng(g, `fit:${o.id}`), BAL.marketOffers.unfitDrop)))) {
+    delete g.offers[o.id];
+    if (shut) shut.offerIds = shut.offerIds.filter((x) => x !== o.id);
+    if (cl) cl.lastTitle = lastTitle;
+    fixDropped = true;
+    return null;
+  }
+  if (isWideJob(requirements)) {
+    const v = v09Stats(g);
+    v.offersWide = (v.offersWide ?? 0) + 1;
+    if (d.jumbo) v.offersJumbo = (v.offersJumbo ?? 0) + 1;
+  }
+  // Urgent work we could actually fly stops the clock (setting) and gets an inbox line; the rest just pins the map.
+  const flyable = urgency === 'urgent' && Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no');
+  // v0.10.2 urgent and high-paying: the client phones (the call pop-up and its ring are the note; the Inbox keeps it).
+  // v0.14 short notice phones too, and a caller waits 30–90 min for the answer, not the written offer's hours.
+  // In a quiet spell only short notice rings (a job asked for by name); high pay alone waits as a written offer.
+  // The opening offers (posted the minute the company opens) are written, never a call: the player is finding the desk.
+  const call = flyable && !opening && (isQuiet(g) ? shortAsk : isCallOffer(g, o, shortAsk));
+  if (call) {
+    o.call = true;
+    o.expires = g.now + callReplyMin(o.id, lead);
+  }
   schedule(g, o.expires, 'offer.expire', o.id);
   // v0.8 a rival may be quoting for the same job (a hidden, timed bid).
   rollRivalBid(g, o);
 
-  // Urgent work we could actually fly stops the clock (setting) and gets an inbox line; the rest just pins the map.
-  if (urgency === 'urgent' && Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) {
+  if (flyable) {
     requestPause('urgentOffer');
-    // v0.10.2 urgent and high-paying: the client phones (the call pop-up and its ring are the note; the Inbox keeps it)
-    const call = isCallOffer(g, o);
-    if (call) o.call = true;
     pushMessage(g, {
       tone: 'warn', cat: 'commercial', title: call ? `Phone call: ${o.title}` : `Urgent: ${o.title}`, body: `${d.client.name} needs an answer by ${fmtDay(o.expires)} ${fmtTime(o.expires)} UTC.`,
       ref: { kind: 'offer', id: o.id }, ...cardMeta(offerFitCard(g, o.id)), hurt: { money: o.estValue, pax: 0, delayMin: 0, level: 'high' }, cue: call ? 'offerCall' : offerCue(o),
@@ -1370,7 +1457,9 @@ const offerCue = (o: ContractOffer) => (o.urgency === 'urgent' && (o.archetype =
  */
 export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOpts = {}): ContractOffer | null {
   const roll = next(g);
-  let mode = roll < BAL.gapFitShare ? 'gap' : roll < 1 - BAL.aspirationalShare ? 'fleet' : 'aspire';
+  // v0.14 an ordinary market offer fits an idle aircraft more often (fewer offers, each one more useful).
+  const gapShare = opts.ordinary ? BAL.marketOffers.gapFitShare : BAL.gapFitShare;
+  let mode = roll < gapShare ? 'gap' : roll < 1 - BAL.aspirationalShare ? 'fleet' : 'aspire';
   const fleet = Object.values(g.fleet);
   const wideShare = fleet.length ? fleet.filter((a) => typeOf(a.typeId).body === 'wide').length / fleet.length : 0;
   // At most two ladder jobs on the market at once, so the board stays mostly workable.
@@ -1386,13 +1475,15 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
   if (archetype) tries.push(archetype, archetype, archetype);
   else {
     // v0.12.1 only archetypes with a weight: every weight 0 made weightedPick return nothing and the [0] throw.
-    const ws = weights(g).filter(([a, w]) => w > 0 && (!window || fitsWindow(a, window, g.now)));
+    const ws = weights(g, !!opts.ordinary).filter(([a, w]) => w > 0 && (!window || fitsWindow(a, window, g.now)));
     for (let i = 0; i < 3 && ws.length; i++) {
       const a = weightedPick(g, ws, ([, w]) => w)![0];
       tries.push(a);
     }
   }
   fixDropped = false;
+  drawn = !archetype || !!opts.paced || !!opts.eventId;
+  ordinaryDraw = !!opts.ordinary;
   for (let i = 0; i < tries.length; i++) {
     const build = builderOf(tries[i]);
     if (!build) continue;
@@ -1407,14 +1498,17 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     if (o) {
       // v0.6: the last gap-fit offer (the quiet-week floor looks at it).
       if (ctx.window) g.stats.lastGapOfferAt = g.now;
+      if (opts.ordinary) g.stats.lastMarketOfferAt = g.now;
+      ordinaryDraw = false;
       return o;
     }
     // v0.8 fix pack: drafts dropped as impossible (or never flyable by a Newcomer) don't thin the market: two more picks.
     if (i === tries.length - 1 && tries.length === 3 && !archetype && fixDropped) {
-      const ws = weights(g).filter(([, w]) => w > 0);
+      const ws = weights(g, !!opts.ordinary).filter(([, w]) => w > 0);
       for (let k = 0; k < 2 && ws.length; k++) tries.push(weightedPick(g, ws, ([, w]) => w)![0]);
     }
   }
+  ordinaryDraw = false;
   return null;
 }
 
@@ -1422,7 +1516,7 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
 
 /** 'offer.spawn': generate an offer, schedule the next spawn. */
 export function onOfferSpawn(g: GameState, _ev: SimEvent): void {
-  if (!generateOffer(g)) generateOffer(g);
+  if (!generateOffer(g, undefined, { ordinary: true })) generateOffer(g, undefined, { ordinary: true });
   scheduleNextOffer(g);
 }
 
@@ -1435,7 +1529,15 @@ function rivalName(g: GameState, o: ContractOffer): string {
 const lapseHour = new WeakMap<GameState, number>();
 const lapsed = new WeakMap<GameState, Set<string>>();
 
-/** §S.3 `offerLapsing`: once per offer the player opened, when it has under 6 h left. Checked hourly from settle. */
+/** v0.14 an offer gets its one 'lapsing soon' note when it has less than this left (minutes). */
+export const LAPSE_WARN = 3 * 60;
+
+/**
+ * §S.3 `offerLapsing`: once per offer, when it has under LAPSE_WARN left. Checked hourly from settle.
+ * v0.14 (player: "contracts only available for a few hours, and the game doesn't do anything") not only the offers the
+ * player opened: any open one the fleet could fly (it no longer vanishes unseen), as an Inbox line with its chime
+ * (every chime has its note). Not a call: its pop-up is the note. A reload notes none it found lapsing.
+ */
 export function lapseCues(g: GameState): void {
   const h = Math.floor(g.now / 60);
   if (lapseHour.get(g) === h) return;
@@ -1444,9 +1546,16 @@ export function lapseCues(g: GameState): void {
   const s = lapsed.get(g) ?? new Set<string>();
   lapsed.set(g, s);
   for (const o of Object.values(g.offers)) {
-    if (!o.seen || (o.status !== 'open' && o.status !== 'countered') || o.expires <= g.now || o.expires - g.now >= 6 * 60 || s.has(o.id)) continue;
+    if (o.status !== 'open' || o.call || o.expires <= g.now || o.expires - g.now >= LAPSE_WARN || s.has(o.id)) continue;
     s.add(o.id);
-    if (!first) cue('offerLapsing', { title: `Offer lapsing soon: ${o.title}`, body: `It closes at ${fmtTime(o.expires)} UTC.`, tone: 'warn', ref: { kind: 'offer', id: o.id } });
+    if (first) continue;
+    if (!o.seen && !Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) continue;
+    const left = o.expires - g.now;
+    pushMessage(g, {
+      tone: 'warn', cat: 'commercial', title: `Offer lapsing soon: ${o.title}`,
+      body: `${g.clients[o.clientId]?.name ?? 'The client'} needs an answer within ${left >= 60 ? `${Math.floor(left / 60)} h ${String(left % 60).padStart(2, '0')} min` : `${left} min`} (by ${fmtTime(o.expires)} UTC).`,
+      ref: { kind: 'offer', id: o.id }, cue: 'offerLapsing',
+    });
   }
 }
 
@@ -1457,11 +1566,20 @@ export function onOfferExpire(g: GameState, ev: SimEvent): void {
   // v0.8 a rival bid due at or after expiry takes it now; first refusal: only 30 % go to a rival.
   const b = o.rivalBid;
   const bidder = b && !o.firstRefusal ? g.rivals.find((r) => r.id === b.rivalId && (r.status ?? 'active') === 'active') : undefined;
-  if (bidder && b) return rivalTakes(g, o, bidder, b.why);
-  const lost = chance(g, o.firstRefusal ? BAL.v08.firstRefusalLost : 0.7);
+  if (bidder && b) {
+    // v0.14 a call nobody answered is remembered whoever takes it.
+    if (o.call) missedCall(g, o);
+    return rivalTakes(g, o, bidder, b.why);
+  }
+  // v0.14 an unanswered call: the client found someone else, and remembers (a small relation note).
+  const lost = chance(g, o.firstRefusal ? BAL.v08.firstRefusalLost : 0.7) || !!o.call;
   closeOffer(g, o, lost ? 'lost' : 'expired', lost ? rivalName(g, o) : undefined);
   // The missed list always says why: here we simply let the offer lapse.
-  if (lost) o.lostWhy = 'took it when our offer lapsed without an answer';
+  if (lost) o.lostWhy = o.call ? 'took it when nobody answered their call' : 'took it when our offer lapsed without an answer';
+  if (o.call) {
+    missedCall(g, o);
+    pushMessage(g, { tone: 'info', cat: 'commercial', title: `${g.clients[o.clientId]?.name ?? 'The client'} went elsewhere: ${o.title}`, body: `Nobody answered their call in time. ${o.lostTo} is flying it.`, ref: { kind: 'offer', id: o.id }, cue: null });
+  }
 }
 
 /**
@@ -1578,13 +1696,14 @@ export const PACING = { quietFloor: true };
  */
 export function quietWeekOffer(g: GameState): ContractOffer | null {
   const Q = BAL.quietFloor;
-  const last = g.stats.lastGapOfferAt ?? g.started;
+  // v0.14 since the last ordinary market offer (any), not only a gap-fit one: the floor tops up a dry spell, no more.
+  const last = Math.max(g.stats.lastMarketOfferAt ?? g.started, g.stats.lastGapOfferAt ?? g.started);
   if (g.now - last < Q.days * DAY) return null;
   if (Object.values(g.offers).filter((o) => o.status === 'open').length >= Q.maxOpen) return null;
   const ws = idleWindows(g, Q.idleDays, 45).filter((w) => w.from < g.now + 45 * DAY);
   if (!ws.length) return null;
   const w = weightedPick(g, ws, (x) => Math.sqrt((x.to - x.from) / DAY))!;
-  const o = generateOffer(g, undefined, { window: w });
+  const o = generateOffer(g, undefined, { window: w, ordinary: true });
   // Tried today either way (a fleet with nothing that fits waits another 6 days).
   g.stats.lastGapOfferAt = g.now;
   return o;
@@ -1618,7 +1737,10 @@ export function chainAugment(g: GameState, typeId: string, chains: ChainShape[])
 
 
 /** v0.9 dev helpers: a draft finalised into an open offer (no market filters beyond the programme's own). */
-export const finalizeDraft = (g: GameState, d: Draft): ContractOffer | null => finalize(g, d, true);
+export const finalizeDraft = (g: GameState, d: Draft): ContractOffer | null => {
+  drawn = false;
+  return finalize(g, d, true);
+};
 
 /**
  * v0.12.1 a closure has just started or been extended (ops/world.ts, the hook below): open offers into the airports it
