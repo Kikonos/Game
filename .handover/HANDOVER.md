@@ -566,3 +566,4 @@ hunt2 h-crew DONE: 7 (5 high: 4-min slip remakes crewed empty leg uncrewed; shor
 hunt2 h-comm DONE: 14 (2 high: trip leads never lapse; late tenders awarded after job start). Remaining hunters: ops, money, code.
 hunt2 h-money DONE: 7 (1 high: lease-return half-life charge 0 once C-check past due). Note h-money worktree has __moneyHook instrumentation (detached, not committed). Remaining: ops, code.
 hunt2 h-ops DONE: 6 (1 high: curfews not enforced at departure/empty legs; extra rotation into curfew; positioning moved to previous night; legacy curfew legs never replanned; aircraft idles abroad until check). Remaining: code hunter, BLU1278 fix agent.
+hunt2 h-code DONE: 9 (2 high: crash replacing crew in extra seat; detachDuty deletes our own revenue legs crew ride on). ALL HUNTERS DONE. Waiting BLU1278 agent, then 4 fix lanes (crew / ops / comm / money+ui+code) + merge + verify + release.
