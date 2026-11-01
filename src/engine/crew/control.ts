@@ -134,6 +134,8 @@ export interface ApplyOpts {
   optionId?: string; crewIds?: string[]; confirmed?: boolean;
   /** Delay (and jet + rest): the departure the solution previewed; computed when absent. */
   at?: Minute;
+  /** v0.14.1 the caller posts its own note (the crew desk): no 'crewed' / 'still short' message from here. */
+  quiet?: boolean;
 }
 
 export const FIX_LABEL: Record<CrewFix, string> = {
@@ -2016,6 +2018,15 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
   }
   // d. jet: only for seats nobody at the departure airport can fill; with a night's rest on arrival when the
   // day would otherwise run too long (jet + rest).
+  // v0.14.1 crew already there: the fixes that can seat them are named only when they are offered (the row read 'use
+  // Auto-fix or Call in' beside both greyed out).
+  const hereHint = (): string => {
+    const local = out.filter((o) => o.id === 'autoFix' || o.id === 'callIn' || o.id === 'buyBack');
+    if (!local.length) return 'use Auto-fix or Call in';
+    const word: Partial<Record<CrewFix, string>> = { autoFix: 'Auto-fix', callIn: 'Call in', buyBack: 'ask them to work a day off' };
+    const ok = local.filter((o) => o.available).map((o) => word[o.id]!);
+    return ok.length ? `use ${ok.join(' or ')}` : 'a jet would not help';
+  };
   if (want('jet')) {
     const s = base('jet');
     if (!d || !p || !x.seats.length) out.push(no(s, x.seats.length ? 'No crew plan for this flight yet' : fullWhy(x)));
@@ -2055,13 +2066,13 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
       }
       if (!roles.length) {
         const names = localPicks.map((y) => crewName(g.crew[y.crewId])).join(' and ');
-        out.push(no(s, `${names} ${localPicks.length === 1 ? 'is' : 'are'} already at ${city(x.dep)}: use Auto-fix or Call in`));
+        out.push(no(s, `${names} ${localPicks.length === 1 ? 'is' : 'are'} already at ${city(x.dep)}: ${hereHint()}`));
       } else if (!picks.length) {
         const fam = typeOf(ac.typeId).family;
         const freeRated = Object.values(g.crew).filter((c) => c.ratings.includes(fam) && roles.some((r) => canFill(r, c.role)) && c.status !== 'sick' && c.status !== 'leave' && c.status !== 'training' && c.status !== 'joining' && !p.slots.some((y) => y.crewId === c.id));
         const why = fdpOnly.v ? "Even by jet the crew's day would be too long: delay the flight instead"
           : !freeRated.length ? `Nobody rated on the ${fam} is free`
-          : freeRated.every((c) => c.loc === x.dep) ? `Everyone free is already at ${city(x.dep)}: use Auto-fix or Call in`
+          : freeRated.every((c) => c.loc === x.dep) ? `Everyone free is already at ${city(x.dep)}: ${hereHint()}`
           : 'Everyone free is on another trip or over a limit: a jet would not help';
         out.push(no(s, why));
       } else {
@@ -2284,7 +2295,7 @@ export function applyCrewFix(g: GameState, flightId: string, fix: CrewFix, opts:
       body: `${unit.map((l) => `${l.no} ${l.from}–${l.to}`).join(', ')}: no legal crew. ${fm ? `Force majeure (${fm}): no compensation and no reliability hit.` : `${r.cost ? `${usd(r.cost)} compensation` : 'No compensation'}${view.unit.revenueLegs ? ', reliability −3' : ''}.`}`,
       ref: { kind: 'flight', id: flightId }, hurt: { money: r.cost, pax: view.unit.pax, delayMin: 0, level: r.cost || view.unit.pax ? 'high' : 'none' },
     });
-  } else pushMessage(g, {
+  } else if (!opts.quiet) pushMessage(g, {
     tone: 'info', cat: 'crew', title: `${view.no} ${fixed ? (fix === 'subcharter' ? 'sub-chartered' : 'crewed') : 'still short'}: ${FIX_LABEL[fix]}`,
     body: r.changes.join('. ') + '.', ref: { kind: 'flight', id: flightId },
   });

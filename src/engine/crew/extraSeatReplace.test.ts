@@ -50,14 +50,14 @@ describe('v0.14.1 replacing a crew member in an extra seat', () => {
     const { g, d, extra } = withExtraFo();
     const p = g.pairings[d.pairingId];
     const before = JSON.stringify(p.slots);
-    const cash = g.cash;
+    const cash = g.company.cash;
     setSafetyStrict(false);
     const err = console.error;
     console.error = () => {};
     try {
       const r = atomic(g, 'test', (error) => ({ ok: false as const, error }), () => {
         g.pairings[d.pairingId].slots = g.pairings[d.pairingId].slots.filter((s) => s.crewId !== extra);
-        g.cash -= 1000;
+        g.company.cash -= 1000;
         throw new Error('boom');
       });
       expect(r.ok).toBe(false);
@@ -66,6 +66,6 @@ describe('v0.14.1 replacing a crew member in an extra seat', () => {
       console.error = err;
     }
     expect(JSON.stringify(g.pairings[d.pairingId].slots)).toBe(before);
-    expect(g.cash).toBe(cash);
+    expect(g.company.cash).toBe(cash);
   });
 });
