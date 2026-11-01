@@ -15,6 +15,7 @@ import { blockMinutes, canFill, complement, reportMinutes, typeOf } from '../cor
 import { schedule } from '../core/queue';
 import { chance, int, pick, range } from '../core/rng';
 import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime, localMinuteOfDay, monthKey, toDate } from '../core/time';
+import { curfewOk } from '../core/curfew';
 import type { ActionResult, Aircraft, Contract, CrewFix, CrewMember, CrewStatus, Decision, DecisionOption, Flight, GameState, MaintenanceEvent, MessageCat, Minute, Pairing, Receivable, Role, SimEvent } from '../core/types';
 import { generateOffer, planPositioning } from '../contracts';
 import { applyCrewFix, applyDiscretion, crewAlertKind, crewControl, discretionCheck, flightCrewStatus, minRest, moraleShock, replaceCrew, rerosterFrom, rosterOf } from '../crew';
@@ -713,6 +714,12 @@ function freePair(g: GameState, prefix: string): number {
   return n;
 }
 
+/** v0.14.1 (OPS-2) an extra out-and-back leaving the base at `t` leaves and lands outside every strict curfew. Pure. */
+function rotationClear(base: string, dest: string, t: Minute, out: number, turn: number, back: number): boolean {
+  const home = t + out + turn + back;
+  return curfewOk(base, t) && curfewOk(dest, t + out) && curfewOk(dest, t + out + turn) && curfewOk(base, home) && curfewOk(base, home + 30);
+}
+
 function extraRotation(g: GameState, c: Contract): boolean {
   if (c.pattern.kind !== 'base' || c.product.kind !== 'wet') return false;
   const p = c.pattern;
@@ -725,7 +732,9 @@ function extraRotation(g: GameState, c: Contract): boolean {
   const need = out + turn + back;
   const from = g.now + 36 * 60;
   const to = Math.min(g.now + 8 * DAY, p.to);
-  // First daytime gap between two legs at the base that fits an out-and-back.
+  // First daytime gap between two legs at the base that fits an out-and-back. v0.14.1 (OPS-2) clear of the night
+  // curfews as the waves are (computeWaves): out, the turn and back, with half an hour in hand on the landing home
+  // (DE982 LGW–HAM was planned to land 23:15 local, inside Hamburg's 23:00 ban; EW793 LIS–DUS at 02:20).
   let std = 0;
   const list = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled');
   for (let i = 0; i + 1 < list.length && !std; i++) {
@@ -734,7 +743,7 @@ function extraRotation(g: GameState, c: Contract): boolean {
     if (a.to !== p.base || b.from !== p.base || a.sta + turn < from || b.std > to) continue;
     for (let t = Math.ceil((a.sta + turn) / 15) * 15; t + need + turn <= b.std; t += 30) {
       const lm = localMinuteOfDay(p.base, t);
-      if (lm >= 6 * 60 && lm <= 21 * 60) {
+      if (lm >= 6 * 60 && lm <= 21 * 60 && rotationClear(p.base, dest, t, out, turn, back)) {
         std = t;
         break;
       }
@@ -778,7 +787,10 @@ function retimeRequest(g: GameState, c: Contract): boolean {
     .sort((a, b) => a.std - b.std || a.id.localeCompare(b.id));
   if (!pool.length) return false;
   const f = pick({ rng: hash(`${g.seed}:retime:${c.id}:${Math.floor(g.now / DAY)}`) | 0 }, pool);
-  const min = pick(g, [60, 90, 120, 180]);
+  // v0.14.1 (OPS-2) never a later time that leaves or lands inside a night curfew (the same rule as the extra rotation).
+  const mins = [60, 90, 120, 180].filter((m) => curfewOk(f.from, f.std + m) && curfewOk(f.to, f.sta + m));
+  if (!mins.length) return false;
+  const min = pick(g, mins);
   const fee = int(g, 15, 50) * 100;
   const cl = g.clients[c.clientId];
   // The trade-off: the crew's duty stretches by the same amount (beyond its limit a fresh crew is needed).
@@ -905,6 +917,8 @@ function resolveChange(g: GameState, d: Decision, opt: string): ActionResult {
   const turn = turnOf(ac);
   const end = std + out + turn + back;
   if (std < g.now + 60 || flightsOf(g, ac.id).some((f) => f.status === 'scheduled' && f.std < end + turn && f.sta > std - turn)) return { ok: false, error: 'The slot is no longer free' };
+  // v0.14.1 (OPS-2) re-checked against the night curfews (a clock change since the ask).
+  if (!rotationClear(p.base, dest, std, out, turn, back)) return { ok: false, error: `The night curfew at ${p.base} or ${dest} no longer allows that slot` };
   const no = freePair(g, p.prefix);
   addFlight(g, { no: `${p.prefix}${no}`, aircraftId: ac.id, contractId: c.id, kind: 'revenue', from: p.base, to: dest, std, sta: std + out });
   addFlight(g, { no: `${p.prefix}${no + 1}`, aircraftId: ac.id, contractId: c.id, kind: 'revenue', from: dest, to: p.base, std: std + out + turn, sta: end });

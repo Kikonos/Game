@@ -436,7 +436,9 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   if (hold && t.engines === 2) etops = Math.max(etops, 180);
   const firstLeg = Math.min(o.start, rep.positionIn[0]?.std ?? Infinity);
   const tourGrant = hold && have < etops ? ETOPS_APPROVALS.map(([id, min]) => ({ min, p: g.company.pendingApprovals.find((x) => x.id === id) })).find((x) => x.min >= etops && x.p && !x.p.waiting && x.p.done <= firstLeg)?.p : undefined;
-  if (t.engines === 4) add('etops', 'ok', 'Four engines: no ETOPS limits');
+  // v0.14.1 (OPS-6) the same rule as the Ladder's gate (ops/company.ts gateApprovals): a three- or four-engine type has
+  // no ETOPS route limit, but the long-haul quads (tier 3) fly under the 180-minute EDTO approval, held as ETOPS 180.
+  if (t.engines !== 2) add('etops', 'ok', `${t.engines === 4 ? 'Four' : 'Three'} engines: no ETOPS limits${gateApprovals(t.tier).includes('etops180') ? `; long-haul work (EDTO) needs ETOPS 180 on the AOC` : ''}`);
   else if (!etops) add('etops', 'ok', 'No ETOPS needed');
   else if (t.etopsMax < etops) add('etops', 'no', `Routing needs ETOPS ${etops}; the ${t.short} is certified to ${t.etopsMax || 'none'}`);
   else if (tourGrant) add('etops', 'warn', `Routing needs ETOPS ${etops}: pending, due ${fmtDate(tourGrant.done)} (before the tour leaves)`, 'If the grant slips, the tour cannot leave: every leg is checked at departure.');

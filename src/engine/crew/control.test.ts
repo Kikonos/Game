@@ -42,8 +42,8 @@ function live(g: GameState, flightId: string): { d: Duty; p: Pairing } {
   return { d, p: g.pairings[d.pairingId] };
 }
 
-function shortOfCaptain(dep = 'DUS', dest = 'FNC', hoursBefore = 40, seed = 5) {
-  const t = trip(dep, dest, 17 * 60, seed);
+function shortOfCaptain(dep = 'DUS', dest = 'FNC', hoursBefore = 40, seed = 5, hhmm = 17 * 60) {
+  const t = trip(dep, dest, hhmm, seed);
   const { g } = t;
   autoRoster(g);
   const { d, p } = live(g, t.flightId);
@@ -467,7 +467,9 @@ describe('private jets', () => {
     // DUS: a ticket from Lisbon lands the captain before any jet (v0.8 fix pack: so Crew Control offers no jet, one
     // muted line naming the airline flight); applied all the same (the bot's ladder), it delays the flight for the jet
     // and charters it (the preview's price is what is paid).
-    const a = shortOfCaptain('DUS', 'LHR', 1);
+    // v0.14.1 (OPS-1) at 10:00 UTC: from 17:00 the delay it was measured against (20:40) put the return LHR–DUS into
+    // Düsseldorf's night ban (00:40 local); Crew Control no longer proposes a time inside a curfew.
+    const a = shortOfCaptain('DUS', 'LHR', 1, 5, 10 * 60);
     for (const c of Object.values(a.g.crew)) if (c.role === 'CPT' && c.id !== a.was) { c.blocks = [{ from: a.g.now - DAY, to: a.g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
     const av = crewControl(a.g, a.flightId)!;
     const hidden = av.solutions.find((x) => x.id === 'jet')!;
@@ -484,7 +486,8 @@ describe('private jets', () => {
     expect(a.g.finance.current.lines.crewJet).toBe(-aj.cost);
     expect(a.g.stats.jets).toBe(1);
     // FNC: the airline day would run too long (a night's rest first); the jet's short ride gets the captain there today.
-    const { g, flightId, was, d } = shortOfCaptain('FNC', 'LHR', 2);
+    // (v0.14.1 at 13:00 UTC: from 17:00 the jet's delay landed it at Heathrow inside the 23:30 night ban.)
+    const { g, flightId, was, d } = shortOfCaptain('FNC', 'LHR', 2, 5, 13 * 60);
     for (const c of Object.values(g.crew)) if (c.role === 'CPT' && c.id !== was) { c.blocks = [{ from: g.now - DAY, to: g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
     const v = crewControl(g, flightId)!;
     const jet = v.solutions.find((x) => x.id === 'jet')!;
