@@ -17,7 +17,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { distance } from '../core/geo';
 import { noteLostLegs } from '../contracts/billing';
 import { isSoft, route, routeMinutes } from '../contracts/plan';
-import { farOutstation, ticketLead } from '../contracts/schedule';
+import { farOutstation, relinkPositioning, ticketLead } from '../contracts/schedule';
 import { ticketBlock } from './commercial';
 import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, seatRiders, crewSeatsBlocked, restSeatsBlocked, setClosedWaitHook, setRestDelayHook } from '../crew';
 import { fdpLimitAt } from '../crew/timeline';
@@ -1238,6 +1238,25 @@ function dropUnit(g: GameState, ac: Aircraft, f: Flight, reason: string, why: st
 }
 
 /**
+ * v0.14.1 (merge) a held world-tour leg given up: it and the empty legs into it are cancelled, the tour's later stops
+ * stay (relinkPositioning plans the aircraft's move to the next one, crewed like any empty leg). Never the whole tour
+ * for one stop the crew could not reach.
+ */
+function dropHeldLeg(g: GameState, ac: Aircraft, f: Flight, reason: string, why: string, cat: MessageCat): void {
+  const legs = unitOf(g, ac, f).filter((x) => x === f || (x.std <= f.std && !isRevenue(x)));
+  const fm = fmCause;
+  const pen = cancelLegs(g, legs, reason, 0);
+  const later = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled' && x.contractId === f.contractId && x.std > f.std && isRevenue(x)).length;
+  pushMessage(g, {
+    tone: 'bad', cat, title: `${f.no} cancelled${fm ? ' (force majeure)' : ''}`,
+    body: `${why} ${f.no} ${f.from}–${f.to} cancelled.${fm ? fmText(fm) : pen ? ` Compensation ${usd(pen)}.` : ''}${later ? ` The tour goes on: ${later} later leg${later > 1 ? 's' : ''} kept; the aircraft is moved to its next stop.` : ''}`,
+    ref: { kind: 'flight', id: f.id }, ...penaltyMeta(g, [f], pen),
+  });
+  relinkPositioning(g, ac.id);
+  rerosterFrom(g, ac.id, g.now);
+}
+
+/**
  * Crew incomplete or illegal: re-roster and wait up to BAL.crewWaitMin, then the crew-short decision. After a
  * "wait for crew" decision, at the station two more waits are tried (each under the lateness cap, so a wave that
  * would leave too late is dropped and the next keeps its time), then the wave is given up and the rest
@@ -1356,6 +1375,9 @@ function crewProblem(g: GameState, f: Flight, ac: Aircraft): void {
       return;
     }
     const why = `No legal crew after ${fmtDuration(heldFor(g, f))} on the ground:`;
+    // v0.14.1 (merge) a world tour gives up only the stop it could not leave for: the rest of the tour stays (the
+    // schedule re-plans the move to the next stop). Before, one held leg cancelled every stop to the end (seed 5).
+    if (contractOf(g, f)?.archetype === 'worldTour') return underClosure(g, f, () => dropHeldLeg(g, ac, f, 'No legal crew', why, 'crew'));
     underClosure(g, f, () => (fmCause || !subcharterInstead(g, ac, unitOf(g, ac, f), why)) && dropUnit(g, ac, f, 'No legal crew', why, 'crew'));
     return;
   }
@@ -1626,7 +1648,7 @@ setRestDelayHook((g, f, std) => {
   if (f.std + f.delay < std) return false;
   pushMessage(g, {
     tone: 'info', cat: 'ops', title: `${f.no} delayed ${fmtDuration(std - was)}`,
-    body: `Crew rest: yesterday's late finish left the crew short of their minimum rest, so the report moves back. ${f.from}–${f.to} now off blocks ${fmtTime(std)} UTC${n ? `; ${n} later leg${n > 1 ? 's follow' : ' follows'}` : ''}.`,
+    body: `Crew rest: a late finish left the crew short of their minimum rest, so the report moves back. ${f.from}–${f.to} now off blocks ${fmtTime(std)} UTC${n ? `; ${n} later leg${n > 1 ? 's follow' : ' follows'}` : ''}.`,
     ref: { kind: 'flight', id: f.id },
   });
   return true;
