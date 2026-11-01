@@ -1908,11 +1908,18 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
     const under = firstOpen.report <= g.now;
     if (under && !p.tour && g.flights[firstOpen.flightIds[0]]?.status === 'scheduled') {
       // Reported but not yet off blocks: crew who are not at the departure airport are replaced.
+      // v0.14.1 (CREW-3) only those really elsewhere: a location break after the duty (a ticket home from where a
+      // re-plan no longer takes them) is tagged with this duty too, and took crew standing at the gate off it (S1027
+      // BLU1573: both pilots in Goma, 'At NDJ, not MAN', a red alarm at a closed airport). Those are re-ticketed.
+      const dep = g.flights[firstOpen.flightIds[0]]?.from;
       for (const s of [...p.slots]) {
         const c = s.crewId && !s.locked ? g.crew[s.crewId] : undefined;
         if (!c) continue;
         const plan = planCrew(g, c, p, segsOf(g, c, p.id), true);
-        if (plan.issues.some((i) => i.code === 'location' && i.level === 'illegal' && i.dutyId === firstOpen.id)) releaseCrew(g, p, c.id);
+        if (!plan.issues.some((i) => i.code === 'location' && i.level === 'illegal' && i.dutyId === firstOpen.id)) continue;
+        const flying = (crewIx(g).tickets.get(c.id) ?? []).some((t) => t.status === 'scheduled' && t.std <= g.now && t.sta > g.now);
+        if (c.loc !== dep || flying) releaseCrew(g, p, c.id);
+        else retick(g, p, c);
       }
       setFlightsCrew(g, p);
     }
