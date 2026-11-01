@@ -992,7 +992,13 @@ function detachDuty(g: GameState, p: Pairing, d: Duty): void {
     // The trip's last duty went: before anyone reported its tickets go too; under way the crew keep their
     // ticket home (loose, it still shapes their timeline).
     if (!rest.length) {
-      if (p.status === 'planned' && f.status === 'scheduled' && f.std > g.now) removeFlights(g, [f.id]);
+      // v0.14.1 a ride on one of our own legs (crew home as passengers) is never removed with the trip: only its crew
+      // come off it. Removed as a ticket, the leg itself went (bot seed 5: EI4000 DUB–LIS deleted with a positioning
+      // trip a relink re-timed, its own duty left listing a missing flight).
+      if (p.status === 'planned' && f.status === 'scheduled' && f.std > g.now) {
+        if (f.kind === 'deadhead') removeFlights(g, [f.id]);
+        else for (const id of [...passengers(f)]) if (p.slots.some((x) => x.crewId === id)) unboard(g, f, id);
+      }
       // v0.12.1 only one leaving where they are (or where the leg in the air lands): a ticket home from a station the
       // cancelled leg never reached is dropped (S1118: ten crew at Lisbon kept a VRA–LIS ticket).
       else if (f.status === 'scheduled' && f.std > g.now) {
@@ -1783,7 +1789,9 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
       d.flightIds = keep;
       syncDuty(g, d, p);
       // A leg under way now leaving a night-stop later: the duty ends at the last landing (hotel, then a new duty).
-      const d2 = splitUnderWay(g, p, d);
+      // v0.14.1 so does a duty not yet reported whose legs moved a night's rest apart (an empty move retimed to the
+      // evening before its job): two duties of the trip, the crew at the hotel between.
+      const d2 = splitUnderWay(g, p, d) ?? splitUnderWay(g, p, d, false, true);
       if (crewCount(p) > 0) {
         queueDuty(g, d);
         const moved = new Set<string>();
@@ -1857,6 +1865,26 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
   const checked = new Map<Pairing, { sig: unknown[]; level: Legality; from: Minute | undefined }>();
   for (const p of [...(crewIx(g).byAircraft.get(aircraftId) ?? [])]) {
     if (!g.pairings[p.id] || p.status === 'done' || p.status === 'broken' || p.end < t) continue;
+    // v0.14.1 a crewed trip of several duties: a duty not yet reported that a change made illegal (no plan, in-flight
+    // rest included, fits it) is re-cut too, not left flagged. Before, only tours and one-duty trips were; a longer trip
+    // kept it, as no one crew member was out of hours (the day itself was), until the gate held it (CS-TTL: FRA–AMS
+    // plus AMS–VRA after the trip's PUJ–FRA, 17:40 of 12:15, slipped 60 h). The trip is split before it, its later duties
+    // keep the crew, and its legs go back to the planner (a ferry crew and the job's crew, partition/slipUnits).
+    if (!p.tour && p.dutyIds.length > 1) {
+      for (const d of openDuties(g, p)) {
+        const at = g.pairings[d.pairingId];
+        if (d.legality !== 'illegal' || d.report <= g.now || d.report < t || d.discretion || !at || !g.duties[d.id]) continue;
+        // (Its trip now: an earlier split moved it with the later duties.)
+        const own = splitPairing(g, at, d.report) ?? at;
+        detachDuty(g, own, d);
+        if (!own.dutyIds.length) dissolve(g, own);
+        else if (!openDuties(g, own).length) rebookLooseTickets(g, new Set(own.slots.filter((x) => x.crewId).map((x) => x.crewId!)));
+      }
+      if (!g.pairings[p.id]) continue;
+      // Every duty left flown: the trip is over (its crew go home as from any trip ending away).
+      if (p.status === 'active' && p.dutyIds.every((id) => !g.duties[id] || g.duties[id].done)) p.status = 'done';
+      if (p.status === 'done') continue;
+    }
     if (p.tour || p.dutyIds.length === 1) {
       for (const d of openDuties(g, p)) {
         if (d.legality === 'illegal' && d.report > g.now && d.report >= t && !d.discretion) detachDuty(g, p, d);

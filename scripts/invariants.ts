@@ -25,12 +25,14 @@
 //   (opts.spy: a cash setter that checks its caller);
 // - flights and loose ends: no leg overdue and still scheduled, no hold loop (pushed again and again), decisions and
 //   timed disruptions resolved, no references to missing flights, duties, pairings, crew or aircraft;
+// - v0.14.1 positioning into a job (pos-fdp): a duty planned in the next 48 h that flies an empty move and then the job
+//   over its FDP limit, while the aircraft sat idle long enough before the move to fly it the day before;
 // - v0.14 re-plan loops (a warning): the same empty move of an aircraft planned anew, as a new leg, more than
 //   REPLAN_MAX times in 24 h.
 
 import { readFileSync } from 'node:fs';
 import { DAY, fmtDateTime } from '../src/engine/core/time';
-import { cabinMinimum, crewInPaxSeats, etopsNeeded, typeOf } from '../src/engine/core/perf';
+import { cabinMinimum, crewInPaxSeats, etopsNeeded, reportMinutes, typeOf } from '../src/engine/core/perf';
 import type { GameState, Minute, Role } from '../src/engine/core/types';
 import { offsetAt } from '../src/engine/crew/rules';
 
@@ -142,6 +144,8 @@ export function createChecker(opts: CheckerOpts = {}) {
   const emptySeen = new Set<string>();
   const replans = new Map<string, { t: Minute; std: Minute }[]>();
   const fdpSeen = new Set<string>();
+  /** v0.14.1 duties already reported as a positioning day over its limit (pos-fdp). */
+  const posSeen = new Set<string>();
   /** v0.12.1 passenger flights whose riders were checked; crew rides on them seen. */
   const ridesSeen = new Set<string>();
   const rides = { n: 0 };
@@ -324,6 +328,31 @@ export function createChecker(opts: CheckerOpts = {}) {
           if (d.augment && !g.company.approvals.includes('augmented')) warn('approval', d.release, `duty ${d.id} augmented without the augmented-crew approval`);
         }
       }
+    }
+    // ---- v0.14.1 positioning into a job: a planned duty (reporting in the next 48 h) that flies an empty move and then
+    // the job's legs over its FDP limit, while the aircraft sat idle long enough before the move to fly it earlier and
+    // give the crew a full rest (CS-TTL: FRA–AMS 05:45 then AMS–VRA 11:30, 17:40 of 12:15, after 49 h empty at FRA). ----
+    // A loaded save is judged after the planner's first pass over it (it heals there), not as it was written.
+    for (const d of steps === 1 ? [] : Object.values(g.duties)) {
+      if (d.done || d.report <= g.now || d.report > g.now + 48 * H || posSeen.has(d.id)) continue;
+      const fl = d.flightIds.map((id) => g.flights[id]).filter((f) => !!f && f.status === 'scheduled' && !!f.aircraftId).sort((a, b) => a.std - b.std);
+      const j = fl.findIndex((f) => f.kind === 'revenue' || f.kind === 'techstop');
+      if (j < 1 || !fl.slice(0, j).every((f) => f.kind === 'positioning' || f.kind === 'ferry')) continue;
+      const ac = g.fleet[fl[0].aircraftId!];
+      if (!ac) continue;
+      const rm = reportMinutes(ac.typeId);
+      const fdp = fl[fl.length - 1].sta - (fl[0].std - rm.report);
+      const max = d.maxFdp + (d.discretion ?? 0);
+      if (fdp <= max + 1) continue;
+      // When the aircraft was last on the ground at the move's origin (its leg in), and the room before the job.
+      let landed = -Infinity;
+      for (const f of Object.values(g.flights)) if (f.aircraftId === ac.id && f.status !== 'cancelled' && f.to === fl[0].from && f.kind !== 'deadhead' && f.sta <= fl[0].std) landed = Math.max(landed, f.status === 'done' ? f.ata ?? f.sta : f.sta);
+      if (!Number.isFinite(landed)) continue;
+      const move = fl[j - 1].sta - fl[0].std;
+      const room = fl[j].std - landed - typeOf(ac.typeId).turnMin;
+      if (room < move + rm.post + 10 * H + rm.report + 60) continue;
+      posSeen.add(d.id);
+      err('pos-fdp', g.now, `${ac.reg}: ${fl.map((f) => `${f.no} ${f.from}–${f.to} ${fmtDateTime(f.std)}`).join(', ')}: one duty ${hm(fdp)} of ${hm(max)}, after ${hm(fl[0].std - landed)} on the ground at ${fl[0].from} (room to move it the day before)`);
     }
     for (const p of Object.values(g.pairings)) {
       if (p.status === 'done' || p.status === 'broken') continue;

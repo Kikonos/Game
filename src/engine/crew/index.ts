@@ -81,7 +81,7 @@ export {
   crewMonth, dayIndex, isOff, offBreak, planLeave, planOffDays, planStandby, publishedTo, rosterStats, standbyNow,
   type CrewMonthView, type OffBreak,
 } from './dayPlan';
-export { dutyNeed, type ChainShape, type DutyNeed } from './duties';
+export { dutyNeed, restNeedLine, type ChainShape, type DutyNeed } from './duties';
 export {
   EXT_TABLE, extFdp, disruptiveKinds, FTL_TYPE, STANDBY, standbyAwakeOk, standbyCut, TZ_NIGHTS, tzNights, WOCL, cabinFdpCap,
 } from './rules';
