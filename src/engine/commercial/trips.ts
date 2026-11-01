@@ -301,8 +301,8 @@ export function recheckTrips(g: GameState): void {
     const extra = Math.max(1, Math.round((next.std - b.std) / DAY));
     t.back = next;
     t.cost = { ...t.cost, hotel: t.cost.hotel + extra * hotelRate(g), perDiem: t.cost.perDiem + extra * TRIPS.perDiem };
-    t.why = `${city(b.from)} closed: home ${fmtDay(next.std)}`;
     const shut = closedAirport(g, b.from, b.std) ? b.from : b.to;
+    t.why = `${city(shut)} closed: home ${fmtDay(next.std)}`;
     pushMessage(g, {
       tone: 'warn', cat: 'commercial', title: `${t.name === 'You' ? 'You are' : `${t.name} is`} stuck in ${city(b.from)}`,
       body: `${city(shut)} is closed, so the flight home cannot go. ${seat ? `Rebooked ${fmtDay(seat.std)} ${fmtTime(seat.std)} UTC (${fmtTime(seat.std, seat.from)} local)` : 'No seat yet: we try again tomorrow'}; ${extra} more night${extra > 1 ? 's' : ''} of hotel and per diem.`,
@@ -361,7 +361,7 @@ function tripDone(g: GameState, t: SalesTrip): void {
     }
   } else if (t.clientId && g.clients[t.clientId] && g.clients[t.clientId].ceased === undefined) {
     met.push(g.clients[t.clientId]);
-    bumpClient(g, t.clientId, TRIPS.visitRel, `${t.name === 'You' ? 'You' : t.name} visited them`);
+    bumpClient(g, t.clientId, TRIPS.visitRel, `${t.name} visited them`);
     // v0.14 a visit makes us better known in the client's market.
     const id = clientMarket(g.clients[t.clientId]);
     gains = [{ id, gain: bumpPresence(g, id, PRESENCE.visit * (0.8 + 0.4 * skill)) }];
@@ -384,7 +384,7 @@ function tripDone(g: GameState, t: SalesTrip): void {
     : 'no firm leads this time';
   const known = presenceText(t);
   pushMessage(g, {
-    tone: leads.length ? 'good' : 'info', cat: 'commercial', title: `${t.name === 'You' ? 'You are' : `${t.name} is`} ${t.local ? 'back in the office from' : 'back from'} ${tripTitle(t)}`,
+    tone: leads.length ? 'good' : 'info', cat: 'commercial', title: `${t.name === 'You' ? 'You are' : `${t.name} is`} back from ${tripTitle(t)}`,
     body: `Met ${names.length ? names.join(', ') : 'nobody new'}. ${leads.length ? 'Leads' : 'Result'}: ${leadText}.${known ? ` Better known in ${known}.` : ''} Cost ${usdK(t.cost.tickets + t.cost.pass + t.cost.hotel + t.cost.perDiem)}.`,
     ref: leads[0]?.offerId ? { kind: 'offer', id: leads[0].offerId } : leads[0]?.tenderId ? { kind: 'tender', id: leads[0].tenderId } : { kind: 'trip', id: t.id },
   });

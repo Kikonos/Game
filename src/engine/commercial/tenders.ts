@@ -199,8 +199,8 @@ export function issueTender(g: GameState, opts: { clientId?: string; invited?: b
 const latestAward = (start: Minute): Minute => start + TENDER.startShift[0] * DAY - (TENDER.awardLead + TENDER.quietWait) * DAY;
 
 /**
- * v0.14.1 the earliest start a bid may ask: the ask's start less TENDER.startShift (whole days), and never inside the
- * award lead after the award (a tender from an older save decided late). Pure.
+ * v0.14.1 the earliest start a bid may ask: the ask's start less TENDER.startShift (whole days); for a tender from an
+ * older save whose award comes late, not before a week after the award (and its wait for a busy day). Pure.
  */
 export function earliestBidStart(t: Tender): Minute {
   const lo = t.ask.start + TENDER.startShift[0] * DAY;
