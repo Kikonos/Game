@@ -564,3 +564,4 @@ Open for later: S-DEPREC (depreciation), repo rename to Block-Hours (player), Up
 hunt2 h-ui DONE: 13 (1 high: crew desk claims fixed while still short, re-buys tickets every 6 h). findings /home/user/work/hunt2/h-ui/findings.json
 hunt2 h-crew DONE: 7 (5 high: 4-min slip remakes crewed empty leg uncrewed; shortage card counts revenue 13 d later; crew at GOM released for broken later ticket; crew desk 'fixed' without checking; duplicate ticket for airborne crew).
 hunt2 h-comm DONE: 14 (2 high: trip leads never lapse; late tenders awarded after job start). Remaining hunters: ops, money, code.
+hunt2 h-money DONE: 7 (1 high: lease-return half-life charge 0 once C-check past due). Note h-money worktree has __moneyHook instrumentation (detached, not committed). Remaining: ops, code.
