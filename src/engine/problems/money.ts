@@ -43,7 +43,9 @@ export function cashLowCard(g: GameState): ProblemCard | null {
       ...(decision ? [{ id: 'factor', label: 'Sell an invoice', open: { modal: 'decision' as const, id: decision.id } }] : []),
     ],
     details: [`Cash now ${usd(g.company.cash)}`, `Month end ${fmtDay(monthEnd)}: fixed costs ${usd(bill.rent + bill.insurance + bill.overhead)}, salaries ${usd(bill.salaries + bill.heads)}`, `Outstanding invoices ${usd(g.finance.receivables.filter((r) => r.paid === null).reduce((s, r) => s + r.amount, 0))}`],
-    visuals: { timeline, gauges: [{ id: 'cash', label: 'Cash', value: Math.max(0, g.company.cash), limit: Math.max(1, g.company.cash - low.cash), unit: 'usd', text: `${usd(g.company.cash)} now, ${usd(low.cash)} at the low`, tone: 'bad', by: low.t }] },
+    // v0.14.1 no `by` on the gauge (it prints a time of day only: '00:00' now the points are calendar days); the hurt
+    // line has the date.
+    visuals: { timeline, gauges: [{ id: 'cash', label: 'Cash', value: Math.max(0, g.company.cash), limit: Math.max(1, g.company.cash - low.cash), unit: 'usd', text: `${usd(g.company.cash)} now, ${usd(low.cash)} at the low`, tone: 'bad' }] },
     terms: ['blockHours'], by: first.t,
   };
 }
@@ -157,7 +159,7 @@ export function cashNegativeCard(g: GameState): ProblemCard | null {
     subject: { kind: 'cashNegative', ref: { kind: 'cash', id: 'cash' } }, severity: 'red',
     title: `Cash is below zero (${usd(cash)})`, what: `Cash is below zero (${usd(cash)})`,
     why: `Costs outran what came in: about ${usd(bill.total)} a month in rent, insurance and salaries before any flying${owed ? `; ${usd(owed)} of invoices are still unpaid` : ''}.`,
-    hurt: mkHurt({ money: -cash, what: 'short', extra: again ? `the company fails after ${BAL.rescueDays} days in the red` : `in ${daysLeft} days an investor offers a rescue for a quarter of the company` }),
+    hurt: mkHurt({ money: -cash, what: 'short', extra: again ? `the company fails after ${BAL.rescueDays} days in the red` : `in ${daysLeft} day${daysLeft === 1 ? '' : 's'} an investor offers a rescue for a quarter of the company` }),
     actions: [
       { id: 'finance', label: 'Finance', open: { tab: 'finance' }, primary: true },
       { id: 'findWork', label: 'Find work', open: { tab: 'contracts' } },
