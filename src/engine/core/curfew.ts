@@ -71,3 +71,23 @@ export function curfewShift(code: string, t: Minute, dir: 'before' | 'after'): M
   for (let i = 0; i < 180 && curfewOk(code, x - step); i++) x -= step;
   return x;
 }
+
+/**
+ * v0.14.1 the first departure at or after `std` that leaves `dep` and lands at `arr` (after `block`) outside both
+ * strict curfews (moved from ops/disrupt.ts: the gate, the delay paths and Crew Control's delay times share it). Pure.
+ */
+export function clearOfCurfews(dep: string, arr: string, std: Minute, block: number): Minute {
+  let t = std;
+  for (let i = 0; i < 3; i++) {
+    t = curfewShift(dep, t, 'after');
+    if (curfewOk(arr, t + block)) break;
+    t = curfewShift(arr, t + block, 'after') - block;
+  }
+  return t;
+}
+
+/**
+ * v0.14.1 a movement at `code` at `t` is allowed: outside the curfew, or (`late`: a delayed leg) inside the grace the
+ * airport gives delayed flights at the start of its night ("delayed until 23:30"). Pure.
+ */
+export const movementOk = (code: string, t: Minute, late: boolean): boolean => !inCurfew(code, t, late);

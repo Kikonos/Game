@@ -18,6 +18,7 @@ import { relinkPositioning } from '../contracts/schedule';
 import { commercialItinerary, itinerary, itineraryText } from '../ops/commercial';
 import { crewReadyAt } from '../ops/events';
 import { cancelCost, cancelLegs, clearRestMarks, delayChain, liveOver, underClosure, unitOf, waitsFirst } from '../ops/flights';
+import { clearOfCurfews } from '../core/curfew';
 import { latePenalty } from '../ops/latePolicy';
 import { rotationOf, subcharter, subcharterQuote } from '../ops/subcharter';
 import { contractOf, isRevenue, stats, usd } from '../ops/util';
@@ -1397,7 +1398,8 @@ function delayTimes(g: GameState, x: Ctx): Minute[] {
   // later time it then refused; each is a full re-roster on a cold copy).
   const cap = x.maxDelay === undefined ? Infinity : (f.schedStd ?? f.std) + x.maxDelay;
   const add = (t: Minute) => {
-    t = ceil5(t);
+    // v0.14.1 (OPS-1) never a departure, or a landing, inside a night curfew: the first legal time after it.
+    t = clearOfCurfews(f.from, f.to, ceil5(t), f.block);
     if (t > floor && t - g.now <= 2 * DAY && t <= cap) times.add(t);
   };
   add(readyOf(g, f, ac));

@@ -27,6 +27,8 @@
 //   timed disruptions resolved, no references to missing flights, duties, pairings, crew or aircraft;
 // - v0.14.1 positioning into a job (pos-fdp): a duty planned in the next 48 h that flies an empty move and then the job
 //   over its FDP limit, while the aircraft sat idle long enough before the move to fly it the day before;
+// - v0.14.1 night curfews (a warning): a flown leg of ours that left or landed inside a strict curfew (with the grace
+//   for delayed flights when it left late);
 // - v0.14 re-plan loops (a warning): the same empty move of an aircraft planned anew, as a new leg, more than
 //   REPLAN_MAX times in 24 h.
 
@@ -35,6 +37,7 @@ import { DAY, fmtDateTime } from '../src/engine/core/time';
 import { cabinMinimum, crewInPaxSeats, etopsNeeded, reportMinutes, typeOf } from '../src/engine/core/perf';
 import type { GameState, Minute, Role } from '../src/engine/core/types';
 import { offsetAt } from '../src/engine/crew/rules';
+import { inCurfew } from '../src/engine/core/curfew';
 
 const H = 60;
 /** v0.14 new copies of one empty move in 24 h above which it is a re-plan loop (a hop out and back is two). */
@@ -276,6 +279,15 @@ export function createChecker(opts: CheckerOpts = {}) {
           unrated: f.kind !== 'deadhead' && f.aircraftId && g.fleet[f.aircraftId] ? f.crewIds.filter((id) => g.crew[id] && !g.crew[id].ratings.includes(typeOf(g.fleet[f.aircraftId!].typeId).family)) : [],
         });
         for (const id of new Set([...f.crewIds, ...(f.riders ?? [])])) if (g.crew[id] || crew.has(id)) (g.crew[id] ? hist(g, id) : crew.get(id)!).flights.push(f.id);
+        // v0.14.1 (OPS-1) our aircraft never leaves or lands inside a night curfew (a leg that left late may use the
+        // airport's grace for delayed flights, as the gate does).
+        if (f.kind !== 'deadhead' && !f.operatedBy && f.aircraftId) {
+          const atd = f.atd ?? f.std;
+          const ata = f.ata ?? f.sta;
+          const late = atd > (f.schedStd ?? f.std) + 5;
+          const dep = inCurfew(f.from, atd, late);
+          if (dep || inCurfew(f.to, ata, late)) warn('curfew', dep ? atd : ata, `${f.no} ${f.from}–${f.to} (${f.kind}) ${dep ? `left ${f.from} ${fmtDateTime(atd)}` : `landed at ${f.to} ${fmtDateTime(ata)}`} UTC, inside its night curfew`, `cf|${f.id}`);
+        }
       }
       if (f.status === 'scheduled') {
         // Overdue: should have left (or been retimed) hours ago.

@@ -429,10 +429,14 @@ export interface LadderNode {
 export interface LadderRung { index: number; title: string; nodes: LadderNode[] }
 export interface AircraftGate { ok: boolean; /** pending approvals count as ok (flies revenue after the grant). */ pending: ApprovalId[]; missing: ApprovalId[]; text: string }
 
-/** Approvals a type tier needs on the AOC (held or pending). */
-export function gateApprovals(tier: number): ApprovalId[] {
-  if (tier >= 4) return ['etops240', 'augmented'];
-  if (tier === 3) return ['widebody', 'augmented', 'etops180'];
+/**
+ * Approvals a type tier needs on the AOC (held or pending). v0.14.1 (OPS-6) ETOPS is a twin-engine approval (EASA
+ * SPA.ETOPS): a three- or four-engine type (A380, A340-500, 747-8) needs none, at the gate or on the offer sheet.
+ */
+export function gateApprovals(tier: number, engines = 2): ApprovalId[] {
+  const twin = engines === 2;
+  if (tier >= 4) return twin ? ['etops240', 'augmented'] : ['augmented'];
+  if (tier === 3) return twin ? ['widebody', 'augmented', 'etops180'] : ['widebody', 'augmented'];
   if (tier === 2) return ['widebody'];
   return [];
 }
@@ -441,7 +445,7 @@ export function gateApprovals(tier: number): ApprovalId[] {
 export function aircraftGate(g: GameState, typeId: string): AircraftGate {
   const t = typeOf(typeId);
   const co = g.company;
-  const need = gateApprovals(t.tier);
+  const need = gateApprovals(t.tier, t.engines);
   const pending = need.filter((a) => !co.approvals.includes(a) && co.pendingApprovals.some((p) => p.id === a));
   const missing = need.filter((a) => !co.approvals.includes(a) && !pending.includes(a));
   let text = '';
@@ -457,7 +461,7 @@ const UNLOCKS: Partial<Record<ApprovalId, { tier?: number; work: string }>> = {
   etops120: { work: 'Over-water work up to 120 minutes: the Azores, Cape Verde, the thin North Atlantic on an A321LR' },
   widebody: { tier: 2, work: 'Signing 767-300ERs, A330s and A340s; widebody charters and wet leases' },
   etops180: { work: 'The South Atlantic direct and the Indian Ocean' },
-  augmented: { tier: 3, work: 'Duties over 13 hours with 3–4 pilots; with ETOPS 180 the 777s and the A380' },
+  augmented: { tier: 3, work: 'Duties over 13 hours with 3–4 pilots: the A380, the A340-500 and the 747-8; with ETOPS 180 the 777s' },
   etops240: { tier: 4, work: 'The 787s, A350s and the 777-8; prestige long haul' },
   ulr: { work: 'Sectors over 16 hours with 4 pilots: ultra-long-range prestige work' },
 };
@@ -521,7 +525,7 @@ export function loadApprovals(g: GameState): void {
   }
   for (const ac of Object.values(g.fleet)) {
     if (ac.status === 'delivering') continue;
-    for (const id of gateApprovals(typeOf(ac.typeId).tier)) {
+    for (const id of gateApprovals(typeOf(ac.typeId).tier, typeOf(ac.typeId).engines)) {
       if (co.approvals.includes(id) || co.pendingApprovals.some((p) => p.id === id)) continue;
       co.approvals.push(id);
       co.approvalsAt[id] ??= g.started;

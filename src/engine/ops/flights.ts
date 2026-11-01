@@ -37,7 +37,8 @@ import { ageF, ageOf, bumpReliable, contractOf, isBaseLeg, isRevenue, stats, tur
 import { bumpClient, forgiveDelay, LEVEL_NAME, levelOf, statsV08 } from '../contracts/relations';
 import { cancelForceMajeure, closedAirport, closedAtDeparture, closedUntil, closureCause, payWarRisk, permitOf, rerouteAtDeparture, strandedAsk, strikeDelay, waitAtGate, whiteout } from './world';
 import { isActive, noteHiredThem } from '../contracts/rivals';
-import { atGate, delayCard, rollEnRoute } from './disrupt';
+import { atGate, curfewAtGate, delayCard, RUSH_MAX, rollEnRoute } from './disrupt';
+import { clearOfCurfews, inCurfew } from '../core/curfew';
 import { delayOf, excusedLate, latePenalty } from './latePolicy';
 
 /** v0.7.1: the problem ref and hurt snapshot of a message about legs lost or handed over (after the fact). */
@@ -209,6 +210,9 @@ function unitAt(g: GameState, legs: Flight[], i: number): Unit {
   let j = i;
   for (; j < legs.length && !isRevenue(legs[j]); j++) {
     if (out.length && legs[j].from !== out[out.length - 1].to) return { legs: out, rev: null };
+    // v0.14.1 (CREW-2) nor are empty legs days apart one move: a ferry home on 27 Nov and the move out to the next job
+    // on 10 Dec chained by airport, and the crew card on the ferry counted (and Cancel cancelled) that job's flights.
+    if (out.length && legs[j].std - out[out.length - 1].sta > 2 * DAY) return { legs: out, rev: null };
     out.push(legs[j]);
   }
   if (j >= legs.length || (out.length && legs[j].from !== out[out.length - 1].to)) return { legs: out, rev: null };
@@ -464,6 +468,10 @@ function delayChain0(g: GameState, f: Flight, std: Minute, reason: string, own: 
   if (f.status !== 'scheduled') return 0;
   markTech(f, reason);
   std = Math.max(std, g.now);
+  // v0.14.1 (OPS-1) a wait for crew, a delay the player or Crew Control picks and any empty leg's delay end outside
+  // the night curfews at both ends (an empty DUS–MAN waited for crew until 02:20 local, inside the DUS ban). An ops
+  // delay of a revenue leg is left to the gate, where the curfew card offers a rush, a diversion or a night stop.
+  if (crewWait || !own || !isRevenue(f)) std = clearOfCurfews(f.from, f.to, std, f.block);
   if (!ac) {
     moveFlight(g, f, std, reason);
     return 0;
@@ -824,6 +832,8 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
   if (isRevenue(f) && isGrounded(g, ac)) {
     return dropUnit(g, ac, f, 'Aircraft grounded: check overdue', `${ac.reg} is grounded: a check is overdue (book it on the Fleet screen).`, 'tech');
   }
+  // v0.14.1 (OPS-1) no leg leaves or lands inside a night curfew: a card for passenger legs, a later time for empty ones.
+  if (curfewAtGate(g, f, ac)) return;
   // 2. Crew complete and legal (v0.6: optional extra crew not at the gate, or over a limit, stay behind).
   dropStraySpares(g, f);
   if (crewBlocked(g, f)) {
@@ -968,6 +978,29 @@ export function offloadRestSeats(g: GameState, f: Flight, ac: Aircraft): void {
   });
 }
 
+/**
+ * v0.14.1 (OPS-1) the wind never carries a leg into its destination's curfew: a leg the gate let go (it lands outside on
+ * its block) that the wind would bring in early holds for the opening, and one it would bring in late flies faster (a
+ * direct routing, a higher speed; a rushed leg its rush) to land by the last allowed minute. Seen: PRG–LHR due 23:29
+ * landed 23:31 and 23:33, inside Heathrow's quota curfew, three weeks running. Pure.
+ */
+function curfewEta(g: GameState, f: Flight, eta: Minute): Minute {
+  const late = g.now > (f.schedStd ?? f.std) + 5;
+  if (!inCurfew(f.to, eta, late)) return eta;
+  const credit = isRevenue(f) && f.ops === 'curfew' && !f.div ? RUSH_MAX : 0;
+  const plan = g.now + Math.max(15, f.block - credit);
+  if (inCurfew(f.to, plan, late)) return eta;
+  // Early: the first minute it opens. Late: the last minute before it shuts (walked back from the planned landing).
+  if (eta < plan) {
+    let t = eta;
+    for (let i = 0; i < 240 && inCurfew(f.to, t, late); i++) t++;
+    return t;
+  }
+  let t = eta;
+  for (let i = 0; i < 240 && inCurfew(f.to, t, late); i++) t--;
+  return Math.max(g.now + 15, t);
+}
+
 function depart(g: GameState, f: Flight, ac: Aircraft): void {
   offloadRestSeats(g, f, ac);
   boardCrew(g, f);
@@ -978,7 +1011,7 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
   ac.flightId = f.id;
   ac.at = f.from;
   ac.status = 'flying';
-  f.eta = g.now + Math.max(15, Math.round(f.block * (1 + range(g, -BAL.windNoise, BAL.windNoise))));
+  f.eta = curfewEta(g, f, g.now + Math.max(15, Math.round(f.block * (1 + range(g, -BAL.windNoise, BAL.windNoise)))));
   schedule(g, f.eta, 'flight.arr', f.id, f.ev);
   // v0.11 a weather closure, a medical event or a technical fault later in this flight (side stream, the director).
   rollEnRoute(g, f, ac);
@@ -1524,9 +1557,12 @@ export function delayFlight(g: GameState, flightId: string, minutes: number, rea
   // The player accepts this lateness: recovery's cap counts on top of it.
   f.lateOk = Math.max(f.lateOk ?? 0, std - (f.schedStd ?? f.std));
   const before = stats(g).cancelled;
+  const was = Math.max(f.std + f.delay, g.now);
   const n = delayChain(g, f, std, reason || 'Held by operations', false);
   const dropped = stats(g).cancelled - before;
-  return { ok: true, msg: `${f.no} delayed ${fmtDuration(m)}${n ? `; ${n} later leg${n > 1 ? 's' : ''} moved` : ''}${dropped ? `; ${dropped} leg${dropped > 1 ? 's' : ''} cancelled` : ''}` };
+  // v0.14.1 a delay into a night curfew runs on to the first legal departure (delayChain): say so.
+  const got = f.status === 'scheduled' ? f.std + f.delay - was : m;
+  return { ok: true, msg: `${f.no} delayed ${fmtDuration(got)}${got > m ? ' (to the end of the night curfew)' : ''}${n ? `; ${n} later leg${n > 1 ? 's' : ''} moved` : ''}${dropped ? `; ${dropped} leg${dropped > 1 ? 's' : ''} cancelled` : ''}` };
 }
 
 // ---------- housekeeping ----------

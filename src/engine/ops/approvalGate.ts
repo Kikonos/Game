@@ -38,7 +38,8 @@ export function legApprovals(g: GameState, f: Flight): ApprovalId[] {
   const ac = g.fleet[f.aircraftId];
   if (!ac) return [];
   const t = typeOf(ac.typeId);
-  const out = [...gateApprovals(t.tier)];
+  // v0.14.1 (OPS-6) no ETOPS for three or four engines: the same rule as the offer sheet ("Four engines: no ETOPS").
+  const out = [...gateApprovals(t.tier, t.engines)];
   if (t.engines === 2) {
     const need = etopsNeeded(ac.typeId, f.from, f.to);
     if (need > 0) out.push(ETOPS_ID(need));

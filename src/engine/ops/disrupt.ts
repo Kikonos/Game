@@ -18,7 +18,7 @@ import { schedule } from '../core/queue';
 import { isolatePauses } from '../core/pause';
 import { hashUnit } from '../core/util';
 import { divPos } from '../core/query';
-import { curfewEnd, curfewOk, curfewShift, inCurfew } from '../core/curfew';
+import { clearOfCurfews, curfewEnd, inCurfew, movementOk } from '../core/curfew';
 import { DAY, dayStart, fmtDuration, fmtTime, localMinuteOfDay, toLocal, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, Decision, DecisionOption, DisruptCause, DisruptKind, Flight, GameState, MaintenanceEvent, Minute, OpsState, SimEvent } from '../core/types';
 import { bumpClient } from '../contracts/relations';
@@ -84,16 +84,6 @@ const place = (code: string) => {
   if (!A) return code;
   return AIRPORTS.some((x) => x.code !== code && x.city === A.city) ? `${A.city} ${A.name}` : A.city;
 };
-/** v0.12.1 the first departure from `std` on that leaves `dep` and lands at `arr` (after `block`) outside their strict curfews. Pure. */
-function clearOfCurfews(dep: string, arr: string, std: Minute, block: number): Minute {
-  let t = std;
-  for (let i = 0; i < 3; i++) {
-    t = curfewShift(dep, t, 'after');
-    if (curfewOk(arr, t + block)) break;
-    t = curfewShift(arr, t + block, 'after') - block;
-  }
-  return t;
-}
 /** v0.11 the airport itself ('Gatwick'), where the city alone is ambiguous (London has several). */
 const apName = (code: string) => AIRPORT_BY_CODE[code]?.name ?? code;
 const wide = (ac: Aircraft) => (typeOf(ac.typeId).body === 'wide' ? 1 : 0);
@@ -380,26 +370,47 @@ function curfewAlt(g: GameState, ac: Aircraft, code: string, t: Minute): AltOpti
   return alternates(g, ac, [A.lon, A.lat], code, 250, 4).find((o) => !inCurfew(o.code, t) && o.roadKm <= 450) ?? null;
 }
 
+/** v0.14.1 the leg leaves later than its schedule: a delayed movement may use the airport's grace ("delayed until 23:30"). */
+const delayedNow = (g: GameState, f: Flight): boolean => g.now > (f.schedStd ?? f.std) + 5;
+
+/** v0.14.1 the most a rush (priority handling, a direct routing) takes off the flight time (DISRUPT.rushSaves). */
+export const RUSH_MAX = DISRUPT.rushSaves[1];
+
 /**
- * At the gate: this leg would now land in its destination's night curfew (and was planned before it). Rush (only
- * when the turn is what made it late and rushing saves enough), land at a nearby open airport and coach the
- * passengers, night-stop here and fly at the curfew's end, or cancel.
+ * At the gate: this leg would now land in its destination's night curfew. Rush (only when the turn is what made it
+ * late and rushing saves enough), land at a nearby open airport and coach the passengers, night-stop here and fly at
+ * the curfew's end, or cancel. v0.14.1 (OPS-1) also when it was planned there (an extra rotation, a client's time, a
+ * save from before the curfew-aware planner: BLU1557 STR–DUS landed 23:55 local with no card), and when the airport it
+ * leaves is shut for the night (then: wait for the opening, or cancel).
  */
 function curfewCard(g: GameState, f: Flight, ac: Aircraft): boolean {
-  if ((!CURFEWS[f.to] && !forcing) || f.ops === 'curfew' || f.div || !isRevenue(f)) return false;
+  if (f.ops === 'curfew' || f.div || !isRevenue(f)) return false;
+  const late = delayedNow(g, f);
   const eta = g.now + f.block;
-  const planned = f.schedStd !== undefined ? f.schedStd + f.block : f.sta;
-  if (!forcing && (!inCurfew(f.to, eta, true) || inCurfew(f.to, planned, false))) return false;
+  const depShut = !movementOk(f.from, g.now, late);
+  const arrShut = !movementOk(f.to, eta, late);
+  if (!forcing && !depShut && !arrShut) return false;
   f.ops = 'curfew';
-  const end = curfewEnd(f.to, eta);
-  const alt = curfewAlt(g, ac, f.to, g.now + f.block + 20);
   const pax = paxOf(g, f);
   const charter = isCharter(g, f);
-  const rush = span(g, `cur:${f.id}:r`, DISRUPT.rushSaves);
-  const rushOk = !inCurfew(f.to, eta - rush, true);
-  const night = end - f.block;
+  // The first departure that leaves and lands outside both curfews (never a night stop that leaves into one).
+  const night = Math.max(clearOfCurfews(f.from, f.to, g.now, f.block), forcing ? curfewEnd(f.to, eta) - f.block : 0);
   const opts: DecisionOption[] = [];
-  if (rushOk) opts.push({ id: 'rush', label: 'Rush it out now', desc: `Priority handling and a quick boarding gain ${rush} min: lands before the curfew.`, tone: 'good', chips: [usd(-DISRUPT.rushTurn[wide(ac)] * 1.5), 'Lands in time'] });
+  if (depShut) {
+    opts.push({ id: 'night', label: 'Wait for the airport to open', desc: `Hotels here for passengers and crew; off blocks ${fmtTime(night)} UTC, as ${f.from} opens.`, chips: [costChip((charter ? hotelCost(pax) : 0) + crewRooms(g, f, night)), `${hm(night - g.now)} late`, 'Relation −1'] });
+    opts.push({ id: 'cancel', label: 'Cancel the leg', desc: 'Compensation to the client and a reliability hit.', tone: 'bad', chips: ['Reliability −3'] });
+    raise(g, {
+      kind: 'curfew', title: `${f.no} can't leave: ${f.from} is closed for the night`,
+      body: `${CURFEWS[f.from]?.note ?? 'Night curfew'}. The first legal departure is ${fmtTime(night)} UTC.`,
+      options: opts, defaultOption: 'night', expires: g.now + 20, ref: { kind: 'flight', id: f.id },
+      data: { flightId: f.id, alt: '', roadKm: 0, station: 'adhoc', night, rush: 0, ...cardData(`${f.no} can't leave: ${apName(f.from)} is closed for the night`, `Its departure falls inside the night curfew (${(CURFEWS[f.from]?.note ?? 'night curfew').toLowerCase()}).`, `${pax} passengers: a night stop or a cancellation`, 0, pax, night - g.now) },
+    }, { optional: false });
+    return true;
+  }
+  const alt = curfewAlt(g, ac, f.to, g.now + f.block + 20);
+  const rush = span(g, `cur:${f.id}:r`, DISRUPT.rushSaves);
+  const rushOk = !inCurfew(f.to, eta - rush, late);
+  if (rushOk) opts.push({ id: 'rush', label: 'Rush it out now', desc: `Priority handling and a direct routing gain ${rush} min: lands before the curfew.`, tone: 'good', chips: [usd(-DISRUPT.rushTurn[wide(ac)] * 1.5), 'Lands in time'] });
   if (alt) {
     const bus = coachCost(pax, alt.roadKm);
     // v0.12.1 the aircraft repositions once the curfew lifts and its crew have rested: the morning's first flight may wait.
@@ -408,12 +419,57 @@ function curfewCard(g: GameState, f: Flight, ac: Aircraft): boolean {
   opts.push({ id: 'night', label: 'Night-stop, fly at first light', desc: `Hotels here for passengers and crew; off blocks ${fmtTime(night)} UTC to land as ${f.to} opens.`, chips: [costChip((charter ? hotelCost(pax) : 0) + crewRooms(g, f, night)), `${hm(night - g.now)} late`, 'Relation −1'] });
   opts.push({ id: 'cancel', label: 'Cancel the leg', desc: 'Compensation to the client and a reliability hit.', tone: 'bad', chips: ['Reliability −3'] });
   const def = rushOk ? 'rush' : alt ? 'divert' : 'night';
+  const planned = f.schedStd !== undefined ? f.schedStd + f.block : f.sta;
+  const why = inCurfew(f.to, planned, false) ? 'It was planned to land inside the night curfew' : 'Delays today pushed its arrival into the night curfew';
   raise(g, {
     kind: 'curfew', title: `${f.no} would land in the ${f.to} curfew`,
     body: `${CURFEWS[f.to]?.note ?? 'Night curfew'}. Leaving now, ${f.no} lands about ${fmtTime(eta)} UTC.`,
     options: opts, defaultOption: def, expires: g.now + 20, ref: { kind: 'flight', id: f.id },
-    data: { flightId: f.id, alt: alt?.code ?? '', roadKm: alt?.roadKm ?? 0, station: alt?.station ?? 'adhoc', night, rush, ...cardData(`${f.no} would land after ${apName(f.to)} closes for the night`, `Delays today pushed its arrival into the night curfew (${(CURFEWS[f.to]?.note ?? 'night curfew').toLowerCase()}).`, `${pax} passengers: a coach, a night stop or a cancellation`, 0, pax, 60) },
+    data: { flightId: f.id, alt: alt?.code ?? '', roadKm: alt?.roadKm ?? 0, station: alt?.station ?? 'adhoc', night, rush, ...cardData(`${f.no} would land after ${apName(f.to)} closes for the night`, `${why} (${(CURFEWS[f.to]?.note ?? 'night curfew').toLowerCase()}).`, `${pax} passengers: a coach, a night stop or a cancellation`, 0, pax, 60) },
   }, { optional: false });
+  return true;
+}
+
+/**
+ * v0.14.1 (OPS-1) every departure, empty legs included, against the night curfews at both ends, before the crew are
+ * checked (a leg that cannot leave now needs no crew now). Seen: an empty DUS–MAN left 02:20 local after a crew wait,
+ * PRG–LHR landed 23:31 at Heathrow, DUS–MLA left 23:39 local, none with a word. A revenue leg gets the curfew card
+ * (once); an empty leg simply moves to the first departure clear of both curfews; a leg whose card is settled and that
+ * still cannot make it (the rush came too late) waits for the opening. A delayed leg may use the airport's grace; a
+ * rushed one counts its rush. True: the departure was handled here.
+ */
+export function curfewAtGate(g: GameState, f: Flight, ac: Aircraft): boolean {
+  if (g.decisions.some((d) => d.kind === 'curfew' && d.data?.flightId === f.id)) {
+    f.delay += 10;
+    schedule(g, g.now + 10, 'flight.dep', f.id, f.ev);
+    return true;
+  }
+  if (f.kind === 'deadhead' || f.div) return false;
+  const late = delayedNow(g, f);
+  const credit = isRevenue(f) && f.ops === 'curfew' ? RUSH_MAX : 0;
+  const depShut = !movementOk(f.from, g.now, late);
+  const arrShut = !movementOk(f.to, g.now + Math.max(15, f.block - credit), late);
+  if (!depShut && !arrShut) return false;
+  const ev = f.ev;
+  if (isRevenue(f) && curfewCard(g, f, ac)) {
+    // Held while the card is open, or when operations' answer left the leg where it was (a rush: next attempt).
+    if (f.status === 'scheduled' && f.ev === ev) {
+      f.delay += 10;
+      schedule(g, g.now + 10, 'flight.dep', f.id, f.ev);
+    }
+    return true;
+  }
+  const at = clearOfCurfews(f.from, f.to, g.now + 1, f.block);
+  const shut = depShut ? f.from : f.to;
+  const reason = `Night curfew at ${shut}`;
+  delayChain(g, f, at, reason);
+  if (isRevenue(f) && f.status === 'scheduled') {
+    pushMessage(g, {
+      tone: 'warn', cat: 'ops', title: `${f.no} waits for ${city(shut)} to open`,
+      body: `${f.from}–${f.to} can't ${depShut ? 'leave' : 'land'} inside the night curfew (${(CURFEWS[shut]?.note ?? 'night curfew').toLowerCase()}). Off blocks ${fmtTime(f.std + f.delay)} UTC.`,
+      ref: { kind: 'flight', id: f.id },
+    });
+  }
   return true;
 }
 
@@ -1032,21 +1088,17 @@ function resolveSickAway(g: GameState, d: Decision, opt: string): ActionResult {
 // ---------- hooks ----------
 
 /**
- * At the gate, before the random delay roll (first attempt): an ATC slot or a slow turn (one card per leg). A curfew
- * is checked at every attempt. True: the departure was handled here (held, delayed, moved).
+ * At the gate, before the random delay roll (first attempt): an open disruption card on this leg holds it. (v0.14.1
+ * the curfew is checked earlier, at every attempt, by curfewAtGate.) True: the departure was handled here.
  */
-export function atGate(g: GameState, f: Flight, ac: Aircraft): boolean {
+export function atGate(g: GameState, f: Flight, _ac: Aircraft): boolean {
   if (!OPS_LIVE.on || !OPS_LIVE.disrupt) return false;
   if (g.decisions.some((d) => DISRUPT_KINDS.has(d.kind) && d.data?.flightId === f.id)) {
     f.delay += 10;
     schedule(g, g.now + 10, 'flight.dep', f.id, f.ev);
     return true;
   }
-  if (curfewCard(g, f, ac)) {
-    f.delay += 10;
-    schedule(g, g.now + 10, 'flight.dep', f.id, f.ev);
-    return true;
-  }
+  // v0.14.1 the curfew card is raised earlier, by curfewAtGate (every leg, before the crew check).
   return false;
 }
 
