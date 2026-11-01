@@ -10,7 +10,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { flag } from '../../data/countries';
 import { artFor } from '../../data/acmiTypes';
 import {
-  acceptOffer, askingPrice, cabinQuote, cabinTarget, counterOffer, counterView, declineOffer, deportationCleanHit, feasibilityAll, leadDays, markOfferSeen, offerClientLine, offerCompetition,
+  acceptOffer, askingPrice, cabinQuote, cabinTarget, counterOffer, counterView, declineOffer, isTenderOffer, deportationCleanHit, feasibilityAll, leadDays, markOfferSeen, offerClientLine, offerCompetition,
   offerRestLine, paintQuote, paintTermsText, termsProduct, tourBizPct, tourCrew, tourSight, tourStops, type FeasibilityReport,
 } from '../../engine/contracts';
 import { TourMap } from '../map/TourMap';
@@ -81,7 +81,7 @@ function Terms({ g, o }: { g: GameState; o: ContractOffer }) {
     rows.push(['Fuel', p.fuelEscalation ? 'Escalation clause' : 'Our risk']);
   } else rows.push(['Rent', `${usd(p.rentPerMonth)} / month`], ['Reserves', `${usd(p.reservesPerFH)} / FH`]);
   const [d0, d1] = offerDays(o);
-  rows.push(['Dates', `${fmtDate(d0)} – ${fmtDate(d1)}${o.pattern.kind === 'base' ? ` (${o.pattern.base} local)` : ''}`], ['Lead time', lead <= 0 ? 'Starts now' : `${lead} days`]);
+  rows.push(['Dates', `${fmtDate(d0)} – ${fmtDate(d1)}${o.pattern.kind === 'base' ? ` (${o.pattern.base} local)` : ''}`], ['Lead time', lead <= 0 ? 'Starts now' : `${lead} day${lead === 1 ? '' : 's'}`]);
   // A dry lease bills no block hours (rent and reserves only).
   rows.push(['Estimate', p.kind === 'dry' ? money(o.estValue) : `Billable ≈ ${Math.round(o.estBH)} BH · ${money(o.estValue)}`]);
   const arrears = p.kind === 'charter' ? 'Invoiced after the job' : 'Monthly in arrears';
@@ -281,6 +281,8 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal
               {c.action?.kind === 'refit' && <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'refit', aircraftId: r.aircraftId, layout: c.action!.layout, offerId })}>Plan refit…</button>}
               {/* v0.7.3 §2.9: the cheapest crew rest refit that makes the job legal; the seats check offers the section too. */}
               {c.action?.kind === 'restRefit' && <button className="btn btn-sm" onClick={() => openRest(c)}>Plan a refit…</button>}
+              {/* v0.14.1 a check due before or inside the job: book it here. */}
+              {c.id === 'maintenance' && c.level !== 'ok' && <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'check', aircraftId: r.aircraftId, checkKind: /C-check/.test(c.label) ? 'C' : 'A' })}>{/C-check/.test(c.label) ? 'Plan C-check…' : 'Book A-check…'}</button>}
               {!c.action && c.level !== 'ok' && (c.id === 'restSeats' || c.id === 'rest') && restRefitOptions(g, r.aircraftId).some((x) => x.ok) && <button className="btn btn-sm" onClick={() => openRest(c)}>Crew rest refits…</button>}
             </div>
           ))}
@@ -565,7 +567,9 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const bizLift = 1 + tourBizPct(o.archetype, sel && g.fleet[sel.aircraftId] ? g.fleet[sel.aircraftId].cabin.j : 0);
   const lift = (crewed && paid && x.cabin >= paid.n ? 1 + paid.pct : 1) * bizLift;
   const opts = { paint, cabin, crewExtra: crewed ? x : undefined };
-  const canCounter = live && !countered && !o.counter && !!sel && !blocked(sel);
+  // v0.14.1 a won tender is signed at our bid: no counter.
+  const tenderWon = isTenderOffer(g, o.id);
+  const canCounter = live && !countered && !o.counter && !tenderWon && !!sel && !blocked(sel);
   const canAccept = live && !countered && !!sel && !blocked(sel) && !mustPaint;
   // v0.7.1 §13: one plain sentence on what is in the way (crew, aircraft, range, cabin, paint) or a counter about to expire.
   const fit0 = live ? problemAt(g, { kind: 'offer', id: o.id }) : null;
@@ -601,6 +605,8 @@ export function OfferModal({ offerId }: { offerId: string }) {
         <span className="grow" />
         {cv ? (
           <CounterStatus g={g} o={o} cv={cv} fmtP={fmtP} />
+        ) : tenderWon ? (
+          <span className="small muted">Won in their tender: signed at our bid</span>
         ) : (
           <span className="row gap-8 sc-counter">
             <Stepper value={step} min={1} max={8} onChange={setStep} format={(v) => <span className="num">{fmtP(steps[v - 1] * lift)} <span className="dim">+{(v * 2.5).toFixed(1)}%</span></span>} />
@@ -629,7 +635,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           </div>
           <p className="muted sc-blurb">{blurbOf(o)}</p>
           <Chips chips={[...v09Chips(o), ...reqChips(o.requirements, o.pattern), ...riskChips(o.risk), ...effectChips(o)]} />
-          <AnalystBlock g={g} offerId={o.id} fmtP={fmtP} steps={steps} lift={lift} onUse={live && !countered && !o.counter ? setStep : undefined} />
+          <AnalystBlock g={g} offerId={o.id} fmtP={fmtP} steps={steps} lift={lift} onUse={live && !countered && !o.counter && !tenderWon ? setStep : undefined} />
           {live && <CompetitionLine g={g} o={o} />}
           <ArchPanel g={g} o={o} aircraftId={sel?.aircraftId} />
           {sel && !hasPanel(o) && (() => {

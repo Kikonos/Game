@@ -52,7 +52,8 @@ const URGENCY_RANK: Record<ContractOffer['urgency'], number> = { urgent: 0, shor
 /** Open (and countered) offers: urgent first, then by value. */
 export function marketOffers(g: GameState): ContractOffer[] {
   return Object.values(g.offers)
-    .filter((o) => o.status === 'open' || o.status === 'countered')
+    // v0.14.1 an open offer past its time is not on the market (it lapses at its 'offer.expire'; never shown as live).
+    .filter((o) => (o.status === 'open' && o.expires > g.now) || o.status === 'countered')
     .sort((a, b) => URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency] || b.estValue - a.estValue || a.expires - b.expires);
 }
 
