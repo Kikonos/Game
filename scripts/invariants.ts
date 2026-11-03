@@ -38,6 +38,7 @@ import { cabinMinimum, crewInPaxSeats, etopsNeeded, reportMinutes, typeOf } from
 import type { GameState, Minute, Role } from '../src/engine/core/types';
 import { offsetAt } from '../src/engine/crew/rules';
 import { inCurfew } from '../src/engine/core/curfew';
+import { openAfter } from '../src/engine/contracts/schedule';
 
 const H = 60;
 /** v0.14 new copies of one empty move in 24 h above which it is a re-plan loop (a hop out and back is two). */
@@ -361,7 +362,13 @@ export function createChecker(opts: CheckerOpts = {}) {
       for (const f of Object.values(g.flights)) if (f.aircraftId === ac.id && f.status !== 'cancelled' && f.to === fl[0].from && f.kind !== 'deadhead' && f.sta <= fl[0].std) landed = Math.max(landed, f.status === 'done' ? f.ata ?? f.sta : f.sta);
       if (!Number.isFinite(landed)) continue;
       const move = fl[j - 1].sta - fl[0].std;
-      const room = fl[j].std - landed - typeOf(ac.typeId).turnMin;
+      // v0.15 from when the move could still leave, as the planner reads it (relinkPositioning base0/earliest): not
+      // before now, not before a crew wait operations put on it (crewTries: held at the gate until a crew can be there),
+      // not while its airport is shut. Ash Cloud: CS-TWD's MAN–AGP held to 00:15 for a captain (the seat empty), the job
+      // and the ferry behind it slid into the night: a crew shortage for crew control, not a move planned too late.
+      const held = fl.slice(0, j).some((f) => (f.crewTries ?? 0) > 0) ? fl[0].std : -Infinity;
+      const free = openAfter(g, fl[0].from, Math.max(landed + typeOf(ac.typeId).turnMin, g.now, held), fl[j].contractId);
+      const room = fl[j].std - free;
       if (room < move + rm.post + 10 * H + rm.report + 60) continue;
       posSeen.add(d.id);
       err('pos-fdp', g.now, `${ac.reg}: ${fl.map((f) => `${f.no} ${f.from}–${f.to} ${fmtDateTime(f.std)}`).join(', ')}: one duty ${hm(fdp)} of ${hm(max)}, after ${hm(fl[0].std - landed)} on the ground at ${fl[0].from} (room to move it the day before)`);

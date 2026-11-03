@@ -61,8 +61,11 @@ export function setFarLateHook(f: typeof farLateHook): void {
   farLateHook = f;
 }
 
-/** v0.12.1 (review) the first time at or after t an empty leg may leave `code` (S1027: BLU1574 GOM–NDJ planned 29 Oct 06:40, Goma shut to 30 Oct). */
-const openAfter = (g: GameState, code: string, t: Minute, contractId: string | null): Minute => Math.max(t, openFrom?.(g, code, t, contractId) ?? t);
+/**
+ * v0.12.1 (review) the first time at or after t an empty leg may leave `code` (S1027: BLU1574 GOM–NDJ planned 29 Oct
+ * 06:40, Goma shut to 30 Oct). Pure. v0.15 exported for the checker (scripts/invariants.ts pos-fdp).
+ */
+export const openAfter = (g: GameState, code: string, t: Minute, contractId: string | null): Minute => Math.max(t, openFrom?.(g, code, t, contractId) ?? t);
 
 /**
  * v0.12.1 (review) a chain that leaves or lands at an airport closed then (a leg landing inside a closure, a fuel stop
@@ -405,19 +408,12 @@ function jobSector(g: GameState, b: Anchor, stops: Flight[]): MoveLeg[] | null {
   const f = g.flights[b.id];
   if (!f || f.status !== 'scheduled' || (f.kind !== 'revenue' && f.kind !== 'techstop')) return null;
   const out: MoveLeg[] = [{ from: f.from, to: f.to, std: f.std, sta: f.sta }];
+  // v0.15 not the empty legs after it: the roster cuts a day too long for one crew (a ferry crew for the move, the
+  // job's crew on tickets: duties.ts partition/slipUnits), so counting the ferry home here only pulled legal moves to
+  // the evening before and changed normal games. Ash Cloud's pos-fdp (MAN–AGP 00:15) was Manchester shut until then.
   for (let i = 0; i < 4; i++) {
     const last = out[out.length - 1];
-    const x = stops.find((y) => y.kind === 'techstop' && y.from === last.to && y.std >= last.sta && y.std - last.sta <= 3 * 60);
-    if (!x) break;
-    out.push({ from: x.from, to: x.to, std: x.std, sta: x.sta });
-  }
-  // v0.15 and the empty legs straight after it (a one-way charter's ferry home within a turn): the job's crew fly them
-  // in the same duty, so they count in its day (Ash Cloud: MAN–AGP at 00:15 into AGP–HAM, then HAM–OPO, one night duty
-  // 11:30 of 10:30, while the aircraft had stood at Manchester all afternoon).
-  const empties = stops.filter((y) => y.kind === 'positioning' || y.kind === 'ferry');
-  for (let i = 0; i < 2; i++) {
-    const last = out[out.length - 1];
-    const x = empties.find((y) => y.from === last.to && y.std >= last.sta && y.std - last.sta <= 90);
+    const x = stops.find((y) => y.from === last.to && y.std >= last.sta && y.std - last.sta <= 3 * 60);
     if (!x) break;
     out.push({ from: x.from, to: x.to, std: x.std, sta: x.sta });
   }
@@ -602,7 +598,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     // evening before, the late move stays: one crew with in-flight rest (3 or 4 pilots), or a ferry crew of two pilots
     // and the job's crew on airline tickets (duties.ts slipUnits/partition).
     let op0: MoveLeg[] | null | undefined;
-    const opOf = () => (op0 === undefined ? (op0 = jobSector(g, b, stops ??= liveFlightsOf(g, aircraftId).filter((f) => (f.kind === 'techstop' || f.kind === 'positioning' || f.kind === 'ferry') && f.status === 'scheduled'))) : op0);
+    const opOf = () => (op0 === undefined ? (op0 = jobSector(g, b, stops ??= liveFlightsOf(g, aircraftId).filter((f) => f.kind === 'techstop' && f.status === 'scheduled'))) : op0);
     const fitOf = (move: MoveLeg[]) => positioningFit(g, typeId, restOf(g, aircraftId), move, opOf()!);
     const crewTimed = <T extends MoveLeg>(move: T[], from0: Minute): T[] | ChainLeg[] => {
       const op = opOf();
