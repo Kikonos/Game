@@ -23,10 +23,22 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'Aircraft cast a soft shadow on the map: crisp on the stand, drifting further off and softer as they climb, back in as they descend.',
       'Zoom in close and the map leans back gently, with a soft horizon at the top. Taps land exactly where you touch.',
       'The Hangar has depth: in the side view the line-up stands on a hangar floor with soft shadows and faint reflections; from above, a lit concrete floor with a shadow under every aircraft.',
+      'A take-off to start: tap the loading screen ("Tap to board") and a twin-jet spools up, rolls past and climbs away. Then Terminal, departure-lounge music, plays through the title, New Game and Scenarios, and fades into the game music when you start flying.',
+      'A welcome card for every new airline, with a low chime: what the job is, where offers come from, how time works and where to find help. Scenarios show their brief and goal on it.',
+      'Scenarios play as the scenario: each one locks what would sidestep it (no cancelling the Hajj airlift, no fleet deals, tenders or sales trips, only the scenario\'s kind of work on the market). Locked buttons show a lock and the reason.',
+      'Every scenario starts inside an established airline: years on the AOC, its standing and approvals, a year of monthly accounts, past jobs and clients, crew seniority and recent flying, and a technical record.',
     ],
     improvements: [
+      'When the game stops the clock for a decision, a call, a crew alarm or one of your pause rules, it carries on at the speed you were playing once you\'ve dealt with it. If you paused yourself, it stays paused.',
+      'Smoother coastlines and borders on the globe at every zoom.',
       'Settings › Display: 3D globe on or off, the globe turning slowly when you leave it, and Map tilt on or off.',
       'The globe loads only when you open it and works offline. If your device can\'t show it, the flat map stays, with a short note.',
+      'Scenario star targets retuned for the new rules.',
+    ],
+    fixes: [
+      'A crew card fixed in Crew Control no longer leaves "Decision waiting" behind.',
+      'A crew member no longer stays on hotel standby at an outstation they never reached, or during leave.',
+      'The positioning flight into a job leaves early enough when the job\'s ferry home falls in the same crew duty.',
     ],
   },
   {
