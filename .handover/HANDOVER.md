@@ -584,3 +584,9 @@ v0.15 READY on acmi 3803b14 (globe+depth merged, What's new; 1930 tests; globe/t
 sound DONE (sound 95186b0): takeoff.ts synth 8.6 s + 'Tap to board'; TERMINAL track (not in playlist) through Title/NewGame/Scenarios, crossfade at game start; welcome card + low chime (scenarios get the same card with brief). Waiting: coast (acmi), resume, scen.
 resume DONE (resume bbdfa76): autoHold with pre-pause speed, resumes when all reasons resolved; withdrawHandled stale crew cards; pill reopens put-away call. Waiting: coast (acmi), scen.
 coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from texture AA 0.8 px, borders smoothed). Waiting scen; then merge sound+resume+scen into acmi, What's new v0.15 update, verify, RELEASE.
+
+## v0.15 "3D" released (2026-11-03)
+- Release 06f8fbd on claude/contrail-airline-game and main; live index-CVfTizBx.js; live.cjs 0 errors; version check passes.
+- acmi ba7c876: scen's jobSector change in contracts/schedule.ts was reverted (it cost normal games about 20% of legs through chaotic divergence and fixed nothing); the invariants pos-fdp check now counts from when the empty leg could still leave. Seeds 1–5 --wide now match base 3803b14.
+- Release folder needed `npm install` for three (new dependency).
+- Open: should "Let's fly" start at 1×; slip-for-rest for all flights; take-off sound in Test sounds; globe has no offer pins, weather or contrails.
