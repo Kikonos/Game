@@ -590,3 +590,11 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
 - acmi ba7c876: scen's jobSector change in contracts/schedule.ts was reverted (it cost normal games about 20% of legs through chaotic divergence and fixed nothing); the invariants pos-fdp check now counts from when the empty leg could still leave. Seeds 1–5 --wide now match base 3803b14.
 - Release folder needed `npm install` for three (new dependency).
 - Open: should "Let's fly" start at 1×; slip-for-rest for all flights; take-off sound in Test sounds; globe has no offer pins, weather or contrails.
+
+## Queue after v0.15.1 (player approved 2026-11-04; release when tested)
+- v0.15.1: workflow wf_ec782c4e-b2e (lanes fdp, music2, fix-crew/ui/ops/money/perf → merge → review). Before release also rename the offer "contribution" label to "profit" (OfferModal.tsx and any other player-facing "contribution").
+- v0.16 "Finance & Sales":
+  - finance: revolving credit line (interest, commitment fee, covenants with consequences); loan secured on owned aircraft (~60% LTV, monthly repayments); sale and leaseback with real lessors (AerCap, Avolon, SMBC…); invoice factoring (~95% now); client deposits 10–30% on charters (affects price/acceptance); interest on spare cash.
+  - contracts: inbound offers cut about in half; chase work via brokers (Air Charter Service, Chapman Freeborn, ACC Aviation; 3–5% commission), pre-season pitches to airlines (maybe → later contract), a leads pipeline (lead → proposal → negotiation → signed; leads go cold), regional sales staff; tenders and fairs matter more. Rebalance prices only if bots can't survive.
+  - Compliance Monitoring Manager as a real Team hire (salary; fewer ramp/audit findings).
+  - Not included: investor, insurance choices.
