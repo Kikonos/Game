@@ -89,6 +89,12 @@ export interface Settings {
   uiSize: UiSizePref;
   /** v0.12 Scenarios: the best result on this device per scenario id (stars, the goal's value, when). */
   scenarioBest: Record<string, ScenarioBest>;
+  /** v0.15 Display › 3D globe: the Map's globe button (off: hidden, the flat map only). */
+  globe: boolean;
+  /** v0.15 the Map shows the 3D globe (the player's last choice; the flat map is the default). */
+  globeView: boolean;
+  /** v0.15 the globe turns slowly by itself after a few idle seconds. */
+  globeSpin: boolean;
 }
 
 export interface ScenarioBest { stars: number; value: number; at: number }
@@ -116,6 +122,9 @@ const DEFAULT_SETTINGS: Settings = {
   device: 'auto',
   uiSize: 'auto',
   scenarioBest: {},
+  globe: true,
+  globeView: false,
+  globeSpin: false,
 };
 
 export interface Nav {
@@ -248,6 +257,10 @@ export function settingsFrom(s: Partial<Settings>): Settings {
   out.scenarioBest = out.scenarioBest && typeof out.scenarioBest === 'object' ? { ...out.scenarioBest } : {};
   if (!(['auto', 'iphone', 'ipad', 'computer'] as const).includes(out.device)) out.device = 'auto';
   if (!(['auto', 'small', 'normal', 'large'] as const).includes(out.uiSize)) out.uiSize = 'auto';
+  // v0.15 settings saved before the globe: its button shown, the flat map on, no idle spin.
+  if (typeof out.globe !== 'boolean') out.globe = DEFAULT_SETTINGS.globe;
+  if (typeof out.globeView !== 'boolean') out.globeView = DEFAULT_SETTINGS.globeView;
+  if (typeof out.globeSpin !== 'boolean') out.globeSpin = DEFAULT_SETTINGS.globeSpin;
   return out;
 }
 

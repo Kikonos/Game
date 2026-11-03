@@ -1,0 +1,8 @@
+/* v0.15 the Ops Map's 3D globe: what the main bundle needs before the globe's own chunk (and its styles) has loaded.
+   The note when the globe cannot open is quiet: a small pill above the zoom controls that goes by itself. */
+.globe-wait { position: absolute; inset: 0; background: var(--map-ocean-1); }
+.globe-note {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: 6; max-width: calc(100% - 32px);
+  padding: 7px 14px; border-radius: 999px; font-size: 12px; color: var(--text-2); background: var(--op-bg, var(--panel-solid));
+  border: 1px solid var(--border); box-shadow: var(--shadow-sm); pointer-events: none; text-align: center;
+}

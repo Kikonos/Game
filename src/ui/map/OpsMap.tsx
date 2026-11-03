@@ -35,6 +35,7 @@ import { type FocusAt, type MapAirport, type MapLayerCtx, type Pad, type View, W
 import { HintNote } from '../components/ScreenHint';
 import { cssRect } from '../device';
 import { safe } from './safe';
+import { GlobeButton, GlobeHost, GlobeNote, useGlobe } from './GlobeSwitch';
 
 /** Panel width (px) kept clear when revealing a selection, and the fleet strip's height. */
 const PANEL_W = 360;
@@ -216,6 +217,8 @@ export function OpsMap() {
   // v0.12 spotter mode (a view only: never touches the game or its clock).
   const [spot, setSpot] = useState<Spot | null>(null);
   const spotNav = useRef('');
+  // v0.15 the 3D globe (lazy; the flat map stays the default and keeps its view).
+  const globe = useGlobe();
   const startSpot = () => {
     if (store.nav.sel) store.select(undefined);
     spotNav.current = navSig();
@@ -434,7 +437,11 @@ export function OpsMap() {
 
   return (
     <div className={`ops-map ${panelOpen ? 'panel-open' : ''}`}>
+      {globe.on ? (
+        <GlobeHost g={g} airports={airports} nextArcs={nextArcs} tours={tours} sel={sel} theme={theme} accent={g.company.livery.secondary} panelOpen={panelOpen} onFlat={() => globe.show(false)} onFail={globe.fail} />
+      ) : (
       <WorldMap
+        extraControls={store.settings.globe && !globe.failed ? <GlobeButton onClick={() => { setSpot(null); globe.show(true); }} /> : undefined}
         routes={tours}
         airports={airports}
         fitFn={fitFn}
@@ -483,11 +490,13 @@ export function OpsMap() {
           </>
         )}
       />
+      )}
+      <GlobeNote show={globe.failed} />
       <UpNext g={g} />
       <FleetStrip g={g} sel={sel} panelOpen={panelOpen} />
       {spot && <SpotWatch id={spot.id} onMove={nextSpot} />}
       {spot ? <SpotterPanel g={g} id={spot.id} onNext={nextSpot} onClose={() => setSpot(null)} canNext={spotList(g).length > 1} /> : <MapPanel g={g} sel={sel} />}
-      {!spot && <button className="btn btn-icon ops-spot-btn" onClick={startSpot} aria-label="Spotter: watch the planes" title="Spotter: watch the planes"><Binoculars /></button>}
+      {!spot && !globe.on && <button className="btn btn-icon ops-spot-btn" onClick={startSpot} aria-label="Spotter: watch the planes" title="Spotter: watch the planes"><Binoculars /></button>}
     </div>
   );
 }

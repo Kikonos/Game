@@ -6,12 +6,15 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react';
 import { store } from './store';
 
-export type BoundaryScope = 'app' | 'screen' | 'modal';
+/** v0.15 'view': an optional view inside a screen (the 3D globe): nothing is paused; it draws nothing and calls onError. */
+export type BoundaryScope = 'app' | 'screen' | 'modal' | 'view';
 
 interface Props {
   scope: BoundaryScope;
   /** A new key (another tab, another dialog) clears a caught error and draws the children again. */
   resetKey?: unknown;
+  /** v0.15 'view' scope: told of the error (the screen falls back to another view). */
+  onError?: (error: Error) => void;
   children: ReactNode;
 }
 
@@ -43,6 +46,10 @@ export class ErrorBoundary extends Component<Props, State> {
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error(`[Block Hours] a ${this.props.scope} failed to draw`, error, info.componentStack);
+    if (this.props.scope === 'view') {
+      this.props.onError?.(error);
+      return;
+    }
     keepGameSafe();
     if (this.props.scope === 'modal') {
       store.closeModal();
@@ -52,7 +59,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     if (!this.state.error) return this.props.children;
-    if (this.props.scope === 'modal') return null;
+    if (this.props.scope === 'modal' || this.props.scope === 'view') return null;
     const app = this.props.scope === 'app';
     const go = () => {
       if (app) location.reload();

@@ -122,6 +122,8 @@ interface Props {
    * or pinch by the player pauses it for a few seconds. Reduced motion: it jumps only when the point nears an edge.
    */
   follow?: { key: string; at: () => [number, number] | null; pad: Pad; zoom?: number } | null;
+  /** v0.15 extra buttons at the top of the zoom controls (ops map: the 3D globe). */
+  extraControls?: ReactNode;
 }
 
 /** Container geometry: the SVG uses "slice" scaling (s screen px per map unit at zoom 1, offset ox/oy). */
@@ -351,7 +353,7 @@ interface Gesture {
  */
 export function WorldMap({
   rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent: accentIn = 'var(--accent)', selected, onSelect, onSelectRoute, onHover,
-  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, ground, backdrop, glow, onTap, fitFn, fitCentre, focus, memo, follow,
+  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, ground, backdrop, glow, onTap, fitFn, fitCentre, focus, memo, follow, extraControls,
 }: Props) {
   const touch = useTouch();
   // v0.11 a pale livery colour (white, cream) would vanish on the light map: the theme accent there instead.
@@ -1205,6 +1207,7 @@ export function WorldMap({
       )}
       {interactive && controls && (
         <div className="map-zoom">
+          {extraControls}
           <button className="btn btn-icon btn-sm" onClick={() => { measure(); zoomBy(1.8, center()); }} aria-label="Zoom in"><Plus /></button>
           <button className="btn btn-icon btn-sm" onClick={() => { measure(); zoomBy(1 / 1.8, center()); }} aria-label="Zoom out"><Minus /></button>
           <button className="btn btn-icon btn-sm" onClick={() => doFit(true)} aria-label="Reset view"><Maximize2 /></button>

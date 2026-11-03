@@ -24,6 +24,11 @@ export function mapReady(): boolean {
   return land !== null;
 }
 
+/** v0.15 the land and the country borders as loaded (the 3D globe draws them too); null before loadMapData. */
+export function worldGeo(): { land: MultiPolygon; borders: MultiLineString } | null {
+  return land && borders ? { land, borders } : null;
+}
+
 const projections = new Map<number, GeoProjection>();
 
 export function projection(rotate = 0): GeoProjection {
