@@ -579,3 +579,4 @@ Open (player's call later): extend slip-for-rest (instead of release) from world
 globe DONE (globe 1046d80; three 0.186.1 lazy chunk globe3d 519 kB; main +2.6 kB). acmi worktree has uncommitted package.json/lock (three) — resolve at merge. A320 artifact: https://claude.ai/artifact/XPMsd2pN7gavE7RabvzC1f. Waiting depth.
 v0.15 READY on acmi 3803b14 (globe+depth merged, What's new; 1930 tests; globe/tilt Playwright 0 errors; build index-NQ8fjRkd.js). ASK player before release.
 3 Nov PLAYER: A320 prototype not wanted in game (done, it's just the artifact). RELEASE v0.15 AUTHORISED after: obvious 2D|3D toggle pill on both views + smoother coastlines on globe (agent on acmi).
+3 Nov PLAYER: keep small globe/map icons (no 2D|3D pill). Add: take-off sound on loading screen + 'terminal music' on Title (agent branch sound). Release v0.15 after ALL work (authorised).
