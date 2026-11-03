@@ -1,9 +1,10 @@
 // Global dialogs (menu, saves, settings, confirm) and the in-game modal slot (decisions, game over).
 
+import { WelcomeModal } from '../modals/WelcomeModal';
 import { TenderModal } from '../modals/TenderModal';
 import { BookOpenText, Download, FolderOpen, Home, Lightbulb, Play, PlusCircle, RefreshCw, Save, Settings as SettingsIcon, Sparkles, Trash2, Upload, Volume2 } from 'lucide-react';
 import { sound, SOUND_MEANING } from '../sound';
-import { TRACKS } from '../music';
+import { TERMINAL, TRACKS } from '../music';
 import { HeadUnlockedModal } from '../modals/HeadUnlockedModal';
 import { CounterReplyModal, DeliveredModal, FollowDeliveryModal } from '../modals/PopModals';
 import { CallModal } from '../modals/CallModal';
@@ -223,8 +224,9 @@ function MusicNowPlaying({ dim }: { dim: boolean }) {
   }, []);
   return (
     <div className={`set-row ${dim ? 'v9-dim' : ''}`}>
-      <div><b>Now playing</b><div className="tiny dim">{name ?? 'Starts after your first tap'} · {TRACKS.map((t) => t.name).join(', ')}</div></div>
-      <button className="btn btn-sm" disabled={!name} onClick={() => { sound.nextMusicTrack(); setTimeout(() => setName(sound.musicTrack), 50); }}>Next piece</button>
+      {/* v0.15 the menus play Terminal (a lounge piece of their own, not in the game's turns): no next piece there. */}
+      <div><b>Now playing</b><div className="tiny dim">{name ?? 'Starts after your first tap'} · {name === TERMINAL.name ? 'on the title screen; in a game: ' : ''}{TRACKS.map((t) => t.name).join(', ')}</div></div>
+      <button className="btn btn-sm" disabled={!name || name === TERMINAL.name} onClick={() => { sound.nextMusicTrack(); setTimeout(() => setName(sound.musicTrack), 50); }}>Next piece</button>
     </div>
   );
 }
@@ -244,7 +246,7 @@ function SoundSettings() {
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Chimes</b><div className="tiny dim">Messages, offers, decisions, achievements</div></div><Toggle on={st.soundCats.chimes} onChange={(v) => cats('chimes', v)} label="Chimes" /></div>
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Flight chimes</b><div className="tiny dim">One LO chime at every departure and landing</div></div><Toggle on={st.soundCats.flights} onChange={(v) => cats('flights', v)} label="Flight chimes" /></div>
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>UI clicks</b></div><Toggle on={st.soundCats.ui} onChange={(v) => cats('ui', v)} label="UI clicks" /></div>
-      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Music</b><div className="tiny dim">Calm background music, {TRACKS.length} pieces taking turns; it dips under chimes and alarms</div></div><Toggle on={st.music} onChange={(v) => store.setSettings({ music: v })} label="Music" /></div>
+      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Music</b><div className="tiny dim">Calm background music, {TRACKS.length} pieces taking turns in a game and Terminal on the title screen; it dips under chimes and alarms</div></div><Toggle on={st.music} onChange={(v) => store.setSettings({ music: v })} label="Music" /></div>
       <MusicNowPlaying dim={off || !st.music} />
       <div className={`set-row ${off || !st.music ? 'v9-dim' : ''}`}><div><b>Music volume</b></div><input type="range" min={0} max={1} step={0.05} value={st.musicVolume} aria-label="Music volume" style={{ width: 200, ['--fill' as string]: `${st.musicVolume * 100}%` }} onChange={(e) => store.setSettings({ musicVolume: Number(e.target.value) })} /></div>
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Ambience</b><div className="tiny dim">Faint, in the background of the game</div></div><Seg value={st.ambience} onChange={(v) => store.setSettings({ ambience: v })} options={[{ value: 'off', label: 'Off' }, { value: 'cabin', label: 'Cabin' }, { value: 'terminal', label: 'Terminal' }]} /></div>
@@ -401,5 +403,6 @@ export function GlobalModals() {
     case 'offerCall': return s.game ? <CallModal key={m.offerId} offerId={m.offerId} aircraftId={m.aircraftId} /> : null;
     case 'delivered': return s.game ? <DeliveredModal aircraftId={m.aircraftId} /> : null;
     case 'followDelivery': return s.game ? <FollowDeliveryModal aircraftId={m.aircraftId} /> : null;
+    case 'welcome': return s.game ? <WelcomeModal /> : null;
   }
 }
