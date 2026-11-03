@@ -282,7 +282,8 @@ function Overview({ g, fleet }: { g: GameState; fleet: number }) {
           <Card title="Goals" icon={<FlagIcon className="ico" />}><Goals g={g} /></Card>
           <Card title="Company" icon={<Building2 className="ico" />}>
             <KV rows={[
-              ['Operating since', fmtDate(g.started)],
+              // v0.15 a scenario's airline had its AOC for years.
+              ['Operating since', fmtDate(g.company.aocAt ?? g.started)],
               ['Aircraft', String(fleet)],
               ['Crew', String(Object.keys(g.crew).length)],
               ['Approvals held', c.approvals.length ? c.approvals.map((a) => APPROVALS.find((x) => x.id === a)?.name ?? a.toUpperCase()).join(', ') : 'none'],

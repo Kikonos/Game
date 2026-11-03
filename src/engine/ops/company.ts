@@ -13,6 +13,7 @@ import { clamp } from '../core/util';
 import { familyLabel } from '../crew/conversion';
 import { restOf } from '../crew/restPlan';
 import { usd } from './util';
+import { lockOf } from '../scenario/rules';
 
 export interface ApprovalDef {
   id: ApprovalId;
@@ -140,6 +141,9 @@ export function etopsMxBlocker(g: GameState): string | null {
 
 /** Starts the ETOPS maintenance programme: pays now, ready in BAL.ladder.etopsMx.days (dailyApprovals finishes it). */
 export function setUpEtopsMx(g: GameState): ActionResult {
+  // v0.15 a scenario that needs no ETOPS work.
+  const lk = lockOf(g, 'approvals', { approval: 'etops120' });
+  if (lk) return { ok: false, error: lk };
   const why = etopsMxBlocker(g);
   if (why) return { ok: false, error: why };
   const { cost, days } = BAL.ladder.etopsMx;
@@ -228,7 +232,8 @@ function reqsOf(g: GameState, id: ApprovalId, filing: boolean): Req[] {
   if (!def) return [];
   const booked = filing && id === 'widebody';
   const out: Req[] = [];
-  const opsDays = Math.floor((g.now - g.started) / DAY);
+  // v0.15 days on the AOC (a scenario's airline had it for years).
+  const opsDays = Math.floor((g.now - (g.company.aocAt ?? g.started)) / DAY);
   const fleet = fleetOf(g, false);
   const fleetD = fleetOf(g, true);
   switch (id) {
@@ -289,7 +294,7 @@ function reqsOf(g: GameState, id: ApprovalId, filing: boolean): Req[] {
       break;
     }
     case 'iosa':
-      out.push({ label: '12 months of operations', ok: g.now - g.started >= 365 * DAY, have: `${opsDays} day${opsDays === 1 ? '' : 's'}`, need: '365 days', why: 'Needs 12 months of operations' });
+      out.push({ label: '12 months of operations', ok: opsDays >= 365, have: `${opsDays} day${opsDays === 1 ? '' : 's'}`, need: '365 days', why: 'Needs 12 months of operations' });
       break;
     default:
       break;
@@ -314,6 +319,9 @@ export function approvalBlocker(g: GameState, id: ApprovalId): string | null {
   const co = g.company;
   if (co.approvals.includes(id)) return 'Already held';
   if (co.pendingApprovals.some((p) => p.id === id)) return 'In progress';
+  // v0.15 only the approvals a scenario is about.
+  const lk = lockOf(g, 'approvals', { approval: id });
+  if (lk) return lk;
   // v0.11 an audit finding left open past its deadline suspends approval work.
   if (g.opsx?.audit.suspended) return 'Suspended: close the overdue audit finding first';
   return reqsOf(g, id, true).find((r) => !r.ok)?.why ?? null;

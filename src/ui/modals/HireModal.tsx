@@ -13,6 +13,8 @@ import { money } from '../format';
 import { KV } from '../screens/common';
 import { isPilotRole, ROLE_LABEL, ROLES } from '../screens/screenLogic';
 import { store, useGame } from '../store';
+import { lockOf } from '../../engine/scenario';
+import { LockNote } from '../components/Locked';
 
 /** Families flown or on order first, then the rest of the catalogue. */
 function families(g: GameState): RatingFamily[] {
@@ -71,10 +73,12 @@ export function HireModal({ role: role0, family: fam0, base: base0, count: count
     <Modal title="Hire crew" icon={<UserPlus className="accent" />} onClose={() => store.closeModal()} footer={
       <>
         <button className="btn" onClick={() => store.closeModal()}>Cancel</button>
-        <button className="btn btn-primary" onClick={hire} disabled={g.company.cash < q.cost}><UserPlus /> Hire {count} for {money(q.cost)}</button>
+        <button className="btn btn-primary" onClick={hire} disabled={g.company.cash < q.cost || !!lockOf(g, 'hiring', { count })}><UserPlus /> Hire {count} for {money(q.cost)}</button>
       </>
     }>
       <div className="col gap-16">
+        {/* v0.15 a scenario's hiring allowance. */}
+        <LockNote why={lockOf(g, 'hiring', { count })} />
         <div className="field">
           <label>Role</label>
           <div className="sc-seg-wrap"><Seg<Role> value={role} onChange={pickRole} options={ROLES.map((r) => ({ value: r, label: r }))} /></div>

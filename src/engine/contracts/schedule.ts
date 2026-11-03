@@ -407,7 +407,17 @@ function jobSector(g: GameState, b: Anchor, stops: Flight[]): MoveLeg[] | null {
   const out: MoveLeg[] = [{ from: f.from, to: f.to, std: f.std, sta: f.sta }];
   for (let i = 0; i < 4; i++) {
     const last = out[out.length - 1];
-    const x = stops.find((y) => y.from === last.to && y.std >= last.sta && y.std - last.sta <= 3 * 60);
+    const x = stops.find((y) => y.kind === 'techstop' && y.from === last.to && y.std >= last.sta && y.std - last.sta <= 3 * 60);
+    if (!x) break;
+    out.push({ from: x.from, to: x.to, std: x.std, sta: x.sta });
+  }
+  // v0.15 and the empty legs straight after it (a one-way charter's ferry home within a turn): the job's crew fly them
+  // in the same duty, so they count in its day (Ash Cloud: MAN–AGP at 00:15 into AGP–HAM, then HAM–OPO, one night duty
+  // 11:30 of 10:30, while the aircraft had stood at Manchester all afternoon).
+  const empties = stops.filter((y) => y.kind === 'positioning' || y.kind === 'ferry');
+  for (let i = 0; i < 2; i++) {
+    const last = out[out.length - 1];
+    const x = empties.find((y) => y.from === last.to && y.std >= last.sta && y.std - last.sta <= 90);
     if (!x) break;
     out.push({ from: x.from, to: x.to, std: x.std, sta: x.sta });
   }
@@ -592,7 +602,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     // evening before, the late move stays: one crew with in-flight rest (3 or 4 pilots), or a ferry crew of two pilots
     // and the job's crew on airline tickets (duties.ts slipUnits/partition).
     let op0: MoveLeg[] | null | undefined;
-    const opOf = () => (op0 === undefined ? (op0 = jobSector(g, b, stops ??= liveFlightsOf(g, aircraftId).filter((f) => f.kind === 'techstop' && f.status === 'scheduled'))) : op0);
+    const opOf = () => (op0 === undefined ? (op0 = jobSector(g, b, stops ??= liveFlightsOf(g, aircraftId).filter((f) => (f.kind === 'techstop' || f.kind === 'positioning' || f.kind === 'ferry') && f.status === 'scheduled'))) : op0);
     const fitOf = (move: MoveLeg[]) => positioningFit(g, typeId, restOf(g, aircraftId), move, opOf()!);
     const crewTimed = <T extends MoveLeg>(move: T[], from0: Minute): T[] | ChainLeg[] => {
       const op = opOf();

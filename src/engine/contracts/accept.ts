@@ -27,6 +27,8 @@ import { noteHiredUs } from './rivals';
 import { rollRepeat } from './missions';
 import { cancelDry, recallDry, recallTerms, signDryLease } from '../ops/dryLease';
 import { notOursCancel } from '../ops/latePolicy';
+import { lockOf, offerLock } from '../scenario/rules';
+import { SCEN_HOOKS } from '../scenario/module';
 
 // ---------- offers ----------
 
@@ -88,6 +90,9 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   const o = g.offers[offerId];
   if (!o) return { ok: false, error: 'Offer not found' };
   if (o.status !== 'open' && o.status !== 'countered') return { ok: false, error: 'This offer is no longer on the market' };
+  // v0.15 a scenario's market rules (only its kind of work).
+  const lk = offerLock(g, o);
+  if (lk) return { ok: false, error: lk };
   if (g.now >= o.expires && o.counter?.result !== 'accepted') return { ok: false, error: 'The offer has expired' };
   let ids = [...new Set(aircraftIds)].filter((id) => g.fleet[id]);
   if (!ids.length) return { ok: false, error: 'Choose an aircraft' };
@@ -317,6 +322,8 @@ export function counterOffer(g: GameState, offerId: string, price: number, aircr
   if (!o) return { ok: false, error: 'Offer not found' };
   if (o.status !== 'open') return { ok: false, error: o.status === 'countered' ? 'Waiting for the client to answer' : 'This offer is no longer on the market' };
   if (o.counter) return { ok: false, error: 'The client already answered a counter on this one' };
+  const lk = offerLock(g, o);
+  if (lk) return { ok: false, error: lk };
   // v0.14.1 a won tender is signed at the bid we sent: no counter (it could raise the price above the winning bid).
   if (isTenderOffer(g, offerId)) return { ok: false, error: 'A won tender is signed at our bid: no counter' };
   if (!(price > 0)) return { ok: false, error: 'Enter a price' };
@@ -455,6 +462,16 @@ export function cancelContract(g: GameState, contractId: string): ActionResult {
   const c = g.contracts[contractId];
   if (!c) return { ok: false, error: 'Contract not found' };
   if (c.status !== 'signed' && c.status !== 'active') return { ok: false, error: 'This contract is already closed' };
+  // v0.15 a scenario's core contract stays (or, 'penalty', cancelling it ends the scenario without stars).
+  const lk = lockOf(g, 'cancel', { contractId });
+  if (lk) return { ok: false, error: lk };
+  const r = cancelNow(g, c);
+  if (r.ok) SCEN_HOOKS.cancelled?.(g, contractId);
+  return r;
+}
+
+function cancelNow(g: GameState, c: Contract): ActionResult {
+  const contractId = c.id;
   // v0.8 a delivered dry lease can't just stop: we recall her (back in 2 days, ferried home, a month's rent to them).
   if (c.dry && c.dry.leasedAt !== undefined) {
     const res = recallDry(g, c);

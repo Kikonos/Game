@@ -15,7 +15,7 @@ import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, set
 import { autoRoster, closedWait, recheckBuyBacks, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets } from './roster';
 import { localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
-import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, v09Stats } from './dayPlan';
+import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, dropStrandedStandby, v09Stats } from './dayPlan';
 import { peakHeadsUp } from './forecast';
 import { AUTHORITY } from '../../data/flavor';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -701,6 +701,7 @@ export const crewModule: SimModule = {
     const h = Math.floor(g.now / 60);
     if (lastHour.get(g) !== h) {
       lastHour.set(g, h);
+      dropStrandedStandby(g);
       refreshStatuses(g);
     }
   },

@@ -253,10 +253,14 @@ export interface Standing {
 }
 
 /** What the record earns (no memory): Respected, Established or Newcomer. Pure. */
+/** v0.15 when the AOC was issued: a scenario's established airline, else the game's start. Pure. */
+export const aocSince = (g: GameState): Minute => g.company.aocAt ?? g.started;
+
 export function standingFor(g: GameState): 0 | 1 | 2 {
   const S = V.standing;
   const done = g.stats.contractsDone ?? 0;
-  const days = (g.now - g.started) / DAY;
+  // v0.15 days on the AOC (a scenario steps into an airline that had it for years).
+  const days = (g.now - aocSince(g)) / DAY;
   const { reliable, clean } = g.company.reputation;
   if (done >= S.resp.done && days >= S.resp.days && reliable >= S.resp.reliable && clean >= S.resp.clean) return 2;
   if (done >= S.est.done && days >= S.est.days && reliable >= S.est.reliable) return 1;
@@ -297,7 +301,7 @@ export function standing(g: GameState): Standing {
   const S = V.standing;
   const tier = (g.company.standing ?? standingFor(g)) as 0 | 1 | 2;
   const done = g.stats.contractsDone ?? 0;
-  const days = Math.floor((g.now - g.started) / DAY);
+  const days = Math.floor((g.now - aocSince(g)) / DAY);
   const { reliable, clean } = g.company.reputation;
   let progress: Standing['progress'] = [];
   let next: string | null = null;
@@ -371,7 +375,7 @@ export function dailyRelations(g: GameState): void {
     if (s === 1 && cur === 0) v8.establishedAt ??= g.now;
     if (s === 2) v8.respectedAt ??= g.now;
     const done = g.stats.contractsDone ?? 0;
-    const months = Math.max(1, Math.round((g.now - g.started) / (30.44 * DAY)));
+    const months = Math.max(1, Math.round((g.now - aocSince(g)) / (30.44 * DAY)));
     pushMessage(g, {
       tone: s > cur ? 'good' : 'warn', cat: 'company',
       title: s === 1 && cur === 0 ? "We're an established operator now" : s === 2 ? 'Brokers call us a respected operator' : 'Our standing has slipped to Established',

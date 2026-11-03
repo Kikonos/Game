@@ -18,6 +18,8 @@ import { Flag, Toggle } from '../components/ui';
 import { money } from '../format';
 import { store, useStore } from '../store';
 import { markMarketSeen, offerKind, sellerOf, unseenOffers } from './screenLogic';
+import { lockOf } from '../../engine/scenario';
+import { LockedPanel } from '../components/Locked';
 
 /** '12 Jan', or '12 Jan 2028' outside the current year. */
 export const dayIn = (now: number, t: number) => (yearOf(t) === yearOf(now) ? fmtDay(t) : fmtDate(t));
@@ -132,6 +134,9 @@ export function MarketView({ g, sel }: { g: GameState; sel: string | null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ids, sel]);
   const early = g.now - g.started < 30 * DAY;
+  // v0.15 a scenario's fixed fleet: the market is closed (a calm notice).
+  const lock = lockOf(g, 'fleet');
+  if (lock) return <LockedPanel title="Aircraft market closed" why={lock}>No leasing, buying, selling or dry leases out while the scenario runs.</LockedPanel>;
   return (
     <>
       <MarketAlerts />

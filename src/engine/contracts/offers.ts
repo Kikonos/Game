@@ -45,6 +45,7 @@ export { marketPerWeek };
 import { afterOfferDays, isQuiet, QUIET_MARKET_OFFERS } from '../ops/director';
 import { marketTilt, presenceWeight } from '../commercial/presence';
 import { clientCrewOnCabin, fuelFactor, MISSION_BUILDERS, missionWeights, presidential, rollClientCabin, WINDOW_FIT_V08 } from './missions';
+import { lockOf, themeWeight } from '../scenario/rules';
 
 // ---------- process ----------
 
@@ -1081,7 +1082,8 @@ function weights(g: GameState, ordinary = false): [Archetype, number][] {
   const all = [...list.map(([a, w]): [Archetype, number] => [a, w * fuelFactor(g, a)]), ...missionWeights(g)];
   // v0.12 Scenarios: the scenario's bias on the kinds of work (a normal game has none).
   const bias = g.scen?.bias;
-  const biased = bias ? all.map(([a, w]): [Archetype, number] => [a, w * (bias[a] ?? 1)]) : all;
+  // v0.15 and its rules: kinds of work kept off its market weigh nothing.
+  const biased = bias || g.scen ? all.map(([a, w]): [Archetype, number] => [a, w * (bias?.[a] ?? 1) * themeWeight(g, a)]) : all;
   if (!ordinary) return biased;
   // v0.14 fewer offers, longer work (BAL.marketOffers.mix), leaning to what the markets we are known in ask for.
   const tilt = marketTilt(g);
@@ -1204,6 +1206,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   const ref = referenceType(d.req, sectors, p.kind === 'base', d.req.approvals.includes('ulr'), flownTypes(g));
   if (!ref) return null;
   const airports = [...new Set(sectors.flat())];
+  // v0.15 a scenario's market: only its kind of work (and region) reaches it, whichever way the offer was asked for.
+  if (lockOf(g, 'market', { archetype: d.archetype, airports })) return null;
   // v0.12.1 job legs keep out of night curfews (moved to the nearest legal time where they can).
   if (p.kind === 'legs') {
     const was = p.legs;

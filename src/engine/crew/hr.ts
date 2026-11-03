@@ -22,6 +22,7 @@ import { removeCrew, rosterOf, setReserveOkHook } from './roster';
 import { dropStandby } from './standby';
 import { block28, crewIx, crewRev, segsOf, touchCrew } from './timeline';
 import type { Seg } from './rules';
+import { lockOf, noteHired } from '../scenario/rules';
 
 export interface HireRequest {
   role: Role;
@@ -87,6 +88,9 @@ export function hireFamilies(r: HireRequest): RatingFamily[] {
 export function hireCrew(g: GameState, r: HireRequest): ActionResult<{ crewIds: string[] }> {
   const n = Math.floor(r.count);
   if (!ROLES.includes(r.role)) return { ok: false, error: 'Unknown role' };
+  // v0.15 a scenario's hiring allowance (none, a few, or open).
+  const lk = lockOf(g, 'hiring', { count: n });
+  if (lk) return { ok: false, error: lk };
   if (n < 1 || n > 30) return { ok: false, error: 'Hire between 1 and 30 at a time' };
   if (!AIRPORT_BY_CODE[r.base]) return { ok: false, error: 'Unknown base' };
   const fams = hireFamilies(r);
@@ -110,6 +114,7 @@ export function hireCrew(g: GameState, r: HireRequest): ActionResult<{ crewIds: 
     crewIds.push(c.id);
   }
   post(g, 'hiring', -q.cost);
+  noteHired(g, n);
   if (isPilot(r.role)) {
     const h = (g.stats.ratedHires ??= []).filter(([t]) => t > g.now - 30 * DAY);
     h.push([g.now, poolKey(r.family, r.role), n]);
@@ -125,6 +130,8 @@ export function hireCrew(g: GameState, r: HireRequest): ActionResult<{ crewIds: 
 export function hireBatch(g: GameState, reqs: HireRequest[]): ActionResult<{ crewIds: string[]; lines: string[] }> {
   const list = reqs.filter((r) => Math.floor(r.count) >= 1);
   if (!list.length) return { ok: false, error: 'Nobody to hire' };
+  const lk = lockOf(g, 'hiring', { count: list.reduce((s, r) => s + Math.floor(r.count), 0) });
+  if (lk) return { ok: false, error: lk };
   const cost = list.reduce((s, r) => s + hireQuote(g, r).cost, 0);
   if (g.company.cash < cost) return { ok: false, error: 'Not enough cash' };
   const crewIds: string[] = [];
@@ -152,6 +159,8 @@ const TRAINING: Record<'command' | 'sccm', () => { days: number; cost: number }>
 export function trainCrew(g: GameState, crewId: string, kind: TrainingKind, family: RatingFamily): ActionResult {
   const c = g.crew[crewId];
   if (!c) return { ok: false, error: 'Crew member not found' };
+  const lk = lockOf(g, 'training');
+  if (lk) return { ok: false, error: lk };
   if (kind === 'typeRating' || kind === 'conversion') {
     const r = startConversion(g, { crewIds: [crewId], family, start: conversionEarliest(g) });
     return r.ok ? { ok: true, msg: r.msg } : r;

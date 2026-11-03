@@ -26,6 +26,8 @@ import { MarketView } from './Market';
 import { capFirst, hangarWord, layoutLabel, limitTone, unseenOffers } from './screenLogic';
 import { ScreenHint } from '../components/ScreenHint';
 import { HangarView, hangarRows } from './Hangar';
+import { lockOf } from '../../engine/scenario';
+import { LockNote, lockedProps } from '../components/Locked';
 
 const STATUS: Record<Aircraft['status'], [string, string]> = {
   available: ['On ground', 'good'], flying: ['Flying', 'info'], maintenance: ['In check', 'warn'], aog: ['AOG', 'bad'],
@@ -118,6 +120,7 @@ function CrewExtraRow({ g, ac }: { g: GameState; ac: Aircraft }) {
 /** v0.7.2 §6.3 'Which one?': the one-line answer on the least used aircraft, with what to do about it. */
 function LeastUsedLine({ g, ac, least, onClose }: { g: GameState; ac: Aircraft; least: LeastUsedRow; onClose: () => void }) {
   const lease = ac.ownership.kind === 'dryLeaseIn';
+  const lock = lockOf(g, 'fleet');
   return (
     <div className="fl-which">
       <div className="col grow" style={{ minWidth: 0 }}>
@@ -125,8 +128,8 @@ function LeastUsedLine({ g, ac, least, onClose }: { g: GameState; ac: Aircraft; 
         <span className="small muted">{lease ? 'Leased: handing it back early saves rent, for a fee.' : 'Owned: selling it brings cash in; signed work must be moved first.'}</span>
       </div>
       {lease
-        ? <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'lease', aircraftId: ac.id, tab: 'early' })}><Undo2 /> Return early…</button>
-        : <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'sell', aircraftId: ac.id })}><BadgeDollarSign /> Sell…</button>}
+        ? <button className={`btn btn-sm ${lock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'lease', aircraftId: ac.id, tab: 'early' })} {...lockedProps(lock)}><Undo2 /> Return early…</button>
+        : <button className={`btn btn-sm ${lock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'sell', aircraftId: ac.id })} {...lockedProps(lock)}><BadgeDollarSign /> Sell…</button>}
       <button className="btn btn-ghost btn-icon btn-sm" onClick={onClose} aria-label="Close"><X /></button>
     </div>
   );
@@ -158,6 +161,7 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
   // v0.8 fix pack: a cabin refit reads 'In refit', not 'In check'.
   const label = ac.status === 'maintenance' ? capFirst(hangarWord(g, ac)) : label0;
   const o = ac.ownership;
+  const fleetLock = lockOf(g, 'fleet');
   const own: [string, string][] = o.kind === 'owned'
     ? [['Owned', `book value ${money(o.bookValue)}`]]
     : [['Lease', `${money(o.rentPerMonth)}/month`]];
@@ -229,9 +233,11 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
         <button className="btn grow" onClick={() => store.navigate('schedule', { sel: { kind: 'aircraft', id: ac.id } })}><CalendarRange /> Schedule</button>
         <button className="btn grow" onClick={() => store.navigate('map', { sel: { kind: 'aircraft', id: ac.id } })}><Plane /> On map</button>
         {/* v0.7.2 §6: sell what we own; hand a lease back early (90+ days left). */}
-        {o.kind === 'owned' && !ac.sale && ac.status !== 'delivering' && <button className="btn grow" onClick={() => store.openModal({ kind: 'sell', aircraftId: ac.id })}><BadgeDollarSign /> Sell…</button>}
-        {o.kind === 'dryLeaseIn' && !ac.returning && ac.status !== 'delivering' && o.leaseEnd - g.now >= 90 * DAY && <button className="btn grow" onClick={() => store.openModal({ kind: 'lease', aircraftId: ac.id, tab: 'early' })}><Undo2 /> Return early…</button>}
+        {o.kind === 'owned' && !ac.sale && ac.status !== 'delivering' && <button className={`btn grow ${fleetLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'sell', aircraftId: ac.id })} {...lockedProps(fleetLock)}><BadgeDollarSign /> Sell…</button>}
+        {o.kind === 'dryLeaseIn' && !ac.returning && ac.status !== 'delivering' && o.leaseEnd - g.now >= 90 * DAY && <button className={`btn grow ${fleetLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'lease', aircraftId: ac.id, tab: 'early' })} {...lockedProps(fleetLock)}><Undo2 /> Return early…</button>}
       </div>
+      {/* v0.15 a scenario's fixed fleet: the buttons stay, disabled, with the reason. */}
+      <LockNote why={fleetLock} className="mt-8" />
     </div>
   );
 }
@@ -253,7 +259,7 @@ function LeaseRow({ g, ac }: { g: GameState; ac: Aircraft }) {
         {lv.returning && m && <span className="small warn">{f0 ? `Return ferry ${fmtDay(f0.std)} · ` : ''}return check {lv.returning.site} {fmtDay(m.start)}–{fmtDay(m.end)}</span>}
         {!lv.returning && lv.decisionId && <span className="small warn">The lessor wants an answer: extend or return</span>}
       </div>
-      {soon && <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'lease', aircraftId: ac.id })}>{lv.returning ? 'Change…' : 'Extend or return…'}</button>}
+      {soon && <button className={`btn btn-sm ${lockOf(g, 'fleet') ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'lease', aircraftId: ac.id })} {...lockedProps(lockOf(g, 'fleet'))}>{lv.returning ? 'Change…' : 'Extend or return…'}</button>}
     </div>
   );
 }
@@ -269,6 +275,8 @@ function CabinRow({ g, ac, out }: { g: GameState; ac: Aircraft; out?: boolean })
   });
   const busy = ac.status === 'delivering' || !!ac.returning;
   const rest = restRefitOptions(g, ac.id).length > 0;
+  // v0.15 a scenario without refits.
+  const lock = lockOf(g, 'refits');
   return (
     <div className="fl-row fl-cabin">
       <div className="col grow" style={{ minWidth: 0 }}>
@@ -278,8 +286,8 @@ function CabinRow({ g, ac, out }: { g: GameState; ac: Aircraft; out?: boolean })
       {m ? (m.status === 'planned' && <button className="btn btn-sm" onClick={cancel}>Cancel refit</button>)
         : !out && <span className="row gap-8">
           {/* v0.7.3 §2.6 item 1: straight to the refit modal's crew rest section when there is anything to fit. */}
-          {rest && <button className="btn btn-sm fl-rest-btn" disabled={busy} onClick={() => store.openModal({ kind: 'refit', aircraftId: ac.id, section: 'rest' })}><BedDouble /> Crew rest…</button>}
-          <button className="btn btn-sm" disabled={busy} onClick={() => store.openModal({ kind: 'refit', aircraftId: ac.id })}><Sofa /> Refit…</button>
+          {rest && <button className={`btn btn-sm fl-rest-btn ${lock ? 'locked' : ''}`} disabled={busy} onClick={() => store.openModal({ kind: 'refit', aircraftId: ac.id, section: 'rest' })} {...lockedProps(lock)}><BedDouble /> Crew rest…</button>}
+          <button className={`btn btn-sm ${lock ? 'locked' : ''}`} disabled={busy} onClick={() => store.openModal({ kind: 'refit', aircraftId: ac.id })} {...lockedProps(lock)}><Sofa /> Refit…</button>
         </span>}
     </div>
   );

@@ -12,6 +12,8 @@ import { money } from '../format';
 import { KV } from '../screens/common';
 import { ROLE_LABEL } from '../screens/screenLogic';
 import { store, useGame } from '../store';
+import { lockOf } from '../../engine/scenario';
+import { LockNote } from '../components/Locked';
 
 type Kind = 'convert' | Extract<TrainingKind, 'command' | 'sccm'>;
 const KIND_LABEL: Record<Kind, string> = { convert: 'Type conversion…', command: 'Command upgrade', sccm: 'Purser course' };
@@ -36,11 +38,12 @@ export function TrainModal({ crewId }: { crewId: string }) {
       <>
         <button className="btn" onClick={() => store.closeModal()}>Cancel</button>
         {kind === 'convert'
-          ? <button className="btn btn-primary" onClick={convert}><ArrowRight /> Plan the conversion</button>
-          : <button className="btn btn-primary" onClick={train} disabled={g.company.cash < q.cost}><GraduationCap /> Start for {money(q.cost)}</button>}
+          ? <button className="btn btn-primary" onClick={convert} disabled={!!lockOf(g, 'training')}><ArrowRight /> Plan the conversion</button>
+          : <button className="btn btn-primary" onClick={train} disabled={g.company.cash < q.cost || !!lockOf(g, 'training')}><GraduationCap /> Start for {money(q.cost)}</button>}
       </>
     }>
       <div className="col gap-16">
+        <LockNote why={lockOf(g, 'training')} />
         <div className="small muted">{ROLE_LABEL[c.role]} · rated {c.ratings.join(', ') || 'none'} · {Math.round(c.totalHours).toLocaleString('en-US')} h</div>
         {k && <div className="small warn">Booked on {k.no} ({fmtDate(k.start)} – {fmtDate(k.end - 1)}). Cancel it from the classes chip on the Crew screen.</div>}
         {kinds.length > 1 && <div className="sc-seg-wrap"><Seg<Kind> value={kind} onChange={setKind} options={kinds.map((x) => ({ value: x, label: KIND_LABEL[x] }))} /></div>}

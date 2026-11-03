@@ -109,7 +109,8 @@ describe('scenarios', () => {
   }, 120_000);
 
   it('signs the starting contracts each story needs', () => {
-    const kinds = (id: string) => Object.values(createScenario(id).contracts).map((c) => c.archetype).sort();
+    // v0.15 the signed ones (the airline's past jobs are there too, completed).
+    const kinds = (id: string) => Object.values(createScenario(id).contracts).filter((c) => c.status === 'signed' || c.status === 'active').map((c) => c.archetype).sort();
     expect(kinds('hajjAirlift')).toEqual(['hajj', 'hajj']);
     expect(kinds('summerSurge')).toEqual(['seasonBase']);
     expect(kinds('crewCrisis')).toEqual(['seasonBase', 'seasonBase', 'seasonBase']);

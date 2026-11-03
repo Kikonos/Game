@@ -13,6 +13,8 @@ import { money } from '../format';
 import { isPilotRole } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 import { FAMILY_TICK } from './HireModal';
+import { lockOf } from '../../engine/scenario';
+import { LockNote } from '../components/Locked';
 
 const ROLE_ONE: Record<string, [string, string]> = {
   CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], CRP: ['relief pilot', 'relief pilots'], PUR: ['purser', 'pursers'], CC: ['cabin crew', 'cabin crew'],
@@ -38,10 +40,11 @@ export function RoundUpModal({ family, target }: { family: RatingFamily; target:
       <>
         <button className="btn" onClick={() => store.closeModal()}>Cancel</button>
         <span className="grow small muted">{n ? `${plan.setsComplete} → ${target} complete sets` : ''}</span>
-        <button className="btn btn-primary" onClick={hire} disabled={!n || g.company.cash < q.cost}><UserPlus /> Hire {n} for {money(q.cost)}</button>
+        <button className="btn btn-primary" onClick={hire} disabled={!n || g.company.cash < q.cost || !!lockOf(g, 'hiring', { count: n })}><UserPlus /> Hire {n} for {money(q.cost)}</button>
       </>
     }>
       <div className="col gap-12">
+        <LockNote why={n ? lockOf(g, 'hiring', { count: n }) : null} />
         <div className="small muted">{target} complete sets of the {plan.label}: needed {plan.setsNeeded}, complete with the joiners {plan.setsComplete}.</div>
         {!n ? (
           <div className="small good">Nothing to hire: you already have {target} complete sets.</div>

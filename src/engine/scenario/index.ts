@@ -7,13 +7,16 @@ import { invoice, statementTotals } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
 import { onTimeLeg } from '../ops/latePolicy';
-import { DAY, fmtDay, fromUTC } from '../core/time';
+import { DAY, fmtDay, fromUTC, monthKey } from '../core/time';
 import type { GameState, Minute, ScenarioResult, ScenarioState, ScenarioTally } from '../core/types';
 import { createGame } from '../newGame';
 import { SCENARIO_BY_ID, SCENARIOS, type MetricId, type Must, type ScenarioDef } from './defs';
+import { seedHistory } from './history';
 import { SCEN_HOOKS } from './module';
+import { isCore, lockOf, offerLock, rulesOf } from './rules';
 
 export { SCENARIOS, SCENARIO_BY_ID, type MetricId, type Must, type ScenarioDef };
+export { cancelWarning, hiresLeft, lockOf, offerLock, rulesLines, rulesOf, type LockKey, type ScenarioRules } from './rules';
 
 export const scenarioDef = (g: GameState): ScenarioDef | undefined => (g.scen ? SCENARIO_BY_ID[g.scen.id] : undefined);
 
@@ -51,7 +54,18 @@ export function createScenario(id: string): GameState {
     const cl = Object.values(g.clients).find((x) => x.name === name);
     if (cl) invoice(g, { clientId: cl.id, contractId: null, desc: `Owed from last winter (${name})`, amount, cat: 'otherRevenue', dueDays: days });
   }
+  // v0.15 the airline's past: AOC, standing, approvals, a year of statements, past jobs and clients, crew records.
+  seedHistory(g, d.history, d.seed);
   d.setup?.(g);
+  // v0.15 the rules switch on once the setup has signed the scenario's own contracts (its core); offers the rules keep
+  // off the market (the opening offers came before them) are withdrawn.
+  g.scen!.core = Object.keys(g.contracts).filter((id) => g.contracts[id].status === 'signed' || g.contracts[id].status === 'active');
+  for (const o of Object.values(g.offers)) if ((o.status === 'open' || o.status === 'countered') && offerLock(g, o)) delete g.offers[o.id];
+  // A fixed fleet: no aircraft on the market (the start's lease offer and its note go).
+  if (lockOf(g, 'fleet')) {
+    g.market.aircraft = [];
+    g.messages = g.messages.filter((m) => m.topic !== 'market');
+  }
   pushMessage(g, { tone: 'info', cat: 'goal', topic: 'scenario', title: `Scenario: ${d.name}`, body: `${d.brief} Goal: ${goalLine(d)}` });
   runScript(g, d, 0);
   return g;
@@ -67,11 +81,13 @@ export interface MetricDef {
   value(g: GameState): number;
 }
 
-/** P&L since the start: every statement of the game (it began with the scenario). Pure. */
+/** P&L since the start: the statements from the scenario's first month (v0.15 not the airline's history before it). Pure. */
 function pnl(g: GameState): { revenue: number; profit: number } {
   let revenue = 0;
   let profit = 0;
+  const from = monthKey(g.started);
   for (const st of [...g.finance.history, g.finance.current]) {
+    if (st.month < from) continue;
     const t = statementTotals(st.lines);
     revenue += t.revenue;
     profit += t.profit;
@@ -242,6 +258,20 @@ function scenarioDay(g: GameState): void {
 }
 SCEN_HOOKS.day = scenarioDay;
 
+/** v0.15 a core contract cancelled under a 'penalty' rule: the scenario ends at once, with no stars. */
+SCEN_HOOKS.cancelled = (g, contractId) => {
+  const d = scenarioDef(g);
+  const r = rulesOf(g);
+  if (!d || !r || r.cancel !== 'penalty' || !isCore(g, contractId) || g.scen?.result) return;
+  finish(g, d, `We cancelled ${g.contracts[contractId]?.title ?? 'the scenario’s contract'}: ${r.say?.cancel ?? r.why}.`);
+};
+
+/** v0.15 load: a scenario saved before v0.15 gets its core (the contracts signed by its start), so its rules apply. */
+SCEN_HOOKS.load = (g) => {
+  const s = g.scen!;
+  s.core ??= Object.values(g.contracts).filter((c) => c.signed <= g.started && (c.status === 'signed' || c.status === 'active')).map((c) => c.id);
+};
+
 /** Stars for a value on the scenario's thresholds (no conditions). Pure. */
 export function starsFor(d: ScenarioDef, value: number): 0 | 1 | 2 | 3 {
   return d.stars.filter((x) => value >= x).length as 0 | 1 | 2 | 3;
@@ -318,6 +348,28 @@ export function scenarioView(g: GameState): ScenarioView | null {
     result: scenarioOutcome(g),
   };
 }
+
+/**
+ * v0.15 the airline you step into, in one line (the goals dialog; a welcome card may reuse it): 'On the AOC since
+ * March 2016 (11 years) · Established · 58 contracts flown · IOSA registration · best client Eurowings (Trusted)'. Pure.
+ */
+export function pastLine(g: GameState): string {
+  const d = scenarioDef(g);
+  const aoc = g.company.aocAt;
+  if (!d || aoc === undefined) return '';
+  const years = Math.floor((g.started - aoc) / (365.25 * DAY));
+  const names: Record<string, string> = { widebody: 'widebody operations', augmented: 'augmented crews', iosa: 'IOSA', dg: 'dangerous goods', etops120: 'ETOPS 120', etops180: 'ETOPS 180' };
+  const held = g.company.approvals.map((a) => names[a] ?? a.toUpperCase());
+  const best = Object.values(g.clients).filter((c) => (c.jobs ?? 0) > 0).sort((a, b) => b.relation - a.relation)[0];
+  const lvl: Record<string, string> = { partner: 'Partner', trusted: 'Trusted', known: 'Known' };
+  const standing = ['Newcomer', 'Established', 'Respected'][g.company.standing ?? 0];
+  return [
+    `On the AOC since ${fmtMonthYear(aoc)} (${years} year${years === 1 ? '' : 's'})`, standing, `${g.stats.contractsDone} contracts flown`,
+    held.length ? held.join(', ') : 'no special approvals', best ? `best client ${best.name} (${lvl[best.level ?? 'known'] ?? 'Known'})` : '',
+  ].filter(Boolean).join(' · ');
+}
+
+const fmtMonthYear = (t: Minute) => new Date(Date.UTC(2000, 0, 1) + t * 60_000).toLocaleDateString('en-GB', { month: 'long', year: 'numeric', timeZone: 'UTC' });
 
 /** The scenario's key numbers for the results card. Pure. */
 export function scenarioNumbers(g: GameState): [string, string][] {
