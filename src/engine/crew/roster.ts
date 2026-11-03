@@ -1851,11 +1851,19 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
         continue;
       }
       d.flightIds = keep;
+      const aug0 = d.augment;
       syncDuty(g, d, p);
       // A leg under way now leaving a night-stop later: the duty ends at the last landing (hotel, then a new duty).
       // v0.14.1 so does a duty not yet reported whose legs moved a night's rest apart (an empty move retimed to the
       // evening before its job): two duties of the trip, the crew at the hotel between.
       const d2 = splitUnderWay(g, p, d) ?? splitUnderWay(g, p, d, false, true);
+      // BLU2032 round: a reported day a delay ran over its limit goes on with the relief pilots aboard (syncDuty →
+      // augAboard: one note), or with discretion when that covers the overrun, never an out-of-hours alarm and a pause
+      // for a day the gate would let go anyway (flights.fdpOver).
+      if (p.status === 'active' && d.report <= g.now && crewCount(p) > 0) {
+        if (d.augment > aug0) noteAugmentedAboard(g, d);
+        else if (d.legality === 'illegal') coverByDiscretion(g, d);
+      }
       if (crewCount(p) > 0) {
         queueDuty(g, d);
         const moved = new Set<string>();
@@ -2282,6 +2290,48 @@ export function discretionMax(g: GameState, d: Duty): number {
   };
   while (x > 0 && legs.length && !fits(x)) x = Math.max(0, x - 15);
   return x;
+}
+
+/**
+ * BLU2032 round: commander's discretion applied the moment a delay after report runs the day over its limit, when it
+ * covers the overrun (discretionCheck: the day was legal at report, within +2 h, +3 h augmented, on the basic day after
+ * an extension): the limit grows, the day stays legal and one note says so, as the gate's own grant reads
+ * (flights.fdpOver). False when discretion cannot cover it: the out-of-hours ladder runs as before. Not while a leg of
+ * the day is in the air (its landing settles the day: syncDuty).
+ */
+/**
+ * BLU2032 round: the note when a reported day a delay ran over its planned limit goes on augmented with the relief
+ * pilots already aboard (duties.augAboard): 'In-flight rest on BLU2032'.
+ */
+export function noteAugmentedAboard(g: GameState, d: Duty): void {
+  const fl = d.flightIds.map((id) => g.flights[id]).filter((f): f is Flight => !!f && f.status !== 'cancelled');
+  const next = fl.find((f) => f.status === 'scheduled') ?? fl[0];
+  if (!next) return;
+  const hm = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+  const p = g.pairings[d.pairingId];
+  const rest = restOf(g, p?.aircraftId ?? null);
+  const where = rest.fc?.kind === 'ldmcr' ? 'lower-deck bunks' : 'bunks';
+  pushMessage(g, {
+    tone: 'info', cat: 'crew', title: `In-flight rest on ${next.no}`,
+    body: `${next.no} was delayed after the crew reported${next.delayReason ? ` (${next.delayReason})` : ''}: the day runs ${hm(d.fdp)}, over the ${hm(d.basicFdp ?? d.maxFdp)} planned with 2 pilots. The ${2 + d.augment} pilots aboard rest in turns in the ${where}; the limit is now ${hm(d.maxFdp)}.`,
+    ref: { kind: 'flight', id: next.id },
+  });
+}
+
+export function coverByDiscretion(g: GameState, d: Duty): boolean {
+  const fl = d.flightIds.map((id) => g.flights[id]).filter((f): f is Flight => !!f && f.status !== 'cancelled');
+  const next = fl.find((f) => f.status === 'scheduled');
+  if (!next || fl.some((f) => f.status === 'enroute') || d.discretion || !discretionCheck(g, d.id).ok) return false;
+  const r = applyDiscretion(g, d.id);
+  if (!r.ok || !d.discretion) return false;
+  const hm = (m: number) => `${Math.floor(m / 60)}:${String(m % 60).padStart(2, '0')}`;
+  const last = fl[fl.length - 1];
+  pushMessage(g, {
+    tone: 'info', cat: 'crew', title: `Commander's discretion on ${next.no}`,
+    body: `${next.no} was delayed after the crew reported${next.delayReason ? ` (${next.delayReason})` : ''}: the day runs ${hm(d.fdp)} of ${hm(d.maxFdp)}. The commander extends it to finish ${next.from}–${last.to}; the limit is now ${hm(d.maxFdp + d.discretion)}. The crew will want their rest.`,
+    ref: { kind: 'flight', id: next.id },
+  });
+  return true;
 }
 
 export function applyDiscretion(g: GameState, dutyId: string, fdp?: number, opts: { cabinOver?: number } = {}): ActionResult {

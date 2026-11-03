@@ -146,7 +146,8 @@ export const FIX_LABEL: Record<CrewFix, string> = {
   buyBack: 'Ask someone to work a day off',
 };
 // v0.12.1 the buy-back after the call-in (its cost ranks it before a late ticket, a jet or a cancellation).
-const FIX_ORDER: CrewFix[] = ['autoFix', 'deadhead', 'delay', 'jet', 'callIn', 'buyBack', 'discretion', 'swap', 'subcharter', 'cancel'];
+// BLU2032 round: discretion right after the auto-fix: when the commander may extend the day it is free and at once.
+const FIX_ORDER: CrewFix[] = ['autoFix', 'discretion', 'deadhead', 'delay', 'jet', 'callIn', 'buyBack', 'swap', 'subcharter', 'cancel'];
 const FIX_DESC: Record<CrewFix, string> = {
   autoFix: 'Run the roster again for this flight and its trip.',
   deadhead: 'A free crew member flies in as a passenger on an airline ticket.',
