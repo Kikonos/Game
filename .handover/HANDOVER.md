@@ -576,3 +576,4 @@ fx-ops DONE a95b671 (curfewAtGate, delay snapping, extra rotation/retime clear o
 1 Nov: v0.14.1 "Fix pack" RELEASED (player authorised after hunt 2). acmi f04d407 + What's new, release 3526821 on claude/contrail-airline-game + main, asset index-DbAtcSTG.js. 1902 tests; 7 seeds --inv 0 errors; saves 50 d 0 errors.
 Open (player's call later): extend slip-for-rest (instead of release) from world tours to all trips; S-DEPREC; repo rename; Update 3/4.
 3 Nov PLAYER: build option 1 (3D globe) + option 3 (3D touches) fully, ready for release (ASK before release); option 2: single A320 3D prototype only to view (artifact, not in game). Agents: globe (branch globe), depth (branch depth), a320 page (/home/user/work/a320/a320.html).
+globe DONE (globe 1046d80; three 0.186.1 lazy chunk globe3d 519 kB; main +2.6 kB). acmi worktree has uncommitted package.json/lock (three) — resolve at merge. A320 artifact: https://claude.ai/artifact/XPMsd2pN7gavE7RabvzC1f. Waiting depth.
