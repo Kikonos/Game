@@ -58,6 +58,8 @@ export interface Settings {
   /** Which engine pause requests actually stop the clock. */
   autoPause: Record<PauseReason, boolean>;
   mapAnimations: boolean;
+  /** v0.15 Display › Map tilt: a gentle perspective tilt when the map is zoomed in close (off with reduced motion). */
+  mapTilt: boolean;
   /** Extra empty band above the top bar (px) — iPadOS 26 frosts the top edge of home-screen web apps. */
   topGap: 'auto' | 0 | 16 | 28 | 40;
   toasts: boolean;
@@ -99,6 +101,7 @@ const DEFAULT_SETTINGS: Settings = {
   autosave: true,
   autoPause: { decision: true, urgentOffer: true, aog: true, monthEnd: false, contractStart: false, crewShortage: true, marketOffer: false, crewHours: true, rule: true },
   mapAnimations: true,
+  mapTilt: true,
   topGap: 'auto',
   toasts: true,
   marketAlerts: true,
