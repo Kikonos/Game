@@ -27,6 +27,8 @@ import { clientList } from '../../engine/contracts';
 import { ClientsView } from './Clients';
 import { openTenders, TendersView } from './Tenders';
 import { MarketsView } from './Markets';
+import { cancelWarning, lockOf, rulesOf } from '../../engine/scenario';
+import { LockedPanel, LockNote, lockedProps } from '../components/Locked';
 
 type View = 'market' | 'active' | 'tenders' | 'missed' | 'clients' | 'markets';
 
@@ -99,24 +101,34 @@ function Market({ g }: { g: GameState }) {
   const day = Math.floor(g.now / DAY);
   // Follow-on hints are checked against today's idle windows (they go stale once the aircraft moves).
   const windows = useMemo(() => (list.some((o) => o.hook) ? idleWindows(g) : []), [g, rev, day, list.length]); // eslint-disable-line react-hooks/exhaustive-deps
+  // v0.15 a scenario's market: closed (a calm notice), or only its kind of work (a line above the offers).
+  const r = rulesOf(g);
+  const lock = r && r.market !== 'on' ? lockOf(g, 'market') ?? lockOf(g, 'market', { archetype: 'dryLeaseOut' }) : null;
+  if (r?.market === 'off') return <LockedPanel title="No new work in this scenario" why={lock ?? ''}>Your signed work is under Active.</LockedPanel>;
+  const note = r?.market === 'themed' ? <LockNote className="mb-8" why={`This scenario’s market: ${r.say?.market ?? r.why}.`} /> : null;
   if (!list.length) {
     return (
-      <Empty icon={<InboxIcon />} title="No offers right now">
-        Brokers and clients send work every few days. Idle aircraft attract gap-fit offers.
-      </Empty>
+      <>
+        {note}
+        <Empty icon={<InboxIcon />} title="No offers right now">
+          Brokers and clients send work every few days. Idle aircraft attract gap-fit offers.
+        </Empty>
+      </>
     );
   }
-  return <div className="sc-offer-grid">{list.map((o) => <OfferCard key={o.id} g={g} o={o} windows={windows} />)}</div>;
+  return <>{note}<div className="sc-offer-grid">{list.map((o) => <OfferCard key={o.id} g={g} o={o} windows={windows} />)}</div></>;
 }
 
 const STATUS_LABEL: Record<Contract['status'], string> = { signed: 'Signed', active: 'Flying', completed: 'Completed', cancelled: 'Cancelled' };
 
 function confirmCancel(g: GameState, c: Contract) {
   const { penalty: pen, refund, total } = cancelCost(g, c.id);
+  // v0.15 a scenario's own contract under a 'penalty' rule: cancelling it ends the scenario with no stars.
+  const warn = cancelWarning(g, c.id);
   const cl = g.clients[c.clientId]?.name ?? 'The client';
   store.openModal({
-    kind: 'confirm', danger: true, title: `Cancel ${c.title}?`, confirm: `Cancel and pay ${money(total)}`,
-    body: `Penalty ${money(pen)}${refund > 0 ? ` plus ${money(refund)} refunded for legs not flown` : ''}. All future flights are removed, reliability drops by 5 and ${cl} will remember it.`,
+    kind: 'confirm', danger: true, title: `Cancel ${c.title}?`, confirm: warn ? `Cancel, pay ${money(total)} and end the scenario` : `Cancel and pay ${money(total)}`,
+    body: `${warn ? `${warn} ` : ''}Penalty ${money(pen)}${refund > 0 ? ` plus ${money(refund)} refunded for legs not flown` : ''}. All future flights are removed, reliability drops by 5 and ${cl} will remember it.`,
     onConfirm: () => store.act((gg) => cancelContract(gg, c.id)),
   });
 }
@@ -170,6 +182,9 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
   // v0.14.1 (UI-5) a dry lease by its lease (the map panel's dates and invoiced total), not legs and accrual.
   const dry = c.product.kind === 'dry' ? dryLeaseView(g, c.id) : null;
   const mghR = p.mgh > 0 ? p.bhMonth / p.mgh : 0;
+  // v0.15 the scenario's locks on this contract (cancel, hand-overs): the buttons stay, disabled, with the reason.
+  const lockCancel = open ? lockOf(g, 'cancel', { contractId: c.id }) : null;
+  const lockSub = open ? lockOf(g, 'subcharter') : null;
   return (
     <div className={`card sc-contract ${sel ? 'selected' : ''} ${open ? '' : 'closed'}`} style={{ ['--kc' as string]: contractColor(c.color) }}>
       <div className="sc-contract-main">
@@ -190,6 +205,7 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
           </div>
         )}
         {open && c.product.kind !== 'dry' && <ContractExtra g={g} c={c} />}
+        {(lockCancel || lockSub) && <LockNote why={lockCancel ?? lockSub} />}
         {prob && (card ? (
           <ProblemCardView card={card} g={g} hideActions>
             <button className="btn btn-primary btn-sm" onClick={() => store.openModal({ kind: 'crewControl', flightId: prob.id })}><Users /> Crew Control</button>
@@ -208,8 +224,8 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
       {open && (
         <div className="sc-contract-actions">
           <button className="btn" onClick={() => store.navigate('schedule', { sel: { kind: 'aircraft', id: c.aircraftIds[0] }, view: String(Math.max(g.now, next?.std ?? c.start)) })} aria-label="Show on schedule"><CalendarRange /></button>
-          <button className="btn" onClick={() => store.openModal({ kind: 'subcharter', contractId: c.id })} aria-label="Sub-charter legs to a rival" data-tip="Hand legs to a rival operator"><Handshake /></button>
-          <button className="btn btn-danger" onClick={() => confirmCancel(g, c)} aria-label="Cancel contract"><CircleSlash /></button>
+          <button className={`btn ${lockSub ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'subcharter', contractId: c.id })} aria-label="Sub-charter legs to a rival" data-tip="Hand legs to a rival operator" {...lockedProps(lockSub)}><Handshake /></button>
+          <button className={`btn btn-danger ${lockCancel ? 'locked' : ''}`} onClick={() => confirmCancel(g, c)} aria-label="Cancel contract" {...lockedProps(lockCancel)}><CircleSlash /></button>
         </div>
       )}
     </div>

@@ -237,6 +237,8 @@ export interface Company {
   approvalsAt?: Partial<Record<ApprovalId, Minute>>;
   /** v0.8 company standing: 0 Newcomer · 1 Established · 2 Respected. load: ??= standingFor(g). */
   standing?: 0 | 1 | 2;
+  /** v0.15 when the AOC was issued (a scenario steps into an established airline); absent = the game's start. */
+  aocAt?: Minute;
 }
 
 // ======================================================================
@@ -1785,6 +1787,12 @@ export interface GameState {
   queue: SimEvent[];
   /** Bankruptcy (fail-forward later) or retirement. */
   gameOver: { t: Minute; reason: string } | null;
+  /**
+   * v0.15 the clock held by the game itself when saved (ui/autoResume.ts, the store writes it): the speed it goes back to
+   * once every reason's subjects are resolved (`manual`: the player's pause, it stays). null = nothing held; absent = an
+   * older save (one waiting on a decision resumes at 1× once it is answered).
+   */
+  autoHold?: { speed?: number; manual?: boolean; items: { reason: string; keys: string[] }[] } | null;
 }
 
 /** v0.12 Scenarios mode: what the daily scan counts from the scenario's start (engine/scenario/index.ts). */
@@ -1835,6 +1843,13 @@ export interface ScenarioState {
   /** A script's own small memory (Ash Cloud: when the airspace reopened). */
   mem?: Record<string, number>;
   result?: ScenarioResult;
+  /**
+   * v0.15 the scenario's core contracts (signed by its setup); set once the setup is done, which turns its rules on
+   * (scenario/rules.ts). load: an older scenario save ??= the contracts signed by its start.
+   */
+  core?: string[];
+  /** v0.15 crew hired so far (a 'limited' hiring allowance). */
+  hired?: number;
 }
 
 /** Result of a player action (store.act toasts the error or message). */

@@ -33,6 +33,8 @@ import { Dot, KV, LimitBar, ScreenHead, useRenderCount } from './common';
 import { CAL_KEY_LABEL, calAt, calId, calKey, calLabel, calLayer, calLegend, pickCal, stripText } from './crewLogic';
 import { baseDay, CREW_STATUS_LABEL, filterCrew, isPilotRole, limitTone, NO_FILTER, ROLE_LABEL, type CrewFilter } from './screenLogic';
 import { ScreenHint } from '../components/ScreenHint';
+import { hiresLeft, lockOf } from '../../engine/scenario';
+import { LockNote, lockedProps } from '../components/Locked';
 
 const STATUS_TONE: Record<CrewStatus, 'good' | 'warn' | 'bad' | 'info' | 'off'> = {
   available: 'good', onDuty: 'info', resting: 'off', off: 'off', leave: 'off', sick: 'bad', training: 'warn', joining: 'warn',
@@ -330,7 +332,7 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
         {c.notice && (
           <div className="sc-notice">
             <span className="grow small"><b>Resigned</b> · last day {fmtDate(c.notice.leaves - 1)}</span>
-            <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'hire', role: c.role, family: c.ratings[0], base: c.base })}><UserPlus /> Hire replacement</button>
+            <button className={`btn btn-sm ${lockOf(g, 'hiring') ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'hire', role: c.role, family: c.ratings[0], base: c.base })} {...lockedProps(lockOf(g, 'hiring'))}><UserPlus /> Hire replacement</button>
           </div>
         )}
         {sv.text && <div className={`small sc-crew-status ${sv.tone === 'info' ? 'accent' : sv.tone}`}>{sv.text}</div>}
@@ -362,9 +364,11 @@ function Detail({ g, c }: { g: GameState; c: CrewMember }) {
         <div className="row between"><span className="upper dim">Next 14 days</span><span className="small dim">tap for details · a duty to change its crew</span></div>
         <Roster key={c.id} g={g} c={c} />
         <div className="row gap-8">
-          <button className="btn grow" onClick={() => store.openModal({ kind: 'train', crewId: c.id })}><GraduationCap /> Train</button>
-          <button className="btn grow" onClick={() => store.openModal({ kind: 'hire', role: c.role, family: c.ratings[0], base: c.base })}><UserPlus /> Hire similar</button>
+          <button className={`btn grow ${lockOf(g, 'training') ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'train', crewId: c.id })} {...lockedProps(lockOf(g, 'training'))}><GraduationCap /> Train</button>
+          <button className={`btn grow ${lockOf(g, 'hiring') ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'hire', role: c.role, family: c.ratings[0], base: c.base })} {...lockedProps(lockOf(g, 'hiring'))}><UserPlus /> Hire similar</button>
         </div>
+        {/* v0.15 a scenario's hiring and training rules: the buttons stay, disabled, with the reason. */}
+        <LockNote why={lockOf(g, 'hiring') ?? lockOf(g, 'training')} />
       </div>
     </div>
   );
@@ -390,7 +394,7 @@ function SelectBar({ g, ids, onClear, onDone }: { g: GameState; ids: string[]; o
       <span className="small muted ellipsis">{ids.length ? `${pilots} pilot${pilots === 1 ? '' : 's'} · ${ids.length - pilots} cabin crew` : 'Tap people or a group to select them'}</span>
       <span className="grow" />
       <button className="btn" onClick={onClear} disabled={!ids.length}>Clear</button>
-      <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'convert', crewIds: ids, onBooked: onDone })} disabled={!ids.length}><GraduationCap /> Convert…</button>
+      <button className={`btn btn-primary ${lockOf(g, 'training') ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'convert', crewIds: ids, onBooked: onDone })} disabled={!ids.length || !!lockOf(g, 'training')} data-tip={lockOf(g, 'training') ?? undefined}><GraduationCap /> Convert…</button>
       <button className="btn btn-ghost btn-icon" onClick={onDone} aria-label="Done selecting"><X /></button>
     </div>
   );
@@ -443,6 +447,8 @@ export function CrewScreen() {
   };
   const tap = (id: string) => (selecting ? onSelect([id], !picked.has(id)) : store.select({ kind: 'crew', id }));
   const allShown = list.length > 0 && list.every((c) => picked.has(c.id));
+  // v0.15 a scenario's hiring allowance (none, a few, or open).
+  const hireLock = lockOf(g, 'hiring');
 
   return (
     <div className={`screen sc-crew ${view === 'board' ? 'sc-crew-board' : ''}`}>
@@ -457,8 +463,9 @@ export function CrewScreen() {
         {all.length > 0 && (
           <button className={`btn ${selecting ? 'btn-on' : ''}`} onClick={() => setSelecting(!selecting)} aria-pressed={selecting}><CheckSquare /> Select</button>
         )}
-        <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'hire' })}><UserPlus /> Hire</button>
+        <button className={`btn btn-primary ${hireLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'hire' })} {...lockedProps(hireLock)}>{hireLock ? <Lock className="lock-ico" /> : <UserPlus />} Hire{hiresLeft(g) ? ` (${hiresLeft(g)} left)` : ''}</button>
       </ScreenHead>
+      {hireLock && view === 'people' && <LockNote why={hireLock} className="mb-8" />}
       <ScreenHint id={view === 'board' ? 'crewBoard' : view === 'plan' ? 'crewPlan' : 'crewPeople'} />
       {/* v0.7.4 one calm line per type family (sets complete of needed); the detail lives in Planning. */}
       {view === 'people' && <PlanStrip g={g} onOpen={() => setView('plan')} />}

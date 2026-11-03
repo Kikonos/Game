@@ -38,6 +38,7 @@ import { cabinMinimum, crewInPaxSeats, etopsNeeded, reportMinutes, typeOf } from
 import type { GameState, Minute, Role } from '../src/engine/core/types';
 import { offsetAt } from '../src/engine/crew/rules';
 import { inCurfew } from '../src/engine/core/curfew';
+import { openAfter } from '../src/engine/contracts/schedule';
 
 const H = 60;
 /** v0.14 new copies of one empty move in 24 h above which it is a re-plan loop (a hop out and back is two). */
@@ -361,7 +362,13 @@ export function createChecker(opts: CheckerOpts = {}) {
       for (const f of Object.values(g.flights)) if (f.aircraftId === ac.id && f.status !== 'cancelled' && f.to === fl[0].from && f.kind !== 'deadhead' && f.sta <= fl[0].std) landed = Math.max(landed, f.status === 'done' ? f.ata ?? f.sta : f.sta);
       if (!Number.isFinite(landed)) continue;
       const move = fl[j - 1].sta - fl[0].std;
-      const room = fl[j].std - landed - typeOf(ac.typeId).turnMin;
+      // v0.15 from when the move could still leave, as the planner reads it (relinkPositioning base0/earliest): not
+      // before now, not before a crew wait operations put on it (crewTries: held at the gate until a crew can be there),
+      // not while its airport is shut. Ash Cloud: CS-TWD's MAN–AGP held to 00:15 for a captain (the seat empty), the job
+      // and the ferry behind it slid into the night: a crew shortage for crew control, not a move planned too late.
+      const held = fl.slice(0, j).some((f) => (f.crewTries ?? 0) > 0) ? fl[0].std : -Infinity;
+      const free = openAfter(g, fl[0].from, Math.max(landed + typeOf(ac.typeId).turnMin, g.now, held), fl[j].contractId);
+      const room = fl[j].std - free;
       if (room < move + rm.post + 10 * H + rm.report + 60) continue;
       posSeen.add(d.id);
       err('pos-fdp', g.now, `${ac.reg}: ${fl.map((f) => `${f.no} ${f.from}–${f.to} ${fmtDateTime(f.std)}`).join(', ')}: one duty ${hm(fdp)} of ${hm(max)}, after ${hm(fl[0].std - landed)} on the ground at ${fl[0].from} (room to move it the day before)`);
@@ -686,8 +693,22 @@ async function main() {
     g = createGame({ name: 'Debug Air', code: 'DB', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: flag('base') ?? 'LIS', seed: Number(args[1] ?? 1) });
     days = Number(args[2] ?? 120);
     take = true;
+  } else if (mode === 'scenario') {
+    // v0.15 a scenario from its start (its seeded history, its rules), played with the same simple policy.
+    const { createScenario, SCENARIOS } = await import('../src/engine/scenario');
+    const ids = args[1] === 'all' || !args[1] ? SCENARIOS.map((x) => x.id) : [args[1]];
+    if (ids.length > 1) {
+      for (const id of ids) {
+        const { execFileSync } = await import('node:child_process');
+        process.stdout.write(execFileSync(process.execPath, [...process.execArgv, process.argv[1], 'scenario', id, String(args[2] ?? 30)], { encoding: 'utf8' }));
+      }
+      return;
+    }
+    g = createScenario(ids[0]);
+    days = Number(args[2] ?? 30);
+    take = true;
   } else {
-    console.log('usage: invariants.ts save <file> [days] | seed <n> [days] [--base=LIS]  [--step=60] [--spy]');
+    console.log('usage: invariants.ts save <file> [days] | seed <n> [days] [--base=LIS] | scenario <id|all> [days]  [--step=60] [--spy]');
     return;
   }
   const step = Number(flag('step') ?? 60);
@@ -716,7 +737,7 @@ async function main() {
   }
   inv.finish(g);
   console.log(`played to ${fmtDateTime(g.now)}${g.gameOver ? ` (game over: ${g.gameOver.reason})` : ''}, cash ${Math.round(g.company.cash)}, ${Object.keys(g.fleet).length} aircraft, ${Object.keys(g.crew).length} crew, ${((performance.now() - wall) / 1000).toFixed(1)} s`);
-  inv.print(mode === 'save' ? `save ${args[1]}` : `seed ${args[1]}`);
+  inv.print(mode === 'save' ? `save ${args[1]}` : mode === 'scenario' ? `scenario ${args[1]}` : `seed ${args[1]}`);
   for (const n of (flag('dump') ?? '').split(',').filter(Boolean)) inv.dump(n.replace(/_/g, ' '));
 }
 

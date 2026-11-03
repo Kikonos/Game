@@ -56,6 +56,7 @@ import { dayLabel, offDaysHit, takesPublishedOff, v09Stats } from './dayPlan';
 import { boughtNow, buyBackFor, buyBackMode, repayText, type BuyBack } from './buyBack';
 import { crewAlertKind, LIMIT_NAME, type CrewAlertKind } from './outOfHours';
 import { restPlan } from './restPlan';
+import { lockOf } from '../scenario/rules';
 
 export type { Reason, ReasonCode };
 export { rootReason };
@@ -2192,7 +2193,10 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
     const s = base('subcharter');
     const rot = rotationOf(g, f.id).map((l) => l.id);
     const q = rot.includes(f.id) ? subcharterQuote(g, rot) : null;
-    if (!q) out.push(no(s, x.revLegs ? 'Too close to departure for a rival to position' : 'No revenue legs to hand over'));
+    // v0.15 a scenario where nobody else flies our work: shown, not available, with the reason.
+    const lk = lockOf(g, 'subcharter');
+    if (lk) out.push(no(s, lk));
+    else if (!q) out.push(no(s, x.revLegs ? 'Too close to departure for a rival to position' : 'No revenue legs to hand over'));
     else {
       s.cost = q.cost;
       s.chips = [usd(q.cost), `Hurts: ${q.hit.text}`, `we still bill ${usd(q.revenue)}`, q.rivalName];

@@ -1071,10 +1071,13 @@ function planDay(g: GameState, D: number, crew: CrewMember[], facts: Map<string,
 
 // ---------- standby ----------
 
-/** Where the crew member is at `t` per their timeline (base when unknown). */
-const whereAt = (c: CrewMember, segs: Seg[], t: Minute) => locAt(c, segs, t) || c.base;
+/**
+ * Where the crew member is at `t` per their timeline (base when unknown). v0.15 with `now`: work that ended before it is
+ * already in where they are (c.loc): a past duty to Sal followed by a ticket home no longer puts them at Sal.
+ */
+const whereAt = (c: CrewMember, segs: Seg[], t: Minute, now = -Infinity) => locAt(c, now > -Infinity ? segs.filter((s) => s.end > now) : segs, t) || c.base;
 /** Debug round: where the day planner would put a window starting at `from` (where they are at 06:00 that base day). */
-const stationFor = (c: CrewMember, segs: Seg[], from: Minute) => whereAt(c, segs, midnight(c.base, dayIndex(c.base, from)) + 6 * 60);
+const stationFor = (c: CrewMember, segs: Seg[], from: Minute, now?: Minute) => whereAt(c, segs, midnight(c.base, dayIndex(c.base, from)) + 6 * 60, now);
 
 interface DayFacts {
   /** Reports at a station on the day: early (before 12:00 local) and late, per role. */
@@ -1304,7 +1307,13 @@ export function planStandby(g: GameState): void {
         // Debug round (26 Oct 2026): a window at a station the crew member will not be at any more (a trip cut short by
         // sickness, a leg cancelled or diverted) goes; the day is planned again where they are (seed 1: a cabin crew
         // member home sick kept her hotel standbys at the Dublin deployment).
-        if ((w.at ?? c.base) !== stationFor(c, segs, w.from)) {
+        if ((w.at ?? c.base) !== stationFor(c, segs, w.from, g.now)) {
+          clipped = true;
+          continue;
+        }
+        // v0.15 nor one inside leave, sickness or a course planned since (Southern Winter: hotel standbys kept at Sal
+        // for a first officer whose leave was moved to begin at home the day before).
+        if (c.blocks?.some((b) => b.why !== 'joining' && b.from < w.to && b.to > w.from)) {
           clipped = true;
           continue;
         }
@@ -1381,7 +1390,7 @@ export function planStandby(g: GameState): void {
         prevShift = null;
         continue;
       }
-      const at = whereAt(c, segs, m + 6 * 60);
+      const at = whereAt(c, segs, m + 6 * 60, g.now);
       const f = factsOf(X);
       const raw = rawWindow(c, X, at, f, prevShift);
       // Clip: after the rest from earlier work (06:00 after a day off), before the rest the next work needs.
@@ -1456,7 +1465,7 @@ export function fitStandby(g: GameState, ids: Iterable<string>): void {
     let moved = false;
     for (const w of future) {
       // Debug round: a window where the crew member will not be (the new work takes them elsewhere) goes.
-      if ((w.at ?? c.base) !== stationFor(c, segs, w.from)) {
+      if ((w.at ?? c.base) !== stationFor(c, segs, w.from, g.now)) {
         moved = true;
         continue;
       }
@@ -1545,6 +1554,23 @@ export function dayPlanBefore(g: GameState): void {
     }
   }
   planOffDays(g);
+}
+
+/**
+ * v0.15 hourly: a standby window away from base starting within 12 h at a station the crew member will no longer be at
+ * (the trip that was to take them there changed since the window was planned) goes; the next planning fills the day
+ * where they are (Southern Winter: an FO kept on hotel standby at Sal at home in Lisbon after the positioning slipped).
+ */
+export function dropStrandedStandby(g: GameState): void {
+  for (const c of Object.values(g.crew)) {
+    if (!c.standby?.some((w) => w.at && w.at !== c.base && w.calledAt === undefined && w.from > g.now && w.from <= g.now + 12 * 60)) continue;
+    const segs = segsOf(g, c);
+    const keep = c.standby.filter((w) => !(w.at && w.at !== c.base && w.calledAt === undefined && w.from > g.now && w.from <= g.now + 12 * 60 && w.at !== stationFor(c, segs, w.from, g.now)));
+    if (keep.length === c.standby.length) continue;
+    if (keep.length) c.standby = keep;
+    else delete c.standby;
+    touchCrewState(g);
+  }
 }
 
 /** After the roster run: the month's legal days off topped up, then standby for the published days. */

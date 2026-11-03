@@ -28,6 +28,7 @@ import { issueTender, roundAt } from './tenders';
 import { clientByName, com, comStats, sideOf, usdK, withStream } from './state';
 import { bumpPresence, clientMarket, fairPresence, PRESENCE } from './presence';
 import type { SalesTrip, TravelTicket, Traveller, TripLead } from './types';
+import { lockOf } from '../scenario/rules';
 
 export const TRIPS = {
   /** Per diem for the traveller (USD a day), the pass of a client visit (none). */
@@ -227,6 +228,9 @@ const emptyQuote = (why: string): TripQuote => ({ ok: false, why, kind: 'fair', 
 
 /** Player action: book the trip (tickets and the pass paid now; hotel and per diem on return). */
 export function bookTrip(g: GameState, who: Traveller, target: { fairId?: string; clientId?: string }): ActionResult<{ tripId: string }> {
+  // v0.15 no sales trips or fairs in a scenario.
+  const lk = lockOf(g, 'sales');
+  if (lk) return { ok: false, error: lk };
   const q = tripQuote(g, who, target);
   if (!q.ok || !q.out || !q.back) return { ok: false, error: q.why ?? 'Cannot plan this trip' };
   const name = travellers(g).find((x) => x.who === who)?.name ?? 'You';

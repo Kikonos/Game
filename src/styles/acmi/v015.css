@@ -1,0 +1,76 @@
+/* v0.15 the Ops Map's 3D globe: what the main bundle needs before the globe's own chunk (and its styles) has loaded.
+   The note when the globe cannot open is quiet: a small pill above the zoom controls that goes by itself. */
+.globe-wait { position: absolute; inset: 0; background: var(--map-ocean-1); }
+.globe-note {
+  position: absolute; left: 50%; top: 14px; transform: translateX(-50%); z-index: 6; max-width: calc(100% - 32px);
+  padding: 7px 14px; border-radius: 999px; font-size: 12px; color: var(--text-2); background: var(--op-bg, var(--panel-solid));
+  border: 1px solid var(--border); box-shadow: var(--shadow-sm); pointer-events: none; text-align: center;
+}
+/* v0.15 Depth: subtle 3D touches, all 2D (CSS transforms and small pre-rendered sprites; no WebGL). */
+:root, :root[data-theme='dark'] {
+  /* aircraft shadows on the map, and the horizon haze over the far edge of the tilted map */
+  --map-shade-a: 1;
+  --map-haze-rgb: 7, 12, 24;
+}
+:root[data-theme='light'] {
+  --map-shade-a: 0.4;
+  --map-haze-rgb: 222, 232, 243;
+}
+
+/* Map: each of our aircraft casts a soft shadow of its own shape (LiveLayers; offset and softness by height). */
+.ops-ac .shade { opacity: var(--map-shade-a); pointer-events: none; }
+.ops-ac[data-phase='maintenance'] .shade { opacity: calc(var(--map-shade-a) * 0.6); }
+
+/* Map tilt: the stage (land, night, lights, overlay) leans back about its bottom edge at the closest zoom levels
+   (WorldMap; the transform is written per frame with the zoom). The haze softens the far edge into a horizon. */
+.map-stage { position: absolute; inset: 0; transform-origin: 50% 100%; }
+.map-haze {
+  position: absolute; left: 0; right: 0; top: 0; height: 30%; pointer-events: none; opacity: 0;
+  background: linear-gradient(180deg, rgba(var(--map-haze-rgb), 0.94) 0%, rgba(var(--map-haze-rgb), 0.6) 22%, rgba(var(--map-haze-rgb), 0.18) 62%, rgba(var(--map-haze-rgb), 0) 100%);
+}
+
+/* Hangar › Side: each row stands on a floor that runs back to one vanishing point; a soft contact shadow and a faint
+   reflection under every aircraft; rows further back a touch smaller and fainter (--hg-s, --hg-f: Hangar.tsx). */
+.hg-line { position: relative; }
+.hg-line > .hg-item { position: relative; z-index: 1; }
+.hg-floorband {
+  position: absolute; left: -18px; right: -18px; height: 34px; margin-top: -22px; z-index: 0; pointer-events: none;
+  background: linear-gradient(180deg, transparent 0%, rgba(var(--line-rgb), 0.045) 45%, rgba(var(--line-rgb), 0.075) 100%);
+  -webkit-mask-image: linear-gradient(180deg, transparent 0%, #000 55%), linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
+  -webkit-mask-composite: source-in; mask-image: linear-gradient(180deg, transparent 0%, #000 55%), linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent); mask-composite: intersect;
+}
+.hg-floorband::after { content: ''; position: absolute; left: 0; right: 0; bottom: 0; height: 1px; background: rgba(var(--line-rgb), 0.12); }
+.hg-grid { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.hg-grid line { stroke: rgba(var(--line-rgb), 0.09); stroke-width: 1; }
+.hg-item .hg-art { transform: scale(var(--hg-s, 1)); transform-origin: 50% 100%; opacity: var(--hg-f, 1); }
+.hg-item .hg-art svg { -webkit-box-reflect: below 1px linear-gradient(180deg, transparent 0%, transparent 70%, rgba(255, 255, 255, 0.2) 100%); }
+:root[data-theme='light'] .hg-item .hg-art svg { -webkit-box-reflect: below 1px linear-gradient(180deg, transparent 0%, transparent 70%, rgba(255, 255, 255, 0.28) 100%); }
+.hg-item .hg-art::after { left: 20%; right: 20%; bottom: -3px; height: 7px; background: radial-gradient(closest-side, rgba(var(--shade-rgb), calc(0.5 * var(--shade-k))), transparent); }
+.hg-item .hg-tag { margin-top: 10px; }
+
+/* Hangar › From above: soft drop shadows (the map's light, high in the north-west) on a lit concrete floor: pools of
+   light from the roof, a darker rim, slab joints every 30 m over the 10 m grid, and a faint grain. */
+.hg-top .hg-plane svg { filter: drop-shadow(3px 5px 4px rgba(var(--shade-rgb), calc(0.5 * var(--shade-k)))); }
+.hg-top .hg-floor {
+  background-image:
+    radial-gradient(closest-side, rgba(var(--hg-lamp-rgb), var(--hg-lamp-a)), transparent),
+    radial-gradient(130% 110% at 50% 45%, transparent 55%, rgba(var(--shade-rgb), calc(0.2 * var(--shade-k)))),
+    linear-gradient(to right, rgba(var(--line-rgb), 0.1) 1.5px, transparent 1.5px),
+    linear-gradient(to bottom, rgba(var(--line-rgb), 0.1) 1.5px, transparent 1.5px),
+    linear-gradient(to right, rgba(var(--line-rgb), 0.06) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(var(--line-rgb), 0.06) 1px, transparent 1px),
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .5 0 0 0 0 .5 0 0 0 .16 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 340px 300px, 100% 100%, calc(var(--hg-m) * 3) calc(var(--hg-m) * 3), calc(var(--hg-m) * 3) calc(var(--hg-m) * 3), var(--hg-m) var(--hg-m), var(--hg-m) var(--hg-m), 180px 180px;
+  background-repeat: repeat, no-repeat, repeat, repeat, repeat, repeat, repeat;
+  background-position: center top, center, 0 0, 0 0, 0 0, 0 0, 0 0;
+}
+:root, :root[data-theme='dark'] { --hg-lamp-rgb: 160, 190, 235; --hg-lamp-a: 0.08; }
+:root[data-theme='light'] { --hg-lamp-rgb: 255, 255, 255; --hg-lamp-a: 0.55; }
+
+/* v0.15 the welcome card of a new game: a short list of plain points, one button; readable on an iPhone in landscape
+   (the compact tier's bottom sheet scrolls its body). */
+.v15-welcome { max-width: 560px; }
+.v15-welcome-lead { margin: 0 0 10px; }
+.v15-welcome-points { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 8px; line-height: 1.45; }
+.v15-welcome-points li::marker { color: var(--accent); }
+.v15-welcome .modal-foot .btn-primary { min-width: 140px; justify-content: center; }

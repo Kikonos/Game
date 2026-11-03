@@ -24,6 +24,7 @@ import type { DeliveryLeg } from './delivery';
 import { scheduleCheck } from './maintenance';
 import { maintWord, usd } from './util';
 import { onClientCabinEnd } from './clientCabin';
+import { lockOf } from '../scenario/rules';
 
 export interface RefitQuote {
   ok: boolean; why: string | null; cabin: Cabin; days: number; cost: number; start: Minute; end: Minute;
@@ -178,6 +179,9 @@ export function refitQuote(g: GameState, aircraftId: string, label: string, stat
     cabinMinFrom: cabinMinimum(ac?.typeId ?? '', empty.total), cabinMinTo: cabinMinimum(ac?.typeId ?? '', empty.total), opens: [], closes: [], reinstateAtReturn: null, clashes: [], breaks: [],
   };
   if (!ac) return { ...base, why: 'Aircraft not found' };
+  // v0.15 a scenario without refits.
+  const lk = lockOf(g, 'refits');
+  if (lk) return { ...base, why: lk };
   const preset = cabinOptions(ac.typeId).find((p) => p.label === label);
   if (!preset) return { ...base, why: `No ${label} layout for the ${typeOf(ac.typeId).short}` };
   const cabin = cabinOf(preset);
@@ -670,6 +674,8 @@ export function restRefitQuote(g: GameState, aircraftId: string, id: RestRefitId
 
 /** v0.7.3 books a home-base crew rest refit (a short 'refit' at home base; the facilities change at the end). */
 export function bookRestRefit(g: GameState, aircraftId: string, id: RestRefitId, start: Minute): ActionResult<{ maintId: string }> {
+  const lk = lockOf(g, 'refits');
+  if (lk) return { ok: false, error: lk };
   const q = restRefitQuote(g, aircraftId, id, start);
   if (!q.ok) return { ok: false, error: q.why ?? 'Cannot book this work' };
   const ac = g.fleet[aircraftId];
@@ -690,6 +696,8 @@ export function bookRestRefit(g: GameState, aircraftId: string, id: RestRefitId,
 export function addRestToCCheck(g: GameState, maintId: string, id: 'fcrc' | 'overhead' | null): ActionResult {
   const m = g.maintenance[maintId];
   if (!m || m.kind !== 'C' || m.status !== 'planned') return { ok: false, error: 'No planned C-check' };
+  const lk = id ? lockOf(g, 'refits') : null;
+  if (lk) return { ok: false, error: lk };
   const ac = g.fleet[m.aircraftId];
   if (!ac) return { ok: false, error: 'Aircraft not found' };
   const B = BAL.v073.restRefit;

@@ -86,6 +86,8 @@ export default defineConfig({
           if (id.includes('/node_modules/')) {
             // world-atlas stays in its own lazily loaded chunk (the map's land outline).
             if (id.includes('/world-atlas/')) return undefined;
+            // v0.15 three.js only with the 3D globe: its own chunk, loaded when the player opens the globe.
+            if (id.includes('/node_modules/three/')) return 'globe3d';
             if (id.includes('/country-flag-icons/')) return 'flags';
             return 'vendor';
           }

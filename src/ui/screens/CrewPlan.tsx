@@ -15,6 +15,8 @@ import { Term } from '../components/Term';
 import { store } from '../store';
 import { isPilotRole } from './screenLogic';
 import { planSentence, setsWhyLines } from './crewPlanLogic';
+import { lockOf } from '../../engine/scenario';
+import { LockNote } from '../components/Locked';
 
 const ROLE_WORD: Record<string, string> = { CPT: 'Captains', FO: 'First officers', CRP: 'Relief pilots', PUR: 'Pursers', CC: 'Cabin crew' };
 
@@ -39,7 +41,7 @@ function idleTypes(g: GameState, plans: FamilyPlan[]): { family: RatingFamily; p
 }
 
 /** One family: sets, the verdict, the role table and the round-up buttons. */
-function FamilyCard({ p }: { p: FamilyPlan }) {
+function FamilyCard({ p, lock }: { p: FamilyPlan; lock?: string | null }) {
   const t = roundTargets(p);
   const short = p.setsComplete < p.setsNeeded;
   const pct = (n: number) => `${Math.min(100, (n / Math.max(1, p.setsNeeded)) * 100)}%`;
@@ -103,6 +105,8 @@ function FamilyCard({ p }: { p: FamilyPlan }) {
       ))}
       {p.clientCabin > 0 && <div className="tiny muted"><Term id="dampLease">Mixed crew</Term>: clients' own cabin crew fly about {p.clientCabin} of the cabin places in these sets; only ours are counted.</div>}
       {p.dryLeased > 0 && <div className="tiny muted">Dry lease out: {p.dryLeased} more {p.dryLeased === 1 ? 'aircraft is' : 'aircraft are'} away with the lessee's crews; no sets until {p.dryLeased === 1 ? 'it comes' : 'they come'} back.</div>}
+      {/* v0.15 a scenario's hiring allowance. */}
+      <LockNote why={lock} />
       <div className="row gap-8 cp-actions">
         {t.complete !== null ? (
           <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'roundUp', family: p.family, target: t.complete! })}><UserPlus /> Hire to complete {t.complete} sets</button>
@@ -173,7 +177,7 @@ export function CrewPlanView({ g }: { g: GameState }) {
       </div>
       {!plans.length && <div className="small muted">No aircraft in the fleet yet.</div>}
       <div className="cp-grid">
-        {plans.map((p) => <FamilyCard key={p.family} p={p} />)}
+        {plans.map((p) => <FamilyCard key={p.family} p={p} lock={lockOf(g, 'hiring')} />)}
       </div>
       {idle.length > 0 && (
         <div className="small muted cp-idle">

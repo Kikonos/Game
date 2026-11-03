@@ -15,6 +15,7 @@ import { silColour, silhouette, silSpec } from '../map/silhouettes';
 import { Seg } from '../components/ui';
 import { store } from '../store';
 import { type HangarItem, hangarOrder, hangarScale, topScale } from './hangarLogic';
+import { hangarDepth } from '../map/depth';
 
 export interface HangarRow extends HangarItem {
   livery: Livery;
@@ -51,7 +52,19 @@ function writeHangarLook(v: HangarLook) {
 /** '37.6', '72.7': one decimal, no trailing zero. */
 const fmtM = (m: number) => (Math.round(m * 10) / 10).toString();
 
-export const HangarView = memo(function HangarView({ rows }: { rows: HangarRow[]; k: string }) {
+/** v0.15 the side view's floor: lines running back to one vanishing point, cross lines closer together further back. */
+const FLOOR_RUNS = Array.from({ length: 25 }, (_, i) => i * (100 / 24));
+const FLOOR_CROSS = [38, 64, 84];
+const FloorGrid = memo(function FloorGrid() {
+  return (
+    <svg className="hg-grid" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden>
+      {FLOOR_RUNS.map((x) => <line key={`r${x}`} x1={x} y1={100} x2={50 + (x - 50) * 0.8} y2={0} vectorEffect="non-scaling-stroke" />)}
+      {FLOOR_CROSS.map((y) => <line key={`c${y}`} x1={0} y1={y} x2={100} y2={y} vectorEffect="non-scaling-stroke" />)}
+    </svg>
+  );
+});
+
+export const HangarView = memo(function HangarView({ rows, k: key }: { rows: HangarRow[]; k: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
   useLayoutEffect(() => {
@@ -64,6 +77,27 @@ export const HangarView = memo(function HangarView({ rows }: { rows: HangarRow[]
     return () => ro.disconnect();
   }, []);
   const [look, setLookState] = useState<HangarLook>(readHangarLook);
+  // v0.15 the side view's rows stand on floors, the top row furthest back (a touch smaller and fainter): measured
+  // after layout, since the rows wrap with the width.
+  const lineRef = useRef<HTMLDivElement>(null);
+  const [floors, setFloors] = useState<{ y: number; back: number }[]>([]);
+  useLayoutEffect(() => {
+    const line = lineRef.current;
+    if (look !== 'side' || !line) return;
+    const items = Array.from(line.querySelectorAll<HTMLElement>('.hg-item'));
+    const tops = [...new Set(items.map((el) => el.offsetTop))].sort((a, b) => a - b);
+    const ys = new Map<number, number>();
+    for (const el of items) {
+      const art = el.querySelector<HTMLElement>('.hg-art');
+      const back = tops.length - 1 - tops.indexOf(el.offsetTop);
+      const d = hangarDepth(back);
+      el.style.setProperty('--hg-s', String(d.scale));
+      el.style.setProperty('--hg-f', String(d.fade));
+      if (art) ys.set(el.offsetTop, Math.max(ys.get(el.offsetTop) ?? 0, el.offsetTop + art.offsetTop + art.offsetHeight));
+    }
+    const next = tops.map((t, i) => ({ y: ys.get(t) ?? t, back: tops.length - 1 - i }));
+    setFloors((cur) => (JSON.stringify(cur) === JSON.stringify(next) ? cur : next));
+  }, [look, width, key]);
   const setLook = (v: HangarLook) => { writeHangarLook(v); setLookState(v); };
   const open = (id: string) => store.navigate('fleet', { view: 'fleet', sel: { kind: 'aircraft', id } });
   const head = <div className="hg-head"><Seg<HangarLook> value={look} onChange={setLook} options={[{ value: 'top', label: 'From above' }, { value: 'side', label: 'Side' }]} /></div>;
@@ -101,7 +135,8 @@ export const HangarView = memo(function HangarView({ rows }: { rows: HangarRow[]
   return (
     <div className="hg card" ref={ref} aria-label="Hangar: the fleet to scale">
       {head}
-      <div className="hg-line">
+      <div className="hg-line" ref={lineRef}>
+        {floors.map((f, i) => <span key={i} className="hg-floorband" style={{ top: f.y, opacity: hangarDepth(f.back).fade }} aria-hidden><FloorGrid /></span>)}
         {rows.map((r) => (
           <button key={r.id} className="hg-item" onClick={() => open(r.id)} aria-label={`${r.reg}${r.name ? ` ${r.name}` : ''}, ${ACMI_TYPES[r.typeId]?.name ?? r.typeId}: open its card`}>
             <span className="hg-art"><AircraftArt typeId={r.sprite} livery={r.livery} code={r.code} name={r.titles} reg={r.reg} acName={r.name} pxPerM={k} /></span>

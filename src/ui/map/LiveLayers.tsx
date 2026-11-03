@@ -28,7 +28,9 @@ import { type AcLabel, thinLabels, deliveryTag, headingDeg, JET_PATH, leasedOut,
 import { mapPxPerM, SIL_BUILD_K, silColour, silhouette, silPx, silSpec } from './silhouettes';
 import { airlineType } from './airlineTypes';
 import { fillNight, mercLat, parseRgb } from './sky';
-import { contrailWindow } from './spotter';
+import { contrailWindow, flightProfile } from './spotter';
+import { altByProgress, shadeOf } from './depth';
+import { shadeSprite, warmShades } from './shadeSprite';
 import { leaseShowOf, showAt, type LeaseShow, type ShowLeg } from './dryShow';
 import type { WxKind, WxMark } from './weather';
 import type { MapLayerCtx } from './WorldMap';
@@ -559,6 +561,9 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
   const ref = useRef<SVGGElement>(null);
   const ids = Object.keys(g.fleet);
   const idsKey = ids.join(',');
+  // v0.15 the fleet's shadow sprites, built between frames before they are needed.
+  const typesKey = [...new Set(ids.map((id) => g.fleet[id]?.typeId ?? ''))].sort().join(',');
+  useEffect(() => warmShades(typesKey.split(',').filter(Boolean)), [typesKey]);
   const ctxRef = useRef(ctx);
   ctxRef.current = ctx;
   const selRef = useRef(selected);
@@ -573,11 +578,11 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
     const root = ref.current;
     if (!root) return;
     const REG_FS = isTouch() ? 12 : 11; // .ops-ac .reg font size
-    const els = new Map<string, { el: SVGGElement; glyph: SVGGElement; crowd: boolean; reg: RegSlot; regW: number; trail: boolean; hl: number; hs: number; sz: AcSize; thinReg: boolean; thinTag: boolean }>();
+    const els = new Map<string, { el: SVGGElement; glyph: SVGGElement; crowd: boolean; reg: RegSlot; regW: number; trail: boolean; hl: number; hs: number; sz: AcSize; thinReg: boolean; thinTag: boolean; shade: SVGImageElement | null; shadeLv: number; ty: string; alt: number; altT: number; altF: string; shadeTf: string }>();
     for (const el of Array.from(root.querySelectorAll(':scope > .ops-ac')) as SVGGElement[]) {
       const id = el.dataset.id!;
       const reg = el.querySelector('.reg')?.textContent ?? '';
-      els.set(id, { el, glyph: el.querySelector('.glyph') as SVGGElement, crowd: false, reg: 0, regW: reg.length * REG_FS * 0.62 + 2, trail: false, hl: Number(el.dataset.hl) || 11, hs: Number(el.dataset.hs) || 11, sz: { z: 0, r: 11, rp: 25, ry: 25, ru: -15, ty: 0 }, thinReg: false, thinTag: false });
+      els.set(id, { el, glyph: el.querySelector('.glyph') as SVGGElement, crowd: false, reg: 0, regW: reg.length * REG_FS * 0.62 + 2, trail: false, hl: Number(el.dataset.hl) || 11, hs: Number(el.dataset.hs) || 11, sz: { z: 0, r: 11, rp: 25, ry: 25, ru: -15, ty: 0 }, thinReg: false, thinTag: false, shade: el.querySelector('.shade'), shadeLv: -1, ty: el.dataset.ty ?? '', alt: 0, altT: NaN, altF: '', shadeTf: '' });
     }
     /**
      * v0.14 one px-per-metre for every icon (to scale), from the zoom: the glyph scales, and with it the tap target,
@@ -709,6 +714,8 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         const e = els.get(id);
         // React re-renders reset the className: put the loop's own classes back.
         if (fresh && e) {
+          e.shadeLv = -1;
+          e.shadeTf = '';
           e.el.classList.toggle('crowd', e.crowd);
           e.el.classList.toggle('reg-up', e.reg === 1);
           e.el.classList.toggle('reg-off', e.reg === 2);
@@ -798,6 +805,31 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         e.el.setAttribute('transform', `translate(${p[0].toFixed(2)} ${p[1].toFixed(2)}) scale(${u.toPrecision(4)}) translate(${s.ox.toFixed(1)} ${s.oy.toFixed(1)})`);
         // v0.14 to scale in the air and on the stand alike (v0.12 shrank widebodies to fit a narrowbody's stand).
         e.glyph.setAttribute('transform', `rotate(${s.ang.toFixed(1)}) scale(${e.sz.z.toPrecision(4)})`);
+        // v0.15 its soft shadow: one pre-rendered sprite per type and softness step, offset by the height (one fixed
+        // light): crisp right under it on the ground, further off and softer as it climbs, back in on descent.
+        if (e.shade) {
+          // The height moves slowly: worked out again every half game minute (or a new leg).
+          const fk = live.phase !== 'airborne' ? '' : live.flight?.id ?? 'show';
+          if (fk !== e.altF || !(Math.abs(t - e.altT) < 0.5)) {
+            e.altF = fk;
+            e.altT = t;
+            e.alt = !fk ? 0 : live.flight ? flightProfile(live.flight, live.aircraft.typeId, t).altFt : altByProgress(live.progress);
+          }
+          const sh = shadeOf(e.alt, e.sz.z);
+          if (sh.level !== e.shadeLv) {
+            e.shadeLv = sh.level;
+            const sp = shadeSprite(e.ty, sh.level);
+            if (sp) {
+              e.shade.setAttribute('href', sp.href);
+              e.shade.setAttribute('x', sp.x.toFixed(2));
+              e.shade.setAttribute('y', sp.y.toFixed(2));
+              e.shade.setAttribute('width', sp.w.toFixed(2));
+              e.shade.setAttribute('height', sp.h.toFixed(2));
+            }
+          }
+          const tf = `translate(${sh.dx.toFixed(1)} ${sh.dy.toFixed(1)}) rotate(${s.ang.toFixed(1)}) scale(${e.sz.z.toPrecision(4)})`;
+          if (tf !== e.shadeTf) e.shade.setAttribute('transform', (e.shadeTf = tf));
+        }
         // Contrails only while high enough (climbing through 26,000 ft to the top of descent).
         let tr = false;
         if (live.phase === 'airborne' && live.flight) {
@@ -1094,12 +1126,15 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         // v0.12 a top-down silhouette of the type (engines where they really are). v0.14 built to one scale for every
         // type; the loop scales the glyph with the zoom, and sizes the rings, tap target and labels to match.
         const sil = silhouette(ac.typeId);
+        // v0.15 its shadow sprite (the loop picks the softness for its height).
+        const sh = shadeSprite(ac.typeId, 0);
         return (
-          <g key={id} data-id={id} data-phase="parked" data-hl={sil.hl.toFixed(2)} data-hs={sil.hs.toFixed(2)} className={`ops-ac${selected === id ? ' sel' : ''}${deliveryTag(ac) ? ' dlv' : leasedOut(ac) ? ' lsd' : ''}`}>
+          <g key={id} data-id={id} data-ty={ac.typeId} data-phase="parked" data-hl={sil.hl.toFixed(2)} data-hs={sil.hs.toFixed(2)} className={`ops-ac${selected === id ? ' sel' : ''}${deliveryTag(ac) ? ' dlv' : leasedOut(ac) ? ' lsd' : ''}`}>
             <circle className="hit" r={HIT_R.touch} />
             <path className="hangar" d="M-15 11V-1Q0 -17 15 -1V11Z" />
             <circle className="sel-ring" r={16} />
             <circle className="aog-ring" r={14} />
+            {sh && <image className="shade" href={sh.href} x={sh.x} y={sh.y} width={sh.w} height={sh.h} preserveAspectRatio="none" />}
             <g className="glyph">
               <path className="trail" d={sil.trails} fill="url(#bh-trail)" />
               {/* v0.12 engines go under the wing (as on Flightradar24): only the intake shows ahead of the leading edge. */}

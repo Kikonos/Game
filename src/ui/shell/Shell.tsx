@@ -105,9 +105,17 @@ function PauseBadge() {
   const s = useStore();
   const reason: PauseReason | null = s.blocked ? 'decision' : s.paused ? s.pauseReason : null;
   if (!reason) return null;
+  // v0.15 a 'decision' pause with no card left to answer (a late lease return clashing with our flights): its note is
+  // in the Inbox, never a 'Decision waiting' that opens nothing.
+  const none = reason === 'decision' && !s.game?.decisions.length;
+  const label = none ? 'See the Inbox' : PAUSE_LABEL[reason];
   const go = () => {
     const g = s.game;
+    if (none) return s.navigate('inbox');
     if (reason === 'decision' && s.settings.autoPause.decision && !s.decisionOpen) return s.reopenDecision();
+    // v0.15 a call put away unanswered: the badge brings it back.
+    const call = reason === 'urgentOffer' ? s.heldCall : null;
+    if (call) return s.openModal({ kind: 'offerCall', offerId: call });
     if (reason === 'urgentOffer') s.navigate('contracts', { view: 'market' });
     else if (reason === 'monthEnd') s.navigate('finance');
     else if (reason === 'crewShortage' || reason === 'crewHours') {
@@ -131,9 +139,9 @@ function PauseBadge() {
     else s.navigate('inbox');
   };
   return (
-    <button className="pause-badge" onClick={go} aria-label={`Paused: ${PAUSE_LABEL[reason]}`}>
+    <button className="pause-badge" onClick={go} aria-label={`Paused: ${label}`} title={s.hold?.resume ? `Goes on at ${SPEED_LABEL[s.hold.resume]} once handled` : undefined}>
       <span className="pb-k">Paused</span>
-      <span className="pb-r">{PAUSE_LABEL[reason]}</span>
+      <span className="pb-r">{label}</span>
     </button>
   );
 }

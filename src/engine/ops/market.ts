@@ -27,6 +27,7 @@ import { deliveryQuote, handoverMessage, planDeliveryFerry, type DeliveryQuote }
 import { applyRentStep } from './leaseReturn';
 import { usedHoursCycles } from './sale';
 import { usd } from './util';
+import { lockOf } from '../scenario/rules';
 
 /** Real operating lessors (names only; they also trade used aircraft). */
 /**
@@ -178,6 +179,8 @@ const kindText = (o: AircraftOffer) => (o.newBuild ? 'new-build slot' : o.kind =
 
 /** Posts an offer: one Inbox message (topic market; the UI may hide them) and a market pause request. */
 function postOffer(g: GameState, o: AircraftOffer): void {
+  // v0.15 a scenario's fixed fleet: no aircraft on the market (the draw is made, so the day's other draws stay).
+  if (lockOf(g, 'fleet')) return;
   const m = g.market;
   // At most maxOpen: the oldest goes first.
   while (m.aircraft.length >= BAL.market7.maxOpen) m.aircraft.shift();
@@ -293,6 +296,9 @@ function registration(g: GameState): string {
  * delivery ferry home is planned at once (the roster sends rated pilots out on airline tickets before it).
  */
 export function acquireAircraft(g: GameState, offerId: string, opts: { reg?: string; name?: string; /** v0.11 a delivery we may not ferry (ETOPS) */ delivery?: 'thisSide' | 'ferryCo' } = {}): ActionResult<{ aircraftId: string }> {
+  // v0.15 a scenario's fleet is fixed.
+  const lk = lockOf(g, 'fleet');
+  if (lk) return { ok: false, error: lk };
   const i = g.market.aircraft.findIndex((o) => o.id === offerId);
   if (i < 0) return { ok: false, error: 'Offer not found' };
   const o = g.market.aircraft[i];

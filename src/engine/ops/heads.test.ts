@@ -19,7 +19,7 @@ import { autoRoster, releaseCrew, setFlightsCrew } from '../crew/roster';
 import { serialize } from '../save';
 import { checkAchievements } from './achievements';
 import {
-  acceptProposal, analystView, dailyHeads, defaultRules, deskFixBody, dismissProposal, fireHead, headsView, headView, hireHead, mistakeRoll, monthlyHeads, rollCandidates, setHeadRules, unlockHead, watchDeskHour,
+  acceptProposal, analystView, dailyHeads, defaultRules, deskFixBody, dismissProposal, fireHead, headsView, headView, hireHead, mistakeRoll, monthlyHeads, pausingRuleKeys, rollCandidates, setHeadRules, unlockHead, watchDeskHour,
 } from './heads';
 import { checkStatus, nextPlanned, scheduleCheck } from './maintenance';
 import { dayIndex, v09Stats } from '../crew/dayPlan';
@@ -227,6 +227,20 @@ describe('§5.3 daily and hourly work', () => {
     g.company.cash = 300_000;
     expect(watchDeskHour(g)).toBe(1);
     clearPause();
+  });
+
+  it('v0.15 pausingRuleKeys: the live subjects of Pause rules only (the auto-resume waits on them)', () => {
+    const g = fixtureGame(92);
+    expect(pausingRuleKeys(g)).toEqual([]);
+    hire(g, 'watch', 1);
+    setHeadRules(g, 'watch', { alerts: [
+      { id: 'r1', kind: 'cashBelow', value: 500_000, action: 'pause', on: true },
+      { id: 'r2', kind: 'cashBelow', value: 600_000, action: 'alert', on: true },
+    ] });
+    g.company.cash = 400_000;
+    expect(pausingRuleKeys(g)).toEqual(['r1:cash']);
+    g.company.cash = 900_000;
+    expect(pausingRuleKeys(g)).toEqual([]);
   });
 
   it('analystView: null unless hired; pure and deterministic; the counter inside the 60 % band', () => {

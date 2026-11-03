@@ -9,6 +9,8 @@ import { DAY, fmtDay, fmtDayAt, toDate, toLocal } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import { Empty } from '../components/ui';
 import { store } from '../store';
+import { lockOf } from '../../engine/scenario';
+import { LockedPanel } from '../components/Locked';
 
 const days = (t: number, now: number) => Math.max(0, Math.ceil((t - now) / DAY));
 // v0.14.1 the programme's days on the base's local calendar (it starts at local midnight: the evening before in UTC),
@@ -54,6 +56,9 @@ export function TendersView({ g }: { g: GameState }) {
   const day = Math.floor(g.now / DAY);
   const b = useMemo(() => tenderBoard(g), [g, day, store.editCount, g.com?.tenders.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const none = !b.open.length && !b.mine.length && !b.results.length;
+  // v0.15 no tenders in a scenario: a calm notice instead of the board.
+  const lock = lockOf(g, 'tenders');
+  if (lock) return <LockedPanel title="Tender board closed" why={lock}>No requests for proposals come in while the scenario runs.</LockedPanel>;
   return (
     <div className="col gap-12 v14-tenders">
       <div className="small muted v14-season">{seasonLine(g.now)} Decided on price, reliability, relationship, aircraft age and fit.</div>

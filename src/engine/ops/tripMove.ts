@@ -27,6 +27,7 @@ import { excusedLate, latePenalty } from './latePolicy';
 import { isGrounded, relinkCheckFerries } from './maintenance';
 import { closedAirport, closedUntil } from './world';
 import { ageOf, an, bodyText, isRevenue, typeWord } from './util';
+import { lockOf } from '../scenario/rules';
 
 /** Legs of a trip are on the ground at most this long between them (an overnight stop at most). */
 export const TRIP_LINK_MAX = 18 * 60;
@@ -775,6 +776,9 @@ function fullQuote(g: GameState, plan: Plan, q: TripMoveQuote): void {
  * Refused with the quote's first reason when it can't; `expectNet` refuses a quote that got worse since it was shown.
  */
 export function moveTrip(g: GameState, flightId: string, targetId: string, expectNet?: number): ActionResult<{ quote: TripMoveQuote }> {
+  // v0.15 a scenario's core trips may be pinned to their aircraft.
+  const lk = lockOf(g, 'move', { contractId: g.flights[flightId]?.contractId ?? undefined });
+  if (lk) return { ok: false, error: lk };
   const q = quoteTripMove(g, flightId, targetId);
   if (!q.ok) return { ok: false, error: q.reasons[0] ?? 'This trip can’t move there' };
   if (expectNet !== undefined && q.net < expectNet - SAME_BAND) return { ok: false, error: 'The numbers changed since you looked: check the quote again' };

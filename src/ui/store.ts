@@ -4,6 +4,8 @@
 import { deliveryCardFor } from './modals/deliveryCard';
 import { startTransition, useEffect, useState, useSyncExternalStore } from 'react';
 import { clearPause, takePause, type PauseReason } from '../engine/core/pause';
+import { addItem, holdFromSave, holdToSave, pauseKeys, pendingItems, subjectsOf, topReason, type Hold } from './autoResume';
+import { pausingRuleKeys } from '../engine/ops/heads';
 import { CLOCK_STEP, type GameSpeed, minutesPerMs, monthKey } from '../engine/core/time';
 import type { CabinLayout, RatingFamily } from '../data/acmiTypes';
 import type { ActionResult, ApprovalId, Archetype, CrewFix, GameState, Message, PaintKind, ProblemRef, Ref, RestRefitId, Role } from '../engine/core/types';
@@ -20,7 +22,7 @@ import { devDeportation, devDryLease, devEvacuation, devHajj, devLevel, devMixed
 import { devTourStopClosed } from '../engine/ops/tourStop';
 import { demoFlights, devAddType, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
 import { dropTargets, moveDuty, publishedTo, resignNow, type DropTarget, type MoveScope } from '../engine/crew';
-import { acquireAircraft, headsView, headView } from '../engine/ops';
+import { acquireAircraft, headsView, headView, withdrawHandled } from '../engine/ops';
 import { createGame, type NewGameOptions } from '../engine/newGame';
 import { autosaveSlot, saveToSlot, serialize } from '../engine/save';
 import { createScenario, scenarioOutcome } from '../engine/scenario';
@@ -58,6 +60,8 @@ export interface Settings {
   /** Which engine pause requests actually stop the clock. */
   autoPause: Record<PauseReason, boolean>;
   mapAnimations: boolean;
+  /** v0.15 Display › Map tilt: a gentle perspective tilt when the map is zoomed in close (off with reduced motion). */
+  mapTilt: boolean;
   /** Extra empty band above the top bar (px) — iPadOS 26 frosts the top edge of home-screen web apps. */
   topGap: 'auto' | 0 | 16 | 28 | 40;
   toasts: boolean;
@@ -89,6 +93,12 @@ export interface Settings {
   uiSize: UiSizePref;
   /** v0.12 Scenarios: the best result on this device per scenario id (stars, the goal's value, when). */
   scenarioBest: Record<string, ScenarioBest>;
+  /** v0.15 Display › 3D globe: the Map's globe button (off: hidden, the flat map only). */
+  globe: boolean;
+  /** v0.15 the Map shows the 3D globe (the player's last choice; the flat map is the default). */
+  globeView: boolean;
+  /** v0.15 the globe turns slowly by itself after a few idle seconds. */
+  globeSpin: boolean;
 }
 
 export interface ScenarioBest { stars: number; value: number; at: number }
@@ -99,6 +109,7 @@ const DEFAULT_SETTINGS: Settings = {
   autosave: true,
   autoPause: { decision: true, urgentOffer: true, aog: true, monthEnd: false, contractStart: false, crewShortage: true, marketOffer: false, crewHours: true, rule: true },
   mapAnimations: true,
+  mapTilt: true,
   topGap: 'auto',
   toasts: true,
   marketAlerts: true,
@@ -116,6 +127,9 @@ const DEFAULT_SETTINGS: Settings = {
   device: 'auto',
   uiSize: 'auto',
   scenarioBest: {},
+  globe: true,
+  globeView: false,
+  globeSpin: false,
 };
 
 export interface Nav {
@@ -186,7 +200,9 @@ export type ModalSpec =
   | { kind: 'delivered'; aircraftId: string }
   /** v0.14 a tender's bid form (Contracts › Tenders). */
   | { kind: 'tender'; tenderId: string }
-  | { kind: 'followDelivery'; aircraftId: string };
+  | { kind: 'followDelivery'; aircraftId: string }
+  /** v0.15 the welcome card of a new game (once, at the start; never on a load). */
+  | { kind: 'welcome' };
 
 export interface Toast {
   id: number;
@@ -248,6 +264,10 @@ export function settingsFrom(s: Partial<Settings>): Settings {
   out.scenarioBest = out.scenarioBest && typeof out.scenarioBest === 'object' ? { ...out.scenarioBest } : {};
   if (!(['auto', 'iphone', 'ipad', 'computer'] as const).includes(out.device)) out.device = 'auto';
   if (!(['auto', 'small', 'normal', 'large'] as const).includes(out.uiSize)) out.uiSize = 'auto';
+  // v0.15 settings saved before the globe: its button shown, the flat map on, no idle spin.
+  if (typeof out.globe !== 'boolean') out.globe = DEFAULT_SETTINGS.globe;
+  if (typeof out.globeView !== 'boolean') out.globeView = DEFAULT_SETTINGS.globeView;
+  if (typeof out.globeSpin !== 'boolean') out.globeSpin = DEFAULT_SETTINGS.globeSpin;
   return out;
 }
 
@@ -278,6 +298,10 @@ class GameStore {
   paused = true;
   /** Why the clock last stopped by itself (shown in the speed control tooltip). */
   pauseReason: PauseReason | null = null;
+  /** v0.15 the game's own pause (autoResume.ts): the speed to go back to and the reasons still waiting; null = none. */
+  hold: Hold | null = null;
+  /** v0.15 watch-desk subjects already seen (a rule's pause is about the new ones). */
+  private rulesSeen = new Set<string>();
   nav: Nav = { tab: 'map' };
   modal: ModalSpec | null = null;
   /** v0.7.1: the dialog the glossary opened over (a Term's 'Glossary ›'); it comes back when the glossary closes. */
@@ -334,6 +358,8 @@ class GameStore {
   emit() {
     // v0.9 §S.1: the engine's sound cues since the last look (advance, actions, dev scenes) go to the sound set.
     this.drainCues();
+    // v0.15 whatever path answered it (the card, the Inbox, Crew Control, operations), the hold sees it here.
+    this.reviewHold();
     this.version++;
     for (const fn of this.listeners) fn();
   }
@@ -366,7 +392,8 @@ class GameStore {
       if (e.cue === 'offerCall' && e.ref?.kind === 'offer') {
         if (e.msgId) this.cueToasted.add(e.msgId);
         this.queuePop({ kind: 'offerCall', offerId: e.ref.id }, true);
-        if (!this.paused) this.autoPause('urgentOffer');
+        // v0.15 held until the call is answered (accepted or declined); with the clock already stopped, it joins that hold.
+        this.autoPause('urgentOffer', [e.ref.id]);
         continue;
       }
       if (!sound.audible(e.cue)) continue;
@@ -396,13 +423,23 @@ class GameStore {
 
   setScreen(s: AppScreen) {
     this.screen = s;
-    sound.setScene(s === 'game');
+    this.syncScene();
     this.emit();
+  }
+
+  /**
+   * v0.15 where the sound is: the game proper (game music, ambience) once the game screen is up with no welcome card
+   * over it; the title, New Game, Scenarios and the welcome card keep the menus' Terminal music.
+   */
+  private syncScene() {
+    const welcome = this.modal?.kind === 'welcome' || this.modalBelow?.kind === 'welcome';
+    sound.setScene(this.screen === 'game' && !welcome);
   }
 
   startNewGame(opts: NewGameOptions) {
     this.game = createGame(opts);
-    this.afterLoad();
+    this.game.autoHold = null; // v0.15 a new game is the player's to start (not an old save waiting on a decision)
+    this.afterLoad(true);
     this.saveAuto();
     this.emit();
   }
@@ -410,7 +447,8 @@ class GameStore {
   /** v0.12 Scenarios: a new game of scenario `id` (Retry plays the same one again: same seed, same start). */
   startScenario(id: string) {
     this.game = createScenario(id);
-    this.afterLoad();
+    this.game.autoHold = null;
+    this.afterLoad(true);
     this.saveAuto();
     this.emit();
   }
@@ -430,7 +468,8 @@ class GameStore {
     this.emit();
   }
 
-  private afterLoad() {
+  /** `welcome`: a new game (v0.15 its welcome card opens, with the low chime; a load never shows it). */
+  private afterLoad(welcome = false) {
     // v0.11 the game follows the player's Pace setting (the director redraws the spells still to come).
     if (this.game && !this.game.gameOver) setPace(this.game, this.settings.pace);
     // v0.7.2.2: the normal re-plan (the same settle the first clock tick runs) before the first look, so empty legs
@@ -448,12 +487,18 @@ class GameStore {
     this.welcomed = new Set();
     this.exact = this.game?.now ?? 0;
     this.paused = true;
-    this.pauseReason = null;
+    // v0.15 a pause the game made before the save carries over (with its speed); otherwise the load is the player's pause.
+    this.hold = this.game ? holdFromSave(this.game, this.settings.autoPause.decision) : null;
+    if (this.hold?.resume) this.speed = this.hold.resume;
+    this.pauseReason = this.hold ? topReason(this.hold.items) : null;
+    this.rulesSeen = new Set(this.game ? pausingRuleKeys(this.game) : []);
+    this.syncHold();
     this.nav = { tab: 'map' };
-    this.modal = null;
+    this.modal = welcome && this.game && !this.game.gameOver ? { kind: 'welcome' } : null;
     this.modalBelow = null;
     this.screen = 'game';
-    sound.setScene(true);
+    this.syncScene();
+    if (this.modal) sound.welcomeChime();
     // v0.9 §5.2 heads earned in an old save: the load posted 'N department heads are available' (now, unread), which the
     // lastMsgId above marks as seen; queue its celebration card here, once per session.
     const g = this.game;
@@ -474,7 +519,7 @@ class GameStore {
     this.game = null;
     this.modal = null;
     this.screen = 'title';
-    sound.setScene(false);
+    this.syncScene();
     this.emit();
   }
 
@@ -557,6 +602,7 @@ class GameStore {
     this.speed = s;
     this.paused = false;
     this.pauseReason = null;
+    this.dropHold();
     // v0.9.1 (the player): pause and resume make no sound at all.
     this.emit();
   }
@@ -564,6 +610,8 @@ class GameStore {
   togglePause() {
     this.paused = !this.paused;
     this.pauseReason = null;
+    // v0.15 Play goes on now (the player's call); Pause is the player's own and stays after anything is answered.
+    this.dropHold();
     this.emit();
     // After the paused state paints; skipped when nothing moved since the last save.
     if (this.paused) setTimeout(() => this.saveAutoSoon(), 0);
@@ -663,10 +711,73 @@ class GameStore {
     return new Set((Object.keys(this.settings.autoPause) as PauseReason[]).filter((r) => this.settings.autoPause[r] && (r !== 'marketOffer' || this.settings.marketAlerts)));
   }
 
-  private autoPause(reason: PauseReason) {
+  /**
+   * The game stops the clock by itself. v0.15 it remembers the speed it was running at (none when the clock was already
+   * stopped by the player) and what the pause is about (`keys`: computed when omitted); reasons stack.
+   */
+  private autoPause(reason: PauseReason, keys?: string[]) {
+    const g = this.game;
+    if (!this.paused || !this.hold) this.hold = { resume: this.paused ? null : this.speed, items: [] };
     this.paused = true;
-    this.pauseReason = reason;
-    if (this.game) this.exact = this.game.now;
+    if (g) {
+      this.hold = addItem(this.hold, { reason, keys: keys ?? pauseKeys(g, reason, this.rulesSeen) });
+      if (reason === 'rule') for (const k of pausingRuleKeys(g)) this.rulesSeen.add(k);
+    }
+    this.pauseReason = topReason(this.hold.items) ?? reason;
+    this.syncHold();
+    if (g) this.exact = g.now;
+  }
+
+  /**
+   * v0.15 drops the reasons now resolved; the last one gone, the clock runs again at the speed it had (a pause the player
+   * made stays). The top bar then names the next reason still waiting, or nothing.
+   */
+  private reviewHold() {
+    const g = this.game;
+    const h = this.hold;
+    if (!g || !h) return;
+    if (!this.paused || g.gameOver) return this.dropHold();
+    const items = pendingItems(g, h);
+    if (items.length === h.items.length) return;
+    if (items.length) {
+      this.hold = { resume: h.resume, items };
+      this.pauseReason = topReason(items);
+    } else {
+      this.hold = null;
+      this.pauseReason = null;
+      if (h.resume !== null) {
+        this.speed = h.resume;
+        this.paused = false;
+        this.exact = g.now;
+      }
+    }
+    this.syncHold();
+  }
+
+  private dropHold() {
+    if (!this.hold) return;
+    this.hold = null;
+    this.syncHold();
+  }
+
+  /** v0.15 the hold goes into the save with the game (GameState.autoHold; null = nothing held). */
+  private syncHold() {
+    if (this.game) this.game.autoHold = holdToSave(this.hold);
+  }
+
+  /** v0.15 the open phone call the clock waits on (the pause badge opens it again), if any. */
+  get heldCall(): string | null {
+    const g = this.game;
+    const it = this.hold?.items.find((x) => x.reason === 'urgentOffer');
+    if (!g || !it) return null;
+    const open = new Set(subjectsOf(g, 'urgentOffer'));
+    return it.keys.find((k) => open.has(k) && g.offers[k].call) ?? null;
+  }
+
+  /** v0.15 dev helpers that post through the engine take its pause requests the way the clock does. */
+  private devPause() {
+    const p = takePause(this.honoured());
+    if (p) this.autoPause(p);
   }
 
   /** Quiet toasts for important new messages only. Returns whether anything new arrived. */
@@ -814,6 +925,8 @@ class GameStore {
     const res: ActionResult<T> = guarded(g, () => {
       const r = fn(g);
       settle(g);
+      // v0.15 a crew card already dealt with (Crew Control, the roster board) no longer holds the clock.
+      withdrawHandled(g);
       return r;
     }, (e) => {
       console.warn('[act]', e);
@@ -912,6 +1025,7 @@ class GameStore {
     this.modal = m;
     // A dialog takes the stage: quiet toasts (already in the Inbox) must not cover its header.
     this.toasts = [];
+    this.syncScene();
     this.emit();
   }
 
@@ -920,6 +1034,8 @@ class GameStore {
     const below = !opts.all && this.modal?.kind === 'glossary' ? this.modalBelow : null;
     this.modalBelow = null;
     this.modal = below;
+    // v0.15 the welcome card put away: the game proper starts (Terminal crossfades into the game music).
+    this.syncScene();
     if (!below && !opts.hold) this.flushLadder();
     this.emit();
   }
@@ -1017,6 +1133,7 @@ class GameStore {
       // v0.12.1 a world tour whatever the company holds (the daily roll waits for a widebody, ETOPS 180 and standing).
       if (archetype === 'worldTour') return this.devOffer((g) => devWorldTour(g)) || null;
       const o = generateOffer(this.game, archetype);
+      this.devPause();
       if (o) this.openModal({ kind: 'offer', offerId: o.id });
       this.emit();
       return o?.id ?? null;
@@ -1113,6 +1230,7 @@ class GameStore {
         if (air && pick.status !== 'enroute') continue;
         if ((ok = devDisruption(g, kind, pick.id))) break;
       }
+      this.devPause();
       this.exact = g.now;
       this.clockLabel = -1;
       this.emitClock();
@@ -1196,6 +1314,7 @@ class GameStore {
           { id: 'c', label: 'Refuse', desc: 'Saves money, upsets the client.', tone: 'bad', chips: ['Clean −1'] },
         ],
       });
+      this.devPause();
       this.emit();
       return d.id;
     },

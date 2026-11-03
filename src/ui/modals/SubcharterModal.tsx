@@ -16,6 +16,8 @@ import { hurtTone } from './crewControlLogic';
 import { type ModalSpec, store, useGame } from '../store';
 import type { Flight } from '../../engine/core/types';
 import { rotationOf, SUB_LEAD, subcharter, subcharterable, subcharterQuotes, type SubcharterQuote } from '../../engine/ops';
+import { lockOf } from '../../engine/scenario';
+import { LockNote } from '../components/Locked';
 
 const MAX_DAYS = 14;
 
@@ -91,10 +93,11 @@ export function SubcharterModal({ contractId, flightId, rivalId, flightIds, back
     <Modal className="sl-modal" title={`Sub-lease: ${c.title}`} icon={<Handshake className="accent" />} onClose={close} footer={
       <>
         <button className="btn" onClick={close}>Keep flying it</button>
-        <button className="btn btn-primary" onClick={go} disabled={!q || !q.revenueLegs}><Handshake /> Sub-lease for {q ? money(q.cost) : '—'}</button>
+        <button className="btn btn-primary" onClick={go} disabled={!q || !q.revenueLegs || !!lockOf(g, 'subcharter')}><Handshake /> Sub-lease for {q ? money(q.cost) : '—'}</button>
       </>
     }>
       <div className="col gap-12">
+        <LockNote why={lockOf(g, 'subcharter')} />
         <p className="sl-line"><b>{SUBLEASE_LINE}</b> <span className="muted">(a sub-charter)</span></p>
         <p className="muted sc-blurb">A rival operator flies the legs with its own aircraft and crew. {g.clients[c.clientId]?.name ?? 'The client'} is billed by us as usual; we pay the rival. Empty positioning legs in the selection are dropped.</p>
         <div className="row gap-8 wrap">

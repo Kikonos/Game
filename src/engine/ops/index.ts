@@ -77,7 +77,7 @@ export { deliveryQuote, deliveryStatus, ferryRoute, ticketPurpose, type Delivery
 // v0.11 ETOPS on ferries and positioning.
 export { approvalName, capText, etopsFixText, etopsLine } from './etops';
 export { chooseLease, earlyReturnQuote, leaseView, returnEarly, returnQuote, type EarlyReturnQuote, type LeaseChoice, type LeaseView, type ReturnQuote } from './leaseReturn';
-export { reopenLatePayment, resolveDecision } from './events';
+export { reopenLatePayment, resolveDecision, withdrawHandled } from './events';
 export { cashForecast, daysOverdue, fixedCosts, forecastItems, monthEndBill, monthProfit, newStatement, type ForecastItem, type MonthEndBill } from './finance';
 export { delayFlight, delayOf, schedSta } from './flights';
 export { excusedLate, isOurDelay, latePenalty, NOT_OURS, onTimeLeg } from './latePolicy';

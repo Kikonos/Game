@@ -21,6 +21,7 @@ import type { DeliveryLeg } from './delivery';
 import { rentOver, settleDeparture } from './finance';
 import { cCheckGross, checkCostOf, checkUsedAt, nextPlanned, scheduleCheck } from './maintenance';
 import { maintWord, usd } from './util';
+import { lockOf } from '../scenario/rules';
 
 export interface ReturnQuote { site: string; lines: { label: string; amount: number }[]; total: number; deposit: number; checkDays: number; ferry: DeliveryLeg[] }
 export type LeaseChoice = 'extend12' | 'extend36' | 'return';
@@ -48,6 +49,9 @@ export function earlyReturnQuote(g: GameState, aircraftId: string, end?: Minute)
   const rq0: ReturnQuote = { site: '', lines: [], total: 0, deposit: 0, checkDays: 0, ferry: [] };
   const no = (why: string, e = end ?? g.now): EarlyReturnQuote => ({ ok: false, why, end: e, fee: 0, rentSaved: 0, returnCosts: rq0, deposit: 0, net: 0, blockers: [] });
   if (!ac || ac.ownership.kind !== 'dryLeaseIn') return no('Not a leased aircraft');
+  // v0.15 a scenario's fleet is fixed.
+  const lk = lockOf(g, 'fleet');
+  if (lk) return no(lk);
   const own = ac.ownership;
   if (ac.status === 'delivering') return no(`${ac.reg} has not been delivered yet`);
   if (ac.returning) return no('The return is already booked');
@@ -268,6 +272,8 @@ function dropReturn(ac: Aircraft): boolean {
 export function chooseLease(g: GameState, aircraftId: string, choice: LeaseChoice): ActionResult {
   const ac = g.fleet[aircraftId];
   if (!ac || ac.ownership.kind !== 'dryLeaseIn') return { ok: false, error: 'Not a leased aircraft' };
+  const lk = lockOf(g, 'fleet');
+  if (lk) return { ok: false, error: lk };
   const own = ac.ownership;
   const dec = openDecision(g, aircraftId);
   if (choice === 'return') {

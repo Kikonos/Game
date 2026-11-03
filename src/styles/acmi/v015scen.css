@@ -1,0 +1,28 @@
+/* v0.15 Scenarios: locked actions (a lock and the reason, never hidden) and the calm notice on a locked screen or tab;
+   the airline's past on the goals dialog. Light and dark through the theme tokens. */
+
+.lock-note { display: flex; align-items: flex-start; gap: 6px; color: var(--text-2); font-size: 12.5px; line-height: 1.35; min-width: 0; }
+.lock-note svg { flex: 0 0 auto; width: 14px; height: 14px; margin-top: 1px; color: var(--text-2); }
+.lock-note span { min-width: 0; overflow-wrap: anywhere; }
+.lock-note.warn, .lock-note.warn svg { color: var(--warn); }
+
+.lock-panel {
+  display: flex; align-items: flex-start; gap: 12px; padding: 14px 16px; border-radius: 12px;
+  border: 1px dashed var(--border-strong); background: var(--panel-2);
+}
+.lock-panel > svg { flex: 0 0 auto; width: 20px; height: 20px; margin-top: 2px; color: var(--text-2); }
+.lock-panel b { display: block; margin-bottom: 2px; }
+.lock-panel .small { line-height: 1.4; }
+.lock-panel + .lock-panel, .lock-panel + * { margin-top: 12px; }
+
+/* A locked button keeps its place: dimmed, with the lock on it. */
+.btn.locked { opacity: 0.55; cursor: not-allowed; }
+.btn.locked svg.lock-ico { width: 13px; height: 13px; }
+
+/* The goals dialog: what the scenario lets you do, and the airline you stepped into. */
+.sc-rules { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 4px; }
+.sc-rules li { display: flex; align-items: flex-start; gap: 6px; font-size: 13px; }
+.sc-rules li svg { flex: 0 0 auto; width: 14px; height: 14px; margin-top: 2px; }
+.sc-rules li.on svg { color: var(--good); }
+.sc-rules li.off svg { color: var(--text-2); }
+.sc-past { margin-top: 10px; font-size: 13px; line-height: 1.45; }

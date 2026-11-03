@@ -955,6 +955,18 @@ function subjects(g: GameState, a: AlertRule, h: Head): Subject[] {
   }
 }
 
+/**
+ * v0.15 the watch-desk subjects that hold now for the rules set to Pause (`rule id:subject`, the keys `fired` uses).
+ * The store's auto-resume: a rule's pause is resolved once its subject clears (the offer answered, the delay fixed). Pure.
+ */
+export function pausingRuleKeys(g: GameState): string[] {
+  const h = active(g, 'watch');
+  if (!h) return [];
+  const out: string[] = [];
+  for (const a of rulesOf(h).alerts ?? []) if (a.on && a.action === 'pause') for (const [sub] of subjects(g, a, h)) out.push(`${a.id}:${sub}`);
+  return out;
+}
+
 /** Watch desk (hourly): each rule fires once per subject until it clears; a mistake brings the alert an hour late. */
 export function watchDeskHour(g: GameState): number {
   const h = active(g, 'watch');

@@ -1,9 +1,10 @@
 // Global dialogs (menu, saves, settings, confirm) and the in-game modal slot (decisions, game over).
 
+import { WelcomeModal } from '../modals/WelcomeModal';
 import { TenderModal } from '../modals/TenderModal';
 import { BookOpenText, Download, FolderOpen, Home, Lightbulb, Play, PlusCircle, RefreshCw, Save, Settings as SettingsIcon, Sparkles, Trash2, Upload, Volume2 } from 'lucide-react';
 import { sound, SOUND_MEANING } from '../sound';
-import { TRACKS } from '../music';
+import { TERMINAL, TRACKS } from '../music';
 import { HeadUnlockedModal } from '../modals/HeadUnlockedModal';
 import { CounterReplyModal, DeliveredModal, FollowDeliveryModal } from '../modals/PopModals';
 import { CallModal } from '../modals/CallModal';
@@ -223,8 +224,9 @@ function MusicNowPlaying({ dim }: { dim: boolean }) {
   }, []);
   return (
     <div className={`set-row ${dim ? 'v9-dim' : ''}`}>
-      <div><b>Now playing</b><div className="tiny dim">{name ?? 'Starts after your first tap'} · {TRACKS.map((t) => t.name).join(', ')}</div></div>
-      <button className="btn btn-sm" disabled={!name} onClick={() => { sound.nextMusicTrack(); setTimeout(() => setName(sound.musicTrack), 50); }}>Next piece</button>
+      {/* v0.15 the menus play Terminal (a lounge piece of their own, not in the game's turns): no next piece there. */}
+      <div><b>Now playing</b><div className="tiny dim">{name ?? 'Starts after your first tap'} · {name === TERMINAL.name ? 'on the title screen; in a game: ' : ''}{TRACKS.map((t) => t.name).join(', ')}</div></div>
+      <button className="btn btn-sm" disabled={!name || name === TERMINAL.name} onClick={() => { sound.nextMusicTrack(); setTimeout(() => setName(sound.musicTrack), 50); }}>Next piece</button>
     </div>
   );
 }
@@ -244,7 +246,7 @@ function SoundSettings() {
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Chimes</b><div className="tiny dim">Messages, offers, decisions, achievements</div></div><Toggle on={st.soundCats.chimes} onChange={(v) => cats('chimes', v)} label="Chimes" /></div>
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Flight chimes</b><div className="tiny dim">One LO chime at every departure and landing</div></div><Toggle on={st.soundCats.flights} onChange={(v) => cats('flights', v)} label="Flight chimes" /></div>
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>UI clicks</b></div><Toggle on={st.soundCats.ui} onChange={(v) => cats('ui', v)} label="UI clicks" /></div>
-      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Music</b><div className="tiny dim">Calm background music, {TRACKS.length} pieces taking turns; it dips under chimes and alarms</div></div><Toggle on={st.music} onChange={(v) => store.setSettings({ music: v })} label="Music" /></div>
+      <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Music</b><div className="tiny dim">Calm background music, {TRACKS.length} pieces taking turns in a game and Terminal on the title screen; it dips under chimes and alarms</div></div><Toggle on={st.music} onChange={(v) => store.setSettings({ music: v })} label="Music" /></div>
       <MusicNowPlaying dim={off || !st.music} />
       <div className={`set-row ${off || !st.music ? 'v9-dim' : ''}`}><div><b>Music volume</b></div><input type="range" min={0} max={1} step={0.05} value={st.musicVolume} aria-label="Music volume" style={{ width: 200, ['--fill' as string]: `${st.musicVolume * 100}%` }} onChange={(e) => store.setSettings({ musicVolume: Number(e.target.value) })} /></div>
       <div className={`set-row ${off ? 'v9-dim' : ''}`}><div><b>Ambience</b><div className="tiny dim">Faint, in the background of the game</div></div><Seg value={st.ambience} onChange={(v) => store.setSettings({ ambience: v })} options={[{ value: 'off', label: 'Off' }, { value: 'cabin', label: 'Cabin' }, { value: 'terminal', label: 'Terminal' }]} /></div>
@@ -325,6 +327,10 @@ function SettingsModal() {
         <div className="set-head upper dim">Display</div>
         <div className="set-row"><div><b>Appearance</b><div className="tiny dim">{st.theme === 'system' ? `Follows your device (now ${s.theme})` : st.theme === 'light' ? 'Light, for daylight' : 'Dark, the original look'}</div></div><Seg value={st.theme} onChange={(v) => store.setSettings({ theme: v })} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'system', label: 'System' }]} /></div>
         <div className="set-row"><div><b>Map animations</b><div className="tiny dim">Flying aircraft on maps</div></div><Toggle on={st.mapAnimations} onChange={(v) => store.setSettings({ mapAnimations: v })} /></div>
+        {/* v0.15 the Map's 3D globe: Off hides its button (and puts the flat map back). */}
+        <div className="set-row"><div><b>3D globe</b><div className="tiny dim">A globe button on the Map, by the zoom controls</div></div><Toggle on={st.globe} onChange={(v) => store.setSettings(v ? { globe: true } : { globe: false, globeView: false })} /></div>
+        {st.globe && <div className="set-row"><div><b>Globe turns when idle</b><div className="tiny dim">A slow spin after a few seconds untouched</div></div><Toggle on={st.globeSpin} onChange={(v) => store.setSettings({ globeSpin: v })} /></div>}
+        <div className="set-row"><div><b>Map tilt</b><div className="tiny dim">A gentle 3D lean when you zoom in close</div></div><Toggle on={st.mapTilt} onChange={(v) => store.setSettings({ mapTilt: v })} /></div>
         <DeviceSettings />
         {(deviceNow().kind === 'ipad' || st.topGap !== 'auto') && <div className="set-row"><div><b>Top bar spacing</b><div className="tiny dim">Moves the game below the frosted strip iPadOS adds at the top of the screen</div></div><Seg value={String(st.topGap)} onChange={(v) => store.setSettings({ topGap: v === 'auto' ? 'auto' : (Number(v) as 0 | 16 | 28 | 40) })} options={[{ value: 'auto', label: 'Auto' }, { value: '0', label: 'Off' }, { value: '16', label: '16' }, { value: '28', label: '28' }, { value: '40', label: '40' }]} /></div>}
         <div className="set-row"><div><b>Pop-up notifications</b></div><Toggle on={st.toasts} onChange={(v) => store.setSettings({ toasts: v })} /></div>
@@ -397,5 +403,6 @@ export function GlobalModals() {
     case 'offerCall': return s.game ? <CallModal key={m.offerId} offerId={m.offerId} aircraftId={m.aircraftId} /> : null;
     case 'delivered': return s.game ? <DeliveredModal aircraftId={m.aircraftId} /> : null;
     case 'followDelivery': return s.game ? <FollowDeliveryModal aircraftId={m.aircraftId} /> : null;
+    case 'welcome': return s.game ? <WelcomeModal /> : null;
   }
 }
