@@ -1785,6 +1785,12 @@ export interface GameState {
   queue: SimEvent[];
   /** Bankruptcy (fail-forward later) or retirement. */
   gameOver: { t: Minute; reason: string } | null;
+  /**
+   * v0.15 the clock held by the game itself when saved (ui/autoResume.ts, the store writes it): the speed it goes back to
+   * once every reason's subjects are resolved (`manual`: the player's pause, it stays). null = nothing held; absent = an
+   * older save (one waiting on a decision resumes at 1× once it is answered).
+   */
+  autoHold?: { speed?: number; manual?: boolean; items: { reason: string; keys: string[] }[] } | null;
 }
 
 /** v0.12 Scenarios mode: what the daily scan counts from the scenario's start (engine/scenario/index.ts). */
