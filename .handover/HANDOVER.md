@@ -580,3 +580,4 @@ globe DONE (globe 1046d80; three 0.186.1 lazy chunk globe3d 519 kB; main +2.6 kB
 v0.15 READY on acmi 3803b14 (globe+depth merged, What's new; 1930 tests; globe/tilt Playwright 0 errors; build index-NQ8fjRkd.js). ASK player before release.
 3 Nov PLAYER: A320 prototype not wanted in game (done, it's just the artifact). RELEASE v0.15 AUTHORISED after: obvious 2D|3D toggle pill on both views + smoother coastlines on globe (agent on acmi).
 3 Nov PLAYER: keep small globe/map icons (no 2D|3D pill). Add: take-off sound on loading screen + 'terminal music' on Title (agent branch sound). Release v0.15 after ALL work (authorised).
+3 Nov PLAYER adds to v0.15: terminal music through New Game/Scenario setup, fade at game start; welcome pop-up + low chime on new game (→ sound agent). Auto-resume previous speed after resolving auto-pause (branch resume). Scenario locks (rules object) + seeded established-airline history (branch scen). Release after all (authorised).
