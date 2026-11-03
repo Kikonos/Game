@@ -25,7 +25,7 @@ import { calledNow } from '../crew/standby';
 import { type IssueCode } from '../crew/rules';
 import { dhBlock, OUT_CONNECT, outTicket, segsOf } from '../crew/timeline';
 import { distance } from '../core/geo';
-import { applyHold, cancelCost, cancelLegs, clientMoved, crewBlocked, delayChain, delayOf, liveOver, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, settleOverlaps, stationOf, subcharterCost, subcharterLegs, subHit, underClosure, unitOf, windowLegs, type SubHit } from './flights';
+import { applyHold, cancelCost, cancelLegs, clientMoved, crewBlocked, delayChain, delayOf, liveDay, liveOver, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, settleOverlaps, stationOf, subcharterCost, subcharterLegs, subHit, underClosure, unitOf, windowLegs, type SubHit } from './flights';
 import { excusedLate, latePenalty } from './latePolicy';
 import { setAogEnd } from './maintenance';
 import { ticketBlock } from './commercial';
@@ -1143,6 +1143,32 @@ export function resolveDecision(g: GameState, decisionId: string, optionId: stri
   if (j >= 0) g.decisions.splice(j, 1);
   stats(g).decisions++;
   return r;
+}
+
+/**
+ * v0.15 a crew card the player has already dealt with another way (Crew Control, the roster board, the problem card's
+ * fix): the gate's crew-short card once the leg can leave (crewBlocked, the departure's own check) or has gone, a sick
+ * call's once its flight is crewed or gone. Withdrawn, so it no longer holds the clock as 'Decision waiting'. Run after
+ * the player's actions only (store.act): the clock never runs while a card is open. Returns the ids withdrawn.
+ */
+export function withdrawHandled(g: GameState): string[] {
+  const out: string[] = [];
+  for (const d of [...g.decisions]) {
+    if (d.kind !== 'crewShort' && d.kind !== 'sickCrew') continue;
+    const f = g.flights[str(d.data, 'flightId')];
+    if (f && f.status === 'scheduled' && (d.kind === 'crewShort' ? !gateClear(g, f) : ['missing', 'illegal'].includes(flightCrewStatus(g, f.id).level))) continue;
+    g.decisions.splice(g.decisions.indexOf(d), 1);
+    out.push(d.id);
+  }
+  return out;
+}
+
+/** The gate would let the leg go on crew grounds: crewed and legal, and the live day inside its limit (fdpOver's test, pure). */
+function gateClear(g: GameState, f: Flight): boolean {
+  if (crewBlocked(g, f)) return false;
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const x = liveDay(g, f);
+  return !d || !x || x.fdp <= x.max + (d.discretion ?? 0);
 }
 
 /** 'decision.expire': the default option applies; if it can't, the next workable option. The inbox says which. */
