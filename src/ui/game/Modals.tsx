@@ -328,6 +328,7 @@ function SettingsModal() {
         {/* v0.15 the Map's 3D globe: Off hides its button (and puts the flat map back). */}
         <div className="set-row"><div><b>3D globe</b><div className="tiny dim">A globe button on the Map, by the zoom controls</div></div><Toggle on={st.globe} onChange={(v) => store.setSettings(v ? { globe: true } : { globe: false, globeView: false })} /></div>
         {st.globe && <div className="set-row"><div><b>Globe turns when idle</b><div className="tiny dim">A slow spin after a few seconds untouched</div></div><Toggle on={st.globeSpin} onChange={(v) => store.setSettings({ globeSpin: v })} /></div>}
+        <div className="set-row"><div><b>Map tilt</b><div className="tiny dim">A gentle 3D lean when you zoom in close</div></div><Toggle on={st.mapTilt} onChange={(v) => store.setSettings({ mapTilt: v })} /></div>
         <DeviceSettings />
         {(deviceNow().kind === 'ipad' || st.topGap !== 'auto') && <div className="set-row"><div><b>Top bar spacing</b><div className="tiny dim">Moves the game below the frosted strip iPadOS adds at the top of the screen</div></div><Seg value={String(st.topGap)} onChange={(v) => store.setSettings({ topGap: v === 'auto' ? 'auto' : (Number(v) as 0 | 16 | 28 | 40) })} options={[{ value: 'auto', label: 'Auto' }, { value: '0', label: 'Off' }, { value: '16', label: '16' }, { value: '28', label: '28' }, { value: '40', label: '40' }]} /></div>}
         <div className="set-row"><div><b>Pop-up notifications</b></div><Toggle on={st.toasts} onChange={(v) => store.setSettings({ toasts: v })} /></div>

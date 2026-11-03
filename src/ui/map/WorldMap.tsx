@@ -10,6 +10,7 @@ import { isTouch, useTouch } from '../useMedia';
 import { MAP_H, MAP_W, basePaths, projection } from './mapData';
 import { type LabelBox, placeLabels } from './mapLogic';
 import { cssRect, toCss } from '../device';
+import { TILT_MAX_DEG, tiltBleed, tiltCss, tiltDeg, untilt } from './depth';
 
 export interface MapRoute {
   id: string;
@@ -124,6 +125,8 @@ interface Props {
   follow?: { key: string; at: () => [number, number] | null; pad: Pad; zoom?: number } | null;
   /** v0.15 extra buttons at the top of the zoom controls (ops map: the 3D globe). */
   extraControls?: ReactNode;
+  /** v0.15 a gentle perspective tilt at the closest zoom levels, with a horizon haze (off with reduced motion). */
+  tilt?: boolean;
 }
 
 /** Container geometry: the SVG uses "slice" scaling (s screen px per map unit at zoom 1, offset ox/oy). */
@@ -353,7 +356,7 @@ interface Gesture {
  */
 export function WorldMap({
   rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent: accentIn = 'var(--accent)', selected, onSelect, onSelectRoute, onHover,
-  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, ground, backdrop, glow, onTap, fitFn, fitCentre, focus, memo, follow, extraControls,
+  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, ground, backdrop, glow, onTap, fitFn, fitCentre, focus, memo, follow, extraControls, tilt,
 }: Props) {
   const touch = useTouch();
   // v0.11 a pale livery colour (white, cream) would vanish on the light map: the theme accent there instead.
@@ -395,6 +398,14 @@ export function WorldMap({
   /** v0.12 when the player last panned or zoomed (follow waits a few seconds after). */
   const userAt = useRef(0);
   const [hover, setHover] = useState<{ code: string; x: number; y: number } | null>(null);
+  // v0.15 the tilt: the stage (land, backdrop, glow and the SVG overlay) leans back at close zoom. Taps and pans are
+  // un-tilted in vbOf, so hit-testing stays exact; `bleed` grows the overlay past the box while tilted.
+  const stageRef = useRef<HTMLDivElement>(null);
+  const hazeRef = useRef<HTMLDivElement>(null);
+  const tiltOk = useRef(false);
+  const tiltNow = useRef(0);
+  const [bleed, setBleed] = useState(false);
+  const bleedRef = useRef(false);
   const proj = projection(rotate);
   const path = useMemo(() => geoPath(proj), [proj]);
 
@@ -427,9 +438,20 @@ export function WorldMap({
     drawGlow();
     placeLayers(v, false);
   };
+  /** v0.15 leans the stage back for zoom k (none below the closest zoom levels, or when off). */
+  const placeTilt = (k: number, force = false) => {
+    const raw = tiltOk.current ? tiltDeg(k) : 0;
+    const deg = raw > 0.01 ? raw : 0;
+    if (!force && Math.abs(deg - tiltNow.current) < 0.004 && (deg > 0) === (tiltNow.current > 0)) return;
+    tiltNow.current = deg;
+    if (stageRef.current) stageRef.current.style.transform = tiltCss(deg, geoRef.current.h);
+    if (hazeRef.current) hazeRef.current.style.opacity = (deg / TILT_MAX_DEG).toFixed(3);
+    if (deg > 0 !== bleedRef.current) { bleedRef.current = deg > 0; setBleed(deg > 0); }
+  };
   /** Moves the map on screen without a React render (the transforms are owned here, not by JSX). */
   const apply = (v: View) => {
     live.current = v;
+    placeTilt(v.k);
     worldRef.current?.setAttribute('transform', `translate(${v.x} ${v.y}) scale(${v.k})`);
     placeLayers(v);
     // Markers keep their screen size between commits (no sawtooth while pinching).
@@ -456,7 +478,15 @@ export function WorldMap({
     if (memo && restored.current) memo.view = view;
   }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
   // New geometry (resize) or new layer elements: rewrite the layer transforms.
-  useLayoutEffect(() => { syncLayers(); }, [box, !!backdrop, !!glow]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => { syncLayers(); placeTilt(live.current.k, true); }, [box, !!backdrop, !!glow]); // eslint-disable-line react-hooks/exhaustive-deps
+  // v0.15 the tilt follows its setting and the system's reduced motion (no tilt then).
+  useEffect(() => {
+    const mq = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
+    const set = () => { tiltOk.current = !!tilt && !mq?.matches; placeTilt(live.current.k, true); };
+    set();
+    mq?.addEventListener?.('change', set);
+    return () => mq?.removeEventListener?.('change', set);
+  }, [tilt]); // eslint-disable-line react-hooks/exhaustive-deps
   // After every render: the marker groups to counter-scale (React wrote the committed scale into them).
   useLayoutEffect(() => {
     mkEls.current = worldRef.current ? (Array.from(worldRef.current.querySelectorAll('.mk')) as SVGGElement[]) : [];
@@ -616,10 +646,11 @@ export function WorldMap({
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- geometry & hit testing ----------
-  /** Client coordinates → viewBox coordinates (uses the rect cached by measure()). */
+  /** Client coordinates → viewBox coordinates (uses the rect cached by measure()); v0.15 un-tilted first. */
   const vbOf = (cx: number, cy: number): [number, number] => {
     const g = geoRef.current;
-    return [(cx - g.left - g.ox) / g.s, (cy - g.top - g.oy) / g.s];
+    const [x, y] = untilt(cx - g.left, cy - g.top, g.w, g.h, tiltNow.current);
+    return [(x - g.ox) / g.s, (y - g.oy) / g.s];
   };
 
   const airportKey = airports.map((a) => `${a.code}${a.state[0]}${a.label ? 1 : 0}`).join(',');
@@ -779,7 +810,10 @@ export function WorldMap({
         userAt.current = performance.now();
         return;
       }
-      apply(clampView({ k: g.start.k, x: g.start.x + dx / geo.s, y: g.start.y + dy / geo.s }, geo));
+      // v0.15 the map point under the finger stays under it (un-tilted: exact on the tilted map too).
+      const a = vbOf(g.sx, g.sy);
+      const b = vbOf(toCss(e.clientX), toCss(e.clientY));
+      apply(clampView({ k: g.start.k, x: g.start.x + b[0] - a[0], y: g.start.y + b[1] - a[1] }, geo));
       const now = performance.now();
       g.samples.push({ t: now, x: toCss(e.clientX), y: toCss(e.clientY) });
       while (g.samples.length > 2 && now - g.samples[0].t > 100) g.samples.shift();
@@ -1144,9 +1178,11 @@ export function WorldMap({
   const onScreen = useCallback((): [number, number, number, number] => {
     const g = geoRef.current;
     const v = live.current;
-    const x0 = (-g.ox / g.s - v.x) / v.k;
-    const y0 = (-g.oy / g.s - v.y) / v.k;
-    return [x0, y0, x0 + g.w / g.s / v.k, y0 + g.h / g.s / v.k];
+    // v0.15 tilted, the far edge shows a little more map.
+    const b = tiltBleed(g.w, g.h, tiltNow.current);
+    const x0 = (-(g.ox + b.ex) / g.s - v.x) / v.k;
+    const y0 = (-(g.oy + b.ey) / g.s - v.y) / v.k;
+    return [x0, y0, x0 + (g.w + 2 * b.ex) / g.s / v.k, y0 + (g.h + b.ey) / g.s / v.k];
   }, []);
   const M = marginOf(box);
   const ctx: MapLayerCtx = { proj, unit, k, px: pxPerUnit, liveK, fitK: fitK.current, backShift, margin: M, redrawGlow: drawGlow, onScreen };
@@ -1154,6 +1190,10 @@ export function WorldMap({
   const layerStyle: React.CSSProperties = { position: 'absolute', left: -M, top: -M, width: box.w + 2 * M, height: box.h + 2 * M, transformOrigin: '0 0', willChange: 'transform', pointerEvents: 'none' };
   const layerVB = `${(-M - box.ox) / box.s} ${(-M - box.oy) / box.s} ${(box.w + 2 * M) / box.s} ${(box.h + 2 * M) / box.s}`;
   const svgFill: React.CSSProperties = { position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' };
+  // v0.15 tilted: the overlay reaches past the top and sides (same mapping as "slice"), so the far edge stays filled.
+  const bl = bleed ? tiltBleed(box.w, box.h, TILT_MAX_DEG) : null;
+  const overVB = bl ? `${(-bl.ex - box.ox) / box.s} ${(-bl.ey - box.oy) / box.s} ${(box.w + 2 * bl.ex) / box.s} ${(box.h + bl.ey) / box.s}` : `0 0 ${MAP_W} ${MAP_H}`;
+  const overStyle: React.CSSProperties = bl ? { position: 'absolute', left: -bl.ex, top: -bl.ey, width: box.w + 2 * bl.ex, height: box.h + bl.ey, display: 'block' } : svgFill;
 
   return (
     <div
@@ -1166,6 +1206,7 @@ export function WorldMap({
       onPointerCancel={interactive ? onPointerEnd : undefined}
       onPointerLeave={interactive ? (e) => { if (e.pointerType !== 'touch' && hover && !ptrs.current.size) { setHover(null); onHover?.(null); } } : undefined}
     >
+      <div ref={stageRef} className="map-stage">
       <div ref={baseWrap} className="map-layer map-layer-base" style={layerStyle}>
         <svg viewBox={layerVB} preserveAspectRatio="none" style={svgFill}>
           <g ref={baseG}>
@@ -1186,7 +1227,7 @@ export function WorldMap({
           <canvas ref={glowCv} style={svgFill} />
         </div>
       )}
-      <svg viewBox={`0 0 ${MAP_W} ${MAP_H}`} preserveAspectRatio="xMidYMid slice" style={svgFill}>
+      <svg viewBox={overVB} preserveAspectRatio={bl ? 'none' : 'xMidYMid slice'} style={overStyle}>
         <g ref={worldRef}>
           {regionLabelEls.map((r) => (
             <text key={r.id} x={r.x} y={r.y} textAnchor="middle" className={`region-label ${r.locked ? 'locked' : ''}`} fontSize={regionFont * unit} style={{ opacity: k * pxPerUnit > 2.6 ? 0 : 1 }}>
@@ -1200,6 +1241,8 @@ export function WorldMap({
           {layers?.(ctx)}
         </g>
       </svg>
+      </div>
+      {tilt && <div ref={hazeRef} className="map-haze" aria-hidden />}
       {hover && tooltip && (
         <div className="map-tip" style={{ left: hover.x, top: hover.y }}>
           {tooltip(AIRPORT_BY_CODE[hover.code])}
