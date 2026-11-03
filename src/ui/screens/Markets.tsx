@@ -19,6 +19,8 @@ import type { GameState } from '../../engine/core/types';
 import { Seg } from '../components/ui';
 import { money } from '../format';
 import { store } from '../store';
+import { lockOf } from '../../engine/scenario';
+import { LockedPanel } from '../components/Locked';
 
 const city = (c: string) => AIRPORT_BY_CODE[c]?.city ?? c;
 const span = (a: number, b: number) => (fmtDay(a) === fmtDay(b) ? fmtDay(a) : `${fmtDay(a)} – ${fmtDay(b)}`);
@@ -153,6 +155,16 @@ export function MarketsView({ g }: { g: GameState }) {
     if (r.ok) setPick(null);
   };
   const goes = free.map((p) => (p.who === 'ceo' ? 'You' : p.name.split(' ')[0])).join(' or ');
+  // v0.15 no fairs or sales trips in a scenario: the market presence stays on show, the travel desk is closed.
+  const lock = lockOf(g, 'sales');
+  if (lock) {
+    return (
+      <div className="col gap-12">
+        <LockedPanel title="Trade fairs and sales trips closed" why={lock}>Your presence in the markets stays as it is for this scenario.</LockedPanel>
+        <Presence g={g} />
+      </div>
+    );
+  }
   return (
     <div className="v14-markets">
       <div className="col gap-12 v14-mk-side">

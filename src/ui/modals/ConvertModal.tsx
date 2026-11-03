@@ -14,6 +14,8 @@ import { Modal } from '../components/ui';
 import { money } from '../format';
 import { baseDay, isPilotRole, needsConfirm } from '../screens/screenLogic';
 import { store, useGame } from '../store';
+import { lockOf } from '../../engine/scenario';
+import { LockNote } from '../components/Locked';
 
 const CHIP_DAYS = 56;
 
@@ -125,7 +127,8 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
         </> : <>
           <button className="btn" onClick={close}>Cancel</button>
           <span className="grow small muted">{picked && plan.classes.length ? `${live.length - nSkip} of ${live.length} booked${nSkip ? ` · ${nSkip} skipped` : ''} · ${plan.classes.length} class${plan.classes.length === 1 ? '' : 'es'} · ${bd(t0)} – ${bd(t1 - 1)}` : ''}</span>
-          <button className="btn btn-primary" onClick={risky ? () => setReview(true) : book} disabled={!picked || !plan.ok}><GraduationCap /> {!picked ? 'Pick a type' : risky ? `Review & book · ${money(plan.cost)}` : `Book conversion · ${money(plan.cost)}`}</button>
+          <LockNote why={lockOf(g, 'training')} />
+          <button className="btn btn-primary" onClick={risky ? () => setReview(true) : book} disabled={!picked || !plan.ok || !!lockOf(g, 'training')}><GraduationCap /> {!picked ? 'Pick a type' : risky ? `Review & book · ${money(plan.cost)}` : `Book conversion · ${money(plan.cost)}`}</button>
         </>}
       </>
     }>

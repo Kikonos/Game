@@ -21,6 +21,7 @@ import { removeCrew, rosterOf } from './roster';
 import { dropStandby } from './standby';
 import { offsetAt } from './rules';
 import { touchCrew } from './timeline';
+import { lockOf } from '../scenario/rules';
 
 export interface ConversionRequest {
   crewIds: string[];
@@ -332,6 +333,9 @@ export function conversionPlan(g: GameState, r: ConversionRequest): ConversionPl
  * the cost once to 'training', and their rostered work in the class dates back to the auto-roster.
  */
 export function startConversion(g: GameState, r: ConversionRequest): ActionResult<{ classIds: string[] }> {
+  // v0.15 a scenario without courses.
+  const lk = lockOf(g, 'training');
+  if (lk) return { ok: false, error: lk };
   if (!ACMI_TYPES_LIST.some((t) => t.family === r.family)) return { ok: false, error: 'Unknown type family' };
   const plan = conversionPlan(g, r);
   if (!plan.classes.length) {

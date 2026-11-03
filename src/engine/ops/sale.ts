@@ -18,6 +18,7 @@ import { settleDeparture } from './finance';
 import { cancelLegs, subcharterInstead } from './flights';
 import { cCheckGross, checkStatus } from './maintenance';
 import { isRevenue, usd } from './util';
+import { lockOf } from '../scenario/rules';
 
 export interface SaleQuote {
   ok: boolean;
@@ -85,6 +86,9 @@ export function saleQuote(g: GameState, aircraftId: string): SaleQuote {
   if (ac.ownership.kind !== 'owned') return { ...none, why: 'Only aircraft we own can be sold; leased ones go back to the lessor' };
   // v0.12 Scenarios (Cash Crunch): the bank holds the owned aircraft as security for the overdraft.
   if (g.scen?.noSale) return { ...none, why: 'The bank holds it as security for the overdraft: it cannot be sold now' };
+  // v0.15 a scenario's fleet is fixed.
+  const lk = lockOf(g, 'fleet');
+  if (lk) return { ...none, why: lk };
   const S = BAL.v072.sale;
   const t = typeOf(ac.typeId);
   const w = t.body === 'wide' ? 1 : 0;

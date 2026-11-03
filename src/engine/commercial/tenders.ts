@@ -26,6 +26,7 @@ import { isActive, rivalFits } from '../contracts/rivals';
 import { busyShare } from '../ops/director';
 import { busyNow, clientByName, com, comStats, paceOf, sideOf, withStream } from './state';
 import type { RivalTenderBid, Tender, TenderBid } from './types';
+import { lockOf } from '../scenario/rules';
 
 /** v0.14 the tender rounds and the award model (kept here, not in balance.ts). */
 export const TENDER = {
@@ -233,7 +234,7 @@ export function dailyTenders(g: GameState): void {
   lapseWon(g);
   // Results and lapsed RFPs older than 400 days are pruned.
   if (c.tenders.length > 60) c.tenders = c.tenders.filter((t) => t.status === 'open' || t.status === 'closed' || g.now - t.issued < 400 * DAY);
-  if (g.gameOver || g.now - g.started < 7 * DAY) return;
+  if (g.gameOver || g.now - g.started < 7 * DAY || lockOf(g, 'tenders')) return;
   const round = roundAt(g.now);
   if (!round || !busyNow(g)) return;
   const want = TENDER[round.kind].count[paceOf(g)];
@@ -374,6 +375,9 @@ export function bidQuote(g: GameState, tenderId: string): BidQuote | null {
 
 /** Player action: send (or change) our bid before the deadline. */
 export function placeBid(g: GameState, tenderId: string, bid: Omit<TenderBid, 'at'>): ActionResult {
+  // v0.15 no tenders in a scenario.
+  const lk = lockOf(g, 'tenders');
+  if (lk) return { ok: false, error: lk };
   const t = com(g).tenders.find((x) => x.id === tenderId);
   if (!t) return { ok: false, error: 'Tender not found' };
   if (t.status !== 'open' || g.now >= t.deadline) return { ok: false, error: 'Bids for this tender have closed' };

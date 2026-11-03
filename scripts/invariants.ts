@@ -686,8 +686,22 @@ async function main() {
     g = createGame({ name: 'Debug Air', code: 'DB', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: flag('base') ?? 'LIS', seed: Number(args[1] ?? 1) });
     days = Number(args[2] ?? 120);
     take = true;
+  } else if (mode === 'scenario') {
+    // v0.15 a scenario from its start (its seeded history, its rules), played with the same simple policy.
+    const { createScenario, SCENARIOS } = await import('../src/engine/scenario');
+    const ids = args[1] === 'all' || !args[1] ? SCENARIOS.map((x) => x.id) : [args[1]];
+    if (ids.length > 1) {
+      for (const id of ids) {
+        const { execFileSync } = await import('node:child_process');
+        process.stdout.write(execFileSync(process.execPath, [...process.execArgv, process.argv[1], 'scenario', id, String(args[2] ?? 30)], { encoding: 'utf8' }));
+      }
+      return;
+    }
+    g = createScenario(ids[0]);
+    days = Number(args[2] ?? 30);
+    take = true;
   } else {
-    console.log('usage: invariants.ts save <file> [days] | seed <n> [days] [--base=LIS]  [--step=60] [--spy]');
+    console.log('usage: invariants.ts save <file> [days] | seed <n> [days] [--base=LIS] | scenario <id|all> [days]  [--step=60] [--spy]');
     return;
   }
   const step = Number(flag('step') ?? 60);
@@ -716,7 +730,7 @@ async function main() {
   }
   inv.finish(g);
   console.log(`played to ${fmtDateTime(g.now)}${g.gameOver ? ` (game over: ${g.gameOver.reason})` : ''}, cash ${Math.round(g.company.cash)}, ${Object.keys(g.fleet).length} aircraft, ${Object.keys(g.crew).length} crew, ${((performance.now() - wall) / 1000).toFixed(1)} s`);
-  inv.print(mode === 'save' ? `save ${args[1]}` : `seed ${args[1]}`);
+  inv.print(mode === 'save' ? `save ${args[1]}` : mode === 'scenario' ? `scenario ${args[1]}` : `seed ${args[1]}`);
   for (const n of (flag('dump') ?? '').split(',').filter(Boolean)) inv.dump(n.replace(/_/g, ' '));
 }
 

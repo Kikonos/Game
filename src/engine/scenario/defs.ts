@@ -13,6 +13,8 @@ import { DAY, fromUTC } from '../core/time';
 import type { ApprovalId, Archetype, GameState, Livery } from '../core/types';
 import { closedAirport, startEvent } from '../ops/world';
 import { charterOffer, cityOf, clientNamed, fleetIds, localDep, note, offerOf, signFirst } from './kit';
+import type { PastJob, ScenarioHistory } from './history';
+import { SCEN_RULES, type ScenarioRules } from './rules';
 
 /** What a scenario is scored on (scenario/index.ts METRICS). Every measure: more is better. */
 export type MetricId = 'profit' | 'revenue' | 'posRun' | 'fOnTime' | 'fOnPlan' | 'pax' | 'fLegs' | 'rescues' | 'reliability' | 'wideBh' | 'regionBh' | 'fDone';
@@ -63,6 +65,9 @@ export interface ScenarioDef {
   floor?: { reliability: number; afterLegs: number };
   /** The welcome note (the goal line follows it). */
   brief: string;
+  /** v0.15 what the player may do (scenario/rules.ts) and the airline's past (scenario/history.ts). */
+  rules: ScenarioRules;
+  history: ScenarioHistory;
   /** After the game is built: contracts, events. */
   setup?(g: GameState): void;
   /** Steps on a scenario day (day 0 runs at the start). */
@@ -102,7 +107,9 @@ const SOUTH_COUNTRIES = ['BR', 'AR', 'CL', 'UY', 'PY', 'PE', 'BO', 'EC', 'CO', '
 
 const MISSIONS: Archetype[] = ['evacuation', 'repatriation', 'humanitarian', 'medical'];
 
-export const SCENARIOS: ScenarioDef[] = [
+// v0.15 star thresholds retuned on the bot (scripts/acmi-bot.ts --scenario=<id>) once the rules locked the side doors
+// and the airlines got their past: the bot lands on one or two stars, three need better flying than the bot's.
+const BASE: Omit<ScenarioDef, 'rules' | 'history'>[] = [
   // ---------- 1 ----------
   {
     id: 'summerSurge', name: 'Summer Surge', difficulty: 1, seed: 2701,
@@ -113,7 +120,7 @@ export const SCENARIOS: ScenarioDef[] = [
     fleet: [A('a320ceo', true, 2008), A('a320ceo', false, 2014, { lessor: 'Avolon' }), A('a321ceo', false, 2012, { lessor: 'AerCap' })],
     sets: 5, cash: 2_500_000,
     bias: { seasonBase: 1.5, adhoc: 1.4, tourSeries: 1.4, sports: 1.2, troopRotation: 0.5, repatriation: 0.7, vip: 0.7 }, rate: 1.35,
-    metric: 'profit', stars: [150_000, 800_000, 1_500_000],
+    metric: 'profit', stars: [1_500_000, 3_500_000, 5_500_000],
     brief: 'Madrid, May. Tour operators want seats to the islands and the coasts, and every airline is short of aircraft. One season base is signed; two aircraft are free. Fill them, keep them flying and bank the summer.',
     setup(g) {
       const [a, b, c] = fleetIds(g);
@@ -133,7 +140,7 @@ export const SCENARIOS: ScenarioDef[] = [
     fleet: [A('a320ceo', true, 2009), A('a320ceo', false, 2013, { lessor: 'AerCap' })],
     sets: 5, cash: 2_000_000,
     bias: { aogCover: 3, seasonBase: 0.3, tourSeries: 0.3, troopRotation: 0.3, sports: 0.6 }, rate: 1.1,
-    metric: 'revenue', stars: [2_500_000, 4_000_000, 5_200_000],
+    metric: 'revenue', stars: [5_000_000, 8_000_000, 10_500_000],
     must: [{ kind: 'reliability', min: 95 }], floor: { reliability: 85, afterLegs: 20 },
     brief: 'Vilnius, June. Two A320s on standby with crews on call. Airlines across Europe will ring when an aircraft goes technical: be airborne within hours, fly their schedule and hand it back. Every leg we fail counts against us.',
     script: [{ day: 0, run: (g) => { offerOf(g, 'aogCover', { wide: false, start: g.now + 10 * 60 }); } }],
@@ -165,7 +172,7 @@ export const SCENARIOS: ScenarioDef[] = [
     fleet: [A('b744', true, 2002, { cabin: 1 }), A('b744', false, 2004, { cabin: 1, lessor: 'Global Aircraft Leasing' })],
     sets: 6, cash: 3_500_000, approvals: ['widebody', 'augmented'],
     bias: { hajj: 0, seasonBase: 0.5, tourSeries: 0.5 },
-    focus: ['hajj'], metric: 'fOnPlan', stars: [75, 88, 96],
+    focus: ['hajj'], metric: 'fOnPlan', stars: [72, 86, 95],
     brief: 'Casablanca, April. Both jumbos are signed for the Hajj: Casablanca and Dakar to Jeddah and Medina from 13 April, and the pilgrims home after Eid until mid-June. Long days, augmented crews, hot nights in Jeddah. The schedule is fixed: the pilgrims cannot wait.',
     setup(g) {
       const h = nextHajj(g.now, 1)[0];
@@ -234,7 +241,7 @@ export const SCENARIOS: ScenarioDef[] = [
     company: { name: 'Daugava Wetlease', code: 'DW', icao: 'DGW', callsign: 'DAUGAVA', base: 'RIX', livery: L('#d6283c', '#ffffff', 'solid') },
     fleet: [A('a320ceo', true, 2007), A('a320ceo', false, 2014, { lessor: 'AerCap' }), A('a321ceo', false, 2013, { lessor: 'Avolon' })],
     sets: 2.6, cash: 3_000_000,
-    metric: 'reliability', stars: [75, 88, 96], must: [{ kind: 'minLegs', n: 120 }],
+    metric: 'reliability', stars: [62, 80, 93], must: [{ kind: 'minLegs', n: 120 }],
     brief: 'Riga, late May. A rival opened a base next door and took half our pilots and cabin crew. The summer is signed: three contracts start within ten days. Hire, train, juggle the roster, sub-charter if you must, and keep the legs flying.',
     setup(g) {
       const [a, b, c] = fleetIds(g);
@@ -306,7 +313,7 @@ export const SCENARIOS: ScenarioDef[] = [
     fleet: [A('b738', true, 2008), A('b738', false, 2013, { lessor: 'SMBC Aviation Capital' }), A('b738', false, 2015, { lessor: 'AerCap' })],
     sets: 5, cash: 3_000_000, approvals: ['etops120'],
     bias: { seasonBase: 0.6, tourSeries: 0.6, troopRotation: 0.5 },
-    countries: SOUTH_COUNTRIES, metric: 'regionBh', stars: [500, 1100, 1700],
+    countries: SOUTH_COUNTRIES, metric: 'regionBh', stars: [1200, 1900, 2500],
     brief: 'Lisbon, November. The European winter is thin, and the South American airlines want extra 737s for their summer from December to March. The aircraft fly down via Cape Verde; the crews live in hotels there for weeks. Find the work and keep them busy.',
     setup(g) {
       const [a, b, c] = fleetIds(g);
@@ -330,7 +337,7 @@ export const SCENARIOS: ScenarioDef[] = [
     fleet: [A('b763', false, 2003, { cabin: 1, lessor: 'Aircastle' }), A('a321ceo', true, 2010)],
     sets: 5, cash: 3_000_000, approvals: ['widebody', 'etops120', 'dg'],
     bias: { evacuation: 2, repatriation: 2, medical: 2, seasonBase: 0.4, tourSeries: 0.4 },
-    focus: MISSIONS, metric: 'fDone', stars: [2, 4, 6],
+    focus: MISSIONS, metric: 'fDone', stars: [10, 18, 24],
     brief: 'Malta, June. Embassies, the UN and the aid agencies keep our number for short-notice work: evacuations under war-risk cover, medical airbridges, relief into places nobody else flies. Permits slip, insurers withdraw, plans change by the hour.',
     script: [
       { day: 1, run: (g) => { startEvent(g, TPL_BY_ID.warLibya); } },
@@ -344,5 +351,206 @@ export const SCENARIOS: ScenarioDef[] = [
     ],
   },
 ];
+
+// ---------- v0.15 the rules: what each scenario lets the player do ----------
+// Every scenario: a fixed fleet (no leasing, buying, selling, early returns or dry leases out), no tenders, fairs or sales
+// trips. The tools that solve it stay open everywhere: Crew Control, delays, standby, swaps, moving trips between our
+// own aircraft. Cancelling the scenario's own contracts is locked where they are the job (Hajj, Ash Cloud's bases, Crew
+// Crisis's summer), and costs the goal where walking away is a manager's real choice (Summer Surge, Southern Winter).
+
+const NARROW_WORK: Archetype[] = ['seasonBase', 'adhoc', 'tourSeries', 'sports', 'aogCover', 'capacityLease', 'subcharterIn', 'repatriation'];
+const fixed = { tenders: false, sales: false, fleet: false, refits: false, move: true } as const;
+
+export const RULES: Record<string, ScenarioRules> = {
+  summerSurge: {
+    ...fixed, cancel: 'penalty', market: 'themed', themes: NARROW_WORK, hiring: 'limited', hireMax: 12, training: true, approvals: [], subcharter: true,
+    why: 'the summer is flown with these three aircraft',
+    say: { cancel: 'the season base is the summer’s backbone', market: 'only charter and wet-lease work this summer', hiring: 'the board allows a few summer hires (12)' },
+  },
+  aogFirefighter: {
+    ...fixed, cancel: 'on', market: 'themed', themes: ['aogCover', 'subcharterIn'], hiring: 'none', training: false, approvals: [], subcharter: true,
+    why: 'you are the AOG standby', say: { market: 'you are on AOG standby: only cover work', hiring: 'five crews per aircraft are on call already' },
+  },
+  cashCrunch: {
+    ...fixed, cancel: 'on', market: 'themed', themes: [...NARROW_WORK, 'troopRotation'], hiring: 'none', training: false, approvals: [], subcharter: true,
+    why: 'there is no money for it',
+    say: { market: 'only narrowbody work that pays this spring', fleet: 'the bank holds the A320s and Carlyle wants its rent', hiring: 'there is no money for new crew', training: 'there is no money for courses', approvals: 'there is no money for applications' },
+  },
+  hajjAirlift: {
+    ...fixed, cancel: 'locked', market: 'off', hiring: 'none', training: false, approvals: [], subcharter: true,
+    why: 'the Hajj airlift is your job',
+    say: { market: 'both jumbos are committed to the Hajj airlift', hiring: 'six crews per jumbo are rostered for the Hajj', fleet: 'the Hajj is flown with these two jumbos' },
+  },
+  ashCloud: {
+    ...fixed, cancel: 'locked', market: 'themed', themes: ['repatriation', 'aogCover'], hiring: 'none', training: false, approvals: [], subcharter: true,
+    why: 'Jet2 and SAS hold you to the summer bases',
+    say: { cancel: 'Jet2 and SAS hold you to the summer bases (the ash grounds them; it does not end them)', market: 'only stranded passengers and AOG cover', hiring: 'the crews are all here' },
+  },
+  crewCrisis: {
+    ...fixed, cancel: 'locked', market: 'off', hiring: 'limited', hireMax: 24, training: true, approvals: [], subcharter: true,
+    why: 'the summer is signed: fly it with the crews you have',
+    say: { market: 'the summer is signed: no new work', hiring: 'the board allowed 24 hires and they are used' },
+  },
+  cupFinal: {
+    ...fixed, cancel: 'on', market: 'themed', themes: ['sports', 'adhoc'], hiring: 'none', training: false, approvals: [], subcharter: true,
+    why: 'this week is about the final', say: { market: 'only final charters this week', hiring: 'no time to hire this week' },
+  },
+  longHaulDebut: {
+    ...fixed, refits: true, cancel: 'on', market: 'on', hiring: 'on', training: true, approvals: ['etops120', 'widebody', 'augmented', 'etops180'], subcharter: true,
+    why: 'the A330 is the plan', say: { fleet: 'the A330 is the plan: no other aircraft', approvals: 'only the long-haul approvals this year' },
+  },
+  southernWinter: {
+    ...fixed, cancel: 'penalty', market: 'themed', region: true, themes: ['seasonBase', 'aogCover', 'adhoc', 'capacityLease', 'tourSeries', 'sports', 'subcharterIn'], hiring: 'none', training: false, approvals: [], subcharter: true,
+    why: 'GOL’s summer base is why we came south', say: { market: 'only work in South America this winter', hiring: 'five crews per aircraft are going south' },
+  },
+  humanitarian: {
+    ...fixed, cancel: 'on', market: 'themed', themes: [...MISSIONS, 'unRotation'], hiring: 'none', training: false, approvals: [], subcharter: false,
+    why: 'this is mission work', say: { market: 'only missions: evacuations, relief, medical and UN work', subcharter: 'nobody else flies our missions on our permits', hiring: 'the mission crews are all here' },
+  },
+};
+
+// ---------- v0.15 the history: the airline you step into ----------
+
+/** A past job: [client, title, kind, aircraft index, first day, days, 'wet'|'charter', block hours, route]. */
+const J = (client: string, title: string, arch: Archetype, ac: number, start: [number, number, number], days: number, kind: 'wet' | 'charter', bh: number, route: string): PastJob => ({ client, title, arch, ac, start, days, kind, bh, route });
+
+export const HISTORY: Record<string, ScenarioHistory> = {
+  summerSurge: {
+    aoc: [2016, 3, 14], reliable: 68, clean: 72, granted: [['iosa', 2018, 9]], margin: 0.12, charter: 0.35, cash0: 1_900_000, jobs: 58, onTime: 86, tech: 98.6, busy: 0.7,
+    util: [270, 295, 305, 300, 265, 210, 140, 125, 150, 140, 155, 200],
+    past: [
+      J('Eurowings', 'Winter cover, Düsseldorf', 'aogCover', 1, [2026, 2, 3], 20, 'wet', 110, 'DUS>PMI,LPA'),
+      J('Eurowings', 'Summer wet lease, Düsseldorf', 'seasonBase', 2, [2026, 6, 1], 112, 'wet', 950, 'DUS>PMI,ALC,AGP,FAO'),
+      J('Spanish Ministry of Defence', 'Troop rotation Madrid–Riga', 'troopRotation', 0, [2026, 10, 20], 4, 'charter', 18, 'MAD-RIX,RIX-MAD,MAD-RIX,RIX-MAD'),
+      J('Viagens Abreu', 'Christmas series Lisbon–Funchal', 'tourSeries', 1, [2026, 12, 18], 18, 'charter', 34, 'LIS-FNC,FNC-LIS,LIS-FNC,FNC-LIS'),
+      J('Condor', 'AOG cover, Frankfurt', 'aogCover', 1, [2027, 1, 12], 9, 'wet', 48, 'FRA>PMI,LPA'),
+      J('Corendon Airlines', 'Easter charters Madrid–Antalya', 'adhoc', 2, [2027, 3, 25], 6, 'charter', 36, 'MAD-AYT,AYT-MAD,MAD-AYT,AYT-MAD'),
+      J('Real Madrid', 'Away charter Madrid–Munich', 'sports', 0, [2027, 4, 6], 2, 'charter', 6, 'MAD-MUC,MUC-MAD'),
+    ],
+    rel: [['Eurowings', 44], ['Real Madrid', 26], ['Viagens Abreu', 22], ['Condor', 18], ['Spanish Ministry of Defence', 15], ['Corendon Airlines', 12], ['TAP Air Portugal', 10], ['Aegean Airlines', 6]],
+  },
+  aogFirefighter: {
+    aoc: [2018, 4, 3], reliable: 84, clean: 80, granted: [['iosa', 2020, 2]], margin: 0.14, charter: 0.05, cash0: 1_600_000, jobs: 71, onTime: 90, tech: 99.2, busy: 0.6,
+    util: [240, 265, 270, 250, 190, 140, 110, 120, 105, 115, 140, 175],
+    past: [
+      J('Croatia Airlines', 'Summer wet lease, Zagreb', 'seasonBase', 1, [2026, 6, 15], 80, 'wet', 520, 'ZAG>DBV,SPU,FRA'),
+      J('Lufthansa', 'AOG cover, Frankfurt', 'aogCover', 0, [2026, 9, 10], 4, 'wet', 22, 'FRA>BCN,LIS'),
+      J('airBaltic', 'Winter wet lease, Riga', 'seasonBase', 1, [2026, 11, 1], 45, 'wet', 190, 'RIX>TLL,VNO,OSL'),
+      J('Aer Lingus', 'AOG cover, Dublin', 'aogCover', 1, [2027, 1, 20], 5, 'wet', 28, 'DUB>LHR,AMS'),
+      J('SAS Scandinavian Airlines', 'AOG cover, Stockholm', 'aogCover', 0, [2027, 3, 2], 7, 'wet', 40, 'ARN>CPH,OSL,HEL'),
+      J('LOT Polish Airlines', 'AOG cover, Warsaw', 'aogCover', 1, [2027, 4, 14], 10, 'wet', 62, 'WAW>CDG,FCO,LHR'),
+      J('airBaltic', 'AOG cover, Riga', 'aogCover', 0, [2027, 5, 8], 6, 'wet', 34, 'RIX>AMS,CPH,ARN'),
+    ],
+    rel: [['airBaltic', 62], ['SAS Scandinavian Airlines', 36], ['LOT Polish Airlines', 34], ['Croatia Airlines', 30], ['Aer Lingus', 24], ['Lufthansa', 14], ['Eurowings', 10]],
+  },
+  cashCrunch: {
+    aoc: [2011, 5, 20], reliable: 57, clean: 58, granted: [], margin: -0.08, charter: 0.3, cash0: 2_100_000, jobs: 96, onTime: 79, tech: 96.4, busy: 0, dual: 0.6,
+    // Idle since mid-January: no work, no money for the C-check.
+    util: [210, 235, 250, 275, 285, 260, 190, 130, 115, 95, 30, 0],
+    past: [
+      J('Corendon Airlines', 'Summer wet lease, Antalya', 'seasonBase', 0, [2026, 6, 1], 110, 'wet', 680, 'AYT>SOF,AMS,DUS'),
+      J('Bulgaria Air', 'Winter wet lease, Sofia', 'seasonBase', 2, [2026, 11, 1], 75, 'wet', 330, 'SOF>VIE,FRA,LHR'),
+      J('Bulgarian Ministry of Defence', 'Troop rotations Sofia–Erbil', 'troopRotation', 0, [2026, 12, 5], 40, 'charter', 48, 'SOF-EBL,EBL-SOF,SOF-EBL,EBL-SOF'),
+      J('Novatours', 'Ski charters Vilnius–Sofia', 'tourSeries', 1, [2026, 12, 20], 30, 'charter', 40, 'VNO-SOF,SOF-VNO,VNO-SOF,SOF-VNO'),
+    ],
+    rel: [['Corendon Airlines', 26], ['Novatours', 20], ['Bulgarian Ministry of Defence', 18], ['Bulgaria Air', 12], ['Bulgarian Ministry of Foreign Affairs', 8]],
+  },
+  hajjAirlift: {
+    aoc: [2009, 10, 1], reliable: 76, clean: 74, granted: [['widebody', 2010, 6], ['augmented', 2011, 3], ['iosa', 2013, 5]], margin: 0.12, charter: 0.1, cash0: 3_000_000, jobs: 112, onTime: 84, tech: 97.4, busy: 0.6,
+    util: [140, 330, 300, 110, 70, 60, 90, 120, 130, 190, 270, 240],
+    past: [
+      J('Royal Air Maroc', 'Hajj 2024 airlift, Casablanca', 'hajj', 0, [2024, 5, 16], 52, 'wet', 460, 'CMN>JED,MED'),
+      J('Royal Air Maroc', 'Hajj 2025 airlift, Casablanca', 'hajj', 0, [2025, 5, 6], 55, 'wet', 500, 'CMN>JED,MED'),
+      J('National Hajj Commission of Nigeria', 'Hajj 2025 airlift, Abuja', 'hajj', 1, [2025, 5, 8], 50, 'wet', 450, 'ABV>JED,MED'),
+      J('Royal Air Maroc', 'Hajj 2026 airlift, Casablanca', 'hajj', 0, [2026, 4, 25], 60, 'wet', 560, 'CMN>JED,MED'),
+      J('Air Sénégal', 'Hajj 2026 airlift, Dakar', 'hajj', 1, [2026, 4, 27], 58, 'wet', 520, 'DSS>JED,MED'),
+      J('Royal Air Maroc', 'Umrah series Casablanca–Jeddah', 'tourSeries', 0, [2027, 2, 6], 34, 'charter', 210, 'CMN-JED,JED-CMN,CMN-JED,JED-CMN'),
+      J('Saudia', 'Ramadan wet lease, Jeddah', 'seasonBase', 1, [2027, 2, 10], 30, 'wet', 240, 'JED>CAI,KHI,DAC'),
+    ],
+    rel: [['Royal Air Maroc', 64], ['Air Sénégal', 38], ['Saudia', 22], ['National Hajj Commission of Nigeria', 20], ['Présidence de la République du Sénégal', 12]],
+  },
+  ashCloud: {
+    aoc: [2015, 2, 2], reliable: 66, clean: 74, granted: [['iosa', 2017, 10]], margin: 0.1, charter: 0.2, cash0: 2_000_000, jobs: 64, onTime: 85, tech: 98.4, busy: 0.6,
+    util: [250, 300, 325, 335, 330, 300, 240, 150, 130, 120, 140, 175],
+    past: [
+      J('Jet2.com', 'Summer wet lease, Manchester', 'seasonBase', 1, [2025, 4, 20], 170, 'wet', 1300, 'MAN>ALC,PMI,TFS,FAO'),
+      J('Jet2.com', 'Summer wet lease, Manchester', 'seasonBase', 1, [2026, 4, 15], 180, 'wet', 1380, 'MAN>ALC,PMI,TFS,FAO'),
+      J('SAS Scandinavian Airlines', 'Summer wet lease, Stockholm', 'seasonBase', 2, [2026, 5, 20], 120, 'wet', 900, 'ARN>PMI,NCE,SPU'),
+      J('TAP Air Portugal', 'Winter cover, Lisbon', 'aogCover', 0, [2027, 1, 8], 14, 'wet', 80, 'LIS>OPO,FNC,PDL'),
+      J('Viagens Abreu', 'Easter charters Porto–Funchal', 'adhoc', 0, [2027, 3, 24], 6, 'charter', 22, 'OPO-FNC,FNC-OPO'),
+    ],
+    rel: [['Jet2.com', 46], ['SAS Scandinavian Airlines', 31], ['TAP Air Portugal', 24], ['Viagens Abreu', 20], ['Jet2holidays', 16], ['Sunweb', 8]],
+  },
+  crewCrisis: {
+    aoc: [2013, 8, 12], reliable: 81, clean: 76, granted: [['iosa', 2015, 11]], margin: 0.12, charter: 0.05, cash0: 2_600_000, jobs: 88, onTime: 89, tech: 98.9, busy: 0.7, sets: 5,
+    util: [285, 320, 335, 325, 290, 235, 160, 150, 175, 165, 160, 205],
+    past: [
+      J('airBaltic', 'Summer wet lease, Riga', 'seasonBase', 0, [2024, 5, 1], 150, 'wet', 1250, 'RIX>BCN,NCE,PMI,AGP'),
+      J('airBaltic', 'Summer wet lease, Riga', 'seasonBase', 0, [2025, 5, 1], 150, 'wet', 1300, 'RIX>BCN,NCE,PMI,AGP'),
+      J('airBaltic', 'Summer wet lease, Riga', 'seasonBase', 0, [2026, 5, 1], 150, 'wet', 1350, 'RIX>BCN,NCE,PMI,AGP'),
+      J('SAS Scandinavian Airlines', 'Summer wet lease, Copenhagen', 'seasonBase', 2, [2026, 6, 1], 100, 'wet', 900, 'CPH>SPU,NCE,PMI'),
+      J('SAS Scandinavian Airlines', 'Winter wet lease, Oslo', 'seasonBase', 1, [2026, 12, 1], 60, 'wet', 340, 'OSL>TRD,BGO,TOS'),
+      J('Novatours', 'Ski charters Riga–Salzburg', 'tourSeries', 0, [2027, 1, 10], 45, 'charter', 40, 'RIX-SZG,SZG-RIX,RIX-SZG,SZG-RIX'),
+      J('airBaltic', 'Winter cover, Riga', 'aogCover', 2, [2027, 2, 1], 20, 'wet', 110, 'RIX>TLL,VNO,HEL'),
+    ],
+    rel: [['airBaltic', 66], ['SAS Scandinavian Airlines', 42], ['Novatours', 26], ['Latvian Ministry of Defence', 12], ['LOT Polish Airlines', 10]],
+  },
+  cupFinal: {
+    aoc: [2012, 4, 2], reliable: 64, clean: 72, granted: [['iosa', 2016, 4]], margin: 0.09, charter: 0.5, cash0: 1_500_000, jobs: 102, onTime: 84, tech: 98.1, busy: 0.7,
+    util: [270, 305, 320, 315, 270, 215, 150, 165, 185, 160, 150, 205],
+    past: [
+      J('Čedok', 'Summer series Prague–Heraklion', 'tourSeries', 1, [2026, 6, 1], 110, 'charter', 300, 'PRG-HER,HER-PRG,PRG-HER,HER-PRG'),
+      J('Smartwings', 'Summer wet lease, Prague', 'seasonBase', 2, [2026, 6, 10], 90, 'wet', 620, 'PRG>BCN,PMI,CFU'),
+      J('Ajax', 'Away charter Amsterdam–Prague', 'sports', 1, [2026, 10, 1], 2, 'charter', 5, 'AMS-PRG,PRG-AMS'),
+      J('Čedok', 'Winter sun series Prague–Hurghada', 'tourSeries', 0, [2026, 11, 1], 120, 'charter', 260, 'PRG-HRG,HRG-PRG,PRG-HRG,HRG-PRG'),
+      J('Kuoni Group Travel', 'Incentive charter Zurich–Marrakech', 'adhoc', 2, [2027, 3, 12], 4, 'charter', 10, 'ZRH-RAK,RAK-ZRH'),
+      J('Sportsworld Group Travel', 'Europa League fans, London–Seville', 'sports', 0, [2027, 4, 9], 2, 'charter', 12, 'LGW-SVQ,SVQ-LGW'),
+    ],
+    rel: [['Čedok', 52], ['Smartwings', 30], ['Sportsworld Group Travel', 22], ['Kuoni Group Travel', 14], ['Ajax', 12], ['Czech Ministry of Defence', 10]],
+  },
+  longHaulDebut: {
+    // ETOPS 120 and Widebody operations are filed, deliberately not held yet: earning them is the scenario.
+    aoc: [2018, 6, 18], reliable: 67, clean: 76, granted: [['iosa', 2020, 3]], margin: 0.11, charter: 0.3, cash0: 4_200_000, jobs: 52, onTime: 87, tech: 98.7, busy: 0.5,
+    util: [190, 230, 270, 300, 315, 305, 270, 210, 150, 140, 160, 150],
+    past: [
+      J('TAP Air Portugal', 'Summer wet lease, Lisbon', 'seasonBase', 1, [2026, 6, 1], 120, 'wet', 1050, 'LIS>FNC,PDL,BCN,ORY'),
+      J('Viagens Abreu', 'Azores charters Lisbon–Ponta Delgada', 'tourSeries', 0, [2026, 7, 3], 60, 'charter', 120, 'LIS-PDL,PDL-LIS,LIS-PDL,PDL-LIS'),
+      J('Portuguese Ministry of National Defence', 'Troop rotation Lisbon–Bucharest', 'troopRotation', 0, [2026, 10, 6], 3, 'charter', 14, 'LIS-OTP,OTP-LIS'),
+      J('SL Benfica', 'Team charter Lisbon–Munich', 'sports', 1, [2026, 11, 4], 2, 'charter', 7, 'LIS-MUC,MUC-LIS'),
+      J('TAP Air Portugal', 'Winter cover, Lisbon', 'aogCover', 1, [2027, 1, 15], 12, 'wet', 70, 'LIS>OPO,MAD'),
+      J('Sporting CP', 'Team charter Lisbon–London', 'sports', 0, [2027, 2, 18], 2, 'charter', 6, 'LIS-LHR,LHR-LIS'),
+    ],
+    rel: [['TAP Air Portugal', 46], ['Viagens Abreu', 32], ['Sporting CP', 22], ['SL Benfica', 18], ['Portuguese Ministry of National Defence', 14], ['Hi Fly', 10]],
+  },
+  southernWinter: {
+    aoc: [2014, 9, 8], reliable: 68, clean: 74, granted: [['etops120', 2025, 3], ['iosa', 2017, 6]], margin: 0.1, charter: 0.1, cash0: 2_200_000, jobs: 79, onTime: 86, tech: 98.5, busy: 0.8,
+    util: [130, 290, 310, 300, 285, 190, 250, 310, 340, 345, 330, 290],
+    past: [
+      J('GOL Linhas Aéreas', 'Summer wet lease, Brasília', 'seasonBase', 0, [2025, 12, 3], 100, 'wet', 860, 'BSB>GRU,SSA,REC'),
+      J('GOL Linhas Aéreas', 'Summer wet lease, Brasília', 'seasonBase', 0, [2026, 12, 1], 105, 'wet', 900, 'BSB>GRU,SSA,REC'),
+      J('LATAM Brasil', 'AOG cover, São Paulo', 'aogCover', 2, [2027, 1, 20], 10, 'wet', 60, 'GRU>GIG,POA'),
+      J('Eurowings', 'Summer wet lease, Düsseldorf', 'seasonBase', 0, [2027, 4, 15], 165, 'wet', 1400, 'DUS>PMI,HER,AYT'),
+      J('airBaltic', 'Summer wet lease, Riga', 'seasonBase', 1, [2027, 5, 1], 165, 'wet', 1500, 'RIX>BCN,NCE,AGP'),
+      J('TAP Air Portugal', 'Summer wet lease, Lisbon', 'seasonBase', 2, [2027, 6, 1], 120, 'wet', 1100, 'LIS>FNC,PDL,ORY'),
+    ],
+    rel: [['GOL Linhas Aéreas', 44], ['airBaltic', 40], ['TAP Air Portugal', 28], ['Eurowings', 26], ['LATAM Brasil', 18], ['Azul Brazilian Airlines', 6]],
+  },
+  humanitarian: {
+    aoc: [2012, 11, 5], reliable: 78, clean: 78, granted: [['dg', 2014, 3], ['iosa', 2015, 2], ['widebody', 2016, 5], ['etops120', 2016, 9]], margin: 0.13, charter: 0.7, cash0: 2_600_000, jobs: 134, onTime: 81, tech: 97.8, busy: 0.5, dual: 0.5,
+    util: [170, 190, 210, 185, 150, 160, 140, 130, 150, 175, 160, 185],
+    past: [
+      J('UNHCR', 'Refugee airlift, Addis Ababa–Rome', 'humanitarian', 0, [2026, 9, 5], 5, 'charter', 30, 'ADD-FCO,FCO-ADD'),
+      J('Maltese Ministry for Foreign Affairs', 'Evacuation, Port Sudan–Malta', 'evacuation', 0, [2026, 11, 12], 3, 'charter', 16, 'MLA-PZU,PZU-MLA'),
+      J('World Health Organization (WHO)', 'Medical airbridge, Juba', 'medical', 1, [2027, 1, 8], 6, 'charter', 26, 'MLA-JUB,JUB-MLA'),
+      J('International Organization for Migration (IOM)', 'Returns, Tripoli–Niamey', 'repatriation', 1, [2027, 2, 20], 4, 'charter', 14, 'MLA-TIP,TIP-NIM,NIM-MLA'),
+      J('UN World Food Programme (WFP)', 'Relief flight Malta–N’Djamena', 'humanitarian', 0, [2027, 4, 10], 3, 'charter', 14, 'MLA-NDJ,NDJ-MLA'),
+      J('International SOS', 'Medical evacuation, Tripoli–Malta', 'medical', 1, [2027, 5, 3], 2, 'charter', 6, 'MLA-MJI,MJI-MLA'),
+    ],
+    rel: [['Maltese Ministry for Foreign Affairs', 52], ['UN World Food Programme (WFP)', 40], ['International Organization for Migration (IOM)', 34], ['International SOS', 30], ['UNHCR', 24], ['World Health Organization (WHO)', 22], ['Armed Forces of Malta', 14]],
+  },
+};
+
+export const SCENARIOS: ScenarioDef[] = BASE.map((s) => ({ ...s, rules: RULES[s.id], history: HISTORY[s.id] }));
+for (const s of SCENARIOS) SCEN_RULES[s.id] = s.rules;
 
 export const SCENARIO_BY_ID: Record<string, ScenarioDef> = Object.fromEntries(SCENARIOS.map((s) => [s.id, s]));

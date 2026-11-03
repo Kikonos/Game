@@ -237,6 +237,8 @@ export interface Company {
   approvalsAt?: Partial<Record<ApprovalId, Minute>>;
   /** v0.8 company standing: 0 Newcomer · 1 Established · 2 Respected. load: ??= standingFor(g). */
   standing?: 0 | 1 | 2;
+  /** v0.15 when the AOC was issued (a scenario steps into an established airline); absent = the game's start. */
+  aocAt?: Minute;
 }
 
 // ======================================================================
@@ -1835,6 +1837,13 @@ export interface ScenarioState {
   /** A script's own small memory (Ash Cloud: when the airspace reopened). */
   mem?: Record<string, number>;
   result?: ScenarioResult;
+  /**
+   * v0.15 the scenario's core contracts (signed by its setup); set once the setup is done, which turns its rules on
+   * (scenario/rules.ts). load: an older scenario save ??= the contracts signed by its start.
+   */
+  core?: string[];
+  /** v0.15 crew hired so far (a 'limited' hiring allowance). */
+  hired?: number;
 }
 
 /** Result of a player action (store.act toasts the error or message). */

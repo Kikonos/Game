@@ -38,6 +38,8 @@ import { archLabel, counterSteps, expiryLabel, offerCrewLine, pctLabel, reqChips
 import { analystView } from '../../engine/ops';
 import { HintButton, ScreenHint } from '../components/ScreenHint';
 import { store, useGame } from '../store';
+import { offerLock } from '../../engine/scenario';
+import { LockNote } from '../components/Locked';
 
 const LEVEL_TONE = { ok: 'good', warn: 'warn', no: 'bad' } as const;
 const usd = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
@@ -569,8 +571,10 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const opts = { paint, cabin, crewExtra: crewed ? x : undefined };
   // v0.14.1 a won tender is signed at our bid: no counter.
   const tenderWon = isTenderOffer(g, o.id);
-  const canCounter = live && !countered && !o.counter && !tenderWon && !!sel && !blocked(sel);
-  const canAccept = live && !countered && !!sel && !blocked(sel) && !mustPaint;
+  // v0.15 a scenario's market rules (an offer of another kind of work that reached the desk anyway).
+  const scenLock = offerLock(g, o);
+  const canCounter = live && !countered && !o.counter && !tenderWon && !!sel && !blocked(sel) && !scenLock;
+  const canAccept = live && !countered && !!sel && !blocked(sel) && !mustPaint && !scenLock;
   // v0.7.1 §13: one plain sentence on what is in the way (crew, aircraft, range, cabin, paint) or a counter about to expire.
   const fit0 = live ? problemAt(g, { kind: 'offer', id: o.id }) : null;
   // The moral / dry / Hajj / mixed panel already says the mission line: no second card when it is all the card says.
@@ -613,7 +617,8 @@ export function OfferModal({ offerId }: { offerId: string }) {
             <button className="btn" onClick={counter} disabled={!canCounter}>Counter</button>
           </span>
         )}
-        <button className="btn btn-primary" onClick={accept} disabled={!canAccept} title={mustPaint ? 'The client requires their livery: counter instead' : undefined}><Check /> Accept {fmtP(asking * lift)}</button>
+        {scenLock && <LockNote why={scenLock} />}
+        <button className="btn btn-primary" onClick={accept} disabled={!canAccept} title={mustPaint ? 'The client requires their livery: counter instead' : scenLock ?? undefined}><Check /> Accept {fmtP(asking * lift)}</button>
       </div>
     }>
       <ScreenHint id="offer" />

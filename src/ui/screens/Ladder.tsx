@@ -12,6 +12,8 @@ import { Bar, Card } from '../components/ui';
 import { money } from '../format';
 import { store } from '../store';
 import { cssRect } from '../device';
+import { lockOf } from '../../engine/scenario';
+import { LockNote } from '../components/Locked';
 
 type Box = ReturnType<typeof cssRect>;
 
@@ -130,6 +132,8 @@ export function LadderCard({ g }: { g: GameState }) {
   const held = nodes.filter((n) => n.state === 'held').length;
   return (
     <Card className="ld-card" title="The Ladder" icon={<TrendingUp className="ico" />} sub={`${held} of ${nodes.length} approvals held · each opens bigger aircraft and work`}>
+      {/* v0.15 a scenario that needs no new approvals: the Ladder shows where the airline stands, closed for filing. */}
+      <LockNote why={lockOf(g, 'approvals')} className="mb-8" />
       <div className="ld-grid" ref={box}>
         <svg className="ld-lines" aria-hidden>
           {edges.map((e, i) => <path key={i} d={e.d} className={e.held ? 'held' : ''} />)}
@@ -142,7 +146,7 @@ export function LadderCard({ g }: { g: GameState }) {
               {r.index === 0 ? (
                 <div className="ld-node s-held ld-start" data-node="rung0">
                   <b className="ld-name">Narrowbody charter & ACMI</b>
-                  <span className="badge good"><Award /> Since {fmtDate(g.started)}</span>
+                  <span className="badge good"><Award /> Since {fmtDate(g.company.aocAt ?? g.started)}</span>
                   <span className="tiny dim">Our AOC as it started</span>
                   <span className="ld-types">{shortOf(RUNG0_TYPES).slice(0, 5).map((t) => <span key={t} className="ld-type">{t}</span>)}</span>
                 </div>

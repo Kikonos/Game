@@ -5,13 +5,20 @@
 import type { SimModule } from '../core/module';
 import type { GameState } from '../core/types';
 
-export const SCEN_HOOKS: { day?: (g: GameState) => void } = {};
+export const SCEN_HOOKS: {
+  day?: (g: GameState) => void;
+  /** v0.15 a contract we cancelled (a core contract under a 'penalty' rule ends the scenario). */
+  cancelled?: (g: GameState, contractId: string) => void;
+  /** v0.15 load: an older scenario save gets its core contracts (its rules switch on). */
+  load?: (g: GameState) => void;
+} = {};
 
 export const scenarioModule: SimModule = {
   name: 'scenario',
   load(g) {
     // v0.12 every game names its scenario ('startup' = the normal game).
     g.scenario ??= 'startup';
+    if (g.scen) SCEN_HOOKS.load?.(g);
   },
   handlers: {
     day: (g) => {

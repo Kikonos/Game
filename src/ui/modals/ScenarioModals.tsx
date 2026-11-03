@@ -1,11 +1,11 @@
 // v0.12 Scenarios mode in play: the goals (top-bar chip, the goals dialog, the Company panel) and the results card
 // (stars, the key numbers, Retry, Back to scenarios). Engine views in engine/scenario/index.ts.
 
-import { ArrowLeft, Check, Flag, RotateCcw, Star, Target, X } from 'lucide-react';
+import { ArrowLeft, Check, Flag, Lock, RotateCcw, Star, Target, X } from 'lucide-react';
 import { useEffect } from 'react';
 import { DIFFICULTY_LABEL } from '../../data/setups';
 import type { GameState } from '../../engine/core/types';
-import { fmtValue, scenarioNumbers, scenarioView, type ScenarioView } from '../../engine/scenario';
+import { fmtValue, pastLine, rulesLines, scenarioNumbers, scenarioView, type ScenarioView } from '../../engine/scenario';
 import { Modal } from '../components/ui';
 import { store, useStore } from '../store';
 
@@ -81,6 +81,13 @@ export function ScenarioModal() {
     <Modal title={v.def.name} icon={<Flag className="accent" />} onClose={() => store.closeModal()}>
       <p className="muted small sc-story">{v.def.story} {v.def.region} · {v.def.aircraft} · {DIFFICULTY_LABEL[v.def.difficulty]}.</p>
       <ScenarioGoals v={v} />
+      {/* v0.15 the airline you stepped into, and what this scenario lets you do. */}
+      {s.game && <p className="sc-past muted">{pastLine(s.game)}.</p>}
+      {s.game && (
+        <ul className="sc-rules" aria-label="In this scenario">
+          {rulesLines(s.game).map((r) => <li key={r.text} className={r.on ? 'on' : 'off'}>{r.on ? <Check aria-hidden /> : <Lock aria-hidden />}<span>{r.text}</span></li>)}
+        </ul>
+      )}
     </Modal>
   );
 }

@@ -10,6 +10,7 @@ import { levelOf } from '../contracts/relations';
 import { type RivalStyle } from '../contracts/rivals';
 import { cancelCost, noticeText, positioningCost, rivalsFor, subcharterCost, subcharterLegs, subHit, unitOf, type SubHit } from './flights';
 import { contractOf, isRevenue } from './util';
+import { lockOf } from '../scenario/rules';
 
 /** Legs closer than this to departure can't be handed over any more (the rival needs to position). */
 export const SUB_LEAD = 6 * 60;
@@ -140,6 +141,9 @@ export function subcharterQuote(g: GameState, flightIds: string[]): SubcharterQu
 
 /** Hands the legs to the chosen rival (default the cheapest) at the quoted price (re-quoted now; refused when it rose or legs left). */
 export function subcharter(g: GameState, flightIds: string[], expectCost?: number, rivalId?: string): ActionResult<{ legs: number; cost: number; rivalName: string }> {
+  // v0.15 a scenario where nobody else may fly our work.
+  const lk = lockOf(g, 'subcharter');
+  if (lk) return { ok: false, error: lk };
   const qs = subcharterQuotes(g, flightIds);
   const q = rivalId ? qs.find((x) => x.rivalId === rivalId) : qs.find((x) => x.available);
   if (!q) return { ok: false, error: rivalId && qs.length ? 'That operator can no longer quote; pick another' : 'Those legs can no longer be handed over' };
