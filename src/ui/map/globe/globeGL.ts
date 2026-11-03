@@ -1,14 +1,15 @@
-// v0.15 the 3D globe's three.js pieces: the Earth (land mask texture, vector coasts and borders, a soft graticule, the
-// real sun's day and night, an atmosphere rim), flight arcs as ribbons on the sphere (screen-px wide, flown part solid,
+// v0.15 the 3D globe's three.js pieces: the Earth (the land from a coverage mask read with a smooth cubic filter, the
+// coast drawn from the same field, anti-aliased ribbons for the borders, a soft graticule, the real sun's day and
+// night, an atmosphere rim), flight arcs as ribbons on the sphere (screen-px wide, flown part solid,
 // the rest dashed), airport dots and the aircraft silhouettes as textures. Loaded only with the globe (its own chunk).
 
-import { geoEquirectangular, geoPath } from 'd3-geo';
-import type { MultiLineString, MultiPolygon } from 'geojson';
 import {
-  AdditiveBlending, BackSide, BufferGeometry, CanvasTexture, DoubleSide, Float32BufferAttribute, LinearMipmapLinearFilter, LineSegments, Mesh, MeshBasicMaterial,
-  NormalBlending, Points, ShaderMaterial, SphereGeometry, SRGBColorSpace, type Texture, Vector2, Vector3, Vector4,
+  AdditiveBlending, BackSide, BufferAttribute, BufferGeometry, CanvasTexture, ClampToEdgeWrapping, DataTexture, DoubleSide, Float32BufferAttribute, LinearFilter,
+  LinearMipmapLinearFilter, Mesh, MeshBasicMaterial, NormalBlending, Points, RedFormat, RepeatWrapping, ShaderMaterial, SphereGeometry, SRGBColorSpace, type Texture,
+  UnsignedByteType, Vector2, Vector3, Vector4,
 } from 'three';
 import { silhouette, silSpec } from '../silhouettes';
+import type { Ribbon } from './globeLand';
 import { NIGHT_S, type Vec3, cross, norm, sub, vecOf } from './globeLogic';
 
 export type RGBA = [number, number, number, number];
@@ -21,24 +22,56 @@ export interface GlobeInk {
 
 const v4 = (c: RGBA) => new Vector4(c[0], c[1], c[2], c[3]);
 
-// ---------- the land mask ----------
+// ---------- the land field ----------
 
-/** v0.15 the land as a mask (red = land) on an equirectangular canvas, `w` × w/2. */
-export function landMask(land: MultiPolygon, w: number): HTMLCanvasElement {
-  const h = w / 2;
-  const cv = document.createElement('canvas');
-  cv.width = w;
-  cv.height = h;
-  const c = cv.getContext('2d')!;
-  c.fillStyle = '#000';
-  c.fillRect(0, 0, w, h);
-  const proj = geoEquirectangular().scale(w / (2 * Math.PI)).translate([w / 2, h / 2]).precision(0.1);
-  c.beginPath();
-  geoPath(proj, c)(land);
-  c.fillStyle = '#f00';
-  c.fill();
-  return cv;
+/** v0.15 the land's coverage mask (globeLand.landField) as a one-channel texture, mipmapped, wrapping east–west. */
+export function landTexture(data: Uint8Array, w: number, maxAniso: number): DataTexture {
+  const tex = new DataTexture(data, w, w / 2, RedFormat, UnsignedByteType);
+  tex.wrapS = RepeatWrapping;
+  tex.wrapT = ClampToEdgeWrapping;
+  tex.magFilter = LinearFilter;
+  tex.minFilter = LinearMipmapLinearFilter;
+  tex.generateMipmaps = true;
+  tex.anisotropy = Math.min(8, maxAniso);
+  tex.unpackAlignment = 1;
+  // (The bytes stay with the texture: a lost WebGL context is restored from them.)
+  tex.needsUpdate = true;
+  return tex;
 }
+
+/*
+ * The land field read with a cubic B-spline filter (four bilinear taps, GPU Gems 2 ch. 20): its 0.5 contour is a smooth
+ * curve, not the corners of the bilinear filter, however far the globe is magnified. textureGrad keeps the mip level
+ * of the surface (the taps' own coordinates jump at texel edges).
+ */
+const FIELD_GLSL = /* glsl */ `
+vec4 bsW(float v) {
+  vec4 n = vec4(1.0, 2.0, 3.0, 4.0) - v;
+  vec4 s = n * n * n;
+  float x = s.x;
+  float y = s.y - 4.0 * s.x;
+  float z = s.z - 4.0 * s.y + 6.0 * s.x;
+  return vec4(x, y, z, 6.0 - x - y - z) * (1.0 / 6.0);
+}
+float landAt(sampler2D t, vec2 uv, vec2 size) {
+  vec2 gx = dFdx(uv);
+  vec2 gy = dFdy(uv);
+  vec2 st = uv * size - 0.5;
+  vec2 f = fract(st);
+  st -= f;
+  vec4 xc = bsW(f.x);
+  vec4 yc = bsW(f.y);
+  vec4 c = st.xxyy + vec2(-0.5, 1.5).xyxy;
+  vec4 s = vec4(xc.xz + xc.yw, yc.xz + yc.yw);
+  vec4 o = (c + vec4(xc.yw, yc.yw) / s) / size.xxyy;
+  float s0 = textureGrad(t, o.xz, gx, gy).r;
+  float s1 = textureGrad(t, o.yz, gx, gy).r;
+  float s2 = textureGrad(t, o.xw, gx, gy).r;
+  float s3 = textureGrad(t, o.yw, gx, gy).r;
+  float sx = s.x / (s.x + s.y);
+  float sy = s.z / (s.z + s.w);
+  return mix(mix(s3, s2, sx), mix(s1, s0, sx), sy);
+}`;
 
 // ---------- the Earth ----------
 
@@ -55,12 +88,14 @@ void main() {
 }`;
 
 const EARTH_FS = /* glsl */ `
-uniform sampler2D uLand;
+uniform sampler2D uLand; uniform vec2 uLandSize; uniform float uLandOn;
 uniform vec4 uOcean0; uniform vec4 uOcean1; uniform vec4 uLand0; uniform vec4 uLand1; uniform vec4 uGrid; uniform vec4 uNight; uniform vec4 uAtmo;
+uniform vec4 uCoast; uniform float uCoastW;
 uniform vec3 uSun; uniform vec2 uNightS; uniform float uGlint; uniform float uDayLift;
 varying vec2 vUv;
 varying vec3 vN;
 varying vec3 vW;
+${FIELD_GLSL}
 float gridLine(float v, float step) {
   float f = abs(fract(v / step + 0.5) - 0.5) * step;
   float w = fwidth(v);
@@ -70,10 +105,16 @@ void main() {
   vec3 N = normalize(vN);
   vec3 V = normalize(cameraPosition - vW);
   float facing = clamp(dot(N, V), 0.0, 1.0);
-  // The land edge drawn crisp from a soft mask (the bilinear contour at 0.5, a pixel wide at any zoom).
-  float m = texture2D(uLand, vUv).r;
-  float aw = max(fwidth(m) * 0.7, 0.002);
-  float land = smoothstep(0.5 - aw, 0.5 + aw, m);
+  // The land edge from the smooth field. Magnified (a texel over a pixel or two): its signed distance in screen px
+  // (the field over its screen gradient), so the edge is a pixel of anti-aliasing and the coast line is drawn on it a
+  // constant width. Minified (the whole globe): the mipmapped field is itself the pixel's coverage, and the coast is
+  // the band where it crosses one half (no screen derivatives there: they come per 2 × 2 pixels and would step).
+  float m = landAt(uLand, vUv, uLandSize) * uLandOn;
+  float gm = length(vec2(dFdx(m), dFdy(m)));
+  float d = (m - 0.5) / max(gm, 1e-5);
+  float rho = max(length(dFdx(vUv) * uLandSize), length(dFdy(vUv) * uLandSize));
+  float mag = 1.0 - smoothstep(0.45, 0.9, rho);
+  float land = mix(smoothstep(0.3, 0.7, m), clamp(d + 0.5, 0.0, 1.0), mag);
   float lit = pow(facing, 0.55);
   vec3 ocean = mix(uOcean1.rgb, uOcean0.rgb, lit);
   vec3 ground = mix(uLand1.rgb, uLand0.rgb, lit);
@@ -97,15 +138,29 @@ void main() {
   // The atmosphere seen edge-on: a thin bright limb.
   float rim = pow(1.0 - facing, 3.0);
   col = mix(col, uAtmo.rgb, rim * uAtmo.a * 0.85);
+  // The coast, on the land's edge (thinner than a pixel: fainter instead), easing out towards the limb.
+  float hw = max(uCoastW, 0.5);
+  float near = clamp(hw + 0.5 - abs(d), 0.0, 1.0) * min(1.0, uCoastW * 2.0) * step(1e-5, gm);
+  float far = (1.0 - smoothstep(0.1, 0.34, abs(m - 0.5))) * min(1.0, uCoastW * 1.6) * uLandOn;
+  float coast = mix(far, near, mag);
+  col = mix(col, uCoast.rgb, coast * uCoast.a * smoothstep(0.0, 0.25, facing));
   gl_FragColor = vec4(col, 1.0);
 }`;
+
+/** The land field on the Earth (null: the sea alone, until it is drawn). */
+export function setEarthLand(m: ShaderMaterial, tex: DataTexture | null) {
+  const u = m.uniforms;
+  u.uLand.value = tex;
+  u.uLandOn.value = tex ? 1 : 0;
+  if (tex) (u.uLandSize.value as Vector2).set(tex.image.width, tex.image.height);
+}
 
 export function earthMesh(tex: Texture | null): Mesh<SphereGeometry, ShaderMaterial> {
   const mat = new ShaderMaterial({
     vertexShader: EARTH_VS,
     fragmentShader: EARTH_FS,
     uniforms: {
-      uLand: { value: tex },
+      uLand: { value: tex }, uLandSize: { value: new Vector2(1, 1) }, uLandOn: { value: 0 }, uCoast: { value: new Vector4() }, uCoastW: { value: 0.5 },
       uOcean0: { value: new Vector4() }, uOcean1: { value: new Vector4() }, uLand0: { value: new Vector4() }, uLand1: { value: new Vector4() },
       uGrid: { value: new Vector4() }, uNight: { value: new Vector4() }, uAtmo: { value: new Vector4() },
       uSun: { value: new Vector3(1, 0, 0) }, uNightS: { value: new Vector2(NIGHT_S[0], NIGHT_S[1]) }, uGlint: { value: 0 }, uDayLift: { value: 0 },
@@ -123,6 +178,7 @@ export function inkEarth(m: ShaderMaterial, ink: GlobeInk) {
   u.uGrid.value = v4(ink.grid);
   u.uNight.value = v4(ink.night);
   u.uAtmo.value = v4(ink.atmo);
+  u.uCoast.value = v4(ink.coast);
   u.uGlint.value = ink.glint;
   u.uDayLift.value = ink.dayLift;
 }
@@ -176,44 +232,96 @@ export function inkAtmosphere(m: ShaderMaterial, ink: GlobeInk, additive: boolea
   m.needsUpdate = true;
 }
 
-// ---------- coasts and borders ----------
+// ---------- borders ----------
 
-const LINE_VS = /* glsl */ `
+/*
+ * Ribbons a constant width in screen px: each point's two vertices pushed apart across the line on screen (along the
+ * mitre of the segments either side), the outer pixel faded for anti-aliasing. Hidden on the far side, easing out
+ * towards the limb, and faded where the land field says sea (a border's end never pokes past the smoothed coast).
+ */
+const RIBBON_VS = /* glsl */ `
+attribute vec3 aPrev;
+attribute vec3 aNext;
+attribute float aSide;
+uniform vec2 uRes;
+uniform float uHalfW;
+varying float vD;
 varying float vFace;
+varying vec3 vP;
+vec2 scr(vec4 c) { return c.xy / c.w * uRes * 0.5; }
 void main() {
-  vec4 w = modelMatrix * vec4(position, 1.0);
-  vFace = dot(normalize(w.xyz), normalize(cameraPosition - w.xyz));
-  gl_Position = projectionMatrix * viewMatrix * w;
+  mat4 pv = projectionMatrix * viewMatrix * modelMatrix;
+  vec4 c = pv * vec4(position, 1.0);
+  vec2 s = scr(c);
+  vec2 d1 = s - scr(pv * vec4(aPrev, 1.0));
+  vec2 d2 = scr(pv * vec4(aNext, 1.0)) - s;
+  float l1 = length(d1);
+  float l2 = length(d2);
+  vec2 t1 = l1 > 1e-4 ? d1 / l1 : (l2 > 1e-4 ? d2 / l2 : vec2(1.0, 0.0));
+  vec2 t2 = l2 > 1e-4 ? d2 / l2 : t1;
+  vec2 t = t1 + t2;
+  t = length(t) > 1e-3 ? normalize(t) : t1;
+  vec2 nrm = vec2(-t.y, t.x);
+  float mitre = 1.0 / max(dot(nrm, vec2(-t1.y, t1.x)), 0.5);
+  float e = max(uHalfW, 0.5) + 1.0;
+  c.xy += nrm * (aSide * e * mitre) / (uRes * 0.5) * c.w;
+  vD = aSide * e;
+  vec3 w = (modelMatrix * vec4(position, 1.0)).xyz;
+  vFace = dot(normalize(w), normalize(cameraPosition - w));
+  vP = position;
+  gl_Position = c;
 }`;
-const LINE_FS = /* glsl */ `
+const RIBBON_FS = /* glsl */ `
 uniform vec4 uColor;
+uniform float uHalfW;
+uniform sampler2D uLand;
+uniform float uLandOn;
+varying float vD;
 varying float vFace;
+varying vec3 vP;
 void main() {
   if (vFace < 0.0) discard;
-  gl_FragColor = vec4(uColor.rgb, uColor.a * smoothstep(0.0, 0.25, vFace));
+  float hw = max(uHalfW, 0.5);
+  float a = clamp(hw + 0.5 - abs(vD), 0.0, 1.0) * min(1.0, uHalfW * 2.0);
+  vec3 n = normalize(vP);
+  vec2 uv = vec2(atan(-n.z, n.x) / 6.2831853 + 0.5, asin(clamp(n.y, -1.0, 1.0)) / 3.1415927 + 0.5);
+  float land = mix(1.0, smoothstep(0.3, 0.7, texture2D(uLand, uv).r), uLandOn);
+  a *= uColor.a * smoothstep(0.0, 0.25, vFace) * land;
+  if (a < 0.004) discard;
+  gl_FragColor = vec4(uColor.rgb, a);
 }`;
 
-const nearSeam = (a: number[], b: number[]) => (Math.abs(a[0]) > 179.99 && Math.abs(b[0]) > 179.99) || (a[1] < -89.9 && b[1] < -89.9);
-
-/** Line segments on the sphere (coastlines from the land's rings, or the borders), skipping the antimeridian cut. */
-export function geoLines(lines: number[][][], r: number): LineSegments<BufferGeometry, ShaderMaterial> {
-  const pos: number[] = [];
-  for (const line of lines) {
-    for (let i = 1; i < line.length; i++) {
-      const a = line[i - 1];
-      const b = line[i];
-      if (nearSeam(a, b)) continue;
-      pos.push(...vecOf(a[0], a[1], r), ...vecOf(b[0], b[1], r));
-    }
-  }
+/** Anti-aliased lines on the sphere from ribbon geometry (globeLand.ribbons). */
+export function ribbonMesh(r: Ribbon): Mesh<BufferGeometry, ShaderMaterial> {
   const geo = new BufferGeometry();
-  geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
-  const mat = new ShaderMaterial({ vertexShader: LINE_VS, fragmentShader: LINE_FS, uniforms: { uColor: { value: new Vector4() } }, transparent: true, depthWrite: false });
-  return new LineSegments(geo, mat);
+  geo.setAttribute('position', new BufferAttribute(r.pos, 3));
+  geo.setAttribute('aPrev', new BufferAttribute(r.prev, 3));
+  geo.setAttribute('aNext', new BufferAttribute(r.next, 3));
+  geo.setAttribute('aSide', new BufferAttribute(r.side, 1));
+  geo.setIndex(new BufferAttribute(r.idx, 1));
+  const mat = new ShaderMaterial({
+    vertexShader: RIBBON_VS,
+    fragmentShader: RIBBON_FS,
+    uniforms: { uColor: { value: new Vector4() }, uHalfW: { value: 0.5 }, uRes: { value: new Vector2(1, 1) }, uLand: { value: null }, uLandOn: { value: 0 } },
+    transparent: true,
+    depthWrite: false,
+    // The strip's winding on screen follows the line's direction.
+    side: DoubleSide,
+  });
+  const mesh = new Mesh(geo, mat);
+  mesh.frustumCulled = false;
+  return mesh;
 }
 
-export const coastLines = (land: MultiPolygon) => land.coordinates.flat();
-export const borderLines = (b: MultiLineString) => b.coordinates;
+/** A ribbon's look this frame: colour, width in css px, the drawing buffer's size and its px per css px. */
+export function styleRibbon(m: ShaderMaterial, color: RGBA, widthCss: number, bufW: number, bufH: number, pr: number, land: Texture | null) {
+  const u = m.uniforms;
+  (u.uColor.value as Vector4).set(color[0], color[1], color[2], color[3]);
+  u.uHalfW.value = (widthCss * pr) / 2;
+  (u.uRes.value as Vector2).set(bufW, bufH);
+  u.uLand.value = land;
+  u.uLandOn.value = land ? 1 : 0;
+}
 
 // ---------- flight arcs ----------
 

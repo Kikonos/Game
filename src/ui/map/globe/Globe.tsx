@@ -7,7 +7,7 @@
 
 import { House, Map as MapIcon, Minus, Plus } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { CanvasTexture, Group, LinearFilter, LinearMipmapLinearFilter, Matrix4, Mesh, PerspectiveCamera, PlaneGeometry, Scene, Vector3, WebGLRenderer, type MeshBasicMaterial, type ShaderMaterial } from 'three';
+import { type BufferGeometry, CanvasTexture, type DataTexture, Group, Matrix4, Mesh, PerspectiveCamera, PlaneGeometry, Scene, Vector3, WebGLRenderer, type MeshBasicMaterial, type ShaderMaterial } from 'three';
 import { AIRPORT_BY_CODE } from '../../../data/airports';
 import type { Flight, GameState, Ref } from '../../../engine/core/types';
 import { commercialFlightsBetween, commercialProgress, type CommercialFlight, type FlightType, flightType } from '../../../engine/ops';
@@ -21,9 +21,10 @@ import { loadMapData, worldGeo } from '../mapData';
 import { silColour } from '../silhouettes';
 import type { MapAirport, MapRoute } from '../WorldMap';
 import {
-  acMaterial, airportPoints, arcGeometry, arcMaterial, type ArcStyle, atmosphereMesh, borderLines, coastLines, dimM, earthMesh, geoLines, type GlobeInk, inkAtmosphere, inkEarth,
-  landMask, QUAD_PER_DIM, type RGBA, setAirports, silTexture, styleArc,
+  acMaterial, airportPoints, arcGeometry, arcMaterial, type ArcStyle, atmosphereMesh, dimM, earthMesh, type GlobeInk, inkAtmosphere, inkEarth, landTexture, QUAD_PER_DIM,
+  ribbonMesh, type RGBA, setAirports, setEarthLand, silTexture, styleArc, styleRibbon,
 } from './globeGL';
+import { borderLines, drawLandField, fieldWidth, landFieldHere, ribbons } from './globeLand';
 import {
   aimAt, angleBetween, camOf, clampDist, clampLat, dashOf, degPerPx, DIST_START, FOV, facing, gcTrack, globeFleet, globePxPerM, headingVec, IDLE_AFTER_MS, IDLE_SPIN_DEG_S, legTrack,
   lerpOrbit, type Orbit, parseColour, project, stepInertia, sunVec, tangentsAt, vecOf, worldPerPx, wrap180, type GlobeAc, type Vec3,
@@ -62,8 +63,13 @@ function hasWebGL2(): boolean {
 
 /** Panel width (px) a selection is kept clear of, as on the flat map. */
 const PANEL_W = 360;
+/** Coast and border widths (css px; the coast is drawn in the Earth's own shader, on the land field's edge). */
+const COAST_W = 0.8;
+const BORDER_W = 0.7;
+/** The small land field shown while the full one is drawn (texels round the world). */
+const FIELD_FIRST = 1024;
 /** Radii (Earth radii) of what lies on the globe, lowest first. */
-const R_COAST = 1.0004;
+const R_BORDER = 1.0003;
 const R_ARC = 1.0011;
 const R_AP = 1.0016;
 const R_AC = 1.0024;
@@ -78,7 +84,7 @@ const AHEAD_DASH: Record<FlightType, string> = { operating: '6 5', positioning: 
 const orbits = new WeakMap<GameState, Orbit>();
 
 /** Frame cost stats for perf checks (console: __bhGlobe); `aim` turns the open globe to a place (checks, screenshots). */
-const stats = { frames: 0, avgMs: 0, maxMs: 0, reset() { this.frames = 0; this.avgMs = 0; this.maxMs = 0; }, aim: null as null | ((lon: number, lat: number, dist?: number) => void) };
+const stats = { frames: 0, avgMs: 0, maxMs: 0, landMs: 0, reset() { this.frames = 0; this.avgMs = 0; this.maxMs = 0; }, aim: null as null | ((lon: number, lat: number, dist?: number) => void) };
 (globalThis as unknown as { __bhGlobe?: typeof stats }).__bhGlobe = stats;
 
 const cssVar = (name: string) => (typeof document !== 'undefined' ? getComputedStyle(document.documentElement).getPropertyValue(name) : '');
@@ -160,33 +166,36 @@ export default function Globe(props: GlobeProps) {
     let orbit: Orbit = orbits.get(g0) ?? { lon: home?.lon ?? 0, lat: clampLat(home?.lat ?? 30), dist: DIST_START };
 
     // ---------- the Earth ----------
-    let landTex: CanvasTexture | null = null;
+    let landTex: DataTexture | null = null;
     const earth = earthMesh(null);
     const atmo = atmosphereMesh();
     scene.add(atmo, earth);
-    const lines = new Group();
-    scene.add(lines);
-    let coast: ReturnType<typeof geoLines> | null = null;
-    let borders: ReturnType<typeof geoLines> | null = null;
+    let borders: Mesh<BufferGeometry, ShaderMaterial> | null = null;
     let disposed = false;
     const loadEarth = async () => {
       try {
         await loadMapData();
         const geo = worldGeo();
         if (!geo || disposed) return;
-        const big = renderer.capabilities.maxTextureSize >= 8192 && !(touch && Math.min(screen.width, screen.height) < 500);
-        const cv = landMask(geo.land, big ? 4096 : 2048);
+        // The land as a smooth field (the coast drawn on its edge), the borders as smoothed vector ribbons. A small
+        // field first (a few ms) so the land shows at once; the full one is drawn in a worker and takes over.
+        borders = ribbonMesh(ribbons(borderLines(geo.borders.coordinates), R_BORDER));
+        scene.add(borders);
+        const useField = (data: Uint8Array, fw: number) => {
+          const old = landTex;
+          landTex = landTexture(data, fw, maxAniso);
+          setEarthLand(earth.material, landTex);
+          old?.dispose();
+          dirty = true;
+          kick();
+        };
+        useField(landFieldHere(geo.land, FIELD_FIRST), FIELD_FIRST);
+        const tl = performance.now();
+        const fw = fieldWidth(renderer.capabilities.maxTextureSize, touch && Math.min(screen.width, screen.height) < 500);
+        const data = await drawLandField(geo.land, fw);
+        stats.landMs = performance.now() - tl;
         if (disposed) return;
-        landTex = new CanvasTexture(cv);
-        landTex.magFilter = LinearFilter;
-        landTex.minFilter = LinearMipmapLinearFilter;
-        landTex.anisotropy = Math.min(8, maxAniso);
-        earth.material.uniforms.uLand.value = landTex;
-        coast = geoLines(coastLines(geo.land), R_COAST);
-        borders = geoLines(borderLines(geo.borders), R_COAST - 0.0001);
-        lines.add(borders, coast);
-        inked = '';
-        kick();
+        useField(data, fw);
       } catch (e) {
         console.error('[Block Hours] the globe could not load the world map', e);
       }
@@ -368,7 +377,6 @@ export default function Globe(props: GlobeProps) {
         ink = readInk(p.theme);
         inkEarth(earth.material, ink);
         inkAtmosphere(atmo.material, ink, p.theme !== 'light');
-        for (const l of [coast, borders]) if (l) l.material.uniforms.uColor.value.set(...(l === coast ? ink.coast : ink.border));
         aps.material.uniforms.uRing.value.set(...ink.halo);
         // Airline greys and route colours are theme tokens too.
         for (const [k, m] of matCache) if (k.startsWith('cm:')) { m.dispose(); texCache.get(k)?.dispose(); matCache.delete(k); texCache.delete(k); }
@@ -377,7 +385,10 @@ export default function Globe(props: GlobeProps) {
         staticKey = [];
       }
       earth.material.uniforms.uSun.value.set(...sunVec(t));
-      aps.material.uniforms.uDpr.value = renderer.getPixelRatio();
+      const pr = renderer.getPixelRatio();
+      aps.material.uniforms.uDpr.value = pr;
+      earth.material.uniforms.uCoastW.value = (COAST_W * pr) / 2;
+      if (borders) styleRibbon(borders.material, ink.border, BORDER_W, w * pr, h * pr, pr, landTex);
       // Airports (rebuilt when the list or the theme changes).
       if (apKey[0] !== p.airports || apKey[1] !== p.accent || apKey[2] !== p.sel?.id) {
         apKey = [p.airports, p.accent, p.sel?.id];
@@ -849,7 +860,7 @@ export default function Globe(props: GlobeProps) {
       earth.material.dispose();
       atmo.geometry.dispose();
       atmo.material.dispose();
-      for (const l of [coast, borders]) if (l) { l.geometry.dispose(); l.material.dispose(); }
+      if (borders) { borders.geometry.dispose(); borders.material.dispose(); }
       aps.geometry.dispose();
       aps.material.dispose();
       landTex?.dispose();
