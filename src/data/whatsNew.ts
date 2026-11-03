@@ -16,6 +16,20 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.15',
+    name: '3D',
+    features: [
+      '3D globe: tap the globe button by the Map\'s zoom controls to see your airline on a 3D Earth, lit by the real sun, day and night. Every aircraft flies its real great circle, to scale in its family colour with its tail mark. Drag to spin, pinch to zoom, tap an aircraft or airport for its panel, double tap for home. The map button takes you back to the flat map, which keeps your view.',
+      'Aircraft cast a soft shadow on the map: crisp on the stand, drifting further off and softer as they climb, back in as they descend.',
+      'Zoom in close and the map leans back gently, with a soft horizon at the top. Taps land exactly where you touch.',
+      'The Hangar has depth: in the side view the line-up stands on a hangar floor with soft shadows and faint reflections; from above, a lit concrete floor with a shadow under every aircraft.',
+    ],
+    improvements: [
+      'Settings › Display: 3D globe on or off, the globe turning slowly when you leave it, and Map tilt on or off.',
+      'The globe loads only when you open it and works offline. If your device can\'t show it, the flat map stays, with a short note.',
+    ],
+  },
+  {
     version: 'v0.14.1',
     name: 'Fix pack',
     features: [
