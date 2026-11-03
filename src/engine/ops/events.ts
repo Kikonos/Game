@@ -332,8 +332,15 @@ function readyAt(g: GameState, roles: Role[], at: string, family: RatingFamily, 
     let t = c.restUntil;
     if (c.status === 'onDuty') {
       const d = rosterOf(g, c.id, g.now, g.now + 1).find((x) => x.report <= g.now && !x.done);
-      if (!d || d.restAt !== at) continue;
-      t = d.release + minRest({ dutyMin: d.release - d.report, atHome: at === c.base, augmented: d.augment > 0, tzShift: 0, extended: !!d.ext });
+      if (!d) continue;
+      const f0 = g.flights[d.flightIds[0]];
+      // Crew round (Nov 2026): a crew held at the gate before their first leg left (out of hours on the day's length)
+      // are stood down and report afresh 6 h after their report (crew/duties.ts syncDuty's `held`: the same clock).
+      // Left out, the wait for a leg whose only crew were its own ran to the next ticket from base: 24 h, and a world
+      // tour's leg home was given up after three such waits.
+      if (f0?.status === 'scheduled' && f0.from === at) t = d.report + 6 * 60;
+      else if (d.restAt !== at) continue;
+      else t = d.release + minRest({ dutyMin: d.release - d.report, atHome: at === c.base, augmented: d.augment > 0, tzShift: 0, extended: !!d.ext });
     }
     t = Math.max(g.now, t);
     const end = t + need;

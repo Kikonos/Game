@@ -19,7 +19,7 @@ import { infoOf } from './outOfHours';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
-import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, locAt, noteRiders, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, slotAfter, takeLostRides, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
+import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, freshReport, locAt, noteRiders, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, slotAfter, takeLostRides, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 
 export { buildDuties } from './duties';
 
@@ -1409,6 +1409,10 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   if (!duties.length) return;
   const first = duties[0];
   const spanTo = duties[duties.length - 1].release;
+  // Crew round (Nov 2026): a duty that has reported (held at the gate) is joined at the fresh crew's own check-in for the
+  // held departure (timeline.ts joinedAt): the cheap filters read that report too, not the one hours past (a world
+  // tour's twelve rested crew were skipped as "still resting" against an 11:00 report at 15:00 and sent home).
+  const rep0 = first.report <= g.now ? Math.max(first.report, freshReport(g, p, first)) : first.report;
   const dep = g.flights[first.flightIds[0]]?.from ?? first.restAt;
   const family = typeOf(typeIdOf(g, p)).family;
   const contract = p.contractId ? g.contracts[p.contractId] : undefined;
@@ -1440,12 +1444,12 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
     // Debug round (26 Oct 2026): until they are home again (a trip ending away: its rest and the ticket home), so leave
     // never starts on the deadhead home (seed 1: eighteen crew flew home on the first morning of their annual leave).
     const back = spanTo + homeTravel(duties[duties.length - 1], c.base);
-    if (c.restUntil > first.report || c.blocks?.some((b) => b.from < back && b.to > first.report)) continue;
+    if (c.restUntil > rep0 || c.blocks?.some((b) => b.from < back && b.to > rep0)) continue;
     // v0.5.2: crew still at the departure airport with a ticket home around this trip stay on instead
     // (planCrew drops that ticket): the pilots of a trip fly its trailing ferry.
     const all = ctx.of(c);
     const segs = p.tour ? all : withoutTickets(all, droppableHome(g, c, all, dep, first.report, spanTo));
-    if (busyAt(segs, first.report, first.release)) continue;
+    if (busyAt(segs, rep0, first.release)) continue;
     const loc = locAt(c, segs, first.report);
     let tp = price.get(loc);
     if (tp === undefined) price.set(loc, (tp = ticketPrice(loc, dep)));
@@ -1476,6 +1480,12 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   const take = (c: CrewMember, plan: CrewPlan, bb?: BuyBack) => {
     inP.add(c.id);
     plans.set(c.id, plan);
+    // Crew round (Nov 2026): a seat filled after the duty reported starts the crew member's own day at the held departure
+    // (timeline.ts joinedAt judged the plan so; the seat records it for the gate, the log and the live day).
+    if (first.report <= g.now) {
+      const seat = p.slots.find((s) => s.crewId === c.id);
+      if (seat) seat.from = freshReport(g, p, first);
+    }
     callIfOnStandby(g, c.id, openDuties(g, p)[0]?.report);
     dropSbyFor(g, c, plan);
     // v0.9 a tour's duties on planned days off: the planner moves them to the tour's free days (no morale).
@@ -1485,7 +1495,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
     lateChange(g, c.id, nextReport(g, p));
     if (plan.drop) ctx.segs.set(c.id, ctx.of(c).filter((x) => !x.ticketId || !plan.drop!.includes(x.ticketId)));
     ctx.add(c, plan.segs);
-    ctx.take(c.id, first.report, spanTo);
+    ctx.take(c.id, rep0, spanTo);
     res.assigned++;
   };
   for (const si of order) {
@@ -1513,7 +1523,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
         else x = pool[j++];
       }
       const c = x.c;
-      if (ctx.onTrip(c.id, first.report, spanTo)) {
+      if (ctx.onTrip(c.id, rep0, spanTo)) {
         refused.add(c.id);
         continue;
       }
@@ -1819,7 +1829,10 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
         // v0.12.1 a duty under way that another path already re-synced (the guard after a hold for a rescue crew): its
         // next leg pushed past a night's rest still ends the duty at the last landing (seed 9: EI4023 held at Gatwick
         // for 2.5 days with its crew on duty at the gate, FDP 60 h).
-        const d2 = d.report <= g.now && crewCount(p) > 0 ? splitUnderWay(g, p, d) : null;
+        // Crew round (Nov 2026): and a duty not yet reported whose legs now sit a night apart is cut in two here too (a
+        // permit delay moved AMM–EBL 19 h; the daily roster had re-synced the duty before this pass saw the change, so a
+        // 28:10 "day" stood till midnight and rang the red out-of-hours alarm: seed 4, AWL119).
+        const d2 = d.report <= g.now ? (crewCount(p) > 0 ? splitUnderWay(g, p, d) : null) : splitUnderWay(g, p, d, false, true);
         if (!d2) continue;
         pChanged = true;
         const moved = new Set<string>();
@@ -2444,8 +2457,11 @@ export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember,
   const bb = buy ? buyBackFor(g, c, plan, segsOf(g, c, p.id)) : null;
   p.slots[slot].crewId = c.id;
   delete p.slots[slot].ooh;
-  delete p.slots[slot].from;
   const od = openDuties(g, p);
+  // Crew round (Nov 2026): seated after the duty reported (a replacement at the gate), the crew member's day starts at
+  // their own check-in for the held departure (§Y.1), as the plan that accepted them read it (timeline.ts joinedAt).
+  if (od.length && od[0].report <= g.now) p.slots[slot].from = freshReport(g, p, od[0]);
+  else delete p.slots[slot].from;
   // Round 4 (§Y.1): a replacement at the gate (the duty has reported) placed inside a running window is a call-out now
   // (standbyFor would judge it against the duty's own report, already past, and the window would only be clipped).
   if (od.length && od[0].report <= g.now) callFromStandby(g, c.id);

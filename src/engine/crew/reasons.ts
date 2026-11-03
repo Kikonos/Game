@@ -83,7 +83,11 @@ export function rootReason(g: GameState, issues: LegalityIssue[], c: CrewMember,
     const q = next && p ? nextTrip(g, c, p) : null;
     const qf = q ? g.flights[openDuties(g, q)[0]?.flightIds[0] ?? ''] : undefined;
     if (qf && next) set('rest', `rostered next on ${qf.no} ${city(qf.from)}–${city(qf.to)} (${fmtDay(qf.std)}): only ${next[1]} rest before it, ${next[2]} needed`);
-    else set('rest', until !== undefined ? `resting until ${at(until, g.now)}` : `short of rest before it (${rest.text.toLowerCase()})`, until);
+    else {
+      // Crew round (Nov 2026): plain words, not the rule's shorthand ('short of rest before it (rest 0:25 < 12:00)').
+      const m = /^Rest (?:before next duty )?(\d+:\d\d) < (\d+:\d\d)$/.exec(rest.text);
+      set('rest', until !== undefined ? `resting until ${at(until, g.now)}` : m ? `left with only ${m[1]} of rest before ${next ? 'their next duty' : 'it'} (${m[2]} needed)` : `short of rest before it (${rest.text.toLowerCase()})`, until);
+    }
   }
   if (fdp) {
     const m = HM.exec(fdp.text);
