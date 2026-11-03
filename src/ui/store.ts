@@ -198,7 +198,9 @@ export type ModalSpec =
   | { kind: 'delivered'; aircraftId: string }
   /** v0.14 a tender's bid form (Contracts › Tenders). */
   | { kind: 'tender'; tenderId: string }
-  | { kind: 'followDelivery'; aircraftId: string };
+  | { kind: 'followDelivery'; aircraftId: string }
+  /** v0.15 the welcome card of a new game (once, at the start; never on a load). */
+  | { kind: 'welcome' };
 
 export interface Toast {
   id: number;
@@ -412,13 +414,22 @@ class GameStore {
 
   setScreen(s: AppScreen) {
     this.screen = s;
-    sound.setScene(s === 'game');
+    this.syncScene();
     this.emit();
+  }
+
+  /**
+   * v0.15 where the sound is: the game proper (game music, ambience) once the game screen is up with no welcome card
+   * over it; the title, New Game, Scenarios and the welcome card keep the menus' Terminal music.
+   */
+  private syncScene() {
+    const welcome = this.modal?.kind === 'welcome' || this.modalBelow?.kind === 'welcome';
+    sound.setScene(this.screen === 'game' && !welcome);
   }
 
   startNewGame(opts: NewGameOptions) {
     this.game = createGame(opts);
-    this.afterLoad();
+    this.afterLoad(true);
     this.saveAuto();
     this.emit();
   }
@@ -426,7 +437,7 @@ class GameStore {
   /** v0.12 Scenarios: a new game of scenario `id` (Retry plays the same one again: same seed, same start). */
   startScenario(id: string) {
     this.game = createScenario(id);
-    this.afterLoad();
+    this.afterLoad(true);
     this.saveAuto();
     this.emit();
   }
@@ -446,7 +457,8 @@ class GameStore {
     this.emit();
   }
 
-  private afterLoad() {
+  /** `welcome`: a new game (v0.15 its welcome card opens, with the low chime; a load never shows it). */
+  private afterLoad(welcome = false) {
     // v0.11 the game follows the player's Pace setting (the director redraws the spells still to come).
     if (this.game && !this.game.gameOver) setPace(this.game, this.settings.pace);
     // v0.7.2.2: the normal re-plan (the same settle the first clock tick runs) before the first look, so empty legs
@@ -466,10 +478,11 @@ class GameStore {
     this.paused = true;
     this.pauseReason = null;
     this.nav = { tab: 'map' };
-    this.modal = null;
+    this.modal = welcome && this.game && !this.game.gameOver ? { kind: 'welcome' } : null;
     this.modalBelow = null;
     this.screen = 'game';
-    sound.setScene(true);
+    this.syncScene();
+    if (this.modal) sound.welcomeChime();
     // v0.9 §5.2 heads earned in an old save: the load posted 'N department heads are available' (now, unread), which the
     // lastMsgId above marks as seen; queue its celebration card here, once per session.
     const g = this.game;
@@ -490,7 +503,7 @@ class GameStore {
     this.game = null;
     this.modal = null;
     this.screen = 'title';
-    sound.setScene(false);
+    this.syncScene();
     this.emit();
   }
 
@@ -928,6 +941,7 @@ class GameStore {
     this.modal = m;
     // A dialog takes the stage: quiet toasts (already in the Inbox) must not cover its header.
     this.toasts = [];
+    this.syncScene();
     this.emit();
   }
 
@@ -936,6 +950,8 @@ class GameStore {
     const below = !opts.all && this.modal?.kind === 'glossary' ? this.modalBelow : null;
     this.modalBelow = null;
     this.modal = below;
+    // v0.15 the welcome card put away: the game proper starts (Terminal crossfades into the game music).
+    this.syncScene();
     if (!below && !opts.hold) this.flushLadder();
     this.emit();
   }

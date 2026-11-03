@@ -66,3 +66,11 @@
 }
 :root, :root[data-theme='dark'] { --hg-lamp-rgb: 160, 190, 235; --hg-lamp-a: 0.08; }
 :root[data-theme='light'] { --hg-lamp-rgb: 255, 255, 255; --hg-lamp-a: 0.55; }
+
+/* v0.15 the welcome card of a new game: a short list of plain points, one button; readable on an iPhone in landscape
+   (the compact tier's bottom sheet scrolls its body). */
+.v15-welcome { max-width: 560px; }
+.v15-welcome-lead { margin: 0 0 10px; }
+.v15-welcome-points { margin: 0; padding-left: 1.1em; display: flex; flex-direction: column; gap: 8px; line-height: 1.45; }
+.v15-welcome-points li::marker { color: var(--accent); }
+.v15-welcome .modal-foot .btn-primary { min-width: 140px; justify-content: center; }

@@ -164,3 +164,84 @@ describe('v0.12 the soundtrack: five pieces taking turns', () => {
     vi.useRealTimers();
   });
 });
+
+describe('v0.15 Terminal: the menus\' lounge piece', () => {
+  class LoungeCtx extends MockCtx {
+    sampleRate = 8000;
+    buffers = 0;
+    createBufferSource() { const s = new Source(); this.sources.push(s); return s; }
+    createBuffer(_ch: number, n: number) { this.buffers++; const d = new Float32Array(n); return { duration: n / 8000, getChannelData: () => d }; }
+  }
+
+  it('is its own piece, never in the in-game playlist, with the lounge arrangement and a Rhodes lead', async () => {
+    const { TERMINAL, TRACKS } = await import('./music');
+    expect(TERMINAL.name).toBe('Terminal');
+    expect(TERMINAL.lounge).toBe(true);
+    expect(TERMINAL.lead).toBe('rhodes');
+    expect(TRACKS).not.toContain(TERMINAL);
+    expect(TRACKS.map((t) => t.name)).not.toContain('Terminal');
+  });
+
+  it('a Terminal player plays it alone and loops it without a gap: still Terminal, still scheduling, 20 minutes on', async () => {
+    const { TERMINAL } = await import('./music');
+    vi.useFakeTimers();
+    const ctx = new LoungeCtx();
+    const p = new MusicPlayer(ctx as unknown as AudioContext, new Node() as unknown as AudioNode, Math.random, [TERMINAL]);
+    p.setLevel(0.1);
+    expect(p.track.name).toBe('Terminal');
+    expect(p.playing).toBe(true);
+    let last = ctx.sources.length;
+    expect(last).toBeGreaterThan(20);
+    for (let min = 0; min < 20; min++) {
+      ctx.currentTime += 60;
+      vi.advanceTimersByTime(60_000);
+      expect(p.track.name).toBe('Terminal');
+      expect(ctx.sources.length).toBeGreaterThan(last);
+      // No gap: something starts in every minute.
+      expect(ctx.sources.slice(last).some((s) => s.starts[0] < ctx.currentTime + 1)).toBe(true);
+      last = ctx.sources.length;
+    }
+    // The murmur and the brushes' noise are made once.
+    expect(ctx.buffers).toBe(2);
+    p.nextTrack();
+    expect(p.track.name).toBe('Terminal');
+    p.setLevel(0);
+    expect(p.playing).toBe(false);
+    p.stop();
+    vi.useRealTimers();
+  });
+
+  it('voices chords close, within an octave', async () => {
+    const { closeVoicing } = await import('./music');
+    expect(closeVoicing([55, 59, 62, 66], 58)).toEqual([59, 62, 66, 67]);
+    for (const v of [[48, 52, 55, 59, 62], [70, 74, 77, 81]]) {
+      const c = closeVoicing(v, 58);
+      expect(Math.min(...c)).toBeGreaterThanOrEqual(58);
+      expect(Math.max(...c)).toBeLessThan(70);
+      expect(new Set(c.map((m) => m % 12))).toEqual(new Set(v.map((m) => m % 12)));
+    }
+  });
+
+  it('the murmur is a soft, steady bed that loops without a click', async () => {
+    const { murmurSamples } = await import('./music');
+    let seed = 1;
+    const rng = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+    const d = murmurSamples(rng, 8000, 6, 6);
+    expect(d.length).toBe(48000);
+    let sq = 0;
+    let jump = 0;
+    for (let i = 0; i < d.length; i++) {
+      sq += d[i] * d[i];
+      if (i) jump = Math.max(jump, Math.abs(d[i] - d[i - 1]));
+    }
+    expect(Math.sqrt(sq / d.length)).toBeCloseTo(0.25, 2);
+    // The loop point is no bigger a step than the steps inside it.
+    expect(Math.abs(d[0] - d[d.length - 1])).toBeLessThanOrEqual(jump);
+    // Steady: every second carries some of it (no long holes).
+    for (let s = 0; s < 6; s++) {
+      let e = 0;
+      for (let i = s * 8000; i < (s + 1) * 8000; i++) e += d[i] * d[i];
+      expect(Math.sqrt(e / 8000)).toBeGreaterThan(0.05);
+    }
+  });
+});

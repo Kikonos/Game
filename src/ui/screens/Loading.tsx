@@ -4,8 +4,11 @@ import { PLANE_PATH } from '../components/Logo';
 import { loadMapData } from '../map/mapData';
 import { deserialize } from '../../engine/save';
 import { store, takeResumeSave } from '../store';
+import { sound } from '../sound';
 
 const MIN_MS = 3200;
+/** v0.15 the "Tap to board" hint fades in after this long (a fast tap never sees it). */
+const HINT_MS = 500;
 const ARC = 'M 40 230 C 200 220, 360 150, 470 40';
 
 export function Loading() {
@@ -14,11 +17,32 @@ export function Loading() {
   const [plane, setPlane] = useState({ x: 40, y: 230, a: 0 });
   const arcRef = useRef<SVGPathElement>(null);
   const fact = useMemo(() => AVIATION_FACTS[Math.floor(Math.random() * AVIATION_FACTS.length)], []);
+  // v0.15 browsers (iOS above all) keep audio locked until a tap: a quiet "Tap to board" invites the one that starts
+  // the take-off (any tap or key on the screen; loading never waits for it). Only while it would still play.
+  const [hint, setHint] = useState(false);
+  const fine = useMemo(() => typeof matchMedia === 'function' && matchMedia('(pointer: fine)').matches, []);
+  useEffect(() => {
+    if (!sound.takeoffWaiting) return;
+    const show = setTimeout(() => setHint(sound.takeoffWaiting), HINT_MS);
+    const hide = () => setHint(false);
+    window.addEventListener('pointerdown', hide);
+    window.addEventListener('keydown', hide);
+    return () => {
+      clearTimeout(show);
+      window.removeEventListener('pointerdown', hide);
+      window.removeEventListener('keydown', hide);
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     const t0 = performance.now();
     let loaded = false;
+    // v0.15 the take-off's roar peaks as the plane climbs off the end of the arc (seconds from now; null once it has).
+    sound.setTakeoffSync(() => {
+      const left = (MIN_MS - (performance.now() - t0)) / 1000;
+      return left > 0 ? left : null;
+    });
     const work = Promise.all([
       loadMapData(),
       document.fonts?.ready ?? Promise.resolve(),
@@ -57,7 +81,10 @@ export function Loading() {
       requestAnimationFrame(tick);
     };
     requestAnimationFrame(tick);
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      sound.setTakeoffSync(null);
+    };
   }, []);
 
   const step = LOADING_STEPS[Math.min(LOADING_STEPS.length - 1, Math.floor(progress * LOADING_STEPS.length))];
@@ -92,6 +119,7 @@ export function Loading() {
           <span>{Math.round(progress * 100)}%</span>
         </div>
       </div>
+      <div className={`loading-tap mono ${hint && !done ? 'on' : ''}`} aria-hidden={!hint}>{fine ? 'Click' : 'Tap'} to board</div>
       <div className="loading-fact">
         <span className="upper accent">Did you know?</span>
         <p>{fact}</p>

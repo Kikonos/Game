@@ -6,13 +6,20 @@
 // 900 ms window and play the highest-priority one once; for 4 s after a sound only one that outranks it plays, and the
 // same sound never repeats inside its own cooldown (the alarm: 20 s). The urgent alarm is only for CREW SHORTAGE and
 // CREW OUT OF HOURS. Nothing plays before the first tap (iOS audio unlock).
+// v0.15 the launch: the first tap (the loading screen asks for one, "Tap to board"; else the first tap on the title
+// screen) plays a synthesised take-off once per launch (takeoff.ts), never in a game. The menu screens then get their
+// own music, Terminal (a departure-lounge piece, music.ts), which waits for the take-off to fade, loops for as long as
+// the menus are open, and crossfades into the game playlist when a game starts (and back on quitting to the title).
 
 import type { Cue } from '../engine/core/cues';
-import { MUSIC_FADE, musicLevel, MusicPlayer } from './music';
+import { MUSIC_FADE, musicLevel, MusicPlayer, TERMINAL } from './music';
+import { playTakeoff, TAKEOFF, takeoffLength, takeoffPeak } from './takeoff';
 
 export type SoundId =
   | 'tap' | 'toggle' | 'error' | 'hi' | 'lo' | 'hiLo' | 'hi2' | 'hi3' | 'lo2' | 'alarm' | 'ring'
-  | 'ambCabin' | 'ambTerminal' | 'music';
+  | 'ambCabin' | 'ambTerminal' | 'music'
+  /** v0.15 the welcome card's low chime (the LO sample a fourth down, warmer). */
+  | 'welcome';
 export type SoundCat = 'alerts' | 'chimes' | 'ui' | 'ambience' | 'music';
 /** UI-only events (the engine's cues are the rest). v0.9.1: pause and resume make no sound. */
 export type UiEvent = 'tap' | 'toggle' | 'toggleOff' | 'error';
@@ -38,7 +45,7 @@ export const SOUND_OF: Record<SoundEvent, SoundId> = {
 
 export const CAT_OF: Record<SoundId, SoundCat> = {
   tap: 'ui', toggle: 'ui', error: 'ui',
-  hi: 'chimes', lo: 'chimes', hiLo: 'chimes', lo2: 'chimes',
+  hi: 'chimes', lo: 'chimes', hiLo: 'chimes', lo2: 'chimes', welcome: 'chimes',
   hi2: 'alerts', hi3: 'alerts', alarm: 'alerts', ring: 'alerts',
   ambCabin: 'ambience', ambTerminal: 'ambience',
   music: 'music',
@@ -46,11 +53,11 @@ export const CAT_OF: Record<SoundId, SoundCat> = {
 
 /** Merge priority (§S.4): the highest in a window plays once. */
 export const PRIORITY: Partial<Record<SoundId, number>> = {
-  alarm: 100, hi3: 90, ring: 85, hi2: 80, hiLo: 60, lo2: 55, hi: 45, lo: 30,
+  alarm: 100, hi3: 90, ring: 85, hi2: 80, hiLo: 60, lo2: 55, welcome: 50, hi: 45, lo: 30,
 };
 /** Quiet time after a sound plays (ms) for a repeat of the SAME sound (§S.4): the alarm never twice inside 20 s. */
 export const COOLDOWN: Partial<Record<SoundId, number>> = {
-  alarm: 20_000, ring: 20_000, hi3: 10_000, hi2: 6_000, hiLo: 3_000, lo2: 3_000, hi: 2_500, lo: 2_000,
+  alarm: 20_000, ring: 20_000, hi3: 10_000, hi2: 6_000, hiLo: 3_000, lo2: 3_000, welcome: 3_000, hi: 2_500, lo: 2_000,
 };
 /** v0.9 round 4 (§S.4): for this long after any sound, only a request that outranks it plays (one meaning at a time). */
 export const CROSS_MS = 4_000;
@@ -76,9 +83,13 @@ const SAMPLE_LEN = { hi: 0.92, lo: 1.05 };
 export function soundLength(id: SoundId): number {
   if (id === 'alarm') return 2.6;
   if (id === 'ring') return RING_CYCLES * RING_EVERY;
+  if (id === 'welcome') return SAMPLE_LEN.lo / WELCOME_RATE;
   const q = SEQ[id];
   return q ? Math.max(...q.map(([k, t]) => t + SAMPLE_LEN[k])) : 0;
 }
+
+/** v0.15 the welcome chime: the LO sample played this much slower (a fourth lower, longer) through a warm low-pass. */
+export const WELCOME_RATE = 0.75;
 
 /** v0.10.2 the phone ring: two short trills every RING_EVERY s, RING_CYCLES times (about 20 s) or until answered. */
 export const RING_EVERY = 3;
@@ -95,6 +106,7 @@ export const SOUND_MEANING: { id: SoundId; name: string; meaning: string }[] = [
   { id: 'hi3', name: '3 HI', meaning: 'Urgent emergency: a flight about to be cancelled, airspace closed on an active flight, cash below zero, an evacuation' },
   { id: 'lo', name: '1 LO', meaning: 'Calm news: a contract signed, crew joined, a payment in; with Flight chimes on, each departure and landing' },
   { id: 'lo2', name: '2 LO', meaning: 'Good news: an achievement, a department head unlocked, an aircraft delivered' },
+  { id: 'welcome', name: 'Low chime', meaning: 'Welcome aboard: the welcome card of a new game' },
   { id: 'alarm', name: 'Urgent alarm', meaning: 'Only crew shortage and crew out of hours' },
   { id: 'ring', name: 'Phone ring', meaning: 'A client on the phone: urgent work that pays well above the norm (rings until you answer)' },
   { id: 'tap', name: 'Click', meaning: 'Buttons and tabs' },
@@ -153,12 +165,55 @@ const SAMPLE_URL = { hi: 'sounds/chime-hi.mp3', lo: 'sounds/chime-lo.mp3' };
 
 type Win = Window & { webkitAudioContext?: typeof AudioContext };
 
+/** v0.15 seconds from the first tap to the take-off (a tap on Continue goes straight into the game, and then it never starts). */
+export const TAKEOFF_DELAY = 0.3;
+/** v0.15 the Terminal music fades in this long before the take-off ends (under the last of the roar), over TERMINAL_FADE s. */
+export const TERMINAL_OVERLAP = 2.5;
+export const TERMINAL_FADE = 6;
+/** v0.15 the crossfade (s) between the Terminal and the game playlist when a game starts or ends. */
+export const CROSSFADE = 4;
+
+/** v0.15 the take-off's rule (pure): only on the launch's first unlock, with the sound on, and never in a game. */
+export function takeoffOnUnlock(s: { armed: boolean; on: boolean; inGame: boolean }): boolean {
+  return s.armed && s.on && !s.inGame;
+}
+
+/** v0.15 which music plays (pure): the Terminal on the menu screens (held while the take-off plays), the playlist in a game. */
+export function musicTargets(level: number, inGame: boolean, held: boolean): { terminal: number; game: number } {
+  return { terminal: inGame || held ? 0 : level, game: inGame ? level : 0 };
+}
+
+/** v0.15 once per launch: a page reload in the same tab (an update) keeps it played; a fresh launch plays it again. */
+const TAKEOFF_KEY = 'bh.takeoff';
+function takeoffSeen(): boolean {
+  try {
+    return typeof sessionStorage !== 'undefined' && sessionStorage.getItem(TAKEOFF_KEY) === '1';
+  } catch {
+    return false;
+  }
+}
+function markTakeoffSeen() {
+  try {
+    sessionStorage.setItem(TAKEOFF_KEY, '1');
+  } catch {
+    // private mode: this launch only
+  }
+}
+
 class Sound {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private bus: Partial<Record<SoundCat, GainNode>> = {};
   private cfg: SoundConfig = { on: true, volume: 0.6, cats: { alerts: true, chimes: true, flights: false, ui: true }, ambience: 'off', music: true, musicVolume: 0.35 };
   private music: MusicPlayer | null = null;
+  /** v0.15 the menu screens' own music (the Terminal piece alone, looping). */
+  private terminal: MusicPlayer | null = null;
+  /** v0.15 the take-off: still to come this launch, the one playing, the context time the Terminal waits for, the loading screen's sync. */
+  private takeoffArmed = !takeoffSeen();
+  private takeoff: { end: number; stop: (fade: number) => void } | null = null;
+  private musicHold = 0;
+  private holdTimer: ReturnType<typeof setTimeout> | null = null;
+  private takeoffSync: (() => number | null) | null = null;
   private visible = true;
   private hideTimer: ReturnType<typeof setTimeout> | null = null;
   private unlocked = false;
@@ -219,7 +274,11 @@ class Sound {
     if (this.hideTimer) clearTimeout(this.hideTimer);
     this.hideTimer = null;
     if (!v) {
-      const playing = !!this.music?.running;
+      // v0.15 no take-off left half-heard in the background (the Terminal comes in when the app is back).
+      this.takeoff?.stop(0.4);
+      this.takeoff = null;
+      this.musicHold = 0;
+      const playing = !!this.music?.running || !!this.terminal?.running;
       this.syncMusic(1.5);
       this.hideTimer = setTimeout(() => {
         this.hideTimer = null;
@@ -231,24 +290,94 @@ class Sound {
     this.syncMusic();
   }
 
-  /** v0.12 the piece of music playing now (null before the first tap or with the music off). */
+  /** v0.12 the piece of music playing now (null before the first tap or with the music off); v0.15 'Terminal' on the menus. */
   get musicTrack(): string | null {
-    return this.music?.running ? this.music.track.name : null;
+    const p = this.music?.playing ? this.music : this.terminal?.playing ? this.terminal : null;
+    return p ? p.track.name : null;
   }
 
-  /** v0.12 on to the next piece. */
+  /** v0.12 on to the next piece of the game playlist (the Terminal has no next). */
   nextMusicTrack() {
-    this.music?.nextTrack();
+    if (this.music?.playing) this.music.nextTrack();
   }
 
-  /** v0.9.1 the music's level for the settings and the app's visibility; it starts only after the first-tap unlock. */
+  /**
+   * v0.9.1 the music's level for the settings and the app's visibility; it starts only after the first-tap unlock.
+   * v0.15 two players: the Terminal outside a game (held until the take-off has nearly faded) and the game playlist in
+   * one; a scene change crossfades between them.
+   */
   private syncMusic(fade = MUSIC_FADE) {
     const lvl = this.unlocked ? musicLevel(this.cfg, this.visible) : 0;
-    if (lvl === 0 && !this.music) return;
+    if (lvl === 0 && !this.music && !this.terminal) return;
     const c = this.context();
     if (!c) return;
-    this.music ??= new MusicPlayer(c, this.bus.music!);
-    this.music.setLevel(lvl, fade);
+    const held = c.currentTime < this.musicHold;
+    const want = musicTargets(lvl, this.ambOk, held);
+    if (want.game > 0 || this.music) {
+      this.music ??= new MusicPlayer(c, this.bus.music!);
+      this.music.setLevel(want.game, fade);
+    }
+    if (want.terminal > 0 || this.terminal) {
+      this.terminal ??= new MusicPlayer(c, this.bus.music!, Math.random, [TERMINAL]);
+      this.terminal.setLevel(want.terminal, fade);
+    }
+    // Held for the take-off: look again when it has nearly faded (the context clock may lag the wall clock: re-checked then).
+    if (held && lvl > 0 && !this.ambOk && !this.holdTimer) {
+      this.holdTimer = setTimeout(() => {
+        this.holdTimer = null;
+        this.syncMusic(TERMINAL_FADE);
+      }, Math.max(250, (this.musicHold - c.currentTime) * 1000));
+    }
+  }
+
+  /** v0.15 the loading screen: seconds until its plane climbs out (null: no wish), so the roar peaks with it. */
+  setTakeoffSync(fn: (() => number | null) | null) {
+    this.takeoffSync = fn;
+  }
+
+  /** v0.15 the loading screen's "Tap to board": the take-off still waits for the launch's first tap. */
+  get takeoffWaiting(): boolean {
+    return this.takeoffArmed && !this.unlocked && this.cfg.on;
+  }
+
+  /** v0.15 the first unlock of the launch: the take-off a moment later (once), the Terminal held until it fades. */
+  private armTakeoff(c: AudioContext) {
+    if (!this.takeoffArmed) return;
+    this.takeoffArmed = false;
+    markTakeoffSeen();
+    if (!takeoffOnUnlock({ armed: true, on: this.cfg.on, inGame: this.ambOk })) return;
+    this.musicHold = c.currentTime + TAKEOFF_DELAY + takeoffLength(TAKEOFF.peak) - TERMINAL_OVERLAP;
+    setTimeout(() => this.startTakeoff(), TAKEOFF_DELAY * 1000);
+  }
+
+  private startTakeoff() {
+    const c = this.ctx;
+    if (!c || !this.master || this.ambOk || !this.cfg.on || !this.visible) {
+      this.musicHold = 0;
+      this.syncMusic();
+      return;
+    }
+    const g = c.createGain();
+    g.connect(this.master);
+    this.takeoff = playTakeoff(c, g, c.currentTime + 0.05, takeoffPeak(this.takeoffSync?.()));
+    this.musicHold = this.takeoff.end - TERMINAL_OVERLAP;
+    this.syncMusic();
+  }
+
+  /** v0.15 dev checks: the audio graph's state (console: __bhSound.state). */
+  get state() {
+    const c = this.ctx;
+    return {
+      context: c?.state ?? 'none',
+      time: c?.currentTime ?? 0,
+      unlocked: this.unlocked,
+      takeoff: this.takeoff && c ? { playing: c.currentTime < this.takeoff.end, end: this.takeoff.end } : null,
+      takeoffArmed: this.takeoffArmed,
+      musicHold: this.musicHold,
+      terminal: !!this.terminal?.playing,
+      game: !!this.music?.playing,
+      track: this.musicTrack,
+    };
   }
 
   /** Creates / resumes the context and plays a one-sample silent buffer (must run inside a user gesture). */
@@ -272,6 +401,7 @@ class Sound {
       // ignore
     }
     this.unlocked = true;
+    this.armTakeoff(c);
     void this.loadSamples();
     this.syncAmbience();
     this.syncMusic();
@@ -384,7 +514,19 @@ class Sound {
     if (CAT_OF[id] === 'alerts') this.alertUntil = now + soundLength(id) * 1000;
     // v0.9.1 the music dips under every chime and alert, then comes back.
     this.music?.duck(soundLength(id) + 0.4);
+    this.terminal?.duck(soundLength(id) + 0.4);
     this.render(id);
+  }
+
+  /** v0.15 the welcome card's low chime, as the card appears (the card is its notification): with the sound and chimes on. */
+  welcomeChime() {
+    if (!this.unlocked || !this.cfg.on || !this.cfg.cats.chimes) return;
+    const now = performance.now();
+    if (this.last?.id === 'welcome' && now - this.last.at < (COOLDOWN.welcome ?? 0)) return;
+    this.last = { id: 'welcome', at: now };
+    this.music?.duck(soundLength('welcome') + 0.4);
+    this.terminal?.duck(soundLength('welcome') + 0.4);
+    this.render('welcome');
   }
 
   /** Settings › Test sounds: plays one now (any category, at the set volume), no merge. */
@@ -399,7 +541,14 @@ class Sound {
   setScene(game: boolean) {
     if (this.ambOk === game) return;
     this.ambOk = game;
+    // v0.15 never a take-off in a game: a short fade if one is still sounding (a first tap on Continue).
+    if (game) {
+      this.takeoff?.stop(1.2);
+      this.takeoff = null;
+      this.musicHold = 0;
+    }
     this.syncAmbience();
+    this.syncMusic(CROSSFADE);
   }
 
   private syncAmbience() {
@@ -431,7 +580,7 @@ class Sound {
   private previewMusic() {
     const c = this.context();
     if (!c || !this.master) return;
-    if (this.music?.running && musicLevel(this.cfg, this.visible) > 0) return;
+    if ((this.music?.playing || this.terminal?.playing) && musicLevel(this.cfg, this.visible) > 0) return;
     this.previewStop?.();
     const gN = c.createGain();
     gN.connect(this.master);
@@ -480,6 +629,7 @@ class Sound {
         tone(c, out, o.down ? 1200 : 1500, t + 0.04, 0.03, 0.035, 'sine');
         break;
       case 'error': tone(c, out, 196, t, 0.12, 0.09, 'triangle'); break;
+      case 'welcome': this.lowChime(c, out, t); break;
       case 'alarm': alarm(c, out, t); break;
       case 'ring':
         this.stopRing();
@@ -498,7 +648,31 @@ class Sound {
     if (this.last?.id === 'ring') {
       this.alertUntil = 0;
       this.music?.unduck();
+      this.terminal?.unduck();
     }
+  }
+
+  /** v0.15 the welcome chime: the LO sample slowed (deeper, longer) and softened; a synthesised low bell without the sample. */
+  private lowChime(c: AudioContext, out: AudioNode, t: number) {
+    const go = (at: number) => {
+      const b = this.samples.lo;
+      if (!b) return lowBell(c, out, at);
+      const src = c.createBufferSource();
+      src.buffer = b;
+      src.playbackRate.value = WELCOME_RATE;
+      const lp = c.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.value = 2400;
+      const g = c.createGain();
+      g.gain.value = 0.85;
+      src.connect(lp).connect(g).connect(out);
+      src.start(at);
+    };
+    if (this.samples.lo) return go(t);
+    const asked = performance.now();
+    void this.loadSamples().then(() => {
+      if (performance.now() - asked < 2500) go(c.currentTime + 0.02);
+    });
   }
 
   /** v0.9.1 a cabin-system sequence of the HI and LO samples (decoded first when the unlock has only just run). */
@@ -533,6 +707,25 @@ function tone(c: AudioContext, out: AudioNode, f: number, t: number, dur: number
   o.connect(g).connect(out);
   o.start(t);
   o.stop(t + dur + 0.03);
+}
+
+/** v0.15 a soft low bell (the welcome chime without its sample): C4 with two bell partials, a long warm ring. */
+function lowBell(c: AudioContext, out: AudioNode, t: number) {
+  const g = c.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.linearRampToValueAtTime(0.16, t + 0.01);
+  g.gain.exponentialRampToValueAtTime(0.0001, t + 2.4);
+  g.connect(out);
+  for (const [mul, amp] of [[1, 1], [2, 0.3], [2.76, 0.12]] as [number, number][]) {
+    const o = c.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = 261.6 * mul;
+    const a = c.createGain();
+    a.gain.value = amp;
+    o.connect(a).connect(g);
+    o.start(t);
+    o.stop(t + 2.5);
+  }
 }
 
 /** A tiny filtered-noise tick (the click's attack). */
@@ -708,3 +901,4 @@ function startAmbience(c: AudioContext, out: AudioNode, kind: 'cabin' | 'termina
 }
 
 export const sound = new Sound();
+(globalThis as unknown as { __bhSound?: Sound }).__bhSound = sound;
