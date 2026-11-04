@@ -202,7 +202,7 @@ API (contracts/prestige.ts): `PRESTIGE_NAME`, `seedPrestige(seed | client)`, `cl
 | Hunt & Palmer | 3.0 % | sports, groups, tour series | UK, Europe |
 
 - Relationship 0–100 per broker. Registering (a day's visit to their office or a call from Contracts › Sales: $0) → 20. +6 per deal flown with ≥ 90 % on time, −10 per deal we cancel, −1 a month idle (floor 10 once registered).
-- Leads a week from a broker on busy days: 0.35 × relation / 100 × fit, where fit is the share of its focus at our level ± 1. A broker's offer carries `broker` (name) and `brokerId`; its commission replaces the flat 5 % (`brokerCut` reads the broker's rate; posted as `commission` at billing so the statement shows it).
+- Leads a week from a broker on busy days: 0.5 × (0.25 + 0.75 × relation / 100) × fit (balance step: was 0.35 × relation / 100), where fit is the share of its focus at our level ± 1; a visit takes the relation to 50 at most, deals go beyond. A broker's offer carries `broker` (name) and `brokerId`; its commission replaces the flat 5 % (`brokerCut` reads the broker's rate; posted as `commission` at billing so the statement shows it).
 
 ### C.3 Leads pipeline
 
@@ -316,6 +316,15 @@ Shared files nobody edits beyond its own marked block: `core/types.ts` (a lane m
 9. Compliance: 50 bot years with and without a CMM: ramp findings per inspection −24…−36 %; the salary appears in `salaries`.
 10. UI (Playwright, iPad 1180×820 and iPhone 852×393): Finance › Financing, Contracts › Sales / Filter, Team › Sales managers / Nominated posts, the offer dialog's Deposit row and fuel line, the Prestige card; 0 console errors; no horizontal overflow.
 11. Wording: every new card has the four lines; every chime has its message; UTC with local time where a time is shown.
+
+## 6b. Balance step (branch `v016-balance`, after the merge)
+
+Measured with the bot using every chase (five brokers, monthly visits, the whole pitch quota, proposals on every lead, one sales manager, the credit line when short), seeds 1–5 × 365 days `--wide`, against the v0.15.1 build (6d2845a). The table per iteration is in `/home/user/work/v016/balance/STATE.txt`.
+
+- What was wrong at the merge: a year of chasing brought 9–17 pipeline offers and 3–5 signings; pitches answered "no" 80 % of the time (the bot pitched AirAsia from Lisbon; a "maybe" was quoted for next month, when both aircraft were busy); tour operators' leads were always weekly series (the first kind in the list); AOG covers came as leads starting the same day.
+- Engine changes (all in `commercial/sales.ts`, `contracts/offers.ts`, `BAL.v016.sales`): a lead needs an aircraft of the right kind, not a free one (`fleetCouldFly`: seats, cabin, type, range, runway, ETOPS); a lead's offer is drafted into an idle window we proposed (`leadWindow`), a pitch lead for its season; pitch targets within the fleet's reach (`airlineInReach`, `pitch.reachX` 1.2 × the longest range); brokers' lead rate `leadsPerWeek` 0.35 → 0.5 with a quarter of it from the registration (`relation.base`), visits capped at relation 50 (`relation.visitCap`); a tour operator's lead is a one-off charter first, a series in 2 of 5 (`lead.firstKind` 0.6); airlines' leads are season bases and capacity leases (no AOG cover); `quietFloor.days` 12 → 10. Prices untouched.
+- Bot: registers with all five brokers, visits them monthly, pitches its whole quota, hires a sales manager at $2M, looks at pipeline offers whenever they start, pays a loan off when cash is comfortable; `--why` prints the checks behind an unflyable pipeline offer; the report has `v0.16 sales`, `v0.16 finance` and `v0.16 pipeline offers` lines.
+- Result (it5, see the table in the hand-over): market offers at half the v0.15.1 pace, all inbound at ~60 % (events, repeat business, tenders and calls stay by design), 60–70 leads and 30–40 pipeline offers a year, level 2 in months 7–9, level 3 not inside year one (18 months on the AOC and IOSA), stretch offers 9–10 a year; every seed solvent all year; margins a few points under the v0.15.1 bot (the level-1 pay part of −4 % and more one-off charter in the mix), the hard seed 1 negative as before.
 
 ## 7. What's new (assembled at the merge from each lane's lines)
 
