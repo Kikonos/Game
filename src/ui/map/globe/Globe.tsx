@@ -323,6 +323,8 @@ export default function Globe(props: GlobeProps) {
       }
       // The camera: a fly-to, the drag's inertia, or the idle spin.
       let moving = false;
+      // v0.15.1 (perf) the idle spin alone: drawn at the clock's rate on touch devices (battery), not every frame.
+      let idleSpin = false;
       if (fly) {
         const f = (now - fly.t0) / fly.dur;
         orbit = lerpOrbit(fly.from, fly.to, f);
@@ -335,6 +337,7 @@ export default function Globe(props: GlobeProps) {
       } else if (spinning(now)) {
         orbit = { ...orbit, lon: wrap180(orbit.lon + (IDLE_SPIN_DEG_S * dt) / 1000) };
         moving = true;
+        idleSpin = true;
       }
       if (moving) dirty = true;
       const t = liveMinute();
@@ -349,8 +352,8 @@ export default function Globe(props: GlobeProps) {
         return;
       }
       raf = requestAnimationFrame(frame);
-      // Only the clock moved: 30 fps on touch (the flat map's rate); camera motion draws every frame.
-      if (!dirty && touch && now - lastRender < 1000 / 30 - 3) return;
+      // Only the clock moved (or the idle spin): 30 fps on touch (the flat map's rate); a gesture or fly-to draws every frame.
+      if ((!dirty || idleSpin) && touch && now - lastRender < 1000 / 30 - 3) return;
       lastRender = now;
       const t0 = performance.now();
       draw(game, timeMoved || Number.isNaN(lastT) ? t : lastT);

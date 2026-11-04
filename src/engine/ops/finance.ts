@@ -398,9 +398,14 @@ export function forecastItems(g: GameState, days: number): ForecastItem[] {
  * 1 Mar. Was by 24 h from now, stamped with the bucket's start: 'Cash runs out on 29 Feb' for the 1 Mar bill.
  */
 export function cashForecast(g: GameState, days: number): { t: number; cash: number }[] {
+  return cashSeries(g, forecastItems(g, days), days);
+}
+
+/** v0.15.1 (perf) the daily cash series of forecast items already computed (the cash card reads both). Pure. */
+export function cashSeries(g: GameState, items: ForecastItem[], days: number): { t: number; cash: number }[] {
   const day0 = Math.floor(g.now / DAY);
   const delta = new Map<number, number>();
-  for (const x of forecastItems(g, days)) {
+  for (const x of items) {
     const d = Math.max(0, Math.floor(x.t / DAY) - day0);
     delta.set(d, (delta.get(d) ?? 0) + x.amount);
   }

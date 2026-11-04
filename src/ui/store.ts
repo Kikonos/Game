@@ -28,6 +28,7 @@ import { autosaveSlot, saveToSlot, serialize } from '../engine/save';
 import { createScenario, scenarioOutcome } from '../engine/scenario';
 import { advanceTo, settle } from '../engine/sim';
 import { guarded, previewCopy, restoreState } from '../engine/crew/atomic';
+import { asStep, touchUi } from '../engine/core/uiRev';
 import { prepareAsyncSave, saveTextAsync, supersedeAsyncSave } from './asyncSave';
 import { autoplay } from './devPlay';
 import { type Ambience, sound, type SoundEvent } from './sound';
@@ -922,16 +923,18 @@ class GameStore {
     // An engine throw must not take the UI down; report it as a refused action. v0.14.1 (merge) nor leave the game
     // half-changed: the state goes back to before the action (a copy, ~8 ms on a seven-aircraft save). The cross-module
     // follow-ups (e.g. crew re-sync) run inside the guard too.
-    const res: ActionResult<T> = guarded(g, () => {
+    const res: ActionResult<T> = guarded(g, () => asStep(() => {
       const r = fn(g);
       settle(g);
       // v0.15 a crew card already dealt with (Crew Control, the roster board) no longer holds the clock.
       withdrawHandled(g);
       return r;
-    }, (e) => {
+    }), (e) => {
       console.warn('[act]', e);
       return { ok: false, error: 'Something went wrong with that action: nothing was changed.' };
     });
+    // v0.15.1 (perf) the screens' read-side caches start over after every action.
+    touchUi();
     // Pauses the action raised (e.g. crewShortage on accept).
     const pause = takePause(this.honoured());
     if (pause && pause !== 'decision') this.autoPause(pause);
@@ -973,7 +976,8 @@ class GameStore {
   update(fn: (g: GameState) => void) {
     if (!this.game) return;
     this.edits++;
-    fn(this.game);
+    asStep(() => fn(this.game!));
+    touchUi();
     this.emit();
   }
 

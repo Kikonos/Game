@@ -5,14 +5,16 @@ import { BAL } from '../core/balance';
 import { COST_CATS, statementTotals } from '../core/ledger';
 import { DAY, fmtDay, fmtMonth, monthKey, nextMonthStart } from '../core/time';
 import type { GameState, LedgerCat, MonthStatement } from '../core/types';
-import { cashForecast, daysOverdue, forecastItems, monthEndBill } from '../ops/finance';
+import { cashForecast, cashSeries, daysOverdue, forecastItems, monthEndBill } from '../ops/finance';
 import { usd } from '../ops/util';
 import { mkHurt, type ProblemCard, type TimelineSpec } from './types';
 
 export function cashLowCard(g: GameState): ProblemCard | null {
   // Round 4: below zero the red cashNegative card is the one cash problem (one event, one card).
   if (g.company.cash < 0) return null;
-  const fc = cashForecast(g, 30);
+  // v0.15.1 (perf) one forecast pass for the series and the biggest cost (was two).
+  const items = forecastItems(g, 30);
+  const fc = cashSeries(g, items, 30);
   if (!fc.length) return null;
   let low = fc[0];
   for (const p of fc) if (p.cash < low.cash) low = p;
@@ -24,7 +26,7 @@ export function cashLowCard(g: GameState): ProblemCard | null {
   const by = new Map<string, number>();
   // v0.14.1 (UI-3) up to the end of that calendar day (the forecast's points are calendar days).
   const dayEnd = (Math.floor(first.t / DAY) + 1) * DAY;
-  for (const x of forecastItems(g, 30)) if (x.amount < 0 && x.t < dayEnd) by.set(x.what, (by.get(x.what) ?? 0) + x.amount);
+  for (const x of items) if (x.amount < 0 && x.t < dayEnd) by.set(x.what, (by.get(x.what) ?? 0) + x.amount);
   const top = [...by].sort((a, b) => a[1] - b[1])[0];
   const timeline: TimelineSpec = {
     from: g.now, to: g.now + 30 * DAY,
