@@ -7,17 +7,19 @@
 import { DAY } from '../../src/engine/core/time';
 import type { BrokerId, GameState } from '../../src/engine/core/types';
 import { homeMarket } from '../../src/engine/commercial/presence';
-import { hireSalesRep, pitchAirline, pitchQuota, pitchTargets, registerBroker, repCandidates, workLead } from '../../src/engine/commercial/sales';
+import { BROKER_VISIT, hireSalesRep, pitchAirline, pitchQuota, pitchTargets, registerBroker, repCandidates, visitBroker, workLead } from '../../src/engine/commercial/sales';
 import { complianceCandidates, hireComplianceManager } from '../../src/engine/ops/compliance';
 
 /** The bot's sales policy numbers (not BAL: the bot's own choices). */
 const BOT = {
   /** Register with the first two brokers after this many days; the third once Established. */
   registerDay: 30, brokers: ['acs', 'acc', 'chapman'] as BrokerId[],
-  /** Pitches a season, and the cash that allows one. */
-  pitches: 2, pitchCash: 200_000,
-  /** One sales manager for the home market when cash is above this (the mid candidate). */
-  repCash: 3_000_000,
+  /** Pitches a season (v0.16 balance: the desk's whole quota, a pitch is a $1,500 visit), and the cash that allows one. */
+  pitches: 4, pitchCash: 200_000,
+  /** One sales manager for the home market when cash is above this (the mid candidate; v0.16 balance: 3M → 2M, a $6K a month hire against a halved inbound stream). */
+  repCash: 2_000_000,
+  /** v0.16 balance: a monthly day at each broker's office while cash is above this (relation +5 up to the visit cap). */
+  visitCash: 1_000_000,
 };
 
 /** Returns true when it acted (the bot settles after). */
@@ -31,6 +33,14 @@ export function botSales(g: GameState): boolean {
     for (const id of BOT.brokers.slice(0, want)) {
       if (c?.brokers?.[id]) continue;
       if (registerBroker(g, id).ok) acted = true;
+    }
+    // A day at each broker's office once a month while cash allows (v0.16 balance: a real sales call).
+    if (g.company.cash > BOT.visitCash) {
+      for (const id of BOT.brokers) {
+        const rel = c?.brokers?.[id];
+        if (!rel || g.now - (rel.lastVisit ?? -Infinity) < BROKER_VISIT.everyDays * DAY) continue;
+        if (visitBroker(g, id).ok) acted = true;
+      }
     }
   }
   // Every lead gets a proposal (the desk's cap stops it).

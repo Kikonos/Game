@@ -63,6 +63,8 @@ export function loadSales(g: GameState): void {
 
 export interface SalesHooks {
   offer: (g: GameState, archetype: Archetype, opts: OfferOpts) => ContractOffer | null;
+  /** v0.16 balance: whether any aircraft of ours could fly that offer (offers.ts fleetCanFly): brokers and sales staff bring work for the types we operate. */
+  fits: (g: GameState, offerId: string) => boolean;
   tender: (g: GameState, opts: { clientId?: string; invited?: boolean }) => Tender | null;
   round: (t: Minute) => RoundNow | null;
   /** Whether this airline issues RFPs in that kind of round (data/fairs.ts TENDER_ISSUERS). */
@@ -132,8 +134,15 @@ export function brokerFit(g: GameState, id: BrokerId): number {
   return Math.round((0.4 + 0.6 * (kinds.length / F.kinds.length)) * 100) / 100;
 }
 
-/** Leads a month a broker brings at this relation (§C.2: 0.35 a week × relation / 100 × fit). Pure. */
-export const brokerLeadsPerMonth = (g: GameState, id: BrokerId, relation: number): number => Math.round(S.leadsPerWeek * (relation / 100) * brokerFit(g, id) * (365 / 12 / 7) * 100) / 100;
+/**
+ * Leads a week a broker brings at this relation (§C.2, v0.16 balance): leadsPerWeek × (base + (1 − base) × relation / 100)
+ * × fit. A fresh registration already brings `base` of the full rate (we are on their list for our types); deals and
+ * visits bring the rest. Pure.
+ */
+export const brokerLeadRate = (g: GameState, id: BrokerId, relation: number): number => S.leadsPerWeek * (S.relation.base + (1 - S.relation.base) * (relation / 100)) * brokerFit(g, id);
+
+/** Leads a month a broker brings at this relation. Pure. */
+export const brokerLeadsPerMonth = (g: GameState, id: BrokerId, relation: number): number => Math.round(brokerLeadRate(g, id, relation) * (365 / 12 / 7) * 100) / 100;
 
 /** The brokers for Contracts › Sales. Pure. */
 export function brokerView(g: GameState): BrokerView[] {
@@ -160,7 +169,7 @@ export function registerBroker(g: GameState, id: BrokerId): ActionResult {
   return { ok: true, msg: `Registered with ${brokerName(id)}. They know what we fly and where; leads come on busy days.` };
 }
 
-/** A day at the broker's office: $1,500 and +5 relation, once a month per broker. */
+/** A day at the broker's office: $1,500 and +5 relation, once a month per broker; visits alone take the relation to `visitCap` at most (their deals flown well take it beyond). */
 export function visitBroker(g: GameState, id: BrokerId): ActionResult {
   const rel = g.com?.brokers?.[id];
   if (!rel) return { ok: false, error: `Register with ${brokerName(id)} first` };
@@ -169,9 +178,10 @@ export function visitBroker(g: GameState, id: BrokerId): ActionResult {
   if (g.now - (rel.lastVisit ?? -Infinity) < BROKER_VISIT.everyDays * DAY) return { ok: false, error: `You visited ${brokerName(id)} less than a month ago` };
   if (g.company.cash < BROKER_VISIT.cost) return { ok: false, error: `Needs ${usdK(BROKER_VISIT.cost)}` };
   post(g, 'sales', -BROKER_VISIT.cost);
-  rel.relation = Math.min(100, rel.relation + BROKER_VISIT.relation);
+  const cap = Math.max(rel.relation, S.relation.visitCap);
+  rel.relation = Math.min(cap, rel.relation + BROKER_VISIT.relation);
   rel.lastVisit = g.now;
-  return { ok: true, msg: `A day with ${brokerName(id)}: relation ${rel.relation}.` };
+  return { ok: true, msg: `A day with ${brokerName(id)}: relation ${rel.relation}.${rel.relation >= S.relation.visitCap ? ' Visits take it no further: fly their deals well.' : ''}` };
 }
 
 /** Relation after a deal (flown well or not) or a cancellation; the floor once registered. */
@@ -258,8 +268,11 @@ function quoteLead(g: GameState, c: Client, archetypes: Archetype[], key: string
       if (lockOf(g, 'market', { archetype: a })) continue;
       const o = isolatePauses(() => withStream(g, `leadq:${key}:${a}`, () => hooks!.offer(g, a, { client: c.id, window: false, wide: wideOpt(g), paint: false, cabin: false }), true));
       if (!o) continue;
+      // v0.16 balance: a broker or a sales manager brings work for the types we fly (a job no aircraft of ours could do
+      // is not a lead): checked while the draft is still on the board.
+      const fits = o.clientId === c.id && hooks.fits(g, o.id);
       delete g.offers[o.id];
-      if (o.clientId !== c.id) continue;
+      if (!fits) continue;
       return { archetype: a, title: o.title, value: o.estValue };
     }
     return null;
@@ -298,7 +311,9 @@ function newLead(g: GameState, c: Client, x: NewLead): Lead | null {
     value: q.value, title: q.title, why: x.why(q.title),
   };
   leads(g).push(lead);
-  statsV016(g).leads++;
+  const st = statsV016(g);
+  st.leads++;
+  (st.leadsBy ??= {})[x.source] = (st.leadsBy[x.source] ?? 0) + 1;
   comStats(g).leads++;
   return lead;
 }
@@ -530,7 +545,7 @@ function brokerLeads(g: GameState): void {
   for (const id of BROKER_IDS) {
     const rel = b[id];
     if (!rel) continue;
-    const p = (S.leadsPerWeek * (rel.relation / 100) * brokerFit(g, id)) / perBusyDay;
+    const p = brokerLeadRate(g, id, rel.relation) / perBusyDay;
     if (chance(sideOf(g, `bl:${id}:${dayIndex(g.now)}:roll`), p)) brokerLead(g, id);
   }
 }

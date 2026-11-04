@@ -1662,6 +1662,8 @@ export interface StatsV016 {
   hidden: number;
   /** Leads opened, gone cold, lost, signed; pitches made; broker deals. */
   leads: number; leadsCold: number; leadsLost: number; leadsSigned: number; pitches: number; brokerDeals: number;
+  /** v0.16 balance: leads opened by source (the bot's read-out). */
+  leadsBy?: Partial<Record<LeadSource, number>>;
   /** Credit draws, covenant breaches, loans taken, leasebacks, invoices factored. */
   draws: number; breaches: number; loans: number; leasebacks: number; factored: number;
   /** Ramp findings the compliance manager's work avoided (rounded). */

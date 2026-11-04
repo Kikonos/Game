@@ -18,7 +18,8 @@ export function botSalesFinanceReport(g: GameState): string {
   const pr = (r: string) => pitches.filter((p) => p.result === r).length;
   const brokers = BROKER_IDS.filter((id) => c?.brokers?.[id]).map((id) => `${brokerName(id).split(' ')[0]} ${Math.round(c!.brokers![id]!.relation)}/${c!.brokers![id]!.deals}`).join(', ') || 'none';
   const reps = (c?.reps ?? []).map((r) => `${r.market} ${r.skill}`).join(', ') || 'none';
-  const sales = `v0.16 sales: leads ${s.leads} (open now ${leads.filter((l) => l.stage === 'lead' || l.stage === 'proposal' || l.stage === 'negotiation').length}; in save by source {${Object.entries(bySrc).map(([k, v]) => `${k} ${v}`).join(', ') || '-'}}) · cold ${s.leadsCold}, lost ${s.leadsLost}, signed ${s.leadsSigned} · pitches ${s.pitches} (maybe ${pr('maybe')}, offer ${pr('offer')}, no ${pr('no')}, pending ${pitches.filter((p) => !p.result).length}) · brokers {${brokers}} deals ${s.brokerDeals} · sales managers {${reps}} · stretch ${s.stretchOffers}/${s.stretchSigned} · hidden ${s.hidden} · ramp saved ${s.rampSaved}`;
+  const by = s.leadsBy ? Object.entries(s.leadsBy).map(([k, v]) => `${k} ${v}`).join(', ') : `in save: ${Object.entries(bySrc).map(([k, v]) => `${k} ${v}`).join(', ') || '-'}`;
+  const sales = `v0.16 sales: leads ${s.leads} (open now ${leads.filter((l) => l.stage === 'lead' || l.stage === 'proposal' || l.stage === 'negotiation').length}; by source {${by}}) · cold ${s.leadsCold}, lost ${s.leadsLost}, signed ${s.leadsSigned} · pitches ${s.pitches} (maybe ${pr('maybe')}, offer ${pr('offer')}, no ${pr('no')}, pending ${pitches.filter((p) => !p.result).length}) · brokers {${brokers}} deals ${s.brokerDeals} · sales managers {${reps}} · stretch ${s.stretchOffers}/${s.stretchSigned} · hidden ${s.hidden} · ramp saved ${s.rampSaved}`;
   const t = g.treasury;
   const cr = t?.credit;
   const fin = t

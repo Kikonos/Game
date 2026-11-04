@@ -442,7 +442,10 @@ function offers(g: GameState, t: Tally): void {
     if (o.archetype === 'hajj' && (o.requirements.body !== 'wide' || !Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide' && a.cabin.total >= 300))) continue;
     // v0.12.1 a world tour holds its aircraft for three weeks by design (priced for the days held).
     // v0.16 a far route is a few overseas rotations weeks apart, paid × 1.25 (scripts/bot/clients.ts): looked at like any long-lead job.
-    if (span > 10 && o.estBH / span < 3 && o.archetype !== 'unRotation' && o.archetype !== 'worldTour' && !farRouteOk(o)) {
+    // v0.16 balance: with about half the inbound work, a thin series (a weekly tour rotation for months) is taken while
+    // the calendar is under half full over the next month, as a small operator would; passed over only when base work
+    // could still want the aircraft.
+    if (span > 10 && o.estBH / span < 3 && o.archetype !== 'unRotation' && o.archetype !== 'worldTour' && !farRouteOk(o) && committed(g, 30) >= 0.5) {
       pipeNote(o, 'thin-series');
       continue;
     }

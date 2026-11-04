@@ -607,8 +607,8 @@ export const BAL = {
         acs: { name: 'Air Charter Service', commission: 0.04 }, chapman: { name: 'Chapman Freeborn', commission: 0.05 }, acc: { name: 'ACC Aviation', commission: 0.035 },
         airPartner: { name: 'Air Partner', commission: 0.045 }, huntPalmer: { name: 'Hunt & Palmer', commission: 0.03 },
       } as Record<string, { name: string; commission: number }>,
-      /** Relation: at registration; per deal flown well; per deal we cancelled; monthly drift idle; the floor once registered; leads a week at relation 100 (× fit). */
-      relation: { register: 20, deal: 6, cancelled: -10, drift: -1, floor: 10, onTime: 0.9 }, leadsPerWeek: 0.35,
+      /** Relation: at registration; per deal flown well; per deal we cancelled; monthly drift idle; the floor once registered; the most a visit can take it to (deals go beyond); leads a week at relation 100 (× fit), and the share of that a fresh registration already brings (v0.16 balance: a broker on whose list we are sends requests for our types from day one; 0.35 → 0.5 and the floor, since a year of chasing with three brokers at relation 20–40 brought 9–17 offers, too few to replace the halved inbound). */
+      relation: { register: 20, deal: 6, cancelled: -10, drift: -1, floor: 10, onTime: 0.9, visitCap: 50, base: 0.25 }, leadsPerWeek: 0.5,
       /** Leads: days before a lead goes cold; the proposal's answer window (days) and its odds of an offer; worked at once (the desk, per sales manager). */
       lead: { coldDays: 14, replyDays: [2, 7] as [number, number], offerChance: 0.55, workedBase: 3, workedPerRep: 3, warnDays: 3 },
       /** Pitches: windows (UTC months, 1–12) for summer and winter cover; max a season per desk; cost; reply days; odds maybe / offer / no; the offer's lead before the season (days). */
