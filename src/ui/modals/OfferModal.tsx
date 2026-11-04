@@ -80,14 +80,16 @@ function Terms({ g, o }: { g: GameState; o: ContractOffer }) {
       const n = p.balanceDaysBefore;
       rows.push(['Balance', lead > n ? `${n} days before each trip` : days <= n ? 'At signing' : `At signing for trips in the next ${n} days, then ${n} days before each trip`]);
     }
-    rows.push(['Fuel', p.fuelEscalation ? 'Escalation clause' : 'Our risk']);
+    // v0.15.1 a jumbo or big full load bills the burn to the client after each leg (it read 'Our risk').
+    rows.push(['Fuel', p.fuelAtCost ? 'At cost: the client pays the burn after each leg' : p.fuelEscalation ? 'Escalation clause' : 'Our risk, in the price']);
   } else rows.push(['Rent', `${usd(p.rentPerMonth)} / month`], ['Reserves', `${usd(p.reservesPerFH)} / FH`]);
   const [d0, d1] = offerDays(o);
   rows.push(['Dates', `${fmtDate(d0)} – ${fmtDate(d1)}${o.pattern.kind === 'base' ? ` (${o.pattern.base} local)` : ''}`], ['Lead time', lead <= 0 ? 'Starts now' : `${lead} day${lead === 1 ? '' : 's'}`]);
   // A dry lease bills no block hours (rent and reserves only).
   rows.push(['Estimate', p.kind === 'dry' ? money(o.estValue) : `Billable ≈ ${Math.round(o.estBH)} BH · ${money(o.estValue)}`]);
   const arrears = p.kind === 'charter' ? 'Invoiced after the job' : 'Monthly in arrears';
-  rows.push(['Payment', `${pay.basis === 'advance' ? 'In advance' : pay.basis === 'arrears' ? arrears : 'On completion'}, net ${pay.dueDays} days`]);
+  // v0.15.1 a charter is paid before it flies (the deposit and the balances above); it read 'On completion'.
+  rows.push(['Payment', `${pay.basis === 'advance' ? 'In advance' : pay.basis === 'arrears' ? arrears : 'Deposit and balances before the trips'}, net ${pay.dueDays} days`]);
   rows.push(['If we cancel', o.penalties.cancelScale.map(([d, f]) => `${d} d ${Math.round(f * 100)}%`).join(' · ') || '—']);
   if (o.penalties.perCancelledLeg) rows.push(['Per cancelled leg', usd(o.penalties.perCancelledLeg)]);
   return <KV rows={rows} />;
