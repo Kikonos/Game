@@ -625,6 +625,11 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     // before their rest ends (and before a fresh crew could be there).
     const inb = inboundCrew(g, a, aircraftId, X);
     const nobody = (std: Minute): boolean => !!inb && std > inb.landed + SAME_CREW_MIN && std < Math.min(inb.rested, crewFree(g, aircraftId, X, inb.landed + SAME_CREW_MIN + 5));
+    // v0.15.1 a kept chain the roster has crewed (a duty with crew, not illegal) is flown by them whatever the estimate
+    // reads: the chain's night counts from the scheduled landing, restedDeparture from the ETA, and the moment BOG–JFK
+    // took off 11 minutes behind, the legal crewed JFK–SFJ–SNN at 14:35 (rested 14:46) was re-made to leave at landing,
+    // lost its crew and sat six days at New York (seed 4, AWL121: a quarter of the year's legs).
+    const crewed = (f: Flight): boolean => f.crewIds.length > 0 && (!f.dutyId || g.duties[f.dutyId]?.legality !== 'illegal');
     const crewTimed = <T extends MoveLeg>(move: T[], from0: Minute): T[] | ChainLeg[] => {
       const op = opOf();
       if (!op || !move.length || move[move.length - 1].to !== Y || move[move.length - 1].sta > op[0].std) return move;
@@ -660,7 +665,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     // v0.12.1 kept only on time for Y, or when nothing on time can be planned (a late chain stays late, not re-made).
     // v0.14.1 (OPS-5) a move home before a check that waits AWAY_GAP or more at X is planned again (forward).
     const idleAway = homeFirst && legs.length > 0 && legs[0].std - crewFree(g, aircraftId, X, earliest) >= AWAY_GAP && latest - earliest >= AWAY_GAP;
-    if (legs.length && chainOk(legs, X, Y, earliest) && chainSane(typeId, legs, X, Y, home, allowHop, cap, day) && (legs[legs.length - 1].sta <= latest || !onTimeMove(typeId, X, Y, ready, latest, home, allowHop, cap, day)) && !crewLate(legs) && !idleAway && !nobody(legs[0].std)) continue;
+    if (legs.length && chainOk(legs, X, Y, earliest) && chainSane(typeId, legs, X, Y, home, allowHop, cap, day) && (legs[legs.length - 1].sta <= latest || !onTimeMove(typeId, X, Y, ready, latest, home, allowHop, cap, day)) && !crewLate(legs) && !idleAway && (crewed(legs[0]) || !nobody(legs[0].std))) continue;
     const nl = nudged(legs, X, Y, earliest, latest);
     replacing(legs);
     if (nl && chainSane(typeId, legs, X, Y, home, allowHop, cap, day)) {
