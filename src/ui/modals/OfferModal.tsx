@@ -60,8 +60,9 @@ function effectChips(o: ContractOffer): Chip[] {
 
 const MONTH_DAYS = 30.44;
 
-function Terms({ g, o }: { g: GameState; o: ContractOffer }) {
+function Terms({ g, o, deposit, onDeposit }: { g: GameState; o: ContractOffer; /** v0.16 the deposit picked (null: the offer's) and its setter (none: fixed) */ deposit?: number | null; onDeposit?: (pct: number) => void }) {
   const p = o.product;
+  const depositPct = p.kind === 'charter' ? deposit ?? o.depositAsk?.pct ?? p.depositPct : 0;
   const rows: [string, string][] = [];
   const lead = leadDays(g, o.start);
   const pay = o.payment;
@@ -78,7 +79,7 @@ function Terms({ g, o }: { g: GameState; o: ContractOffer }) {
     rows.push(['Price', `${usd(p.price)} all-in`]);
     // Arrears charters (governments) are invoiced after the job: no deposit, no balance.
     if (pay.basis !== 'arrears') {
-      if (p.depositPct > 0) rows.push(['Deposit', `${Math.round(p.depositPct * 100)}% on signing`]);
+      if (depositPct > 0) rows.push(['Deposit', `${Math.round(depositPct * 100)}% on signing`]);
       const n = p.balanceDaysBefore;
       rows.push(['Balance', lead > n ? `${n} days before each trip` : days <= n ? 'At signing' : `At signing for trips in the next ${n} days, then ${n} days before each trip`]);
     }
@@ -98,7 +99,7 @@ function Terms({ g, o }: { g: GameState; o: ContractOffer }) {
     <>
       <KV rows={rows} />
       {/* v0.16 the deposit as a negotiation lever (ui/modals/offer/DepositPicker.tsx, lane finance). */}
-      <DepositPicker g={g} o={o} value={p.kind === 'charter' ? p.depositPct : 0} onChange={() => undefined} />
+      <DepositPicker g={g} o={o} value={depositPct} onChange={onDeposit ?? (() => undefined)} fixed={!onDeposit} />
     </>
   );
 }
@@ -546,6 +547,8 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const [paintOn, setPaintOn] = useState(true);
   const [cabinOn, setCabinOn] = useState(true);
   const [extra, setExtra] = useState<CrewExtra | null>(null);
+  // v0.16 the deposit asked on a charter (null: the offer's own); fixed once a counter carried one.
+  const [deposit, setDeposit] = useState<number | null>(null);
   // v0.12.1 met halfway: the price holds for the terms we countered with (paint, cabin), so those are fixed.
   const met = o?.counter?.result === 'halfway' ? o.counter : null;
   const paint = !!o?.paint && (met ? met.paint !== false : paintOn);
@@ -578,7 +581,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
   // v0.12.1 a world tour's business-seat bonus on the chosen aircraft (applied at signing, as the paid crew's lift).
   const bizLift = 1 + tourBizPct(o.archetype, sel && g.fleet[sel.aircraftId] ? g.fleet[sel.aircraftId].cabin.j : 0);
   const lift = (crewed && paid && x.cabin >= paid.n ? 1 + paid.pct : 1) * bizLift;
-  const opts = { paint, cabin, crewExtra: crewed ? x : undefined };
+  const opts = { paint, cabin, crewExtra: crewed ? x : undefined, ...(deposit !== null && !o.counter ? { depositPct: deposit } : {}) };
   // v0.14.1 a won tender is signed at our bid: no counter.
   const tenderWon = isTenderOffer(g, o.id);
   // v0.15 a scenario's market rules (an offer of another kind of work that reached the desk anyway).
@@ -672,7 +675,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           {o.cabin && <CabinTermsCard g={g} o={o} aircraftId={sel?.aircraftId ?? null} on={cabin} onToggle={met ? () => {} : setCabinOn} fmtP={fmtP} />}
           {crewed && <ExtraCrewCard o={o} x={x} onChange={setExtra} fmtP={fmtP} asking={asking} max={extraCabinMax(g, sel?.aircraftId ?? null, o.requirements.extraCabin)} seatsNote={crewSeatsNote(g, sel?.aircraftId ?? null, o.requirements.extraCabin)} />}
           <div className="upper dim">Terms</div>
-          <Terms g={g} o={o} />
+          <Terms g={g} o={o} deposit={deposit} onDeposit={live && !o.counter && o.product.kind === 'charter' ? setDeposit : undefined} />
           <ClientBlock g={g} o={o} />
           {/* A dry lease has no programme of ours: the dry panel shows ferry out · lease · ferry back. */}
           {o.product.kind !== 'dry' && <>

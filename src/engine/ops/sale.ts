@@ -15,6 +15,7 @@ import type { ActionResult, Aircraft, GameState, Minute, SimEvent } from '../cor
 import { clamp, hashUnit } from '../core/util';
 import { planPositioning } from '../contracts';
 import { settleDeparture } from './finance';
+import { loanOn, loanPayoff, repayLoanFromProceeds } from '../finance';
 import { cancelLegs, subcharterInstead } from './flights';
 import { cCheckGross, checkStatus } from './maintenance';
 import { isRevenue, usd } from './util';
@@ -34,6 +35,8 @@ export interface SaleQuote {
   blockers: string[];
   /** v0.7.2 the first check, refit or other booking in the way (its ferries can't be sub-chartered). */
   booking?: SaleBooking;
+  /** v0.16 finance: the loan on the aircraft, repaid from the proceeds at the handover (balance plus the early repayment fee). */
+  loan?: { bank: string; balance: number; fee: number; total: number };
 }
 
 /**
@@ -137,6 +140,13 @@ export function saleQuote(g: GameState, aircraftId: string): SaleQuote {
   const b = blockersOf(g, ac, closes);
   q.blockers = b.lines;
   if (b.booking) q.booking = b.booking;
+  // v0.16 a loan on the aircraft is cleared from the proceeds first; a price under it cannot close.
+  const ln = loanOn(g, aircraftId);
+  if (ln) {
+    const p = loanPayoff(g, ln.id)!;
+    q.loan = { bank: ln.bank, ...p };
+    if (p.total > price) q.blockers.unshift(`The loan with ${ln.bank} (${usd(p.total)} to repay) is more than the price: repay part of it first`);
+  }
   return { ...q, ok: !q.blockers.length, why: q.blockers[0] ?? null };
 }
 
@@ -190,7 +200,7 @@ export function sellAircraft(g: GameState, aircraftId: string, expectPrice?: num
   touchFlights(g);
   pushMessage(g, {
     tone: 'info', cat: 'company', title: `Sale agreed: ${ac.reg} to ${q.buyer} (handover ${fmtDay(q.closes)})`,
-    body: `${usd(q.price)} (book value ${usd(q.bookValue)}). Handover at ${g.company.homeBase} on ${fmtDay(q.closes)}${ac.sale.ferryIds?.length ? '; a ferry brings it home first' : ''}. It takes no new work.`,
+    body: `${usd(q.price)} (book value ${usd(q.bookValue)}). Handover at ${g.company.homeBase} on ${fmtDay(q.closes)}${ac.sale.ferryIds?.length ? '; a ferry brings it home first' : ''}. It takes no new work.${q.loan ? ` ${usd(q.loan.total)} of the price repays the loan with ${q.loan.bank}.` : ''}`,
     ref: { kind: 'aircraft', id: ac.id },
   });
   return { ok: true, msg: `${ac.reg} goes to ${q.buyer} on ${fmtDay(q.closes)} for ${usd(q.price)}`, data: { closes: q.closes } };
@@ -239,6 +249,8 @@ export function onSaleClose(g: GameState, ev: SimEvent): void {
   // Cash moves by exactly the price; the statement shows the gain or loss over book value.
   cashOnly(g, book);
   post(g, 'assetSale', s.price - book);
+  // v0.16 the loan on it is cleared from the proceeds (engine/finance).
+  repayLoanFromProceeds(g, ac.id);
   settleDeparture(g, ac);
   delete g.fleet[ac.id];
   g.stats.sales = (g.stats.sales ?? 0) + 1;

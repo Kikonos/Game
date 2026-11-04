@@ -30,6 +30,7 @@ import { commissionOf } from '../commercial/sales';
 import { cancelDry, recallDry, recallTerms, signDryLease } from '../ops/dryLease';
 import { notOursCancel } from '../ops/latePolicy';
 import { lockOf, offerLock } from '../scenario/rules';
+import { depositEffect, depositSigned } from '../finance';
 import { SCEN_HOOKS } from '../scenario/module';
 
 // ---------- offers ----------
@@ -66,6 +67,8 @@ export interface SignOpts {
   priced?: boolean;
   /** v0.6: extra crew for this contract (paid option met when cabin ≥ requirements.extraCabin + extraCabinPaid.n). */
   crewExtra?: CrewExtra;
+  /** v0.16 finance: the deposit asked on a full charter (share of the price; engine/finance depositEffect says what it does). */
+  depositPct?: number;
 }
 
 /** v0.9 ops/heads.ts: a deposit share for a charter signed without one (the credit controller's rule); 0 = none. */
@@ -172,6 +175,12 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
     else c.cabin!.from![id] = x.from;
   }
   generateFlights(g, c);
+  // v0.16 the deposit we asked (engine/finance): a counter's deposit holds as the client answered it; on a plain accept a
+  // client asked for more than its norm may sign at the norm instead ("20 % is what we do").
+  if (c.product.kind === 'charter') {
+    const ask = opts.depositPct ?? (opts.priced ? o.depositAsk?.pct : undefined);
+    if (ask !== undefined) c.product = { ...c.product, depositPct: opts.priced ? ask : depositSigned(g, o, ask) };
+  }
   // v0.9 the credit controller asks a slow payer for a deposit (ops/heads.ts).
   if (c.product.kind === 'charter' && !c.product.depositPct) {
     const pct = depositHook?.(g, c) ?? 0;
@@ -356,6 +365,11 @@ export function counterOffer(g: GameState, offerId: string, price: number, aircr
   if (o.paint) o.counter.paint = paint;
   if (o.cabin) o.counter.cabin = cabinOn;
   if (opts.crewExtra) o.counter.crewExtra = { cabin: opts.crewExtra.cabin, pilot: opts.crewExtra.pilot ? 1 : 0 };
+  // v0.16 the deposit asked with the counter and what it does to the client's answer (counter.ts counterOdds reads it).
+  if (o.product.kind === 'charter' && opts.depositPct !== undefined) {
+    const d = depositEffect(g, o.id, opts.depositPct);
+    o.depositAsk = { pct: opts.depositPct, acceptDelta: d.acceptDelta, floorDelta: d.floorDelta };
+  }
   o.status = 'countered';
   schedule(g, replyAt, 'offer.reply', o.id);
   const hrs = Math.max(1, Math.ceil((replyAt - g.now) / 60));

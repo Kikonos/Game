@@ -61,6 +61,9 @@ export function SellModal({ aircraftId }: { aircraftId: string }) {
           {q.lines.map((l, i) => <div key={l.label} className="row between small"><span className="muted">{l.label.replace(/^[−-]\s*/, '')}</span><span className="num">{l.amount < 0 ? '−' : i && l.amount > 0 ? '+' : ''}{money(Math.abs(l.amount))}</span></div>)}
           <div className="row between small"><b>Price</b><b className="num">{money(q.price)}</b></div>
           <div className="row between small"><span className="muted">Book value</span><span className="num">{money(q.bookValue)}</span></div>
+          {/* v0.16 a loan on the aircraft is cleared from the proceeds first (engine/finance). */}
+          {q.loan && <div className="row between small warn"><span>Loan with {q.loan.bank} repaid at the handover{q.loan.fee ? ` (${money(q.loan.fee)} early repayment fee in it)` : ''}</span><span className="num">−{money(q.loan.total)}</span></div>}
+          {q.loan && <div className="row between small"><b>Left for us</b><b className="num">{money(q.price - q.loan.total)}</b></div>}
           <div className={`row between small ${q.gain >= 0 ? 'good' : 'bad'}`}><span>{q.gain >= 0 ? 'Gain over book value' : 'Loss against book value'}</span><span className="num">{q.gain >= 0 ? '+' : '−'}{money(Math.abs(q.gain))}</span></div>
         </div>
         <div className="small dim">The deal closes in {Math.max(1, Math.round((q.closes - g.now) / 1440))} days; cash comes in on handover at {g.company.homeBase}. Until then you can call it off for free.</div>

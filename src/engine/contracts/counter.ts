@@ -65,11 +65,15 @@ export interface CounterOdds {
  * walk-away (`floor`, stretched for urgent clients) the yes share falls as the ask grows and "meet halfway" takes
  * most of the rest; beyond it a yes is rare. Urgent and short-notice clients concede more. Pure.
  */
-export function counterOdds(o: Pick<ContractOffer, 'urgency' | 'floor'>, ratio: number, halfwayOk = true): CounterOdds {
+export function counterOdds(o: Pick<ContractOffer, 'urgency' | 'floor'> & { depositAsk?: ContractOffer['depositAsk'] }, ratio: number, halfwayOk = true): CounterOdds {
   if (ratio <= 1) return { accept: 1, halfway: 0, refuse: 0 };
   const L = leverage(o);
-  const x = (ratio - 1) / Math.max(0.01, o.floor + 0.06 * L - 1);
-  const accept = x <= 1 ? clamp(0.8 - 0.7 * x + 0.15 * L, 0.02, 0.95) : clamp(0.08 + 0.1 * L - 0.08 * (x - 1), 0, 0.2);
+  // v0.16 a deposit under the client's norm eases its walk-away floor; one above it lowers the yes share (engine/finance).
+  const dep = o.depositAsk;
+  const floor = o.floor + (dep?.floorDelta ?? 0);
+  const x = (ratio - 1) / Math.max(0.01, floor + 0.06 * L - 1);
+  let accept = x <= 1 ? clamp(0.8 - 0.7 * x + 0.15 * L, 0.02, 0.95) : clamp(0.08 + 0.1 * L - 0.08 * (x - 1), 0, 0.2);
+  if (dep?.acceptDelta) accept = clamp(accept + dep.acceptDelta, 0.02, 0.95);
   const h = halfwayOk ? clamp(0.7 + 0.2 * L - 0.3 * Math.max(0, x - 1), 0.15, 0.9) : 0;
   const halfway = (1 - accept) * h;
   return { accept, halfway, refuse: Math.max(0, 1 - accept - halfway) };
@@ -113,7 +117,7 @@ export function counterView(g: GameState, offerId: string): CounterView | null {
   const asking = askingPrice(o);
   if (o.status === 'countered' && !k.result) {
     const expiresAt = g.now + leftOf(o);
-    return { state: 'pending', price: k.price, asking, replyBy: k.replyAt, expiresAt, text: `Counter ${money(o.product, k.price)} sent · reply by ${when(k.replyAt)} · clock paused`, tone: 'info' };
+    return { state: 'pending', price: k.price, asking, replyBy: k.replyAt, expiresAt, text: `Counter ${money(o.product, k.price)}${o.depositAsk ? ` · deposit ${Math.round(o.depositAsk.pct * 100)} %` : ''} sent · reply by ${when(k.replyAt)} · clock paused`, tone: 'info' };
   }
   const client = g.clients[o.clientId]?.name ?? 'The client';
   const open = o.status === 'open';
