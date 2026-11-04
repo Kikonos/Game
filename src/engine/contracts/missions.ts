@@ -910,9 +910,9 @@ function farLegs(ref: string, tpl: FarRoute, s: Minute, stay: number, pax: numbe
  * The draft of a far route (`id`: one template, else a weighted pick among those we could fly: narrowbody ones always,
  * widebody ones once we fly a widebody). Null when the client is not in the game, no type flies it or the pick is empty.
  */
-export function farRoute(g: GameState, id?: string, opts: { start?: Minute; rotations?: number } = {}): Draft | null {
+export function farRoute(g: GameState, id?: string, opts: { start?: Minute; rotations?: number; /** Dev: a far-off origin without us in the region. */ force?: boolean } = {}): Draft | null {
   const byName = (name: string) => Object.values(g.clients).find((c) => c.name === name && c.ceased === undefined);
-  const pool = FAR_ROUTES.filter((t) => (!id || t.id === id) && (!t.wide || anyWide(g)) && t.out.every(exists) && t.back.every(exists) && byName(t.client) && (!t.far || id || nearOrigin(g, t.out[0])));
+  const pool = FAR_ROUTES.filter((t) => (!id || t.id === id) && (!t.wide || anyWide(g)) && t.out.every(exists) && t.back.every(exists) && byName(t.client) && (!t.far || opts.force || nearOrigin(g, t.out[0])));
   if (!pool.length) return null;
   // A client's weight as in the ordinary draw (its level against ours, its mood with us); nobody at our level: no call.
   const weight = (t: FarRoute) => clientWeight(g, byName(t.client)!);
@@ -991,7 +991,7 @@ export function dailyFarRoute(g: GameState): ContractOffer | null {
 }
 
 /** Builds and posts one far-route offer (any template, or `id`); null when none fits today. */
-export function makeFarRoute(g: GameState, id?: string, opts: { start?: Minute; rotations?: number } = {}): ContractOffer | null {
+export function makeFarRoute(g: GameState, id?: string, opts: Parameters<typeof farRoute>[2] = {}): ContractOffer | null {
   const d = farRoute(g, id, opts);
   if (!d) return null;
   markStretch(g, d);
@@ -1004,7 +1004,7 @@ export function devFarRoute(g: GameState, id?: string): string {
   g.company.standing = Math.max(1, standing ?? 0) as 1 | 2;
   try {
     for (let i = 0; i < 8; i++) {
-      const o = makeFarRoute(g, id);
+      const o = makeFarRoute(g, id, { force: true });
       if (o) return o.id;
     }
   } finally {

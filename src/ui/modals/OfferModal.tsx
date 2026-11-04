@@ -637,6 +637,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           <div className="row gap-8 wrap">
             <span className="upper dim">{archLabel(o)}</span>
             {o.urgency !== 'normal' && <span className={`badge ${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
+            {o.exotic && <span className="badge info" title="An overseas rotation with a stop and a crew change on the way; it pays more">Far route</span>}
             {cv?.state === 'pending' ? (
               <span className="small accent">Clock paused · reply by {fmtDay(cv.replyBy ?? g.now)} {fmtTime(cv.replyBy ?? g.now)} UTC</span>
             ) : (

@@ -108,6 +108,7 @@ import { fleetWords } from '../src/engine/newGame';
 import { bidQuote, bookTrip, com, fairsAhead, homeMarket, placeBid, travellers } from '../src/engine/commercial';
 import { botFinance } from './bot/finance';
 import { botSales } from './bot/sales';
+import { botFarRouteReport, botFarRouteTally, farRouteOk } from './bot/clients';
 
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
@@ -420,7 +421,8 @@ function offers(g: GameState, t: Tally): void {
     // from Lisbon, lost seed 2 every other rotation).
     if (o.archetype === 'hajj' && (o.requirements.body !== 'wide' || !Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide' && a.cabin.total >= 300))) continue;
     // v0.12.1 a world tour holds its aircraft for three weeks by design (priced for the days held).
-    if (span > 10 && o.estBH / span < 3 && o.archetype !== 'unRotation' && o.archetype !== 'worldTour') continue;
+    // v0.16 a far route is a few overseas rotations weeks apart, paid × 1.25 (scripts/bot/clients.ts): looked at like any long-lead job.
+    if (span > 10 && o.estBH / span < 3 && o.archetype !== 'unRotation' && o.archetype !== 'worldTour' && !farRouteOk(o)) continue;
     // Ad hoc work inside 30 days (v0.6: was three weeks); tour series and troop rotations up to 90 days out (v0.8:
     // and the long-lead new work: Hajj, UN rotations, tours, Antarctica, deportation frameworks).
     // v0.9 fix: a job with a crew change at a fuel stop is taken up to 90 days out too (the bot never flew one: the
@@ -1370,6 +1372,8 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     // v0.16 the bank and the sales desk (scripts/bot/finance.ts, scripts/bot/sales.ts).
     if (botFinance(g)) act(g, t);
     if (botSales(g)) act(g, t);
+    // v0.16 the far routes offered and signed (scripts/bot/clients.ts; a tally only, no action).
+    botFarRouteTally(g);
     policies(g, t);
     rehire(g, t);
     extraCrew(g, t);
@@ -2420,6 +2424,8 @@ for (const e of errors.slice(0, 3)) console.log(e);
 console.log(`ladder: widebody signed ${dayOf(tally.wideSigned)}; tour series / troop rotations signed ${tally.longLead}`);
 // v0.12.1 world tours offered, signed and flown (the same crew all the way round?).
 tourReport(g);
+// v0.16 far routes offered and signed (scripts/bot/clients.ts).
+console.log(botFarRouteReport());
 {
   // v0.7.1 Crew Control: ladder stages, fixes by kind, jets and their share of revenue (soft targets, §16).
   const fixes = [...tally.crewFixes].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || 'none';
