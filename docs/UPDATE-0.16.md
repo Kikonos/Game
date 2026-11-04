@@ -116,6 +116,17 @@ API (engine/finance/index.ts; pure reads listed in `core/plumbing.test.ts`): `be
 
 UI: Finance gets a **Financing** section (credit line card with a draw/repay stepper and the covenant lines; loans per aircraft; money market line; "Sell invoice" on each receivable row); Fleet › aircraft card gets "Borrow against it" and "Sell and lease back"; the offer dialog gets the Deposit picker. iPhone landscape: each card ≤ 3 rows, steppers 44 px.
 
+### A.9 As built (lane finance)
+
+- Finance › **The bank**: the credit line (status chip Open / In breach / Frozen / Not renewed, drawn of limit bar, the rates, both covenants with today's numbers, the renewal date, Draw / Repay steppers in $50K steps, Close), loans per aircraft (balance, instalment, next due, paid n of m, Repay early with the fee), spare cash and debt (bank rate, money-market rate and what is earning, debt net of cash, EBITDA of the last 12 months). Receivables rows get **Sell** (the bank's dialog: with / without recourse, advance less the fee now, the rest when the client pays). Fleet card: **Borrow against it…**, **Sell and lease back…**, the loan line, the "Leased back from …" line. The offer dialog: **Deposit on signing** 0–50 % with the effect in words; a counter carries the deposit to the reply.
+- Factoring cash flow: the bank's fee comes out of the advance (advance − fee lands now; amount − advance when the client pays; a recourse buy-back returns the advance only). EBITDA adds bank fees back as well as interest.
+- Cards (four lines): `covenantBreach` (red, cure date, waiver fee, what follows), `loanDue` (amber 7 days ahead when the forecast is short, red inside 48 h or when the loan is called), `creditHeadroom` (amber, once a fortnight), `factorRecourse` (amber from 60 days overdue). Cues: breach and step-up `latePayer`, freeze and loan call `cashNegative`, cards `notice`, renewals and pay-offs `message`; the player's own actions are quiet (toast + Inbox).
+- Bot (`scripts/bot/finance.ts`): opens the line as soon as the bank allows, draws against a negative 30-day low, repays above $1.5M + the bill, sells invoices when still short, borrows against the most valuable owned aircraft when short by more than $200K, sells and leases back after ten days below zero.
+- Existing saves: `treasury` is created empty on load; s0329 opens a $10.8M line (two years of statements, $0 drawn, EBITDA12 −$1.9M so the leverage covenant holds only while net debt ≤ 0, which is the realistic reading of that game).
+
+**What's new (finance):** "Finance has a bank now: a credit line with covenants, loans on your own aircraft, sale and leaseback with the big lessors, selling invoices to the bank, and interest on spare cash. Ask a deposit on a charter and see what it does to the client's answer. Every bank line is on the statement and in the forecast."
+
+
 ---
 
 ## B. Client prestige ladder (lane `clients`)

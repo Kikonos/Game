@@ -556,7 +556,7 @@ export const BAL = {
       leaseback: {
         lessors: ['AerCap', 'Avolon', 'SMBC Aviation Capital', 'Air Lease Corporation', 'BOC Aviation', 'Carlyle Aviation Partners'] as string[],
         /** Price as a share of market value (Respected / Established, Newcomer); terms (years); the aircraft's age at lease end. */
-        priceShare: 0.97, priceShareNewcomer: 0.94, roundTo: 10_000, terms: [5, 6, 8] as number[], maxAgeAtEnd: 25,
+        priceShare: 0.97, priceShareNewcomer: 0.94, roundTo: 10_000, terms: [3, 5, 6, 8] as number[], maxAgeAtEnd: 25,
         /** Lease rate factor a month: base + perAgeYear × (age − ageFrom), clamped. */
         lrf: { base: 0.0075, perAgeYear: 0.0004, ageFrom: 5, clamp: [0.0075, 0.011] as [number, number] }, depositMonths: 2,
       },

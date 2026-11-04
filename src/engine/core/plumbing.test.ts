@@ -24,6 +24,7 @@ import { crewAway, restClassAt, restSeatsBlocked, sellableSeats } from '../crew'
 import { seatLabel } from './perf';
 import { quoteTripMove, tripOf, tripTargets } from '../ops/tripMove';
 import { deserialize, serialize } from '../save';
+import { covenantCheck, creditLimitFor, creditView, depositEffect, factorQuote, leasebackQuote, loanQuote, treasuryForecastItems } from '../finance';
 import { advanceTo } from '../sim';
 import { addDeadhead, flightsOf, reassignFlights, retimeFlight, subcharterFlights, takeFlightChanges } from './entities';
 import { inboxCounts } from './messages';
@@ -187,6 +188,17 @@ describe('determinism of read APIs', () => {
       hireQuote(g, { role: 'FO', family: 'A320', base: 'LIS', count: 2 });
       staffing(g);
       cashForecast(g, 90);
+      // v0.16 finance reads (engine/finance): the bank's view, the quotes, the forecast items, the deposit norm.
+      creditView(g);
+      covenantCheck(g);
+      creditLimitFor(g);
+      treasuryForecastItems(g, 60);
+      for (const ac of Object.values(g.fleet)) {
+        loanQuote(g, ac.id, 5);
+        leasebackQuote(g, ac.id, 6);
+      }
+      for (const r of g.finance.receivables) factorQuote(g, r.id, true);
+      for (const o of Object.values(g.offers)) depositEffect(g, o.id, 0.3);
       // v0.7: market, delivery, lease, cabin and ladder reads.
       marketView(g);
       for (const ac of Object.values(g.fleet)) {

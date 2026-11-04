@@ -638,6 +638,8 @@ export interface ContractOffer {
   brokerId?: BrokerId;
   /** v0.16 ops: hidden by the player's offer filter (no cue, no message); shown under "N offers hidden". */
   hidden?: true;
+  /** v0.16 finance: the deposit we asked with a counter (share of the price) and what it did to the client's answer (engine/finance depositEffect). */
+  depositAsk?: { pct: number; acceptDelta: number; floorDelta: number };
 }
 
 /**
@@ -1947,6 +1949,10 @@ export interface CreditLine {
   repay?: { at: Minute; amount: number }[];
   /** The last covenant check. */
   last?: { t: Minute; liquidity: boolean; leverage: boolean; netDebt: number; ebitda12: number };
+  /** Clean month ends in a row since the last breach (the margin step-up falls away after `cleanMonths`). */
+  clean?: number;
+  /** Not renewed (frozen at the anniversary): nothing more to draw, the balance repaid on the schedule, closed when it is 0. */
+  notRenewed?: true;
 }
 
 export interface AircraftLoan {
@@ -1966,6 +1972,10 @@ export interface AircraftLoan {
   paid: number;
   missed: Minute[];
   calledAt?: Minute;
+  /** The loanDue card was posted for this due date. */
+  warnedAt?: Minute;
+  /** The bank called the loan: the whole balance is due then (60 days after the call). */
+  calledDue?: Minute;
 }
 
 export interface Treasury {
@@ -1977,6 +1987,10 @@ export interface Treasury {
   /** Receivables sold to the bank and still open (ids). */
   factored: string[];
   stats: { interest: number; fees: number; factored: number; leasebacks: number; loans: number; drawnMax: number };
+  /** The creditHeadroom card last posted (once a fortnight at most). */
+  headroomAt?: Minute;
+  /** Loans repaid in full (ids), kept for the Finance screen's history line. */
+  repaid?: number;
 }
 
 // ======================================================================

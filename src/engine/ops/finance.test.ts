@@ -16,6 +16,7 @@ import { acceptOffer } from '../contracts';
 import { mghInMonth } from '../contracts/pricing';
 import { addAircraft, hamBase, leased, legsOffer, newGame, owned, run } from '../contracts/testkit';
 import { salaryBill } from '../crew';
+import { factorQuote } from '../finance';
 import { advanceTo } from '../sim';
 import { cashForecast, fixedCosts, resolveDecision } from '.';
 import { legCostEstimate, paysFuel, subcharterCost, subcharterLegs } from './flights';
@@ -236,14 +237,16 @@ describe('receivables', () => {
     expect(dA && dB).toBeTruthy();
     expect(dA.options.map((o) => o.id)).toEqual(['wait', 'waive', 'factor', 'threaten']);
     expect(dA.defaultOption).toBe('wait');
-    // Factor: cash now less 8%, booked as interest; the receivable is settled.
+    // Factor (v0.16): sold to the bank with recourse: the advance less the fee now, the rest when the client pays.
     const cash = g.company.cash;
+    const q = factorQuote(g, a.id, true)!;
+    expect(q.why).toBeNull();
     expect(resolveDecision(g, dA.id, 'factor').ok).toBe(true);
-    const fee = Math.round(a.amount * BAL.factorDiscount);
     expect(a.factored).toBe(true);
-    expect(a.paid).toBe(g.now);
-    expect(g.company.cash).toBe(cash + a.amount - fee);
-    expect(g.finance.current.lines.interest).toBe(-fee);
+    expect(a.paid).toBeNull();
+    expect(a.factor?.recourse).toBe(true);
+    expect(g.company.cash).toBe(cash + q.advance - q.fee);
+    expect(g.finance.current.lines.bankFees).toBe(-q.fee);
     expect(g.decisions.some((d) => d.id === dA.id)).toBe(false);
     // Threaten: relation −20; 70% of the time the date is pulled in to within a week.
     const rel = gov.relation;
@@ -341,8 +344,17 @@ describe('solvency', () => {
   });
 });
 
+/** v0.16 no interest on spare cash in these tests: the month-end drop must be the bill alone (the money market is tested in finance/finance016.test.ts). */
+const noMoneyMarket = () => {
+  const mm = BAL.v016.finance.moneyMarket as { float: number };
+  const was = mm.float;
+  mm.float = Infinity;
+  onTestFinished(() => { mm.float = was; });
+};
+
 describe('cashForecast', () => {
   it('is pure and books salaries and fixed costs at the next month start', () => {
+    noMoneyMarket();
     const g = newGame(27);
     skip(g, g.now + 3 * DAY);
     const before = JSON.stringify(g);
@@ -482,6 +494,7 @@ describe('v0.12.1 cash forecast: money on the day it moves', () => {
     m.cost = cost;
   });
   it("the month-end drop is the month-end bill, heads included, and the cash really moves by it", () => {
+    noMoneyMarket();
     const g = newGame(27);
     const k = monthKey(g.now);
     const h = Object.values(g.heads ?? {})[0];
@@ -501,6 +514,7 @@ describe('v0.12.1 cash forecast: money on the day it moves', () => {
     expect(before - g.company.cash).toBe(bill.total + checks);
   });
   it('v0.12.1 (C12) crew who joined mid-month are billed from the day they joined, as the month-end run pays them', () => {
+    noMoneyMarket();
     const g = newGame(27);
     const k = monthKey(g.now);
     const a = monthStart(k), b = monthStart(k + 1);

@@ -175,6 +175,8 @@ export type ModalSpec =
   | { kind: 'lease'; aircraftId: string; /** v0.7.2 'early': the early-return tab */ tab?: 'renew' | 'early' }
   /** v0.7.2: sell an owned aircraft (quote, blockers, confirm; cancel an agreed sale). */
   | { kind: 'sell'; aircraftId: string }
+  /** v0.16 finance: borrow against an aircraft, sell and lease it back, sell an invoice, open the credit line (ui/modals/FinanceModals.tsx). */
+  | { kind: 'financing'; what: 'loan' | 'leaseback' | 'factor' | 'credit'; id?: string }
   | { kind: 'approval'; id: ApprovalId }
   | { kind: 'ladderStep'; messageId: string }
   | { kind: 'whatsNew'; /** v0.8 fix pack: every version (Settings), not just the unseen ones. */ all?: boolean }

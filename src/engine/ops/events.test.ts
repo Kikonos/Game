@@ -1,6 +1,7 @@
 // Events, decisions and their resolvers (B3). DESIGN.md §5.8, BUILD-PLAN B3 acceptance.
 
 import { onFlightDep } from './flights';
+import { factorQuote } from '../finance';
 import { describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
 import { flightsOf } from '../core/entities';
@@ -18,7 +19,7 @@ import { isRevenue, stats, turnOf } from './util';
 /** Advances with no auto-pause honoured (open decisions expire into their defaults). */
 const skip = (g: GameState, t: Minute) => advanceTo(g, t, new Set());
 const ev = (g: GameState, type: SimEvent['type'], id: string): SimEvent => ({ t: g.now, seq: 0, type, id, v: 0 });
-const line = (g: GameState, cat: 'penalties' | 'subcharter' | 'interest' | 'otherRevenue') => g.finance.current.lines[cat] ?? 0;
+const line = (g: GameState, cat: 'penalties' | 'subcharter' | 'interest' | 'otherRevenue' | 'bankFees') => g.finance.current.lines[cat] ?? 0;
 const only = (g: GameState, kind: string) => {
   const d = g.decisions.filter((x) => x.kind === kind);
   expect(d).toHaveLength(1);
@@ -355,8 +356,24 @@ describe('late payment and rescue', () => {
     expect(d.defaultOption).toBe('wait');
   });
 
-  it('factoring pays the invoice now less 8%', () => {
+  it('factoring sells the invoice to the bank: the advance less the fee now, the rest when the client pays (v0.16)', () => {
     const { g, r, d } = late();
+    const cash = g.company.cash;
+    const fees = line(g, 'bankFees');
+    const q = factorQuote(g, r.id, true)!;
+    expect(q.why).toBeNull();
+    resolveDecision(g, d.id, 'factor');
+    expect(g.company.cash).toBe(cash + q.advance - q.fee);
+    expect(line(g, 'bankFees')).toBe(fees - q.fee);
+    expect(r.paid).toBeNull();
+    expect(r.factored).toBe(true);
+    expect(r.factor?.recourse).toBe(true);
+  });
+
+  it('factoring falls back to the flat 8 % sale when the bank will not buy the invoice (too long overdue)', () => {
+    const { g, r, d } = late();
+    r.due = g.now - 45 * DAY;
+    expect(factorQuote(g, r.id, true)!.why).toMatch(/overdue/);
     const cash = g.company.cash;
     const interest = line(g, 'interest');
     resolveDecision(g, d.id, 'factor');

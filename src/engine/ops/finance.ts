@@ -20,7 +20,7 @@ import { warRiskAt } from './world';
 import { latePaymentDecision, rescueDecision } from './events';
 import { salesBill } from '../commercial/sales';
 import { complianceBill } from './compliance';
-import { treasuryForecastItems } from '../finance';
+import { paidToUs, settleFactored, treasuryForecastItems } from '../finance';
 import { stats, usd } from './util';
 
 export function newStatement(month: MonthKey, cash: number): MonthStatement {
@@ -177,7 +177,9 @@ export const daysOverdue = (g: Pick<GameState, 'now'>, r: { due: Minute }): numb
 export function onPayment(g: GameState, ev: SimEvent): void {
   const r = g.finance.receivables.find((x) => x.id === ev.id);
   if (!r || r.paid !== null || g.now < r.payAt) return;
-  cashOnly(g, r.amount);
+  // v0.16 a factored invoice: the bank advanced most of it at the sale; only the balance reaches us (engine/finance).
+  cashOnly(g, paidToUs(r));
+  settleFactored(g, r);
   r.paid = g.now;
   const late = Math.floor((g.now - r.due) / DAY);
   if (late > BAL.graceDays) {
@@ -330,7 +332,8 @@ export function forecastItems(g: GameState, days: number): ForecastItem[] {
     let t = r.due;
     if (r.due < g.now) t = Math.max(r.due + mid, g.now + 7 * DAY);
     else if (cl && cl.payReliability < 0.6) t = r.due + mid;
-    add(t, r.amount, 'invoices paid');
+    // v0.16 a factored invoice: only the balance after the bank's advance and fee comes to us (engine/finance).
+    add(t, paidToUs(r), 'invoices paid');
   }
   const k0 = monthKey(g.now);
   for (let k = k0; monthStart(k) <= end; k++) {
