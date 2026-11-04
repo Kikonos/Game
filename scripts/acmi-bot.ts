@@ -442,10 +442,9 @@ function offers(g: GameState, t: Tally): void {
     if (o.archetype === 'hajj' && (o.requirements.body !== 'wide' || !Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide' && a.cabin.total >= 300))) continue;
     // v0.12.1 a world tour holds its aircraft for three weeks by design (priced for the days held).
     // v0.16 a far route is a few overseas rotations weeks apart, paid × 1.25 (scripts/bot/clients.ts): looked at like any long-lead job.
-    // v0.16 balance: with about half the inbound work, a thin series (a weekly tour rotation for months) is taken while
-    // the calendar is under half full over the next month, as a small operator would; passed over only when base work
-    // could still want the aircraft.
-    if (span > 10 && o.estBH / span < 3 && o.archetype !== 'unRotation' && o.archetype !== 'worldTour' && !farRouteOk(o) && committed(g, 30) >= 0.5) {
+    // v0.16 balance: tried taking thin series while the calendar was half empty: signings rose, revenue fell and the
+    // fleet never grew (the series held the aircraft that a base deal would have wanted). The rule stays.
+    if (span > 10 && o.estBH / span < 3 && o.archetype !== 'unRotation' && o.archetype !== 'worldTour' && !farRouteOk(o)) {
       pipeNote(o, 'thin-series');
       continue;
     }
@@ -454,7 +453,9 @@ function offers(g: GameState, t: Tally): void {
     // v0.9 fix: a job with a crew change at a fuel stop is taken up to 90 days out too (the bot never flew one: the
     // §W path was not exercised).
     // v0.12.1 and a world tour (offered 3–6 months ahead).
-    const longLead = o.archetype === 'tourSeries' || o.archetype === 'troopRotation' || o.archetype === 'unRotation' || o.archetype === 'hajj' || o.archetype === 'musicTour' || o.archetype === 'antarctic' || o.archetype === 'deportation' || o.archetype === 'worldTour' || !!o.slip;
+    // v0.16 balance: an offer that came through our own pipeline (a proposal answered yes) is looked at whenever it
+    // starts: we asked for it.
+    const longLead = o.archetype === 'tourSeries' || o.archetype === 'troopRotation' || o.archetype === 'unRotation' || o.archetype === 'hajj' || o.archetype === 'musicTour' || o.archetype === 'antarctic' || o.archetype === 'deportation' || o.archetype === 'worldTour' || !!o.slip || !!o.leadId;
     // v0.8 (§13) an offer rivals are keen on is decided now: up to 90 days out instead of waiting for it to come closer.
     const keen = offerCompetition(g, o.id).level === 'strong';
     if (!isBase(o) && o.start > g.now + (longLead ? (o.archetype === 'hajj' || o.archetype === 'antarctic' || o.archetype === 'worldTour' ? 200 : 90) : keen ? 90 : hungry ? 45 : 30) * DAY) {

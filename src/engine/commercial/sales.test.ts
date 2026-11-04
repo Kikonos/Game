@@ -63,12 +63,31 @@ describe('brokers', () => {
     expect(v.map((b) => b.commission)).toEqual([0.04, 0.05, 0.035, 0.045, 0.03]);
   });
 
-  it('fit and leads a month: 0.35 a week × relation / 100 × fit', () => {
+  it('fit and leads a month: leadsPerWeek × (base + (1 − base) × relation / 100) × fit (v0.16 balance: a quarter from the registration)', () => {
     const g = newGame(1);
     expect(brokerFit(g, 'acs')).toBe(1);
     expect(brokerFit(g, 'acc')).toBeGreaterThanOrEqual(0.4);
-    expect(brokerLeadsPerMonth(g, 'acs', 100)).toBeCloseTo(0.35 * (365 / 12 / 7), 1);
-    expect(brokerLeadsPerMonth(g, 'acs', 20)).toBeCloseTo(0.35 * 0.2 * (365 / 12 / 7), 1);
+    const W = S.leadsPerWeek, B = S.relation.base;
+    expect(brokerLeadsPerMonth(g, 'acs', 100)).toBeCloseTo(W * (365 / 12 / 7), 1);
+    expect(brokerLeadsPerMonth(g, 'acs', 20)).toBeCloseTo(W * (B + (1 - B) * 0.2) * (365 / 12 / 7), 1);
+    expect(brokerLeadsPerMonth(g, 'acs', 0)).toBeGreaterThan(0);
+  });
+
+  it('visits take the relation to the cap at most; deals go beyond (v0.16 balance)', () => {
+    const g = newGame(1);
+    registerBroker(g, 'acs');
+    const rel = g.com!.brokers!.acs!;
+    rel.relation = S.relation.visitCap - 2;
+    expect(visitBroker(g, 'acs').ok).toBe(true);
+    expect(rel.relation).toBe(S.relation.visitCap);
+    rel.lastVisit = g.now - 31 * DAY;
+    const again = visitBroker(g, 'acs');
+    expect(again.ok && /no further/.test(again.msg ?? '')).toBe(true);
+    expect(rel.relation).toBe(S.relation.visitCap);
+    rel.relation = 80;
+    rel.lastVisit = g.now - 31 * DAY;
+    expect(visitBroker(g, 'acs').ok).toBe(true);
+    expect(rel.relation).toBe(80);
   });
 
   it('leads come on busy days, name a client at our level (one above at most) with a job, a value and a message', () => {

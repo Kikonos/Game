@@ -21,6 +21,7 @@ import { typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, pick, weightedPick, type RngHolder } from '../core/rng';
 import { statsV016 } from '../core/stats016';
+import { distance } from '../core/geo';
 import { DAY, dayIndex, fmtDay, fromUTC, monthKey, monthStart, toDate } from '../core/time';
 import type {
   ActionResult, Archetype, BrokerId, BrokerRel, Client, ClientKind, ContractOffer, GameState, HeadCandidate, Lead, LeadSource, LeadStage, Minute, MonthKey, Pitch, SalesRep,
@@ -237,10 +238,14 @@ function pickLeadClient(g: GameState, r: RngHolder, pool: Client[]): Client | un
   });
 }
 
-/** The kinds of work a client asks for, narrowed to what the source sells. Pure. */
+/**
+ * The kinds of work a client asks for, narrowed to what the source sells; the first is the likeliest. Pure.
+ * v0.16 balance: a tour operator's request through a broker or a sales call is a one-off charter first (a rotation
+ * or two) and a season series second: series are negotiated with the airline directly, brokers move groups.
+ */
 export function leadArchetypes(c: Client, focus: Archetype[] = []): Archetype[] {
   const base: Archetype[] = c.kind === 'airline' ? ['seasonBase', 'aogCover', 'capacityLease']
-    : c.kind === 'tourOperator' ? ['tourSeries', 'adhoc']
+    : c.kind === 'tourOperator' ? ['adhoc', 'tourSeries']
     : c.kind === 'government' ? (roleOf(c) === 'defence' ? ['troopRotation', 'repatriation'] : ['repatriation', 'adhoc'])
     : c.kind === 'agency' ? (isGovernment(c) ? ['humanitarian', 'unRotation'] : ['adhoc', 'tourSeries'])
     : c.kind === 'sports' ? ['sports']
@@ -263,8 +268,11 @@ function quoteLead(g: GameState, c: Client, archetypes: Archetype[], key: string
   const lastTitle = c.lastTitle;
   // An urgent draft would post its Inbox line and ask for a pause: isolated, and the line taken back.
   const nMsg = g.messages.length;
+  // The likeliest kind first in three of five leads; otherwise the client's other kinds come first (one roll on the
+  // lead's own stream, so the mix is not all series or all one-offs).
+  const order = archetypes.length > 1 && !chance(sideOf(g, `leadq:${key}:kind`), S.lead.firstKind) ? [...archetypes.slice(1), archetypes[0]] : archetypes;
   try {
-    for (const a of archetypes) {
+    for (const a of order) {
       if (lockOf(g, 'market', { archetype: a })) continue;
       const o = isolatePauses(() => withStream(g, `leadq:${key}:${a}`, () => hooks!.offer(g, a, { client: c.id, window: false, wide: wideOpt(g), paint: false, cabin: false }), true));
       if (!o) continue;
@@ -598,13 +606,23 @@ export interface PitchTarget {
 }
 
 /** Airlines we can pitch for the season open now: at our level or one above, in business, not yet pitched. Pure. */
+/**
+ * v0.16 balance: an airline we could realistically cover: its base within the ferry range of a type we fly (plus a
+ * stop's worth), from our home base. A Lisbon startup does not pitch AirAsia for winter cover. Pure.
+ */
+export function airlineInReach(g: GameState, c: Client): boolean {
+  if (!AIRPORT_BY_CODE[c.base] || !AIRPORT_BY_CODE[g.company.homeBase]) return false;
+  const reach = Object.values(g.fleet).reduce((m, a) => Math.max(m, typeOf(a.typeId).rangeNm * 1.852), 0) * S.pitch.reachX;
+  return reach > 0 && distance(g.company.homeBase, c.base) <= reach;
+}
+
 export function pitchTargets(g: GameState): PitchTarget[] {
   const w = pitchWindow(g);
   if (!w) return [];
   const lvl = playerPrestige(g).level;
   const done = new Set((g.com?.pitches ?? []).filter((p) => p.season === w.season).map((p) => p.clientId));
   return Object.values(g.clients)
-    .filter((c) => c.kind === 'airline' && !c.rivalId && c.ceased === undefined && !!AIRPORT_BY_CODE[c.base] && clientPrestige(c) <= lvl + 1)
+    .filter((c) => c.kind === 'airline' && !c.rivalId && c.ceased === undefined && clientPrestige(c) <= lvl + 1 && airlineInReach(g, c))
     .map((c) => ({ client: c, level: clientPrestige(c), stretch: clientPrestige(c) > lvl, cost: pitchFree(g, c.id) ? 0 : S.pitch.cost, pitched: done.has(c.id) }))
     .sort((a, b) => Number(a.pitched) - Number(b.pitched) || b.client.relation - a.client.relation || a.client.name.localeCompare(b.client.name));
 }
@@ -616,7 +634,7 @@ export function pitchAirline(g: GameState, clientId: string): ActionResult {
   const lock = lockOf(g, 'sales');
   if (lock) return { ok: false, error: lock };
   const t = pitchTargets(g).find((x) => x.client.id === clientId);
-  if (!t) return { ok: false, error: 'Pitch an airline at your level, or one level up' };
+  if (!t) return { ok: false, error: 'Pitch an airline at your level, or one level up, within reach of your fleet' };
   if (t.pitched) return { ok: false, error: `${t.client.name} has our pitch for ${w.label} already` };
   const q = pitchQuota(g);
   if (q.used >= q.max) return { ok: false, error: `Your desk can make ${q.max} pitches a season. A sales manager adds ${S.reps.pitches}.` };
