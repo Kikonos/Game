@@ -43,6 +43,14 @@ function withLine(cash = 3_000_000): GameState {
 }
 
 describe('the credit line', () => {
+  it('is not offered in a scenario where the bank already carries the overdraft (Cash Crunch: noRescue)', () => {
+    const g = newGame();
+    statements(g, 6, 1_000_000);
+    expect(creditOpenWhy(g)).toBeNull();
+    g.scen = { id: 'cashCrunch', end: g.now + 90 * DAY, tally: {} as NonNullable<GameState['scen']>['tally'], scan: g.now, fired: [], noRescue: true };
+    expect(creditOpenWhy(g)).toMatch(/overdraft/);
+    expect(openCreditLine(g).ok).toBe(false);
+  });
   it('needs two closed statements, is sized on revenue and the owned fleet, and costs an arrangement fee', () => {
     const g = newGame();
     expect(creditOpenWhy(g)).toMatch(/statements/);

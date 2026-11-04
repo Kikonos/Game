@@ -188,6 +188,8 @@ export const loanOn = (g: GameState, aircraftId: string): AircraftLoan | undefin
 /** Why the line cannot be opened now (plain), null when it can. Pure. */
 export function creditOpenWhy(g: GameState): string | null {
   if (g.treasury?.credit) return 'A credit line is already open';
+  // v0.15 Scenarios (Cash Crunch): the bank already carries the overdraft and no one else lends; a new line would sidestep the goal.
+  if (g.scen?.noRescue) return 'The bank already carries our overdraft: no new line in this scenario';
   if (g.finance.history.length < F.credit.minStatements) return `The bank wants ${F.credit.minStatements} closed monthly statements first`;
   if (!creditLimitFor(g)) return 'No revenue on the statements yet: the bank sizes the line on revenue';
   if (g.company.cash < 0) return 'The bank will not open a line while cash is below zero';
