@@ -110,6 +110,7 @@ import { botFinance } from './bot/finance';
 import { botSales } from './bot/sales';
 import { botLadder, botLadderReport } from './bot/ladder';
 import { botFarRouteReport, botFarRouteTally, farRouteOk } from './bot/clients';
+import { botSalesFinanceReport } from './bot/report016';
 
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
@@ -1929,6 +1930,8 @@ function offerSource(g: GameState, o: ContractOffer): string {
   if (o.ordinary) return 'market';
   if (com(g).tenders.some((x) => x.result?.offerId === o.id)) return 'tender';
   if (o.repeatOf) return 'repeat';
+  // v0.16 balance: an offer that came through the leads pipeline (a broker, a pitch, a fair, a sales manager).
+  if (o.leadId) return 'pipeline';
   if (/they asked us first/.test(o.blurb)) return 'lead';
   if (o.archetype === 'subcharterIn') return 'subcharter';
   if (o.eventId) return 'event';
@@ -2426,6 +2429,8 @@ for (const e of errors.slice(0, 3)) console.log(e);
 // Soft target (information): the ladder in practice, a widebody signed with a job inside the year.
 console.log(`ladder: widebody signed ${dayOf(tally.wideSigned)}; tour series / troop rotations signed ${tally.longLead}`);
 console.log(botLadderReport(g));
+// v0.16 balance: the sales desk and the bank in numbers (scripts/bot/report016.ts).
+console.log(botSalesFinanceReport(g));
 // v0.12.1 world tours offered, signed and flown (the same crew all the way round?).
 tourReport(g);
 // v0.16 far routes offered and signed (scripts/bot/clients.ts).
