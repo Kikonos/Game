@@ -55,7 +55,8 @@ describe('crew audit', () => {
   it('flies every departure with its crew at the departure airport (seeds 7 and 3, 50 days)', async () => {
     for (const seed of [7, 3]) {
       const out = await audit(seed, 50);
-      expect(Number(out.pop()!.split(' ')[1])).toBeGreaterThan(60);
+      // v0.16 inbound offers halved: 60+ departures in 50 days → 40+ (seed 7 flies 58).
+      expect(Number(out.pop()!.split(' ')[1])).toBeGreaterThan(40);
       expect(out).toEqual([]);
     }
   }, 120_000);
