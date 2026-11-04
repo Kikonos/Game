@@ -41,7 +41,11 @@ export function ScenarioGoals({ v, compact }: { v: ScenarioView; compact?: boole
       </div>
       <div className="bar sc-bar" aria-hidden><i style={{ width: `${Math.round(v.progress * 100)}%` }} /></div>
       {/* v0.15.1 the measure past every threshold with a condition still missed: say so (it read 'Three stars reached'). */}
-      <div className="small muted">{v.next ? `Next: ${v.next.text} for ${'★'.repeat(v.next.stars)}` : v.stars === 3 ? 'Three stars reached. Keep it there.' : 'Three stars on the measure: meet the condition below for them.'}</div>
+      <div className="small muted">
+        {v.next ? `Next: ${v.next.text} for ${'★'.repeat(v.next.stars)}`
+          : v.stars === 3 ? 'Three stars reached. Keep it there.'
+          : `Three stars on the measure. Meet the ${v.musts.filter((m) => !m.ok).length > 1 ? 'conditions' : 'condition'} below to get them.`}
+      </div>
       {v.musts.length > 0 && (
         <ul className="sc-musts">
           {v.musts.map((m) => (
