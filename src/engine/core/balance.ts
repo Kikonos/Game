@@ -322,7 +322,7 @@ export const BAL = {
   },
   /** C4 quiet-week floor: days since the last gap-fit offer, idle-window days, open-offer cap. v0.14 (far fewer
    *  offers): days since the last ordinary market offer, 5 → 8; open offers 5 → 3. */
-  // v0.16 about half the inbound work (the rest is chased: brokers, pitches, leads): 8 → 12 days.
+  // v0.16 about half the inbound work (the rest is chased: brokers, pitches, leads): 8 → 12 days; the floor tops up a longer dry spell only.
   quietFloor: { days: 12, idleDays: 2, maxOpen: 3 },
   /**
    * v0.14 market offers (the player: "way less contracts, especially in the beginning"). Ordinary offers a week by
@@ -334,7 +334,8 @@ export const BAL = {
   marketOffers: {
     // v0.14.1 a Newcomer 1.1 (was 1.5: with the spring season and the quiet-week floor it measured 1.8–2.3 a week, over the
     // promised 1–2).
-    // v0.16 inbound cut about in half (1.1 / 3.1 / 4.6 → 0.55 / 1.6 / 2.3): the rest of the work is chased (UPDATE-0.16.md §C.1).
+    // v0.16 inbound cut about in half (1.1 / 3.1 / 4.6 → 0.55 / 1.6 / 2.3): brokers, pitches, leads and sales managers
+    // bring the rest (UPDATE-0.16.md §C.1).
     perWeek: [0.55, 1.6, 2.3] as [number, number, number], fleetRef: [2, 3, 5] as [number, number, number], fleetSlope: 0.06, fleetClamp: [0.85, 1.3] as [number, number], unfitDrop: 0.85,
     /** Fewer offers, longer work (the player's call: lean on longer jobs, not more offers): the ordinary draw's mix,
      *  its narrowbody season bases (Newcomer, others) in days, and its share fitted to an aircraft's idle window

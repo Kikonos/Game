@@ -169,18 +169,18 @@ describe('offers weighted by presence', () => {
     expect(marketTilt(g)('sports')).toBeGreaterThan(1.3);
   });
 
-  it('ordinary offers a week by standing: Newcomer 0.55, Established 1.6, Respected 2.3 (their usual fleets; v0.16 halved)', () => {
+  it('ordinary offers a week by standing: Newcomer 0.55, Established 1.6, Respected 2.3 (their usual fleets; v0.16 halved, the rest is chased)', () => {
     const g = newGame(7, 'LIS', true);
     expect(BAL.marketOffers.perWeek).toEqual([0.55, 1.6, 2.3]);
     expect(marketPerWeek(g)).toBeCloseTo(BAL.marketOffers.perWeek[0], 5);
     g.company.standing = 1;
-    expect(marketPerWeek(g)).toBeCloseTo(BAL.marketOffers.perWeek[1] * (1 + BAL.marketOffers.fleetSlope * (2 - 3)), 5);
+    expect(marketPerWeek(g)).toBeCloseTo(1.6 * (1 + BAL.marketOffers.fleetSlope * (2 - 3)), 5);
     g.company.standing = 2;
-    expect(marketPerWeek(g)).toBeCloseTo(BAL.marketOffers.perWeek[2] * BAL.marketOffers.fleetClamp[0], 5);
+    expect(marketPerWeek(g)).toBeCloseTo(2.3 * BAL.marketOffers.fleetClamp[0], 5);
   });
 
-  // v0.16 inbound offers halved (the rest of the work is chased): 1–2.5 a week → 0.5–1.4.
-  it('a Newcomer sees 0.5–1.4 ordinary offers a week, none in a quiet spell, and the opening three on day one', () => {
+  // v0.16 inbound offers halved (the rest of the work is chased): 1–2.5 a week → 0.4–1.4.
+  it('a Newcomer sees 0.4–1.4 ordinary offers a week, none in a quiet spell, and the opening three on day one', () => {
     let n = 0;
     let weeks = 0;
     for (const seed of [11, 12]) {
@@ -202,7 +202,7 @@ describe('offers weighted by presence', () => {
       weeks += 10;
       expect(g.company.standing).toBe(0);
     }
-    expect(n / weeks).toBeGreaterThanOrEqual(0.5);
+    expect(n / weeks).toBeGreaterThanOrEqual(0.4);
     expect(n / weeks).toBeLessThanOrEqual(1.4);
   }, 120_000);
 

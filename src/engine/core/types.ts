@@ -764,9 +764,10 @@ export interface Contract {
   cleanHit?: number;
   /** v0.9 round 4: the analyst's margin estimate at signing (shown %, the planner's own %); judged when the contract ends. */
   analyst?: { name: string; pct: number; est: number };
-  /** v0.16 sales: the broker that brought the job (its commission rate) and the lead it closed. */
+  /** v0.16 sales: the broker that brought the job (its commission rate) and the lead it closed; the broker's relation credited (once, when it closed). */
   brokerId?: BrokerId;
   leadId?: string;
+  brokerDone?: true;
   /** v0.16 clients: visibility already credited for this contract (completeContract credits once); signed off a stretch offer. */
   visibilityDone?: true;
   stretch?: true;
@@ -2009,6 +2010,8 @@ export interface BrokerRel {
   deals: number;
   lastLead?: Minute;
   lastDeal?: Minute;
+  /** The last day at their office (a visit: +5 relation, once a month). */
+  lastVisit?: Minute;
 }
 
 export type LeadStage = 'lead' | 'proposal' | 'negotiation' | 'signed' | 'cold' | 'lost';
@@ -2034,6 +2037,10 @@ export interface Lead {
   contractId?: string;
   /** Plain line: 'From Air Charter Service: a summer base for Condor'. */
   why?: string;
+  /** The 'going cold' card was posted (once). */
+  warned?: true;
+  /** What the lead is about, in words ('Summer base at Frankfurt'). */
+  title?: string;
 }
 
 export interface Pitch {
@@ -2045,6 +2052,10 @@ export interface Pitch {
   replyAt: Minute;
   result?: 'maybe' | 'offer' | 'no';
   leadId?: string;
+  /** 'offer': when the direct season-base offer comes (60–120 days before the season). */
+  offerAt?: Minute;
+  /** Free: met at a fair this season. */
+  free?: true;
 }
 
 export interface SalesRep {

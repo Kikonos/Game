@@ -15,6 +15,7 @@ import { hashUnit } from '../core/util';
 import { DAY, fmtDuration, fmtTime, yearOf } from '../core/time';
 import type { Aircraft, Flight, GameState, RampCheck, RampProgramme } from '../core/types';
 import { OPS_LIVE, optionalFactor } from './director';
+import { complianceFactor, noteRampSaved } from './compliance';
 import { countOps, lineMx, opsState } from './disrupt';
 import { bumpReliable, usd } from './util';
 
@@ -60,7 +61,8 @@ export function rollRamp(g: GameState, f: Flight, ac: Aircraft): RampCheck | nul
 /** What an inspection of this aircraft would find with this roll key (findings, class of action, time, cost). Pure. */
 export function rampFindings(g: GameState, ac: Aircraft, key: string): Pick<RampCheck, 'cats' | 'items' | 'action' | 'fixMin' | 'cost'> {
   const age = Math.max(0, yearOf(g.now) - ac.builtYear);
-  const m = OPERATOR_F * (1 + age / 20) * (1 + 2.5 * ac.maint.deferred);
+  // v0.16 a Compliance Monitoring Manager at work: fewer findings (ops/compliance.ts; 1 without).
+  const m = OPERATOR_F * (1 + age / 20) * (1 + 2.5 * ac.maint.deferred) * complianceFactor(g);
   const cats: [number, number, number] = [poisson(g, `${key}:1`, RAMP_MEAN.cat1 * m), poisson(g, `${key}:2`, RAMP_MEAN.cat2 * m), poisson(g, `${key}:3`, RAMP_MEAN.cat3 * m * 0.8)];
   const items: [1 | 2 | 3, string][] = [];
   for (const cat of [3, 2, 1] as const) {
@@ -77,6 +79,8 @@ export function rampFindings(g: GameState, ac: Aircraft, key: string): Pick<Ramp
 /** An inspection now (dev: forced). */
 export function inspect(g: GameState, ac: Aircraft, at: string, prog: RampProgramme = programmeAt(g, at), key = `${ac.id}:${g.now}`): RampCheck {
   const { cats, items, action, fixMin, cost } = rampFindings(g, ac, key);
+  // v0.16 what the manager saved us, in expected findings (stats).
+  noteRampSaved(g, (RAMP_MEAN.cat1 + RAMP_MEAN.cat2 + RAMP_MEAN.cat3 * 0.8) * OPERATOR_F * (1 + Math.max(0, yearOf(g.now) - ac.builtYear) / 20) * (1 + 2.5 * ac.maint.deferred));
   const r: RampCheck = { id: nextId(g, 'rc'), t: g.now, at, aircraftId: ac.id, reg: ac.reg, prog, cats, items, action, fixMin, cost };
   const st = opsState(g);
   st.ramp.push(r);

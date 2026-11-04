@@ -157,6 +157,8 @@ describe('tickets as crew deadheads', () => {
       rfps += (t.leads ?? []).filter((l) => l.kind === 'rfp').length;
       for (const l of t.leads ?? []) {
         if (l.kind === 'rfp') expect(com(g).tenders.find((x) => x.id === l.tenderId)?.invited).toBe(true);
+        // v0.16 a fair's lead waits in the pipeline for our proposal (commercial/sales.ts).
+        else if (l.kind === 'lead') expect(com(g).leads!.find((x) => x.id === l.leadId)?.stage).toBe('lead');
         else expect(g.offers[l.offerId!]?.firstRefusal).toBe(true);
       }
     }

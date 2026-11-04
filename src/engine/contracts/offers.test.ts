@@ -259,7 +259,7 @@ describe('offer generation', () => {
 });
 
 describe('offer flow (acceptance: 30/60 days from a new game)', () => {
-  it('12–25 offers in 30 days, ≥ 70% fit the A320s, season bases, urgent and gap-fit offers turn up', () => {
+  it('6–25 offers in 30 days (v0.16: inbound halved, the rest is chased), ≥ 70% fit the A320s, season bases, urgent and gap-fit offers turn up', () => {
     let total = 0;
     let fit = 0;
     // v0.7: seeds 11 and 13 (seed 12 now lands at 0.39 gap-fit share by chance; seeds 11–16 average 0.50).
@@ -437,6 +437,7 @@ describe('quiet-week floor', () => {
   it('spawns one gap-fit offer when no market offer came for 12 days (at most one per 12 days), not with 3 offers open (v0.7 §C4, v0.14, v0.16)', () => {
     const g = newGame(3);
     for (const o of Object.values(g.offers)) o.status = 'expired';
+    expect(BAL.quietFloor.days).toBe(12);
     g.stats.lastGapOfferAt = g.now - 13 * DAY;
     g.stats.lastMarketOfferAt = g.now - 13 * DAY;
     const o = quietWeekOffer(g);
