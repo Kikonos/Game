@@ -607,3 +607,23 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
   - Paint jobs, cabin refits paid by the airline, and mixed crew (these exist: paintTerms.ts, refits, v0.8 mixed crew) should feature in the new clients' offers.
   - Fuel: the game already follows the real rule. ACMI: the client pays fuel; only unbilled empty positioning is ours. Full charter: we pay fuel, it's built into the price, with a fuel clause and a deposit. v0.16: say this plainly on every offer card ("Client pays fuel" / "Fuel ours, included in price · fuel clause").
 - Release plan changed (player, 2026-11-04): no separate v0.15.1 release. The player won't play until all the work is finished. Build v0.16 on top of the merged v0.15.1, then make ONE release to main. Its single What's new entry (v0.16) covers both the v0.15.1 fixes and v0.16. Still do the "contribution" → "profit" rename.
+
+## STATE 2026-11-04 (save point; the player warned usage is near its limit)
+- v0.15.1 is DONE, merged and reviewed on acmi 6d2845a (origin/acmi). Not released.
+  - Lanes: fdp, fix-crew, fix-ops, fix-money, fix-ui, fix-perf, music2. Merge and review reports: /home/user/work/v0151/STATE.txt and the workflow wf_ec782c4e-b2e journal.
+  - Check results: bots 1–7 match base except seed 1 (market divergence); vitest 231 files / 2059 tests; saves and scenarios 0 errors.
+  - The What's new entry is already titled 'v0.16 Finance & Sales' (CURRENT v0.16).
+- v0.16 build RUNNING: workflow wf_da7f0d70-c6e, script /root/.claude/projects/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/workflows/scripts/v016-finance-sales-wf_da7f0d70-c6e.js.
+  - Steps: design (docs/UPDATE-0.16.md + skeleton fast-forwarded to acmi) → lanes v016-finance / v016-ladder / v016-sales / v016-clients → merge → balance (v016-balance, base worktree /home/user/wt/base16) → review (review16).
+  - Each agent keeps /home/user/work/v016/<lane>/STATE.txt and pushes often.
+  - After a container restart, resume: Workflow({scriptPath: that script, resumeFromRunId: 'wf_da7f0d70-c6e'}).
+  - In a NEW session where the run can't be resumed: read docs/UPDATE-0.16.md on acmi, check origin/v016-* branches and the STATE files, then continue the remaining steps by hand.
+- RELEASE when v0.16 has passed review (the player authorised one combined release; they won't play until then):
+  1. In /home/user/Game: git fetch; git merge -X theirs origin/acmi.
+  2. Check the diff against origin/acmi is empty, excluding play/ and .claude/settings.json.
+  3. npm install (a new dependency may be needed); rm -rf dist; npx vite build; rm -rf play; cp -r dist play.
+  4. Commit "Release v0.16 Finance & Sales: …" with the trailer.
+  5. Push claude/contrail-airline-game and HEAD:main.
+  6. Wait for the live index-*.js; run /home/user/work/live/live.cjs and v12check.cjs (set the version regex to v0.16).
+  7. Tell the player to export their save and reopen the home-screen app.
+- Open items to tell the player: the old red BLU2032 inbox line stays in history; seed 1 margin divergence; Settings "Now playing" wording while muted.
