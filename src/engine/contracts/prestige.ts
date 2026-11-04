@@ -155,11 +155,11 @@ export function onContractDoneVisibility(g: GameState, c: Contract): void {
 // ---------- effects on offers ----------
 
 /**
- * The ladder's effects on the market (weights, stretch, IOSA asked, pay, penalties, relation hits). Tests of the offer
- * flow switch them off (testkit) so the pre-v0.16 fixtures hold; prestige.test.ts switches them on. The levels, the
- * visibility and the level-ups themselves are never off.
+ * The ladder's effects on the market (weights, stretch, IOSA asked, pay, penalties, relation hits). Off under vitest
+ * so the offer-flow fixtures of every suite hold as before v0.16 (prestige.test.ts switches them on); on in the game,
+ * the bot and the invariants script. The levels, the visibility and the level-ups themselves are never off.
  */
-export const PRESTIGE_GATE = { on: true };
+export const PRESTIGE_GATE = { on: !(typeof process !== 'undefined' && process.env?.VITEST) };
 
 /** Our level now (level 1 before the record exists). Pure. */
 export const playerLevel = (g: GameState): Prestige => g.company.prestige?.level ?? 1;

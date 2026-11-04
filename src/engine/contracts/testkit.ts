@@ -10,15 +10,14 @@ import { generateOffer, type OfferOpts } from './offers';
 import { cabinFrom } from '../newGame';
 import { ACMI_TYPES } from '../../data/acmiTypes';
 import { nextId } from '../core/entities';
-import { PRESTIGE_GATE } from './prestige';
 
 /** A new game. v0.8: as an Established company (the v0.7.x offer flow these tests check); `newcomer` keeps it new. */
 export const newGame = (seed = 7, base = 'LIS', newcomer = false): GameState => {
   const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base, seed });
   if (!newcomer) g.company.standing = 1;
   // v0.16 the prestige ladder's market effects (client weights by level, stretch offers, IOSA asked, pay and penalties by
-  // level) are off in the offer-flow tests so their fixtures hold; prestige.test.ts switches them on.
-  PRESTIGE_GATE.on = false;
+  // level) are off under vitest (contracts/prestige.ts PRESTIGE_GATE) so the offer-flow fixtures hold; prestige.test.ts
+  // switches them on.
   return g;
 };
 
