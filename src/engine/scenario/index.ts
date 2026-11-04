@@ -342,7 +342,9 @@ export function scenarioView(g: GameState): ScenarioView | null {
   if (!d || !g.scen) return null;
   const m = METRICS[d.metric];
   const value = m.value(g);
-  const stars = starsFor(d, value);
+  // v0.15.1 the stars the run would get now: none while a condition is missed (Crew Crisis opened with ★★★ in the top
+  // bar at 100 % of no legs flown, 120 legs still to fly). The thresholds and the bar below stay on the measure.
+  const stars = (d.must ?? []).every((x) => mustOk(g, x)) ? starsFor(d, value) : 0;
   const nextI = d.stars.findIndex((x) => value < x);
   const next = nextI < 0 ? null : { stars: (nextI + 1) as 1 | 2 | 3, target: d.stars[nextI], text: fmtValue(m.unit, d.stars[nextI]) };
   const lo = nextI <= 0 ? Math.min(0, value) : d.stars[nextI - 1];
