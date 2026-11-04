@@ -82,6 +82,17 @@ describe('the offer draw by level', () => {
     expect(stretchOpen(g)).toBe(false);
     expect(prestigeOfferWeight(g, up)).toBe(0);
     expect(g.stats.v016?.stretchOffers).toBe(made + 1);
+    // Asked for by name inside the window (a lead, a tender): the offer comes, unlabelled; a rival hiring us is never a stretch.
+    const d2 = { client: up, req: { approvals: [] } };
+    markStretch(g, d2 as never);
+    expect((d2 as { stretch?: true }).stretch).toBeUndefined();
+    g.now += P.stretchDays * DAY;
+    const rival = { ...up, id: 'rv', rivalId: 'r1' };
+    g.clients.rv = rival;
+    const d3 = { client: rival, req: { approvals: [] } };
+    markStretch(g, d3 as never);
+    expect((d3 as { stretch?: true }).stretch).toBeUndefined();
+    g.now -= P.stretchDays * DAY;
     g.now += P.stretchDays * DAY;
     expect(stretchOpen(g)).toBe(true);
     expect(prestigeOfferWeight(g, up)).toBe(P.weight['1']);

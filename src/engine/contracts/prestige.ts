@@ -190,7 +190,8 @@ export function prestigeOfferWeight(g: GameState, c: Client): number {
 
 /**
  * A draft's prestige marks (offers.ts generateOffer, before finalize): a client one level above ours (not yet flown
- * for) makes it a stretch offer; a national carrier, agency, major or government (level 3–4) we have not flown for
+ * for) makes it a stretch offer while the month's stretch window is open, whichever way it was asked (a rival hiring
+ * us is a peer, never a stretch); a national carrier, agency, major or government (level 3–4) we have not flown for
  * asks for IOSA registration: a major wants it held, a level-3 client is content with it filed (feasibility then
  * says what is missing). Clients we have flown for ask nothing new.
  */
@@ -198,7 +199,7 @@ export function markStretch(g: GameState, d: { client: Client; stretch?: true; i
   const cur = g.clients[d.client.id] ?? d.client;
   if (!PRESTIGE_GATE.on || cur.jobs) return;
   const lv = clientPrestige(cur);
-  if (lv === playerLevel(g) + 1) d.stretch = true;
+  if (lv === playerLevel(g) + 1 && !cur.rivalId && stretchOpen(g)) d.stretch = true;
   if (lv >= 3 && d.req && !d.req.approvals.includes('iosa') && !g.company.approvals.includes('iosa')) {
     const filed = g.company.pendingApprovals.some((p) => p.id === 'iosa');
     if (lv === 4 || !filed) {
