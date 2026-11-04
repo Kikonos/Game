@@ -323,9 +323,8 @@ export const BAL = {
   /** C4 quiet-week floor: days since the last gap-fit offer, idle-window days, open-offer cap. v0.14 (far fewer
    *  offers): days since the last ordinary market offer, 5 → 8; open offers 5 → 3. */
   // v0.16 about half the inbound work (the rest is chased: brokers, pitches, leads): 8 → 12 days; the floor tops up a longer dry spell only.
-  // v0.16 balance: 12 → 10 (bots at the halved pace ran −4…−10 % margins in year one with every chase in use; a dry spell
-  // of ten days ends with one offer that fits an idle aircraft: prices stay as they are).
-  quietFloor: { days: 10, idleDays: 2, maxOpen: 3 },
+  // v0.16 balance: tried 10 (seeds 1–5 moved −9…+4 points each way: chaotic divergence, not the floor); kept at 12.
+  quietFloor: { days: 12, idleDays: 2, maxOpen: 3 },
   /**
    * v0.14 market offers (the player: "way less contracts, especially in the beginning"). Ordinary offers a week by
    * standing (Newcomer, Established, Respected) for a fleet of `fleetRef` aircraft; each aircraft more or fewer moves
