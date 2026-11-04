@@ -294,8 +294,8 @@ Shared files nobody edits beyond its own marked block: `core/types.ts` (a lane m
 ## 7. What's new (assembled at the merge from each lane's lines)
 
 - Finance: "Finance has a bank now: a credit line with covenants, loans on your own aircraft, sale and leaseback with the big lessors, invoice factoring and interest on spare cash. Ask a deposit on a charter and see what it does to the client's answer."
-- Clients: "Every client has a level, from brochure work to the majors and governments. Your airline climbs by flying for them: visibility, a clean record and IOSA open the next level. One stretch offer a month shows what is coming."
+- Clients: "Every client has a level, from brochure work to the majors and governments. Your airline climbs by flying for them: visibility, a clean record and IOSA open the next level. Offers come at your level (Contracts shows it), with one stretch offer a month that shows what is coming. National carriers and the majors ask for IOSA registration before a first job; they pay more and penalise harder. The Prestige card on Company › Overview says what the next level still needs."
 - Sales: "About half the work now comes to you; the rest you chase: brokers, pre-season pitches, a leads pipeline and regional sales managers."
-- Filter: "Contracts › Filter: tell your sales team and the brokers what not to bring you. Hidden offers don't chime."
+- Filter: "Contracts › Filter: tell your sales team and the brokers what not to bring you: client kinds, a minimum client level, a minimum rate per block hour or profit, only some aircraft families or markets. Hidden offers don't chime or write to you; they wait under one row on the Market tab until they lapse. Humanitarian work, won tenders, worked leads and repeat business always come through."
 - Compliance: "A Compliance Monitoring Manager is a real hire in Team: fewer ramp and audit findings."
 - Fuel: "Every offer says who pays the fuel."

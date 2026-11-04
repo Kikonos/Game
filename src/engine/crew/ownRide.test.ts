@@ -205,7 +205,8 @@ describe('v0.12.1 crew riding our own passenger flights', () => {
   });
 
   it("v0.12.1 Crew Control's Fly someone in seats the crew its list shows (a day off between a tour's duties is no bar)", () => {
-    const { g } = dublin();
+    // v0.16 (inbound offers halved) seed 21's roster has nobody free elsewhere on the day; seed 22 has the same shape with spare crew.
+    const { g } = dublin(22);
     // A first officer taken off a tour starting days ahead.
     const p = Object.values(g.pairings).filter((q) => q.tour && q.status === 'planned' && q.start > g.now + DAY && q.slots.some((s) => s.crewId && s.role === 'FO')).sort((a, b) => a.start - b.start)[0];
     expect(p).toBeDefined();
