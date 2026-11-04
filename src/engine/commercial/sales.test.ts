@@ -106,7 +106,7 @@ describe('brokers', () => {
     expect(o.brokerId).toBe('acs');
     expect(o.broker).toBe('Air Charter Service');
     const res = acceptOffer(g, o.id, [ac.id]);
-    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error(res.error);
     const c = g.contracts[res.data!.contractId];
     expect(c.brokerId).toBe('acs');
     c.status = 'completed';

@@ -16,6 +16,7 @@ import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
+import { isolatePauses } from '../core/pause';
 import { typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, pick, weightedPick, type RngHolder } from '../core/rng';
@@ -250,10 +251,12 @@ function quoteLead(g: GameState, c: Client, archetypes: Archetype[], key: string
   const stretchAt = p?.stretchAt;
   const stretched = statsV016(g).stretchOffers;
   const lastTitle = c.lastTitle;
+  // An urgent draft would post its Inbox line and ask for a pause: isolated, and the line taken back.
+  const nMsg = g.messages.length;
   try {
     for (const a of archetypes) {
       if (lockOf(g, 'market', { archetype: a })) continue;
-      const o = withStream(g, `leadq:${key}:${a}`, () => hooks!.offer(g, a, { client: c.id, window: false, wide: wideOpt(g), paint: false, cabin: false }), true);
+      const o = isolatePauses(() => withStream(g, `leadq:${key}:${a}`, () => hooks!.offer(g, a, { client: c.id, window: false, wide: wideOpt(g), paint: false, cabin: false }), true));
       if (!o) continue;
       delete g.offers[o.id];
       if (o.clientId !== c.id) continue;
@@ -261,6 +264,7 @@ function quoteLead(g: GameState, c: Client, archetypes: Archetype[], key: string
     }
     return null;
   } finally {
+    if (g.messages.length > nMsg) g.messages.splice(0, g.messages.length - nMsg);
     if (p) {
       if (stretchAt === undefined) delete p.stretchAt;
       else p.stretchAt = stretchAt;

@@ -201,6 +201,8 @@ describe('charter non-performance', () => {
     const d = g.now + 25 * DAY;
     const o = legsOffer(g, [['LIS', 'PMI', d], ['PMI', 'LIS', d + DAY], ['LIS', 'PMI', d + 5 * DAY], ['PMI', 'LIS', d + 6 * DAY], ['LIS', 'PMI', d + 10 * DAY], ['PMI', 'LIS', d + 11 * DAY]]);
     o.broker = undefined;
+    // v0.16 a broker named on an ordinary offer carries its id too (its own rate): none here, the sum is the price.
+    delete o.brokerId;
     o.product = { kind: 'charter', price: 100_000, depositPct: 0.3, balanceDaysBefore: 7, fuelEscalation: false };
     o.payment = { basis: 'onCompletion', dueDays: 7, depositPct: 0.3 };
     const res = acceptOffer(g, o.id, [owned(g).id]);

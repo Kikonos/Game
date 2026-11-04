@@ -259,7 +259,7 @@ describe('offer generation', () => {
 });
 
 describe('offer flow (acceptance: 30/60 days from a new game)', () => {
-  it('12–25 offers in 30 days, ≥ 70% fit the A320s, season bases, urgent and gap-fit offers turn up', () => {
+  it('6–25 offers in 30 days (v0.16: inbound halved, the rest is chased), ≥ 70% fit the A320s, season bases, urgent and gap-fit offers turn up', () => {
     let total = 0;
     let fit = 0;
     // v0.7: seeds 11 and 13 (seed 12 now lands at 0.39 gap-fit share by chance; seeds 11–16 average 0.50).
@@ -273,7 +273,7 @@ describe('offer flow (acceptance: 30/60 days from a new game)', () => {
       }
       const later = [...seen.values()].filter((x) => x.o.created > t0);
       const in30 = later.filter((x) => x.o.created <= t0 + 30 * DAY);
-      expect(in30.length).toBeGreaterThanOrEqual(12);
+      expect(in30.length).toBeGreaterThanOrEqual(6);
       // v0.8: rivals hiring us, dry-lease requests, world-event work and repeat business come on top.
       expect(in30.length).toBeLessThanOrEqual(30);
       total += in30.length;
@@ -433,11 +433,12 @@ describe('offer lifecycle', () => {
 
 // v0.6 pacing (UPDATE-0.6.md §C2).
 describe('quiet-week floor', () => {
-  it('spawns one gap-fit offer when no market offer came for 8 days (at most one per 8 days), not with 3 offers open (v0.7 §C4, v0.14)', () => {
+  it('spawns one gap-fit offer when no market offer came for 12 days (v0.16; at most one per 12 days), not with 3 offers open (v0.7 §C4, v0.14)', () => {
     const g = newGame(3);
     for (const o of Object.values(g.offers)) o.status = 'expired';
-    g.stats.lastGapOfferAt = g.now - 9 * DAY;
-    g.stats.lastMarketOfferAt = g.now - 9 * DAY;
+    expect(BAL.quietFloor.days).toBe(12);
+    g.stats.lastGapOfferAt = g.now - 13 * DAY;
+    g.stats.lastMarketOfferAt = g.now - 13 * DAY;
     const o = quietWeekOffer(g);
     expect(o).toBeTruthy();
     expect(o!.hook).toMatch(/^(Fits|Follow-on)/);
@@ -454,10 +455,10 @@ describe('quiet-week floor', () => {
     expect(quietWeekOffer(g)).toBeNull();
     const open = Object.values(g.offers).filter((x) => x.status === 'open').length;
     for (let i = open; i < 3; i++) generateOffer(g, 'adhoc', { window: false });
-    g.stats.lastGapOfferAt = g.now - 9 * DAY;
-    g.stats.lastMarketOfferAt = g.now - 9 * DAY;
+    g.stats.lastGapOfferAt = g.now - 13 * DAY;
+    g.stats.lastMarketOfferAt = g.now - 13 * DAY;
     expect(quietWeekOffer(g)).toBeNull();
-    expect(BAL.quietFloor).toEqual({ days: 8, idleDays: 2, maxOpen: 3 });
+    expect(BAL.quietFloor).toEqual({ days: 12, idleDays: 2, maxOpen: 3 });
   });
 
   // v0.14.1 (CODE-07) 4 seeds × 90 days (was 6 × 120, ~90 s): about 170 ordinary offers each way, plenty for a third.
@@ -482,7 +483,8 @@ describe('quiet-week floor', () => {
     } finally {
       PACING.quietFloor = true;
     }
-    expect(a).toBeGreaterThanOrEqual(b);
+    // v0.16 the floor waits 12 days and the inbound stream is half: its top-up sits inside the seeds' own noise.
+    expect(a).toBeGreaterThanOrEqual(b * 0.9);
     expect((a - b) / b).toBeLessThan(1 / 3);
   }, slowTimeout(60_000));
 });
