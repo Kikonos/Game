@@ -217,16 +217,18 @@ export interface TenderClientSeed {
   country: string;
   base: string;
   family: 'A320' | 'B737';
+  /** v0.16 prestige level (UPDATE-0.16.md §B.1): low-cost 1, leisure 2. */
+  prestige?: 1 | 2 | 3 | 4;
 }
 
 export const TENDER_CLIENT_SEEDS: TenderClientSeed[] = [
-  { name: 'Ryanair', kind: 'airline', country: 'IE', base: 'DUB', family: 'B737' },
-  { name: 'Wizz Air', kind: 'airline', country: 'HU', base: 'BUD', family: 'A320' },
-  { name: 'easyJet', kind: 'airline', country: 'GB', base: 'LGW', family: 'A320' },
-  { name: 'Sunclass Airlines', kind: 'airline', country: 'DK', base: 'CPH', family: 'A320' },
-  { name: 'SunExpress', kind: 'airline', country: 'TR', base: 'AYT', family: 'B737' },
-  { name: 'TUI Airways', kind: 'airline', country: 'GB', base: 'MAN', family: 'B737' },
-  { name: 'flyadeal', kind: 'airline', country: 'SA', base: 'JED', family: 'A320' },
+  { name: 'Ryanair', kind: 'airline', country: 'IE', base: 'DUB', family: 'B737', prestige: 1 },
+  { name: 'Wizz Air', kind: 'airline', country: 'HU', base: 'BUD', family: 'A320', prestige: 1 },
+  { name: 'easyJet', kind: 'airline', country: 'GB', base: 'LGW', family: 'A320', prestige: 1 },
+  { name: 'Sunclass Airlines', kind: 'airline', country: 'DK', base: 'CPH', family: 'A320', prestige: 2 },
+  { name: 'SunExpress', kind: 'airline', country: 'TR', base: 'AYT', family: 'B737', prestige: 2 },
+  { name: 'TUI Airways', kind: 'airline', country: 'GB', base: 'MAN', family: 'B737', prestige: 2 },
+  { name: 'flyadeal', kind: 'airline', country: 'SA', base: 'JED', family: 'A320', prestige: 1 },
 ];
 
 /**

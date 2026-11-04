@@ -136,7 +136,7 @@ function ClashList({ g, o, r, trips, picked, onPick, others, back }: { g: GameSt
         </div>
       ))}
       {checks.map((m) => (
-        <div key={m.id} className="small muted v12-clash-prog"><b>{m.kind === 'AOG' ? 'AOG' : `${m.kind}-check`} at {m.at}</b> {fmtDay(m.start)}–{fmtDay(m.end)}: move it on the Schedule (hold and drag it along its row).</div>
+        <div key={m.id} className="small muted v12-clash-prog"><b>{m.kind === 'AOG' ? 'AOG' : m.kind === 'line' ? 'Inspection' : `${m.kind}-check`} at {m.at}</b> {fmtDay(m.start)}–{fmtDay(m.end)}: move it on the Schedule (hold and drag it along its row).</div>
       ))}
     </div>
   );

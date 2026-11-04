@@ -18,6 +18,9 @@ import { warRiskCost } from '../contracts/missionChecks';
 import { legCostEstimate } from './flights';
 import { warRiskAt } from './world';
 import { latePaymentDecision, rescueDecision } from './events';
+import { salesBill } from '../commercial/sales';
+import { complianceBill } from './compliance';
+import { paidToUs, settleFactored, treasuryForecastItems } from '../finance';
 import { stats, usd } from './util';
 
 export function newStatement(month: MonthKey, cash: number): MonthStatement {
@@ -174,7 +177,9 @@ export const daysOverdue = (g: Pick<GameState, 'now'>, r: { due: Minute }): numb
 export function onPayment(g: GameState, ev: SimEvent): void {
   const r = g.finance.receivables.find((x) => x.id === ev.id);
   if (!r || r.paid !== null || g.now < r.payAt) return;
-  cashOnly(g, r.amount);
+  // v0.16 a factored invoice: the bank advanced most of it at the sale; only the balance reaches us (engine/finance).
+  cashOnly(g, paidToUs(r));
+  settleFactored(g, r);
   r.paid = g.now;
   const late = Math.floor((g.now - r.due) / DAY);
   if (late > BAL.graceDays) {
@@ -273,7 +278,7 @@ export function headsBill(g: GameState, k: MonthKey = monthKey(g.now)): number {
 }
 
 /** v0.12.1 what the month-end run of month k takes out: rent, insurance, overhead, crew and heads' pay. Pure. */
-export interface MonthEndBill { rent: number; insurance: number; overhead: number; salaries: number; heads: number; total: number }
+export interface MonthEndBill { rent: number; insurance: number; overhead: number; salaries: number; heads: number; /** v0.16 the sales managers and the compliance manager (paid under salaries). */ sales: number; compliance: number; total: number }
 
 /**
  * v0.12.1 the month-end bill of month k, the one figure the forecast, the cash card and the top bar read: fixed
@@ -296,7 +301,10 @@ export function monthEndBill(g: GameState, k: MonthKey): MonthEndBill {
   }
   const salaries = Math.round(pay * (1 + BAL.onCosts));
   const heads = headsBill(g, k);
-  return { ...fc, salaries, heads, total: fc.rent + fc.insurance + fc.overhead + salaries + heads };
+  // v0.16 the sales managers (commercial/sales.ts) and the compliance manager (ops/compliance.ts).
+  const sales = salesBill(g, k);
+  const compliance = complianceBill(g, k);
+  return { ...fc, salaries, heads, sales, compliance, total: fc.rent + fc.insurance + fc.overhead + salaries + heads + sales + compliance };
 }
 
 /** v0.12.1 one cash movement of the forecast, kept with what it is (the cash card names the biggest). */
@@ -324,7 +332,8 @@ export function forecastItems(g: GameState, days: number): ForecastItem[] {
     let t = r.due;
     if (r.due < g.now) t = Math.max(r.due + mid, g.now + 7 * DAY);
     else if (cl && cl.payReliability < 0.6) t = r.due + mid;
-    add(t, r.amount, 'invoices paid');
+    // v0.16 a factored invoice: only the balance after the bank's advance and fee comes to us (engine/finance).
+    add(t, paidToUs(r), 'invoices paid');
   }
   const k0 = monthKey(g.now);
   for (let k = k0; monthStart(k) <= end; k++) {
@@ -344,8 +353,16 @@ export function forecastItems(g: GameState, days: number): ForecastItem[] {
     // v0.14.1 (M7) as accept.ts bill() invoices them: due in 7 days, a government's on its own terms (arrears).
     const due = c.payment.basis === 'arrears' ? c.payment.dueDays : 7;
     for (const it of c.instalments ?? []) add(it.at + due * DAY, it.amount, 'charter balances');
+    // v0.15.1 a charter paid in arrears (governments, the UN) is invoiced when the job completes, on the client's
+    // terms: the price less any deposit already asked for. The forecast saw no money at all from government work.
+    if (c.product.kind === 'charter' && c.payment.basis === 'arrears' && !c.dry) {
+      const left = Math.round(c.product.price * (1 - brokerCut(c)) - (c.invoiced ?? 0));
+      if (left > 0) add(Math.max(c.end, g.now) + due * DAY, left, 'charter balances');
+    }
     if (c.dry && c.product.kind === 'dry') dryLeaseItems(g, c, add);
   }
+  // v0.16 financing: loan instalments, credit repayments, factored balances (engine/finance).
+  for (const x of treasuryForecastItems(g, days)) add(x.t, x.amount, x.what);
   // v0.14.1 (M2) an administrator's payout on our claim (commercial/crises.ts), on its date.
   for (const x of g.com?.crises ?? []) if (x.claim && !x.claim.paid && x.claim.amount > 0) add(x.claim.payAt, x.claim.amount, "administrators' claims");
   for (const m of Object.values(g.maintenance)) {
@@ -359,7 +376,7 @@ export function forecastItems(g: GameState, days: number): ForecastItem[] {
       if (m.status === 'planned') add(m.start, -((ac?.returning?.quote ?? m.cost) + (ac?.returning?.earlyFee ?? 0)), `${reg}'s lease return on ${fmtDay(m.start)}`);
       const dep = ac?.ownership.kind === 'dryLeaseIn' ? ac.ownership.deposit ?? 0 : 0;
       add(m.end, dep, 'lease deposit back');
-    } else add(m.end, -m.cost, `${reg}'s ${m.kind === 'AOG' ? 'repair' : m.kind === 'paint' ? 'paint' : `${m.kind}-check`} on ${fmtDay(m.end)}`);
+    } else add(m.end, -m.cost, `${reg}'s ${m.kind === 'AOG' ? 'repair' : m.kind === 'paint' ? 'paint' : m.kind === 'line' ? 'inspection' : `${m.kind}-check`} on ${fmtDay(m.end)}`);
   }
   for (const f of Object.values(g.flights)) {
     if (f.status !== 'scheduled' || !f.aircraftId || f.std > end) continue;
@@ -392,9 +409,14 @@ export function forecastItems(g: GameState, days: number): ForecastItem[] {
  * 1 Mar. Was by 24 h from now, stamped with the bucket's start: 'Cash runs out on 29 Feb' for the 1 Mar bill.
  */
 export function cashForecast(g: GameState, days: number): { t: number; cash: number }[] {
+  return cashSeries(g, forecastItems(g, days), days);
+}
+
+/** v0.15.1 (perf) the daily cash series of forecast items already computed (the cash card reads both). Pure. */
+export function cashSeries(g: GameState, items: ForecastItem[], days: number): { t: number; cash: number }[] {
   const day0 = Math.floor(g.now / DAY);
   const delta = new Map<number, number>();
-  for (const x of forecastItems(g, days)) {
+  for (const x of items) {
     const d = Math.max(0, Math.floor(x.t / DAY) - day0);
     delta.set(d, (delta.get(d) ?? 0) + x.amount);
   }

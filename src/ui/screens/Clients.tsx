@@ -8,6 +8,7 @@ import { type ReactNode, useMemo, useState } from 'react';
 import { flag } from '../../data/countries';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { clientList, clientView, LEVEL_NAME, LEVEL_ORDER, perkLines, type ClientLevel, type ClientView } from '../../engine/contracts';
+import { clientPrestige, PRESTIGE_NAME } from '../../engine/contracts/prestige';
 import { BAL } from '../../engine/core/balance';
 import { fmtDay, fmtMonth, monthKey } from '../../engine/core/time';
 import type { ClientKind, GameState } from '../../engine/core/types';
@@ -76,7 +77,7 @@ export function ClientDetail({ g, v, inModal }: { g: GameState; v: ClientView; i
         <span className="v8-flag-l" aria-hidden>{flag(v.country)}</span>
         <div className="grow" style={{ minWidth: 0 }}>
           <div className="row gap-8">{!inModal && <b className="v8-name ellipsis">{v.name}</b>}<LevelPill level={v.level} /></div>
-          <div className="small muted ellipsis">{KIND_LABEL[v.kind]} · {v.base}{ap ? ` ${ap.city}` : ''} · {v.jobs} job{v.jobs === 1 ? '' : 's'} done{v.lastJob ? ` · last ${fmtMonth(monthKey(v.lastJob))}` : ''} · relation {v.relation}</div>
+          <div className="small muted ellipsis">{KIND_LABEL[v.kind]} · Level {clientPrestige(g.clients[v.id])} {PRESTIGE_NAME[clientPrestige(g.clients[v.id])].toLowerCase()} · {v.base}{ap ? ` ${ap.city}` : ''} · {v.jobs} job{v.jobs === 1 ? '' : 's'} done{v.lastJob ? ` · last ${fmtMonth(monthKey(v.lastJob))}` : ''} · relation {v.relation}</div>
         </div>
       </div>
       {card && <ProblemCardView card={card} g={g} hideActions />}
@@ -133,12 +134,12 @@ export function ClientDetail({ g, v, inModal }: { g: GameState; v: ClientView; i
 
 type Filter = 'working' | 'all' | 'unhappy';
 
-function ClientRow({ v, on, onPick }: { v: ClientView; on: boolean; onPick: () => void }) {
+function ClientRow({ v, on, onPick, prestige }: { v: ClientView; on: boolean; onPick: () => void; prestige: number }) {
   return (
     <button className={`v8-row ${on ? 'on' : ''}`} onClick={onPick} aria-pressed={on}>
       <span className="sc-flag-s" aria-hidden>{flag(v.country)}</span>
       <span className="col grow" style={{ minWidth: 0 }}>
-        <span className="row gap-8"><b className="ellipsis">{v.name}</b><KindIcon kind={v.kind} /></span>
+        <span className="row gap-8"><b className="ellipsis">{v.name}</b><KindIcon kind={v.kind} /><span className="tiny dim nowrap" title={PRESTIGE_NAME[prestige as 1 | 2 | 3 | 4]}>L{prestige}</span></span>
         <span className="v8-thin"><span className={v.level} style={{ width: `${towardNext(v) * 100}%` }} /></span>
       </span>
       <span className="col v8-row-r">
@@ -169,7 +170,7 @@ export function ClientsView({ g }: { g: GameState }) {
           ]} />
         </div>
         {!list.length && <div className="small muted sc-pad">{filter === 'unhappy' ? 'No unhappy clients. Keep it that way: fly on time and say yes to favours.' : 'No clients yet. Sign an offer and its client appears here.'}</div>}
-        {list.map((c) => <ClientRow key={c.id} v={c} on={c.id === v?.id} onPick={() => store.select({ kind: 'client', id: c.id })} />)}
+        {list.map((c) => <ClientRow key={c.id} v={c} on={c.id === v?.id} prestige={clientPrestige(g.clients[c.id])} onPick={() => store.select({ kind: 'client', id: c.id })} />)}
       </div>
       <div className="card v8-pane v8-pane-r">
         {v ? <ClientDetail g={g} v={v} /> : <Empty icon={<Briefcase />} title="Pick a client">Their level, what it brings and how to reach the next.</Empty>}

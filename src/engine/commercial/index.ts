@@ -8,8 +8,11 @@ import { dailyCrises, devCrisis } from './crises';
 import { loadCommercial } from './state';
 import { seedMarketClients } from '../contracts/clients';
 import { dailyPresence, loadPresence, presence } from './presence';
-import { bidQuote, dailyTenders, decideTender, issueTender, placeBid } from './tenders';
+import { bidQuote, dailyTenders, decideTender, issueTender, placeBid, roundAt } from './tenders';
 import { bookTrip, dailyTrips, fairsAhead, travelLegs } from './trips';
+import { dailySales, loadSales, monthlySales, setSalesHooks } from './sales';
+import { fleetCouldFly, generateOffer, leadWindow } from '../contracts/offers';
+import { TENDER_ISSUERS } from '../../data/fairs';
 import type { CrisisKind } from './types';
 
 export * from './types';
@@ -21,9 +24,25 @@ export {
 export { TRIPS, bookTrip, cancelTrip, fairDays, fairMeets, fairsAhead, inAudience, nextEdition, planTickets, presenceText, travelLegs, travellers, tripNow, tripQuote, tripTitle, tripsView, type FairView, type TravellerView, type TripQuote } from './trips';
 export { PRESENCE, bumpPresence, clientMarket, dailyPresence, fairPresence, homeMarket, marketTilt, presence, presenceIn, presenceView, presenceWeight, presenceWord, type PresenceRow } from './presence';
 export { CRISIS, clientCrisisCard, crisesOf, crisisKindName, crisisLive, crisisOfEvent, devCrisis, knowsUs, startCrisis } from './crises';
+// v0.16 sales (UPDATE-0.16.md §C): brokers, the leads pipeline, pitches, sales managers.
+export {
+  BROKER_IDS, BROKER_VISIT, STAGE_NAME, brokerFit, brokerIdOf, brokerLeadsPerMonth, brokerName, brokerView, commissionOf, dropLead, fireSalesRep, hireSalesRep, leadColdCard, leadProblems, leadSourceName, leadsView,
+  marketName, pitchAirline, pitchFree, pitchQuota, pitchTargets, pitchWindow, pitchesOf, pitchesView, registerBroker, repCandidates, repRehireDays, salesBill, salesDesk, salesReps, salesRepsView, seasonLabel, visitBroker,
+  workLead, workedCap, workedNow, type BrokerView, type LeadView, type PitchTarget, type PitchView, type PitchWindow, type SalesDesk, type SalesRepView,
+} from './sales';
 
 // The map's deadhead layer draws our travellers' airline legs with the crew's (ops/commercial.ts commercialFlightsBetween).
 setTravelHook(travelLegs);
+// v0.16 the sales desk builds its leads' offers and brokers' invited tenders through these (offers.ts and tenders.ts
+// import sales.ts: no cycle).
+setSalesHooks({
+  offer: (g, archetype, opts) => generateOffer(g, archetype, opts),
+  fits: (g, offerId) => fleetCouldFly(g, offerId),
+  window: (g, archetype, r) => leadWindow(g, archetype, r),
+  tender: (g, opts) => issueTender(g, opts),
+  round: (t) => roundAt(t),
+  issuer: (name, kind) => TENDER_ISSUERS.some((x) => x.name === name && (kind === 'summer' || !!x.winter)),
+});
 
 function daily(g: GameState): void {
   // v0.14 market presence: the day's jobs and satisfied clients, the slow fade.
@@ -31,6 +50,8 @@ function daily(g: GameState): void {
   dailyTrips(g);
   dailyTenders(g);
   dailyCrises(g);
+  // v0.16 brokers' leads, the pipeline's lifetimes, pitch replies, the sales managers' leads (commercial/sales.ts).
+  dailySales(g);
 }
 
 export const commercialModule: SimModule = {
@@ -39,14 +60,18 @@ export const commercialModule: SimModule = {
   init(g) {
     seedMarketClients(g);
     presence(g);
+    // v0.16 the sales records, empty (exactly as load sets them).
+    loadSales(g);
   },
   load(g) {
     loadCommercial(g);
     seedMarketClients(g);
     // v0.14 an older save: presence seeded from its clients and contracts.
     loadPresence(g);
+    loadSales(g);
   },
-  handlers: { day: daily },
+  // v0.16 month end (before ops closes the statement): the sales payroll.
+  handlers: { day: daily, month: (g) => monthlySales(g) },
 };
 
 // ---------- dev helpers (console: __contrail.dev.tender() / fair() / crisis(kind)) ----------

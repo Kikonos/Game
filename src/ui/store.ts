@@ -18,7 +18,7 @@ import { pushDecision } from '../engine/core/messages';
 import type { ClientLevel } from '../engine/contracts';
 import type { WorldEventKind } from '../engine/core/types';
 import { devCrisisNow, devFair, devTender, devTenderBoard, type CrisisKind } from '../engine/commercial';
-import { devDeportation, devDryLease, devEvacuation, devHajj, devLevel, devMixedCrew, devRivalBid, devWorldEvent, devWorldTour } from '../engine/dev';
+import { devDeportation, devDryLease, devEvacuation, devFarRoute, devHajj, devLevel, devMixedCrew, devRivalBid, devWorldEvent, devWorldTour } from '../engine/dev';
 import { devTourStopClosed } from '../engine/ops/tourStop';
 import { demoFlights, devAddType, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
 import { dropTargets, moveDuty, publishedTo, resignNow, type DropTarget, type MoveScope } from '../engine/crew';
@@ -28,6 +28,7 @@ import { autosaveSlot, saveToSlot, serialize } from '../engine/save';
 import { createScenario, scenarioOutcome } from '../engine/scenario';
 import { advanceTo, settle } from '../engine/sim';
 import { guarded, previewCopy, restoreState } from '../engine/crew/atomic';
+import { asStep, touchUi } from '../engine/core/uiRev';
 import { prepareAsyncSave, saveTextAsync, supersedeAsyncSave } from './asyncSave';
 import { autoplay } from './devPlay';
 import { type Ambience, sound, type SoundEvent } from './sound';
@@ -174,6 +175,8 @@ export type ModalSpec =
   | { kind: 'lease'; aircraftId: string; /** v0.7.2 'early': the early-return tab */ tab?: 'renew' | 'early' }
   /** v0.7.2: sell an owned aircraft (quote, blockers, confirm; cancel an agreed sale). */
   | { kind: 'sell'; aircraftId: string }
+  /** v0.16 finance: borrow against an aircraft, sell and lease it back, sell an invoice, open the credit line (ui/modals/FinanceModals.tsx). */
+  | { kind: 'financing'; what: 'loan' | 'leaseback' | 'factor' | 'credit'; id?: string }
   | { kind: 'approval'; id: ApprovalId }
   | { kind: 'ladderStep'; messageId: string }
   | { kind: 'whatsNew'; /** v0.8 fix pack: every version (Settings), not just the unseen ones. */ all?: boolean }
@@ -922,16 +925,18 @@ class GameStore {
     // An engine throw must not take the UI down; report it as a refused action. v0.14.1 (merge) nor leave the game
     // half-changed: the state goes back to before the action (a copy, ~8 ms on a seven-aircraft save). The cross-module
     // follow-ups (e.g. crew re-sync) run inside the guard too.
-    const res: ActionResult<T> = guarded(g, () => {
+    const res: ActionResult<T> = guarded(g, () => asStep(() => {
       const r = fn(g);
       settle(g);
       // v0.15 a crew card already dealt with (Crew Control, the roster board) no longer holds the clock.
       withdrawHandled(g);
       return r;
-    }, (e) => {
+    }), (e) => {
       console.warn('[act]', e);
       return { ok: false, error: 'Something went wrong with that action: nothing was changed.' };
     });
+    // v0.15.1 (perf) the screens' read-side caches start over after every action.
+    touchUi();
     // Pauses the action raised (e.g. crewShortage on accept).
     const pause = takePause(this.honoured());
     if (pause && pause !== 'decision') this.autoPause(pause);
@@ -973,7 +978,8 @@ class GameStore {
   update(fn: (g: GameState) => void) {
     if (!this.game) return;
     this.edits++;
-    fn(this.game);
+    asStep(() => fn(this.game!));
+    touchUi();
     this.emit();
   }
 
@@ -1462,6 +1468,8 @@ class GameStore {
     deportation: () => this.devOffer(devDeportation),
     /** v0.12.1 a world tour offer (TMR unless another client is named: 'Abercrombie & Kent', 'Kuoni Group Travel'). */
     worldTour: (client?: string) => this.devOffer((g) => devWorldTour(g, client)),
+    /** v0.16 a far-route offer (any template, or one by id: 'frNoumea', 'ukFalklands', 'klmTriangle', 'tahitiNui'…). */
+    farRoute: (id?: string) => this.devOffer((g) => devFarRoute(g, id)),
     evacuation: () => this.devOffer(devEvacuation),
     rivalBid: () => this.devOffer(devRivalBid),
     mixedCrew: () => this.devScene(devMixedCrew, 'duty'),

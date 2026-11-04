@@ -5,6 +5,7 @@ import { ACMI_TYPES } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { distance } from '../core/geo';
 import { deadheadFlights, flightsOf, flightsRev } from '../core/entities';
+import { reportMinutes } from '../core/perf';
 import { itinerary, ticketBlock } from '../ops/commercial';
 import { curfewOk } from '../core/curfew';
 import { DAY, fmtDateTime, fmtTime, monthKey, yearOf } from '../core/time';
@@ -295,7 +296,11 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
   const rest = minRest({ dutyMin: blk + CHECKIN(), atHome: false, augmented: false, tzShift: tz });
   // BLU1396 round: the rest runs to the crew's earliest report, the cabin crew's (one ticket for the whole crew). Timed
   // to the pilots' report, a ticket the day before left the cabin crew 13:55 of a 14 h rest.
-  const rep = d.report - cabinEarly(g, p, d);
+  // Crew round (Nov 2026): a duty that has reported (held at the gate, its crew out of hours) is joined at the fresh
+  // crew's own check-in for the held departure (joinedAt), never at the report hours ago: that read "must land by" a
+  // time already past for every crew member who could still be flown in.
+  const rep0 = d.report <= g.now && !d.done ? Math.max(d.report, freshReport(g, p, d)) : d.report;
+  const rep = rep0 - cabinEarly(g, p, d);
   const exact = hour(rep - rest - blk, false);
   // ... and a trip that starts far away (4+ time zones, or a long ticket) gets the ticket out a few hours before the
   // last one that still rests: a late-landing itinerary, or a report moved a little earlier, no longer leaves the
@@ -332,7 +337,7 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
     // it left 3 min late, and the tour went without them).
     if (ride.sta + rideRest + (tour ? OUT_REST_BUFFER : 0) <= rep || x.fdp <= x.max) return { plan: ride, why: null };
   }
-  const pref0 = hour(d.report - OUT_BUFFER - blk, false);
+  const pref0 = hour(rep0 - OUT_BUFFER - blk, false);
   const pref = slotBefore(g, from, to, pref0, Math.max(first, exact), blk) ?? pref0;
   const prefFits = fits(pref) && ticketSlotOk(g, from, to, pref, pref + blk);
   if (pref >= first && prefFits) return { plan: mk(pref), why: null };
@@ -341,7 +346,7 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
   let best: Minute | null = null;
   for (let std = Math.max(first, exact + 60); std <= last; std += 60) {
     if (!fits(std) || !ticketSlotOk(g, from, to, std, std + blk)) continue;
-    if (best === null || Math.abs(d.report - std - blk - OUT_BUFFER) <= Math.abs(d.report - best - blk - OUT_BUFFER)) best = std;
+    if (best === null || Math.abs(rep0 - std - blk - OUT_BUFFER) <= Math.abs(rep0 - best - blk - OUT_BUFFER)) best = std;
   }
   if (best !== null) return { plan: mk(best), why: null };
   // Nothing works: the old best guess (same day if its FDP fits, else the day before) and the exact reason.
@@ -367,7 +372,9 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
 export function outStillFits(g: GameState, p: Pairing, d: Duty, from: string, std: Minute, blk: number): boolean {
   const to = g.flights[d.flightIds[0]]?.from ?? d.restAt;
   const rest = minRest({ dutyMin: blk + CHECKIN(), atHome: false, augmented: false, tzShift: tzDeltaH(p.base, to, d.report) });
-  if (std + blk + rest <= d.report - cabinEarly(g, p, d)) return true;
+  // Crew round (Nov 2026): against the fresh crew's own report on a duty that has reported (as outTicket plans it).
+  const rep0 = d.report <= g.now && !d.done ? Math.max(d.report, freshReport(g, p, d)) : d.report;
+  if (std + blk + rest <= rep0 - cabinEarly(g, p, d)) return true;
   const start = std - CHECKIN();
   return d.fdp + (d.report - start) <= fdpLimitAt(g, p, d, from, start).max + (d.discretion ?? 0);
 }
@@ -639,7 +646,7 @@ function fillKey(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPl
   KEY[i++] = c.base; KEY[i++] = p.base; KEY[i++] = d.restAt; KEY[i++] = f0?.from ?? ''; KEY[i++] = f0?.status ?? ''; KEY[i++] = p.aircraftId ?? '';
   KEY[i++] = d.ev; KEY[i++] = d.flightsEv; KEY[i++] = d.report; KEY[i++] = d.release; KEY[i++] = d.fdp; KEY[i++] = d.maxFdp; KEY[i++] = d.discretion ?? 0; KEY[i++] = d.cabinEarly ?? -1;
   KEY[i++] = d.augment; KEY[i++] = d.sectors; KEY[i++] = d.flightIds.length; KEY[i++] = p.start; KEY[i++] = rest?.fc?.cls ?? 0; KEY[i++] = rest?.cc?.cls ?? 0;
-  KEY[i++] = joinedAt(p, c.id, d);
+  KEY[i++] = joinedAt(g, p, c.id, d);
   KEY[i++] = o ? o.id ?? '' : '-'; KEY[i++] = o?.from ?? ''; KEY[i++] = o?.to ?? ''; KEY[i++] = o?.status ?? ''; KEY[i++] = o?.std ?? -1; KEY[i++] = o?.sta ?? -1;
   KEY[i++] = h ? h.id ?? '' : '-'; KEY[i++] = h?.from ?? ''; KEY[i++] = h?.to ?? ''; KEY[i++] = h?.status ?? ''; KEY[i++] = h?.std ?? -1; KEY[i++] = h?.sta ?? -1;
   return i;
@@ -670,14 +677,34 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
   return segs;
 }
 
-/** v0.9 round 4 (§Y.1): the report of crew member `crewId` on duty d: the slot's own `from` when they joined after the duty reported. */
-function joinedAt(p: Pairing, crewId: string, d: Duty): Minute {
+/**
+ * v0.9 round 4 (§Y.1): the report of a crew member who takes a seat after the duty reported: their own check-in for
+ * the held departure (never the hours the first crew waited at the gate), and never before now. Pure.
+ * (Crew round, Nov 2026: moved here from rosterActions.ts so the timeline reads it for candidates too.)
+ */
+export function freshReport(g: GameState, p: Pairing, d: Duty, f = g.flights[d.flightIds[0]]): Minute {
+  if (!f) return g.now;
+  // Crew round (Nov 2026): never more than the type's report lead. A reported duty whose first leg was retimed (an AOG
+  // moved it 9 h, the report kept) read the whole 9 h as the fresh crew's check-in, so "even a fresh crew would be over
+  // the limit" and no replacement was ever offered.
+  const lead = reportMinutes(typeIdOf(g, p)).report;
+  const checkIn = f.id === d.flightIds[0] && f.std > d.report ? Math.min(lead, f.std - d.report) : lead;
+  return Math.max(g.now, f.std + f.delay - checkIn);
+}
+
+/**
+ * v0.9 round 4 (§Y.1): the report of crew member `crewId` on duty d: the slot's own `from` when they joined after the
+ * duty reported. Crew round (Nov 2026): a candidate not seated yet on a duty that has reported (held at the gate) is
+ * read from their own check-in for the held departure too (freshReport), as the replacement they would become: judged
+ * from the duty's report hours ago, nobody could ever take a seat the gate or a re-roster emptied.
+ */
+function joinedAt(g: GameState, p: Pairing, crewId: string, d: Duty): Minute {
   for (const s of p.slots) {
     if (s.crewId !== crewId) continue;
     const f = s.from;
     return f !== undefined && f > d.report ? f : d.report;
   }
-  return d.report;
+  return d.report <= g.now && !d.done ? Math.max(d.report, freshReport(g, p, d)) : d.report;
 }
 
 function dutySegsRaw(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPlan | null, home: TicketPlan | null, fresh: boolean): Seg[] {
@@ -685,7 +712,7 @@ function dutySegsRaw(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: Tick
   const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
   const early = isCabin(c) ? cabinEarly(g, p, d) : 0;
   // A replacement who joined after the report has a shorter day from their own report (its own Table 2 limit).
-  const rep = joinedAt(p, c.id, d);
+  const rep = joinedAt(g, p, c.id, d);
   const own = rep - d.report;
   let start = rep - early;
   let fdp = d.fdp - own + early;

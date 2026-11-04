@@ -18,15 +18,15 @@ import { setProgrammeAugHook } from '../crew/sets';
 import { bestSlip, slipCost, type SlipPlan } from '../crew/slip';
 import { cabinPresets } from '../../data/cabins';
 import { schedule } from '../core/queue';
-import { chance, int, next, pick, range, weightedPick } from '../core/rng';
+import { chance, int, next, pick, range, weightedPick, type RngHolder } from '../core/rng';
 import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, localMinuteOfDay, toDate, toLocal } from '../core/time';
 import type {
-  AcRest, ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent, WorldEvent,
+  AcRest, ApprovalId, Archetype, BrokerId, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent, WorldEvent,
 } from '../core/types';
 import { acceptOffer, closeOffer, setPrice } from './accept';
 import { callReplyMin, isCallOffer, missedCall, REPLY_MIN } from './call';
 import { answerBy, counterBase, counterOdds, halfwayPrice, leftOf } from './counter';
-import { crewChains, feasibility, ulrNeed, type UlrNeed } from './feasibility';
+import { crewChains, feasibility, ulrNeed, type CheckId, type UlrNeed } from './feasibility';
 import { adhocGroupClients, clientPrefix, clientsOf, isMarketClient, isBigClub, isCruiseLine, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, ministry, rivalFor } from './clients';
 import * as F from './flavor';
 import { paintTermsText, rollPaint, sideRng } from './paintTerms';
@@ -35,6 +35,10 @@ import { anchorsOf, computeWaves, flownRotations, localToUTC, longestChains, max
 export { maxPax, seatNeed };
 import { ARCH_MULT, defaultSeats, flownTypes, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
+import { clientPrestige, markStretch, noteStretch, prestigeOfferWeight, prestigePayPct, prestigePenaltyX } from './prestige';
+import { brokerIdOf, brokerName } from '../commercial/sales';
+import { offerHidden } from './filter';
+import { statsV016 } from '../core/stats016';
 import { rivalTakes, rollRivalBid } from './rivals';
 import { closedAirport, closedUntil, closurePlanned, inWarZone, permitEvent, setClosureOfferHook, warRiskLandings } from '../ops/world';
 import { setClosurePlannedHook, setOpenFromHook } from './schedule';
@@ -45,7 +49,7 @@ export { marketPerWeek };
 import { afterOfferDays, isQuiet, QUIET_MARKET_OFFERS } from '../ops/director';
 import { marketTilt, presenceWeight } from '../commercial/presence';
 import { clientCrewOnCabin, fuelFactor, MISSION_BUILDERS, missionWeights, presidential, rollClientCabin, WINDOW_FIT_V08 } from './missions';
-import { lockOf, themeWeight } from '../scenario/rules';
+import { lockOf, themeWeight, unreachableApproval } from '../scenario/rules';
 
 // ---------- process ----------
 
@@ -160,6 +164,9 @@ export interface OfferOpts {
   repeatOf?: string;
   /** v0.7.4 client cabin: false = never; a layout = force a request for it (tests, dev helper). */
   cabin?: false | { layout: CabinLayout; required?: boolean; share?: number; revert?: boolean };
+  /** v0.16 sales: the broker that brought the job (named on the offer, its commission) and the pipeline lead it answers. */
+  brokerId?: BrokerId;
+  leadId?: string;
 }
 
 export interface Ctx {
@@ -209,6 +216,13 @@ export interface Draft {
   extraBH?: number;
   /** v0.9 §Y.2 a jumbo load (420–480 passengers, all economy). */
   jumbo?: boolean;
+  /** v0.16 clients: a stretch offer (one level above ours; prestige.ts markStretch); IOSA asked by the client (kept on the market even when we lack it); a far-flung route (missions.ts farRoute). */
+  stretch?: true;
+  iosaAsked?: true;
+  exotic?: true;
+  /** v0.16 sales: the broker that brought it and the pipeline lead it answers (commercial/sales.ts). */
+  brokerId?: BrokerId;
+  leadId?: string;
 }
 
 export const city = (c: string) => AIRPORT_BY_CODE[c]?.city ?? c;
@@ -311,7 +325,8 @@ export function clientWeight(g: GameState, c: Client): number {
   const clean = g.company.reputation.clean;
   const cf = Math.max(0.05, 1 - (cur.cleanSensitivity * Math.max(0, 60 - clean)) / 60);
   const dem = (g.company.standing ?? 0) === 0 && cur.payReliability < 0.8 ? BAL.v08.standing.demandingPay : 1;
-  return lv * cf * dem;
+  // v0.16 the client's prestige level against ours (contracts/prestige.ts; 1 for everyone until the clients lane lands).
+  return lv * cf * dem * prestigeOfferWeight(g, cur);
 }
 
 /** v0.8 company standing: 0 Newcomer, 1 Established, 2 Respected. */
@@ -1182,6 +1197,29 @@ export function fleetCanFly(g: GameState, offerId: string): boolean {
   return Object.keys(g.fleet).some((id) => feasibility(g, offerId, id, { quick: true }).level !== 'no');
 }
 
+/** The checks that say what an aircraft is, not what it is doing that week (v0.16 balance, leads). */
+const STATIC_CHECKS: ReadonlySet<CheckId> = new Set<CheckId>(['seats', 'layout', 'family', 'body', 'range', 'runway', 'etops', 'restSeats']);
+
+/**
+ * v0.16 balance: whether an aircraft of ours is the kind the job needs (seats, cabin, type, range, runway, ETOPS), whatever
+ * its schedule that week. A broker or a sales manager brings work for the types we operate; dates are ours to propose,
+ * an approval ours to file. Pure.
+ */
+export function fleetCouldFly(g: GameState, offerId: string): boolean {
+  return Object.values(g.fleet).some((a) => a.status !== 'leasedOut' && a.status !== 'stored'
+    && !feasibility(g, offerId, a.id, { quick: true }).checks.some((c) => c.level === 'no' && STATIC_CHECKS.has(c.id)));
+}
+
+/**
+ * v0.16 balance: the idle window a lead's offer is drafted into (we proposed dates that suit our calendar): one of the
+ * fleet's free windows inside 90 days that the kind of work fits, the longer the likelier, drawn on the lead's own
+ * stream; undefined when none fits (the draft then takes its own dates). Pure in g.
+ */
+export function leadWindow(g: GameState, archetype: Archetype, r: RngHolder): IdleWindow | undefined {
+  const ws = idleWindows(g, 2, 90).filter((w) => fitsWindow(archetype, w, g.now));
+  return ws.length ? weightedPick(r, ws, (w) => Math.sqrt((w.to - w.from) / DAY)) : undefined;
+}
+
 /**
  * v0.14 an open offer it would look like on the board: the same title; the same kind of job at the same place (its
  * pin: the base or the first stop away); the same client with the same shape of work (a base, or legs). Pure.
@@ -1254,6 +1292,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // Everyday work stays within the ETOPS approval we hold; aspirational jobs show the ladder.
   const etopsHeld = g.company.approvals.includes('etops240') ? 240 : g.company.approvals.includes('etops180') ? 180 : g.company.approvals.includes('etops120') ? 120 : 0;
   if (!aspire && requirements.etops > etopsHeld) return null;
+  // v0.15.1 a scenario whose rules keep the Ladder shut never offers work that needs an approval it cannot get.
+  if (unreachableApproval(g, requirements)) return null;
   // Everyday work must also be flyable without ETOPS on a type we operate (its own fuel-stop routing).
   const fleetTypes = [...new Set(Object.values(g.fleet).map((a) => a.typeId))];
   if (!aspire && fleetTypes.length && fleetTypes.every((ft) => sectors.some(([a, b]) => planSector(ft, a, b).legs.some((l) => etopsNeeded(ft, l.from, l.to) > etopsHeld)))) return null;
@@ -1297,11 +1337,14 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   if (!wet && d.archetype !== 'evacuation' && p.kind === 'legs') d.passThrough = (d.passThrough ?? 0) + warRiskLandings(g, p.legs, typeOf(ref).body === 'wide');
   const levelPct = d.product ? 0 : perks(g, d.client).rate;
   const standingPct = d.product ? 0 : standingRate(g);
+  // v0.16 the client's prestige level pays its part (brochure work −4 % … majors +8 %; contracts/prestige.ts).
+  const prestigeLv = clientPrestige(g.clients[d.client.id] ?? d.client);
+  const prestigePct = d.product ? 0 : prestigePayPct(prestigeLv);
   const product: Product = d.product ?? priceProduct(g, {
     archetype: d.archetype, typeId: ref, estBH: wet ? revBH : revBH + emptyMin / 60 + (d.extraBH ?? 0), start: d.start, end: d.end, lead: d.start - g.now,
     mult: d.mult, departures: deps, revDepartures: revDeps, roomNights, crewDays, tickets: tickets + (d.passThrough ?? 0), government: gov, mghPerMonth: d.mghPerMonth,
     // v0.14 an ordinary market offer: fewer of them, better paid (BAL.marketOffers.ratePct).
-    loyalty: (1 + levelPct) * (1 + standingPct) * (ordinaryDraw ? 1 + BAL.marketOffers.ratePct : 1) - 1, wet: d.wet, ...((d.jumbo || bigFull(d)) && !wet ? { fuelAtCostBH: revBH } : {}),
+    loyalty: (1 + levelPct) * (1 + standingPct) * (1 + prestigePct) * (ordinaryDraw ? 1 + BAL.marketOffers.ratePct : 1) - 1, wet: d.wet, ...((d.jumbo || bigFull(d)) && !wet ? { fuelAtCostBH: revBH } : {}),
     // v0.12.1 a world tour's five-star catering.
     ...(d.archetype === 'worldTour' ? { cateringX: BAL.v0121.tour.catering } : {}),
   });
@@ -1338,8 +1381,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     id: nextId(g, 'o'),
     archetype: d.archetype, clientId: d.client.id, broker: d.broker, title: d.title, blurb: d.blurb,
     product, requirements, pattern: p, start: d.start, end: d.end, created: g.now, expires: g.now + Math.round(expiresIn), urgency,
-    // v0.8 a Newcomer's clients are demanding (delay compensation × 1.5).
-    penalties: { cancelScale: BAL.cancelScale.map(([a, b]) => [a, b] as [number, number]), perDelay: Math.round(BAL.perDelay[wide ? 1 : 0] * (standingOf(g) === 0 ? BAL.v08.standing.demandingDelay : 1)), perCancelledLeg: BAL.perCancelledLeg[wide ? 1 : 0] },
+    // v0.8 a Newcomer's clients are demanding (delay compensation × 1.5). v0.16 a client's level scales it (× 0.8 … × 1.6).
+    penalties: { cancelScale: BAL.cancelScale.map(([a, b]) => [a, b] as [number, number]), perDelay: Math.round(BAL.perDelay[wide ? 1 : 0] * (standingOf(g) === 0 ? BAL.v08.standing.demandingDelay : 1) * prestigePenaltyX(prestigeLv)), perCancelledLeg: BAL.perCancelledLeg[wide ? 1 : 0] },
     payment: product.kind === 'dry'
       ? { basis: 'advance', dueDays: 5, depositPct: 0 }
       : wet
@@ -1353,11 +1396,18 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     status: 'open',
     pin: d.pin ?? firstAway,
     hook: d.hook,
-    ...(levelPct ? { levelPct } : {}), ...(standingPct ? { standingPct } : {}), ...(firstRefusal ? { firstRefusal: true } : {}),
+    ...(levelPct ? { levelPct } : {}), ...(standingPct ? { standingPct } : {}), ...(prestigePct ? { prestigePct } : {}), ...(firstRefusal ? { firstRefusal: true } : {}),
     ...(d.repeatOf ? { repeatOf: d.repeatOf } : {}), ...(d.eventId ? { eventId: d.eventId } : {}), ...(d.dryFor ? { dryFor: d.dryFor } : {}),
   };
   if (d.terms) o.terms = d.terms;
   if (d.jumbo) o.jumbo = true;
+  // v0.16 pass-throughs: a stretch offer, a far-flung route, the broker and the lead behind it.
+  if (d.stretch) o.stretch = true;
+  if (d.exotic) o.exotic = true;
+  // A broker named on an ordinary offer (data/naming.ts BROKERS) takes its own rate too, not the flat 5 %.
+  const bid = d.brokerId ?? brokerIdOf(d.broker);
+  if (bid) o.brokerId = bid;
+  if (d.leadId) o.leadId = d.leadId;
   if (ordinaryDraw) o.ordinary = true;
   if (shut && !shut.offerIds.includes(o.id)) shut.offerIds.push(o.id);
   // The chip names the stops of the type that will fly it: a fleet type that can (seats, range, crew), else the reference.
@@ -1418,7 +1468,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // v0.14 an ordinary market offer is never a look-alike of one open now (the same title, the same kind of job to the
   // same place, the same client's same shape of work), and one no aircraft of ours could fly is mostly drawn again
   // (BAL.marketOffers.unfitDrop; the ladder's aspirational jobs stay).
-  if (ordinaryDraw && (lookAlike(g, o) || (!aspire && !fleetCanFly(g, o.id) && chance(sideRng(g, `fit:${o.id}`), BAL.marketOffers.unfitDrop)))) {
+  // v0.16 a stretch offer, or one asking for IOSA, stays even when we cannot fly it yet: it shows what the level asks for.
+  if (ordinaryDraw && (lookAlike(g, o) || (!aspire && !d.stretch && !d.iosaAsked && !fleetCanFly(g, o.id) && chance(sideRng(g, `fit:${o.id}`), BAL.marketOffers.unfitDrop)))) {
     delete g.offers[o.id];
     if (shut) shut.offerIds = shut.offerIds.filter((x) => x !== o.id);
     if (cl) cl.lastTitle = lastTitle;
@@ -1429,6 +1480,15 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     const v = v09Stats(g);
     v.offersWide = (v.offersWide ?? 0) + 1;
     if (d.jumbo) v.offersJumbo = (v.offersJumbo ?? 0) + 1;
+  }
+  // v0.16 the player's offer filter (contracts/filter.ts): a hidden offer gets no cue, no message and no pause; it stays
+  // on the market under "N offers hidden by your filter" and expires as usual.
+  if (offerHidden(g, o)) {
+    o.hidden = true;
+    statsV016(g).hidden++;
+    schedule(g, o.expires, 'offer.expire', o.id);
+    rollRivalBid(g, o);
+    return o;
   }
   // Urgent work we could actually fly stops the clock (setting) and gets an inbox line; the rest just pins the map.
   const flyable = urgency === 'urgent' && Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no');
@@ -1502,8 +1562,19 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     if (d && opts.repeatOf) d.repeatOf = opts.repeatOf;
     if (d && opts.eventId) d.eventId = opts.eventId;
     if (d && opts.cabin !== undefined) d.cabin = opts.cabin;
+    // v0.16 sales: a lead's offer names its broker (the broker's own commission) and the lead it answers.
+    if (d && opts.brokerId) {
+      d.brokerId = opts.brokerId;
+      d.broker = brokerName(opts.brokerId);
+    }
+    if (d && opts.leadId) d.leadId = opts.leadId;
+    // v0.16 a draft from a client one level above ours is a stretch offer, a national carrier or a major asks for IOSA
+    // (contracts/prestige.ts); the hand-shaped opening offers are a new company's fair first jobs and ask nothing.
+    if (d && !opening) markStretch(g, d);
     const o = d && finalize(g, d, ctx.aspire);
     if (o) {
+      // v0.16 a stretch offer made: the next one waits a month (contracts/prestige.ts).
+      noteStretch(g, o);
       // v0.6: the last gap-fit offer (the quiet-week floor looks at it).
       if (ctx.window) g.stats.lastGapOfferAt = g.now;
       if (opts.ordinary) g.stats.lastMarketOfferAt = g.now;
@@ -1556,7 +1627,8 @@ export function lapseCues(g: GameState): void {
   const s = lapsed.get(g) ?? new Set<string>();
   lapsed.set(g, s);
   for (const o of Object.values(g.offers)) {
-    if (o.status !== 'open' || o.call || o.expires <= g.now || o.expires - g.now >= LAPSE_WARN || s.has(o.id)) continue;
+    // v0.16 an offer hidden by the player's filter never writes (contracts/filter.ts).
+    if (o.status !== 'open' || o.call || o.hidden || o.expires <= g.now || o.expires - g.now >= LAPSE_WARN || s.has(o.id)) continue;
     s.add(o.id);
     if (first) continue;
     if (!o.seen && !Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) continue;

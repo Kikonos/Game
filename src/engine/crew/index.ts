@@ -5,15 +5,15 @@ import { flightsOf, flightsRev, takeFlightChanges, touchTickets } from '../core/
 import type { SimModule } from '../core/module';
 import { schedule } from '../core/queue';
 import { DAY, monthKey, yearOf } from '../core/time';
-import type { CrewMember, Flight, GameState, Minute, SimEvent } from '../core/types';
+import type { CrewMember, Duty, Flight, GameState, Minute, SimEvent } from '../core/types';
 import { cancelConversion, classOf, dailyClasses, restoreCcqRatings } from './conversion';
 import { dailyCrewCosts, monthlySalaries } from './costs';
-import { afterDiversion, deletePairing, dutyLegality as dutyLevel, pairingSeats, planAircraft, refreshPairing } from './duties';
+import { afterDiversion, deletePairing, dutyLegality as dutyLevel, pairingSeats, planAircraft, refreshPairing, syncDuty } from './duties';
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
-import { autoRoster, closedWait, recheckBuyBacks, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets } from './roster';
-import { localMin, minRest, signedTz, tzDeltaH, tzNights } from './rules';
+import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets } from './roster';
+import { extFdp, localMin, minRest, referenceTime, signedTz, tzDeltaH, tzNights, woclMinutes } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, dropStrandedStandby, v09Stats } from './dayPlan';
 import { peakHeadsUp } from './forecast';
@@ -21,7 +21,7 @@ import { AUTHORITY } from '../../data/flavor';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { pushMessage } from '../core/messages';
 import { post } from '../core/ledger';
-import { aboard, checkInOf, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, extCutAt, passengers, touchCrew, touchCrewState, typeIdOf } from './timeline';
+import { aboard, checkInOf, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, extCutAt, onBlocks, passengers, touchCrew, touchCrewState, typeIdOf } from './timeline';
 import { reportMinutes } from '../core/perf';
 
 export {
@@ -312,7 +312,15 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
   const did = pax.length ? ix.ticketDuty.get(f.id) : undefined;
   const d = did ? g.duties[did] : undefined;
   const rest = minRest({ dutyMin: f.sta - f.std + CHECKIN(), atHome: false, augmented: false, tzShift: 0 });
-  const merged = !!d && ((f.sta <= d.report && d.report - f.sta < rest) || (f.std >= d.release && f.std - d.release < 600));
+  // v0.16 (merge) one ride can carry crew of several duties (two sets riding our own flight home: the index keeps one
+  // duty per flight), so each passenger is read against their own duty: the one of their pairings that holds this
+  // ride. Player's save: a set released at Casablanca rode AT1062 home inside their duty's log (to 14:15) and was
+  // logged a second time for the ride (12:00–14:17) because the index named the other set's duty.
+  const dutyOf = (cid: string): Duty | undefined => {
+    for (const p of ix.pairingsOf.get(cid) ?? []) for (const x of p.dutyIds) { const q = g.duties[x]; if (q && q.deadheadIds.includes(f.id)) return q; }
+    return d;
+  };
+  const mergedFor = (q: Duty | undefined): boolean => !!q && ((f.sta <= q.report && q.report - f.sta < rest) || (f.std >= q.release && f.std - q.release < 600));
   if (f.kind !== 'deadhead') for (const id of f.crewIds) if (g.crew[id]) g.crew[id].loc = f.to;
   noteService(g, f);
   const missed: string[] = [];
@@ -336,7 +344,7 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     if (f.to === c.base) c.awaySince = null;
     else if (c.awaySince === null) c.awaySince = f.std;
     if (f.to === c.base) noteRotation(c, f.to, f.std, f.ata ?? f.sta);
-    if (!merged) {
+    if (!mergedFor(dutyOf(id))) {
       const off = f.atd ?? f.std;
       const on = f.ata ?? f.sta;
       // Crew-planning round: checked in as the plan reads the ticket (a private jet 30 min at the FBO, not an airline's
@@ -460,6 +468,32 @@ function repairMixedTrips(g: GameState): void {
  * the standby and the work it was cut for. A window still uncalled whose end is followed within the hour by that
  * crew member's next duty or ticket was such a call-out: it is marked called and the trips re-read.
  */
+/**
+ * BLU2032 round: a reported duty whose planned extension an earlier version dropped when a delay ran the day over it
+ * (the save then reads the basic limit, the day 'already too long when they reported', and the crew out of hours): the
+ * extension goes back where the day reported legal with it, and the duty is re-measured (the pilots aboard may fly it
+ * augmented, or the gate covers the overrun with discretion). The player's A330 at Heathrow, 29 Mar 2028.
+ */
+function repairLostExtension(g: GameState): void {
+  for (const d of Object.values(g.duties)) {
+    if (d.done || d.ext || d.split || d.augment > 0 || d.report > g.now || d.plannedFdp === undefined || d.plannedFdp <= d.maxFdp) continue;
+    const p = g.pairings[d.pairingId];
+    if (!p || p.status !== 'active' || !crewCount(p)) continue;
+    const fl = dutyFlights(g, d).filter((f) => f.status !== 'cancelled');
+    if (!fl.length) continue;
+    const r = referenceTime(p.base, fl[0].from, Math.min(p.start, d.report), d.report);
+    if (r.state === 'X') continue;
+    const m = extFdp(r.reportLocal, fl.length, woclMinutes(r.tz, d.report, onBlocks(fl[fl.length - 1])));
+    if (m === null || d.plannedFdp > m) continue;
+    d.ext = true;
+    d.maxFdp = m;
+    syncDuty(g, d, p);
+    recheckPairing(g, p);
+    if (d.augment > 0) noteAugmentedAboard(g, d, { max: m, pilots: 2 });
+    else if (d.legality === 'illegal') coverByDiscretion(g, d);
+  }
+}
+
 function repairCutStandby(g: GameState): void {
   const fixed = new Set<string>();
   for (const c of Object.values(g.crew)) {
@@ -681,6 +715,7 @@ export const crewModule: SimModule = {
     repairGoneCrew(g);
     repairDiverted(g);
     repairMixedTrips(g);
+    repairLostExtension(g);
     // v0.12.1 (review) crew tickets through an airport closed now: dropped and re-planned.
     closureTicketsOnLoad(g);
     // v0.12.1 legs a load repair moved or removed (ops: a closure's held legs, orphan out-and-backs): duties follow now.

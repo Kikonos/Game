@@ -36,15 +36,16 @@ const rec = (g: GameState) => Object.values(g.stats.techDisp ?? {}).reduce((a, [
 
 describe('technical dispatch reliability (v0.10.2)', () => {
   it('a departure on time counts; a technical delay over 15 min is a failure; an operational delay is not', () => {
+    // v0.16 seed 9 (was 8): the client pool grew, the streams moved; this seed's technical delays run over 15 min.
     calm();
-    const g = newGame(8);
+    const g = newGame(9);
     const [a] = legs(g);
     skip(g, a.std + 1);
     expect(a.status).toBe('enroute');
     expect(rec(g)).toEqual([1, 0]);
 
     calm({ techDelayChance: 1 });
-    const g2 = newGame(8);
+    const g2 = newGame(9);
     const [b] = legs(g2);
     run(g2, b.std + 1);
     expect(b.delayReason).toMatch(/^Technical/);
@@ -58,7 +59,7 @@ describe('technical dispatch reliability (v0.10.2)', () => {
     expect(rec(g2)[1]).toBeGreaterThan(0);
 
     calm({ delayChance: 1 });
-    const g3 = newGame(8);
+    const g3 = newGame(9);
     const [c] = legs(g3);
     skip(g3, c.std + 6 * 60);
     expect(c.tech).toBeUndefined();

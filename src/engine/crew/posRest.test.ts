@@ -97,10 +97,11 @@ describe('v0.14.1 the flight sheet In-flight rest line', () => {
     expect(over.text).toMatch(/^Needs in-flight rest: 17:40 of 12:15 with 2 pilots; /);
     expect(over.text).not.toMatch(/No in-flight rest needed/);
     Object.assign(d, { fdp: 10 * H + 40 });
-    expect(restNeedLine(g, d)).toEqual({ needed: false, text: 'Not needed: 10:40 of 12:15' });
+    // BLU2032 round: the room left, and the rest facility in plain words.
+    expect(restNeedLine(g, d)).toEqual({ needed: false, text: 'Not needed: 10:40 of 12:15 (1:35 spare)' });
     // 14:40 with 2 pilots: 3 pilots in this A330's bunks allow it.
     Object.assign(d, { fdp: 14 * H + 40 });
-    expect(restNeedLine(g, d).text).toMatch(/3 pilots \(.*class 1\)\) allow 1[67]:00$/);
+    expect(restNeedLine(g, d).text).toMatch(/3 pilots with class 1 (bunks|lower-deck bunks) allow 1[67]:00$/);
     Object.assign(d, keep);
   });
 });

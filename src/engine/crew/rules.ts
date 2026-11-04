@@ -720,7 +720,10 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
       cumIssue(issues, 'duty14d', w[1], LIMITS.duty14d, 'Duty 14d', tgt);
       cumIssue(issues, 'duty28d', w[2], LIMITS.duty28d, 'Duty 28d', tgt);
       if (s.block > 0) {
-        cumIssue(issues, 'block28d', w[3], LIMITS.block28d, 'Block 28d', tgt);
+        // v0.16 balance: a duty not yet reported keeps two hours in hand on the 100 h (actual block runs a few minutes
+        // over the plan on most sectors: seed 5's set on a dense Barcelona base reached 102:20 in 28 days, planned to 99).
+        const keep28 = s.kind === 'duty' && s.start > (ctx.now ?? Infinity) ? BLOCK28_KEEP : 0;
+        cumIssue(issues, 'block28d', w[3] + keep28, LIMITS.block28d, 'Block 28d', tgt);
         const logged = ctx.blockYearOf === plannedYearOf ? ctx.blockYear : 0;
         cumIssue(issues, 'blockYear', logged + plannedYear, LIMITS.blockYear, 'Block year', tgt);
         if (ctx.block12m) cumIssue(issues, 'blockYear', ctx.block12m + planned12m, LIMITS.block12m, 'Block 12 months', tgt);
@@ -765,6 +768,8 @@ export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
 /** v0.9 fix: minutes a planned duty keeps in hand on the 168 h between recovery rests (delays on the day). */
 const RECOVERY_KEEP = 60;
 const RECOVERY_KEEP_DUTY = 120;
+/** v0.16 balance: block hours kept in hand on the 28-day limit for a duty still to report (actuals run over the plan). */
+const BLOCK28_KEEP = 120;
 /** v0.7.3 extended FDPs allowed per crew member in any 7 days. */
 const EXT_PER_WEEK = 2;
 /** UTC month key of t (year × 12 + month); the bounds of the last 4 months looked up are cached (evalSegs' hot path). */

@@ -51,7 +51,8 @@ describe('a change request as a favour', () => {
   });
 
   it("agreed: their own pushed legs are re-based (not late, no penalty, 'Client's request'); the other client's leg is our delay", () => {
-    const { g, A, B, C } = book(62);
+    // v0.16 seed 14 (was 62): the client pool grew, the streams moved; this seed's push reaches the other client's leg.
+    const { g, A, B, C } = book(14);
     const d = ask(g, A.c);
     const min = Number(d.data!.minutes);
     const name = g.clients[A.c.clientId].name;

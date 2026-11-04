@@ -14,6 +14,8 @@ import { Bar, Seg, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { store } from '../store';
 import { AwayLine } from './Markets';
+import { SalesStaff } from './team/SalesStaff';
+import { NominatedPosts } from './team/NominatedPosts';
 
 const pct = (x: number) => Math.round(x * 100);
 /** A progress worth a bar ('18 of 25 sectors'); a one-off goal ('Not yet') shows its unlock line instead. */
@@ -257,6 +259,9 @@ export function TeamView({ g }: { g: GameState }) {
         {/* v0.14 sales trips and fairs live in Contracts › Markets; here only who is away. */}
         <AwayLine g={g} />
         {list.map((h) => <HeadRow key={h.id} v={h} on={h.id === v?.id} onPick={() => store.select({ kind: 'head', id: h.id })} />)}
+        {/* v0.16 regional sales managers (lane sales) and the nominated posts (lane ops). */}
+        <SalesStaff g={g} />
+        <NominatedPosts g={g} />
       </div>
       <div className="card v8-pane v8-pane-r">{v && <Detail v={v} g={g} />}</div>
     </div>

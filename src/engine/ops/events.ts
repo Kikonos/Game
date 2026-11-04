@@ -31,6 +31,7 @@ import { setAogEnd } from './maintenance';
 import { ticketBlock } from './commercial';
 import { bumpReliable, contractOf, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, favourChip, levelOf, statsV08 } from '../contracts/relations';
+import { factorInvoice, factorQuote } from '../finance';
 import { mghFor } from '../contracts/billing';
 import { cancelForceMajeure, closureCause, resolveAirspace, resolveFarStranded, resolveStranded, resolveUninsurable, setFindSwap } from './world';
 import { optionalFactor } from './director';
@@ -214,9 +215,18 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
     { id: 'subcharter', label: `Sub-charter to ${rivalName(g, rivalId)}`, desc: `A rival flies the legs; we still bill the client. Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}.`, tone: 'warn', chips: [usd(-sub), `Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}`, legsChip(win)] },
     { id: 'cancel', label: 'Cancel the legs', desc: 'Compensation to the client and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legsChip(win)] },
   ];
-  // Sub-charter is the default only when the wait would cancel legs and it is cheaper than their compensation and fares.
-  const waitPen = cancelCost(g, holdC.cancels) + subcharterCost(g, holdC.cancels, 1);
-  const def = waitPen > 0 && sub < waitPen ? 'subcharter' : 'courier';
+  // The default is the cheapest way out. v0.15.1 the AOG team when what it saves in compensation and fares beats its
+  // fee (S0228: CS-TRF at Frankfurt, 64 h by courier and 6 legs dropped for $90K, while the team's $12K kept two of
+  // them); a free aircraft of the family swapped in when the better wait still drops legs (not when the team only
+  // delays them: S0228 CS-TQM at Venice, the team $8.3K and 3 legs delayed, while the swap moved 10 legs of Condor's
+  // Hamburg programme to CS-TQA, a 2 h 45 ferry, and its crews lost their rest: 2 legs cancelled); a rival only when
+  // it costs less than the better wait's compensation and fares.
+  const lossC = cancelCost(g, holdC.cancels) + subcharterCost(g, holdC.cancels, 1);
+  const lossT = teamCost + cancelCost(g, holdT.cancels) + subcharterCost(g, holdT.cancels, 1);
+  const wait = lossT < lossC ? 'team' : 'courier';
+  const waitPen = Math.min(lossC, lossT);
+  const waitDrops = revCount(wait === 'team' ? holdT.cancels : holdC.cancels) > 0;
+  const def = waitDrops && swap ? 'swap' : waitDrops && sub < waitPen ? 'subcharter' : wait;
   ask(g, {
     kind: 'aog', title: `AOG: ${ac.reg} at ${city(m.at)}`,
     body: `${m.cause}. ${f.no} ${f.from}–${f.to} can't leave. With a part by courier the aircraft is back in about ${Math.round((m.end - g.now) / 60)} h. The repair costs about ${usd(m.cost)} whichever you choose.`,
@@ -332,8 +342,15 @@ function readyAt(g: GameState, roles: Role[], at: string, family: RatingFamily, 
     let t = c.restUntil;
     if (c.status === 'onDuty') {
       const d = rosterOf(g, c.id, g.now, g.now + 1).find((x) => x.report <= g.now && !x.done);
-      if (!d || d.restAt !== at) continue;
-      t = d.release + minRest({ dutyMin: d.release - d.report, atHome: at === c.base, augmented: d.augment > 0, tzShift: 0, extended: !!d.ext });
+      if (!d) continue;
+      const f0 = g.flights[d.flightIds[0]];
+      // Crew round (Nov 2026): a crew held at the gate before their first leg left (out of hours on the day's length)
+      // are stood down and report afresh 6 h after their report (crew/duties.ts syncDuty's `held`: the same clock).
+      // Left out, the wait for a leg whose only crew were its own ran to the next ticket from base: 24 h, and a world
+      // tour's leg home was given up after three such waits.
+      if (f0?.status === 'scheduled' && f0.from === at) t = d.report + 6 * 60;
+      else if (d.restAt !== at) continue;
+      else t = d.release + minRest({ dutyMin: d.release - d.report, atHome: at === c.base, augmented: d.augment > 0, tzShift: 0, extended: !!d.ext });
     }
     t = Math.max(g.now, t);
     const end = t + need;
@@ -476,7 +493,8 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
   const hours = crewAlertKind(g, f.id) === 'hours';
   ask(g, {
     kind: 'crewShort', title: `${hours ? 'Crew out of hours' : 'Crew short'}: ${f.no} ${f.from}–${f.to}`,
-    body: card ? `${card.what.replace(` for ${f.no}`, '')}. ${card.why} ${hurtProse(card)}. It has been waiting ${fmtDuration(f.delay)} at ${city(f.from)}.` : `${f.no} has been waiting ${fmtDuration(f.delay)} at ${city(f.from)}: ${what}.`,
+    // Raised before the flight has waited at all (the departure check): no 'waiting 0m'.
+    body: card ? `${card.what.replace(` for ${f.no}`, '')}. ${card.why} ${hurtProse(card)}.${f.delay > 0 ? ` It has been waiting ${fmtDuration(f.delay)} at ${city(f.from)}.` : ''}` : f.delay > 0 ? `${f.no} has been waiting ${fmtDuration(f.delay)} at ${city(f.from)}: ${what}.` : `${f.no} is held at ${city(f.from)}: ${what}.`,
     options, defaultOption: def, expires: g.now + 60, ref: { kind: 'flight', id: f.id },
     data: { flightId: f.id, aircraftId: ac.id, dutyId: d?.id ?? '', factor, rivalId },
   });
@@ -609,6 +627,8 @@ export function latePaymentDecision(g: GameState, r: Receivable, player = false)
   const days = Math.floor((g.now - r.due) / DAY);
   const ct = r.contractId ? g.contracts[r.contractId] : undefined;
   const live = !!ct && (ct.status === 'active' || ct.status === 'signed');
+  // v0.16 the bank's factoring quote with recourse (engine/finance); the flat sale when the invoice is not eligible.
+  const fq = factorQuote(g, r.id, true);
   ask(g, {
     kind: 'latePayment', title: `${name} is ${days} days late`, ref: { kind: 'receivable', id: r.id },
     body: `${usd(r.amount)} for ${r.desc} was due ${fmtDay(r.due)}.`,
@@ -616,7 +636,10 @@ export function latePaymentDecision(g: GameState, r: Receivable, player = false)
       { id: 'wait', label: 'Wait', desc: 'They usually pay in the end; until then the cash is not ours.', chips: [`${usd(r.amount)} outstanding`, 'No cost'] },
       // v0.8 a favour: waive the 3 % a year late-payment interest.
       { id: 'waive', label: 'Waive the interest', desc: 'Wait, and tell them we will not charge late-payment interest. A favour they remember.', tone: 'good', chips: [`Relation +${BAL.v08.rel.waiveInterest}`, `${usd(r.amount)} outstanding`] },
-      { id: 'factor', label: 'Sell the invoice', desc: `A factor pays now, less ${Math.round(BAL.factorDiscount * 100)}%.`, tone: 'warn', chips: [`+${usd(r.amount * (1 - BAL.factorDiscount))} now`, usd(-r.amount * BAL.factorDiscount)] },
+      // v0.16 review: an invoice the bank already holds (factored) is not for sale again.
+      ...(r.factor ? [] : [fq && !fq.why
+        ? { id: 'factor', label: 'Sell the invoice', desc: `The bank advances ${Math.round((fq.advance / r.amount) * 100)}% less a ${(fq.feePct * 100).toFixed(1)}% fee now, and the rest when ${name} pays. Unpaid ${BAL.v016.finance.factoring.buyBackDays} days past due, we buy it back.`, tone: 'warn' as const, chips: [`+${usd(fq.now)} now`, usd(-fq.fee), `${usd(fq.balance)} later`] }
+        : { id: 'factor', label: 'Sell the invoice', desc: `A factor pays now, less ${Math.round(BAL.factorDiscount * 100)}%.`, tone: 'warn' as const, chips: [`+${usd(r.amount * (1 - BAL.factorDiscount))} now`, usd(-r.amount * BAL.factorDiscount)] }]),
       live
         ? { id: 'threaten', label: 'Threaten to suspend service', desc: 'A letter saying we stop flying for them unless paid; usually works within a week, but they will not forget it.', tone: 'bad', chips: ['Relation −20', '70%: paid within 7 days'] }
         : { id: 'threaten', label: 'Send a formal demand', desc: "A lawyer's letter; usually works within a week, but they will not forget it.", tone: 'bad', chips: ['Relation −20', '70%: paid within 7 days'] },
@@ -653,6 +676,11 @@ function resolveLatePayment(g: GameState, d: Decision, opt: string): ActionResul
     return { ok: true, msg: `Interest waived; we keep waiting for ${name}` };
   }
   if (opt === 'factor') {
+    // v0.16 review: sold to the bank already: nothing to sell again (the flat sale below would pay the whole amount a second time).
+    if (r.factor || r.factored) return { ok: false, error: `Already sold to the bank: they collect it from ${name}` };
+    // v0.16 through the bank when the invoice is eligible (engine/finance); else the flat sale as before.
+    const fq = factorQuote(g, r.id, true);
+    if (fq && !fq.why) return factorInvoice(g, r.id, true);
     const fee = Math.round(r.amount * BAL.factorDiscount);
     cashOnly(g, r.amount);
     post(g, 'interest', -fee);
@@ -714,6 +742,12 @@ function freePair(g: GameState, prefix: string): number {
   return n;
 }
 
+/** v0.15.1 whether [from, to) overlaps a check, shop visit or return check booked (or under way) for the aircraft. Pure. */
+function maintClashAt(g: GameState, aircraftId: string): (from: Minute, to: Minute) => boolean {
+  const mx = Object.values(g.maintenance).filter((m) => m.aircraftId === aircraftId && (m.status === 'planned' || m.status === 'inWork'));
+  return (from, to) => mx.some((m) => m.start < to && m.end > from);
+}
+
 /** v0.14.1 (OPS-2) an extra out-and-back leaving the base at `t` leaves and lands outside every strict curfew. Pure. */
 function rotationClear(base: string, dest: string, t: Minute, out: number, turn: number, back: number): boolean {
   const home = t + out + turn + back;
@@ -735,15 +769,19 @@ function extraRotation(g: GameState, c: Contract): boolean {
   // First daytime gap between two legs at the base that fits an out-and-back. v0.14.1 (OPS-2) clear of the night
   // curfews as the waves are (computeWaves): out, the turn and back, with half an hour in hand on the landing home
   // (DE982 LGW–HAM was planned to land 23:15 local, inside Hamburg's 23:00 ban; EW793 LIS–DUS at 02:20).
+  // v0.15.1 and never while the aircraft is booked into a check, the cabin shop or its return check (the gap the shop
+  // leaves in the programme read as free: "Fly it" added a rotation on a day in the shop, which the gate then dropped
+  // for a maintenance overrun, with compensation).
   let std = 0;
   const list = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled');
+  const shop = maintClashAt(g, ac.id);
   for (let i = 0; i + 1 < list.length && !std; i++) {
     const a = list[i];
     const b = list[i + 1];
     if (a.to !== p.base || b.from !== p.base || a.sta + turn < from || b.std > to) continue;
     for (let t = Math.ceil((a.sta + turn) / 15) * 15; t + need + turn <= b.std; t += 30) {
       const lm = localMinuteOfDay(p.base, t);
-      if (lm >= 6 * 60 && lm <= 21 * 60 && rotationClear(p.base, dest, t, out, turn, back)) {
+      if (lm >= 6 * 60 && lm <= 21 * 60 && rotationClear(p.base, dest, t, out, turn, back) && !shop(t - turn, t + need + turn)) {
         std = t;
         break;
       }
@@ -917,6 +955,8 @@ function resolveChange(g: GameState, d: Decision, opt: string): ActionResult {
   const turn = turnOf(ac);
   const end = std + out + turn + back;
   if (std < g.now + 60 || flightsOf(g, ac.id).some((f) => f.status === 'scheduled' && f.std < end + turn && f.sta > std - turn)) return { ok: false, error: 'The slot is no longer free' };
+  // v0.15.1 a check booked since the ask (or one the ask missed in an older save) takes the slot.
+  if (maintClashAt(g, ac.id)(std - turn, end + turn)) return { ok: false, error: `${ac.reg} is booked for maintenance then` };
   // v0.14.1 (OPS-2) re-checked against the night curfews (a clock change since the ask).
   if (!rotationClear(p.base, dest, std, out, turn, back)) return { ok: false, error: `The night curfew at ${p.base} or ${dest} no longer allows that slot` };
   const no = freePair(g, p.prefix);

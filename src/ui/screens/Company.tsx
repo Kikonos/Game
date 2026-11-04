@@ -23,6 +23,7 @@ import { TeamView } from './Team';
 import { AchievementsView } from './Achievements';
 import { achievementsView, headsView } from '../../engine/ops';
 import { ScreenHint } from '../components/ScreenHint';
+import { PrestigeCard } from './company/PrestigeCard';
 
 type View = 'overview' | 'team' | 'rivals' | 'achievements';
 
@@ -278,6 +279,8 @@ function Overview({ g, fleet }: { g: GameState; fleet: number }) {
         <div className="col gap-16">
           <LiveryCard g={g} />
           <Card title="Reputation" icon={<ShieldCheck className="ico" />}><Reputation g={g} /></Card>
+          {/* v0.16 the prestige ladder: our level and what the next one needs (ui/screens/company/PrestigeCard.tsx). */}
+          <PrestigeCard g={g} />
           <StandingCard g={g} />
           <Card title="Goals" icon={<FlagIcon className="ico" />}><Goals g={g} /></Card>
           <Card title="Company" icon={<Building2 className="ico" />}>

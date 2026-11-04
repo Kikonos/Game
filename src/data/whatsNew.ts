@@ -16,6 +16,43 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.16',
+    name: 'Finance & Sales',
+    features: [
+      'Finance has a bank. Finance › The bank: a credit line sized on your fleet and revenue, drawn and repaid any time, with interest on what is drawn, a small fee on the rest and two covenants checked monthly (a breach brings a warning card, then a higher margin or a frozen line). Loans on your own aircraft (about 60 % of value, monthly instalments; the aircraft cannot be sold until repaid). Sale and leaseback with AerCap, Avolon, SMBC Aviation Capital, Air Lease, BOC Aviation and Carlyle: it stays in your fleet, leased. Sell an open invoice to the bank for about 95 % now, with or without recourse. Spare cash earns interest monthly. Every flow is in the ledger, the statements and the cash forecast.',
+      'Charters: ask a deposit on signing, 0–50 %. The offer dialog says what it does to the client\'s answer, and a counter carries it.',
+      'Every client has a level, 1 to 4: brochure work and low-cost, leisure and sports, national carriers, the majors and governments. You climb by flying for them: visibility (weighted by who you fly for), a clean record and IOSA open the next level; nobody drops a level. Offers come at your level, with one stretch offer a month from a level up. Higher levels pay more, ask more and penalise harder. The Prestige card on Company › Overview says what the next level still needs; the Contracts head shows your level.',
+      'About half the work now comes to you. The rest you chase in Contracts › Sales: brokers (Air Charter Service, Chapman Freeborn, ACC Aviation, Air Partner, Hunt & Palmer; 3–5 % on the deals they bring), pre-season pitches to airlines (a "maybe" comes back weeks later), a leads pipeline (lead, proposal, negotiation, signed; a lead left alone goes cold) and regional sales managers hired in Team. Tenders and trade fairs matter more.',
+      'Contracts › Filter: what you tell your sales team and the brokers not to bring: client kinds, a minimum client level, a minimum rate per block hour or profit, only some aircraft families or markets. Hidden offers don\'t chime or write to you; the Market tab says how many wait under your filter.',
+      '170 more real clients, each with its level and its colours: Air France, KLM, British Airways, Virgin Atlantic, Iberia, SWISS, Turkish Airlines, French bee, Air Caraïbes, Corsair, Aircalin, Air Tahiti Nui, Air Austral, Caribbean Airlines, the low-cost and leisure airlines, TUI, DER Touristik, Coral and Anex, defence and foreign ministries from Paris to Canberra, UNICEF, the ICRC and MSF, the big clubs and federations, promoters and companies.',
+      'Far routes: overseas rotations with a stop and a crew change on the way (Paris–Singapore–Nouméa, the South Atlantic airbridge via Ascension, the Antilles, Réunion, Curaçao and Bonaire, the Pacific, Papeete via Los Angeles). They pay a quarter more. New on the map: the Caribbean, French Guiana, Mayotte, Wallis, Port Moresby, Turin and RAF Brize Norton.',
+      'A Compliance Monitoring Manager is a real hire in Team (the nominated post): fewer ramp and audit findings.',
+      'Every offer says who pays the fuel: "Client pays fuel" on ACMI, "Fuel ours, in the price · fuel clause" on a charter.',
+      'New Terminal music on the title and setup screens: a slow departure-lounge piece (soft piano, bass, brushes), with the hum of the hall, a distant jet now and then and a two-note gate chime. No voices.',
+    ],
+    improvements: [
+      'A day that a delay runs over its limit after the crew reported goes on with the relief pilots aboard, or with commander\'s discretion when that covers it: one note in the Inbox, no alarm and no pause for a legal day.',
+      'The flight sheet says what the day really allows: "Not needed: 13:15 of 14:00 (0:45 spare)", "3 pilots with class 1 bunks allow 17:00", "the 4 pilots aboard and class 1 bunks allow 18:00". A trip whose later days carry 3 or 4 pilots plans its extended days with in-flight rest instead.',
+      'Crew Control judges candidates for a flight held at the gate from its new check-in, not from a report hours past; "Delay" brings a fresh crew when one can take it; refusals say the real reason and name only crew at the departure airport; a standby call counts only once the window has begun.',
+      'Empty flights into a job are timed for a crew who can fly them: the ferry crew\'s rest counts in full (14 h across 4+ time zones, +4 h after an extended day). A flight held for crew asks Crew Control for the earliest departure instead of pushing 20 h at a time.',
+      'AOG card: the engineering team or a free aircraft is the default when it costs less and drops fewer flights. "Fly it" is not offered for a day the aircraft is booked for maintenance. "Line-check" is now "Inspection" everywhere.',
+      'The cash forecast includes charters paid on completion. The offer dialog says the real payment terms and who pays the fuel; the per-aircraft line reads "profit".',
+      'Scenarios: Long-Haul Debut gets its ETOPS 120 and widebody approvals; a fixed fleet gets no dry-lease requests; a closed Ladder gets no work that needs approvals; no stale "Urgent" lines at the start; the Goals chip shows three stars only when every condition is met.',
+      'Dialogs: the small chips are back to their size (they had grown to 44 px since v0.12); "Look first" on a decision is always in view; a toast moves out of the way of an open decision; the loading screen fits an iPhone in landscape; the Market outlook calendar no longer clips its labels.',
+      'Contracts, Inbox, Finance and Crew no longer stutter every game hour with offers open; the map and the globe use less battery.',
+    ],
+    fixes: [
+      'BLU2032 at Heathrow (A330, 4 pilots, bunks): after the APU delay the day read "already too long when they reported" and rang CREW OUT OF HOURS with a pause. The 14:00 extension the crew reported with is kept, the relief pilots carry the day (14:19 of 18:00) and it departs legally. Saves that carry the old state are repaired on load.',
+      'A permit delay that moved a leg 19 h no longer shows a 28-hour "day" and a red alarm: the duty is cut in two at once.',
+      'The gate no longer waits a day for a ticket from base when its own held crew can re-report in 6 h.',
+      'An empty move is no longer timed when nobody can fly it (Kathmandu: the aircraft stood eight days and the client\'s flights were sub-chartered seven times). A chain home that already has its crew keeps its times when the flight before it runs a few minutes late (New York: it was re-timed to leave at landing, lost its crew and stood six days). An empty flight waiting for crew at a far airport no longer waits, every few hours, for a crew member the roster will not seat; the wait counts the 14 h rest a crew flown in across time zones needs.',
+      'A curfew night stop moves the aircraft\'s later flights too, instead of drawing the flight over the next one on the Schedule.',
+      'Charter balances add up to the dollar, and the completion message says what was refunded for flights not flown.',
+      'No more "It has been waiting 0m" on a decision raised at departure, no double space in a client\'s level-up message, and Crew Control no longer repeats a solution\'s description.',
+      'Music no longer clicks when a piece starts.',
+    ],
+  },
+  {
     version: 'v0.15',
     name: '3D',
     features: [

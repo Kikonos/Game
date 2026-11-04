@@ -63,14 +63,16 @@ const URGENCY_RANK: Record<ContractOffer['urgency'], number> = { urgent: 0, shor
 export function marketOffers(g: GameState): ContractOffer[] {
   return Object.values(g.offers)
     // v0.14.1 an open offer past its time is not on the market (it lapses at its 'offer.expire'; never shown as live).
-    .filter((o) => (o.status === 'open' && o.expires > g.now) || o.status === 'countered')
+    // v0.16 one hidden by the player's filter sits under "N offers hidden" (contracts/filter.ts hiddenOffers).
+    .filter((o) => ((o.status === 'open' && o.expires > g.now) || o.status === 'countered') && !o.hidden)
     .sort((a, b) => URGENCY_RANK[a.urgency] - URGENCY_RANK[b.urgency] || b.estValue - a.estValue || a.expires - b.expires);
 }
 
 /** Offers that left the market without us (lost, expired, declined), newest first. */
 export function missedOffers(g: GameState): ContractOffer[] {
+  // v0.16 an offer the player's filter hid and never opened was not missed (contracts/filter.ts).
   return Object.values(g.offers)
-    .filter((o) => o.status === 'lost' || o.status === 'expired' || o.status === 'declined')
+    .filter((o) => (o.status === 'lost' || o.status === 'expired' || o.status === 'declined') && !(o.hidden && !o.seen))
     .sort((a, b) => (b.closedAt ?? b.expires) - (a.closedAt ?? a.expires));
 }
 
@@ -241,7 +243,21 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   sales: 'Sales and travel', badDebt: 'Bad debts',
   // v0.14.1
   consent: 'Lessor consent fees',
+  // v0.16
+  interestIncome: 'Interest on cash', bankFees: 'Bank fees', commission: 'Brokers\' commission',
 };
+
+/**
+ * v0.16 (G) who pays the fuel, on every offer card and in the dialog: ACMI 'Client pays fuel'; a full charter 'Fuel ours,
+ * in the price · fuel clause' (with an escalation clause) or 'Fuel ours, in the price'; a jumbo load 'Fuel at cost: the
+ * client pays the burn'; a dry lease 'Lessee pays fuel'. The rule itself is ops/flights.ts paysFuel. Pure.
+ */
+export function fuelLine(p: Product): string {
+  if (p.kind === 'wet') return 'Client pays fuel';
+  if (p.kind === 'dry') return 'Lessee pays fuel';
+  if (p.fuelAtCost) return 'Fuel at cost: the client pays the burn';
+  return p.fuelEscalation ? 'Fuel ours, in the price · fuel clause' : 'Fuel ours, in the price';
+}
 
 // v0.12.1 the engine's lists (statementTotals splits the same way).
 const REVENUE: readonly LedgerCat[] = REVENUE_CATS;
@@ -371,6 +387,13 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     case 'ramp':
     case 'audit':
       return { tab: 'company', view: 'overview' };
+    // v0.16 a pipeline lead or a broker: Contracts › Sales; a sales manager or the compliance manager: Company › Team.
+    case 'lead':
+    case 'broker':
+      return { tab: 'contracts', view: 'sales', sel: ref };
+    case 'rep':
+    case 'compliance':
+      return { tab: 'company', view: 'team', sel: ref };
   }
   return null;
 }

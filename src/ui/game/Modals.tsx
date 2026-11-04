@@ -30,6 +30,7 @@ import { AcquireModal } from '../modals/AcquireModal';
 import { RefitModal } from '../modals/RefitModal';
 import { LeaseModal } from '../modals/LeaseModal';
 import { SellModal } from '../modals/SellModal';
+import { FinancingModal } from '../modals/FinanceModals';
 import { ApprovalModal } from '../modals/ApprovalModal';
 import { LadderStepModal } from '../modals/LadderStepModal';
 import { WhatsNewModal } from '../modals/WhatsNewModal';
@@ -385,6 +386,7 @@ export function GlobalModals() {
     case 'refit': return s.game ? <RefitModal aircraftId={m.aircraftId} layout={m.layout} offerId={m.offerId} rest={m.rest || m.section === 'rest'} restOption={m.restOption} after={m.after} /> : null;
     case 'lease': return s.game ? <LeaseModal aircraftId={m.aircraftId} tab={m.tab} /> : null;
     case 'sell': return s.game ? <SellModal aircraftId={m.aircraftId} /> : null;
+    case 'financing': return s.game ? <FinancingModal key={`${m.what}:${m.id ?? ''}`} what={m.what} id={m.id} /> : null;
     case 'approval': return s.game ? <ApprovalModal id={m.id} /> : null;
     case 'ladderStep': return s.game ? <LadderStepModal messageId={m.messageId} /> : null;
     case 'whatsNew': return <WhatsNewModal all={m.all} />;

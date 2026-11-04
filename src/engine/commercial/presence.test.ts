@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { AIRPORTS } from '../../data/airports';
 import { FAIR_BY_ID, FAIRS, fairEdition, heldIn } from '../../data/fairs';
 import { MARKET_IDS, MARKETS, marketOfCountry, type MarketId } from '../../data/markets';
-import { CLIENT_SEEDS_V014 } from '../../data/naming';
+import { CLIENT_SEEDS_V014, CLIENT_SEEDS_V016 } from '../../data/naming';
 import { BAL } from '../core/balance';
 import { DAY, fromUTC, toDate } from '../core/time';
 import type { Client, ContractOffer, GameState } from '../core/types';
@@ -133,8 +133,9 @@ describe('the presence record', () => {
     const back = deserialize(serialize(h));
     expect(back.com!.presence).toEqual(h.com!.presence);
     // The market-presence clients join an older save too, with their own ids.
-    expect(Object.values(g.clients).filter((c) => isMarketClient(c)).length).toBe(CLIENT_SEEDS_V014.length);
-    expect(Object.values(g.clients).filter((c) => isMarketClient(c)).every((c) => c.id.startsWith('cm'))).toBe(true);
+    // v0.16 the new clients outside Europe (data/naming.ts CLIENT_SEEDS_V016 `market`, ids 'cx…') come through the market too.
+    expect(Object.values(g.clients).filter((c) => isMarketClient(c)).length).toBe(CLIENT_SEEDS_V014.length + CLIENT_SEEDS_V016.filter((s) => s.market).length);
+    expect(Object.values(g.clients).filter((c) => isMarketClient(c)).every((c) => c.id.startsWith('cm') || c.id.startsWith('cx'))).toBe(true);
   });
 });
 
@@ -168,16 +169,18 @@ describe('offers weighted by presence', () => {
     expect(marketTilt(g)('sports')).toBeGreaterThan(1.3);
   });
 
-  it('ordinary offers a week by standing: Newcomer 1.5, Established 3.1, Respected 4.6 (their usual fleets)', () => {
+  it('ordinary offers a week by standing: Newcomer 0.55, Established 1.6, Respected 2.3 (their usual fleets; v0.16 halved, the rest is chased)', () => {
     const g = newGame(7, 'LIS', true);
+    expect(BAL.marketOffers.perWeek).toEqual([0.55, 1.6, 2.3]);
     expect(marketPerWeek(g)).toBeCloseTo(BAL.marketOffers.perWeek[0], 5);
     g.company.standing = 1;
-    expect(marketPerWeek(g)).toBeCloseTo(3.1 * (1 + BAL.marketOffers.fleetSlope * (2 - 3)), 5);
+    expect(marketPerWeek(g)).toBeCloseTo(1.6 * (1 + BAL.marketOffers.fleetSlope * (2 - 3)), 5);
     g.company.standing = 2;
-    expect(marketPerWeek(g)).toBeCloseTo(4.6 * BAL.marketOffers.fleetClamp[0], 5);
+    expect(marketPerWeek(g)).toBeCloseTo(2.3 * BAL.marketOffers.fleetClamp[0], 5);
   });
 
-  it('a Newcomer sees 1–2.5 ordinary offers a week, none in a quiet spell, and the opening three on day one', () => {
+  // v0.16 inbound offers halved (the rest of the work is chased): 1–2.5 a week → 0.4–1.4.
+  it('a Newcomer sees 0.4–1.4 ordinary offers a week, none in a quiet spell, and the opening three on day one', () => {
     let n = 0;
     let weeks = 0;
     for (const seed of [11, 12]) {
@@ -199,8 +202,8 @@ describe('offers weighted by presence', () => {
       weeks += 10;
       expect(g.company.standing).toBe(0);
     }
-    expect(n / weeks).toBeGreaterThanOrEqual(1);
-    expect(n / weeks).toBeLessThanOrEqual(2.5);
+    expect(n / weeks).toBeGreaterThanOrEqual(0.4);
+    expect(n / weeks).toBeLessThanOrEqual(1.4);
   }, 120_000);
 
   it('never a look-alike of an open offer; a draft no aircraft of ours can fly is mostly drawn again', () => {

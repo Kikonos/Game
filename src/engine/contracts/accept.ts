@@ -10,7 +10,7 @@ import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
 import { DAY, fmtDay, fmtDayAt, monthKey, monthStart, fmtDayRange } from '../core/time';
 import { clamp } from '../core/util';
-import type { ActionResult, Contract, ContractOffer, CrewExtra, Flight, GameState, Minute, OfferStatus, Product, Receivable, SimEvent } from '../core/types';
+import type { ActionResult, BrokerId, Contract, ContractOffer, CrewExtra, Flight, GameState, Minute, OfferStatus, Product, Receivable, SimEvent } from '../core/types';
 import { autoRoster, crewExtraFor, flightCrewStatus, onContractDoneMorale } from '../crew';
 import { billContractMonth, issueBill, mghFor, mghRemaining } from './billing';
 import { feasibility } from './feasibility';
@@ -25,9 +25,12 @@ import { replyTime } from './counter';
 import { bumpClient, noteJobDone, statsV08 } from './relations';
 import { noteHiredUs } from './rivals';
 import { rollRepeat } from './missions';
+import { onContractDoneVisibility } from './prestige';
+import { commissionOf } from '../commercial/sales';
 import { cancelDry, recallDry, recallTerms, signDryLease } from '../ops/dryLease';
 import { notOursCancel } from '../ops/latePolicy';
 import { lockOf, offerLock } from '../scenario/rules';
+import { depositEffect, depositSigned } from '../finance';
 import { SCEN_HOOKS } from '../scenario/module';
 
 // ---------- offers ----------
@@ -51,8 +54,8 @@ export function closeOffer(g: GameState, o: ContractOffer, status: OfferStatus, 
   if (lostTo) o.lostTo = lostTo;
 }
 
-/** Broker commission share (5%) when the job came through a broker. */
-export const brokerCut = (c: { broker?: string }) => (c.broker ? BAL.brokerCommission : 0);
+/** Broker commission share when the job came through a broker: v0.16 the broker's own rate (commercial/sales.ts), else the flat 5%. */
+export const brokerCut = (c: { broker?: string; brokerId?: BrokerId }) => (c.brokerId ? commissionOf(c.brokerId) : c.broker ? BAL.brokerCommission : 0);
 
 const firstNo = (rep: ReturnType<typeof feasibility>, skipPaint = false, skipCabin = false) => rep.checks.find((c) => c.level === 'no' && !(skipPaint && c.id === 'paint') && !(skipCabin && c.id === 'cabinReq'));
 
@@ -64,6 +67,8 @@ export interface SignOpts {
   priced?: boolean;
   /** v0.6: extra crew for this contract (paid option met when cabin ≥ requirements.extraCabin + extraCabinPaid.n). */
   crewExtra?: CrewExtra;
+  /** v0.16 finance: the deposit asked on a full charter (share of the price; engine/finance depositEffect says what it does). */
+  depositPct?: number;
 }
 
 /** v0.9 ops/heads.ts: a deposit share for a charter signed without one (the credit controller's rule); 0 = none. */
@@ -131,6 +136,8 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   const c: Contract = {
     id: nextId(g, 'k'),
     offerId: o.id, archetype: o.archetype, clientId: o.clientId, broker: o.broker, title: o.title,
+    // v0.16 the broker's own commission and the lead it closes follow the offer.
+    ...(o.brokerId ? { brokerId: o.brokerId } : {}), ...(o.leadId ? { leadId: o.leadId } : {}),
     product: opts.priced ? structuredClone(o.product) : termsProduct(o, { paint, cabin: cabinOn }), pattern: structuredClone(o.pattern), requirements: structuredClone(o.requirements),
     penalties: structuredClone(o.penalties), payment: { ...o.payment }, effects: { ...o.effects },
     aircraftIds: ids, start: o.start, end: o.end, signed: g.now, status: 'signed',
@@ -168,6 +175,12 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
     else c.cabin!.from![id] = x.from;
   }
   generateFlights(g, c);
+  // v0.16 the deposit we asked (engine/finance): a counter's deposit holds as the client answered it; on a plain accept a
+  // client asked for more than its norm may sign at the norm instead ("20 % is what we do").
+  if (c.product.kind === 'charter') {
+    const ask = opts.depositPct ?? (opts.priced ? o.depositAsk?.pct : undefined);
+    if (ask !== undefined) c.product = { ...c.product, depositPct: opts.priced ? ask : depositSigned(g, o, ask) };
+  }
   // v0.9 the credit controller asks a slow payer for a deposit (ops/heads.ts).
   if (c.product.kind === 'charter' && !c.product.depositPct) {
     const pct = depositHook?.(g, c) ?? 0;
@@ -182,7 +195,16 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
     if (c.payment.basis !== 'arrears') {
       const rest = net - dep;
       const total = prog.trips.reduce((s, t) => s + tripMin(t), 0) || 1;
-      c.instalments = prog.trips.map((t) => ({ at: Math.max(g.now, t.std - cp.balanceDaysBefore * DAY), amount: Math.round((rest * tripMin(t)) / total) }));
+      // v0.15.1 rounded on the running total, so the instalments add up to the balance exactly (each rounded on its
+      // own they came to a few dollars over or under, refunded or billed as "$4" at completion).
+      let cum = 0;
+      let billed = 0;
+      c.instalments = prog.trips.map((t) => {
+        cum += (rest * tripMin(t)) / total;
+        const amount = Math.round(cum) - billed;
+        billed += amount;
+        return { at: Math.max(g.now, t.std - cp.balanceDaysBefore * DAY), amount };
+      });
       runInstalments(g, c);
     }
   }
@@ -343,6 +365,11 @@ export function counterOffer(g: GameState, offerId: string, price: number, aircr
   if (o.paint) o.counter.paint = paint;
   if (o.cabin) o.counter.cabin = cabinOn;
   if (opts.crewExtra) o.counter.crewExtra = { cabin: opts.crewExtra.cabin, pilot: opts.crewExtra.pilot ? 1 : 0 };
+  // v0.16 the deposit asked with the counter and what it does to the client's answer (counter.ts counterOdds reads it).
+  if (o.product.kind === 'charter' && opts.depositPct !== undefined) {
+    const d = depositEffect(g, o.id, opts.depositPct);
+    o.depositAsk = { pct: opts.depositPct, acceptDelta: d.acceptDelta, floorDelta: d.floorDelta };
+  }
   o.status = 'countered';
   schedule(g, replyAt, 'offer.reply', o.id);
   const hrs = Math.max(1, Math.ceil((replyAt - g.now) / 60));
@@ -615,6 +642,8 @@ function completeContract(g: GameState, c: Contract): void {
   c.status = 'completed';
   // v0.6: service quality settles into the client relation; a job well done thanks its crews.
   onContractDoneMorale(g, c);
+  // v0.15.1 prepaid money for legs that never flew goes back to the client: the message says so (it used to leave).
+  let refund = 0;
   if (c.product.kind === 'wet') {
     const months = new Set<number>(Object.keys(c.use).map(Number));
     for (let k = monthKey(c.start); monthStart(k) < c.end; k++) months.add(k);
@@ -636,7 +665,7 @@ function completeContract(g: GameState, c: Contract): void {
       c.instalments = [];
       c.balanceAt = null;
     }
-    settleCharter(g, c, Math.round(c.accrued ?? 0), c.payment.basis === 'arrears' ? `Invoice: ${c.title}` : `Final balance: ${c.title}`);
+    refund = settleCharter(g, c, Math.round(c.accrued ?? 0), c.payment.basis === 'arrears' ? `Invoice: ${c.title}` : `Final balance: ${c.title}`);
   }
   // v0.12.1 the legs that did not fly count: ours (recovery, AOG, no crew) against the on-time score; the client's
   // own or force majeure (a closure, a court) not. Flights are pruned a week after their day, so older
@@ -674,6 +703,8 @@ function completeContract(g: GameState, c: Contract): void {
     // v0.12.1 a world tour all the way round: every leg it planned flown (none of ours cancelled).
     if (c.archetype === 'worldTour' && !cxUs && (c.revMinDone ?? 0) >= (c.planRevMin ?? 0) * 0.99) v.tourDone = (v.tourDone ?? 0) + 1;
     rollRepeat(g, c.id);
+    // v0.16 the visibility the job earned on the prestige ladder (contracts/prestige.ts).
+    onContractDoneVisibility(g, c);
   }
   const own = flown - sub;
   const parts = [`${own} ${own === 1 ? 'leg' : 'legs'} flown${own ? `, ${Math.round(onTime * 100)}% on time` : ''}`];
@@ -681,7 +712,7 @@ function completeContract(g: GameState, c: Contract): void {
   if (cxUs + cxFm) parts.push(`${cxUs + cxFm} cancelled`);
   pushMessage(g, {
     tone: flewAny ? 'good' : 'info', cat: 'commercial', title: flewAny ? `Completed: ${c.title}` : `Closed without flying: ${c.title}`,
-    body: `${parts.join(', ')}. ${cl?.name ?? 'The client'} ${!flewAny ? 'has closed the contract' : onTime >= 0.85 ? 'is pleased' : 'noticed the delays'}.`,
+    body: `${parts.join(', ')}. ${cl?.name ?? 'The client'} ${!flewAny ? 'has closed the contract' : onTime >= 0.85 ? 'is pleased' : 'noticed the delays'}.${refund > 0 ? ` Prepaid $${refund.toLocaleString('en-US')} refunded for the legs not flown.` : ''}`,
     ref: { kind: 'contract', id: c.id },
   });
   completeHook?.(g, c);

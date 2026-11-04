@@ -23,22 +23,24 @@ export function LadderStepModal({ messageId }: { messageId: string }) {
   const bm = /^([\s\S]*?)\s*(?:\(([^()]*)\))?\s*(Reliability [+−-]\d+)\.?$/.exec(m.body);
   const body = bm ? bm[1] : m.body;
   const reward = bm?.[3];
+  // v0.16 a new level on the client ladder (contracts/prestige.ts): the Prestige card on the overview.
+  const level = /^New level: /.test(m.title);
   const see = () => {
     store.update((gg) => {
       const x = gg.messages.find((y) => y.id === messageId);
       if (x) x.read = true;
     });
     store.closeModal();
-    store.navigate('company', { view: 'ladder' });
+    store.navigate('company', { view: level ? 'overview' : 'ladder' });
   };
   return (
     <Modal className="ls-step" title={m.title.replace(/^Goal reached: /, '')} icon={<Award className="gold" />} onClose={close} footer={
       <>
         <button className="btn" onClick={close}>Close</button>
-        <button className="btn btn-primary" onClick={see}><TrendingUp /> See the ladder</button>
+        <button className="btn btn-primary" onClick={see}><TrendingUp /> {level ? 'See the Prestige card' : 'See the ladder'}</button>
       </>
     }>
-      <div className="ls-step-k upper dim">A step up the ladder</div>
+      <div className="ls-step-k upper dim">{level ? 'A new level' : 'A step up the ladder'}</div>
       {!types.length && <div className="ls-step-award"><Award /></div>}
       {types.length > 0 && (
         <div className="ap-types ls-step-types">

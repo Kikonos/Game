@@ -47,6 +47,10 @@ export function createScenario(id: string): GameState {
         (x.company.approvalsAt ??= {})[a] = start - 200 * DAY;
       }
       for (const p of d.pending ?? []) x.company.pendingApprovals.push({ id: p.id, started: start - 60 * DAY, done: start + p.days * DAY, cost: 0 });
+      // v0.15.1 an ETOPS application cannot be filed without the ETOPS maintenance programme under way: the airline
+      // set it up with the filing, ready on the approval's day (Long-Haul Debut's ETOPS 120 waited for it instead).
+      const etops = (d.pending ?? []).find((p) => /^etops/.test(p.id));
+      if (etops && !x.company.etopsMx) x.company.etopsMx = { started: start - 60 * DAY, done: start + etops.days * DAY, cost: 0 };
     },
   });
   // Money owed to us from before the start (paid when the client pays: governments late).
@@ -61,6 +65,9 @@ export function createScenario(id: string): GameState {
   // off the market (the opening offers came before them) are withdrawn.
   g.scen!.core = Object.keys(g.contracts).filter((id) => g.contracts[id].status === 'signed' || g.contracts[id].status === 'active');
   for (const o of Object.values(g.offers)) if ((o.status === 'open' || o.status === 'countered') && offerLock(g, o)) delete g.offers[o.id];
+  // v0.15.1 and their Inbox lines go with them (Crew Crisis opened with "Urgent: Schedule cover, Manchester" and no
+  // market), as do the lines about the offers the setup has just signed (the "Signed" line says it).
+  g.messages = g.messages.filter((m) => m.ref?.kind !== 'offer' || (g.offers[m.ref.id] && g.offers[m.ref.id].status === 'open'));
   // A fixed fleet: no aircraft on the market (the start's lease offer and its note go).
   if (lockOf(g, 'fleet')) {
     g.market.aircraft = [];
@@ -335,7 +342,9 @@ export function scenarioView(g: GameState): ScenarioView | null {
   if (!d || !g.scen) return null;
   const m = METRICS[d.metric];
   const value = m.value(g);
-  const stars = starsFor(d, value);
+  // v0.15.1 the stars the run would get now: none while a condition is missed (Crew Crisis opened with ★★★ in the top
+  // bar at 100 % of no legs flown, 120 legs still to fly). The thresholds and the bar below stay on the measure.
+  const stars = (d.must ?? []).every((x) => mustOk(g, x)) ? starsFor(d, value) : 0;
   const nextI = d.stars.findIndex((x) => value < x);
   const next = nextI < 0 ? null : { stars: (nextI + 1) as 1 | 2 | 3, target: d.stars[nextI], text: fmtValue(m.unit, d.stars[nextI]) };
   const lo = nextI <= 0 ? Math.min(0, value) : d.stars[nextI - 1];

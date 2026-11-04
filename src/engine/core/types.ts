@@ -239,6 +239,27 @@ export interface Company {
   standing?: 0 | 1 | 2;
   /** v0.15 when the AOC was issued (a scenario steps into an established airline); absent = the game's start. */
   aocAt?: Minute;
+  /** v0.16 the prestige ladder (contracts/prestige.ts): our level 1–4 and the visibility earned. load: ??= derived from history, never lowered. */
+  prestige?: PlayerPrestige;
+}
+
+// ======================================================================
+// v0.16 client prestige ladder (UPDATE-0.16.md §B; contracts/prestige.ts)
+// ======================================================================
+
+/** 1 brochure work · 2 charter market · 3 national carriers and agencies · 4 majors and governments. */
+export type Prestige = 1 | 2 | 3 | 4;
+
+export interface PlayerPrestige {
+  level: Prestige;
+  /** Visibility earned (block hours weighted by whom we flew for, contracts, fairs, tenders); never decays. */
+  visibility: number;
+  /** When each level was reached. */
+  levelAt: Partial<Record<Prestige, Minute>>;
+  /** The last stretch offer (one level up) made. */
+  stretchAt?: Minute;
+  /** Set once when derived from an older save's history on load. */
+  derived?: true;
 }
 
 // ======================================================================
@@ -254,6 +275,7 @@ export type Ownership =
       /** v0.7: the market index the rent was set at (absent = 1); extensions move rent by the index since. */ index?: number;
       /** v0.14.1 an extension's rent, from the old lease end (`from`); applied then (rentPerMonth, index). */ nextRent?: { from: Minute; rent: number; index: number };
       /** v0.14.1 the rent before the last change, until `until` (the month of a change is billed at both). */ prevRent?: { until: Minute; rent: number };
+      /** v0.16 finance: sold to the lessor and leased back (engine/finance leaseback): it was ours. */ leaseback?: true;
     };
 
 /** v0.7: handover abroad and the delivery ferry home. */
@@ -403,6 +425,8 @@ export interface Client {
   rivalId?: string;
   /** v0.14 went into administration (commercial/crises.ts): no more work from it. */
   ceased?: Minute;
+  /** v0.16 prestige level 1–4 (UPDATE-0.16.md §B.2). load: ??= from its seed, else by kind. */
+  prestige?: Prestige;
 }
 
 /** v0.8 client relationship level (contracts/relations.ts). */
@@ -604,6 +628,20 @@ export interface ContractOffer {
   slip?: { at: string[]; cost: number };
   /** v0.9 jumbo load (§Y.2): 420+ passengers, all economy. */
   jumbo?: boolean;
+  // ---------- v0.16 (UPDATE-0.16.md) ----------
+  /** v0.16 clients: a stretch offer from a client one level above ours ("a taste of what's to come"). */
+  stretch?: true;
+  /** v0.16 clients: the rate part of the client's prestige level (−4 % brochure work … +8 % majors), priced in. */
+  prestigePct?: number;
+  /** v0.16 clients: a far-flung multi-stop route with a crew change on the way (missions.ts farRoute). */
+  exotic?: true;
+  /** v0.16 sales: the pipeline lead it answers, and the broker that brought it (its commission; `broker` keeps the name). */
+  leadId?: string;
+  brokerId?: BrokerId;
+  /** v0.16 ops: hidden by the player's offer filter (no cue, no message); shown under "N offers hidden". */
+  hidden?: true;
+  /** v0.16 finance: the deposit we asked with a counter (share of the price) and what it did to the client's answer (engine/finance depositEffect). */
+  depositAsk?: { pct: number; acceptDelta: number; floorDelta: number };
 }
 
 /**
@@ -726,6 +764,13 @@ export interface Contract {
   cleanHit?: number;
   /** v0.9 round 4: the analyst's margin estimate at signing (shown %, the planner's own %); judged when the contract ends. */
   analyst?: { name: string; pct: number; est: number };
+  /** v0.16 sales: the broker that brought the job (its commission rate) and the lead it closed; the broker's relation credited (once, when it closed). */
+  brokerId?: BrokerId;
+  leadId?: string;
+  brokerDone?: true;
+  /** v0.16 clients: visibility already credited for this contract (completeContract credits once); signed off a stretch offer. */
+  visibilityDone?: true;
+  stretch?: true;
 }
 
 /** v0.8 a dry lease out: delivery ferry, the lease at the lessee's base, the return ferry. */
@@ -899,7 +944,11 @@ export type ProblemKind =
   /** v0.12.1 a leg that needs an approval we won't hold by its departure (ops/approvalGate.ts). */
   | 'approvalLate'
   /** v0.14 a client crisis: a strike, an administration, an engine grounding (commercial/crises.ts). */
-  | 'clientCrisis';
+  | 'clientCrisis'
+  /** v0.16 finance: a bank covenant broken; a loan instalment the forecast cannot pay; little credit headroom left; a factored invoice we may have to buy back. */
+  | 'covenantBreach' | 'loanDue' | 'creditHeadroom' | 'factorRecourse'
+  /** v0.16 sales: a lead about to go cold. */
+  | 'leadCold';
 
 /** v0.7.1 what a card is about: the entity (as a message Ref) plus the kind. */
 export interface ProblemRef { kind: ProblemKind; ref: Ref }
@@ -1257,7 +1306,9 @@ export interface Ref {
     /** v0.11 a ramp inspection, an audit finding (Company › Safety). */
     | 'ramp' | 'audit'
     /** v0.14 a tender (Contracts › Tenders), a sales trip (Company › Team › Sales trips). */
-    | 'tender' | 'trip';
+    | 'tender' | 'trip'
+    /** v0.16 a loan (Finance › Financing), a pipeline lead or a broker (Contracts › Sales), a sales manager or the compliance manager (Team). */
+    | 'loan' | 'lead' | 'broker' | 'rep' | 'compliance';
   id: string;
 }
 
@@ -1328,7 +1379,9 @@ export type LedgerCat =
   /** v0.14 sales trips and trade fairs (tickets, passes, hotels); receivables written off when a client fails. */
   | 'sales' | 'badDebt'
   /** v0.14.1 a lessor's consent to sub-lease (a dry lease out of a leased-in airframe); was booked as rent. */
-  | 'consent';
+  | 'consent'
+  /** v0.16 finance: interest earned on spare cash (revenue); bank fees (arrangement, commitment, waiver, early repayment, factoring); brokers' commission shown apart. */
+  | 'interestIncome' | 'bankFees' | 'commission';
 
 export interface MonthStatement {
   month: MonthKey;
@@ -1361,6 +1414,8 @@ export interface Receivable {
   chased?: number;
   /** v0.14 written off: the client went into administration (commercial/crises.ts); never paid, never chased. */
   written?: true;
+  /** v0.16 finance: sold to the bank (engine/finance factoring): the advance paid, the fee, with or without recourse; settled when the client paid; bought back when it never did (recourse). */
+  factor?: { advance: number; fee: number; recourse: boolean; at: Minute; settled?: Minute; boughtBack?: Minute };
 }
 
 export interface Finance {
@@ -1595,6 +1650,24 @@ export interface Stats {
   v08?: StatsV08;
   /** v0.9 counters (heads, achievements, slips, out of hours, discretion). load: ??= zeros */
   v09?: StatsV09;
+  /** v0.16 counters (finance, prestige, sales, filter, compliance). load: ??= zeros */
+  v016?: StatsV016;
+}
+
+/** v0.16 counters (UPDATE-0.16.md; the bot prints them). */
+export interface StatsV016 {
+  /** Visibility earned by the level of the client it came from; stretch offers made and signed. */
+  visibilityFrom: Record<Prestige, number>; stretchOffers: number; stretchSigned: number;
+  /** Offers hidden by the filter. */
+  hidden: number;
+  /** Leads opened, gone cold, lost, signed; pitches made; broker deals. */
+  leads: number; leadsCold: number; leadsLost: number; leadsSigned: number; pitches: number; brokerDeals: number;
+  /** v0.16 balance: leads opened by source (the bot's read-out). */
+  leadsBy?: Partial<Record<LeadSource, number>>;
+  /** Credit draws, covenant breaches, loans taken, leasebacks, invoices factored. */
+  draws: number; breaches: number; loans: number; leasebacks: number; factored: number;
+  /** Ramp findings the compliance manager's work avoided (rounded). */
+  rampSaved: number;
 }
 
 export interface StatsV09 {
@@ -1773,6 +1846,12 @@ export interface GameState {
   opsx?: OpsState;
   /** v0.14 Commercial: tenders, sales trips, client crises (engine/commercial). load: ??= empty */
   com?: CommercialState;
+  /** v0.16 finance (engine/finance): the credit line, aircraft loans, factoring, the money market. load: ??= empty */
+  treasury?: Treasury;
+  /** v0.16 ops: the offer filter (contracts/filter.ts). Absent = no filter. */
+  filter?: OfferFilter;
+  /** v0.16 ops: the Compliance Monitoring Manager (ops/compliance.ts). load: ??= nobody hired */
+  compliance?: ComplianceState;
   /** v0.9 achievements earned: id → when. load: ??= {} then a silent backfill */
   achievements?: Record<string, Minute>;
   /**
@@ -1854,6 +1933,174 @@ export interface ScenarioState {
 
 /** Result of a player action (store.act toasts the error or message). */
 export type ActionResult<T = undefined> = { ok: true; msg?: string; data?: T } | { ok: false; error: string };
+
+// ======================================================================
+// v0.16 Finance (UPDATE-0.16.md §A; engine/finance)
+// ======================================================================
+
+export interface CreditLine {
+  limit: number;
+  drawn: number;
+  /** Margin over the benchmark (a year), set at opening / renewal; stepped up after a second breach. */
+  margin: number;
+  openedAt: Minute;
+  renewsAt: Minute;
+  /** Interest and the commitment fee accrued this month (posted at month end). */
+  accrued: number;
+  accruedFee: number;
+  /** Consecutive month ends in breach; margin step-up on; frozen since (no draws, repaid in thirds). */
+  breaches: number;
+  stepUp?: boolean;
+  frozen?: Minute | null;
+  repay?: { at: Minute; amount: number }[];
+  /** The last covenant check. */
+  last?: { t: Minute; liquidity: boolean; leverage: boolean; netDebt: number; ebitda12: number };
+  /** Clean month ends in a row since the last breach (the margin step-up falls away after `cleanMonths`). */
+  clean?: number;
+  /** Not renewed (frozen at the anniversary): nothing more to draw, the balance repaid on the schedule, closed when it is 0. */
+  notRenewed?: true;
+}
+
+export interface AircraftLoan {
+  id: string;
+  aircraftId: string;
+  bank: string;
+  principal: number;
+  balance: number;
+  /** Fixed rate a year. */
+  rate: number;
+  months: number;
+  /** The monthly annuity. */
+  instalment: number;
+  start: Minute;
+  nextDue: Minute;
+  /** Instalments paid; the ones missed (cash short on the day); the bank called the loan (balance due in 60 days). */
+  paid: number;
+  missed: Minute[];
+  calledAt?: Minute;
+  /** The loanDue card was posted for this due date. */
+  warnedAt?: Minute;
+  /** The bank called the loan: the whole balance is due then (60 days after the call). */
+  calledDue?: Minute;
+}
+
+export interface Treasury {
+  /** The revolving credit line (null = closed / never opened). */
+  credit?: CreditLine | null;
+  loans: AircraftLoan[];
+  /** Money-market interest accrued this month (posted at month end). */
+  mmAccrued: number;
+  /** Receivables sold to the bank and still open (ids). */
+  factored: string[];
+  stats: { interest: number; fees: number; factored: number; leasebacks: number; loans: number; drawnMax: number };
+  /** The creditHeadroom card last posted (once a fortnight at most). */
+  headroomAt?: Minute;
+  /** Loans repaid in full (ids), kept for the Finance screen's history line. */
+  repaid?: number;
+}
+
+// ======================================================================
+// v0.16 Sales (UPDATE-0.16.md §C; engine/commercial/sales.ts)
+// ======================================================================
+
+export type BrokerId = 'acs' | 'chapman' | 'acc' | 'airPartner' | 'huntPalmer';
+
+export interface BrokerRel {
+  /** 0–100. */
+  relation: number;
+  since: Minute;
+  deals: number;
+  lastLead?: Minute;
+  lastDeal?: Minute;
+  /** The last day at their office (a visit: +5 relation, once a month). */
+  lastVisit?: Minute;
+}
+
+export type LeadStage = 'lead' | 'proposal' | 'negotiation' | 'signed' | 'cold' | 'lost';
+export type LeadSource = 'broker' | 'pitch' | 'fair' | 'staff' | 'visit' | 'tender';
+
+export interface Lead {
+  id: string;
+  clientId: string;
+  source: LeadSource;
+  brokerId?: BrokerId;
+  /** The sales manager who found it. */
+  repId?: string;
+  archetype: Archetype;
+  market: string;
+  stage: LeadStage;
+  created: Minute;
+  /** Last stage change; when the current stage lapses (cold / the client's answer). */
+  moved: Minute;
+  expires: Minute;
+  /** Estimated value ($). */
+  value: number;
+  offerId?: string;
+  contractId?: string;
+  /** Plain line: 'From Air Charter Service: a summer base for Condor'. */
+  why?: string;
+  /** The 'going cold' card was posted (once). */
+  warned?: true;
+  /** What the lead is about, in words ('Summer base at Frankfurt'). */
+  title?: string;
+}
+
+export interface Pitch {
+  id: string;
+  clientId: string;
+  /** 'S2028' / 'W2027'. */
+  season: string;
+  at: Minute;
+  replyAt: Minute;
+  result?: 'maybe' | 'offer' | 'no';
+  leadId?: string;
+  /** 'offer': when the direct season-base offer comes (60–120 days before the season). */
+  offerAt?: Minute;
+  /** Free: met at a fair this season. */
+  free?: true;
+}
+
+export interface SalesRep {
+  id: string;
+  name: string;
+  market: string;
+  skill: number;
+  salary: number;
+  hired: Minute;
+  joins: Minute;
+  /** Leads found so far. */
+  leads: number;
+}
+
+// ======================================================================
+// v0.16 Offer filter (UPDATE-0.16.md §D; contracts/filter.ts)
+// ======================================================================
+
+export interface OfferFilter {
+  on: boolean;
+  /** Client kinds we do not want to hear about. */
+  kindsOff: ClientKind[];
+  /** Only clients at this level or above. */
+  minPrestige?: Prestige;
+  /** ACMI: a rate per block hour below this is hidden; charters: an estimated profit below this. */
+  minRatePerBH?: number;
+  minProfit?: number;
+  /** Only jobs for these rating families / in these markets (data/markets.ts ids). */
+  families?: RatingFamily[];
+  markets?: string[];
+}
+
+// ======================================================================
+// v0.16 Compliance Monitoring Manager (UPDATE-0.16.md §F; ops/compliance.ts)
+// ======================================================================
+
+export interface ComplianceState {
+  hired: { name: string; skill: number; salary: number; since: Minute; joins: Minute } | null;
+  /** Rolled when first looked at; kept until one is hired. */
+  candidates?: HeadCandidate[];
+  firedAt?: Minute;
+  stats: { rampSaved: number };
+}
 
 // ======================================================================
 // v0.11 Operations (UPDATE 1): the event director, disruptions, ramp inspections, the yearly audit

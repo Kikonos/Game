@@ -19,7 +19,7 @@ import { noteLostLegs } from '../contracts/billing';
 import { isSoft, route, routeMinutes } from '../contracts/plan';
 import { farOutstation, relinkPositioning, ticketLead } from '../contracts/schedule';
 import { ticketBlock } from './commercial';
-import { applyDiscretion, boardCrew, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, seatRiders, crewSeatsBlocked, restSeatsBlocked, setClosedWaitHook, setRestDelayHook } from '../crew';
+import { applyDiscretion, boardCrew, crewControl, crewIssuesFor, dropStraySpares, flightCrewStatus, guardDuty, rerosterFrom, restPlan, seatRiders, crewSeatsBlocked, restSeatsBlocked, setClosedWaitHook, setRestDelayHook } from '../crew';
 import { fdpLimitAt } from '../crew/timeline';
 import { dutyLegality } from '../crew/duties';
 import { cue } from '../core/cues';
@@ -1421,8 +1421,20 @@ function emptyLegCrew(g: GameState, f: Flight, ac: Aircraft): void {
     else cancelLegs(g, [f], 'No crew for the ferry', 0);
     return;
   }
-  const ready = crewReadyAt(g, f, ac);
-  const wait = far && ready - g.now >= DAY ? Math.max(ready, g.now + ticketLead(ac.typeId, ticketBlock(g.company.homeBase, f.from), true)) : Math.max(ready, g.now + tries * 120);
+  // v0.15.1 the wait is a departure the roster itself can crew (Crew Control's delay, tried on copies) when it has one;
+  // the estimate (crewReadyAt) only without. On the estimate alone, AWL127 KTM–PVG was pushed on by 20 h at every
+  // attempt for a week, Juneyao's Shanghai legs sub-chartered seven times ($190K), while the first officer it waited
+  // for could only report a night's rest after the ticket the estimate did not count.
+  const plan = crewControl(g, f.id, { previews: false, only: ['delay'], noCard: true })?.solutions.find((s) => s.id === 'delay');
+  const sure = plan?.available && plan.newDeparture ? Math.max(plan.newDeparture, g.now + 60) : null;
+  const ready = sure ?? crewReadyAt(g, f, ac);
+  const est = far && ready - g.now >= DAY ? Math.max(ready, g.now + ticketLead(ac.typeId, ticketBlock(g.company.homeBase, f.from), true)) : Math.max(ready, g.now + tries * 120);
+  // v0.15.1 an estimate the roster did not meet once is not trusted again every few hours: the second wait for the same
+  // leg is at least half a day, the third and later a day, when the schedule re-plans the move for the job's crew. On the
+  // estimate alone (a captain resting at New York the roster would never seat, JFK–BOG), the leg was held every 10 h for
+  // five days and a pair of the client's Bogotá legs sub-chartered at each hold (seed 4, AWL133).
+  const floor = tries >= 3 ? DAY : tries === 2 ? 12 * 60 : 0;
+  const wait = sure ?? Math.max(est, g.now + floor);
   // v0.12.1 (Goma) an empty leg out of an airport a closure keeps crew out of: the jobs it drops are force majeure.
   underClosure(g, f, () => delayChain(g, f, wait, 'Waiting for crew', true, true));
   rerosterFrom(g, ac.id, g.now);

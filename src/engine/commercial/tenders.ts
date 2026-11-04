@@ -22,6 +22,8 @@ import { feasibility, type CheckLevel } from '../contracts/feasibility';
 import { generateOffer } from '../contracts/offers';
 import { productValue } from '../contracts/pricing';
 import { bumpClient, levelOf } from '../contracts/relations';
+import { addVisibility, clientPrestige, playerPrestige } from '../contracts/prestige';
+import { brokerName, onTenderWonVia } from './sales';
 import { isActive, rivalFits } from '../contracts/rivals';
 import { busyShare } from '../ops/director';
 import { busyNow, clientByName, com, comStats, paceOf, sideOf, withStream } from './state';
@@ -237,7 +239,9 @@ export function dailyTenders(g: GameState): void {
   if (g.gameOver || g.now - g.started < 7 * DAY || lockOf(g, 'tenders')) return;
   const round = roundAt(g.now);
   if (!round || !busyNow(g)) return;
-  const want = TENDER[round.kind].count[paceOf(g)];
+  // v0.16 tenders matter more as we climb: +1 RFP a round at level 2, +2 at level 3 and up (§C.6).
+  const lvl = playerPrestige(g).level;
+  const want = TENDER[round.kind].count[paceOf(g)] + (BAL.v016.sales.tenderExtra[Math.min(3, lvl)] ?? 0);
   const have = c.rounds?.[round.key] ?? 0;
   if (have >= want) return;
   // Spread what is left over the busy days left in the window.
@@ -500,6 +504,9 @@ export function decideTender(g: GameState, t: Tender): void {
   t.result = { winner: 'us', why: best ? whyWords(us, best.s, true) : 'no other operator met their terms', ours: round3(us.total), ...(best ? { best: round3(best.s.total) } : {}) };
   st.won++;
   bumpClient(g, t.clientId, 4, `We won their ${roundName(t.round)} tender`);
+  // v0.16 a tender won: visibility on the prestige ladder; the broker that got us invited (§C.6).
+  addVisibility(g, BAL.v016.prestige.tenderWon, clientPrestige(cl));
+  onTenderWonVia(g, t.brokerId);
   award(g, t);
 }
 
@@ -569,6 +576,8 @@ function lapseWon(g: GameState): void {
 // ---------- views ----------
 
 export interface TenderRow {
+  /** v0.16 the broker that got us invited. */
+  via?: string;
   id: string;
   clientId: string;
   client: string;
@@ -599,6 +608,7 @@ export function tenderRow(g: GameState, t: Tender): TenderRow {
     id: t.id, clientId: t.clientId, client: cl?.name ?? 'Client', country: cl?.country ?? '', round: roundName(t.round),
     base: p.kind === 'base' ? p.base : cl?.base ?? '', dests: p.kind === 'base' ? p.dests : [], start: o.start, end: o.end, seats: o.requirements.minSeats,
     wanted: aircraftWanted(t), deadline: t.deadline, resultAt: t.resultAt, status: t.status, invited: !!t.invited, rivals: t.rivals.length,
+    ...(t.brokerId ? { via: brokerName(t.brokerId) } : {}),
     ...(t.bid ? { bid: { ...t.bid, reg: g.fleet[t.bid.aircraftId]?.reg ?? '—' } } : {}),
     ...(t.result ? { result: { ...t.result, winnerName: t.result.winner === 'us' ? 'You' : g.rivals.find((x) => x.id === t.result!.winner)?.name ?? 'A rival' } } : {}),
     budget: o.product.kind === 'wet' ? o.product.ratePerBH : 0, mgh: o.product.kind === 'wet' ? o.product.mghPerMonth : 0,

@@ -241,7 +241,10 @@ export function standbyFor(g: GameState, c: CrewMember, report: Minute): { from:
       if (s.from <= g.now && report - reserveContact(g, s.at ?? c.base) >= BAL.v09.roster.reserve.noticeMin) return { from: s.from, to: s.to, kind, at: s.at ?? c.base };
       continue;
     }
-    if (s.from - g.now > S.noticeMin || report >= s.to || report < Math.min(g.now, s.from - S.wakeMin)) continue;
+    // Crew round (Nov 2026): the report must fall inside the window (or its wake-up hour). The old test compared the
+    // report with min(now, from − 1 h), which no report after now can fail: a crew member whose standby began 5 h after
+    // the report was listed "Home standby · no overtime" and counted as a call-out.
+    if (s.from - g.now > S.noticeMin || report >= s.to || report < s.from - S.wakeMin) continue;
     if (s.from <= g.now && report < g.now + readyMinOf(kind)) continue;
     return { from: s.from, to: s.to, kind, at: s.at ?? c.base };
   }

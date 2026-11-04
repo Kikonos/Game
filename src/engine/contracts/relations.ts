@@ -5,6 +5,7 @@
 
 import { clientVoice } from '../../data/clientVoice';
 import { BAL } from '../core/balance';
+import { prestigeRelationX } from './prestige';
 import { pushMessage } from '../core/messages';
 import { DAY, fmtDay, fmtMonth, monthKey } from '../core/time';
 import { clamp } from '../core/util';
@@ -65,6 +66,9 @@ export const perksOf = (g: GameState, clientId: string): LevelPerks => LEVEL_PER
 export function bumpClient(g: GameState, clientId: string | undefined, delta: number, why: string): void {
   const c = clientId ? g.clients[clientId] : undefined;
   if (!c || !delta) return;
+  // v0.16 a hit from a national carrier, a major or a government lands harder (× 1.3 / × 1.5; the monthly drift, told
+  // with no reason, is not a hit).
+  if (delta < 0 && why) delta *= prestigeRelationX(c.prestige ?? 2);
   const was = c.relation;
   c.relation = clamp(Math.round((c.relation + delta) * 100) / 100, -100, 100);
   const d = c.relation - was;
@@ -345,9 +349,9 @@ function levelBody(c: Client, from: ClientLevel, to: ClientLevel): string {
   if (p.first) gains.push('offers you first refusal');
   if (p.payDays) gains.push(`pays ${p.payDays} days sooner`);
   if (p.rate > 0) gains.push(`adds ${Math.round(p.rate * 100)} % to its rates`);
-  const what = gains.length ? ` ${c.name} ${gains.length > 1 ? `${gains.slice(0, -1).join(', ')} and ${gains[gains.length - 1]}` : gains[0]}.` : '';
-  const back = rank(to) < rank(from) ? ` Back to ${LEVEL_NAME[to]}.` : '';
-  return `${voice ? `${voice} ` : ''}${what}${back}`.trim() || `${c.name}: ${LEVEL_NAME[to]} client.`;
+  const what = gains.length ? `${c.name} ${gains.length > 1 ? `${gains.slice(0, -1).join(', ')} and ${gains[gains.length - 1]}` : gains[0]}.` : '';
+  const back = rank(to) < rank(from) ? `Back to ${LEVEL_NAME[to]}.` : '';
+  return [voice, what, back].filter(Boolean).join(' ') || `${c.name}: ${LEVEL_NAME[to]} client.`;
 }
 
 /** Daily: client levels with hysteresis (one message per change), relation drift for idle clients monthly, standing. */

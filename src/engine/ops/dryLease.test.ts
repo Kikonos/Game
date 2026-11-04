@@ -201,7 +201,8 @@ it('rent months are whole-day pro-rata in advance', () => {
 
 describe('v0.8 fix round 1: recall, holdover, consent', () => {
   it('cancelling after delivery recalls her: ferried home, available, deposit back, a month\'s rent to the lessee', () => {
-    const { g, c } = signed();
+    // v0.16 seed 14 (was 3): the client pool grew, the streams moved; this seed's site has the ferry home inside the window.
+    const { g, c } = signed(14);
     deliver(g, c);
     const ac = g.fleet[c.aircraftIds[0]];
     const cost = cancelCost(g, c.id);

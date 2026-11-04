@@ -10,7 +10,7 @@
 .ng-setup-top { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .ng-setup-top b { flex: 1 1 auto; min-width: 0; }
 .ng-setup.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); background: rgba(var(--accent-rgb), 0.05); }
-.chip.ng-diff, .chip.sc-diff { flex-shrink: 0; padding: 1px 8px; font-size: 11.5px; font-weight: 600; }
+.chip.ng-diff, .chip.sc-diff { flex-shrink: 0; padding: 1px 8px; font-size: 12px; font-weight: 600; }
 .chip.d1 { color: var(--good); border-color: rgba(var(--good-rgb), 0.45); }
 .chip.d2 { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.45); }
 .chip.d3 { color: var(--warn); border-color: rgba(var(--warn-rgb), 0.5); }
@@ -41,14 +41,14 @@
 .sc-play { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; color: var(--accent); }
 .sc-play svg { width: 16px; height: 16px; }
 
-/* ---------- in play: the top-bar chip ---------- */
-.sc-chip {
+/* ---------- in play: the top-bar chip (its own class: .sc-chip is the small chip of the dialogs) ---------- */
+.scen-chip {
   display: inline-flex; align-items: center; gap: 6px; height: 36px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border);
   background: var(--panel-2); color: var(--text); font: inherit; font-size: 13px; cursor: pointer; flex-shrink: 0;
 }
-.sc-chip:active { background: var(--panel-hover); }
-.sc-chip-d { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-2); }
-:where(.touch) .sc-chip { height: 44px; }
+.scen-chip:active { background: var(--panel-hover); }
+.scen-chip-d { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--text-2); }
+:where(.touch) .scen-chip { height: 44px; }
 
 /* ---------- the goals ---------- */
 .sc-goals { display: flex; flex-direction: column; gap: 10px; }

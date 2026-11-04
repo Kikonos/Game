@@ -189,6 +189,27 @@ describe('charter non-performance', () => {
     expect(c.invoiced ?? 0).toBe(0);
     const rev = [...g.finance.history.map((h) => h.lines), g.finance.current.lines].reduce((s, l) => s + (l.charterRevenue ?? 0), 0);
     expect(rev).toBe(0);
+    // v0.15.1 the closing message says the prepaid money went back (the cash moved with no word before).
+    const paid = g.finance.receivables.filter((r) => r.contractId === c.id && r.paid !== null).reduce((s, r) => s + r.amount, 0);
+    expect(paid).toBeGreaterThan(0);
+    const msg = g.messages.find((m) => m.title === `Closed without flying: ${c.title}`)!;
+    expect(msg.body).toContain(`Prepaid $${paid.toLocaleString('en-US')} refunded`);
+  });
+
+  it('v0.15.1 the balance instalments add up to the price less the deposit exactly (no $1 refund at completion)', () => {
+    const g = newGame(50);
+    const d = g.now + 25 * DAY;
+    const o = legsOffer(g, [['LIS', 'PMI', d], ['PMI', 'LIS', d + DAY], ['LIS', 'PMI', d + 5 * DAY], ['PMI', 'LIS', d + 6 * DAY], ['LIS', 'PMI', d + 10 * DAY], ['PMI', 'LIS', d + 11 * DAY]]);
+    o.broker = undefined;
+    // v0.16 a broker named on an ordinary offer carries its id too (its own rate): none here, the sum is the price.
+    delete o.brokerId;
+    o.product = { kind: 'charter', price: 100_000, depositPct: 0.3, balanceDaysBefore: 7, fuelEscalation: false };
+    o.payment = { basis: 'onCompletion', dueDays: 7, depositPct: 0.3 };
+    const res = acceptOffer(g, o.id, [owned(g).id]);
+    if (!res.ok) throw new Error(res.error);
+    const c = g.contracts[res.data!.contractId];
+    expect(c.instalments!.length).toBeGreaterThanOrEqual(2);
+    expect(c.instalments!.reduce((s, x) => s + x.amount, 0)).toBe(70_000);
   });
 
   it('cancelling with the deposit unpaid costs exactly the penalty shown, and the deposit invoice is voided', () => {

@@ -10,7 +10,7 @@ import { distance } from '../core/geo';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { isolatePauses, requestPause } from '../core/pause';
-import { canFill, isPilot, typeOf } from '../core/perf';
+import { canFill, isPilot, reportMinutes, typeOf } from '../core/perf';
 import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../core/time';
 import type { ActionResult, Aircraft, CrewFix, CrewMember, Duty, Flight, GameState, JetClass, Legality, Minute, Pairing, Role, StandbyKind } from '../core/types';
 import { hashUnit } from '../core/util';
@@ -146,7 +146,8 @@ export const FIX_LABEL: Record<CrewFix, string> = {
   buyBack: 'Ask someone to work a day off',
 };
 // v0.12.1 the buy-back after the call-in (its cost ranks it before a late ticket, a jet or a cancellation).
-const FIX_ORDER: CrewFix[] = ['autoFix', 'deadhead', 'delay', 'jet', 'callIn', 'buyBack', 'discretion', 'swap', 'subcharter', 'cancel'];
+// BLU2032 round: discretion right after the auto-fix: when the commander may extend the day it is free and at once.
+const FIX_ORDER: CrewFix[] = ['autoFix', 'discretion', 'deadhead', 'delay', 'jet', 'callIn', 'buyBack', 'swap', 'subcharter', 'cancel'];
 const FIX_DESC: Record<CrewFix, string> = {
   autoFix: 'Run the roster again for this flight and its trip.',
   deadhead: 'A free crew member flies in as a passenger on an airline ticket.',
@@ -183,7 +184,7 @@ interface Ctx {
   g: GameState; f: Flight; ac: Aircraft; d?: Duty; p?: Pairing; cs: FlightCrewStatus;
   missing: Role[]; need: SeatNeed[]; unit: Flight[]; pax: number; revLegs: number; dep: string;
   /** v0.9 §T seats held by crew out of hours (illegal for this duty, or a failed rest plan): a replacement takes them. */
-  replace: { role: Role; crewId: string; why: string }[];
+  replace: { role: Role; crewId: string; why: string; code?: string }[];
   /** Seats a new crew member can take: the empty ones, then those of `replace` (call-in, fly in, jet). */
   seats: Role[];
   /** v0.9 round 5 (speed): the longest delay from the original departure the caller would take (the bot's cap); the delay search tries no later time. */
@@ -218,17 +219,17 @@ function offWhy(g: GameState, crewId: string, f: Flight, issue?: { code: string 
   return 'out of hours';
 }
 
-function heldOoh(g: GameState, f: Flight, d: Duty | undefined, p: Pairing | undefined, cs: FlightCrewStatus): { role: Role; crewId: string; why: string }[] {
+function heldOoh(g: GameState, f: Flight, d: Duty | undefined, p: Pairing | undefined, cs: FlightCrewStatus): Ctx['replace'] {
   if (!d || !p || d.done) return [];
   const rest = p.slots.some((s) => s.crewId && s.ooh?.limit === 'inflightRest');
   if (cs.level !== 'illegal' && !rest) return [];
-  const out: { role: Role; crewId: string; why: string }[] = [];
+  const out: Ctx['replace'] = [];
   const seen = new Set<string>();
   const add = (crewId: string, issue?: { code: string }) => {
     const s = p.slots.find((y) => y.crewId === crewId);
     if (!s || seen.has(crewId)) return;
     seen.add(crewId);
-    out.push({ role: s.role, crewId, why: offWhy(g, crewId, f, issue) });
+    out.push({ role: s.role, crewId, why: offWhy(g, crewId, f, issue), ...(issue ? { code: issue.code } : {}) });
   };
   if (cs.level === 'illegal') for (const b of crewIssuesFor(g, d)) add(b.crewId, b.issue);
   for (const s of p.slots) if (s.crewId && s.ooh?.limit === 'inflightRest') add(s.crewId);
@@ -606,8 +607,11 @@ export function reachFor(g: GameState, p: Pairing, d: Duty, c: CrewMember, depar
   const first = Math.ceil((ready + BAL.deadheadCheckIn) / 60) * 60;
   const arr = first + dhBlock(from, dep);
   const legs = from === dep ? [] : itinerary(from, dep, first, arr).map((l) => ({ no: l.no, airline: l.airline, from: l.from, to: l.to, dep: l.dep, arr: l.arr }));
-  const mustLandBy = d.report - OUT_CONNECT;
-  return { from, to: dep, now: g.now, mustLandBy, report: d.report, departure, earliestArrival: arr, legs, gapMin: arr - mustLandBy };
+  // Crew round (Nov 2026): on a duty that has reported, the fresh crew's own report for the held departure (the bar
+  // read "must land by" a time hours past).
+  const rep = d.report <= g.now && !d.done ? Math.max(d.report, freshReport(g, p, d)) : d.report;
+  const mustLandBy = rep - OUT_CONNECT;
+  return { from, to: dep, now: g.now, mustLandBy, report: rep, departure, earliestArrival: arr, legs, gapMin: arr - mustLandBy };
 }
 
 /**
@@ -1280,7 +1284,10 @@ function seatCandidates(g: GameState, d: Duty, role: Role, here: boolean): DutyC
 function nobodyFree(g: GameState, x: Ctx, d: Duty): string {
   for (const role of new Set(x.seats)) {
     const LIMIT = new Set(['rest', 'fdp', 'hours', 'recovery']);
-    const c = candidatesOf(g, d, role).find((y) => !y.onPairing && !y.travel && y.level === 'illegal' && y.reasons.length && (y.standby || (y.reason && LIMIT.has(y.reason.code))));
+    // Crew round (Nov 2026): only someone at the departure airport (a crew member elsewhere has no ticket plan when
+    // nothing lands in time, so `travel` is empty too: BLU2032 at Heathrow read "Nuno Santos on home standby cannot take
+    // it: earliest arrival LHR 13:25" about a captain on standby in Lisbon).
+    const c = candidatesOf(g, d, role).find((y) => !y.onPairing && !y.travel && y.loc === x.dep && y.level === 'illegal' && y.reasons.length && (y.standby || (y.reason && LIMIT.has(y.reason.code))));
     if (c) {
       const r = c.reasons[0].replace(/\.$/, '');
       return `${c.name}${c.standby ? ` on ${SBY_WORD[c.standby.kind]}` : ''} cannot take it: ${r.charAt(0).toLowerCase()}${r.slice(1)}`;
@@ -1341,6 +1348,13 @@ function tryDelay(h: GameState, flightId: string, at: Minute): boolean {
   const ac = f?.aircraftId ? h.fleet[f.aircraftId] : undefined;
   if (!f || !ac || f.status !== 'scheduled') return false;
   delayTo(h, f, at);
+  // Crew round (Nov 2026): a duty that has reported with its crew out of hours (the day over its limit, a cumulative
+  // limit, a failed rest plan): they come off at the delay and the roster seats a fresh crew whose day starts at the held
+  // departure, as Fly in and Jet replace them. Before, Delay could only wait for the 6 h stand-down of the same crew
+  // (syncDuty's `held`), never bring a fresh one. Crew only short of rest stay: the wait is their rest (a world tour's
+  // crew, resting at Rio until 14:51 for an 11:00 report, were sent home by the delay and the leg home was cancelled).
+  const x = ctxOf(h, flightId);
+  if (x?.d && x.p && x.d.report <= h.now && x.replace.length) for (const r of x.replace) if (r.code !== 'rest' && x.p.slots.some((s) => s.crewId === r.crewId)) releaseCrew(h, x.p, r.crewId);
   rerosterFrom(h, ac.id, h.now);
   // An empty leg delayed past the commitment it leads to is re-planned by the schedule (a fresh, uncrewed leg at
   // the old time): that delay is no fix. The re-plan runs now so the answer is known before the player taps.
@@ -1382,6 +1396,11 @@ function noDelayWhy(g: GameState, x: Ctx, autoFixWorks: boolean | null = null): 
   // Auto-fix's own preview crews it on time (an out-of-hours crew member replaced included): the delay was not looked for.
   if (autoFixWorks) return 'A crew can take it on time: use Auto-fix';
   if (autoFixWorks !== false && crewAlertKind(g, f.id) !== 'hours' && readyOf(g, f, ac) <= f.std + f.delay && crewableOnTime(g, x)) return 'A crew can take it on time: use Auto-fix';
+  // Crew round (Nov 2026): a reported day too long even for a fresh crew from the held departure: say so (it read
+  // 'Nobody can take it even two days later' for BLU2032, whose 12:30 block plus the report lead passed the limit).
+  if (x.d && x.p && x.d.report <= g.now && dutyOver(g, f, x.d) && freshOver(g, f, x.d, x.p)) return fullWhy(x);
+  // ... and a fresh crew already at the airport takes the seats of a crew out of hours without a delay.
+  if (x.replace.length && crewableOnTime(g, x)) return 'A fresh crew can take it now: use Call in or Fly someone in';
   return f.kind === 'positioning' ? 'The schedule re-plans empty legs itself: this one waits for a crew at the gate' : 'Nobody can take it even two days later';
 }
 
@@ -1404,7 +1423,9 @@ function arrivalRest(g: GameState, p: Pairing, d: Duty, c: CrewMember, from: str
  */
 function delayTimes(g: GameState, x: Ctx): Minute[] {
   const { f, ac, d, p } = x;
-  const lead = d ? Math.max(0, f.std - d.report) : 0;
+  // Crew round (Nov 2026): at most the type's report lead (a reported duty whose first leg an AOG retimed 7 h, the
+  // report kept, read 8 h of "lead" and put every delay 7 h too late).
+  const lead = d ? Math.min(Math.max(0, f.std - d.report), reportMinutes(ac.typeId).report) : 0;
   const floor = f.std + f.delay;
   const times = new Set<Minute>();
   // v0.9 round 5 (speed): never past the caller's cap (the bot takes at most 6 h: 45 of its 49 copies a year tried a

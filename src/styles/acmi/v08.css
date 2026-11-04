@@ -106,6 +106,7 @@
 .v8-tile.bad b { color: var(--bad); }
 .v8-tiles.big .v8-tile { width: auto; min-height: 64px; padding: 8px 12px; }
 .v8-tiles.big .v8-tile b { font-size: 16px; }
+.v8-tiles.big .v8-tile-season b { line-height: 20px; }
 .v8-tile-sub { font-size: 12px; line-height: 14px; color: var(--text-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .v8-tile-season b, .v8-tile-season .v8-tile-k { line-height: 15px; }
 .v8-tiles:not(.big) .v8-tile-season { padding-top: 3px; padding-bottom: 3px; }
@@ -159,7 +160,8 @@
 .v8-cal-bar.shoulder { background: rgba(var(--line-rgb), 0.1); }
 .v8-cal-bar.hajj { background: rgba(var(--good-rgb), 0.22); color: var(--c-fg-a7f3d0); }
 .v8-cal-bar.ant { background: rgba(var(--c-bg-226-232-240-rgb), 0.18); color: var(--c-fg-e2e8f0); }
-.v8-cal-bar.event { background: rgba(var(--bad-rgb), 0.2); color: var(--c-fg-fecaca); }
+/* 'evt', not 'event': the Inbox card class .event would restyle the bar. */
+.v8-cal-bar.evt { background: rgba(var(--bad-rgb), 0.2); color: var(--c-fg-fecaca); }
 .v8-cal-tag { position: absolute; top: 0; line-height: 26px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60%; }
 .v8-cal-now { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--accent); }
 

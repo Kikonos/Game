@@ -246,7 +246,7 @@ export function MarketsView({ g }: { g: GameState }) {
               {t.status === 'done' && (
                 <span className="tiny">
                   Met {t.met?.length ? t.met.map((id) => g.clients[id]?.name).filter(Boolean).join(', ') : 'nobody new'}
-                  {t.leads?.length ? ` · ${t.leads.length} lead${t.leads.length > 1 ? 's' : ''}: ${t.leads.map((l) => `${g.clients[l.clientId]?.name} (${l.kind === 'rfp' ? 'invitation to tender' : 'offer'})`).join(', ')}` : ' · no firm leads'}
+                  {t.leads?.length ? ` · ${t.leads.length} lead${t.leads.length > 1 ? 's' : ''}: ${t.leads.map((l) => `${g.clients[l.clientId]?.name} (${l.kind === 'rfp' ? 'invitation to tender' : l.kind === 'lead' ? 'lead, see Sales' : 'offer'})`).join(', ')}` : ' · no firm leads'}
                   {t.presence?.length ? ` · better known in ${presenceText(t)}` : ''}
                 </span>
               )}

@@ -31,6 +31,10 @@ const COUNTRY: Record<string, [number, DstRule]> = {
   CW: [-4, null], BQ: [-4, null], SX: [-4, null], SR: [-3, null], FK: [-3, null], SH: [0, null], RE: [4, null], MN: [8, null], LA: [7, null],
   PW: [9, null], MP: [10, null], TO: [13, null], KI: [12, null], VU: [11, null], SB: [11, null], MH: [12, null], FM: [11, null], NF: [11, null],
   CC: [6.5, null], CX: [7, null],
+  // v0.16 the far routes' territories and islands: the French Antilles and Guiana, Mayotte, Wallis, Papua New Guinea,
+  // the English-speaking Caribbean (the Turks and Caicos keep US Eastern time with its summer change), Guyana.
+  GP: [-4, null], MQ: [-4, null], GF: [-3, null], YT: [3, null], WF: [12, null], PG: [10, null],
+  TT: [-4, null], BB: [-4, null], AG: [-4, null], TC: [-5, 'us'], KY: [-5, null], GY: [-4, null],
 };
 
 /** Airports whose zone differs from their country's default (standard time, hours). */

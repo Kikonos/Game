@@ -167,6 +167,19 @@ const RAW: [string, string, number, string][] = [
   ['NF', 'Norfolk Island', 0.8, ''],
   ['CC', 'Cocos (Keeling) Islands', 0.6, ''],
   ['CX', 'Christmas Island', 0.6, ''],
+  // v0.16 the far routes' islands and territories (the French ones fly on the French register: no prefix of their own).
+  ['GP', 'Guadeloupe', 0.8, ''],
+  ['MQ', 'Martinique', 0.8, ''],
+  ['GF', 'French Guiana', 0.7, ''],
+  ['YT', 'Mayotte', 0.5, ''],
+  ['WF', 'Wallis and Futuna', 0.5, ''],
+  ['PG', 'Papua New Guinea', 0.3, 'P2-'],
+  ['TT', 'Trinidad and Tobago', 0.6, '9Y-'],
+  ['BB', 'Barbados', 0.7, '8P-'],
+  ['AG', 'Antigua and Barbuda', 0.7, 'V2-'],
+  ['TC', 'Turks and Caicos Islands', 0.7, 'VQ-T'],
+  ['KY', 'Cayman Islands', 0.9, 'VP-C'],
+  ['GY', 'Guyana', 0.4, '8R-'],
 ];
 
 export const COUNTRIES: Record<string, Country> = Object.fromEntries(

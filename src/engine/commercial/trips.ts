@@ -28,6 +28,8 @@ import { issueTender, roundAt } from './tenders';
 import { clientByName, com, comStats, sideOf, usdK, withStream } from './state';
 import { bumpPresence, clientMarket, fairPresence, PRESENCE } from './presence';
 import type { SalesTrip, TravelTicket, Traveller, TripLead } from './types';
+import { fairLead } from './sales';
+import { addVisibility, playerPrestige } from '../contracts/prestige';
 import { lockOf } from '../scenario/rules';
 
 export const TRIPS = {
@@ -373,26 +375,33 @@ function tripDone(g: GameState, t: SalesTrip): void {
   t.presence = gains.filter((x) => x.gain >= 0.5).map((x) => [x.id, Math.round(x.gain)] as [string, number]);
   t.met = met.map((c) => c.id);
   const leads: TripLead[] = [];
+  // v0.16 a fair yields 1–3 leads into the pipeline (skill), a visit one; in tender season an airline's invitation.
   const [b, s] = f ? TRIPS.fairLead : TRIPS.visitLead;
+  const maxLeads = f ? Math.min(FL[1], FL[0] + (chance(r, skill) ? 1 : 0) + (chance(r, skill * 0.6) ? 1 : 0)) : 1;
   for (const c of met) {
-    if (leads.length >= TRIPS.maxLeads || (!f && leads.length >= 1)) break;
-    if (!chance(r, b + s * skill)) continue;
+    if (leads.length >= maxLeads) break;
+    if (leads.length >= FL[0] && !chance(r, b + s * skill)) continue;
     const lead = makeLead(g, t, c, f);
     if (lead) leads.push(lead);
   }
   t.leads = leads;
-  comStats(g).leads += leads.length;
+  comStats(g).leads += leads.filter((l) => l.kind !== 'lead').length;
+  // v0.16 a fair attended: visibility on the prestige ladder (§B.3).
+  if (f) addVisibility(g, BAL.v016.prestige.fair, playerPrestige(g).level);
   const names = met.map((c) => c.name);
   const leadText = leads.length
-    ? leads.map((l) => `${g.clients[l.clientId]?.name}: ${l.kind === 'rfp' ? 'an invitation to tender' : g.offers[l.offerId ?? '']?.title ?? 'an offer'}`).join('; ')
+    ? leads.map((l) => `${g.clients[l.clientId]?.name}: ${l.kind === 'rfp' ? 'an invitation to tender' : l.kind === 'lead' ? `${lower(g.com?.leads?.find((x) => x.id === l.leadId)?.title ?? 'a job')} (pipeline)` : g.offers[l.offerId ?? '']?.title ?? 'an offer'}`).join('; ')
     : 'no firm leads this time';
   const known = presenceText(t);
   pushMessage(g, {
     tone: leads.length ? 'good' : 'info', cat: 'commercial', title: `${t.name === 'You' ? 'You are' : `${t.name} is`} back from ${tripTitle(t)}`,
     body: `Met ${names.length ? names.join(', ') : 'nobody new'}. ${leads.length ? 'Leads' : 'Result'}: ${leadText}.${known ? ` Better known in ${known}.` : ''} Cost ${usdK(t.cost.tickets + t.cost.pass + t.cost.hotel + t.cost.perDiem)}.`,
-    ref: leads[0]?.offerId ? { kind: 'offer', id: leads[0].offerId } : leads[0]?.tenderId ? { kind: 'tender', id: leads[0].tenderId } : { kind: 'trip', id: t.id },
+    ref: leads[0]?.offerId ? { kind: 'offer', id: leads[0].offerId } : leads[0]?.tenderId ? { kind: 'tender', id: leads[0].tenderId } : leads[0]?.leadId ? { kind: 'lead', id: leads[0].leadId } : { kind: 'trip', id: t.id },
   });
 }
+
+const FL = BAL.v016.sales.fairLeads;
+const lower = (t: string) => (/^[A-Z0-9]{2,}\b/.test(t) ? t : t.charAt(0).toLowerCase() + t.slice(1));
 
 /** v0.14 the markets a trip made us better known in: 'Southeast Asia (+24), East Asia (+11)'. Pure. */
 export function presenceText(t: SalesTrip): string {
@@ -411,6 +420,9 @@ function makeLead(g: GameState, t: SalesTrip, c: Client, f: Fair | undefined): T
     const tn = issueTender(g, { clientId: c.id, invited: true, round });
     if (tn) return { clientId: c.id, kind: 'rfp', tenderId: tn.id };
   }
+  // v0.16 the lead waits in the pipeline for our proposal (Contracts › Sales); the offer comes when they say yes.
+  const pl = fairLead(g, c, t.id, f?.name ?? null);
+  if (pl) return { clientId: c.id, kind: 'lead', leadId: pl.id };
   const kinds: Archetype[] = c.kind === 'tourOperator' ? ['tourSeries', 'adhoc'] : c.kind === 'government' ? (hajjTender(g.now) ? ['hajj', 'repatriation'] : ['repatriation']) : f?.leads === 'aog' ? ['seasonBase', 'adhoc'] : ['seasonBase', 'adhoc'];
   for (const a of kinds) {
     const o = withStream(g, `lead:${t.id}:${c.id}:${a}`, () => generateOffer(g, a, { client: c.id, window: false, wide: false, paint: false, cabin: false }));

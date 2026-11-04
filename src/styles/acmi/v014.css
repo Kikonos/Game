@@ -108,6 +108,7 @@
 .v14-mk-main .v14-trip.away { border-left: 0; box-shadow: inset 3px 0 0 var(--accent); padding-left: 8px; }
 .v14-away-line { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 40px; padding: 6px 14px; background: none; border: 0; border-bottom: 1px solid rgba(var(--line-rgb), 0.07); color: var(--text-2, var(--muted)); text-align: left; cursor: pointer; }
 .v14-away-line:hover { background: var(--panel-2); }
+:where(.touch) .v14-away-line { min-height: 44px; }
 .v14-away-line > svg { color: var(--accent); }
 @media (max-width: 760px) {
   .v14-markets { grid-template-columns: minmax(0, 1fr); }

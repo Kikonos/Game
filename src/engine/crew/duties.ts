@@ -10,7 +10,7 @@ import { schedule } from '../core/queue';
 import { DAY, dayStart, yearOf } from '../core/time';
 import type { AcRest, Contract, CrewMember, CrewSlot, Deployment, Duty, Flight, GameState, Legality, Minute, Pairing, Requirements, Role } from '../core/types';
 import {
-  AUG_MAX_SECTORS, augLimitOf, disruptiveKinds, FDP_CAP, evalSegs, extFdp, LIMITS, localMin, longestWorkBlock, longSector, MAX_SECTORS, maxFdp, minRest, mkSeg, NIGHT_MAX_SECTORS, nightsIn, offsetAt, referenceTime,
+  AUG_MAX_SECTORS, augLimitOf, cabinFdpCap, disruptiveKinds, FDP_CAP, evalSegs, extFdp, LIMITS, localMin, longestWorkBlock, longSector, MAX_SECTORS, maxFdp, minRest, mkSeg, NIGHT_MAX_SECTORS, nightsIn, offsetAt, referenceTime,
   splitFdp, tzDeltaH, woclMinutes, worst, type Seg, type TimelineCtx,
 } from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
@@ -19,7 +19,7 @@ import { bestSlip } from './slip';
 import { dropStandby } from './standby';
 import { aboard, cabinEarly, cabinEarlyOf, crewCount, crewIx, ctxOf, dhBlock, dutyBlock, dutyFlights, dutySegs, onBlocks, planHome, segsOf, touchCrew } from './timeline';
 import { mergeSegs, openDuties } from './check';
-import { pilotsOnlyTrip, planRest, restOf, restShort, type RestLeg, type RestPlan } from './restPlan';
+import { isSeatRest, pilotsOnlyTrip, planRest, restOf, restWords, type RestLeg, type RestPlan } from './restPlan';
 
 // ---------- duty measures ----------
 
@@ -183,13 +183,19 @@ export function dutyLegality(d: Duty): Legality {
 /** v0.7.3 the duty's planning mode. */
 export const modeOf = (d: Duty): PlanMode => (d.augment === 2 ? 'aug2' : d.augment === 1 ? 'aug1' : d.ext ? 'ext' : d.split ? 'split' : 'basic');
 
-/** Stores a plan on a duty (augmentation, limit, extension / split, basic limit, cabin early report, extra cabin crew). */
+/**
+ * Stores a plan on a duty (augmentation, limit, extension / split, basic limit, cabin early report, extra cabin crew).
+ * BLU2032 round: an extension is kept whenever the pick is in that mode, legal or not. The planner (pickPlan) only
+ * returns 'ext' for a legal day; a reported duty (keepMode) keeps the mode it reported with, so a delay that runs an
+ * extended day over its limit leaves the 14:00 limit (and discretion on the basic day) in place. Before, the mode fell
+ * back to the basic 13:00 on the next re-measure and the day read 'already too long when they reported'.
+ */
 function applyPick(d: Duty, pa: PlanPick): void {
   d.augment = pa.augment;
   d.maxFdp = pa.max;
   d.basicFdp = pa.basic;
   d.cabinEarly = pa.early;
-  if (pa.mode === 'ext' && pa.ok) d.ext = true;
+  if (pa.mode === 'ext') d.ext = true;
   else delete d.ext;
   if (pa.mode === 'split' && pa.split) d.split = pa.split;
   else delete d.split;
@@ -218,6 +224,77 @@ function keepMode(d: Duty, sh: Shape, ref: RefAt, rest: AcRest): PlanPick {
     if (sp && m !== null) return { ...base, mode: 'split', max: m, ok: sh.fdp <= m, split: { at: sp.at, net: sp.net, room: sp.room, flightId: sp.flightId } };
   }
   return base;
+}
+
+/** Pilots in the pairing's required seats (spares above the minimum ride; they never count as relief pilots). */
+const pilotsAboard = (p: Pairing): number => p.slots.filter((s) => s.crewId && !s.above && isPilot(s.role)).length;
+const cabinAboard = (p: Pairing): number => p.slots.filter((s) => s.crewId && !s.above && !isPilot(s.role)).length;
+
+/**
+ * BLU2032 round: the augmented plan a duty can switch to with the crew already in its seats: more pilots than it was
+ * planned with (the trip's later days are augmented, so 3 or 4 pilots are aboard all the way), the aircraft's rest
+ * facilities and the approval, at most 3 sectors, and a rest plan the cabin crew aboard can fly (CS FTL.1.205(c)(3):
+ * any extra cabin crew it needs are aboard too) without taking passenger seats out of sale. The most pilots aboard
+ * allow, down to one more than now. Null when none makes the day legal. Augmentation is a planning decision; with the
+ * crew and the rest facility aboard before departure it is legal (CS FTL.1.205(c)), as the player's A330 at Heathrow
+ * was: four pilots and class 1 bunks for a 2-pilot extension that an APU delay ran 19 min over.
+ */
+export function augAboard(g: GameState, p: Pairing, d: Duty, sh: Shape, rest: AcRest, basic: number): PlanPick | null {
+  if (!canAugment(g, rest) || !rest.fc || !rest.cc || isSeatRest(rest.fc) || isSeatRest(rest.cc) || sh.sectors > AUG_MAX_SECTORS) return null;
+  const extra = Math.min(2, pilotsAboard(p) - 2);
+  if (extra <= d.augment) return null;
+  const cabinN = planCabinN(g, p.aircraftId, sh.fl, p);
+  const early = d.cabinEarly ?? sh.early;
+  const spareCabin = cabinAboard(p) - cabinN;
+  for (const a of [2, 1] as const) {
+    if (a > extra || a <= d.augment) continue;
+    const lim = augLimitOf(rest.fc.cls, rest.cc.cls, a, longSector(sh.sectors, sh.longest), early);
+    if (sh.fdp > lim.max) continue;
+    // The cabin crew reported when they did: their day keeps its early report under their class's table.
+    if (cabinN > 0 && sh.fdp + early > cabinFdpCap(rest.cc.cls)) continue;
+    const plan = planRest(legsOf(sh.fl), rest, a, sh.fdp + early, cabinN);
+    if (!plan.ok || plan.extraCabin > spareCabin) continue;
+    return { mode: a === 1 ? 'aug1' : 'aug2', augment: a, max: lim.max, basic, ok: true, early, restExtra: plan.extraCabin };
+  }
+  return null;
+}
+
+/**
+ * BLU2032 round: a trip whose later days carry 3 or 4 pilots flies every day with them aboard: a day planned as a
+ * 2-pilot extension (an extension burnt, 45 min of margin) is planned with in-flight rest instead when the aircraft has
+ * bunks for both crews, the approval is held, the rest plan fits the cabin crew the trip already carries and no seat
+ * comes out of sale. The trip's seats do not change (never more pilots or cabin crew than its most augmented day), and
+ * the rest after never grows: an extended day asks +4 h after it (16 h or more), an augmented day 14 h. Called for each
+ * trip as it is built; deployment tours keep their cut.
+ */
+function augmentWithPilots(g: GameState, p: Pairing): void {
+  const ds = p.dutyIds.map((id) => g.duties[id]).filter((d): d is Duty => !!d);
+  let aug: 0 | 1 | 2 = 0;
+  let restCabin = 0;
+  for (const d of ds) {
+    if (d.augment > aug) aug = d.augment;
+    if (d.augment > 0) restCabin = Math.max(restCabin, d.restExtra ?? 0);
+  }
+  const ac = p.aircraftId ? g.fleet[p.aircraftId] : undefined;
+  if (!aug || !ac) return;
+  const rest = restOf(g, ac.id);
+  if (!canAugment(g, rest) || isSeatRest(rest.fc) || isSeatRest(rest.cc)) return;
+  for (const d of ds) {
+    if (!d.ext || d.augment >= aug) continue;
+    const fl = dutyFlights(g, d).filter((f) => f.status !== 'cancelled');
+    if (!fl.length || fl.length > AUG_MAX_SECTORS) continue;
+    const sh = shape(ac.typeId, fl);
+    const ctx: PlanCtx = { rest, canAug: true, split: false, ext: false, cabinN: planCabinN(g, ac.id, fl, p) };
+    // The planner's own order (3 pilots, then 4): the next re-measure (syncDuty → pickPlan) picks the same.
+    for (const a of [1, 2] as const) {
+      if (a > aug) continue;
+      const x = augPick(sh, ctx, d.basicFdp ?? d.maxFdp, a);
+      if (!x || x.restExtra > restCabin) continue;
+      applyPick(d, x);
+      d.legality = dutyLegality(d);
+      break;
+    }
+  }
 }
 
 /**
@@ -253,8 +330,12 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
   const ref = refOf(sh.report);
   const rest = restOf(g, p.aircraftId);
   let pa: PlanPick;
-  if (reported) pa = keepMode(d, sh, ref, rest);
-  else if (d.legacyRest && d.augment > 0) {
+  if (reported) {
+    pa = keepMode(d, sh, ref, rest);
+    // BLU2032 round: over its limit before the first take-off, with more pilots aboard than it was planned with and
+    // bunks for both crews: the day goes with in-flight rest (augAboard), never out of hours for a plan it can change.
+    if (!pa.ok && fl.every((f) => f.status === 'scheduled')) pa = augAboard(g, p, d, sh, rest, pa.basic) ?? pa;
+  } else if (d.legacyRest && d.augment > 0) {
     // v0.7.3 crewed before the in-flight rest rules (an older save, within 72 h of loading): kept as rostered.
     pa = { ...keepMode(d, sh, ref, rest), mode: d.augment === 1 ? 'aug1' : 'aug2', augment: d.augment, max: d.maxFdp, ok: sh.fdp <= d.maxFdp };
   } else {
@@ -1075,7 +1156,9 @@ export function restedDeparture(g: GameState, f: Flight): Minute | null {
   if (!d || !p) return null;
   const rm = reportMinutes((p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo');
   const release = onBlocks(f) + rm.post;
-  const rest = minRest({ dutyMin: release - d.report, atHome: f.to === p.base, augmented: d.augment > 0, tzShift: 0 });
+  // v0.15.1 as the roster reads it: 14 h across 4+ time zones from the crew's base, +4 h after a planned extension
+  // (Kathmandu from Lisbon: 10 h here against the roster's 14 h, so a move was timed 4 h before anyone could fly it).
+  const rest = minRest({ dutyMin: release - d.report, atHome: f.to === p.base, augmented: d.augment > 0, tzShift: tzDeltaH(p.base, f.to, release), extended: !!d.ext });
   return release + rest + rm.report;
 }
 
@@ -1127,9 +1210,9 @@ function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
     let k = cur.length;
     while (k > 0 && empty(cur[k - 1])) k--;
     if (k > 0 && k < cur.length) {
-      newPairing(g, cur.slice(0, k), acId, null);
+      augmentWithPilots(g, newPairing(g, cur.slice(0, k), acId, null));
       newPairing(g, cur.slice(k), acId, null);
-    } else if (cur.length) newPairing(g, cur, acId, null);
+    } else if (cur.length) augmentWithPilots(g, newPairing(g, cur, acId, null));
     cur = [];
   };
   for (const d of duties) {
@@ -1556,12 +1639,16 @@ export function positioningFit(g: GameState, typeId: string, rest: AcRest, move:
 }
 const fitMemo = new Map<string, 0 | 1 | 2>();
 
+/** 'class 1 bunks', 'class 1 lower-deck bunks', 'class 2 business seats': a rest facility in four words. */
+const restPhrase = (f: NonNullable<AcRest['fc']>): string => `class ${f.cls} ${restWords(f.kind)}`;
+
 /**
- * v0.14.1 the In-flight rest line of a duty planned without it (flight sheet). Within its limit: 'Not needed: 10:40 of
- * 12:15'. Over it: what in-flight rest on this airframe allows, from the same rule the roster plans with (augPick: the
- * facilities' CS FTL.1.205(c) limit, ≤ 3 sectors, a rest plan that fits the cruise): 'Needs in-flight rest: 17:40 of
- * 12:15 with 2 pilots; 3 pilots (bunks (class 1)) allow 17:00'; or why it cannot help. The old line read 'No in-flight
- * rest needed: 17:40 of 12:15' on CS-TTL's illegal day. Pure.
+ * v0.14.1 the In-flight rest line of a duty planned without it (flight sheet). Within its limit: 'Not needed: 13:15 of
+ * 14:00 (0:45 spare)'. Over it: what in-flight rest on this airframe allows, from the same rule the roster plans with
+ * (augPick: the facilities' CS FTL.1.205(c) limit, ≤ 3 sectors, a rest plan that fits the cruise): 'Needs in-flight
+ * rest: 14:19 of 14:00 with 2 pilots; 3 pilots with class 1 bunks allow 17:00', or, with the relief pilots already in
+ * the trip's seats, 'the 4 pilots aboard and class 1 bunks allow 17:00' (BLU2032 round: the day then goes that way,
+ * syncDuty → augAboard); or why it cannot help. Pure.
  */
 export function restNeedLine(g: GameState, d: Duty): { needed: boolean; text: string } {
   const p = g.pairings[d.pairingId];
@@ -1570,21 +1657,25 @@ export function restNeedLine(g: GameState, d: Duty): { needed: boolean; text: st
   const fl = dutyFlights(g, d).filter((f) => f.status !== 'cancelled');
   const hmm = (m: number) => `${Math.floor(Math.max(0, m) / 60)}:${String(Math.round(Math.max(0, m) % 60)).padStart(2, '0')}`;
   const max = d.maxFdp + (d.discretion ?? 0);
-  if (d.fdp <= max || !fl.length) return { needed: false, text: `Not needed: ${hmm(d.fdp)} of ${hmm(max)}` };
+  if (d.fdp <= max || !fl.length) return { needed: false, text: `Not needed: ${hmm(d.fdp)} of ${hmm(max)} (${max > d.fdp ? `${hmm(max - d.fdp)} spare` : 'no spare'})` };
   const head = `Needs in-flight rest: ${hmm(d.fdp)} of ${hmm(max)} with ${2 + d.augment} pilots`;
   const rest = restOf(g, acId);
   if (!rest.fc || !rest.cc) return { needed: true, text: `${head}, and ${acId ? g.fleet[acId].reg : 'the aircraft'} has no crew rest` };
   if (!g.company.approvals.includes('augmented')) return { needed: true, text: `${head}; an augmented crew needs the approval` };
   const sh = shape(typeId, fl);
   if (sh.sectors > AUG_MAX_SECTORS) return { needed: true, text: `${head}; in-flight rest allows at most ${AUG_MAX_SECTORS} sectors` };
+  // What the day will do with the relief pilots already in the trip's seats (syncDuty → augAboard), else what a crew
+  // with in-flight rest would allow.
+  const own = p ? augAboard(g, p, d, sh, rest, d.basicFdp ?? d.maxFdp) : null;
+  if (own) return { needed: true, text: `${head}; the ${pilotsAboard(p!)} pilots aboard and ${restPhrase(rest.fc)} allow ${hmm(own.max)}` };
   const ctx: PlanCtx = { rest, canAug: true, split: false, ext: false, cabinN: planCabinN(g, acId, fl, p) };
   for (const a of [1, 2] as const) {
     if (a <= d.augment) continue;
     const x = augPick(sh, ctx, d.basicFdp ?? d.maxFdp, a);
-    if (x) return { needed: true, text: `${head}; ${2 + a} pilots (${restShort(rest.fc)}) allow ${hmm(x.max)}` };
+    if (x) return { needed: true, text: `${head}; ${2 + a} pilots with ${restPhrase(rest.fc)} allow ${hmm(x.max)}` };
   }
   const lim = augLimitOf(rest.fc.cls, rest.cc.cls, 2, longSector(sh.sectors, sh.longest), sh.early);
-  if (sh.fdp > lim.max) return { needed: true, text: `${head}; too long even for 4 pilots (${restShort(rest.fc)} allow ${hmm(lim.max)})` };
+  if (sh.fdp > lim.max) return { needed: true, text: `${head}; too long even for 4 pilots (${restPhrase(rest.fc)} allow ${hmm(lim.max)})` };
   const plan = planRest(legsOf(fl), rest, 2, sh.fdp + lim.early, ctx.cabinN);
   return { needed: true, text: `${head}; ${plan.why ? plan.why.charAt(0).toLowerCase() + plan.why.slice(1) : 'the rest plan does not fit the cruise'}` };
 }

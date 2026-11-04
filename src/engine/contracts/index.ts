@@ -9,8 +9,10 @@ import { loadClients, seedClients, seedRivals } from './clients';
 import { dailyOffers, lapseCues, loadCounters, loadStuckOffers, onOfferExpire, onOfferReply, onOfferSpawn, openingOffers, scheduleNextOffer } from './offers';
 import { extendBaseSchedules, relinkPositioning } from './schedule';
 import { dailyRelations, loadRelations, monthlyRelationDrift } from './relations';
+import { dailyPrestige, loadPrestige } from './prestige';
+import { loadFilter } from './filter';
 import { loadRivals, onRivalBid, refreshRivals } from './rivals';
-import { dailyDryLease, dailyRepeats, dailySubIn, dailyWorldTour } from './missions';
+import { dailyDryLease, dailyFarRoute, dailyRepeats, dailySubIn, dailyWorldTour } from './missions';
 
 export { acceptOffer, askingPrice, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, isTenderOffer, leadDays, setPrice, type ContractProgress, type SignOpts } from './accept';
 export { paintQuote, paintTermsText, paintWindow, type PaintSlot } from './paintTerms';
@@ -39,12 +41,16 @@ function daily(g: GameState) {
   extendBaseSchedules(g);
   // v0.8 client levels (hysteresis) and company standing; rivals asking us, dry-lease requests, repeat business.
   dailyRelations(g);
+  // v0.16 the prestige ladder: our level-ups (contracts/prestige.ts).
+  dailyPrestige(g);
   if (!g.gameOver) {
     dailySubIn(g);
     dailyDryLease(g);
     dailyRepeats(g);
     // v0.12.1 a round-the-world tour now and then, once we fly a widebody with ETOPS 180.
     dailyWorldTour(g);
+    // v0.16 a far route (an overseas rotation with a crew change on the way) now and then, once Established.
+    dailyFarRoute(g);
   }
 }
 
@@ -84,6 +90,9 @@ export const contractsModule: SimModule = {
     // v0.8 rival styles and client records, levels and standing exactly as load sets them.
     loadRivals(g);
     loadRelations(g);
+    // v0.16 every client at a prestige level, ours at level 1 (exactly as load sets them); no filter.
+    loadPrestige(g);
+    loadFilter(g);
     g.stats.bodyAsked = true;
     openingOffers(g);
     scheduleNextOffer(g);
@@ -94,6 +103,9 @@ export const contractsModule: SimModule = {
     loadClients(g);
     loadRivals(g);
     loadRelations(g);
+    // v0.16 client levels by seed; our level derived once from the save's history (never lowered).
+    loadPrestige(g);
+    loadFilter(g);
     loadCounters(g);
     loadBodies(g);
     loadStuckOffers(g);

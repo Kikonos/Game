@@ -1,9 +1,10 @@
 // Offer review (B5): terms, schedule and effects on the left; per-aircraft feasibility (traffic lights,
-// positioning, crew capacity, contribution) on the right; Decline / Counter / Accept. DESIGN.md §6.3.
+// positioning, crew capacity, profit) on the right; Decline / Counter / Accept. DESIGN.md §6.3.
 
 import { askSublease, SchedulePortal } from './OfferPortal';
 import { clashTrips, subleaseGroups } from './offerPortalLogic';
-import { BedDouble, Check, ChevronRight, Handshake, LineChart, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
+import { BedDouble, Check, ChevronRight, Crown, Handshake, LineChart, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
+import { offerPrestigeLines } from '../../engine/contracts/prestige';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Term } from '../components/Term';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -34,6 +35,9 @@ import { ProblemCardView, runAction } from '../components/ProblemCard';
 import { Modal, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { ArchIcon, Chips, Dot, KV } from '../screens/common';
+import { fuelLine } from '../screens/screenLogic';
+import { DepositPicker } from './offer/DepositPicker';
+import { depositNorm } from '../../engine/finance';
 import { archLabel, counterSteps, expiryLabel, offerCrewLine, pctLabel, reqChips, riskChips, routeSummary, offerDays, v09Chips, type Chip } from '../screens/screenLogic';
 import { analystView } from '../../engine/ops';
 import { HintButton, ScreenHint } from '../components/ScreenHint';
@@ -58,8 +62,11 @@ function effectChips(o: ContractOffer): Chip[] {
 
 const MONTH_DAYS = 30.44;
 
-function Terms({ g, o }: { g: GameState; o: ContractOffer }) {
+function Terms({ g, o, deposit, onDeposit }: { g: GameState; o: ContractOffer; /** v0.16 the deposit picked (null: the offer's) and its setter (none: fixed) */ deposit?: number | null; onDeposit?: (pct: number) => void }) {
   const p = o.product;
+  // v0.16 review: the picker starts at the client's usual deposit (engine/finance depositNorm) and that is what a plain
+  // accept signs with (the offer's own 30 % read "lower chance they accept" on every tour operator's charter by default).
+  const depositPct = p.kind === 'charter' ? deposit ?? o.depositAsk?.pct ?? (onDeposit ? depositNorm(g, o.clientId) : p.depositPct) : 0;
   const rows: [string, string][] = [];
   const lead = leadDays(g, o.start);
   const pay = o.payment;
@@ -76,21 +83,29 @@ function Terms({ g, o }: { g: GameState; o: ContractOffer }) {
     rows.push(['Price', `${usd(p.price)} all-in`]);
     // Arrears charters (governments) are invoiced after the job: no deposit, no balance.
     if (pay.basis !== 'arrears') {
-      if (p.depositPct > 0) rows.push(['Deposit', `${Math.round(p.depositPct * 100)}% on signing`]);
+      if (depositPct > 0) rows.push(['Deposit', `${Math.round(depositPct * 100)}% on signing`]);
       const n = p.balanceDaysBefore;
       rows.push(['Balance', lead > n ? `${n} days before each trip` : days <= n ? 'At signing' : `At signing for trips in the next ${n} days, then ${n} days before each trip`]);
     }
-    rows.push(['Fuel', p.fuelEscalation ? 'Escalation clause' : 'Our risk']);
   } else rows.push(['Rent', `${usd(p.rentPerMonth)} / month`], ['Reserves', `${usd(p.reservesPerFH)} / FH`]);
+  // v0.16 (G) who pays the fuel, on every kind of offer (the rule is ops/flights.ts paysFuel).
+  rows.push(['Fuel', fuelLine(p)]);
   const [d0, d1] = offerDays(o);
   rows.push(['Dates', `${fmtDate(d0)} – ${fmtDate(d1)}${o.pattern.kind === 'base' ? ` (${o.pattern.base} local)` : ''}`], ['Lead time', lead <= 0 ? 'Starts now' : `${lead} day${lead === 1 ? '' : 's'}`]);
   // A dry lease bills no block hours (rent and reserves only).
   rows.push(['Estimate', p.kind === 'dry' ? money(o.estValue) : `Billable ≈ ${Math.round(o.estBH)} BH · ${money(o.estValue)}`]);
   const arrears = p.kind === 'charter' ? 'Invoiced after the job' : 'Monthly in arrears';
-  rows.push(['Payment', `${pay.basis === 'advance' ? 'In advance' : pay.basis === 'arrears' ? arrears : 'On completion'}, net ${pay.dueDays} days`]);
+  // v0.15.1 a charter is paid before it flies (the deposit and the balances above); it read 'On completion'.
+  rows.push(['Payment', `${pay.basis === 'advance' ? 'In advance' : pay.basis === 'arrears' ? arrears : 'Deposit and balances before the trips'}, net ${pay.dueDays} days`]);
   rows.push(['If we cancel', o.penalties.cancelScale.map(([d, f]) => `${d} d ${Math.round(f * 100)}%`).join(' · ') || '—']);
   if (o.penalties.perCancelledLeg) rows.push(['Per cancelled leg', usd(o.penalties.perCancelledLeg)]);
-  return <KV rows={rows} />;
+  return (
+    <>
+      <KV rows={rows} />
+      {/* v0.16 the deposit as a negotiation lever (ui/modals/offer/DepositPicker.tsx, lane finance). */}
+      <DepositPicker g={g} o={o} value={depositPct} onChange={onDeposit ?? (() => undefined)} fixed={!onDeposit} />
+    </>
+  );
 }
 
 function Programme({ o }: { o: ContractOffer }) {
@@ -269,7 +284,7 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal
         </span>
         <span className="right">
           <b className={`num ${block ? 'dim' : margin >= 0 ? 'good' : 'bad'}`}>{money(margin)}</b>
-          <span className="tiny dim">contribution</span>
+          <span className="tiny dim">profit</span>
         </span>
       </button>
       {portal}
@@ -332,7 +347,29 @@ function ClientBlock({ g, o }: { g: GameState; o: ContractOffer }) {
       </div>
       {line.lines.length > 0 && <ul className="v8-lines">{line.lines.map((l) => <li key={l}>{l}</li>)}</ul>}
       <div className="small dim">{line.progress}</div>
+      <PrestigeLines g={g} o={o} />
       {card && <ProblemCardView card={card} g={g} hideActions />}
+    </div>
+  );
+}
+
+/** v0.16 the client's prestige level: its rate part, a stretch note and what a national carrier or a major checks. */
+function PrestigeLines({ g, o }: { g: GameState; o: ContractOffer }) {
+  const p = offerPrestigeLines(g, o.id);
+  if (!p) return null;
+  return (
+    <div className="col gap-4 small">
+      <div className="row gap-8 wrap">
+        <span className="pr-pill"><Crown className="sc-ico-s" />Level {p.level} · {p.name}</span>
+        {p.stretch && <span className="badge pr-stretch">Stretch offer: a taste of what's to come</span>}
+        {p.pay && <span className="muted">{p.pay}</span>}
+      </div>
+      {p.checks.length > 0 && (
+        <>
+          <div className="dim">They check before they sign:</div>
+          <ul className="pr-checks">{p.checks.map((c) => <li key={c.line}><span className={c.ok ? 'ok' : 'no'}>{c.ok ? '✓' : '✗'}</span><span>{c.line}</span></li>)}</ul>
+        </>
+      )}
     </div>
   );
 }
@@ -536,6 +573,8 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const [paintOn, setPaintOn] = useState(true);
   const [cabinOn, setCabinOn] = useState(true);
   const [extra, setExtra] = useState<CrewExtra | null>(null);
+  // v0.16 the deposit asked on a charter (null: the offer's own); fixed once a counter carried one.
+  const [deposit, setDeposit] = useState<number | null>(null);
   // v0.12.1 met halfway: the price holds for the terms we countered with (paint, cabin), so those are fixed.
   const met = o?.counter?.result === 'halfway' ? o.counter : null;
   const paint = !!o?.paint && (met ? met.paint !== false : paintOn);
@@ -568,7 +607,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
   // v0.12.1 a world tour's business-seat bonus on the chosen aircraft (applied at signing, as the paid crew's lift).
   const bizLift = 1 + tourBizPct(o.archetype, sel && g.fleet[sel.aircraftId] ? g.fleet[sel.aircraftId].cabin.j : 0);
   const lift = (crewed && paid && x.cabin >= paid.n ? 1 + paid.pct : 1) * bizLift;
-  const opts = { paint, cabin, crewExtra: crewed ? x : undefined };
+  const opts = { paint, cabin, crewExtra: crewed ? x : undefined, ...(o.product.kind === 'charter' && !o.counter ? { depositPct: deposit ?? depositNorm(g, o.clientId) } : {}) };
   // v0.14.1 a won tender is signed at our bid: no counter.
   const tenderWon = isTenderOffer(g, o.id);
   // v0.15 a scenario's market rules (an offer of another kind of work that reached the desk anyway).
@@ -627,6 +666,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           <div className="row gap-8 wrap">
             <span className="upper dim">{archLabel(o)}</span>
             {o.urgency !== 'normal' && <span className={`badge ${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
+            {o.exotic && <span className="badge info" title="An overseas rotation with a stop and a crew change on the way; it pays more">Far route</span>}
             {cv?.state === 'pending' ? (
               <span className="small accent">Clock paused · reply by {fmtDay(cv.replyBy ?? g.now)} {fmtTime(cv.replyBy ?? g.now)} UTC</span>
             ) : (
@@ -662,7 +702,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           {o.cabin && <CabinTermsCard g={g} o={o} aircraftId={sel?.aircraftId ?? null} on={cabin} onToggle={met ? () => {} : setCabinOn} fmtP={fmtP} />}
           {crewed && <ExtraCrewCard o={o} x={x} onChange={setExtra} fmtP={fmtP} asking={asking} max={extraCabinMax(g, sel?.aircraftId ?? null, o.requirements.extraCabin)} seatsNote={crewSeatsNote(g, sel?.aircraftId ?? null, o.requirements.extraCabin)} />}
           <div className="upper dim">Terms</div>
-          <Terms g={g} o={o} />
+          <Terms g={g} o={o} deposit={deposit} onDeposit={live && !o.counter && o.product.kind === 'charter' ? setDeposit : undefined} />
           <ClientBlock g={g} o={o} />
           {/* A dry lease has no programme of ours: the dry panel shows ferry out · lease · ferry back. */}
           {o.product.kind !== 'dry' && <>

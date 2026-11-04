@@ -32,6 +32,8 @@ import { DISRUPT_RESOLVERS, holdingForDecision, onDivertedArrival, onOpsEvent, o
 import { dailyDirector, newDirector } from './director';
 import { rollRamp } from './ramp';
 import { dailyAudit } from './audit';
+import { loadCompliance, monthlyCompliance } from './compliance';
+import { dailyTreasury, loadTreasury, monthlyTreasury } from '../finance';
 import { DAY as DAY_MIN } from '../core/time';
 
 // v0.11 Operations: the disruption cards' resolvers join the decision table (wired here, after every module loaded).
@@ -121,6 +123,8 @@ function daily(g: GameState) {
   dailyDirector(g);
   rollSickAway(g);
   dailyAudit(g);
+  // v0.16 finance cards (a loan due, little headroom, a factored invoice to buy back).
+  dailyTreasury(g);
   pruneFlights(g);
   planChecks(g);
   dailyPaint(g);
@@ -165,6 +169,9 @@ export const opsModule: SimModule = {
     loadHeads(g);
     g.achievements ??= {};
     loadOps(g);
+    // v0.16 the finance record and the compliance post, empty (exactly as load sets them).
+    loadTreasury(g);
+    loadCompliance(g);
   },
   // Decisions other modules post (crew's sickCrew) join the pacing budget as they appear.
   settle: paceDecisions,
@@ -200,12 +207,19 @@ export const opsModule: SimModule = {
     loadAchievements(g);
     announceBackfill(g);
     loadOps(g);
+    // v0.16 finance (credit line, loans, factoring) and the compliance post: defaults for an older save.
+    loadTreasury(g);
+    loadCompliance(g);
   },
   handlers: {
     day: daily,
     month: (g, ev) => {
       refreshMarket(g);
       monthlyHeads(g);
+      // v0.16 the compliance manager's pay; interest, fees, covenants, loan instalments and the money market, into the
+      // closing month (engine/finance).
+      monthlyCompliance(g);
+      monthlyTreasury(g, g.finance.current.month);
       onMonthEnd(g, ev);
       checkAchievements(g, { monthEnd: true });
     },

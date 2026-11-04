@@ -7,10 +7,12 @@ import { ACMI_TYPES } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { bookTrip, devTender, fairsAhead, placeBid } from '../commercial';
 import { acceptOffer, cancelContract, clientList, generateOffer } from '../contracts';
+import { makeDryLeaseOffer } from '../contracts/missions';
+import { finalizeDraft, type Draft } from '../contracts/offers';
 import { statementTotals } from '../core/ledger';
 import { techReliability } from '../core/techLog';
 import { DAY, monthKey } from '../core/time';
-import type { Archetype, GameState } from '../core/types';
+import type { ApprovalId, Archetype, GameState } from '../core/types';
 import { evalSegs } from '../crew/rules';
 import { block12m, ctxOf, segsOf } from '../crew/timeline';
 import { dropStrandedStandby } from '../crew/dayPlan';
@@ -23,7 +25,7 @@ import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
 import { createScenario, hiresLeft, lockOf, METRICS, rulesLines, SCENARIO_BY_ID, SCENARIOS, scenarioOutcome } from '.';
 import { unknownAirports } from './history';
-import { offerAirports, type LockKey } from './rules';
+import { offerAirports, unreachableApproval, type LockKey } from './rules';
 
 const NOT = /^Not in this scenario: /;
 const KEYS: LockKey[] = ['cancel', 'market', 'tenders', 'sales', 'fleet', 'refits', 'hiring', 'training', 'approvals', 'move', 'subcharter'];
@@ -106,6 +108,9 @@ describe('v0.15 scenario rules: the engine refuses what is locked', () => {
       const g = fresh(d.id);
       const r = d.rules;
       for (const o of Object.values(g.offers)) if (o.status === 'open') expect(lockOf(g, 'market', { archetype: o.archetype, airports: offerAirports(o) })).toBeNull();
+      // v0.15.1 no Inbox line about an offer the rules withdrew or the setup signed (Crew Crisis opened with "Urgent:
+      // Schedule cover, Manchester" and no market to find it on).
+      for (const m of g.messages) if (m.ref?.kind === 'offer') expect(g.offers[m.ref.id]?.status, m.title).toBe('open');
       if (r.market === 'off') {
         expect(Object.values(g.offers).filter((o) => o.status === 'open')).toEqual([]);
         expect(generateOffer(g, 'adhoc')).toBeNull();
@@ -119,6 +124,39 @@ describe('v0.15 scenario rules: the engine refuses what is locked', () => {
       // A dry lease out is a fleet change: never in a scenario.
       expect(lockOf(g, 'market', { archetype: 'dryLeaseOut' })).toMatch(NOT);
     }
+  });
+
+  it('v0.15.1 a fixed fleet gets no dry-lease requests; a shut Ladder no work that needs an approval it cannot get', () => {
+    const g = fresh('ashCloud');
+    expect(makeDryLeaseOffer(g)).toBeNull();
+    const s = fresh('summerSurge');
+    expect(unreachableApproval(s, { etops: 120, approvals: [] })).toBe('etops120');
+    expect(unreachableApproval(s, { etops: 0, approvals: ['dg'] })).toBe('dg');
+    expect(unreachableApproval(s, { etops: 0, approvals: [] })).toBeNull();
+    // Long-Haul Debut may file its long-haul approvals (two are pending already): that work stays on the desk.
+    const l = fresh('longHaulDebut');
+    expect(unreachableApproval(l, { etops: 180, approvals: ['widebody', 'augmented'] })).toBeNull();
+    expect(unreachableApproval(l, { etops: 240, approvals: [] })).toBe('etops240');
+    // A normal game: no rule, nothing unreachable.
+    const n = createGame({ name: 'Debug Air', code: 'DB', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed: 3 });
+    expect(unreachableApproval(n, { etops: 240, approvals: ['ulr'] })).toBeNull();
+    // The market applies it: a hand-made job needing dangerous-goods approval never reaches Summer Surge's desk.
+    const client = Object.values(s.clients).find((c) => c.name === 'Eurowings')!;
+    const dep = s.now + 10 * DAY;
+    const draft = (approvals: ApprovalId[]): Draft => ({
+      archetype: 'adhoc', client, title: 'Test charter', blurb: 'Test.', pattern: { kind: 'legs', legs: [{ from: 'MAD', to: 'PMI', dep, flightNo: '', pax: 150 }, { from: 'PMI', to: 'MAD', dep: dep + DAY, flightNo: '', pax: 150 }] },
+      req: { minSeats: 150, extraCabin: 0, approvals }, start: dep, end: dep + DAY + 6 * 60, expiresIn: 2 * DAY, effects: {}, risk: { disruption: 0.2, politics: 0, permit: 0 }, pin: 'PMI',
+    });
+    expect(finalizeDraft(s, draft(['dg']))).toBeNull();
+    expect(finalizeDraft(s, draft([]))).not.toBeNull();
+  });
+
+  it('v0.15.1 Long-Haul Debut: ETOPS 120 is granted on its day (the maintenance programme was set up with the filing)', () => {
+    const g = fresh('longHaulDebut');
+    expect(g.company.etopsMx).toBeTruthy();
+    const p = g.company.pendingApprovals.find((x) => x.id === 'etops120')!;
+    advanceTo(g, p.done + DAY + 60, new Set());
+    expect(g.company.approvals).toContain('etops120');
   });
 
   it('market: Southern Winter takes only work in South America', () => {
