@@ -627,3 +627,9 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
   6. Wait for the live index-*.js; run /home/user/work/live/live.cjs and v12check.cjs (set the version regex to v0.16).
   7. Tell the player to export their save and reopen the home-screen app.
 - Open items to tell the player: the old red BLU2032 inbox line stays in history; seed 1 margin divergence; Settings "Now playing" wording while muted.
+
+## v0.16 "Finance & Sales" RELEASED 2026-11-04
+- Release 0912fcf on main and claude/contrail-airline-game; built from acmi f9455c7. Live index-C8C7rPFI.js; live.cjs 0 errors; version check v0.16 passes.
+- Balance: market offers at half; the leads pipeline adds about 30–38 offers a year; L2 in months 7–9; all seeds solvent. Average margin is about −1% excluding seed 1 (−18.8%; it borrows and breaks covenants), against about +8% at base. Prices untouched. Tune if the player finds it too tight.
+- s0329 loads at level 3 (visibility 5394), never demoted.
+- Open: old red BLU2032 inbox line kept in history; Settings "Now playing" wording while muted; the crewTries/held and SAME_CREW_MIN leftovers.
