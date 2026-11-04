@@ -9,6 +9,7 @@ import { weightedPick } from '../core/rng';
 import type { Client, ClientKind, ContractOffer, GameState, Rival } from '../core/types';
 import type { AdhocGroup } from './flavor';
 import { isWideJob } from './pricing';
+import { seedPrestige } from './prestige';
 
 const EUROPE = new Set(['PT', 'ES', 'LT', 'LV', 'MT', 'DE', 'IE', 'SE', 'HR', 'FR', 'GB', 'CH', 'NO', 'IT', 'NL', 'BE', 'AT', 'DK', 'FI', 'PL', 'CZ', 'BG', 'EE', 'SK', 'RO']);
 
@@ -50,7 +51,7 @@ for (const s of ALL_SEEDS) {
 export function seedClients(g: GameState): void {
   for (const s of ALL_SEEDS) {
     if (!AIRPORT_BY_CODE[s.base]) continue;
-    const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0 };
+    const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0, prestige: seedPrestige(s, s.role) };
     g.clients[c.id] = c;
   }
 }
@@ -69,7 +70,7 @@ export function seedMarketClients(g: GameState): void {
     if (have.has(s.name) || !AIRPORT_BY_CODE[s.base]) return;
     const id = `cm${i.toString(36)}`;
     if (g.clients[id]) return;
-    g.clients[id] = { id, name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0, jobs: 0, firstJob: null, lastJob: null, log: [], level: 'new' };
+    g.clients[id] = { id, name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0, jobs: 0, firstJob: null, lastJob: null, log: [], level: 'new', prestige: seedPrestige(s, s.role) };
   });
 }
 
@@ -78,7 +79,7 @@ export function loadClients(g: GameState): void {
   const have = new Set(Object.values(g.clients).map((c) => c.name));
   for (const s of ALL_SEEDS) {
     if (have.has(s.name) || !AIRPORT_BY_CODE[s.base]) continue;
-    const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0 };
+    const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0, prestige: seedPrestige(s, s.role) };
     g.clients[c.id] = c;
   }
 }
@@ -93,7 +94,7 @@ export function ensureClient(g: GameState, name: string): Client | undefined {
   const s = CLIENT_SEEDS_V0121.find((x) => x.name === name);
   if (!s || !AIRPORT_BY_CODE[s.base]) return undefined;
   // As loadRelations sets them on a new game's clients: no jobs yet, a fresh log, a New client.
-  const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0, jobs: 0, firstJob: null, lastJob: null, log: [], level: 'new' };
+  const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0, jobs: 0, firstJob: null, lastJob: null, log: [], level: 'new', prestige: seedPrestige(s, s.role) };
   g.clients[c.id] = c;
   return c;
 }

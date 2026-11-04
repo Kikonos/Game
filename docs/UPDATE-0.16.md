@@ -24,7 +24,8 @@ Step 0 adds everything the lanes share, so no lane edits another lane's files:
 - `core/ledger.ts`: `REVENUE_CATS` + `interestIncome`; `COST_CATS` + `bankFees`, `commission`.
 - `core/balance.ts`: `BAL.v016` with every number below (`finance`, `prestige`, `sales`, `filter`, `compliance` sub-blocks: a lane tunes only its own).
 - `data/naming.ts`: `ClientSeed.prestige` on every seed (§B.2).
-- Stub modules with the real signatures, returning neutral values (no behaviour change): `engine/finance/index.ts`, `engine/contracts/prestige.ts` (the level assignment and the player's level derivation are REAL in step 0; the offer effects are neutral), `engine/commercial/sales.ts`, `engine/contracts/filter.ts`, `engine/ops/compliance.ts`, `scripts/bot/finance.ts`, `scripts/bot/sales.ts`.
+- Stub modules with the real signatures, returning neutral values (no behaviour change): `engine/finance/index.ts`, `engine/contracts/prestige.ts` (the level assignment, the player's level derivation and the visibility credit at `completeContract` are REAL in step 0; the offer effects and level-ups are neutral), `engine/commercial/sales.ts` (the broker table and `commissionOf` are real; `brokerCut` already reads an offer's `brokerId`), `engine/contracts/filter.ts`, `engine/ops/compliance.ts`, `engine/core/stats016.ts` (`statsV016(g)`, the shared counters), `scripts/bot/finance.ts`, `scripts/bot/sales.ts`. `marketOffers()` already leaves `hidden` offers out of the Market list.
+- Imports: a lane module may import `ops/finance.ts` (e.g. `monthEndBill` for the covenants) even though `ops/finance.ts` imports the lane's forecast items: the functions run at call time, so the cycle is harmless in ESM / Vite. Lane modules must not import `offers.ts` (it imports them).
 - Hook points wired to the stubs: `offers.ts` (`clientWeight` × `prestigeOfferWeight`, `finalize` asks `offerHidden` before the cue and `markStretch`), `accept.ts completeContract` → `onContractDoneVisibility`, `ops/finance.ts` (`forecastItems` + `treasuryForecastItems`; `monthEndBill` gains `sales` and `compliance`), `ops/index.ts` (load / daily / monthly hooks), `commercial/index.ts` (load / daily), `contracts/index.ts` (load), `acmi-bot.ts` (`botFinance`, `botSales` once a day).
 - UI slots (components that render nothing until a lane fills them): `ui/screens/finance/Financing.tsx` on Finance, `ui/screens/contracts/SalesView.tsx` and `FilterView.tsx` as Contracts tabs, `ui/screens/team/SalesStaff.tsx` and `NominatedPosts.tsx` on Team, `ui/modals/offer/DepositPicker.tsx` in the offer dialog, `ui/screens/company/PrestigeCard.tsx` on Company › Overview.
 - Fuel wording (G) in `screenLogic.ts fuelLine()` and the offer dialog.
@@ -214,10 +215,11 @@ A fair attended yields 1–3 pipeline leads (skill) and +15 visibility; tender r
 export type BrokerId = 'acs' | 'chapman' | 'acc' | 'airPartner' | 'huntPalmer';
 export interface BrokerRel { relation: number; since: Minute; deals: number; lastLead?: Minute; lastDeal?: Minute }
 export type LeadStage = 'lead' | 'proposal' | 'negotiation' | 'signed' | 'cold' | 'lost';
-export interface Lead { id: string; clientId: string; source: 'broker' | 'pitch' | 'fair' | 'staff' | 'visit' | 'tender'; brokerId?: BrokerId; repId?: string; archetype: Archetype; market: MarketId; stage: LeadStage; created: Minute; moved: Minute; expires: Minute; value: number; offerId?: string; contractId?: string; why?: string }
+export interface Lead { id: string; clientId: string; source: 'broker' | 'pitch' | 'fair' | 'staff' | 'visit' | 'tender'; brokerId?: BrokerId; repId?: string; archetype: Archetype; market: string /* MarketId */; stage: LeadStage; created: Minute; moved: Minute; expires: Minute; value: number; offerId?: string; contractId?: string; why?: string }
 export interface Pitch { id: string; clientId: string; season: string; at: Minute; replyAt: Minute; result?: 'maybe' | 'offer' | 'no'; leadId?: string }
-export interface SalesRep { id: string; name: string; market: MarketId; skill: number; salary: number; hired: Minute; joins: Minute; leads: number; firedAt?: Minute }
-// CommercialState: brokers?: Partial<Record<BrokerId, BrokerRel>>; leads?: Lead[]; pitches?: Pitch[]; reps?: SalesRep[]; repCandidates?: Record<string, HeadCandidate[]>
+export interface SalesRep { id: string; name: string; market: string /* MarketId */; skill: number; salary: number; hired: Minute; joins: Minute; leads: number }
+// CommercialState: brokers?: Partial<Record<BrokerId, BrokerRel>>; leads?: Lead[]; pitches?: Pitch[]; reps?: SalesRep[]; repCandidates?: Record<string, HeadCandidate[]>; repFiredAt?: Minute
+// (market ids are strings in core/types.ts so it never imports data/markets.ts; cast to MarketId where read.)
 // ContractOffer.leadId?: string; ContractOffer.brokerId?: BrokerId; Contract.brokerId?: BrokerId
 ```
 API (commercial/sales.ts): `BROKERS_016`, `brokerView`, `registerBroker`, `leadsView`, `workLead`, `dropLead`, `pitchAirline`, `pitchWindow`, `repCandidates`, `hireSalesRep`, `fireSalesRep`, `salesBill(g, k)`, `dailySales`, `monthlySales`, `loadSales`, `commissionOf(brokerId)`.
@@ -234,7 +236,7 @@ UI: Contracts gets a **Sales** tab (brokers with relation bars and Register / Vi
 ### D.3 State and API
 
 ```ts
-export interface OfferFilter { on: boolean; kindsOff: ClientKind[]; minPrestige?: Prestige; minRatePerBH?: number; minProfit?: number; families?: RatingFamily[]; markets?: MarketId[] }
+export interface OfferFilter { on: boolean; kindsOff: ClientKind[]; minPrestige?: Prestige; minRatePerBH?: number; minProfit?: number; families?: RatingFamily[]; markets?: string[] /* MarketId */ }
 // GameState.filter?: OfferFilter   (absent = no filter)   ContractOffer.hidden?: true   Stats.v016.hidden?: number
 ```
 API (contracts/filter.ts): `offerFilter(g)`, `setOfferFilter(g, patch)`, `offerHidden(g, o)` (pure), `hiddenOffers(g)`, `refilterOffers(g)`, `loadFilter(g)`.

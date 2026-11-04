@@ -11,9 +11,8 @@ import { TENDER_CLIENT_SEEDS } from '../../data/fairs';
 import { CLIENT_SEEDS, CLIENT_SEEDS_B1, CLIENT_SEEDS_V014, CLIENT_SEEDS_V08, CLIENT_SEEDS_V0121, type ClientSeed } from '../../data/naming';
 import { BAL } from '../core/balance';
 import { statsV016 } from '../core/stats016';
-import { DAY } from '../core/time';
+import { DAY, yearOf } from '../core/time';
 import type { Client, Contract, GameState, PlayerPrestige, Prestige } from '../core/types';
-import { roleOf } from './clients';
 import { aocSince } from './relations';
 
 const P = BAL.v016.prestige;
@@ -33,7 +32,12 @@ export const PRESTIGE_WHO: Record<Prestige, string> = {
 const HOME_STATES = new Set(['PT', 'ES', 'LT', 'MT', 'LV', 'CZ', 'BG', 'EE']);
 
 const BY_NAME: Record<string, Prestige> = {};
-for (const s of [...CLIENT_SEEDS, ...CLIENT_SEEDS_B1, ...CLIENT_SEEDS_V08, ...CLIENT_SEEDS_V014, ...CLIENT_SEEDS_V0121]) if (s.prestige) BY_NAME[s.name] = s.prestige;
+/** Roles by seed name (clients.ts keeps its own copy; no import either way, so neither module waits on the other). */
+const ROLE_BY_NAME: Record<string, ClientSeed['role']> = {};
+for (const s of [...CLIENT_SEEDS, ...CLIENT_SEEDS_B1, ...CLIENT_SEEDS_V08, ...CLIENT_SEEDS_V014, ...CLIENT_SEEDS_V0121]) {
+  if (s.prestige) BY_NAME[s.name] = s.prestige;
+  if (s.role) ROLE_BY_NAME[s.name] = s.role;
+}
 for (const s of TENDER_CLIENT_SEEDS) if (s.prestige) BY_NAME[s.name] = s.prestige;
 
 /** The level of a client by its seed, else by its kind and role (§B.2). Pure. */
@@ -53,7 +57,7 @@ export function seedPrestige(c: Pick<Client, 'name' | 'kind' | 'country'> & { ri
 }
 
 /** A client's level (its stored one, else derived now). Pure. */
-export const clientPrestige = (c: Client | undefined): Prestige => (c ? c.prestige ?? seedPrestige(c, roleOf(c)) : 2);
+export const clientPrestige = (c: Client | undefined): Prestige => (c ? c.prestige ?? seedPrestige(c, ROLE_BY_NAME[c.name]) : 2);
 
 // ---------- our level ----------
 
@@ -117,9 +121,12 @@ export function derivePrestige(g: GameState): PlayerPrestige {
   return { level, visibility, levelAt, derived: true };
 }
 
-/** Load (and new game): every client at a level; our record derived once from history, never lowered afterwards. */
+/**
+ * Load (and new game): every client at a level (every creation site sets one too: clients.ts, commercial/state.ts,
+ * rivals.ts, so a client added after this pass is never without); our record derived once from history, never lowered.
+ */
 export function loadPrestige(g: GameState): void {
-  for (const c of Object.values(g.clients)) c.prestige ??= seedPrestige(c, roleOf(c));
+  for (const c of Object.values(g.clients)) c.prestige ??= seedPrestige(c, ROLE_BY_NAME[c.name]);
   if (!g.company.prestige) g.company.prestige = derivePrestige(g);
   const p = g.company.prestige;
   p.levelAt ??= {};
@@ -173,7 +180,7 @@ export function prestigeRequirements(g: GameState, level: Prestige): { line: str
   if (!r) return [];
   const { reliable, clean } = g.company.reputation;
   const fleet = Object.values(g.fleet).filter((a) => a.status !== 'delivering');
-  const year = new Date(g.now * 60_000).getUTCFullYear();
+  const year = yearOf(g.now);
   const age = fleet.length ? fleet.reduce((s, a) => s + Math.max(0, year - a.builtYear), 0) / fleet.length : 0;
   const out = [
     { line: `IOSA registration`, ok: g.company.approvals.includes('iosa') },
