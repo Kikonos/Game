@@ -386,6 +386,13 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     case 'ramp':
     case 'audit':
       return { tab: 'company', view: 'overview' };
+    // v0.16 a pipeline lead or a broker: Contracts › Sales; a sales manager or the compliance manager: Company › Team.
+    case 'lead':
+    case 'broker':
+      return { tab: 'contracts', view: 'sales', sel: ref };
+    case 'rep':
+    case 'compliance':
+      return { tab: 'company', view: 'team', sel: ref };
   }
   return null;
 }

@@ -21,7 +21,7 @@ import { store, useClock, useGame } from '../store';
 import { ArchIcon, Chips, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
 import { archLabel, COUNTDOWN_MIN, expiryLabel, fuelLine, offerModal, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays, v09Chips } from './screenLogic';
-import { SalesView } from './contracts/SalesView';
+import { SalesView, salesTabCount } from './contracts/SalesView';
 import { FilterView, HiddenOffersRow } from './contracts/FilterView';
 import { analystView } from '../../engine/ops';
 import { ScreenHint } from '../components/ScreenHint';
@@ -316,7 +316,7 @@ export function ContractsScreen() {
   useRenderCount('contracts');
   const g = useGame();
   const nav = store.nav;
-  const view = (['market', 'active', 'tenders', 'missed', 'clients', 'markets'].includes(nav.view ?? '') ? nav.view : 'market') as View;
+  const view = (['market', 'active', 'tenders', 'missed', 'clients', 'markets', 'sales', 'filter'].includes(nav.view ?? '') ? nav.view : 'market') as View;
   const nMarket = marketOffers(g).length;
   const nActive = Object.values(g.contracts).filter((c) => c.status === 'signed' || c.status === 'active').length;
   const nMissed = missedOffers(g).length;
@@ -336,7 +336,7 @@ export function ContractsScreen() {
           // v0.14 market presence, the trade fairs and sales trips (moved here from Company › Team).
           { id: 'markets', label: 'Markets' },
           // v0.16 chasing work (brokers, leads, pitches) and the offer filter.
-          { id: 'sales', label: 'Sales' },
+          { id: 'sales', label: 'Sales', count: salesTabCount(g) || undefined },
           { id: 'filter', label: 'Filter' },
         ]} />
       </ScreenHead>

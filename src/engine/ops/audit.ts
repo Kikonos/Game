@@ -18,6 +18,7 @@ import { DAY, dayStart, fmtDate, yearOf } from '../core/time';
 import type { ActionResult, AuditFinding, AuditLevel, GameState, Minute } from '../core/types';
 import { countOps, opsState } from './disrupt';
 import { OPS_LIVE } from './director';
+import { complianceAuditFactor, complianceDeadlinePlus, complianceTaskCostX, rampTaskFor } from './compliance';
 import { rampYear } from './ramp';
 import { isGrounded } from './maintenance';
 import { bumpReliable, usd } from './util';
@@ -46,9 +47,13 @@ export function openFindings(g: GameState): AuditFinding[] {
 
 function finding(g: GameState, level: AuditLevel, area: AuditFinding['area'], why: string, dueDays: number): AuditFinding {
   const T = AUDIT_TASKS[area];
+  // v0.16 a Compliance Monitoring Manager at work: Level 2 deadlines longer, corrective actions cheaper; the ramp
+  // finding's action is the manager's own line-station checks at half the cost (ops/compliance.ts; as before without).
+  const base = { label: T.task as string, cost: T.cost * (level === 1 ? 1.5 : 1) * complianceTaskCostX(g) };
+  const task = area === 'ramp' ? rampTaskFor(g, base.label, base.cost) : base;
   return {
-    id: nextId(g, 'af'), level, area, text: T.text, why, raised: g.now, due: dayStart(g.now) + dueDays * DAY,
-    task: { label: T.task, cost: T.cost * (level === 1 ? 1.5 : 1), days: T.days },
+    id: nextId(g, 'af'), level, area, text: T.text, why, raised: g.now, due: dayStart(g.now) + (dueDays + (level === 2 ? complianceDeadlinePlus(g) : 0)) * DAY,
+    task: { label: task.label, cost: Math.round(task.cost), days: T.days },
   };
 }
 
@@ -67,7 +72,8 @@ export function runAudit(g: GameState): AuditFinding[] {
   else if (r.grounded) out.push(finding(g, 2, 'checks', `An aircraft was grounded ${r.grounded} day${r.grounded > 1 ? 's' : ''} with a check overdue.`, L2(0)));
   if (r.reduced >= 2) out.push(finding(g, 2, 'training', `${r.reduced} flights flew one cabin crew short this year: no reserve in cabin crew planning.`, L2(1)));
   // Auditors nearly always find something small (one in two audits, a Level 2 on the paperwork).
-  if (out.length < 2 && roll(g, `q:${yearOf(g.now)}`) < 0.5) out.push(finding(g, 2, roll(g, `qa:${yearOf(g.now)}`) < 0.5 ? 'quality' : 'training', 'Found during the document review.', L2(1)));
+  // v0.16 fewer such findings with a Compliance Monitoring Manager (ops/compliance.ts).
+  if (out.length < 2 && roll(g, `q:${yearOf(g.now)}`) < 0.5 * complianceAuditFactor(g)) out.push(finding(g, 2, roll(g, `qa:${yearOf(g.now)}`) < 0.5 ? 'quality' : 'training', 'Found during the document review.', L2(1)));
   st.findings = [...st.findings.filter((f) => !f.closed || f.closed > g.now - 400 * DAY), ...out];
   st.last = g.now;
   st.history.push([g.now, out.filter((f) => f.level === 1).length, out.filter((f) => f.level === 2).length]);
