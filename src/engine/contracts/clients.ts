@@ -1,7 +1,7 @@
 // Real clients and rivals from the naming kit (B1).
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { CLIENT_SEEDS, CLIENT_SEEDS_B1, CLIENT_SEEDS_V08, CLIENT_SEEDS_V014, CLIENT_SEEDS_V0121, RIVALS, RIVALS_B1, type ClientSeed } from '../../data/naming';
+import { CLIENT_SEEDS, CLIENT_SEEDS_B1, CLIENT_SEEDS_V08, CLIENT_SEEDS_V014, CLIENT_SEEDS_V016, CLIENT_SEEDS_V0121, RIVALS, RIVALS_B1, type ClientSeed } from '../../data/naming';
 import { nextId } from '../core/entities';
 import { distance } from '../core/geo';
 import { typeOf } from '../core/perf';
@@ -11,7 +11,7 @@ import type { AdhocGroup } from './flavor';
 import { isWideJob } from './pricing';
 import { seedPrestige } from './prestige';
 
-const EUROPE = new Set(['PT', 'ES', 'LT', 'LV', 'MT', 'DE', 'IE', 'SE', 'HR', 'FR', 'GB', 'CH', 'NO', 'IT', 'NL', 'BE', 'AT', 'DK', 'FI', 'PL', 'CZ', 'BG', 'EE', 'SK', 'RO']);
+const EUROPE = new Set(['PT', 'ES', 'LT', 'LV', 'MT', 'DE', 'IE', 'SE', 'HR', 'FR', 'GB', 'CH', 'NO', 'IT', 'NL', 'BE', 'AT', 'DK', 'FI', 'PL', 'CZ', 'BG', 'EE', 'SK', 'RO', 'HU', 'IS', 'LU', 'GR', 'CY', 'RS']);
 
 /** Payment behaviour per kind (RESEARCH §4.3: commercial pays on time; governments 30–90 days late). */
 function behaviour(s: ClientSeed): Pick<Client, 'payReliability' | 'lateDays' | 'cleanSensitivity'> {
@@ -42,7 +42,7 @@ function behaviour(s: ClientSeed): Pick<Client, 'payReliability' | 'lateDays' | 
 const ROLE_BY_NAME: Record<string, ClientSeed['role']> = {};
 const SEED_BY_NAME: Record<string, ClientSeed> = {};
 const ALL_SEEDS = [...CLIENT_SEEDS, ...CLIENT_SEEDS_B1, ...CLIENT_SEEDS_V08];
-for (const s of ALL_SEEDS) {
+for (const s of [...ALL_SEEDS, ...CLIENT_SEEDS_V014, ...CLIENT_SEEDS_V016]) {
   SEED_BY_NAME[s.name] = s;
   if (s.role) ROLE_BY_NAME[s.name] = s.role;
 }
@@ -54,11 +54,27 @@ export function seedClients(g: GameState): void {
     const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0, prestige: seedPrestige(s, s.role) };
     g.clients[c.id] = c;
   }
+  seedClientsV016(g);
 }
 
-/** v0.14 the market-presence clients by name (data/naming.ts CLIENT_SEEDS_V014). */
-const MARKET_SEEDS = new Set(CLIENT_SEEDS_V014.map((s) => s.name));
+/** v0.14 the market-presence clients by name (data/naming.ts CLIENT_SEEDS_V014; v0.16 the new seeds marked `market`). */
+const MARKET_SEEDS = new Set([...CLIENT_SEEDS_V014.map((s) => s.name), ...CLIENT_SEEDS_V016.filter((s) => s.market).map((s) => s.name)]);
 export const isMarketClient = (c: Pick<Client, 'name'>): boolean => MARKET_SEEDS.has(c.name);
+
+/**
+ * v0.16 the real clients the player asked for (data/naming.ts CLIENT_SEEDS_V016): a new game and an older save on load,
+ * by name (one that already exists, say a tender's airline added on first use, keeps its record); ids of their own
+ * ('cx' + the seed's place), as the v0.14 market clients, so nothing else shifts. Their level comes with the seed.
+ */
+export function seedClientsV016(g: GameState): void {
+  const have = new Set(Object.values(g.clients).map((c) => c.name));
+  CLIENT_SEEDS_V016.forEach((s, i) => {
+    if (have.has(s.name) || !AIRPORT_BY_CODE[s.base]) return;
+    const id = `cx${i.toString(36)}`;
+    if (g.clients[id]) return;
+    g.clients[id] = { id, name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0, jobs: 0, firstJob: null, lastJob: null, log: [], level: 'new', prestige: s.prestige ?? seedPrestige(s, s.role) };
+  });
+}
 
 /**
  * v0.14 the market-presence clients (a new game, and an older save on load): ids of their own ('cm' + the seed's
@@ -82,6 +98,7 @@ export function loadClients(g: GameState): void {
     const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0, prestige: seedPrestige(s, s.role) };
     g.clients[c.id] = c;
   }
+  seedClientsV016(g);
 }
 
 /**
@@ -134,6 +151,21 @@ const IATA: Record<string, string> = {
   'Aegean Airlines': 'A3', 'Bulgaria Air': 'FB', 'Corendon Airlines': 'XC', 'Fiji Airways': 'FJ', 'Jet2.com': 'LS', 'TUI fly Belgium': 'TB',
   // v0.8
   'Garuda Indonesia': 'GA', 'Biman Bangladesh Airlines': 'BG', 'Air Algérie': 'AH',
+  // v0.14 the market-presence airlines
+  'Air Peace': 'P4', 'Air Côte d’Ivoire': 'HF', 'ASKY Airlines': 'KP', 'Africa World Airlines': 'AW', 'Kenya Airways': 'KQ', RwandAir: 'WB',
+  'Air Tanzania': 'TC', IndiGo: '6E', SpiceJet: 'SG', 'SriLankan Airlines': 'UL', 'US-Bangla Airlines': 'BS', 'Jeju Air': '7C', 'Hong Kong Airlines': 'HX',
+  'Juneyao Air': 'HO', 'Cebu Pacific': '5J', AirAsia: 'AK', 'VietJet Air': 'VJ', Qantas: 'QF', 'Virgin Australia': 'VA', 'Jetstar Airways': 'JQ',
+  'Air Transat': 'TS', WestJet: 'WS', 'Sun Country Airlines': 'SY', Avianca: 'AV', 'Viva Aerobus': 'VB', 'Aerolíneas Argentinas': 'AR', 'Sky Airline': 'H2',
+  Arajet: 'DM', 'Kuwait Airways': 'KU', 'Oman Air': 'WY', Tunisair: 'TU', EgyptAir: 'MS',
+  // v0.16 the new airlines (data/naming.ts CLIENT_SEEDS_V016)
+  'Air France': 'AF', KLM: 'KL', 'British Airways': 'BA', 'Virgin Atlantic': 'VS', Iberia: 'IB', SWISS: 'LX', 'Turkish Airlines': 'TK', 'Air New Zealand': 'NZ',
+  'French bee': 'BF', 'Air Caraïbes': 'TX', 'Austrian Airlines': 'OS', 'Brussels Airlines': 'SN', Luxair: 'LG', 'ITA Airways': 'AZ', Finnair: 'AY', Icelandair: 'FI',
+  'Air Europa': 'UX', 'Air Serbia': 'JU', TAROM: 'RO', 'KM Malta Airlines': 'KM', 'Cyprus Airways': 'CY', 'El Al': 'LY', Aircalin: 'SB', 'Air Tahiti Nui': 'TN',
+  'Air Austral': 'UU', 'Caribbean Airlines': 'BW', 'Ethiopian Airlines': 'ET', 'South African Airways': 'SA', 'Air Mauritius': 'MK', 'Air Seychelles': 'HM',
+  'Cabo Verde Airlines': 'VR', 'Air Niugini': 'PX', 'Solomon Airlines': 'IE', 'Copa Airlines': 'CM', Bahamasair: 'UP', 'Cayman Airways': 'KX',
+  Corsair: 'SS', 'TUI Airways': 'BY', World2fly: '2W', Iberojet: 'E9', 'Edelweiss Air': 'WK', 'Discover Airlines': '4Y', Marabu: 'DI', Neos: 'NO',
+  'Norse Atlantic Airways': 'N0', 'Sunclass Airlines': 'DK', SunExpress: 'XQ', 'Enter Air': 'E4', Transavia: 'HV', easyJet: 'U2', Ryanair: 'FR', Vueling: 'VY',
+  Volotea: 'V7', Norwegian: 'DY', 'Wizz Air': 'W6', 'Pegasus Airlines': 'PC', flyadeal: 'F3',
 };
 /** Every designator a client flies under (preset company codes must avoid these). */
 export const CLIENT_DESIGNATORS: readonly string[] = Object.values(IATA);
