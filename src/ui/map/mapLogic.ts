@@ -601,7 +601,7 @@ export function chipInfo(g: GameState, ac: Aircraft, t: Minute, short?: ShortRow
     if (m?.kind === 'paint') return { tone: 'warn', line: `Paint shop → ${fmtDay(m.end)}`, short: `Paint ${ac.at}` };
     if (m?.kind === 'refit') return { tone: 'warn', line: `Refit ${m.at} ${fmtDay(m.end)}`, short: `Refit ${m.at}` };
     if (m?.kind === 'return') return { tone: 'warn', line: `Return → ${fmtDay(m.end)}`, short: `Return ${m.at}` };
-    return { tone: 'warn', line: m ? `${m.kind === 'AOG' ? 'Repair' : `${m.kind}-check`} → ${fmtDay(m.end)}` : `Hangar ${ac.at}`, short: `Hangar ${ac.at}` };
+    return { tone: 'warn', line: m ? `${m.kind === 'AOG' ? 'Repair' : m.kind === 'line' ? 'Inspection' : `${m.kind}-check`} → ${fmtDay(m.end)}` : `Hangar ${ac.at}`, short: `Hangar ${ac.at}` };
   }
   // v0.8: with the lessee ('Leased LAD 14 Mar').
   if (ac.status === 'leasedOut') {

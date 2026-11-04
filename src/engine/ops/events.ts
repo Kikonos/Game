@@ -214,9 +214,18 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
     { id: 'subcharter', label: `Sub-charter to ${rivalName(g, rivalId)}`, desc: `A rival flies the legs; we still bill the client. Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}.`, tone: 'warn', chips: [usd(-sub), `Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}`, legsChip(win)] },
     { id: 'cancel', label: 'Cancel the legs', desc: 'Compensation to the client and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legsChip(win)] },
   ];
-  // Sub-charter is the default only when the wait would cancel legs and it is cheaper than their compensation and fares.
-  const waitPen = cancelCost(g, holdC.cancels) + subcharterCost(g, holdC.cancels, 1);
-  const def = waitPen > 0 && sub < waitPen ? 'subcharter' : 'courier';
+  // The default is the cheapest way out. v0.15.1 the AOG team when what it saves in compensation and fares beats its
+  // fee (S0228: CS-TRF at Frankfurt, 64 h by courier and 6 legs dropped for $90K, while the team's $12K kept two of
+  // them); a free aircraft of the family swapped in when the better wait still drops legs (not when the team only
+  // delays them: S0228 CS-TQM at Venice, the team $8.3K and 3 legs delayed, while the swap moved 10 legs of Condor's
+  // Hamburg programme to CS-TQA, a 2 h 45 ferry, and its crews lost their rest: 2 legs cancelled); a rival only when
+  // it costs less than the better wait's compensation and fares.
+  const lossC = cancelCost(g, holdC.cancels) + subcharterCost(g, holdC.cancels, 1);
+  const lossT = teamCost + cancelCost(g, holdT.cancels) + subcharterCost(g, holdT.cancels, 1);
+  const wait = lossT < lossC ? 'team' : 'courier';
+  const waitPen = Math.min(lossC, lossT);
+  const waitDrops = revCount(wait === 'team' ? holdT.cancels : holdC.cancels) > 0;
+  const def = waitDrops && swap ? 'swap' : waitDrops && sub < waitPen ? 'subcharter' : wait;
   ask(g, {
     kind: 'aog', title: `AOG: ${ac.reg} at ${city(m.at)}`,
     body: `${m.cause}. ${f.no} ${f.from}–${f.to} can't leave. With a part by courier the aircraft is back in about ${Math.round((m.end - g.now) / 60)} h. The repair costs about ${usd(m.cost)} whichever you choose.`,
@@ -721,6 +730,12 @@ function freePair(g: GameState, prefix: string): number {
   return n;
 }
 
+/** v0.15.1 whether [from, to) overlaps a check, shop visit or return check booked (or under way) for the aircraft. Pure. */
+function maintClashAt(g: GameState, aircraftId: string): (from: Minute, to: Minute) => boolean {
+  const mx = Object.values(g.maintenance).filter((m) => m.aircraftId === aircraftId && (m.status === 'planned' || m.status === 'inWork'));
+  return (from, to) => mx.some((m) => m.start < to && m.end > from);
+}
+
 /** v0.14.1 (OPS-2) an extra out-and-back leaving the base at `t` leaves and lands outside every strict curfew. Pure. */
 function rotationClear(base: string, dest: string, t: Minute, out: number, turn: number, back: number): boolean {
   const home = t + out + turn + back;
@@ -742,15 +757,19 @@ function extraRotation(g: GameState, c: Contract): boolean {
   // First daytime gap between two legs at the base that fits an out-and-back. v0.14.1 (OPS-2) clear of the night
   // curfews as the waves are (computeWaves): out, the turn and back, with half an hour in hand on the landing home
   // (DE982 LGW–HAM was planned to land 23:15 local, inside Hamburg's 23:00 ban; EW793 LIS–DUS at 02:20).
+  // v0.15.1 and never while the aircraft is booked into a check, the cabin shop or its return check (the gap the shop
+  // leaves in the programme read as free: "Fly it" added a rotation on a day in the shop, which the gate then dropped
+  // for a maintenance overrun, with compensation).
   let std = 0;
   const list = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled');
+  const shop = maintClashAt(g, ac.id);
   for (let i = 0; i + 1 < list.length && !std; i++) {
     const a = list[i];
     const b = list[i + 1];
     if (a.to !== p.base || b.from !== p.base || a.sta + turn < from || b.std > to) continue;
     for (let t = Math.ceil((a.sta + turn) / 15) * 15; t + need + turn <= b.std; t += 30) {
       const lm = localMinuteOfDay(p.base, t);
-      if (lm >= 6 * 60 && lm <= 21 * 60 && rotationClear(p.base, dest, t, out, turn, back)) {
+      if (lm >= 6 * 60 && lm <= 21 * 60 && rotationClear(p.base, dest, t, out, turn, back) && !shop(t - turn, t + need + turn)) {
         std = t;
         break;
       }
@@ -924,6 +943,8 @@ function resolveChange(g: GameState, d: Decision, opt: string): ActionResult {
   const turn = turnOf(ac);
   const end = std + out + turn + back;
   if (std < g.now + 60 || flightsOf(g, ac.id).some((f) => f.status === 'scheduled' && f.std < end + turn && f.sta > std - turn)) return { ok: false, error: 'The slot is no longer free' };
+  // v0.15.1 a check booked since the ask (or one the ask missed in an older save) takes the slot.
+  if (maintClashAt(g, ac.id)(std - turn, end + turn)) return { ok: false, error: `${ac.reg} is booked for maintenance then` };
   // v0.14.1 (OPS-2) re-checked against the night curfews (a clock change since the ask).
   if (!rotationClear(p.base, dest, std, out, turn, back)) return { ok: false, error: `The night curfew at ${p.base} or ${dest} no longer allows that slot` };
   const no = freePair(g, p.prefix);

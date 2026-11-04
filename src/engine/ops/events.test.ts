@@ -66,7 +66,9 @@ describe('AOG decision', () => {
     const { g, ac, f, m, d } = aog();
     expect(d.options.map((o) => o.id)).toEqual(['courier', 'team', 'swap', 'subcharter', 'cancel']);
     expect(d.options.every((o) => o.label && o.desc)).toBe(true);
-    expect(['courier', 'subcharter']).toContain(d.defaultOption);
+    // v0.15.1 the cheapest way out: a free aircraft of the family when the wait would drop legs, else the courier,
+    // the team or a rival.
+    expect(['courier', 'team', 'swap', 'subcharter']).toContain(d.defaultOption);
     expect(d.expires).toBe(g.now + BAL.aogDecisionMin);
     expect(ac.status).toBe('aog');
     expect(m.kind).toBe('AOG');

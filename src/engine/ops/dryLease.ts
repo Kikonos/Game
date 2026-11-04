@@ -185,7 +185,7 @@ export function dryFeasibility(g: GameState, o: ContractOffer, ac: Aircraft, rep
   if (other) add('availability', 'no', `Already leased out: ${other.title}`);
   else if (base) add('availability', 'no', `Busy: ${base.title} (${fmtDayRange(base.start, base.end)})`, 'The aircraft must be free from the ferry out to two days after it is back.');
   else if (busy.length) add('availability', 'no', `Busy: ${busy[0].no} ${busy[0].from}–${busy[0].to} ${fmtDay(busy[0].std)}${busy.length > 1 ? ` and ${busy.length - 1} more` : ''}`, 'The aircraft must be free from the ferry out to two days after it is back.');
-  else if (mx.length) add('availability', 'no', `${mx[0].kind}-check at ${mx[0].at} ${fmtDay(mx[0].start)} falls inside`);
+  else if (mx.length) add('availability', 'no', `${mx[0].kind === 'line' ? 'Inspection' : `${mx[0].kind}-check`} at ${mx[0].at} ${fmtDay(mx[0].start)} falls inside`);
   else add('availability', 'ok', `Free ${fmtDay(from)} – ${fmtDay(to)}`);
   // The C-check stays ours: not due before the return + 30 days.
   const due = cCheckDue(g, ac, o.start, d.fhPerMonth);

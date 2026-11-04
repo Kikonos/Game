@@ -439,7 +439,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
       <div className={`op-note ${ac.status === 'aog' ? 'bad' : 'warn'}`}>
         <Wrench />
         <span>
-          {ac.status === 'aog' ? 'AOG' : maint.kind === 'paint' ? 'In the paint shop' : 'In the hangar'} at {maint.hub && ac.status !== 'aog' ? `${maint.hub.name} (${ac.at})` : ac.at}: {maint.kind === 'AOG' ? 'repair' : maint.kind === 'paint' ? paintLabel(g, maint) : `${maint.kind}-check`}
+          {ac.status === 'aog' ? 'AOG' : maint.kind === 'paint' ? 'In the paint shop' : 'In the hangar'} at {maint.hub && ac.status !== 'aog' ? `${maint.hub.name} (${ac.at})` : ac.at}: {maint.kind === 'AOG' ? 'repair' : maint.kind === 'paint' ? paintLabel(g, maint) : maint.kind === 'line' ? 'inspection' : `${maint.kind}-check`}
           {maint.cause ? ` (${maint.cause})` : ''}, back {fmtDay(maint.end)} {fmtTime(maint.end)} UTC{maint.hub && ferryHomeOf(g, maint) ? ` · ${ferryHomeOf(g, maint)}` : ''}
         </span>
       </div>

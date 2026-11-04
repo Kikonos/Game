@@ -26,7 +26,7 @@ import { afterDiversion, applyCrewFix, crewControl, flightCrewStatus, removeCrew
 import { continuationFits, restedDeparture } from '../crew/duties';
 import { crewName } from '../crew/generate';
 import { emergencyFactor, OPS_LIVE, optionalFactor } from './director';
-import { applyHold, delayChain, delayOf, excuseGrowth, moveFlight, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLegs, unitOf, cancelLegs } from './flights';
+import { applyHold, delayChain, delayOf, excuseGrowth, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLegs, unitOf, cancelLegs } from './flights';
 import { isSoft, localToUTC } from '../contracts/plan';
 import { relinkPositioning } from '../contracts/schedule';
 import { excusedLate, latePenalty } from './latePolicy';
@@ -502,7 +502,10 @@ function resolveCurfew(g: GameState, d: Decision, opt: string): ActionResult {
       if (charter) post(g, 'disruption', -hotelCost(pax));
       post(g, 'hotels', -crewRooms(g, f, night));
       f.lateOk = Math.max(f.lateOk ?? 0, night - (f.schedStd ?? f.std));
-      moveFlight(g, f, night, `Night stop: ${f.to} curfew`);
+      // v0.15.1 the legs after it move behind the night stop too (turn minima, the usual recovery): moved alone, the
+      // leg sat over the next one on the Schedule (LHR–LIS at 06:05 beside a night stop landing 06:40) until the gate
+      // found the aircraft elsewhere.
+      delayChain(g, f, night, `Night stop: ${f.to} curfew`, false);
       bumpClient(g, c?.clientId, -1, `${f.no} night-stopped for the ${f.to} curfew`);
       return { ok: true, msg: `${f.no} night-stops, off blocks ${fmtTime(night)} UTC` };
     }
