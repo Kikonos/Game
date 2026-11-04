@@ -5,7 +5,7 @@ import { flightsOf, flightsRev, takeFlightChanges, touchTickets } from '../core/
 import type { SimModule } from '../core/module';
 import { schedule } from '../core/queue';
 import { DAY, monthKey, yearOf } from '../core/time';
-import type { CrewMember, Flight, GameState, Minute, SimEvent } from '../core/types';
+import type { CrewMember, Duty, Flight, GameState, Minute, SimEvent } from '../core/types';
 import { cancelConversion, classOf, dailyClasses, restoreCcqRatings } from './conversion';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { afterDiversion, deletePairing, dutyLegality as dutyLevel, pairingSeats, planAircraft, refreshPairing, syncDuty } from './duties';
@@ -312,7 +312,15 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
   const did = pax.length ? ix.ticketDuty.get(f.id) : undefined;
   const d = did ? g.duties[did] : undefined;
   const rest = minRest({ dutyMin: f.sta - f.std + CHECKIN(), atHome: false, augmented: false, tzShift: 0 });
-  const merged = !!d && ((f.sta <= d.report && d.report - f.sta < rest) || (f.std >= d.release && f.std - d.release < 600));
+  // v0.16 (merge) one ride can carry crew of several duties (two sets riding our own flight home: the index keeps one
+  // duty per flight), so each passenger is read against their own duty: the one of their pairings that holds this
+  // ride. Player's save: a set released at Casablanca rode AT1062 home inside their duty's log (to 14:15) and was
+  // logged a second time for the ride (12:00–14:17) because the index named the other set's duty.
+  const dutyOf = (cid: string): Duty | undefined => {
+    for (const p of ix.pairingsOf.get(cid) ?? []) for (const x of p.dutyIds) { const q = g.duties[x]; if (q && q.deadheadIds.includes(f.id)) return q; }
+    return d;
+  };
+  const mergedFor = (q: Duty | undefined): boolean => !!q && ((f.sta <= q.report && q.report - f.sta < rest) || (f.std >= q.release && f.std - q.release < 600));
   if (f.kind !== 'deadhead') for (const id of f.crewIds) if (g.crew[id]) g.crew[id].loc = f.to;
   noteService(g, f);
   const missed: string[] = [];
@@ -336,7 +344,7 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     if (f.to === c.base) c.awaySince = null;
     else if (c.awaySince === null) c.awaySince = f.std;
     if (f.to === c.base) noteRotation(c, f.to, f.std, f.ata ?? f.sta);
-    if (!merged) {
+    if (!mergedFor(dutyOf(id))) {
       const off = f.atd ?? f.std;
       const on = f.ata ?? f.sta;
       // Crew-planning round: checked in as the plan reads the ticket (a private jet 30 min at the FBO, not an airline's
