@@ -7,7 +7,7 @@ import { BAL } from '../../src/engine/core/balance';
 import { DAY, monthKey } from '../../src/engine/core/time';
 import type { GameState } from '../../src/engine/core/types';
 import {
-  creditOpenWhy, creditView, drawCredit, drawStepOf, factorInvoice, factorQuote, leasebackQuote, loanOn, loanQuote, marketValueOf, openCreditLine, repayCredit, sellAndLeaseBack, takeLoan,
+  creditOpenWhy, creditView, drawCredit, drawStepOf, factorInvoice, factorQuote, leasebackQuote, loanOn, loanPayoff, loanQuote, marketValueOf, openCreditLine, repayCredit, repayLoan, sellAndLeaseBack, takeLoan,
 } from '../../src/engine/finance';
 import { cashForecast, monthEndBill } from '../../src/engine/ops/finance';
 
@@ -42,6 +42,16 @@ export function botFinance(g: GameState): boolean {
     const spare = cash - COMFORT - bill;
     const amount = Math.min(v.line.drawn, drawStepOf(spare));
     if (amount >= F.credit.drawStep && repayCredit(g, amount).ok) acted = true;
+  }
+
+  // 3b. v0.16 balance: a loan taken in a tight spell is paid off once cash is comfortable again (the early fee is 1–2 %;
+  // the interest and the leverage covenant cost more).
+  for (const l of g.treasury?.loans ?? []) {
+    const po = loanPayoff(g, l.id);
+    if (po && cash - COMFORT - bill >= po.total && low30(g) > 0 && repayLoan(g, l.id).ok) {
+      acted = true;
+      break;
+    }
   }
 
   // 4. Still short with the line used up: sell the biggest eligible invoices to the bank (with recourse), largest first.

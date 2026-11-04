@@ -18,7 +18,7 @@ import { setProgrammeAugHook } from '../crew/sets';
 import { bestSlip, slipCost, type SlipPlan } from '../crew/slip';
 import { cabinPresets } from '../../data/cabins';
 import { schedule } from '../core/queue';
-import { chance, int, next, pick, range, weightedPick } from '../core/rng';
+import { chance, int, next, pick, range, weightedPick, type RngHolder } from '../core/rng';
 import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, localMinuteOfDay, toDate, toLocal } from '../core/time';
 import type {
   AcRest, ApprovalId, Archetype, BrokerId, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent, WorldEvent,
@@ -26,7 +26,7 @@ import type {
 import { acceptOffer, closeOffer, setPrice } from './accept';
 import { callReplyMin, isCallOffer, missedCall, REPLY_MIN } from './call';
 import { answerBy, counterBase, counterOdds, halfwayPrice, leftOf } from './counter';
-import { crewChains, feasibility, ulrNeed, type UlrNeed } from './feasibility';
+import { crewChains, feasibility, ulrNeed, type CheckId, type UlrNeed } from './feasibility';
 import { adhocGroupClients, clientPrefix, clientsOf, isMarketClient, isBigClub, isCruiseLine, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, ministry, rivalFor } from './clients';
 import * as F from './flavor';
 import { paintTermsText, rollPaint, sideRng } from './paintTerms';
@@ -1195,6 +1195,29 @@ function bigFull(d: Draft): boolean {
 /** v0.14 some aircraft of ours could fly it (the quick feasibility). Pure. */
 export function fleetCanFly(g: GameState, offerId: string): boolean {
   return Object.keys(g.fleet).some((id) => feasibility(g, offerId, id, { quick: true }).level !== 'no');
+}
+
+/** The checks that say what an aircraft is, not what it is doing that week (v0.16 balance, leads). */
+const STATIC_CHECKS: ReadonlySet<CheckId> = new Set<CheckId>(['seats', 'layout', 'family', 'body', 'range', 'runway', 'etops', 'restSeats']);
+
+/**
+ * v0.16 balance: whether an aircraft of ours is the kind the job needs (seats, cabin, type, range, runway, ETOPS), whatever
+ * its schedule that week. A broker or a sales manager brings work for the types we operate; dates are ours to propose,
+ * an approval ours to file. Pure.
+ */
+export function fleetCouldFly(g: GameState, offerId: string): boolean {
+  return Object.values(g.fleet).some((a) => a.status !== 'leasedOut' && a.status !== 'stored'
+    && !feasibility(g, offerId, a.id, { quick: true }).checks.some((c) => c.level === 'no' && STATIC_CHECKS.has(c.id)));
+}
+
+/**
+ * v0.16 balance: the idle window a lead's offer is drafted into (we proposed dates that suit our calendar): one of the
+ * fleet's free windows inside 90 days that the kind of work fits, the longer the likelier, drawn on the lead's own
+ * stream; undefined when none fits (the draft then takes its own dates). Pure in g.
+ */
+export function leadWindow(g: GameState, archetype: Archetype, r: RngHolder): IdleWindow | undefined {
+  const ws = idleWindows(g, 2, 90).filter((w) => fitsWindow(archetype, w, g.now));
+  return ws.length ? weightedPick(r, ws, (w) => Math.sqrt((w.to - w.from) / DAY)) : undefined;
 }
 
 /**

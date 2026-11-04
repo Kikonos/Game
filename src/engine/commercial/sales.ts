@@ -26,7 +26,7 @@ import { DAY, dayIndex, fmtDay, fromUTC, monthKey, monthStart, toDate } from '..
 import type {
   ActionResult, Archetype, BrokerId, BrokerRel, Client, ClientKind, ContractOffer, GameState, HeadCandidate, Lead, LeadSource, LeadStage, Minute, MonthKey, Pitch, SalesRep,
 } from '../core/types';
-import type { OfferOpts } from '../contracts/offers';
+import type { IdleWindow, OfferOpts } from '../contracts/offers';
 import { isGovernment, roleOf } from '../contracts/clients';
 import { clientPrestige, playerPrestige } from '../contracts/prestige';
 import { bumpClient } from '../contracts/relations';
@@ -64,8 +64,10 @@ export function loadSales(g: GameState): void {
 
 export interface SalesHooks {
   offer: (g: GameState, archetype: Archetype, opts: OfferOpts) => ContractOffer | null;
-  /** v0.16 balance: whether any aircraft of ours could fly that offer (offers.ts fleetCanFly): brokers and sales staff bring work for the types we operate. */
+  /** v0.16 balance: whether an aircraft of ours is the kind that offer needs (offers.ts fleetCouldFly): brokers and sales staff bring work for the types we operate. */
   fits: (g: GameState, offerId: string) => boolean;
+  /** v0.16 balance: an idle window of the fleet the kind of work fits (offers.ts leadWindow): a lead's offer takes dates that suit our calendar. */
+  window: (g: GameState, archetype: Archetype, r: RngHolder) => IdleWindow | undefined;
   tender: (g: GameState, opts: { clientId?: string; invited?: boolean }) => Tender | null;
   round: (t: Minute) => RoundNow | null;
   /** Whether this airline issues RFPs in that kind of round (data/fairs.ts TENDER_ISSUERS). */
@@ -260,7 +262,7 @@ export function leadArchetypes(c: Client, focus: Archetype[] = []): Archetype[] 
  * A quiet draft of the job to price the lead (title, estimated value): built and dropped at once, on a borrowed
  * stream; the stretch slot it might take is given back (the real offer comes at the proposal's answer).
  */
-function quoteLead(g: GameState, c: Client, archetypes: Archetype[], key: string): { archetype: Archetype; title: string; value: number } | null {
+function quoteLead(g: GameState, c: Client, archetypes: Archetype[], key: string, opts: Partial<OfferOpts> = {}): { archetype: Archetype; title: string; value: number } | null {
   if (!hooks) return null;
   const p = g.company.prestige;
   const stretchAt = p?.stretchAt;
@@ -274,7 +276,7 @@ function quoteLead(g: GameState, c: Client, archetypes: Archetype[], key: string
   try {
     for (const a of order) {
       if (lockOf(g, 'market', { archetype: a })) continue;
-      const o = isolatePauses(() => withStream(g, `leadq:${key}:${a}`, () => hooks!.offer(g, a, { client: c.id, window: false, wide: wideOpt(g), paint: false, cabin: false }), true));
+      const o = isolatePauses(() => withStream(g, `leadq:${key}:${a}`, () => hooks!.offer(g, a, { client: c.id, window: false, wide: wideOpt(g), paint: false, cabin: false, ...opts }), true));
       if (!o) continue;
       // v0.16 balance: a broker or a sales manager brings work for the types we fly (a job no aircraft of ours could do
       // is not a lead): checked while the draft is still on the board.
@@ -304,11 +306,13 @@ interface NewLead {
   key: string;
   stage?: 'lead' | 'proposal';
   why: (title: string) => string;
+  /** v0.16 balance: the quote's dates (a pitch lead is priced for its season, not for next month). */
+  opts?: Partial<OfferOpts>;
 }
 
 /** A lead into the pipeline (null when no sensible job could be drafted for that client). */
 function newLead(g: GameState, c: Client, x: NewLead): Lead | null {
-  const q = quoteLead(g, c, x.archetypes, x.key);
+  const q = quoteLead(g, c, x.archetypes, x.key, x.opts);
   if (!q) return null;
   const r = sideOf(g, `lead:${x.key}:reply`);
   const stage: LeadStage = x.stage ?? 'lead';
@@ -417,9 +421,12 @@ function leadOffer(g: GameState, l: Lead): ContractOffer | null {
   const r = sideOf(g, `lead:${l.id}:offer`);
   const pitch = l.source === 'pitch' ? g.com?.pitches?.find((p) => p.leadId === l.id) : undefined;
   const season = pitch ? seasonDates(pitch.season, r) : null;
+  const inSeason = !!season && season.start > g.now + 10 * DAY;
+  // v0.16 balance: our proposal named dates that suit our calendar (an idle window the work fits), unless the season sets them.
+  const window = inSeason ? false : hooks.window(g, l.archetype, r) ?? false;
   const opts: OfferOpts = {
-    client: c.id, window: false, wide: wideOpt(g), leadId: l.id, ...(l.brokerId ? { brokerId: l.brokerId } : {}),
-    ...(season && season.start > g.now + 10 * DAY ? { start: season.start, days: season.days } : {}),
+    client: c.id, window, wide: wideOpt(g), leadId: l.id, ...(l.brokerId ? { brokerId: l.brokerId } : {}),
+    ...(inSeason ? { start: season.start, days: season.days } : {}),
   };
   const o = withStream(g, `leado:${l.id}`, () => hooks!.offer(g, l.archetype, opts));
   if (!o) return null;
@@ -688,7 +695,8 @@ function pitchReply(g: GameState, p: Pitch): void {
     return;
   }
   if (roll === 'maybe') {
-    const lead = newLead(g, c, { source: 'pitch', archetypes: ['seasonBase'], key: `pitch:${p.id}`, stage: 'proposal', why: (t) => `After our ${label} pitch: ${name} may need cover. ${t}.` });
+    const sd = seasonDates(p.season, sideOf(g, `pitch:${p.id}:season`));
+    const lead = newLead(g, c, { source: 'pitch', archetypes: ['seasonBase'], key: `pitch:${p.id}`, stage: 'proposal', why: (t) => `After our ${label} pitch: ${name} may need cover. ${t}.`, opts: sd.start > g.now + 10 * DAY ? { start: sd.start, days: sd.days } : {} });
     if (lead) {
       p.result = 'maybe';
       p.leadId = lead.id;
@@ -723,7 +731,8 @@ function pitchOffer(g: GameState, p: Pitch): void {
     p.leadId = '';
     return;
   }
-  const lead = newLead(g, c, { source: 'pitch', archetypes: ['seasonBase'], key: `pitcho:${p.id}`, stage: 'proposal', why: (t) => `After our ${seasonLabel(p.season)} pitch: ${c.name} wants our cover. ${t}.` });
+  const sd = seasonDates(p.season, sideOf(g, `pitch:${p.id}:season`));
+  const lead = newLead(g, c, { source: 'pitch', archetypes: ['seasonBase'], key: `pitcho:${p.id}`, stage: 'proposal', why: (t) => `After our ${seasonLabel(p.season)} pitch: ${c.name} wants our cover. ${t}.`, opts: sd.start > g.now + 10 * DAY ? { start: sd.start, days: sd.days } : {} });
   if (!lead) {
     p.leadId = '';
     return;

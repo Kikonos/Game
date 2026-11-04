@@ -11,7 +11,7 @@ import { dailyPresence, loadPresence, presence } from './presence';
 import { bidQuote, dailyTenders, decideTender, issueTender, placeBid, roundAt } from './tenders';
 import { bookTrip, dailyTrips, fairsAhead, travelLegs } from './trips';
 import { dailySales, loadSales, monthlySales, setSalesHooks } from './sales';
-import { fleetCanFly, generateOffer } from '../contracts/offers';
+import { fleetCouldFly, generateOffer, leadWindow } from '../contracts/offers';
 import { TENDER_ISSUERS } from '../../data/fairs';
 import type { CrisisKind } from './types';
 
@@ -37,7 +37,8 @@ setTravelHook(travelLegs);
 // import sales.ts: no cycle).
 setSalesHooks({
   offer: (g, archetype, opts) => generateOffer(g, archetype, opts),
-  fits: (g, offerId) => fleetCanFly(g, offerId),
+  fits: (g, offerId) => fleetCouldFly(g, offerId),
+  window: (g, archetype, r) => leadWindow(g, archetype, r),
   tender: (g, opts) => issueTender(g, opts),
   round: (t) => roundAt(t),
   issuer: (name, kind) => TENDER_ISSUERS.some((x) => x.name === name && (kind === 'summer' || !!x.winter)),
