@@ -1,0 +1,46 @@
+/* v0.16 the prestige ladder (Company › Overview Prestige card, offer badges) and the offer filter (Contracts › Filter). */
+
+/* Prestige card: four rungs. */
+.pr-tiers { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.pr-tiers .v8-tier { font-size: 12px; padding: 7px 2px; line-height: 1.2; }
+.pr-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border-strong); color: var(--text-2); white-space: nowrap; }
+.pr-pill .sc-ico-s { width: 12px; height: 12px; }
+
+/* The stretch offer badge. */
+.badge.pr-stretch { background: rgba(245, 196, 81, 0.16); color: var(--gold); border: 1px solid rgba(245, 196, 81, 0.4); }
+
+/* The head strip's level button sits next to the standing. */
+.v8-head-strip .pr-level { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 6px 12px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel); color: var(--text); font: inherit; cursor: pointer; white-space: nowrap; }
+.v8-head-strip .pr-level:hover { background: var(--panel-hover); }
+.v8-head-strip .pr-level b { font-size: 13px; }
+
+/* Offer dialog: the client's level lines. */
+.pr-checks { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+.pr-checks li { display: flex; gap: 6px; align-items: baseline; }
+.pr-checks .ok { color: var(--good); }
+.pr-checks .no { color: var(--warn); }
+
+/* Filter. */
+.flt-card .card-body, .flt-card > div:last-child { display: flex; flex-direction: column; gap: 12px; }
+.flt-switch { min-height: 44px; }
+.flt-row { display: flex; flex-direction: column; gap: 6px; }
+.flt-row-head { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.flt-two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.flt-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.flt-chip { min-height: 36px; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border-strong); background: var(--panel-2); color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer; }
+.flt-chip:hover { background: var(--panel-hover); }
+.flt-chip.on { color: var(--text); border-color: var(--accent); background: rgba(var(--accent-rgb), 0.12); }
+.flt-chip.off { color: var(--text-3); border-color: var(--bad); background: rgba(248, 113, 113, 0.1); text-decoration: line-through; }
+.flt .seg button { min-height: 40px; }
+
+/* The Market tab's hidden row and list. */
+.flt-hidden { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.flt-hidden-row { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 8px 12px; border-radius: 12px; border: 1px dashed var(--border-strong); background: transparent; color: var(--text-2); font: inherit; font-size: 13px; cursor: pointer; min-width: 0; }
+.flt-hidden-row:hover { background: var(--panel-hover); }
+.flt-hidden-item { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; background: transparent; border: 0; color: inherit; font: inherit; cursor: pointer; }
+.flt-hidden-item .right { text-align: right; }
+
+@media (max-width: 900px) {
+  .flt-two { grid-template-columns: 1fr; }
+  .pr-tiers .v8-tier { font-size: 11px; }
+}

@@ -70,8 +70,9 @@ export function marketOffers(g: GameState): ContractOffer[] {
 
 /** Offers that left the market without us (lost, expired, declined), newest first. */
 export function missedOffers(g: GameState): ContractOffer[] {
+  // v0.16 an offer the player's filter hid and never opened was not missed (contracts/filter.ts).
   return Object.values(g.offers)
-    .filter((o) => o.status === 'lost' || o.status === 'expired' || o.status === 'declined')
+    .filter((o) => (o.status === 'lost' || o.status === 'expired' || o.status === 'declined') && !(o.hidden && !o.seen))
     .sort((a, b) => (b.closedAt ?? b.expires) - (a.closedAt ?? a.expires));
 }
 

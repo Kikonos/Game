@@ -1,7 +1,7 @@
 // Contracts (B5): Market (offer cards, urgent first), Active (MGH progress, next flight, crew problems,
 // cancel with penalty) and Missed. DESIGN.md §6.3.
 
-import { AlertTriangle, CalendarRange, ChevronDown, ChevronRight, CircleSlash, Clock, FileSearch, Handshake, Inbox as InboxIcon, Medal, Palette, PhoneIncoming, Users } from 'lucide-react';
+import { AlertTriangle, CalendarRange, ChevronDown, ChevronRight, CircleSlash, Clock, Crown, FileSearch, Handshake, Inbox as InboxIcon, Medal, Palette, PhoneIncoming, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { flag } from '../../data/countries';
 import { cancelContract, cancelCost, contractProgress, counterView, idleWindows, type IdleWindow, leadDays, offerClientLine, offerCompetition, standing } from '../../engine/contracts';
@@ -23,6 +23,7 @@ import { contractColor } from './palette';
 import { archLabel, COUNTDOWN_MIN, expiryLabel, fuelLine, offerModal, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays, v09Chips } from './screenLogic';
 import { SalesView } from './contracts/SalesView';
 import { FilterView, HiddenOffersRow } from './contracts/FilterView';
+import { PRESTIGE_NAME, playerLevel } from '../../engine/contracts/prestige';
 import { analystView } from '../../engine/ops';
 import { ScreenHint } from '../components/ScreenHint';
 import { clientList } from '../../engine/contracts';
@@ -70,6 +71,8 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
         <span className="row gap-8 upper dim ellipsis"><ArchIcon a={o.archetype} />{archLabel(o)}</span>
         <span className="row gap-8 nowrap">
           {prob && <Why refs={{ kind: 'offer', id: o.id }} tone={prob.severity === 'red' ? 'bad' : 'warn'} label={`${prob.what}: why?`} />}
+          {/* v0.16 a stretch offer: a client one level above ours. */}
+          {o.stretch && <span className="badge pr-stretch" data-tip="A client one level above yours: a taste of what's to come">Stretch offer</span>}
           {o.urgency !== 'normal' && <span className={`badge ${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
           {pending ? (
             <span className="small accent nowrap" data-tip="The offer cannot lapse while the client considers your counter">Clock paused</span>
@@ -295,6 +298,7 @@ function HeadStrip({ g }: { g: GameState }) {
   const day = Math.floor(g.now / DAY);
   // Standing and the outlook move at most daily / monthly.
   const [st, o] = useMemo(() => [standing(g), marketOutlook(g)], [g, day, g.company.standing]); // eslint-disable-line react-hooks/exhaustive-deps
+  const lv = playerLevel(g);
   return (
     <div className="v8-head-strip">
       <button className={`v8-standing t${st.tier}`} onClick={() => store.navigate('company', { view: 'overview' })} aria-label={`Standing: ${st.name}`}>
@@ -304,6 +308,10 @@ function HeadStrip({ g }: { g: GameState }) {
           {st.next && <span className="small dim ellipsis">{st.next}</span>}
         </span>
         <ChevronRight className="sc-ico-s dim" />
+      </button>
+      {/* v0.16 our level on the client ladder (offers come at this level; tap: the Prestige card). */}
+      <button className="pr-level" onClick={() => store.navigate('company', { view: 'overview' })} aria-label={`Prestige level ${lv}: ${PRESTIGE_NAME[lv]}`} data-tip="Offers come at your level, with one stretch offer a month from a level up">
+        <Crown className="sc-ico-s" /><b>Level {lv}</b><span className="small muted">{PRESTIGE_NAME[lv]}</span>
       </button>
       <button className="v8-outlook-btn" onClick={() => store.openModal({ kind: 'outlook' })} aria-label="Market outlook">
         <OutlookTiles o={o} now={g.now} />
@@ -316,7 +324,7 @@ export function ContractsScreen() {
   useRenderCount('contracts');
   const g = useGame();
   const nav = store.nav;
-  const view = (['market', 'active', 'tenders', 'missed', 'clients', 'markets'].includes(nav.view ?? '') ? nav.view : 'market') as View;
+  const view = (['market', 'active', 'tenders', 'missed', 'clients', 'markets', 'sales', 'filter'].includes(nav.view ?? '') ? nav.view : 'market') as View;
   const nMarket = marketOffers(g).length;
   const nActive = Object.values(g.contracts).filter((c) => c.status === 'signed' || c.status === 'active').length;
   const nMissed = missedOffers(g).length;

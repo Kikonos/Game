@@ -15,6 +15,9 @@ import { nextId } from '../core/entities';
 export const newGame = (seed = 7, base = 'LIS', newcomer = false): GameState => {
   const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base, seed });
   if (!newcomer) g.company.standing = 1;
+  // v0.16 the prestige ladder's market effects (client weights by level, stretch offers, IOSA asked, pay and penalties by
+  // level) are off under vitest (contracts/prestige.ts PRESTIGE_GATE) so the offer-flow fixtures hold; prestige.test.ts
+  // switches them on.
   return g;
 };
 

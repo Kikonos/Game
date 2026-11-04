@@ -3,16 +3,17 @@
 // earn flying for them, our record and our approvals, and never drops. Offers come at our level with the odd stretch
 // offer one level up.
 //
-// Step 0 (the shared skeleton): the levels are assigned to clients and derived for us FOR REAL (load and new game);
-// the effects on offers (weights, stretch, pay, penalties) and the level-up messages are neutral stubs the `clients`
-// lane fills in. Nothing here draws from the RNG or takes an id, so a game plays on exactly as before.
+// The levels are assigned to clients and derived for us on load and at a new game; the offer draw weighs clients by
+// their level against ours (one stretch offer a month from a level up), their pay and penalties follow their level, and
+// a level-up is a message with its card and the `ladder` chime. Nothing here draws from the RNG (offers.ts draws).
 
 import { TENDER_CLIENT_SEEDS } from '../../data/fairs';
 import { CLIENT_SEEDS, CLIENT_SEEDS_B1, CLIENT_SEEDS_V014, CLIENT_SEEDS_V08, CLIENT_SEEDS_V0121, type ClientSeed } from '../../data/naming';
 import { BAL } from '../core/balance';
 import { statsV016 } from '../core/stats016';
 import { DAY, yearOf } from '../core/time';
-import type { Client, Contract, GameState, PlayerPrestige, Prestige } from '../core/types';
+import { pushMessage } from '../core/messages';
+import type { ApprovalId, Client, Contract, GameState, PlayerPrestige, Prestige } from '../core/types';
 import { aocSince } from './relations';
 
 const P = BAL.v016.prestige;
@@ -151,28 +152,85 @@ export function onContractDoneVisibility(g: GameState, c: Contract): void {
   addVisibility(g, amount, level);
 }
 
-// ---------- effects on offers (lane `clients` fills these in; neutral until then) ----------
+// ---------- effects on offers ----------
 
 /**
- * The weight of a client in the ordinary offer draw by its level against ours (§B.3: 1 at our level, less below, a
- * stretch one level up, never two). Step 0: 1 for everyone (today's draw).
+ * The ladder's effects on the market (weights, stretch, IOSA asked, pay, penalties, relation hits). Off under vitest
+ * so the offer-flow fixtures of every suite hold as before v0.16 (prestige.test.ts switches them on); on in the game,
+ * the bot and the invariants script. The levels, the visibility and the level-ups themselves are never off.
  */
-export function prestigeOfferWeight(_g: GameState, _c: Client): number {
-  return 1;
+export const PRESTIGE_GATE = { on: !(typeof process !== 'undefined' && process.env?.VITEST) };
+
+/** Our level now (level 1 before the record exists). Pure. */
+export const playerLevel = (g: GameState): Prestige => g.company.prestige?.level ?? 1;
+
+/** Whether a stretch offer may be made now: none in the last `stretchDays`. Pure. */
+export function stretchOpen(g: GameState): boolean {
+  const at = g.company.prestige?.stretchAt;
+  return at === undefined || g.now - at >= P.stretchDays * DAY;
 }
 
-/** A draft from a client one level above ours is a stretch offer (at most one in `stretchDays`). Step 0: nothing. */
-export function markStretch(_g: GameState, _d: { client: Client; stretch?: true }): void {}
+/** A client one level above ours we have not flown for yet: its offer would be a stretch offer. Pure. */
+export const isStretchClient = (g: GameState, c: Client): boolean => clientPrestige(g.clients[c.id] ?? c) === playerLevel(g) + 1 && !(g.clients[c.id] ?? c).jobs;
 
-/** The rate part of a client's level (−4 % … +8 %). Step 0: 0 (today's prices). */
-export function prestigePayPct(_level: Prestige): number {
+/**
+ * The weight of a client in the ordinary offer draw by its level against ours (§B.3): 1 at our level, 0.5 / 0.25 / 0.1
+ * one / two / three below, 0.1 one above while a stretch offer is open (at most one in `stretchDays`), 0 two above.
+ * A client we have flown for keeps calling whatever its level (they know us). Pure.
+ */
+export function prestigeOfferWeight(g: GameState, c: Client): number {
+  if (!PRESTIGE_GATE.on) return 1;
+  const cur = g.clients[c.id] ?? c;
+  const diff = clientPrestige(cur) - playerLevel(g);
+  if (diff <= 0) return P.weight[String(Math.max(-3, diff))] ?? 0;
+  if (cur.jobs) return P.weight['0'];
+  if (diff === 1) return stretchOpen(g) ? P.weight['1'] : 0;
   return 0;
 }
 
-/** Penalties and relation hits scale with the client's level. Step 0: 1. */
-export function prestigePenaltyX(_level: Prestige): number {
-  return 1;
+/**
+ * A draft's prestige marks (offers.ts generateOffer, before finalize): a client one level above ours (not yet flown
+ * for) makes it a stretch offer while the month's stretch window is open, whichever way it was asked (a rival hiring
+ * us is a peer, never a stretch); a national carrier, agency, major or government (level 3–4) we have not flown for
+ * asks for IOSA registration: a major wants it held, a level-3 client is content with it filed (feasibility then
+ * says what is missing). Clients we have flown for ask nothing new.
+ */
+export function markStretch(g: GameState, d: { client: Client; stretch?: true; iosaAsked?: true; req?: { approvals: ApprovalId[] } }): void {
+  const cur = g.clients[d.client.id] ?? d.client;
+  if (!PRESTIGE_GATE.on || cur.jobs) return;
+  const lv = clientPrestige(cur);
+  if (lv === playerLevel(g) + 1 && !cur.rivalId && stretchOpen(g)) d.stretch = true;
+  if (lv >= 3 && d.req && !d.req.approvals.includes('iosa') && !g.company.approvals.includes('iosa')) {
+    const filed = g.company.pendingApprovals.some((p) => p.id === 'iosa');
+    if (lv === 4 || !filed) {
+      d.req.approvals.push('iosa');
+      d.iosaAsked = true;
+    }
+  }
 }
+
+/** offers.ts: a stretch offer reached the market: the next one waits `stretchDays`. Action-side. */
+export function noteStretch(g: GameState, o: { stretch?: true }): void {
+  if (!o.stretch) return;
+  playerPrestige(g).stretchAt = g.now;
+  statsV016(g).stretchOffers++;
+}
+
+/** The rate part of a client's level (−4 % brochure work … +8 % majors and governments). Pure. */
+export function prestigePayPct(level: Prestige): number {
+  return PRESTIGE_GATE.on ? P.payPct[level] ?? 0 : 0;
+}
+
+/** Delay penalties scale with the client's level (× 0.8 … × 1.6). Pure. */
+export function prestigePenaltyX(level: Prestige): number {
+  return PRESTIGE_GATE.on ? P.penaltyX[level] ?? 1 : 1;
+}
+
+/** Relation hits for our failures scale with the client's level (× 1 … × 1.5; relations.ts bumpClient). Pure. */
+export const prestigeRelationX = (level: Prestige): number => (PRESTIGE_GATE.on ? P.relationX[level] ?? 1 : 1);
+
+/** Player words for the rate line: '+4 % rate (national carrier, included)'. Pure. */
+export const PRESTIGE_SHORT: Record<Prestige, string> = { 1: 'brochure work', 2: 'charter market', 3: 'national carrier', 4: 'major or government' };
 
 /** What a level 3 / 4 client checks before it signs (plain lines) and whether we pass. Pure. */
 export function prestigeRequirements(g: GameState, level: Prestige): { line: string; ok: boolean }[] {
@@ -182,8 +240,10 @@ export function prestigeRequirements(g: GameState, level: Prestige): { line: str
   const fleet = Object.values(g.fleet).filter((a) => a.status !== 'delivering');
   const year = yearOf(g.now);
   const age = fleet.length ? fleet.reduce((s, a) => s + Math.max(0, year - a.builtYear), 0) / fleet.length : 0;
+  const held = g.company.approvals.includes('iosa');
+  const filed = g.company.pendingApprovals.some((p) => p.id === 'iosa');
   const out = [
-    { line: `IOSA registration`, ok: g.company.approvals.includes('iosa') },
+    { line: level === 4 ? `IOSA registration held${held ? '' : filed ? ' (filed, not yet granted)' : ''}` : `IOSA registration${held ? '' : filed ? ' (filed: enough for now)' : ' (filed is enough)'}`, ok: held || (level === 3 && filed) },
     { line: `Reliable ${r.reliable} or more (now ${Math.round(reliable)})`, ok: reliable >= r.reliable },
     { line: `Fleet average age ${r.maxAge} years or less (now ${Math.round(age)})`, ok: age <= r.maxAge },
   ];
@@ -191,13 +251,49 @@ export function prestigeRequirements(g: GameState, level: Prestige): { line: str
   return out;
 }
 
+/** The offer dialog's prestige lines for a client: its level, a stretch note, what a level 3 / 4 client checks. Pure. */
+export function offerPrestigeLines(g: GameState, offerId: string): { level: Prestige; name: string; stretch: boolean; pay: string | null; checks: { line: string; ok: boolean }[] } | null {
+  const o = g.offers[offerId];
+  const c = o ? g.clients[o.clientId] : undefined;
+  if (!o || !c) return null;
+  const level = clientPrestige(c);
+  const pay = o.prestigePct ? `${o.prestigePct > 0 ? '+' : '−'}${Math.round(Math.abs(o.prestigePct) * 100)} % rate (${PRESTIGE_SHORT[level]}, included)` : null;
+  return { level, name: PRESTIGE_NAME[level], stretch: !!o.stretch, pay, checks: level >= 3 && !c.jobs ? prestigeRequirements(g, level) : [] };
+}
+
+/** The sales module: a trade fair attended (+15, counted at our level) and a tender won (+40, the client's level). */
+export function onFairAttended(g: GameState): void {
+  addVisibility(g, P.fair, playerLevel(g));
+}
+export function onTenderWon(g: GameState, clientId: string): void {
+  addVisibility(g, P.tenderWon, clientPrestige(g.clients[clientId]));
+}
+
 export interface PrestigeView {
   level: Prestige;
   name: string;
   who: string;
   visibility: number;
+  /** Plain lines on what the level brings (pay, penalties, stretch offers). */
+  brings: string[];
+  /** A level 3–4 player without IOSA: the clients at this level ask for it. */
+  iosaNote: string | null;
   /** The next level and what it still needs (plain lines), null at the top. */
   next: { level: Prestige; name: string; need: { label: string; have: number; need: number; ok: boolean }[]; missing: string[] } | null;
+}
+
+/** '+4 %' / '−4 %' / '0 %'. */
+const pctWord = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.round(Math.abs(v) * 100)} %`;
+
+/** What flying at a level brings, in player words. Pure. */
+export function levelBrings(level: Prestige): string[] {
+  const pay = P.payPct[level] ?? 0;
+  const pen = P.penaltyX[level] ?? 1;
+  return [
+    `Rates ${pay ? pctWord(pay) : 'as quoted'} for ${PRESTIGE_SHORT[level]} clients`,
+    pen === 1 ? 'Normal delay penalties' : `Delay penalties × ${pen}${pen > 1 ? ' and a harder relation hit when we fail' : ''}`,
+    level < 4 ? `One stretch offer a month from a ${PRESTIGE_SHORT[(level + 1) as Prestige]}` : 'Every client in the market calls',
+  ];
 }
 
 /** The Prestige card (Company › Overview). Pure. */
@@ -220,11 +316,44 @@ export function prestigeView(g: GameState): PrestigeView {
       ...(t.clean ? [{ label: 'Clean record', have: Math.round(clean), need: t.clean, ok: clean >= t.clean }] : []),
       ...(t.iosa ? [{ label: 'IOSA registration', have: iosa ? 1 : 0, need: 1, ok: iosa }] : []),
     ];
-    const missing = need.filter((x) => !x.ok).map((x) => (x.label === 'IOSA registration' ? 'IOSA registration' : `${x.label} ${x.need} (now ${x.have})`));
+    const missing = need.filter((x) => !x.ok).map((x) => (x.label === 'IOSA registration' ? 'IOSA registration held' : `${x.label} ${x.need.toLocaleString('en-US')} (now ${x.have.toLocaleString('en-US')})`));
     next = { level: nl, name: PRESTIGE_NAME[nl], need, missing };
   }
-  return { level, name: PRESTIGE_NAME[level], who: PRESTIGE_WHO[level], visibility: Math.round(p.visibility), next };
+  const iosaHeld = g.company.approvals.includes('iosa');
+  const iosaFiled = g.company.pendingApprovals.some((x) => x.id === 'iosa');
+  const iosaNote = level >= 3 && !iosaHeld ? (iosaFiled ? 'IOSA registration filed: national carriers take that for now; the majors want it granted.' : 'New national carriers ask for IOSA registration: file it under Other approvals.') : null;
+  return { level, name: PRESTIGE_NAME[level], who: PRESTIGE_WHO[level], visibility: Math.round(p.visibility), brings: levelBrings(level), iosaNote, next };
 }
 
-/** Daily: level-ups with their message and card (lane `clients`). Step 0: nothing (no message, no level change). */
-export function dailyPrestige(_g: GameState): void {}
+/** The level-up message body: what it brings and what the next level needs. Pure. */
+export function levelUpText(g: GameState, level: Prestige): { title: string; body: string } {
+  const who = PRESTIGE_WHO[level].charAt(0).toLowerCase() + PRESTIGE_WHO[level].slice(1);
+  const brings = levelBrings(level).map((x) => x.charAt(0).toLowerCase() + x.slice(1)).join('; ');
+  const v = prestigeView({ ...g, company: { ...g.company, prestige: { ...playerPrestige(g), level } } });
+  const nextLine = v.next ? ` Next, ${v.next.name}: ${v.next.missing.length ? v.next.missing.join(', ') : 'every requirement met'}.` : ' This is the top of the ladder.';
+  return { title: `New level: ${PRESTIGE_NAME[level]}`, body: `We are flying for ${who} now. It brings: ${brings}.${nextLine}` };
+}
+
+/**
+ * Daily: one level up at a time when the next level's thresholds hold (never down), told as a card with the `ladder`
+ * chime; a contract signed off a stretch offer is counted once.
+ */
+export function dailyPrestige(g: GameState): void {
+  const p = playerPrestige(g);
+  // A stretch offer signed (the offer stays 14 days after closing; the contract remembers for good).
+  for (const o of Object.values(g.offers)) {
+    if (!o.stretch || o.status !== 'accepted') continue;
+    const c = Object.values(g.contracts).find((k) => k.offerId === o.id);
+    if (c && !c.stretch) {
+      c.stretch = true;
+      statsV016(g).stretchSigned++;
+    }
+  }
+  if (p.level >= 4 || g.gameOver) return;
+  const nl = (p.level + 1) as Prestige;
+  if (!levelReached(g, nl)) return;
+  p.level = nl;
+  p.levelAt[nl] = g.now;
+  const { title, body } = levelUpText(g, nl);
+  pushMessage(g, { tone: 'good', cat: 'commercial', topic: 'ladder', title, body, cue: 'ladder' });
+}

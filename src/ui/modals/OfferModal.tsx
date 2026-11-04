@@ -3,7 +3,8 @@
 
 import { askSublease, SchedulePortal } from './OfferPortal';
 import { clashTrips, subleaseGroups } from './offerPortalLogic';
-import { BedDouble, Check, ChevronRight, Handshake, LineChart, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
+import { BedDouble, Check, ChevronRight, Crown, Handshake, LineChart, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
+import { offerPrestigeLines } from '../../engine/contracts/prestige';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Term } from '../components/Term';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -343,7 +344,29 @@ function ClientBlock({ g, o }: { g: GameState; o: ContractOffer }) {
       </div>
       {line.lines.length > 0 && <ul className="v8-lines">{line.lines.map((l) => <li key={l}>{l}</li>)}</ul>}
       <div className="small dim">{line.progress}</div>
+      <PrestigeLines g={g} o={o} />
       {card && <ProblemCardView card={card} g={g} hideActions />}
+    </div>
+  );
+}
+
+/** v0.16 the client's prestige level: its rate part, a stretch note and what a national carrier or a major checks. */
+function PrestigeLines({ g, o }: { g: GameState; o: ContractOffer }) {
+  const p = offerPrestigeLines(g, o.id);
+  if (!p) return null;
+  return (
+    <div className="col gap-4 small">
+      <div className="row gap-8 wrap">
+        <span className="pr-pill"><Crown className="sc-ico-s" />Level {p.level} · {p.name}</span>
+        {p.stretch && <span className="badge pr-stretch">Stretch offer: a taste of what's to come</span>}
+        {p.pay && <span className="muted">{p.pay}</span>}
+      </div>
+      {p.checks.length > 0 && (
+        <>
+          <div className="dim">They check before they sign:</div>
+          <ul className="pr-checks">{p.checks.map((c) => <li key={c.line}><span className={c.ok ? 'ok' : 'no'}>{c.ok ? '✓' : '✗'}</span><span>{c.line}</span></li>)}</ul>
+        </>
+      )}
     </div>
   );
 }

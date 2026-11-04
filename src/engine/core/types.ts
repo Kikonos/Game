@@ -631,6 +631,8 @@ export interface ContractOffer {
   // ---------- v0.16 (UPDATE-0.16.md) ----------
   /** v0.16 clients: a stretch offer from a client one level above ours ("a taste of what's to come"). */
   stretch?: true;
+  /** v0.16 clients: the rate part of the client's prestige level (−4 % brochure work … +8 % majors), priced in. */
+  prestigePct?: number;
   /** v0.16 clients: a far-flung multi-stop route with a crew change on the way (missions.ts farRoute). */
   exotic?: true;
   /** v0.16 sales: the pipeline lead it answers, and the broker that brought it (its commission; `broker` keeps the name). */
@@ -765,8 +767,9 @@ export interface Contract {
   /** v0.16 sales: the broker that brought the job (its commission rate) and the lead it closed. */
   brokerId?: BrokerId;
   leadId?: string;
-  /** v0.16 clients: visibility already credited for this contract (completeContract credits once). */
+  /** v0.16 clients: visibility already credited for this contract (completeContract credits once); signed off a stretch offer. */
   visibilityDone?: true;
+  stretch?: true;
 }
 
 /** v0.8 a dry lease out: delivery ferry, the lease at the lessee's base, the return ferry. */
