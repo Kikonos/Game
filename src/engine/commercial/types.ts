@@ -46,8 +46,9 @@ export interface Tender {
   issued: Minute;
   deadline: Minute;
   resultAt: Minute;
-  /** A private invitation from a sales trip (fewer rivals). */
+  /** A private invitation from a sales trip (fewer rivals). v0.16 or from a broker (its relation grows when we win). */
   invited?: boolean;
+  brokerId?: BrokerId;
   /** What the client prefers: its own family (crew commonality), and its cabin crew on board (language). */
   family?: string;
   mixedPref?: boolean;
@@ -76,9 +77,11 @@ export type Traveller = 'ceo' | 'analyst';
 
 export interface TripLead {
   clientId: string;
-  kind: 'offer' | 'rfp';
+  /** v0.16 'lead': a pipeline lead (commercial/sales.ts); 'offer' is from before v0.16 (a lead was an offer at once). */
+  kind: 'offer' | 'rfp' | 'lead';
   offerId?: string;
   tenderId?: string;
+  leadId?: string;
 }
 
 export interface SalesTrip {

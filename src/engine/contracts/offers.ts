@@ -36,6 +36,7 @@ export { maxPax, seatNeed };
 import { ARCH_MULT, defaultSeats, flownTypes, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
 import { markStretch, prestigeOfferWeight } from './prestige';
+import { brokerIdOf, brokerName } from '../commercial/sales';
 import { offerHidden } from './filter';
 import { statsV016 } from '../core/stats016';
 import { rivalTakes, rollRivalBid } from './rivals';
@@ -163,6 +164,9 @@ export interface OfferOpts {
   repeatOf?: string;
   /** v0.7.4 client cabin: false = never; a layout = force a request for it (tests, dev helper). */
   cabin?: false | { layout: CabinLayout; required?: boolean; share?: number; revert?: boolean };
+  /** v0.16 sales: the broker that brought the job (named on the offer, its commission) and the pipeline lead it answers. */
+  brokerId?: BrokerId;
+  leadId?: string;
 }
 
 export interface Ctx {
@@ -1373,7 +1377,9 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // v0.16 pass-throughs: a stretch offer, a far-flung route, the broker and the lead behind it.
   if (d.stretch) o.stretch = true;
   if (d.exotic) o.exotic = true;
-  if (d.brokerId) o.brokerId = d.brokerId;
+  // A broker named on an ordinary offer (data/naming.ts BROKERS) takes its own rate too, not the flat 5 %.
+  const bid = d.brokerId ?? brokerIdOf(d.broker);
+  if (bid) o.brokerId = bid;
   if (d.leadId) o.leadId = d.leadId;
   if (ordinaryDraw) o.ordinary = true;
   if (shut && !shut.offerIds.includes(o.id)) shut.offerIds.push(o.id);
@@ -1528,6 +1534,12 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     if (d && opts.repeatOf) d.repeatOf = opts.repeatOf;
     if (d && opts.eventId) d.eventId = opts.eventId;
     if (d && opts.cabin !== undefined) d.cabin = opts.cabin;
+    // v0.16 sales: a lead's offer names its broker (the broker's own commission) and the lead it answers.
+    if (d && opts.brokerId) {
+      d.brokerId = opts.brokerId;
+      d.broker = brokerName(opts.brokerId);
+    }
+    if (d && opts.leadId) d.leadId = opts.leadId;
     // v0.16 a draft from a client one level above ours is a stretch offer (contracts/prestige.ts).
     if (d) markStretch(g, d);
     const o = d && finalize(g, d, ctx.aspire);
