@@ -371,6 +371,24 @@ function seatsFit(g: GameState, o: ContractOffer): string[] {
 
 const WHY_CREW = process.argv.includes('--why');
 const crewSkip = new Set<string>();
+/** v0.16 balance: what became of each offer that came through the leads pipeline (the last reason it was passed over, or signed). */
+const pipeOutcome = new Map<string, string>();
+const pipeNote = (o: ContractOffer, why: string): void => {
+  if (o.leadId && pipeOutcome.get(o.id) !== 'accepted' && pipeOutcome.get(o.id) !== 'countered') pipeOutcome.set(o.id, why);
+};
+/** Why no aircraft fits an offer (the first failing check of the best aircraft), for the pipeline tally. */
+function noFitWhy(g: GameState, o: ContractOffer): string {
+  const ids = seatsFit(g, o);
+  if (!ids.length) return 'no-fit:seats';
+  const all = ids.map((id) => feasibility(g, o.id, id, { paint: paintOn(o), quick: true }));
+  const ok = all.filter((r) => r.level === 'ok' || r.level === 'warn');
+  if (!ok.length) {
+    const bad = all[0].checks.filter((c) => c.level === 'no').map((c) => c.id);
+    return `no-fit:${bad.slice(0, 2).join('+') || 'no'}`;
+  }
+  if (!ok.some((r) => r.estMargin > 0)) return 'no-fit:margin';
+  return 'no-fit:crew';
+}
 function bestFit(g: GameState, o: ContractOffer): FeasibilityReport | null {
   // Only aircraft that could pass (same pick as over the whole fleet, less work).
   const ids = seatsFit(g, o);
@@ -424,7 +442,10 @@ function offers(g: GameState, t: Tally): void {
     if (o.archetype === 'hajj' && (o.requirements.body !== 'wide' || !Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide' && a.cabin.total >= 300))) continue;
     // v0.12.1 a world tour holds its aircraft for three weeks by design (priced for the days held).
     // v0.16 a far route is a few overseas rotations weeks apart, paid × 1.25 (scripts/bot/clients.ts): looked at like any long-lead job.
-    if (span > 10 && o.estBH / span < 3 && o.archetype !== 'unRotation' && o.archetype !== 'worldTour' && !farRouteOk(o)) continue;
+    if (span > 10 && o.estBH / span < 3 && o.archetype !== 'unRotation' && o.archetype !== 'worldTour' && !farRouteOk(o)) {
+      pipeNote(o, 'thin-series');
+      continue;
+    }
     // Ad hoc work inside 30 days (v0.6: was three weeks); tour series and troop rotations up to 90 days out (v0.8:
     // and the long-lead new work: Hajj, UN rotations, tours, Antarctica, deportation frameworks).
     // v0.9 fix: a job with a crew change at a fuel stop is taken up to 90 days out too (the bot never flew one: the
@@ -433,8 +454,12 @@ function offers(g: GameState, t: Tally): void {
     const longLead = o.archetype === 'tourSeries' || o.archetype === 'troopRotation' || o.archetype === 'unRotation' || o.archetype === 'hajj' || o.archetype === 'musicTour' || o.archetype === 'antarctic' || o.archetype === 'deportation' || o.archetype === 'worldTour' || !!o.slip;
     // v0.8 (§13) an offer rivals are keen on is decided now: up to 90 days out instead of waiting for it to come closer.
     const keen = offerCompetition(g, o.id).level === 'strong';
-    if (!isBase(o) && o.start > g.now + (longLead ? (o.archetype === 'hajj' || o.archetype === 'antarctic' || o.archetype === 'worldTour' ? 200 : 90) : keen ? 90 : hungry ? 45 : 30) * DAY) continue;
+    if (!isBase(o) && o.start > g.now + (longLead ? (o.archetype === 'hajj' || o.archetype === 'antarctic' || o.archetype === 'worldTour' ? 200 : 90) : keen ? 90 : hungry ? 45 : 30) * DAY) {
+      pipeNote(o, 'too-far-out');
+      continue;
+    }
     const best = bestFit(g, o);
+    if (!best && o.leadId) pipeNote(o, noFitWhy(g, o));
     if (!best && process.argv.includes('--why') && o.created > g.now - DAY) {
       if (o.slip) console.error(`${fmtDateTime(g.now)} WHY slip offer ${o.id} ${o.archetype} seats-fit ${seatsFit(g, o).length} start ${fmtDateTime(o.start)}`);
       for (const id of seatsFit(g, o)) {
@@ -451,6 +476,7 @@ function offers(g: GameState, t: Tally): void {
       const wideOpen = Object.values(g.offers).some((x) => x.id !== o.id && x.status === 'open' && x.expires > g.now && wideWork(x) && x.start < o.end + 7 * DAY && x.end > o.start - 7 * DAY);
       if (o.start < g.now + 7 * DAY || held >= 1 || wideOpen) {
         t.wideCapped++;
+        pipeNote(o, 'wide-capped');
         continue;
       }
     }
@@ -459,12 +485,14 @@ function offers(g: GameState, t: Tally): void {
     // from every free crew member went red at once on seeds 1 and 4).
     if (o.start < g.now + 2 * DAY && !crewableSoon(g, o, best.aircraftId)) {
       t.shortSkipped++;
+      pipeNote(o, 'short-notice');
       continue;
     }
     // A long-lead base deal is worth one counter at +5%; a refusal reopens it at the asking price.
     if (isBase(o) && !o.counter && o.product.kind === 'wet' && o.start > g.now + 14 * DAY && o.expires > g.now + 36 * 60) {
       if (counterOffer(g, o.id, o.product.ratePerBH * 1.05, [best.aircraftId], { paint: paintOn(o) }).ok) {
         t.countered++;
+        pipeNote(o, 'countered');
         act(g, t);
         continue;
       }
@@ -473,6 +501,7 @@ function offers(g: GameState, t: Tally): void {
     const xc = paidExtra(g, o, best.aircraftId);
     if (acceptOffer(g, o.id, [best.aircraftId], { paint: paintOn(o), crewExtra: xc ?? undefined }).ok) {
       t.accepted++;
+      pipeNote(o, 'accepted');
       const code = CODE[o.archetype] ?? o.archetype;
       t.types.set(code, (t.types.get(code) ?? 0) + 1);
       if (xc) t.paidExtra++;
@@ -1925,6 +1954,9 @@ const offerTally = {
   markets: {} as Record<string, number>,
   fit: 0,
   presence: [] as [string, Record<string, number>][],
+  /** v0.16 balance: offers through the leads pipeline, by archetype. */
+  pipeline: 0,
+  pipeArch: {} as Record<string, number>,
 };
 function offerSource(g: GameState, o: ContractOffer): string {
   if (o.ordinary) return 'market';
@@ -1943,6 +1975,10 @@ function countOffer(g: GameState, o: ContractOffer): void {
   const by = offerTally.by[g.company.standing ?? 0];
   by[src] = (by[src] ?? 0) + 1;
   if (o.call) offerTally.calls++;
+  if (src === 'pipeline') {
+    offerTally.pipeline++;
+    offerTally.pipeArch[o.archetype] = (offerTally.pipeArch[o.archetype] ?? 0) + 1;
+  }
   if (src !== 'market') return;
   const m = marketOfCountry(g.clients[o.clientId]?.country ?? '');
   offerTally.markets[m] = (offerTally.markets[m] ?? 0) + 1;
@@ -2431,6 +2467,13 @@ console.log(`ladder: widebody signed ${dayOf(tally.wideSigned)}; tour series / t
 console.log(botLadderReport(g));
 // v0.16 balance: the sales desk and the bank in numbers (scripts/bot/report016.ts).
 console.log(botSalesFinanceReport(g));
+{
+  const by: Record<string, number> = {};
+  for (const w of pipeOutcome.values()) by[w] = (by[w] ?? 0) + 1;
+  const seen = offerTally.pipeline;
+  const looked = pipeOutcome.size;
+  console.log(`v0.16 pipeline offers: ${seen} {${Object.entries(offerTally.pipeArch).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ')}} · outcomes {${Object.entries(by).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || '-'}} · never looked at ${Math.max(0, seen - looked)}`);
+}
 // v0.12.1 world tours offered, signed and flown (the same crew all the way round?).
 tourReport(g);
 // v0.16 far routes offered and signed (scripts/bot/clients.ts).
