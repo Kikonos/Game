@@ -28,10 +28,11 @@ describe('duty release after a late landing', () => {
         if (!p || !f?.ata || !p.slots.some((s) => s.crewId)) continue;
         if (f.ata > f.sta) late++;
         expect(d.release).toBeGreaterThanOrEqual(f.ata + reportMinutes(typeIdOf(g, p)).post);
-        // Every crew member's log holds the duty to that release.
+        // Every crew member who flew it holds the duty in their log to that release (a slot refilled after the leg flew,
+        // for the pairing's next duty, is not logged for it: crew/index.ts v0.14.1).
         for (const s of p.slots) {
           const c = s.crewId ? g.crew[s.crewId] : undefined;
-          if (c) expect(c.log.some((e) => e.start <= (f.atd ?? f.std) && e.end >= d.release)).toBe(true);
+          if (c && f.crewIds.includes(c.id)) expect(c.log.some((e) => e.start <= (f.atd ?? f.std) && e.end >= d.release)).toBe(true);
         }
       }
     }
