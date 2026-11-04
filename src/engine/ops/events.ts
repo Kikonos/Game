@@ -637,7 +637,7 @@ export function latePaymentDecision(g: GameState, r: Receivable, player = false)
       // v0.8 a favour: waive the 3 % a year late-payment interest.
       { id: 'waive', label: 'Waive the interest', desc: 'Wait, and tell them we will not charge late-payment interest. A favour they remember.', tone: 'good', chips: [`Relation +${BAL.v08.rel.waiveInterest}`, `${usd(r.amount)} outstanding`] },
       fq && !fq.why
-        ? { id: 'factor', label: 'Sell the invoice', desc: `The bank pays ${Math.round((fq.advance / r.amount) * 100)}% now, less a ${(fq.feePct * 100).toFixed(1)}% fee, and the rest when ${name} pays. Unpaid ${BAL.v016.finance.factoring.buyBackDays} days past due, we buy it back.`, tone: 'warn', chips: [`+${usd(fq.advance)} now`, usd(-fq.fee), `${usd(fq.balance)} later`] }
+        ? { id: 'factor', label: 'Sell the invoice', desc: `The bank advances ${Math.round((fq.advance / r.amount) * 100)}% less a ${(fq.feePct * 100).toFixed(1)}% fee now, and the rest when ${name} pays. Unpaid ${BAL.v016.finance.factoring.buyBackDays} days past due, we buy it back.`, tone: 'warn', chips: [`+${usd(fq.now)} now`, usd(-fq.fee), `${usd(fq.balance)} later`] }
         : { id: 'factor', label: 'Sell the invoice', desc: `A factor pays now, less ${Math.round(BAL.factorDiscount * 100)}%.`, tone: 'warn', chips: [`+${usd(r.amount * (1 - BAL.factorDiscount))} now`, usd(-r.amount * BAL.factorDiscount)] },
       live
         ? { id: 'threaten', label: 'Threaten to suspend service', desc: 'A letter saying we stop flying for them unless paid; usually works within a week, but they will not forget it.', tone: 'bad', chips: ['Relation −20', '70%: paid within 7 days'] }

@@ -680,7 +680,9 @@ export function sellAndLeaseBack(g: GameState, aircraftId: string, years: number
 // ---------- factoring ----------
 
 export interface FactorQuote {
-  receivableId: string; amount: number; advance: number; fee: number; balance: number; recourse: boolean; feePct: number;
+  receivableId: string; amount: number;
+  /** The bank's advance (95 % / 92 %), its fee taken out of it, what lands now (advance − fee) and the balance when the client pays (amount − advance). */
+  advance: number; fee: number; now: number; balance: number; recourse: boolean; feePct: number;
   /** Days to the due date (negative: overdue). */
   days: number;
   why: string | null;
@@ -703,7 +705,7 @@ export function factorQuote(g: GameState, receivableId: string, recourse: boolea
   pct = clamp(pct, X.feeClamp[0], X.feeClamp[1]);
   const advance = Math.round(r.amount * (recourse ? X.advance : X.advanceNonRecourse));
   const fee = Math.round(r.amount * pct);
-  const q: FactorQuote = { receivableId, amount: r.amount, advance, fee, balance: Math.max(0, r.amount - advance - fee), recourse, feePct: pct, days, why: null };
+  const q: FactorQuote = { receivableId, amount: r.amount, advance, fee, now: advance - fee, balance: Math.max(0, r.amount - advance), recourse, feePct: pct, days, why: null };
   if (r.paid !== null) q.why = 'Already paid';
   else if (r.written) q.why = 'Written off: nobody buys it';
   else if (r.factor || r.factored) q.why = 'Already sold to the bank';
@@ -730,16 +732,16 @@ export function factorInvoice(g: GameState, receivableId: string, recourse: bool
   t.factored.push(r.id);
   const name = g.clients[r.clientId]?.name ?? 'The client';
   pushMessage(g, {
-    tone: 'info', cat: 'finance', title: `Invoice sold: ${usd(q.advance)} in`, cue: null, ref: { kind: 'receivable', id: r.id },
-    body: `${name}'s ${usd(r.amount)} for ${r.desc}, ${recourse ? 'with' : 'without'} recourse: ${usd(q.advance)} now, fee ${usd(q.fee)} (${(q.feePct * 100).toFixed(1)} %), the last ${usd(q.balance)} when ${name} pays the bank.${recourse ? ` If they have not paid ${F.factoring.buyBackDays} days past due we buy it back.` : ' If they never pay, that is the bank\'s loss.'}`,
+    tone: 'info', cat: 'finance', title: `Invoice sold: ${usd(q.now)} in`, cue: null, ref: { kind: 'receivable', id: r.id },
+    body: `${name}'s ${usd(r.amount)} for ${r.desc}, ${recourse ? 'with' : 'without'} recourse: ${usd(q.advance)} advanced less a ${usd(q.fee)} fee (${(q.feePct * 100).toFixed(1)} %), so ${usd(q.now)} in now; the last ${usd(q.balance)} when ${name} pays the bank.${recourse ? ` If they have not paid ${F.factoring.buyBackDays} days past due we buy it back.` : ' If they never pay, that is the bank\'s loss.'}`,
   });
-  return { ok: true, msg: `${usd(q.advance)} in now; ${usd(q.balance)} when ${name} pays` };
+  return { ok: true, msg: `${usd(q.now)} in now; ${usd(q.balance)} when ${name} pays` };
 }
 
-/** ops/finance.ts onPayment: what reaches us when a receivable is paid (the balance of a factored one). Pure. */
+/** ops/finance.ts onPayment: what reaches us when a receivable is paid (the balance of a factored one: the amount less the bank's advance; its fee came out of the advance). Pure. */
 export function paidToUs(r: Receivable): number {
   if (!r.factor || r.factor.boughtBack) return r.amount;
-  return Math.max(0, r.amount - r.factor.advance - r.factor.fee);
+  return Math.max(0, r.amount - r.factor.advance);
 }
 
 /** ops/finance.ts onPayment: a factored invoice the client paid is settled with the bank. */

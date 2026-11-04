@@ -143,16 +143,17 @@ function FactorModal({ receivableId, close }: { receivableId: string; close: () 
     <Modal title={`Sell the invoice: ${cl?.name ?? 'client'}`} icon={<Receipt className="accent" />} onClose={close} footer={<>
       <span className="grow small muted">{q.why ? '' : `${money(q.balance)} more when ${cl?.name ?? 'the client'} pays`}</span>
       <button className="btn" onClick={close}>Cancel</button>
-      <button className="btn btn-primary" disabled={!!q.why} onClick={sell}><Receipt /> Sell for {money(q.advance)} now</button>
+      <button className="btn btn-primary" disabled={!!q.why} onClick={sell}><Receipt /> Sell for {money(q.now)} now</button>
     </>}>
       <div className="col gap-12">
-        <div className="sl-price"><span className="muted small">The bank pays now</span><b className="num">{money(q.advance)}</b></div>
+        <div className="sl-price"><span className="muted small">The bank pays now</span><b className="num">{money(q.now)}</b></div>
         <div className="row between gap-8 wrap"><span className="upper dim">Risk</span><Seg value={recourse ? 'with' : 'without'} options={[{ value: 'with', label: 'With recourse' }, { value: 'without', label: 'Without recourse' }]} onChange={(v) => setRecourse(v === 'with')} /></div>
         <div className="ls-lines">
           <Line k={`${r.desc}`} v={money(r.amount)} />
           <Line k={q.days >= 0 ? `Due in ${q.days} days` : `${-q.days} days overdue`} v={fmtDay(r.due)} tone={q.days < 0 ? 'warn' : undefined} />
-          <Line k={`Advance now (${Math.round((q.advance / r.amount) * 100)} %)`} v={money(q.advance)} strong />
+          <Line k={`Advance (${Math.round((q.advance / r.amount) * 100)} %)`} v={money(q.advance)} />
           <Line k={`Fee (${(q.feePct * 100).toFixed(1)} %)`} v={`−${money(q.fee)}`} tone="warn" />
+          <Line k="In now" v={money(q.now)} strong />
           <Line k="The rest, when the client pays" v={money(q.balance)} />
         </div>
         <div className="small dim">{recourse
