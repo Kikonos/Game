@@ -555,7 +555,7 @@ interface AcSize { z: number; r: number; rp: number; ry: number; ru: number; ty:
 /** Contrails off: the Map animations setting, or the system's reduced motion. */
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 /** An airline leg on the map: icon group, rotating glyph and path. */
-interface CmEl { /** v0.14 half its largest dimension as built (px). */ r: number; el: SVGGElement; glyph: SVGGElement; no: SVGTextElement; side: 1 | -1; pref: 1 | -1; sideK: number; sideAps: LiveShared['aps'] | null; at: string; hide: boolean[]; hidden: boolean; path: SVGPathElement | null; gi: (t: number) => [number, number]; cf: CommercialFlight }
+interface CmEl { /** v0.14 half its largest dimension as built (px). */ r: number; el: SVGGElement; glyph: SVGGElement; no: SVGTextElement; /** v0.15.1 (perf) the transforms last written */ tf: string; gtf: string; side: 1 | -1; pref: 1 | -1; sideK: number; sideAps: LiveShared['aps'] | null; at: string; hide: boolean[]; hidden: boolean; path: SVGPathElement | null; gi: (t: number) => [number, number]; cf: CommercialFlight }
 
 export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ctx: MapLayerCtx; g: GameState; shared: LiveShared; selected?: string; selectedFlight?: string }) {
   const ref = useRef<SVGGElement>(null);
@@ -578,11 +578,11 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
     const root = ref.current;
     if (!root) return;
     const REG_FS = isTouch() ? 12 : 11; // .ops-ac .reg font size
-    const els = new Map<string, { el: SVGGElement; glyph: SVGGElement; crowd: boolean; reg: RegSlot; regW: number; trail: boolean; hl: number; hs: number; sz: AcSize; thinReg: boolean; thinTag: boolean; shade: SVGImageElement | null; shadeLv: number; ty: string; alt: number; altT: number; altF: string; shadeTf: string }>();
+    const els = new Map<string, { el: SVGGElement; glyph: SVGGElement; crowd: boolean; reg: RegSlot; regW: number; trail: boolean; hl: number; hs: number; sz: AcSize; thinReg: boolean; thinTag: boolean; shade: SVGImageElement | null; shadeLv: number; ty: string; alt: number; altT: number; altF: string; shadeTf: string; /** v0.15.1 (perf) the transforms last written: a parked aircraft's never change, so its frame writes nothing (a same-value write still costs a style pass) */ tf: string; gtf: string }>();
     for (const el of Array.from(root.querySelectorAll(':scope > .ops-ac')) as SVGGElement[]) {
       const id = el.dataset.id!;
       const reg = el.querySelector('.reg')?.textContent ?? '';
-      els.set(id, { el, glyph: el.querySelector('.glyph') as SVGGElement, crowd: false, reg: 0, regW: reg.length * REG_FS * 0.62 + 2, trail: false, hl: Number(el.dataset.hl) || 11, hs: Number(el.dataset.hs) || 11, sz: { z: 0, r: 11, rp: 25, ry: 25, ru: -15, ty: 0 }, thinReg: false, thinTag: false, shade: el.querySelector('.shade'), shadeLv: -1, ty: el.dataset.ty ?? '', alt: 0, altT: NaN, altF: '', shadeTf: '' });
+      els.set(id, { el, glyph: el.querySelector('.glyph') as SVGGElement, crowd: false, reg: 0, regW: reg.length * REG_FS * 0.62 + 2, trail: false, hl: Number(el.dataset.hl) || 11, hs: Number(el.dataset.hs) || 11, sz: { z: 0, r: 11, rp: 25, ry: 25, ru: -15, ty: 0 }, thinReg: false, thinTag: false, shade: el.querySelector('.shade'), shadeLv: -1, ty: el.dataset.ty ?? '', alt: 0, altT: NaN, altF: '', shadeTf: '', tf: '', gtf: '' });
     }
     /**
      * v0.14 one px-per-metre for every icon (to scale), from the zoom: the glyph scales, and with it the tap target,
@@ -716,6 +716,8 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         if (fresh && e) {
           e.shadeLv = -1;
           e.shadeTf = '';
+          e.tf = '';
+          e.gtf = '';
           e.el.classList.toggle('crowd', e.crowd);
           e.el.classList.toggle('reg-up', e.reg === 1);
           e.el.classList.toggle('reg-off', e.reg === 2);
@@ -802,9 +804,11 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
         s.ang = lerpAngle(s.ang, tang, live.phase === 'airborne' && Math.abs(s.ox) + Math.abs(s.oy) < 1 ? 1 : f);
         if (Math.abs(tox - s.ox) + Math.abs(toy - s.oy) > 0.3) settling = true;
         else { s.ox = tox; s.oy = toy; }
-        e.el.setAttribute('transform', `translate(${p[0].toFixed(2)} ${p[1].toFixed(2)}) scale(${u.toPrecision(4)}) translate(${s.ox.toFixed(1)} ${s.oy.toFixed(1)})`);
+        const tf = `translate(${p[0].toFixed(2)} ${p[1].toFixed(2)}) scale(${u.toPrecision(4)}) translate(${s.ox.toFixed(1)} ${s.oy.toFixed(1)})`;
+        if (tf !== e.tf) e.el.setAttribute('transform', (e.tf = tf));
         // v0.14 to scale in the air and on the stand alike (v0.12 shrank widebodies to fit a narrowbody's stand).
-        e.glyph.setAttribute('transform', `rotate(${s.ang.toFixed(1)}) scale(${e.sz.z.toPrecision(4)})`);
+        const gtf = `rotate(${s.ang.toFixed(1)}) scale(${e.sz.z.toPrecision(4)})`;
+        if (gtf !== e.gtf) e.glyph.setAttribute('transform', (e.gtf = gtf));
         // v0.15 its soft shadow: one pre-rendered sprite per type and softness step, offset by the height (one fixed
         // light): crisp right under it on the ground, further off and softer as it climbs, back in on descent.
         if (e.shade) {
@@ -1030,7 +1034,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
             const pb = proj([B.lon, B.lat]);
             const pref = pa && pb ? downSide(headingDeg(pa, pb, MAP_W)) : 1;
             no.setAttribute('text-anchor', 'middle');
-            cms.set(cf.id, (x = { r, el, glyph, no, side: pref, pref, sideK: 0, sideAps: null, at: '', hide: [], hidden: false, path, gi: geoInterpolate([A.lon, A.lat], [B.lon, B.lat]), cf }));
+            cms.set(cf.id, (x = { r, el, glyph, no, tf: '', gtf: '', side: pref, pref, sideK: 0, sideAps: null, at: '', hide: [], hidden: false, path, gi: geoInterpolate([A.lon, A.lat], [B.lon, B.lat]), cf }));
             selKey = '';
           }
           x.cf = cf;
@@ -1040,8 +1044,10 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
           const a = proj(x.gi(Math.max(0, pr - 0.004)));
           const q = proj(x.gi(Math.min(1, pr + 0.004)));
           const ang = a && q && (a[0] !== q[0] || a[1] !== q[1]) ? headingDeg(a, q, MAP_W) : 0;
-          x.el.setAttribute('transform', `translate(${p[0].toFixed(2)} ${p[1].toFixed(2)}) scale(${u.toPrecision(4)})`);
-          x.glyph.setAttribute('transform', `rotate(${ang.toFixed(1)}) scale(${z.toPrecision(4)})`);
+          const tf = `translate(${p[0].toFixed(2)} ${p[1].toFixed(2)}) scale(${u.toPrecision(4)})`;
+          if (tf !== x.tf) x.el.setAttribute('transform', (x.tf = tf));
+          const gtf = `rotate(${ang.toFixed(1)}) scale(${z.toPrecision(4)})`;
+          if (gtf !== x.gtf) x.glyph.setAttribute('transform', (x.gtf = gtf));
           // The flight number rides across the track on one side per leg (re-chosen after a zoom): the
           // preferred one unless the other covers clearly fewer airport codes and dots over the whole leg.
           // Where it would still sit on an airport code (passing close by one), it fades out for that stretch.
