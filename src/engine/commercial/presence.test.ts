@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { AIRPORTS } from '../../data/airports';
 import { FAIR_BY_ID, FAIRS, fairEdition, heldIn } from '../../data/fairs';
 import { MARKET_IDS, MARKETS, marketOfCountry, type MarketId } from '../../data/markets';
-import { CLIENT_SEEDS_V014 } from '../../data/naming';
+import { CLIENT_SEEDS_V014, CLIENT_SEEDS_V016 } from '../../data/naming';
 import { BAL } from '../core/balance';
 import { DAY, fromUTC, toDate } from '../core/time';
 import type { Client, ContractOffer, GameState } from '../core/types';
@@ -133,8 +133,9 @@ describe('the presence record', () => {
     const back = deserialize(serialize(h));
     expect(back.com!.presence).toEqual(h.com!.presence);
     // The market-presence clients join an older save too, with their own ids.
-    expect(Object.values(g.clients).filter((c) => isMarketClient(c)).length).toBe(CLIENT_SEEDS_V014.length);
-    expect(Object.values(g.clients).filter((c) => isMarketClient(c)).every((c) => c.id.startsWith('cm'))).toBe(true);
+    // v0.16 the new clients outside Europe (data/naming.ts CLIENT_SEEDS_V016 `market`, ids 'cx…') come through the market too.
+    expect(Object.values(g.clients).filter((c) => isMarketClient(c)).length).toBe(CLIENT_SEEDS_V014.length + CLIENT_SEEDS_V016.filter((s) => s.market).length);
+    expect(Object.values(g.clients).filter((c) => isMarketClient(c)).every((c) => c.id.startsWith('cm') || c.id.startsWith('cx'))).toBe(true);
   });
 });
 

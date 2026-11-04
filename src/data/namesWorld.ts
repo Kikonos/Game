@@ -161,4 +161,7 @@ export const CALLER_KITS: Record<string, string[]> = {
   // v0.12.1
   CW: ['AW'], BQ: ['AW'], SX: ['CARIB'], FK: ['GB'], SH: ['GB'], RE: ['FR'], NF: ['AU'], CC: ['AU'], CX: ['AU'], MP: ['GU'],
   PW: ['MICRO'], FM: ['MICRO'], MH: ['MICRO'], KI: ['MICRO'], VU: ['MEL'], SB: ['MEL'],
+  // v0.16 the far routes' territories and islands: the French Antilles, Guiana, Mayotte and Wallis (French names), Papua
+  // New Guinea (Melanesian), the English-speaking Caribbean and Guyana.
+  GP: ['FR'], MQ: ['FR'], GF: ['FR'], YT: ['FR'], WF: ['FR'], PG: ['MEL'], TT: ['CARIB'], BB: ['CARIB'], AG: ['CARIB'], TC: ['CARIB'], KY: ['CARIB'], GY: ['CARIB'],
 };

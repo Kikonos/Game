@@ -42,7 +42,8 @@ function requestFor(g: RngHolder, o: ContractOffer, client: Client): { kind: Pai
   const days = (o.end - o.start) / DAY;
   switch (o.archetype) {
     case 'seasonBase':
-      if (days >= 120) return chance(g, P.baseLong) ? { kind: chance(g, P.baseLongFull) ? 'full' : 'decals', required: chance(g, P.baseLongRequired) } : null;
+      // v0.16 the majors (prestige 4) want the full repaint more often than a leisure airline would.
+      if (days >= 120) return chance(g, P.baseLong) ? { kind: chance(g, Math.min(1, P.baseLongFull * ((client.prestige ?? 2) >= 4 ? 1.2 : 1))) ? 'full' : 'decals', required: chance(g, P.baseLongRequired) } : null;
       if (days >= 60) return chance(g, P.baseMid) ? { kind: 'decals', required: chance(g, P.baseMidRequired) } : null;
       return chance(g, P.baseShort) ? { kind: 'decals', required: false } : null;
     case 'troopRotation':

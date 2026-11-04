@@ -149,6 +149,12 @@ export interface ClientSeed {
    * 4 the majors and big governments. Absent: contracts/prestige.ts seedPrestige derives it from the kind.
    */
   prestige?: Prestige;
+  /**
+   * v0.16 a client outside Europe that comes through the market and our trips only, like the v0.14 market-presence
+   * airlines (contracts/clients.ts isMarketClient): an ordinary offer once we are known in its market, or one asked of
+   * it by name.
+   */
+  market?: true;
 }
 
 export const CLIENT_SEEDS: ClientSeed[] = [
@@ -333,3 +339,230 @@ export const RIVALS_B1: RivalSeed[] = [
   { name: 'KlasJet', country: 'LT', base: 'VNO', fleet: F(['b738', 3], ['a320ceo', 2]), personality: 'premium' },
   { name: 'Smartwings', country: 'CZ', base: 'PRG', fleet: F(['b738', 20]), personality: 'big' },
 ];
+
+// ---------- v0.16 (UPDATE-0.16.md §B.5, §E): real airlines, tour operators, governments, agencies, clubs, promoters ----------
+
+/**
+ * v0.16 the clients the player asked for, each with its country, hub, kind, role and prestige level (§B.1: 1 brochure work
+ * and low-cost, 2 the charter market, 3 national carriers / aid agencies / small states' ministries, 4 the majors and
+ * big governments). Added to a new game and to an older save on load by name (contracts/clients.ts seedClientsV016),
+ * with ids of their own so nothing else shifts. `market`: outside Europe, reached through market presence (v0.14).
+ * Smartwings is a rival operator already (data/naming.ts RIVALS_B1): it hires us through sub-charters, not as a client.
+ */
+export const CLIENT_SEEDS_V016: ClientSeed[] = [
+  // ----- airlines: the majors (4) -----
+  { name: 'Air France', kind: 'airline', country: 'FR', base: 'CDG', prestige: 4 },
+  { name: 'KLM', kind: 'airline', country: 'NL', base: 'AMS', prestige: 4 },
+  { name: 'British Airways', kind: 'airline', country: 'GB', base: 'LHR', prestige: 4 },
+  { name: 'Virgin Atlantic', kind: 'airline', country: 'GB', base: 'LHR', prestige: 4 },
+  { name: 'Iberia', kind: 'airline', country: 'ES', base: 'MAD', prestige: 4 },
+  { name: 'SWISS', kind: 'airline', country: 'CH', base: 'ZRH', prestige: 4 },
+  { name: 'Turkish Airlines', kind: 'airline', country: 'TR', base: 'IST', prestige: 4 },
+  { name: 'Air New Zealand', kind: 'airline', country: 'NZ', base: 'AKL', prestige: 4, market: true },
+  // ----- airlines: national and network carriers (3) -----
+  { name: 'French bee', kind: 'airline', country: 'FR', base: 'ORY', prestige: 3 },
+  { name: 'Air Caraïbes', kind: 'airline', country: 'FR', base: 'ORY', prestige: 3 },
+  { name: 'Austrian Airlines', kind: 'airline', country: 'AT', base: 'VIE', prestige: 3 },
+  { name: 'Brussels Airlines', kind: 'airline', country: 'BE', base: 'BRU', prestige: 3 },
+  { name: 'Luxair', kind: 'airline', country: 'LU', base: 'LUX', prestige: 3 },
+  { name: 'ITA Airways', kind: 'airline', country: 'IT', base: 'FCO', prestige: 3 },
+  { name: 'Finnair', kind: 'airline', country: 'FI', base: 'HEL', prestige: 3 },
+  { name: 'Icelandair', kind: 'airline', country: 'IS', base: 'KEF', prestige: 3 },
+  { name: 'Air Europa', kind: 'airline', country: 'ES', base: 'MAD', prestige: 3 },
+  { name: 'Air Serbia', kind: 'airline', country: 'RS', base: 'BEG', prestige: 3 },
+  { name: 'TAROM', kind: 'airline', country: 'RO', base: 'OTP', prestige: 3 },
+  { name: 'KM Malta Airlines', kind: 'airline', country: 'MT', base: 'MLA', prestige: 3 },
+  { name: 'Cyprus Airways', kind: 'airline', country: 'CY', base: 'LCA', prestige: 3 },
+  { name: 'El Al', kind: 'airline', country: 'IL', base: 'TLV', prestige: 3 },
+  { name: 'Aircalin', kind: 'airline', country: 'NC', base: 'NOU', prestige: 3, market: true },
+  { name: 'Air Tahiti Nui', kind: 'airline', country: 'PF', base: 'PPT', prestige: 3, market: true },
+  { name: 'Air Austral', kind: 'airline', country: 'RE', base: 'RUN', prestige: 3, market: true },
+  { name: 'Caribbean Airlines', kind: 'airline', country: 'TT', base: 'POS', prestige: 3, market: true },
+  { name: 'Ethiopian Airlines', kind: 'airline', country: 'ET', base: 'ADD', prestige: 3, market: true },
+  { name: 'South African Airways', kind: 'airline', country: 'ZA', base: 'JNB', prestige: 3, market: true },
+  { name: 'Air Mauritius', kind: 'airline', country: 'MU', base: 'MRU', prestige: 3, market: true },
+  { name: 'Air Seychelles', kind: 'airline', country: 'SC', base: 'SEZ', prestige: 3, market: true },
+  { name: 'Cabo Verde Airlines', kind: 'airline', country: 'CV', base: 'SID', prestige: 3, market: true },
+  { name: 'Air Niugini', kind: 'airline', country: 'PG', base: 'POM', prestige: 3, market: true },
+  { name: 'Solomon Airlines', kind: 'airline', country: 'SB', base: 'HIR', prestige: 3, market: true },
+  { name: 'Copa Airlines', kind: 'airline', country: 'PA', base: 'PTY', prestige: 3, market: true },
+  { name: 'Bahamasair', kind: 'airline', country: 'BS', base: 'NAS', prestige: 3, market: true },
+  { name: 'Cayman Airways', kind: 'airline', country: 'KY', base: 'GCM', prestige: 3, market: true },
+  // ----- airlines: leisure (2) -----
+  { name: 'Corsair', kind: 'airline', country: 'FR', base: 'ORY', prestige: 2 },
+  { name: 'TUI Airways', kind: 'airline', country: 'GB', base: 'MAN', prestige: 2 },
+  { name: 'World2fly', kind: 'airline', country: 'ES', base: 'PMI', prestige: 2 },
+  { name: 'Iberojet', kind: 'airline', country: 'ES', base: 'MAD', prestige: 2 },
+  { name: 'Edelweiss Air', kind: 'airline', country: 'CH', base: 'ZRH', prestige: 2 },
+  { name: 'Discover Airlines', kind: 'airline', country: 'DE', base: 'FRA', prestige: 2 },
+  { name: 'Marabu', kind: 'airline', country: 'EE', base: 'HAM', prestige: 2 },
+  { name: 'Neos', kind: 'airline', country: 'IT', base: 'MXP', prestige: 2 },
+  { name: 'Norse Atlantic Airways', kind: 'airline', country: 'NO', base: 'OSL', prestige: 2 },
+  { name: 'Sunclass Airlines', kind: 'airline', country: 'DK', base: 'CPH', prestige: 2 },
+  { name: 'SunExpress', kind: 'airline', country: 'TR', base: 'AYT', prestige: 2 },
+  { name: 'Enter Air', kind: 'airline', country: 'PL', base: 'WAW', prestige: 2 },
+  // ----- airlines: low-cost (1) -----
+  { name: 'Transavia', kind: 'airline', country: 'NL', base: 'AMS', prestige: 1 },
+  { name: 'easyJet', kind: 'airline', country: 'GB', base: 'LGW', prestige: 1 },
+  { name: 'Ryanair', kind: 'airline', country: 'IE', base: 'DUB', prestige: 1 },
+  { name: 'Vueling', kind: 'airline', country: 'ES', base: 'BCN', prestige: 1 },
+  { name: 'Volotea', kind: 'airline', country: 'ES', base: 'NTE', prestige: 1 },
+  { name: 'Norwegian', kind: 'airline', country: 'NO', base: 'OSL', prestige: 1 },
+  { name: 'Wizz Air', kind: 'airline', country: 'HU', base: 'BUD', prestige: 1 },
+  { name: 'Pegasus Airlines', kind: 'airline', country: 'TR', base: 'SAW', prestige: 1 },
+  { name: 'flyadeal', kind: 'airline', country: 'SA', base: 'JED', prestige: 1 },
+  // ----- tour operators (brochure work, 1; the upmarket ones 2) -----
+  { name: 'TUI UK & Ireland', kind: 'tourOperator', country: 'GB', base: 'LGW', prestige: 1 },
+  { name: 'TUI Nederland', kind: 'tourOperator', country: 'NL', base: 'AMS', prestige: 1 },
+  { name: 'TUI France', kind: 'tourOperator', country: 'FR', base: 'ORY', prestige: 1 },
+  { name: 'TUI Nordic', kind: 'tourOperator', country: 'SE', base: 'ARN', prestige: 1 },
+  { name: 'DER Touristik', kind: 'tourOperator', country: 'DE', base: 'CGN', prestige: 1 },
+  { name: 'alltours', kind: 'tourOperator', country: 'DE', base: 'DUS', prestige: 1 },
+  { name: 'Coral Travel', kind: 'tourOperator', country: 'TR', base: 'AYT', prestige: 1 },
+  { name: 'Anex Tour', kind: 'tourOperator', country: 'TR', base: 'AYT', prestige: 1 },
+  { name: 'Apollo (DER Touristik Nordic)', kind: 'tourOperator', country: 'SE', base: 'ARN', prestige: 1 },
+  { name: 'Rainbow Tours', kind: 'tourOperator', country: 'PL', base: 'WAW', prestige: 1 },
+  { name: 'Itaka', kind: 'tourOperator', country: 'PL', base: 'WAW', prestige: 1 },
+  { name: 'Exim Tours', kind: 'tourOperator', country: 'CZ', base: 'PRG', prestige: 1 },
+  { name: 'Soltour', kind: 'tourOperator', country: 'ES', base: 'PMI', prestige: 1 },
+  { name: 'Travelplan', kind: 'tourOperator', country: 'ES', base: 'MAD', prestige: 1 },
+  { name: 'Alpitour', kind: 'tourOperator', country: 'IT', base: 'MXP', prestige: 1 },
+  { name: 'Aurinkomatkat', kind: 'tourOperator', country: 'FI', base: 'HEL', prestige: 1 },
+  { name: 'Club Med', kind: 'tourOperator', country: 'FR', base: 'CDG', prestige: 2 },
+  // ----- governments: defence and foreign ministries (big states 4; the small ones' everyday rotations 3) -----
+  { name: 'French Ministry of the Armed Forces', kind: 'government', country: 'FR', base: 'CDG', role: 'defence', prestige: 4 },
+  { name: 'French Ministry for Europe and Foreign Affairs', kind: 'government', country: 'FR', base: 'CDG', role: 'foreign', prestige: 4 },
+  { name: 'Italian Ministry of Defence', kind: 'government', country: 'IT', base: 'FCO', role: 'defence', prestige: 4 },
+  { name: 'Italian Ministry of Foreign Affairs', kind: 'government', country: 'IT', base: 'FCO', role: 'foreign', prestige: 4 },
+  { name: 'Dutch Ministry of Defence', kind: 'government', country: 'NL', base: 'EIN', role: 'defence', prestige: 4 },
+  { name: 'Dutch Ministry of Foreign Affairs', kind: 'government', country: 'NL', base: 'AMS', role: 'foreign', prestige: 4 },
+  { name: 'Belgian Ministry of Defence', kind: 'government', country: 'BE', base: 'BRU', role: 'defence', prestige: 4 },
+  { name: 'Norwegian Ministry of Defence', kind: 'government', country: 'NO', base: 'OSL', role: 'defence', prestige: 4 },
+  { name: 'Swedish Armed Forces', kind: 'government', country: 'SE', base: 'ARN', role: 'defence', prestige: 4 },
+  { name: 'Danish Ministry of Defence', kind: 'government', country: 'DK', base: 'CPH', role: 'defence', prestige: 4 },
+  { name: 'Finnish Defence Forces', kind: 'government', country: 'FI', base: 'HEL', role: 'defence', prestige: 4 },
+  { name: 'Polish Ministry of National Defence', kind: 'government', country: 'PL', base: 'WAW', role: 'defence', prestige: 4 },
+  { name: 'UK Ministry of Defence', kind: 'government', country: 'GB', base: 'BZZ', role: 'defence', prestige: 4 },
+  { name: 'NATO Support and Procurement Agency (NSPA)', kind: 'government', country: 'LU', base: 'LUX', role: 'defence', prestige: 4 },
+  { name: 'Irish Department of Defence', kind: 'government', country: 'IE', base: 'DUB', role: 'defence', prestige: 3 },
+  { name: 'Irish Department of Foreign Affairs', kind: 'government', country: 'IE', base: 'DUB', role: 'foreign', prestige: 3 },
+  { name: 'Austrian Ministry of Defence', kind: 'government', country: 'AT', base: 'VIE', role: 'defence', prestige: 3 },
+  { name: 'Romanian Ministry of National Defence', kind: 'government', country: 'RO', base: 'OTP', role: 'defence', prestige: 3 },
+  { name: 'Hungarian Defence Forces', kind: 'government', country: 'HU', base: 'BUD', role: 'defence', prestige: 3 },
+  { name: 'Greek Ministry of National Defence', kind: 'government', country: 'GR', base: 'ATH', role: 'defence', prestige: 3 },
+  { name: 'Croatian Ministry of Defence', kind: 'government', country: 'HR', base: 'ZAG', role: 'defence', prestige: 3 },
+  { name: 'Australian Department of Defence', kind: 'government', country: 'AU', base: 'CBR', role: 'defence', prestige: 4, market: true },
+  { name: 'Australian Department of Foreign Affairs and Trade', kind: 'government', country: 'AU', base: 'CBR', role: 'foreign', prestige: 4, market: true },
+  { name: 'New Zealand Defence Force', kind: 'government', country: 'NZ', base: 'AKL', role: 'defence', prestige: 4, market: true },
+  { name: 'New Zealand Ministry of Foreign Affairs and Trade', kind: 'government', country: 'NZ', base: 'WLG', role: 'foreign', prestige: 4, market: true },
+  { name: 'Canadian Department of National Defence', kind: 'government', country: 'CA', base: 'YOW', role: 'defence', prestige: 4, market: true },
+  { name: 'Global Affairs Canada', kind: 'government', country: 'CA', base: 'YOW', role: 'foreign', prestige: 4, market: true },
+  { name: 'US Department of State', kind: 'government', country: 'US', base: 'IAD', role: 'foreign', prestige: 4, market: true },
+  // ----- UN and aid agencies (3) -----
+  { name: 'UNICEF', kind: 'agency', country: 'DK', base: 'CPH', role: 'aid', prestige: 3 },
+  { name: 'UN OCHA', kind: 'agency', country: 'CH', base: 'GVA', role: 'aid', prestige: 3 },
+  { name: 'UNDP', kind: 'agency', country: 'US', base: 'JFK', role: 'aid', prestige: 3 },
+  { name: 'International Committee of the Red Cross (ICRC)', kind: 'agency', country: 'CH', base: 'GVA', role: 'aid', prestige: 3 },
+  { name: 'IFRC', kind: 'agency', country: 'CH', base: 'GVA', role: 'aid', prestige: 3 },
+  { name: 'Médecins Sans Frontières (MSF)', kind: 'agency', country: 'CH', base: 'GVA', role: 'health', prestige: 3 },
+  // ----- sports: clubs and federations (2; the big clubs fly widebody pre-season tours) -----
+  { name: 'Paris Saint-Germain', kind: 'sports', country: 'FR', base: 'ORY', tier: 'big', prestige: 2 },
+  { name: 'FC Bayern München', kind: 'sports', country: 'DE', base: 'MUC', tier: 'big', prestige: 2 },
+  { name: 'Juventus', kind: 'sports', country: 'IT', base: 'TRN', tier: 'big', prestige: 2 },
+  { name: 'Borussia Dortmund', kind: 'sports', country: 'DE', base: 'DUS', tier: 'big', prestige: 2 },
+  { name: 'Inter', kind: 'sports', country: 'IT', base: 'MXP', tier: 'big', prestige: 2 },
+  { name: 'AC Milan', kind: 'sports', country: 'IT', base: 'MXP', tier: 'big', prestige: 2 },
+  { name: 'Atlético de Madrid', kind: 'sports', country: 'ES', base: 'MAD', tier: 'big', prestige: 2 },
+  { name: 'FC Porto', kind: 'sports', country: 'PT', base: 'OPO', tier: 'big', prestige: 2 },
+  { name: 'Liverpool FC', kind: 'sports', country: 'GB', base: 'MAN', tier: 'big', prestige: 2 },
+  { name: 'Arsenal', kind: 'sports', country: 'GB', base: 'LTN', tier: 'big', prestige: 2 },
+  { name: 'Chelsea FC', kind: 'sports', country: 'GB', base: 'LGW', tier: 'big', prestige: 2 },
+  { name: 'Manchester City', kind: 'sports', country: 'GB', base: 'MAN', tier: 'big', prestige: 2 },
+  { name: 'Celtic FC', kind: 'sports', country: 'GB', base: 'GLA', prestige: 2 },
+  { name: 'Rangers FC', kind: 'sports', country: 'GB', base: 'GLA', prestige: 2 },
+  { name: 'Tottenham Hotspur', kind: 'sports', country: 'GB', base: 'STN', prestige: 2 },
+  { name: 'Newcastle United', kind: 'sports', country: 'GB', base: 'NCL', prestige: 2 },
+  { name: 'AS Roma', kind: 'sports', country: 'IT', base: 'FCO', prestige: 2 },
+  { name: 'SSC Napoli', kind: 'sports', country: 'IT', base: 'NAP', prestige: 2 },
+  { name: 'Sevilla FC', kind: 'sports', country: 'ES', base: 'SVQ', prestige: 2 },
+  { name: 'Athletic Club', kind: 'sports', country: 'ES', base: 'BIO', prestige: 2 },
+  { name: 'SC Braga', kind: 'sports', country: 'PT', base: 'OPO', prestige: 2 },
+  { name: 'Olympique Lyonnais', kind: 'sports', country: 'FR', base: 'LYS', prestige: 2 },
+  { name: 'AS Monaco', kind: 'sports', country: 'FR', base: 'NCE', prestige: 2 },
+  { name: 'Feyenoord', kind: 'sports', country: 'NL', base: 'AMS', prestige: 2 },
+  { name: 'PSV', kind: 'sports', country: 'NL', base: 'EIN', prestige: 2 },
+  { name: 'Club Brugge', kind: 'sports', country: 'BE', base: 'BRU', prestige: 2 },
+  { name: 'Galatasaray', kind: 'sports', country: 'TR', base: 'IST', prestige: 2 },
+  { name: 'Fenerbahçe', kind: 'sports', country: 'TR', base: 'SAW', prestige: 2 },
+  { name: 'Olympiacos', kind: 'sports', country: 'GR', base: 'ATH', prestige: 2 },
+  { name: 'FC Red Bull Salzburg', kind: 'sports', country: 'AT', base: 'SZG', prestige: 2 },
+  { name: 'GNK Dinamo Zagreb', kind: 'sports', country: 'HR', base: 'ZAG', prestige: 2 },
+  { name: 'Legia Warszawa', kind: 'sports', country: 'PL', base: 'WAW', prestige: 2 },
+  { name: 'SK Slavia Praha', kind: 'sports', country: 'CZ', base: 'PRG', prestige: 2 },
+  { name: 'FC København', kind: 'sports', country: 'DK', base: 'CPH', prestige: 2 },
+  { name: 'Portuguese Football Federation (FPF)', kind: 'sports', country: 'PT', base: 'LIS', prestige: 2 },
+  { name: 'Royal Spanish Football Federation (RFEF)', kind: 'sports', country: 'ES', base: 'MAD', prestige: 2 },
+  { name: 'French Football Federation (FFF)', kind: 'sports', country: 'FR', base: 'CDG', prestige: 2 },
+  { name: 'German Football Association (DFB)', kind: 'sports', country: 'DE', base: 'FRA', prestige: 2 },
+  { name: 'The Football Association (FA)', kind: 'sports', country: 'GB', base: 'BHX', prestige: 2 },
+  { name: 'Italian Football Federation (FIGC)', kind: 'sports', country: 'IT', base: 'FCO', prestige: 2 },
+  { name: 'Royal Dutch Football Association (KNVB)', kind: 'sports', country: 'NL', base: 'AMS', prestige: 2 },
+  { name: 'Irish Rugby Football Union (IRFU)', kind: 'sports', country: 'IE', base: 'DUB', prestige: 2 },
+  { name: 'Rugby Football Union (RFU)', kind: 'sports', country: 'GB', base: 'LHR', prestige: 2 },
+  { name: 'French Rugby Federation (FFR)', kind: 'sports', country: 'FR', base: 'CDG', prestige: 2 },
+  { name: 'Lithuanian Basketball Federation', kind: 'sports', country: 'LT', base: 'VNO', prestige: 2 },
+  // ----- music promoters and agencies (2) -----
+  { name: 'CAA Touring', kind: 'music', country: 'US', base: 'LAX', prestige: 2 },
+  { name: 'Semmel Concerts', kind: 'music', country: 'DE', base: 'MUC', prestige: 2 },
+  { name: 'DEAG', kind: 'music', country: 'DE', base: 'BER', prestige: 2 },
+  { name: 'FKP Scorpio', kind: 'music', country: 'DE', base: 'HAM', prestige: 2 },
+  { name: 'Mojo Concerts', kind: 'music', country: 'NL', base: 'AMS', prestige: 2 },
+  { name: 'Gérard Drouot Productions', kind: 'music', country: 'FR', base: 'CDG', prestige: 2 },
+  { name: 'Everything Is New', kind: 'music', country: 'PT', base: 'LIS', prestige: 2 },
+  { name: 'Doctor Music', kind: 'music', country: 'ES', base: 'BCN', prestige: 2 },
+  { name: 'SJM Concerts', kind: 'music', country: 'GB', base: 'MAN', prestige: 2 },
+  { name: 'Kilimanjaro Live', kind: 'music', country: 'GB', base: 'LHR', prestige: 2 },
+  { name: 'Vivo Concerti', kind: 'music', country: 'IT', base: 'MXP', prestige: 2 },
+  // ----- companies (2): plant shuttles, offshore and mining rotations, board travel -----
+  { name: 'Airbus', kind: 'corporate', country: 'FR', base: 'TLS', prestige: 2 },
+  { name: 'Shell', kind: 'corporate', country: 'NL', base: 'AMS', prestige: 2 },
+  { name: 'Siemens', kind: 'corporate', country: 'DE', base: 'MUC', prestige: 2 },
+  { name: 'TotalEnergies', kind: 'corporate', country: 'FR', base: 'CDG', prestige: 2 },
+  { name: 'Maersk', kind: 'corporate', country: 'DK', base: 'CPH', prestige: 2 },
+  { name: 'Equinor', kind: 'corporate', country: 'NO', base: 'BGO', prestige: 2 },
+  { name: 'Nestlé', kind: 'corporate', country: 'CH', base: 'GVA', prestige: 2 },
+  { name: 'Eni', kind: 'corporate', country: 'IT', base: 'FCO', prestige: 2 },
+  { name: 'BHP', kind: 'corporate', country: 'AU', base: 'PER', prestige: 2, market: true },
+  { name: 'Rio Tinto', kind: 'corporate', country: 'AU', base: 'PER', prestige: 2, market: true },
+];
+
+/** v0.16 the rating families the new airlines fly (approximate 2026 fleets); [] none of ours. */
+export const AIRLINE_FAMILIES_V016: Record<string, RatingFamily[]> = {
+  'Air France': ['A320', 'A350', 'B777', 'B787', 'A330/340'], KLM: ['B737', 'A320', 'B777', 'B787', 'A330/340'], 'British Airways': ['A320', 'B777', 'B787', 'A350', 'A380'],
+  'Virgin Atlantic': ['A330/340', 'A350', 'B787'], Iberia: ['A320', 'A330/340', 'A350'], SWISS: ['A320', 'A330/340', 'B777', 'A350'], 'Turkish Airlines': ['A320', 'B737', 'A330/340', 'A350', 'B777', 'B787'],
+  'Air New Zealand': ['A320', 'B787', 'B777'], 'French bee': ['A350'], 'Air Caraïbes': ['A350', 'A330/340'], 'Austrian Airlines': ['A320', 'B787'], 'Brussels Airlines': ['A320', 'A330/340'],
+  Luxair: ['B737'], 'ITA Airways': ['A320', 'A330/340', 'A350'], Finnair: ['A320', 'A330/340', 'A350'], Icelandair: ['B737', 'B757/767', 'A320'], 'Air Europa': ['B737', 'B787'],
+  'Air Serbia': ['A320', 'A330/340'], TAROM: ['B737'], 'KM Malta Airlines': ['A320'], 'Cyprus Airways': ['A320'], 'El Al': ['B737', 'B787', 'B777'],
+  Aircalin: ['A320', 'A330/340'], 'Air Tahiti Nui': ['B787'], 'Air Austral': ['B737', 'B777', 'B787'], 'Caribbean Airlines': ['B737'], 'Ethiopian Airlines': ['B737', 'A350', 'B777', 'B787'],
+  'South African Airways': ['A320', 'A330/340'], 'Air Mauritius': ['A330/340', 'A350'], 'Air Seychelles': ['A320'], 'Cabo Verde Airlines': ['B737', 'B757/767'], 'Air Niugini': ['B737', 'B757/767'],
+  'Solomon Airlines': ['A320'], 'Copa Airlines': ['B737'], Bahamasair: ['B737'], 'Cayman Airways': ['B737'],
+  Corsair: ['A330/340'], 'TUI Airways': ['B737', 'B787'], World2fly: ['A330/340', 'A350'], Iberojet: ['A330/340', 'A350'], 'Edelweiss Air': ['A320', 'A330/340', 'A350'],
+  'Discover Airlines': ['A320', 'A330/340'], Marabu: ['A320'], Neos: ['B737', 'B787'], 'Norse Atlantic Airways': ['B787'], 'Sunclass Airlines': ['A320', 'A330/340'],
+  SunExpress: ['B737'], 'Enter Air': ['B737'], Transavia: ['B737', 'A320'], easyJet: ['A320'], Ryanair: ['B737'], Vueling: ['A320'], Volotea: ['A320'], Norwegian: ['B737'],
+  'Wizz Air': ['A320'], 'Pegasus Airlines': ['A320', 'B737'], flyadeal: ['A320'],
+};
+
+/** v0.16 where the new non-European airlines (and the overseas French ones) send a wet-leased aircraft. */
+export const AIRLINE_MARKETS_V016: Record<string, string[]> = {
+  'Air New Zealand': ['NZ', 'AU', 'FJ', 'WS', 'TO', 'CK', 'NC', 'PF', 'US', 'SG', 'JP'], Aircalin: ['NC', 'AU', 'NZ', 'PF', 'FJ', 'WF', 'VU', 'JP', 'SG'],
+  'Air Tahiti Nui': ['PF', 'US', 'FR', 'NZ', 'JP', 'NC'], 'Air Austral': ['RE', 'YT', 'FR', 'MU', 'MG', 'SC', 'ZA', 'TH', 'IN'], 'Caribbean Airlines': ['TT', 'JM', 'BB', 'GY', 'SR', 'AG', 'US', 'CA', 'GB'],
+  'Ethiopian Airlines': ['ET', 'KE', 'TZ', 'UG', 'RW', 'DJ', 'SD', 'NG', 'GH', 'ZA', 'AE', 'IN', 'CN', 'GB', 'DE', 'IT', 'FR', 'BE'], 'South African Airways': ['ZA', 'NA', 'ZW', 'ZM', 'MZ', 'MU', 'BR', 'AU', 'GB', 'DE'],
+  'Air Mauritius': ['MU', 'RE', 'MG', 'SC', 'ZA', 'KE', 'IN', 'FR', 'GB', 'AE', 'SG', 'MY', 'AU'], 'Air Seychelles': ['SC', 'MU', 'ZA', 'IN', 'LK', 'AE'], 'Cabo Verde Airlines': ['CV', 'PT', 'SN', 'GW', 'US', 'BR', 'IT', 'FR'],
+  'Air Niugini': ['PG', 'AU', 'SB', 'FJ', 'SG', 'HK', 'PH', 'JP'], 'Solomon Airlines': ['SB', 'AU', 'FJ', 'VU', 'PG'], 'Copa Airlines': ['PA', 'CO', 'CR', 'GT', 'SV', 'MX', 'US', 'DO', 'JM', 'BR', 'AR', 'CL', 'PE', 'EC', 'VE'],
+  Bahamasair: ['BS', 'US', 'TC', 'CU', 'JM', 'HT'], 'Cayman Airways': ['KY', 'US', 'JM', 'HN', 'BS'],
+  'El Al': ['IL', 'US', 'GB', 'FR', 'DE', 'IT', 'ES', 'GR', 'CY', 'TH', 'IN'], 'Turkish Airlines': ['TR', 'DE', 'GB', 'FR', 'NL', 'IT', 'ES', 'US', 'SA', 'AE', 'EG', 'MA', 'DZ', 'TN', 'NG', 'KE', 'ZA', 'IN', 'PK', 'TH', 'JP', 'KR', 'CN', 'BR', 'AR', 'GE', 'AZ', 'KZ', 'UZ'],
+};
+
+// The new airlines join the family and market tables every builder reads (fliesFamily, inMarket).
+Object.assign(AIRLINE_FAMILIES, AIRLINE_FAMILIES_V016);
+Object.assign(AIRLINE_MARKETS, AIRLINE_MARKETS_V016);

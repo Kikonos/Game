@@ -5,7 +5,7 @@
 /** The bundled flags (ISO code → asset URL). Keep the list in step with the countries that have a registry prefix
  *  (flags.test.ts checks it). */
 const URLS = import.meta.glob<string>(
-  '/node_modules/country-flag-icons/3x2/{AE,AF,AL,AM,AO,AR,AT,AU,AW,AZ,BD,BE,BG,BH,BO,BR,BS,BW,CA,CD,CF,CH,CI,CK,CL,CN,CO,CR,CU,CV,CW,CY,CZ,DE,DJ,DK,DO,DZ,EC,EE,EG,ES,ET,FI,FJ,FM,FR,GB,GE,GH,GR,GT,GU,GW,HK,HR,HU,ID,IE,IL,IN,IQ,IS,IT,JM,JO,JP,KE,KH,KI,KR,KW,LA,LB,LK,LT,LU,LV,LY,MA,MG,MH,ML,MM,MN,MO,MT,MU,MV,MX,MY,MZ,NA,NC,NG,NL,NO,NP,NZ,OM,PA,PE,PF,PH,PK,PL,PR,PT,PW,PY,QA,RO,RS,RW,SA,SB,SC,SD,SE,SG,SN,SO,SR,SS,ST,SV,TG,TH,TL,TN,TO,TR,TW,TZ,UG,US,UY,UZ,VE,VN,VU,WS,ZA,ZM,ZW}.svg',
+  '/node_modules/country-flag-icons/3x2/{AE,AF,AG,AL,AM,AO,AR,AT,AU,AW,AZ,BB,BD,BE,BG,BH,BO,BR,BS,BW,CA,CD,CF,CH,CI,CK,CL,CN,CO,CR,CU,CV,CW,CY,CZ,DE,DJ,DK,DO,DZ,EC,EE,EG,ES,ET,FI,FJ,FM,FR,GB,GE,GH,GR,GT,GU,GW,GY,HK,HR,HU,ID,IE,IL,IN,IQ,IS,IT,JM,JO,JP,KE,KH,KI,KR,KW,KY,LA,LB,LK,LT,LU,LV,LY,MA,MG,MH,ML,MM,MN,MO,MT,MU,MV,MX,MY,MZ,NA,NC,NG,NL,NO,NP,NZ,OM,PA,PE,PF,PG,PH,PK,PL,PR,PT,PW,PY,QA,RO,RS,RW,SA,SB,SC,SD,SE,SG,SN,SO,SR,SS,ST,SV,TC,TG,TH,TL,TN,TO,TR,TT,TW,TZ,UG,US,UY,UZ,VE,VN,VU,WS,ZA,ZM,ZW}.svg',
   { eager: true, query: '?url&no-inline', import: 'default' },
 );
 const BY_CODE: Record<string, string> = Object.fromEntries(

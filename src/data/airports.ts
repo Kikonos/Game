@@ -731,14 +731,50 @@ const EXTRA_ETOPS: Record<string, Row[]> = {
   ],
 };
 const RUNWAY_ETOPS: Record<string, number> = { KEF: 3065, YYR: 3367, YFB: 2621, YQX: 3109, YYT: 2591, SFJ: 2810, UAK: 1830, BDA: 2961, ANF: 2600, IQQ: 3350, MDW: 1988 };
-const ENROUTE = new Set(Object.values(EXTRA_ETOPS).flat().map((r) => r[0]));
+// v0.16 the far routes' islands and overseas territories (UPDATE-0.16.md §B.5): the French Antilles, Guiana, Mayotte,
+// Wallis, Tahiti, Papua New Guinea, the English-speaking Caribbean (Trinidad, Barbados, Jamaica's capital, Antigua,
+// Providenciales, Grand Cayman), Guyana, Turin (Juventus) and RAF Brize Norton, where the British trooping charters to
+// the Falklands leave from (an en-route field: never a market or a plain destination, only the routes that ask for it).
+// Published positions and longest runways (AIP / operator data); Mayotte and Wallis take narrowbodies only.
+const EXTRA_V016: Record<string, Row[]> = {
+  MXC: [
+    ['PTP', 'Pointe-à-Pitre Pôle Caraïbes', 'Pointe-à-Pitre', 'GP', 16.265, -61.532, 0.4, 2, 0.2, 0.9],
+    ['FDF', 'Martinique Aimé Césaire', 'Fort-de-France', 'MQ', 14.591, -61.003, 0.37, 2, 0.2, 0.9],
+    ['POS', 'Piarco Intl', 'Port of Spain', 'TT', 10.595, -61.337, 1.0, 2, 0.4, 0.5],
+    ['BGI', 'Grantley Adams Intl', 'Bridgetown', 'BB', 13.075, -59.492, 0.3, 2, 0.3, 0.95],
+    ['KIN', 'Norman Manley Intl', 'Kingston', 'JM', 17.936, -76.787, 1.2, 2, 0.4, 0.4],
+    ['ANU', 'V. C. Bird Intl', 'Antigua', 'AG', 17.137, -61.793, 0.1, 1, 0.2, 1.0],
+    ['PLS', 'Providenciales Intl', 'Providenciales', 'TC', 21.774, -72.266, 0.04, 1, 0.2, 1.0],
+    ['GCM', 'Owen Roberts Intl', 'Grand Cayman', 'KY', 19.293, -81.358, 0.07, 1, 0.7, 0.9],
+  ],
+  SAN: [
+    ['CAY', 'Cayenne Félix Eboué', 'Cayenne', 'GF', 4.820, -52.360, 0.3, 2, 0.3, 0.3],
+    ['GEO', 'Cheddi Jagan Intl', 'Georgetown', 'GY', 6.499, -58.254, 0.6, 1, 0.3, 0.3],
+  ],
+  SAF: [['DZA', 'Dzaoudzi–Pamandzi', 'Mayotte', 'YT', -12.805, 45.281, 0.3, 1, 0.1, 0.5]],
+  PAC: [
+    ['PPT', "Faa'a Intl", 'Papeete', 'PF', -17.557, -149.611, 0.2, 2, 0.2, 1.0],
+    ['WLS', 'Hihifo', 'Wallis', 'WF', -13.238, -176.199, 0.01, 1, 0.1, 0.5],
+    ['POM', 'Jacksons Intl', 'Port Moresby', 'PG', -9.443, 147.220, 0.5, 2, 0.3, 0.2],
+  ],
+  MED: [['TRN', 'Turin Caselle', 'Turin', 'IT', 45.201, 7.650, 1.5, 2, 0.5, 0.5]],
+  UKI: [['BZZ', 'RAF Brize Norton', 'Brize Norton', 'GB', 51.750, -1.584, 0.01, 1, 0.1, 0.05]],
+};
+const RUNWAY_V016: Record<string, number> = {
+  PTP: 3505, FDF: 3300, POS: 3200, BGI: 3353, KIN: 2716, ANU: 2744, PLS: 2316, GCM: 2139, CAY: 3200, GEO: 3353, DZA: 1930, PPT: 3420, WLS: 2100, POM: 2750, TRN: 3300, BZZ: 3049,
+};
+/** v0.16 Mayotte (1,930 m) and Wallis take narrowbodies only. */
+const NARROW_V016 = ['DZA', 'WLS'];
+const ENROUTE = new Set([...Object.values(EXTRA_ETOPS).flat().map((r) => r[0]), 'BZZ']);
 
 /** v0.8 blue-ice runways; airports whose continent differs from their region's (Union Glacier lies south of South America). */
 const ICE = new Set(['WFR', 'TRL', 'UGL']);
 const CONTINENT_OF: Record<string, ContinentId> = { UGL: 'SA' };
 
-for (const extra of [EXTRA, EXTRA_B1, EXTRA_B3, EXTRA_V08, EXTRA_ETOPS, EXTRA_V0121]) for (const [region, rows] of Object.entries(extra)) (DATA[region] ??= []).push(...rows);
-Object.assign(RUNWAY, RUNWAY_B1, RUNWAY_B3, RUNWAY_V08, RUNWAY_ETOPS, RUNWAY_V0121);
+for (const extra of [EXTRA, EXTRA_B1, EXTRA_B3, EXTRA_V08, EXTRA_ETOPS, EXTRA_V0121, EXTRA_V016]) for (const [region, rows] of Object.entries(extra)) (DATA[region] ??= []).push(...rows);
+Object.assign(RUNWAY, RUNWAY_B1, RUNWAY_B3, RUNWAY_V08, RUNWAY_ETOPS, RUNWAY_V0121, RUNWAY_V016);
+for (const c of NARROW_V016) NARROW.add(c);
+ELEV.TRN = 301;
 
 export const AIRPORTS: Airport[] = Object.entries(DATA).flatMap(([region, rows]) =>
   rows.map(([code, name, city, country, lat, lon, pop, size, biz, tour]) => ({

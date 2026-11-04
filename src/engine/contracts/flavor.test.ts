@@ -5,16 +5,17 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ACMI_TYPES } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { BROKERS, CLIENT_SEEDS, CLIENT_SEEDS_B1, COMPANY_PRESETS, RIVALS, RIVALS_B1 } from '../../data/naming';
+import { BROKERS, CLIENT_SEEDS, CLIENT_SEEDS_B1, CLIENT_SEEDS_V016, COMPANY_PRESETS, RIVALS, RIVALS_B1 } from '../../data/naming';
 import { typeOf } from '../core/perf';
 import { fromUTC } from '../core/time';
 import type { ContractOffer } from '../core/types';
-import { CLIENT_DESIGNATORS, clientPrefix, rivalFor } from './clients';
+import { CLIENT_DESIGNATORS, clientPrefix, isBigClub, rivalFor } from './clients';
 import * as F from './flavor';
 import { generateOffer } from './offers';
 import { newGame } from './testkit';
 
-const SEEDS = [...CLIENT_SEEDS, ...CLIENT_SEEDS_B1];
+// v0.16 the new clients (data/naming.ts CLIENT_SEEDS_V016) sit in the flavour tables too.
+const SEEDS = [...CLIENT_SEEDS, ...CLIENT_SEEDS_B1, ...CLIENT_SEEDS_V016];
 const NAMES = new Set(SEEDS.map((s) => s.name));
 
 describe('naming kit', () => {
@@ -68,7 +69,8 @@ describe('generated copy', () => {
         if (name === 'Formula 1') expect(o.title).toMatch(/^Race logistics/);
         if (/Film crew|Drama production/.test(o.title)) expect(name).toBe('BBC Studios');
         if (/Stag-and-hen|Wedding party/.test(o.title)) expect(o.requirements.minSeats).toBeLessThan(200);
-        if (/Pre-season tour/.test(o.title)) expect(['Sporting CP', 'SL Benfica', 'Real Madrid', 'Olympique de Marseille', 'Manchester United', 'FC Barcelona', 'Ajax']).toContain(name);
+        // v0.16 the new big clubs (data/naming.ts CLIENT_SEEDS_V016 tier 'big') fly pre-season tours too.
+        if (/Pre-season tour/.test(o.title)) expect(isBigClub(g.clients[o.clientId]), name).toBe(true);
         if (/cruise ship/.test(o.blurb)) expect(name).toMatch(/crew travel/);
         expect(o.title).not.toMatch(/Derby/);
         if (o.archetype === 'repatriation') expect(F.crisisLines(o.pin).some((l) => o.blurb.includes(l)), o.blurb).toBe(true);

@@ -28,13 +28,15 @@ import { acceptOffer, jobDays } from './accept';
 import { clientPrefix, clientsOf, ensureClient, ministry, roleOf } from './clients';
 import * as F from './flavor';
 import {
-  airportsWithin, atLocal, city, generateOffer, hookFor, idleWindows, inMarket, km, listCities, nearClient, needsWide, newcomerNarrow, perks, pickN, pickStart, seasonBaseDraft, standingOf,
+  airportsWithin, atLocal, city, clientWeight, finalizeDraft, generateOffer, hookFor, idleWindows, inMarket, km, listCities, nearClient, needsWide, newcomerNarrow, perks, pickN, pickStart, seasonBaseDraft, standingOf,
   type Ctx, type Draft, type IdleWindow,
 } from './offers';
 import { feasibility } from './feasibility';
 import { sideRng } from './paintTerms';
-import { computeWaves, programmeOf, route } from './plan';
-import { defaultSeats } from './pricing';
+import { computeWaves, programmeOf, route, routeMinutes } from './plan';
+import { ARCH_MULT, defaultSeats, flownTypes, referenceType } from './pricing';
+import { markStretch } from './prestige';
+import { isQuiet } from '../ops/director';
 import { warRiskCost } from './missionChecks';
 import { levelOf } from './relations';
 import { isActive } from './rivals';
@@ -786,6 +788,234 @@ export function devWorldTour(g: GameState, clientName?: string): string {
   for (let i = 0; i < 12; i++) {
     const o = generateOffer(g, 'worldTour', { wide: true, window: false, paint: false, cabin: false, ...(cl ? { client: cl.id } : {}) });
     if (o) return o.id;
+  }
+  return '';
+}
+
+// ---------- v0.16 far routes (UPDATE-0.16.md §B.5): overseas rotations with a stop and a crew change on the way ----------
+
+/**
+ * A far route: a real multi-stop rotation to an overseas territory or a remote island, flown out through a stop where
+ * the crews change when one crew cannot legally fly the whole way (the v0.9 crew slip at the stop: a fresh crew flies
+ * in by airline, rests and takes over), and back the same way or direct. The French forces fly Paris–Singapore–Nouméa
+ * on a 777 the way euroAtlantic does; the British trooping flights go Brize Norton–Ascension–Mount Pleasant; KLM runs
+ * its Bonaire–Aruba triangle. Ministries charter (we pay the fuel, in the price); airlines take the aircraft wet
+ * (ACMI, on their own flight numbers: the client pays the fuel). They pay the archetype's price × exoticMult.
+ */
+export interface FarRoute {
+  id: string;
+  /** The client by name (data/naming.ts CLIENT_SEEDS_V016). */
+  client: string;
+  /** The way out (the first point is where the rotation starts) and the way back. */
+  out: string[];
+  back: string[];
+  archetype: 'troopRotation' | 'adhoc';
+  /** Widebody work (narrow: a 737/A320 job near its client's home). */
+  wide: boolean;
+  pax: [number, number];
+  /** Rotations per contract, days between them, nights at the far end. */
+  rotations: [number, number];
+  every: [number, number];
+  stay: [number, number];
+  title: string;
+  /** One line on why they fly it. */
+  why: string;
+  /** Approvals the client asks for beyond the usual (the ETOPS the legs need is read from the route itself). */
+  approvals?: ApprovalId[];
+  /**
+   * A far-off origin (the Pacific): offered only when an aircraft of ours is already in the region or a job of ours ends
+   * there soon (follow-on work, the way such charters really come), and wet (ACMI, they pay the fuel): a charter price
+   * would carry the ferry from home, which no client there would pay.
+   */
+  far?: true;
+}
+
+export const FAR_ROUTES: readonly FarRoute[] = [
+  { id: 'frNoumea', client: 'French Ministry of the Armed Forces', out: ['CDG', 'SIN', 'NOU'], back: ['NOU', 'SIN', 'CDG'], archetype: 'troopRotation', wide: true, pax: [240, 280], rotations: [2, 3], every: [21, 35], stay: [1, 2],
+    title: 'Nouméa rotation via Singapore', why: 'the relief of the forces in New Caledonia: Paris–Singapore–Nouméa, a crew change at Singapore' },
+  { id: 'frAntilles', client: 'French Ministry of the Armed Forces', out: ['CDG', 'PTP', 'FDF'], back: ['FDF', 'PTP', 'CDG'], archetype: 'troopRotation', wide: true, pax: [230, 280], rotations: [2, 3], every: [21, 42], stay: [1, 2],
+    title: 'Antilles rotation: Pointe-à-Pitre and Fort-de-France', why: 'the relief of the forces in the French Antilles, Guadeloupe first and then Martinique' },
+  { id: 'frGuiana', client: 'French Ministry of the Armed Forces', out: ['CDG', 'PTP', 'CAY'], back: ['CAY', 'CDG'], archetype: 'troopRotation', wide: true, pax: [220, 270], rotations: [2, 3], every: [21, 42], stay: [1, 2],
+    title: 'Guiana rotation via Pointe-à-Pitre', why: 'the relief of the forces in French Guiana (the Kourou space centre and the forest posts), through Guadeloupe' },
+  { id: 'frDjibouti', client: 'French Ministry of the Armed Forces', out: ['CDG', 'DJI', 'RUN'], back: ['RUN', 'DJI', 'CDG'], archetype: 'troopRotation', wide: true, pax: [220, 270], rotations: [2, 3], every: [21, 42], stay: [1, 2],
+    title: 'Djibouti and Réunion rotation', why: 'the relief of the forces in Djibouti and on Réunion in one rotation, a crew change at Djibouti' },
+  { id: 'ukFalklands', client: 'UK Ministry of Defence', out: ['BZZ', 'ASI', 'MPN'], back: ['MPN', 'ASI', 'BZZ'], archetype: 'troopRotation', wide: true, pax: [210, 260], rotations: [2, 4], every: [14, 28], stay: [1, 2],
+    title: 'South Atlantic airbridge via Ascension', why: 'the trooping flights to the Falklands: Brize Norton–Ascension–Mount Pleasant, a crew change on Ascension' },
+  { id: 'nlCaribbean', client: 'Dutch Ministry of Defence', out: ['EIN', 'CUR', 'BON'], back: ['BON', 'EIN'], archetype: 'troopRotation', wide: true, pax: [200, 260], rotations: [2, 3], every: [28, 56], stay: [1, 2],
+    title: 'Caribbean rotation: Curaçao and Bonaire', why: 'the relief of the marines and the coastguard in the Dutch Caribbean' },
+  { id: 'ptAtlantic', client: 'Portuguese Ministry of National Defence', out: ['LIS', 'RAI', 'TMS'], back: ['TMS', 'RAI', 'LIS'], archetype: 'troopRotation', wide: false, pax: [120, 160], rotations: [1, 3], every: [28, 56], stay: [1, 2],
+    title: 'Praia and São Tomé rotation', why: 'the cooperation missions in Cabo Verde and São Tomé, one rotation through both' },
+  { id: 'auPacific', client: 'Australian Department of Defence', out: ['CBR', 'NAN', 'HIR'], back: ['HIR', 'NAN', 'CBR'], archetype: 'troopRotation', wide: true, pax: [190, 250], rotations: [2, 3], every: [21, 42], stay: [1, 2], far: true,
+    title: 'Pacific rotation: Nadi and Honiara', why: 'the Pacific deployments: Fiji first, then the Solomon Islands' },
+  { id: 'nzPacific', client: 'New Zealand Defence Force', out: ['AKL', 'TBU', 'APW'], back: ['APW', 'TBU', 'AKL'], archetype: 'troopRotation', wide: true, pax: [170, 230], rotations: [2, 3], every: [21, 42], stay: [1, 2], far: true,
+    title: 'Tonga and Samoa rotation', why: 'the Pacific relief and training rotations through Tonga and Samoa' },
+  { id: 'klmTriangle', client: 'KLM', out: ['AMS', 'BON', 'AUA'], back: ['AUA', 'AMS'], archetype: 'adhoc', wide: true, pax: [260, 290], rotations: [3, 6], every: [7, 7], stay: [1, 1],
+    title: 'Bonaire and Aruba triangle', why: 'their Amsterdam–Bonaire–Aruba triangle while their own widebody is in the shop' },
+  { id: 'airCaraibes', client: 'Air Caraïbes', out: ['ORY', 'PTP', 'FDF'], back: ['FDF', 'ORY'], archetype: 'adhoc', wide: true, pax: [260, 300], rotations: [3, 6], every: [7, 7], stay: [1, 1],
+    title: 'Antilles rotation for the peak', why: 'the Antilles peak: Orly–Pointe-à-Pitre–Fort-de-France and straight back' },
+  { id: 'corsair', client: 'Corsair', out: ['ORY', 'RUN', 'MRU'], back: ['MRU', 'ORY'], archetype: 'adhoc', wide: true, pax: [260, 300], rotations: [2, 5], every: [7, 7], stay: [1, 1],
+    title: 'Réunion and Mauritius rotation', why: 'their Indian Ocean rotation: Orly–Réunion–Mauritius and straight back' },
+  { id: 'tahitiNui', client: 'Air Tahiti Nui', out: ['CDG', 'LAX', 'PPT'], back: ['PPT', 'LAX', 'CDG'], archetype: 'adhoc', wide: true, pax: [250, 290], rotations: [2, 4], every: [7, 14], stay: [1, 2],
+    title: 'Papeete via Los Angeles', why: 'their Paris–Los Angeles–Papeete flight, the longest domestic route in the world, a crew change at Los Angeles' },
+  { id: 'frenchBee', client: 'French bee', out: ['ORY', 'SFO', 'PPT'], back: ['PPT', 'SFO', 'ORY'], archetype: 'adhoc', wide: true, pax: [250, 290], rotations: [2, 4], every: [7, 14], stay: [1, 2],
+    title: 'Papeete via San Francisco', why: 'their Orly–San Francisco–Papeete flight, a crew change at San Francisco' },
+];
+
+const FAR = BAL.v016.prestige;
+/** A day's chance of a far-route offer by standing (Newcomer never: the long legs ask for ETOPS and a widebody). */
+const FAR_PER_DAY = [0, 0.03, 0.045];
+/**
+ * The daily far-route roll. Off under vitest by default (as the ladder's market effects, contracts/prestige.ts
+ * PRESTIGE_GATE): an extra offer on a random day would move the offer-flow and world-tour fixtures; farRoutes.test.ts
+ * switches it on for its own cases. Always on in the game and the bot.
+ */
+export const FAR_ROUTE_GATE = { on: !(typeof process !== 'undefined' && process.env?.VITEST) };
+/** Minutes on the ground at the stop when the crews change (a turn plus the handover). */
+const FAR_CHANGE_MIN = 90;
+
+/** Far-off origins: an aircraft of ours within 3,500 km, or a job of ours ending within that in the next 90 days. Pure. */
+export function nearOrigin(g: GameState, origin: string): boolean {
+  const near = (c: string | undefined) => !!c && exists(c) && km(c, origin) <= 3500;
+  if (Object.values(g.fleet).some((a) => a.status !== 'delivering' && near(a.at))) return true;
+  return Object.values(g.contracts).some((k) => (k.status === 'signed' || k.status === 'active') && k.end > g.now && k.end < g.now + 90 * DAY
+    && (k.pattern.kind === 'base' ? near(k.pattern.base) : k.pattern.legs.some((l) => near(l.to))));
+}
+
+/** The aircraft the route is priced on: the cheapest type that seats the load and flies every sector (fuel stops allowed). */
+function farRef(g: GameState, tpl: FarRoute, pax: number): string | null {
+  const sectors: [string, string][] = [];
+  for (let i = 1; i < tpl.out.length; i++) sectors.push([tpl.out[i - 1], tpl.out[i]]);
+  for (let i = 1; i < tpl.back.length; i++) sectors.push([tpl.back[i - 1], tpl.back[i]]);
+  return referenceType({ minSeats: pax, ...(tpl.wide ? { body: 'wide' as const } : {}) }, sectors, false, false, flownTypes(g));
+}
+
+/** The legs of one rotation from `s` (UTC): out through the stops with the change on the ground, the nights at the far end, back. */
+function farLegs(ref: string, tpl: FarRoute, s: Minute, stay: number, pax: number, slot: number, flightNo: (i: number) => string): LegTemplate[] | null {
+  const turn = typeOf(ref).turnMin;
+  const legs: LegTemplate[] = [];
+  const chain = (pts: string[], from: Minute): Minute | null => {
+    let dep = from;
+    for (let i = 1; i < pts.length; i++) {
+      const r = route(ref, pts[i - 1], pts[i]);
+      if (!r || !r.length) return null;
+      legs.push({ from: pts[i - 1], to: pts[i], dep, flightNo: flightNo(legs.length), pax });
+      dep += routeMinutes(r) + turn + FAR_CHANGE_MIN;
+    }
+    return dep - turn - FAR_CHANGE_MIN;
+  };
+  const arr = chain(tpl.out, atLocal(tpl.out[0], s, slot));
+  if (arr === null) return null;
+  // Back after the nights at the far end, at a morning slot there, never under 12 h after landing.
+  let backDep = atLocal(tpl.back[0], arr + stay * DAY, slot);
+  while (backDep < arr + 12 * 60) backDep += DAY;
+  const end = chain(tpl.back, backDep);
+  return end === null ? null : legs;
+}
+
+/**
+ * The draft of a far route (`id`: one template, else a weighted pick among those we could fly: narrowbody ones always,
+ * widebody ones once we fly a widebody). Null when the client is not in the game, no type flies it or the pick is empty.
+ */
+export function farRoute(g: GameState, id?: string, opts: { start?: Minute; rotations?: number; /** Dev: a far-off origin without us in the region. */ force?: boolean } = {}): Draft | null {
+  const byName = (name: string) => Object.values(g.clients).find((c) => c.name === name && c.ceased === undefined);
+  const pool = FAR_ROUTES.filter((t) => (!id || t.id === id) && (!t.wide || anyWide(g)) && t.out.every(exists) && t.back.every(exists) && byName(t.client) && (!t.far || opts.force || nearOrigin(g, t.out[0])));
+  if (!pool.length) return null;
+  // A client's weight as in the ordinary draw (its level against ours, its mood with us); nobody at our level: no call.
+  const weight = (t: FarRoute) => clientWeight(g, byName(t.client)!);
+  if (!id && !pool.some((t) => weight(t) > 0)) return null;
+  const tpl = id ? pool[0] : weightedPick(g, pool, weight)!;
+  const client = byName(tpl.client)!;
+  const pax = int(g, tpl.pax[0], tpl.pax[1]);
+  const ref = farRef(g, tpl, pax);
+  if (!ref) return null;
+  const n = opts.rotations ?? int(g, tpl.rotations[0], tpl.rotations[1]);
+  const every = int(g, tpl.every[0], tpl.every[1]);
+  const stay = int(g, tpl.stay[0], tpl.stay[1]);
+  const s = opts.start ?? g.now + int(g, 21, 75) * DAY;
+  const slot = int(g, 18, 26) * 30;
+  const airline = tpl.archetype === 'adhoc';
+  const wet = airline || !!tpl.far;
+  const prefix = clientPrefix(client.name);
+  const no = 700 + int(g, 0, 9) * 10;
+  const legs: LegTemplate[] = [];
+  const blk = (l: LegTemplate) => routeMinutes(route(ref, l.from, l.to) ?? []);
+  // Wet: one term per rotation and an MGH never above what the rotation flies (as the Hajj airlift bills: the client
+  // pays the hours of its own programme, not our idle weeks between rotations).
+  const terms: [Minute, Minute][] = [];
+  for (let i = 0; i < n; i++) {
+    const rot = farLegs(ref, tpl, s + i * every * DAY, stay, pax, slot, (k) => (airline ? `${prefix}${no + k}` : ''));
+    if (!rot) return null;
+    legs.push(...rot);
+    const lastRot = rot[rot.length - 1];
+    terms.push([rot[0].dep, lastRot.dep + blk(lastRot)]);
+  }
+  const last = legs[legs.length - 1];
+  const lastBlock = blk(last);
+  const termDays = terms.reduce((a, [x, y]) => a + (y - x), 0) / DAY;
+  const planned = (legs.reduce((a, l) => a + blk(l), 0) / 60 / Math.max(1, termDays)) * 30.44;
+  const mgh = Math.max(100, Math.min(tpl.wide ? 300 : 240, Math.floor((planned * 0.95) / 10) * 10));
+  const far = tpl.out[tpl.out.length - 1];
+  const stops = [...new Set([...tpl.out.slice(1, -1), ...tpl.back.slice(1, -1)])];
+  const way = `${tpl.out.map(city).join('–')} and back${tpl.back.length < tpl.out.length ? ' direct' : ''}`;
+  const blurb = `${client.name}: ${n === 1 ? 'one rotation' : `${n} rotations`} ${way}, ${n > 1 ? `every ${every} days ` : ''}from ${fmtDay(legs[0].dep)}, about ${pax} on each leg: ${tpl.why}. `
+    + (stops.length ? `The crews change at ${listCities(stops)} when one crew cannot fly the whole way; ${stay === 1 ? 'a night' : `${stay} nights`} at ${city(far)}. ` : `${stay === 1 ? 'A night' : `${stay} nights`} at ${city(far)}. `)
+    + (airline ? 'ACMI on their flight numbers: they pay the fuel; the long legs need the range, the ETOPS and the in-flight rest.'
+      : wet ? 'A wet lease for the rotations, as we are in the region already: they pay the fuel; payment in arrears as governments do. The long legs need the range, the ETOPS and the in-flight rest.'
+      : 'A full charter: fuel ours, in the price; permits and payment in arrears as governments do. The long legs need the range, the ETOPS and the in-flight rest.');
+  // Airlines sometimes want their colours on for the weeks (decals) and a few of their own cabin crew aboard (language).
+  const r = sideRng(g, `far:${g.seq}:${g.now}:${tpl.id}`);
+  const paint = airline && chance(r, 0.5) ? { kind: 'decals' as const, required: false } : false;
+  let clientCabin: Requirements['clientCabin'];
+  if (airline && chance(r, 0.4)) {
+    const M = complement(ref, Math.max(pax, defaultSeats(ref))).filter((x) => x === 'PUR' || x === 'CC').length;
+    if (M >= 3) clientCabin = { n: Math.min(M - 1, int(r, 2, 3)), of: M, leads: false };
+  }
+  return {
+    archetype: tpl.archetype, client, title: tpl.title, blurb,
+    pattern: { kind: 'legs', legs },
+    req: { minSeats: pax, extraCabin: 0, approvals: [...(tpl.approvals ?? [])], ...(tpl.wide ? { body: 'wide' as const } : {}), ...(clientCabin ? { clientCabin } : {}) },
+    start: legs[0].dep, end: last.dep + lastBlock + 2 * 60, expiresIn: int(g, 5, 10) * DAY,
+    mult: (ARCH_MULT[tpl.archetype] ?? 1) * FAR.exoticMult,
+    effects: airline ? { reliable: 1 } : { morale: 3, clean: 1 },
+    risk: { disruption: 0.3, politics: airline ? 0.1 : 0.3, permit: airline ? 0.2 : 0.4 },
+    dueDays: 30, pin: far, wet, paint, cabin: false, exotic: true,
+    ...(wet ? { mghPerMonth: mgh, terms } : {}),
+  };
+}
+
+/**
+ * Daily: a far route now and then (Established 1 in 33 days, Respected 1 in 22; never two open at once, never in a quiet
+ * spell), on its own side stream so a game that never qualifies keeps its offer stream. A stretch note when the client
+ * sits one level above ours (contracts/prestige.ts).
+ */
+export function dailyFarRoute(g: GameState): ContractOffer | null {
+  if (!FAR_ROUTE_GATE.on) return null;
+  const p = FAR_PER_DAY[standingOf(g)] ?? 0;
+  if (!p || isQuiet(g)) return null;
+  if (!chance(sideRng(g, `far:${Math.floor(g.now / DAY)}`), p)) return null;
+  if (Object.values(g.offers).some((x) => x.exotic && (x.status === 'open' || x.status === 'countered'))) return null;
+  return makeFarRoute(g);
+}
+
+/** Builds and posts one far-route offer (any template, or `id`); null when none fits today. */
+export function makeFarRoute(g: GameState, id?: string, opts: Parameters<typeof farRoute>[2] = {}): ContractOffer | null {
+  const d = farRoute(g, id, opts);
+  if (!d) return null;
+  markStretch(g, d);
+  return finalizeDraft(g, d);
+}
+
+/** A far-route offer (any template, or `id`); the offer id ('' when none). Dev/test helper. */
+export function devFarRoute(g: GameState, id?: string): string {
+  const standing = g.company.standing;
+  g.company.standing = Math.max(1, standing ?? 0) as 1 | 2;
+  try {
+    for (let i = 0; i < 8; i++) {
+      const o = makeFarRoute(g, id, { force: true });
+      if (o) return o.id;
+    }
+  } finally {
+    g.company.standing = standing;
   }
   return '';
 }

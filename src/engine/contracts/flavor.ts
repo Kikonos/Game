@@ -115,8 +115,10 @@ export interface AdhocGroup {
   dests?: string[];
 }
 
-const CORP = ['Novartis', 'American Express Global Business Travel'];
-const LEISURE_AGENCIES = ['Kuoni Group Travel', 'Hotelplan Group'];
+// v0.16 the new companies book conferences and incentive groups too; Airbus flies its works shuttle, the oil and gas
+// companies their offshore and project crews, the miners their fly-in fly-out rotations.
+const CORP = ['Novartis', 'American Express Global Business Travel', 'Airbus', 'Shell', 'Siemens', 'TotalEnergies', 'Maersk', 'Nestlé', 'Eni', 'Equinor'];
+const LEISURE_AGENCIES = ['Kuoni Group Travel', 'Hotelplan Group', 'Club Med'];
 
 export const ADHOC_GROUPS: AdhocGroup[] = [
   { what: 'an incentive group', kinds: ['tourOperator'], clients: [...CORP, ...LEISURE_AGENCIES], dest: 'leisure', back: [3, 5] },
@@ -132,6 +134,11 @@ export const ADHOC_GROUPS: AdhocGroup[] = [
   { what: "an away-final supporters' group", kinds: [], clients: ['Sportsworld Group Travel'], pax: [140, 180], wide: false, dest: 'city', back: [1, 2] },
   { what: 'a race logistics and paddock team', kinds: [], clients: ['Formula 1'], pax: [120, 170], wide: false, back: [4, 5], dests: ['BCN', 'BUD', 'MXP', 'NCE', 'IST', 'MAD', 'VIE'] },
   { what: 'a festival production team', kinds: [], clients: ['Live Nation', 'AEG Presents'], pax: [90, 140], wide: false, dest: 'leisure', back: [3, 5] },
+  // v0.16 the new companies' real group work.
+  { what: 'an aircraft-works shuttle group', kinds: [], clients: ['Airbus'], pax: [120, 170], wide: false, back: [2, 5], dests: ['HAM', 'MAD', 'BRS', 'TLS', 'SVQ'] },
+  { what: 'an offshore project crew', kinds: [], clients: ['Equinor', 'Shell', 'TotalEnergies', 'Eni'], pax: [90, 150], wide: false, back: [3, 7], dests: ['BGO', 'LAD', 'PZU', 'DOH', 'ABJ', 'MPM', 'DAR'] },
+  { what: 'a mine fly-in fly-out rotation', kinds: [], clients: ['BHP', 'Rio Tinto'], pax: [120, 170], wide: false, back: [1, 3], dests: ['PER', 'DRW', 'BME', 'ADL', 'BNE'] },
+  { what: 'a tour-production and crew charter', kinds: [], clients: ['CAA Touring', 'Semmel Concerts', 'DEAG', 'FKP Scorpio', 'Mojo Concerts', 'Gérard Drouot Productions', 'Everything Is New', 'Doctor Music', 'SJM Concerts', 'Kilimanjaro Live', 'Vivo Concerti'], pax: [90, 150], wide: false, dest: 'city', back: [2, 4] },
 ];
 
 /** Shrine towns are for pilgrims, not parties. */
@@ -209,14 +216,19 @@ export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday',
 
 /** Resorts for tour-operator series (narrowbody) and long-haul sun (widebody). */
 export const RESORTS_NB = ['TFS', 'LPA', 'FNC', 'SID', 'AYT', 'HER', 'PMI', 'FUE', 'ACE', 'CFU', 'RHO', 'DLM', 'BJV', 'PFO', 'BOJ', 'CHQ', 'KGS', 'MAH', 'OLB', 'BVC'];
-export const RESORTS_WB = ['CUN', 'VRA', 'PUJ', 'MBJ'];
+// v0.16 the French Antilles, Barbados, Antigua, Grand Cayman, Mauritius and the Seychelles join the long-haul sun.
+export const RESORTS_WB = ['CUN', 'VRA', 'PUJ', 'MBJ', 'PTP', 'FDF', 'BGI', 'ANU', 'GCM', 'MRU', 'SEZ'];
 
-/** Season-base client hubs (DESIGN §5.1.2) and long-haul ones for widebody bases. */
-export const BASE_HUBS_NB = ['HAM', 'DUS', 'DUB', 'ARN', 'ZAG', 'WAW', 'FRA', 'LIS', 'RIX', 'CMN', 'AMM', 'RUH'];
-export const BASE_HUBS_WB = ['AMM', 'JED', 'GRU', 'JNB', 'YYZ', 'SGN', 'DSS', 'LIM', 'BSB', 'LAD'];
+/** Season-base client hubs (DESIGN §5.1.2) and long-haul ones for widebody bases. v0.16: the new airlines' hubs too. */
+export const BASE_HUBS_NB = ['HAM', 'DUS', 'DUB', 'ARN', 'ZAG', 'WAW', 'FRA', 'LIS', 'RIX', 'CMN', 'AMM', 'RUH',
+  'CDG', 'ORY', 'AMS', 'LHR', 'LGW', 'MAN', 'STN', 'MAD', 'BCN', 'PMI', 'NTE', 'ZRH', 'VIE', 'BRU', 'LUX', 'FCO', 'MXP', 'HEL', 'KEF', 'OSL', 'CPH', 'BUD', 'BEG', 'OTP', 'MLA', 'LCA', 'IST', 'SAW', 'AYT', 'TLV', 'JED'];
+export const BASE_HUBS_WB = ['AMM', 'JED', 'GRU', 'JNB', 'YYZ', 'SGN', 'DSS', 'LIM', 'BSB', 'LAD',
+  'CDG', 'ORY', 'AMS', 'LHR', 'MAD', 'PMI', 'ZRH', 'FRA', 'FCO', 'MXP', 'HEL', 'KEF', 'OSL', 'CPH', 'IST', 'TLV', 'VIE', 'BRU', 'BEG', 'MAN'];
 /** v0.14 the market-presence airlines' hubs (data/naming.ts CLIENT_SEEDS_V014): ordinary market offers only (their
  *  season bases come once we are known in their market). */
-export const BASE_HUBS_MARKET = ['LOS', 'ABJ', 'LFW', 'ACC', 'NBO', 'KGL', 'DAR', 'DEL', 'CMB', 'DAC', 'ICN', 'HKG', 'PVG', 'MNL', 'KUL', 'SGN', 'SYD', 'BNE', 'MEL', 'YUL', 'YYC', 'MSP', 'BOG', 'MTY', 'EZE', 'SCL', 'SDQ', 'KWI', 'MCT', 'TUN', 'CAI'];
+export const BASE_HUBS_MARKET = ['LOS', 'ABJ', 'LFW', 'ACC', 'NBO', 'KGL', 'DAR', 'DEL', 'CMB', 'DAC', 'ICN', 'HKG', 'PVG', 'MNL', 'KUL', 'SGN', 'SYD', 'BNE', 'MEL', 'YUL', 'YYC', 'MSP', 'BOG', 'MTY', 'EZE', 'SCL', 'SDQ', 'KWI', 'MCT', 'TUN', 'CAI',
+  // v0.16 the new airlines outside Europe (data/naming.ts CLIENT_SEEDS_V016 `market`).
+  'AKL', 'NOU', 'PPT', 'RUN', 'POS', 'ADD', 'MRU', 'SEZ', 'SID', 'POM', 'HIR', 'PTY', 'NAS', 'GCM'];
 
 export const CRISIS_AIRPORTS = ['KBL', 'BKO', 'JUB', 'MGQ', 'BGF', 'GOM', 'LAD', 'OXB', 'TMS', 'DIL', 'BEY', 'ADA'];
 export const MISSION_AIRPORTS = ['BKO', 'BGF', 'MGQ', 'JUB', 'DJI'];
@@ -258,6 +270,14 @@ export const BRANDS: Record<string, string> = {
   'TUI Deutschland': 'TUI', 'TUI fly Belgium': 'TUI', Jet2holidays: 'Jet2', 'Jet2.com': 'Jet2', 'Corendon Airlines': 'Corendon',
   'Schauinsland-Reisen': 'Schauinsland', 'Sunwing Vacations': 'Sunwing', 'Abercrombie & Kent': 'A&K', 'Viagens Abreu': 'Abreu',
   'UN Department of Peace Operations (DPO)': 'the UN', 'Novatours': 'Novatours', 'Čedok': 'Čedok',
+  // v0.16
+  'TUI UK & Ireland': 'TUI', 'TUI Nederland': 'TUI', 'TUI France': 'TUI', 'TUI Nordic': 'TUI', 'TUI Airways': 'TUI', 'Apollo (DER Touristik Nordic)': 'Apollo',
+  'International Committee of the Red Cross (ICRC)': 'the ICRC', 'Médecins Sans Frontières (MSF)': 'MSF', 'NATO Support and Procurement Agency (NSPA)': 'NSPA',
+  'Portuguese Football Federation (FPF)': 'the FPF', 'Royal Spanish Football Federation (RFEF)': 'the RFEF', 'French Football Federation (FFF)': 'the FFF',
+  'German Football Association (DFB)': 'the DFB', 'The Football Association (FA)': 'the FA', 'Italian Football Federation (FIGC)': 'the FIGC',
+  'Royal Dutch Football Association (KNVB)': 'the KNVB', 'Irish Rugby Football Union (IRFU)': 'the IRFU', 'Rugby Football Union (RFU)': 'the RFU', 'French Rugby Federation (FFR)': 'the FFR',
+  'French Ministry of the Armed Forces': 'the French forces', 'French Ministry for Europe and Foreign Affairs': 'the Quai d’Orsay', 'UK Ministry of Defence': 'the MoD',
+  'Australian Department of Defence': 'the ADF', 'New Zealand Defence Force': 'the NZDF', 'Canadian Department of National Defence': 'the Canadian Forces',
 };
 export const brandOf = (name: string) => BRANDS[name] ?? name.replace(/^The /, '');
 
@@ -293,7 +313,9 @@ export const MISSION_NAMES: Record<string, Mission> = {
   MGQ: { name: 'AUSSOM', org: 'AU', pk: false }, DJI: { name: 'EU Atalanta', org: 'EU', pk: false },
 };
 /** Tour operators that fly long-haul (widebody programmes); Jet2, Novatours, Čedok and Sunweb stay short-haul. */
-export const LONGHAUL_BRANDS = ['TUI', 'Corendon', 'Schauinsland', 'Sunwing', 'Abercrombie & Kent'];
+export const LONGHAUL_BRANDS = ['TUI', 'Corendon', 'Schauinsland', 'Sunwing', 'Abercrombie & Kent',
+  // v0.16
+  'Club Med', 'DER Touristik', 'alltours', 'Apollo', 'Alpitour', 'Travelplan', 'Soltour', 'Les Voyages de TMR'];
 export const longHaulBrand = (name: string) => LONGHAUL_BRANDS.some((b) => brandOf(name).startsWith(b) || name.startsWith(b));
 /** "Eurowings'" / "TUI's". */
 export const possessive = (name: string) => (/s$/i.test(name) ? `${name}'` : `${name}'s`);
@@ -328,6 +350,8 @@ export function clientless(title: string, client: string): string {
 export const NATIONS: Record<string, string> = {
   PT: 'Portuguese', ES: 'Spanish', LT: 'Lithuanian', MT: 'Maltese', LV: 'Latvian', CZ: 'Czech', BG: 'Bulgarian', EE: 'Estonian', GB: 'British',
   DE: 'German', FR: 'French', IT: 'Italian', PL: 'Polish', NL: 'Dutch', IE: 'Irish', BE: 'Belgian', AT: 'Austrian', SE: 'Swedish', FI: 'Finnish',
+  // v0.16 the new ministries' states.
+  NO: 'Norwegian', DK: 'Danish', LU: 'Luxembourg', HU: 'Hungarian', RO: 'Romanian', GR: 'Greek', HR: 'Croatian', AU: 'Australian', NZ: 'New Zealand', CA: 'Canadian', US: 'American',
 };
 
 type TitleFn = (x: TitleCtx) => string;
