@@ -1428,7 +1428,13 @@ function emptyLegCrew(g: GameState, f: Flight, ac: Aircraft): void {
   const plan = crewControl(g, f.id, { previews: false, only: ['delay'], noCard: true })?.solutions.find((s) => s.id === 'delay');
   const sure = plan?.available && plan.newDeparture ? Math.max(plan.newDeparture, g.now + 60) : null;
   const ready = sure ?? crewReadyAt(g, f, ac);
-  const wait = sure ?? (far && ready - g.now >= DAY ? Math.max(ready, g.now + ticketLead(ac.typeId, ticketBlock(g.company.homeBase, f.from), true)) : Math.max(ready, g.now + tries * 120));
+  const est = far && ready - g.now >= DAY ? Math.max(ready, g.now + ticketLead(ac.typeId, ticketBlock(g.company.homeBase, f.from), true)) : Math.max(ready, g.now + tries * 120);
+  // v0.15.1 an estimate the roster did not meet once is not trusted again every few hours: the second wait for the same
+  // leg is at least half a day, the third and later a day, when the schedule re-plans the move for the job's crew. On the
+  // estimate alone (a captain resting at New York the roster would never seat, JFK–BOG), the leg was held every 10 h for
+  // five days and a pair of the client's Bogotá legs sub-chartered at each hold (seed 4, AWL133).
+  const floor = tries >= 3 ? DAY : tries === 2 ? 12 * 60 : 0;
+  const wait = sure ?? Math.max(est, g.now + floor);
   // v0.12.1 (Goma) an empty leg out of an airport a closure keeps crew out of: the jobs it drops are force majeure.
   underClosure(g, f, () => delayChain(g, f, wait, 'Waiting for crew', true, true));
   rerosterFrom(g, ac.id, g.now);

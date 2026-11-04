@@ -36,7 +36,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'BLU2032 at Heathrow (A330, 4 pilots, bunks): after the APU delay the day read "already too long when they reported" and rang CREW OUT OF HOURS with a pause. The 14:00 extension the crew reported with is kept, the relief pilots carry the day (14:19 of 18:00) and it departs legally. Saves that carry the old state are repaired on load.',
       'A permit delay that moved a leg 19 h no longer shows a 28-hour "day" and a red alarm: the duty is cut in two at once.',
       'The gate no longer waits a day for a ticket from base when its own held crew can re-report in 6 h.',
-      'An empty move is no longer timed when nobody can fly it (Kathmandu: the aircraft stood eight days and the client\'s flights were sub-chartered seven times).',
+      'An empty move is no longer timed when nobody can fly it (Kathmandu: the aircraft stood eight days and the client\'s flights were sub-chartered seven times). An empty flight waiting for crew at a far airport no longer waits, every few hours, for a crew member the roster will not seat; the wait counts the 14 h rest a crew flown in across time zones needs.',
       'A curfew night stop moves the aircraft\'s later flights too, instead of drawing the flight over the next one on the Schedule.',
       'Charter balances add up to the dollar, and the completion message says what was refunded for flights not flown.',
       'No more "It has been waiting 0m" on a decision raised at departure, no double space in a client\'s level-up message, and Crew Control no longer repeats a solution\'s description.',
