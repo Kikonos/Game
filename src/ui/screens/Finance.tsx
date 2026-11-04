@@ -7,6 +7,8 @@ import { statementTotals } from '../../engine/core/ledger';
 import { DAY, fmtDay, fmtMonth } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import { cashForecast, daysOverdue } from '../../engine/ops';
+import { factorQuote } from '../../engine/finance';
+import { Receipt } from 'lucide-react';
 import { problemAt } from '../../engine/problems';
 import { LineChart, PairBars } from '../components/charts';
 import { ProblemCardView } from '../components/ProblemCard';
@@ -98,15 +100,19 @@ function Receivables({ g }: { g: GameState }) {
         const late = g.now - r.due;
         // v0.7.1 §14: a WHY? on an invoice the engine calls a problem (30 days late).
         const prob = late > 0 && r.contractId ? problemAt(g, { kind: 'contract', id: r.contractId }) : null;
+        const fq = r.factor || r.factored ? null : factorQuote(g, r.id, true);
         return (
           <div key={r.id} className={`sc-list-row sc-recv ${late > 0 ? 'late' : ''} ${r.id === sel ? 'on' : ''}`} onClick={() => r.contractId && store.navigate('contracts', { view: 'active', sel: { kind: 'contract', id: r.contractId } })}>
             <div className="grow" style={{ minWidth: 0 }}>
-              <div className="row gap-8">{prob && <Why refs={{ kind: 'contract', id: r.contractId! }} tone={prob.severity === 'red' ? 'bad' : 'warn'} />}<b className="ellipsis">{cl?.name ?? 'Client'}</b>{cl?.kind === 'government' && <span className="chip sc-chip">Government</span>}{r.factored && <span className="chip sc-chip">Factored</span>}</div>
+              <div className="row gap-8">{prob && <Why refs={{ kind: 'contract', id: r.contractId! }} tone={prob.severity === 'red' ? 'bad' : 'warn'} />}<b className="ellipsis">{cl?.name ?? 'Client'}</b>{cl?.kind === 'government' && <span className="chip sc-chip">Government</span>}{r.factored && <span className="chip sc-chip">Sold to the bank</span>}{r.factor?.boughtBack && <span className="chip sc-chip warn">Bought back</span>}</div>
               <div className="small muted ellipsis">{r.desc} · issued {fmtDay(r.issued)}</div>
             </div>
             <div className="right nowrap">
               <b className="num">{money(r.amount)}</b>
               <div className={`tiny ${late > 0 ? 'warn' : 'dim'}`}>{late > 0 ? (daysOverdue(g, r) >= 1 ? `${daysOverdue(g, r)} d overdue` : 'overdue today') : `due ${fmtDay(r.due)}`}</div>
+              {/* v0.16 sell it to the bank (engine/finance factoring): the balance comes when the client pays. */}
+              {r.factor && !r.factor.boughtBack ? <div className="tiny muted">{money(r.factor.advance)} advanced</div>
+                : fq && !fq.why && <button className="btn btn-sm fin-sell" onClick={(e) => { e.stopPropagation(); store.openModal({ kind: 'financing', what: 'factor', id: r.id }); }}><Receipt /> Sell</button>}
             </div>
           </div>
         );
