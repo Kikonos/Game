@@ -16,6 +16,34 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.16',
+    name: 'Finance & Sales',
+    features: [
+      'New Terminal music on the title and setup screens: a slow departure-lounge piece (soft piano, bass, brushes), with the hum of the hall, a distant jet now and then and a two-note gate chime. No voices.',
+    ],
+    improvements: [
+      'A day that a delay runs over its limit after the crew reported goes on with the relief pilots aboard, or with commander\'s discretion when that covers it: one note in the Inbox, no alarm and no pause for a legal day.',
+      'The flight sheet says what the day really allows: "Not needed: 13:15 of 14:00 (0:45 spare)", "3 pilots with class 1 bunks allow 17:00", "the 4 pilots aboard and class 1 bunks allow 18:00". A trip whose later days carry 3 or 4 pilots plans its extended days with in-flight rest instead.',
+      'Crew Control judges candidates for a flight held at the gate from its new check-in, not from a report hours past; "Delay" brings a fresh crew when one can take it; refusals say the real reason and name only crew at the departure airport; a standby call counts only once the window has begun.',
+      'Empty flights into a job are timed for a crew who can fly them: the ferry crew\'s rest counts in full (14 h across 4+ time zones, +4 h after an extended day). A flight held for crew asks Crew Control for the earliest departure instead of pushing 20 h at a time.',
+      'AOG card: the engineering team or a free aircraft is the default when it costs less and drops fewer flights. "Fly it" is not offered for a day the aircraft is booked for maintenance. "Line-check" is now "Inspection" everywhere.',
+      'The cash forecast includes charters paid on completion. The offer dialog says the real payment terms and who pays the fuel; the per-aircraft line reads "profit".',
+      'Scenarios: Long-Haul Debut gets its ETOPS 120 and widebody approvals; a fixed fleet gets no dry-lease requests; a closed Ladder gets no work that needs approvals; no stale "Urgent" lines at the start; the Goals chip shows three stars only when every condition is met.',
+      'Dialogs: the small chips are back to their size (they had grown to 44 px since v0.12); "Look first" on a decision is always in view; a toast moves out of the way of an open decision; the loading screen fits an iPhone in landscape; the Market outlook calendar no longer clips its labels.',
+      'Contracts, Inbox, Finance and Crew no longer stutter every game hour with offers open; the map and the globe use less battery.',
+    ],
+    fixes: [
+      'BLU2032 at Heathrow (A330, 4 pilots, bunks): after the APU delay the day read "already too long when they reported" and rang CREW OUT OF HOURS with a pause. The 14:00 extension the crew reported with is kept, the relief pilots carry the day (14:19 of 18:00) and it departs legally. Saves that carry the old state are repaired on load.',
+      'A permit delay that moved a leg 19 h no longer shows a 28-hour "day" and a red alarm: the duty is cut in two at once.',
+      'The gate no longer waits a day for a ticket from base when its own held crew can re-report in 6 h.',
+      'An empty move is no longer timed when nobody can fly it (Kathmandu: the aircraft stood eight days and the client\'s flights were sub-chartered seven times).',
+      'A curfew night stop moves the aircraft\'s later flights too, instead of drawing the flight over the next one on the Schedule.',
+      'Charter balances add up to the dollar, and the completion message says what was refunded for flights not flown.',
+      'No more "It has been waiting 0m" on a decision raised at departure, no double space in a client\'s level-up message, and Crew Control no longer repeats a solution\'s description.',
+      'Music no longer clicks when a piece starts.',
+    ],
+  },
+  {
     version: 'v0.15',
     name: '3D',
     features: [

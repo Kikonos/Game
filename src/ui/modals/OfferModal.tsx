@@ -1,5 +1,5 @@
 // Offer review (B5): terms, schedule and effects on the left; per-aircraft feasibility (traffic lights,
-// positioning, crew capacity, contribution) on the right; Decline / Counter / Accept. DESIGN.md §6.3.
+// positioning, crew capacity, profit) on the right; Decline / Counter / Accept. DESIGN.md §6.3.
 
 import { askSublease, SchedulePortal } from './OfferPortal';
 import { clashTrips, subleaseGroups } from './offerPortalLogic';
