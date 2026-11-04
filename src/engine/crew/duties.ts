@@ -1075,7 +1075,9 @@ export function restedDeparture(g: GameState, f: Flight): Minute | null {
   if (!d || !p) return null;
   const rm = reportMinutes((p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo');
   const release = onBlocks(f) + rm.post;
-  const rest = minRest({ dutyMin: release - d.report, atHome: f.to === p.base, augmented: d.augment > 0, tzShift: 0 });
+  // v0.15.1 as the roster reads it: 14 h across 4+ time zones from the crew's base, +4 h after a planned extension
+  // (Kathmandu from Lisbon: 10 h here against the roster's 14 h, so a move was timed 4 h before anyone could fly it).
+  const rest = minRest({ dutyMin: release - d.report, atHome: f.to === p.base, augmented: d.augment > 0, tzShift: tzDeltaH(p.base, f.to, release), extended: !!d.ext });
   return release + rest + rm.report;
 }
 

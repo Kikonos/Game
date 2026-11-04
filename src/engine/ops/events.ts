@@ -214,9 +214,15 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
     { id: 'subcharter', label: `Sub-charter to ${rivalName(g, rivalId)}`, desc: `A rival flies the legs; we still bill the client. Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}.`, tone: 'warn', chips: [usd(-sub), `Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}`, legsChip(win)] },
     { id: 'cancel', label: 'Cancel the legs', desc: 'Compensation to the client and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legsChip(win)] },
   ];
-  // Sub-charter is the default only when the wait would cancel legs and it is cheaper than their compensation and fares.
-  const waitPen = cancelCost(g, holdC.cancels) + subcharterCost(g, holdC.cancels, 1);
-  const def = waitPen > 0 && sub < waitPen ? 'subcharter' : 'courier';
+  // The default is the cheapest way out. v0.15.1 the AOG team when what it saves in compensation and fares beats its
+  // fee (S0228: CS-TRF at Frankfurt, 64 h by courier and 6 legs dropped for $90K, while the team's $12K kept two of
+  // them); a free aircraft of the family swapped in when any wait would drop legs; a rival only when it costs less than
+  // the better wait's compensation and fares.
+  const lossC = cancelCost(g, holdC.cancels) + subcharterCost(g, holdC.cancels, 1);
+  const lossT = teamCost + cancelCost(g, holdT.cancels) + subcharterCost(g, holdT.cancels, 1);
+  const wait = lossT < lossC ? 'team' : 'courier';
+  const waitPen = Math.min(lossC, lossT);
+  const def = waitPen > 0 && swap ? 'swap' : waitPen > 0 && sub < waitPen ? 'subcharter' : wait;
   ask(g, {
     kind: 'aog', title: `AOG: ${ac.reg} at ${city(m.at)}`,
     body: `${m.cause}. ${f.no} ${f.from}–${f.to} can't leave. With a part by courier the aircraft is back in about ${Math.round((m.end - g.now) / 60)} h. The repair costs about ${usd(m.cost)} whichever you choose.`,
