@@ -17,7 +17,7 @@ import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
 import { chance } from '../core/rng';
 import { statsV016 } from '../core/stats016';
-import { DAY, fmtDay, monthKey, monthStart, nextMonthStart, yearOf } from '../core/time';
+import { DAY, fmtDate, fmtDay, monthKey, monthStart, nextMonthStart, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, AircraftLoan, ContractOffer, CreditLine, GameState, Minute, MonthKey, Receivable, Treasury } from '../core/types';
 import { clamp, hashUnit } from '../core/util';
 import { cashForecast, daysOverdue, monthEndBill, type ForecastItem } from '../ops/finance';
@@ -175,7 +175,7 @@ export function creditView(g: GameState): CreditView | null {
   ];
   if (line.notRenewed) lines.push(`Not renewed: ${usd(line.drawn)} repaid on the bank's schedule, then closed`);
   else if (line.frozen) lines.push(`Frozen since ${fmtDay(line.frozen)}: no draws; the balance is repaid in ${F.credit.repayParts} parts at the next month ends`);
-  else lines.push(`Renews ${fmtDay(line.renewsAt)}: the bank re-sizes the limit to your revenue and fleet`);
+  else lines.push(`Renews ${fmtDate(line.renewsAt)}: the bank re-sizes the limit to your revenue and fleet`);
   const status = line.notRenewed ? 'closing' : line.frozen ? 'frozen' : line.breaches > 0 ? 'breach' : 'open';
   return { line, rate, undrawn, lines, accrued: line.accrued + line.accruedFee, status, repay: line.repay ?? [], covenants: cov };
 }
