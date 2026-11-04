@@ -190,7 +190,11 @@ function administration(g: GameState, x: Crisis, cl: Client, r: RngHolder): numb
   let written = 0;
   for (const rc of g.finance.receivables) {
     if (rc.clientId !== cl.id || rc.paid !== null || rc.written) continue;
-    written += rc.amount;
+    // v0.16 an invoice sold to the bank without recourse is the bank's loss and the bank's claim: ours is only the
+    // balance we were still owed; sold with recourse the bank takes its advance back (engine/finance dailyFactoring)
+    // and the whole invoice is ours to write off and claim.
+    const f = rc.factor;
+    written += f && !f.recourse && !f.boughtBack ? Math.max(0, rc.amount - f.advance) : rc.amount;
     rc.written = true;
     rc.paid = g.now;
     rc.desc = `${rc.desc} (written off: ${cl.name} in administration)`;

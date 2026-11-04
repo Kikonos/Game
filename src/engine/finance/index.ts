@@ -48,10 +48,11 @@ export function loadTreasury(g: GameState): void {
     t.credit.repay ??= [];
   }
   for (const l of t.loans) l.missed ??= [];
-  // A factored invoice that was paid or written off while the list still names it.
+  // A factored invoice that was paid while the list still names it (a written-off one stays until the bank has settled
+  // it: dailyFactoring takes the advance back or books the bank's loss).
   t.factored = t.factored.filter((id) => {
     const r = g.finance.receivables.find((x) => x.id === id);
-    return !!r && r.paid === null && !!r.factor && !r.factor.settled && !r.factor.boughtBack;
+    return !!r && (r.paid === null || r.written) && !!r.factor && !r.factor.settled && !r.factor.boughtBack;
   });
 }
 
@@ -308,12 +309,12 @@ function accrueCredit(g: GameState, line: CreditLine): void {
   line.accruedFee += (undrawn * F.credit.commitmentFee) / 365;
 }
 
-/** The yearly renewal (daily check): re-sized to the formula; a frozen line is not renewed. */
+/** The yearly renewal (daily check): re-sized to the formula; a line still in breach at the anniversary is not renewed; one frozen but cured since is thawed. */
 function renewCredit(g: GameState): void {
   const line = g.treasury?.credit;
   if (!line || g.now < line.renewsAt || line.notRenewed) return;
   const t = treasury(g);
-  if (line.frozen) {
+  if (line.frozen && line.breaches > 0) {
     line.notRenewed = true;
     line.limit = line.drawn;
     if (!line.repay?.length && line.drawn > 0) scheduleRepay(line, g.now, line.drawn, F.credit.repayParts);
@@ -323,6 +324,13 @@ function renewCredit(g: GameState): void {
     });
     if (line.drawn <= 0) closeLine(g, 'Not renewed by the bank.');
     return;
+  }
+  // v0.16 review: a line frozen in breach but cured since thaws at the anniversary, as the cure message promised (the
+  // freeze's repayment schedule goes; what is drawn above the new limit is scheduled below as for any re-size).
+  const thawed = !!line.frozen;
+  if (thawed) {
+    line.frozen = null;
+    line.repay = [];
   }
   const limit = creditLimitFor(g) || line.limit;
   const margin = creditMargin(g) + (line.stepUp ? F.credit.stepUp : 0);
@@ -336,7 +344,7 @@ function renewCredit(g: GameState): void {
   if (line.drawn > limit) scheduleRepay(line, g.now, line.drawn - limit, F.credit.repayParts);
   pushMessage(g, {
     tone: limit >= was ? 'info' : 'warn', cat: 'finance', title: `Credit line renewed: ${usd(limit)}`, cue: 'message',
-    body: `${limit > was ? 'Up' : limit < was ? 'Down' : 'Unchanged'} from ${usd(was)}, sized on the last six months' revenue and the owned fleet. Margin ${pct1(margin)} over the bank rate; arrangement fee ${usd(fee)}.${line.drawn > limit ? ` ${usd(line.drawn - limit)} above the new limit is repaid at the next ${F.credit.repayParts} month ends.` : ''}`,
+    body: `${thawed ? 'The freeze is lifted: the covenants held again. ' : ''}${limit > was ? 'Up' : limit < was ? 'Down' : 'Unchanged'} from ${usd(was)}, sized on the last six months' revenue and the owned fleet. Margin ${pct1(margin)} over the bank rate; arrangement fee ${usd(fee)}.${line.drawn > limit ? ` ${usd(line.drawn - limit)} above the new limit is repaid at the next ${F.credit.repayParts} month ends.` : ''}`,
   });
 }
 
@@ -760,7 +768,9 @@ function dailyFactoring(g: GameState): void {
   if (!t.factored.length) return;
   for (const id of [...t.factored]) {
     const r = g.finance.receivables.find((x) => x.id === id);
-    if (!r || r.paid !== null || !r.factor || r.factor.settled || r.factor.boughtBack) {
+    // v0.16 review: an administration writes the invoice off and marks it paid at once (commercial/crises.ts); the bank
+    // still has to settle it with us below, so a written-off one is not dropped here.
+    if (!r || (r.paid !== null && !r.written) || !r.factor || r.factor.settled || r.factor.boughtBack) {
       t.factored = t.factored.filter((x) => x !== id);
       continue;
     }

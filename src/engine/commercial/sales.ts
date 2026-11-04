@@ -28,7 +28,7 @@ import type {
 } from '../core/types';
 import type { IdleWindow, OfferOpts } from '../contracts/offers';
 import { isGovernment, roleOf } from '../contracts/clients';
-import { clientPrestige, playerPrestige } from '../contracts/prestige';
+import { PRESTIGE_GATE, clientPrestige, noteStretch, playerPrestige } from '../contracts/prestige';
 import { bumpClient } from '../contracts/relations';
 import { busyShare } from '../ops/director';
 import { lockOf } from '../scenario/rules';
@@ -438,6 +438,12 @@ function leadOffer(g: GameState, l: Lead): ContractOffer | null {
   o.firstRefusal = true;
   delete o.rivalBid;
   delete o.call;
+  // v0.16 review: the lead was taken while the month's stretch slot was open (pickLeadClient); its offer keeps the
+  // label whenever the answer comes (markStretch marks a draft only while the slot is open).
+  if (!o.stretch && PRESTIGE_GATE.on && !c.jobs && !c.rivalId && clientPrestige(c) === playerPrestige(g).level + 1) {
+    o.stretch = true;
+    noteStretch(g, o);
+  }
   const was = o.expires;
   o.expires = Math.max(o.expires, Math.min(o.start - 12 * 60, g.now + 5 * DAY));
   if (o.expires !== was) schedule(g, o.expires, 'offer.expire', o.id);

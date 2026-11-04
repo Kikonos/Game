@@ -37,6 +37,7 @@ import { money } from '../format';
 import { ArchIcon, Chips, Dot, KV } from '../screens/common';
 import { fuelLine } from '../screens/screenLogic';
 import { DepositPicker } from './offer/DepositPicker';
+import { depositNorm } from '../../engine/finance';
 import { archLabel, counterSteps, expiryLabel, offerCrewLine, pctLabel, reqChips, riskChips, routeSummary, offerDays, v09Chips, type Chip } from '../screens/screenLogic';
 import { analystView } from '../../engine/ops';
 import { HintButton, ScreenHint } from '../components/ScreenHint';
@@ -63,7 +64,9 @@ const MONTH_DAYS = 30.44;
 
 function Terms({ g, o, deposit, onDeposit }: { g: GameState; o: ContractOffer; /** v0.16 the deposit picked (null: the offer's) and its setter (none: fixed) */ deposit?: number | null; onDeposit?: (pct: number) => void }) {
   const p = o.product;
-  const depositPct = p.kind === 'charter' ? deposit ?? o.depositAsk?.pct ?? p.depositPct : 0;
+  // v0.16 review: the picker starts at the client's usual deposit (engine/finance depositNorm) and that is what a plain
+  // accept signs with (the offer's own 30 % read "lower chance they accept" on every tour operator's charter by default).
+  const depositPct = p.kind === 'charter' ? deposit ?? o.depositAsk?.pct ?? (onDeposit ? depositNorm(g, o.clientId) : p.depositPct) : 0;
   const rows: [string, string][] = [];
   const lead = leadDays(g, o.start);
   const pay = o.payment;
@@ -604,7 +607,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
   // v0.12.1 a world tour's business-seat bonus on the chosen aircraft (applied at signing, as the paid crew's lift).
   const bizLift = 1 + tourBizPct(o.archetype, sel && g.fleet[sel.aircraftId] ? g.fleet[sel.aircraftId].cabin.j : 0);
   const lift = (crewed && paid && x.cabin >= paid.n ? 1 + paid.pct : 1) * bizLift;
-  const opts = { paint, cabin, crewExtra: crewed ? x : undefined, ...(deposit !== null && !o.counter ? { depositPct: deposit } : {}) };
+  const opts = { paint, cabin, crewExtra: crewed ? x : undefined, ...(o.product.kind === 'charter' && !o.counter ? { depositPct: deposit ?? depositNorm(g, o.clientId) } : {}) };
   // v0.14.1 a won tender is signed at our bid: no counter.
   const tenderWon = isTenderOffer(g, o.id);
   // v0.15 a scenario's market rules (an offer of another kind of work that reached the desk anyway).

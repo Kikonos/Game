@@ -636,9 +636,10 @@ export function latePaymentDecision(g: GameState, r: Receivable, player = false)
       { id: 'wait', label: 'Wait', desc: 'They usually pay in the end; until then the cash is not ours.', chips: [`${usd(r.amount)} outstanding`, 'No cost'] },
       // v0.8 a favour: waive the 3 % a year late-payment interest.
       { id: 'waive', label: 'Waive the interest', desc: 'Wait, and tell them we will not charge late-payment interest. A favour they remember.', tone: 'good', chips: [`Relation +${BAL.v08.rel.waiveInterest}`, `${usd(r.amount)} outstanding`] },
-      fq && !fq.why
-        ? { id: 'factor', label: 'Sell the invoice', desc: `The bank advances ${Math.round((fq.advance / r.amount) * 100)}% less a ${(fq.feePct * 100).toFixed(1)}% fee now, and the rest when ${name} pays. Unpaid ${BAL.v016.finance.factoring.buyBackDays} days past due, we buy it back.`, tone: 'warn', chips: [`+${usd(fq.now)} now`, usd(-fq.fee), `${usd(fq.balance)} later`] }
-        : { id: 'factor', label: 'Sell the invoice', desc: `A factor pays now, less ${Math.round(BAL.factorDiscount * 100)}%.`, tone: 'warn', chips: [`+${usd(r.amount * (1 - BAL.factorDiscount))} now`, usd(-r.amount * BAL.factorDiscount)] },
+      // v0.16 review: an invoice the bank already holds (factored) is not for sale again.
+      ...(r.factor ? [] : [fq && !fq.why
+        ? { id: 'factor', label: 'Sell the invoice', desc: `The bank advances ${Math.round((fq.advance / r.amount) * 100)}% less a ${(fq.feePct * 100).toFixed(1)}% fee now, and the rest when ${name} pays. Unpaid ${BAL.v016.finance.factoring.buyBackDays} days past due, we buy it back.`, tone: 'warn' as const, chips: [`+${usd(fq.now)} now`, usd(-fq.fee), `${usd(fq.balance)} later`] }
+        : { id: 'factor', label: 'Sell the invoice', desc: `A factor pays now, less ${Math.round(BAL.factorDiscount * 100)}%.`, tone: 'warn' as const, chips: [`+${usd(r.amount * (1 - BAL.factorDiscount))} now`, usd(-r.amount * BAL.factorDiscount)] }]),
       live
         ? { id: 'threaten', label: 'Threaten to suspend service', desc: 'A letter saying we stop flying for them unless paid; usually works within a week, but they will not forget it.', tone: 'bad', chips: ['Relation −20', '70%: paid within 7 days'] }
         : { id: 'threaten', label: 'Send a formal demand', desc: "A lawyer's letter; usually works within a week, but they will not forget it.", tone: 'bad', chips: ['Relation −20', '70%: paid within 7 days'] },
@@ -675,6 +676,8 @@ function resolveLatePayment(g: GameState, d: Decision, opt: string): ActionResul
     return { ok: true, msg: `Interest waived; we keep waiting for ${name}` };
   }
   if (opt === 'factor') {
+    // v0.16 review: sold to the bank already: nothing to sell again (the flat sale below would pay the whole amount a second time).
+    if (r.factor || r.factored) return { ok: false, error: `Already sold to the bank: they collect it from ${name}` };
     // v0.16 through the bank when the invoice is eligible (engine/finance); else the flat sale as before.
     const fq = factorQuote(g, r.id, true);
     if (fq && !fq.why) return factorInvoice(g, r.id, true);
