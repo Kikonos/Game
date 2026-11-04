@@ -136,6 +136,8 @@ const KIND_RANK: ProblemKind[] = [
   'approvalLate',
   // v0.14
   'clientCrisis',
+  // v0.16 sales
+  'leadCold',
 ];
 const rankOf = (c: ProblemCard) => SEV[c.severity] * 100 + KIND_RANK.indexOf(c.subject.kind);
 
