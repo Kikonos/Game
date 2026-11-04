@@ -19,7 +19,7 @@ import { isRevenue, stats, turnOf } from './util';
 /** Advances with no auto-pause honoured (open decisions expire into their defaults). */
 const skip = (g: GameState, t: Minute) => advanceTo(g, t, new Set());
 const ev = (g: GameState, type: SimEvent['type'], id: string): SimEvent => ({ t: g.now, seq: 0, type, id, v: 0 });
-const line = (g: GameState, cat: 'penalties' | 'subcharter' | 'interest' | 'otherRevenue') => g.finance.current.lines[cat] ?? 0;
+const line = (g: GameState, cat: 'penalties' | 'subcharter' | 'interest' | 'otherRevenue' | 'bankFees') => g.finance.current.lines[cat] ?? 0;
 const only = (g: GameState, kind: string) => {
   const d = g.decisions.filter((x) => x.kind === kind);
   expect(d).toHaveLength(1);

@@ -6,7 +6,7 @@ import { BadgeDollarSign, Landmark, Receipt, Repeat } from 'lucide-react';
 import { useState } from 'react';
 import { BAL } from '../../engine/core/balance';
 import { typeOf } from '../../engine/core/perf';
-import { fmtDay } from '../../engine/core/time';
+import { fmtDate, fmtDay } from '../../engine/core/time';
 import {
   arrangementFee, benchmarkRate, creditLimitFor, creditMargin, creditOpenWhy, factorQuote, factorInvoice, leasebackQuote, leasebackTermsFor, loanQuote, loanTermsFor, openCreditLine, pct1, sellAndLeaseBack, takeLoan,
 } from '../../engine/finance';
@@ -95,10 +95,10 @@ function LeasebackModal({ aircraftId, close }: { aircraftId: string; close: () =
   if (!ac || !q) return <Modal title="Sell and lease back" onClose={close}><p className="muted">This aircraft has left the fleet.</p></Modal>;
   const go = () => store.openModal({
     kind: 'confirm', title: `Sell ${ac.reg} to ${q.lessor} and lease it back?`, confirm: `Sell and lease back for ${money(q.price)}`,
-    body: `${money(q.cashIn)} comes in today (price ${money(q.price)}${q.loanRepaid ? `, less ${money(q.loanRepaid)} to clear the loan` : ''}, less a ${money(q.deposit)} deposit). From then ${ac.reg} costs ${money(q.rentPerMonth)} a month for ${years} years and goes back to ${q.lessor} by ${fmtDay(g.now + Math.round(years * 12 * 30.44 * 1440))} in half-life condition. It cannot be undone.`,
+    body: `${money(q.cashIn)} comes in today (price ${money(q.price)}${q.loanRepaid ? `, less ${money(q.loanRepaid)} to clear the loan` : ''}, less a ${money(q.deposit)} deposit). From then ${ac.reg} costs ${money(q.rentPerMonth)} a month for ${years} years and goes back to ${q.lessor} by ${fmtDate(g.now + Math.round(years * 12 * 30.44 * 1440))} in half-life condition. It cannot be undone.`,
     onConfirm: () => { if (store.act((gg) => sellAndLeaseBack(gg, aircraftId, years)).ok) close(); },
   });
-  const end = fmtDay(g.now + Math.round(years * 12 * 30.44 * 1440));
+  const end = fmtDate(g.now + Math.round(years * 12 * 30.44 * 1440));
   return (
     <Modal title={`Sell and lease back ${ac.reg}`} icon={<Repeat className="accent" />} onClose={close} footer={<>
       <span className="grow small muted">{q.why ? '' : `Cash in today ${money(q.cashIn)}`}</span>

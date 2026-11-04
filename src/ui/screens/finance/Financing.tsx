@@ -10,6 +10,8 @@ import type { GameState } from '../../../engine/core/types';
 import {
   benchmarkRate, closeCreditLine, creditLimitFor, creditOpenWhy, creditView, drawCredit, ebitda12, loanPayoff, moneyMarketBalance, moneyMarketRate, netDebt, pct1, repayCredit, repayLoan, totalDebt,
 } from '../../../engine/finance';
+import { covenantBreachCard } from '../../../engine/problems/money';
+import { ProblemCardView } from '../../components/ProblemCard';
 import { Bar, Card, Stepper } from '../../components/ui';
 import { money } from '../../format';
 import { store } from '../../store';
@@ -125,8 +127,11 @@ function CashBlock({ g }: { g: GameState }) {
 }
 
 export function Financing({ g }: { g: GameState }) {
+  // The covenant card (four lines) sits on top of the bank while a breach stands.
+  const breach = g.treasury?.credit?.breaches ? covenantBreachCard(g) : null;
   return (
     <Card title="The bank" sub="credit line, loans on aircraft, spare cash" className="mt-16 fin-bank" bodyClass="fb-body">
+      {breach && <div className="fb-breach"><ProblemCardView card={breach} g={g} /></div>}
       <CreditBlock g={g} />
       <LoansBlock g={g} />
       <CashBlock g={g} />

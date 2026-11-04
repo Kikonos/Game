@@ -346,9 +346,10 @@ describe('solvency', () => {
 
 /** v0.16 no interest on spare cash in these tests: the month-end drop must be the bill alone (the money market is tested in finance/finance016.test.ts). */
 const noMoneyMarket = () => {
-  const was = BAL.v016.finance.moneyMarket.float;
-  BAL.v016.finance.moneyMarket.float = Infinity;
-  onTestFinished(() => { BAL.v016.finance.moneyMarket.float = was; });
+  const mm = BAL.v016.finance.moneyMarket as { float: number };
+  const was = mm.float;
+  mm.float = Infinity;
+  onTestFinished(() => { mm.float = was; });
 };
 
 describe('cashForecast', () => {

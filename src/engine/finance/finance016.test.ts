@@ -476,7 +476,7 @@ describe('client deposits', () => {
     const norm = depositNorm(g, o.clientId);
     const id = fit(g, o.id);
     const res = acceptOffer(g, o.id, [id], { depositPct: norm });
-    expect(res.ok).toBe(true);
+    if (!res.ok) throw new Error(res.error);
     const c = g.contracts[res.data!.contractId];
     expect(c.product.kind === 'charter' && c.product.depositPct).toBe(norm);
     if (norm > 0) {

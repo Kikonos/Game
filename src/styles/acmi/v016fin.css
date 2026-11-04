@@ -2,6 +2,7 @@
 
 /* The bank: three short blocks side by side on a wide screen, stacked on a phone. */
 .fin-bank .fb-body { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.fb-breach { grid-column: 1 / -1; }
 .fb-block { display: flex; flex-direction: column; gap: 8px; min-width: 0; padding: 12px 14px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
 .fb-head { display: flex; align-items: center; gap: 8px; min-height: 28px; }
 .fb-head svg { width: 18px; height: 18px; color: var(--accent); flex-shrink: 0; }

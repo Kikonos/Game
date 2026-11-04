@@ -672,7 +672,7 @@ export function sellAndLeaseBack(g: GameState, aircraftId: string, years: number
   const gain = q.price - book;
   pushMessage(g, {
     tone: 'good', cat: 'finance', title: `${ac.reg} sold to ${q.lessor} and leased back`, cue: null, ref: { kind: 'aircraft', id: ac.id },
-    body: `${usd(q.price)} in (a ${usd(Math.abs(gain))} ${gain >= 0 ? 'gain over' : 'loss against'} book value)${q.loanRepaid ? `, ${usd(q.loanRepaid)} of it clears the loan` : ''}; deposit ${usd(q.deposit)} out. ${ac.reg} stays in the fleet with its crews, contracts and livery as a ${years}-year lease: ${usd(q.rentPerMonth)} a month from today, ${usd(q.reservesPerFH)} reserves per flight hour, back to ${q.lessor} by ${fmtDay(leaseEnd)} in half-life condition.`,
+    body: `${usd(q.price)} in (a ${usd(Math.abs(gain))} ${gain >= 0 ? 'gain over' : 'loss against'} book value)${q.loanRepaid ? `, ${usd(q.loanRepaid)} of it clears the loan` : ''}; deposit ${usd(q.deposit)} out. ${ac.reg} stays in the fleet with its crews, contracts and livery as a ${years}-year lease: ${usd(q.rentPerMonth)} a month from today, ${usd(q.reservesPerFH)} reserves per flight hour, back to ${q.lessor} by ${fmtDate(leaseEnd)} in half-life condition.`,
   });
   return { ok: true, msg: `${usd(q.cashIn)} in; ${ac.reg} leased back at ${usd(q.rentPerMonth)} a month for ${years} years` };
 }
@@ -896,7 +896,8 @@ export function monthlyTreasury(g: GameState, k: MonthKey): void {
   runLoans(g, end);
   if (t.credit) {
     runRepaySchedule(g, t.credit, end);
-    if (t.credit) checkCovenants(g, t.credit, k);
+    // A line the bank did not renew is only being repaid: no covenant chase on top.
+    if (t.credit && !t.credit.notRenewed) checkCovenants(g, t.credit, k);
   }
 }
 
