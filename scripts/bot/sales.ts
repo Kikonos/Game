@@ -12,8 +12,8 @@ import { complianceCandidates, hireComplianceManager } from '../../src/engine/op
 
 /** The bot's sales policy numbers (not BAL: the bot's own choices). */
 const BOT = {
-  /** Register with the first two brokers after this many days; the third once Established. */
-  registerDay: 30, brokers: ['acs', 'acc', 'chapman'] as BrokerId[],
+  /** Register with every broker after this many days (v0.16 balance: registration is free and any operator is on every broker's list; was two, a third once Established). */
+  registerDay: 30, brokers: ['acs', 'acc', 'chapman', 'airPartner', 'huntPalmer'] as BrokerId[],
   /** Pitches a season (v0.16 balance: the desk's whole quota, a pitch is a $1,500 visit), and the cash that allows one. */
   pitches: 4, pitchCash: 200_000,
   /** One sales manager for the home market when cash is above this (the mid candidate; v0.16 balance: 3M → 2M, a $6K a month hire against a halved inbound stream). */
@@ -29,8 +29,7 @@ export function botSales(g: GameState): boolean {
   const c = g.com;
   // Brokers: two in month 2, a third when Established (standing ≥ 1).
   if (day >= BOT.registerDay) {
-    const want = (g.company.standing ?? 0) >= 1 ? 3 : 2;
-    for (const id of BOT.brokers.slice(0, want)) {
+    for (const id of BOT.brokers) {
       if (c?.brokers?.[id]) continue;
       if (registerBroker(g, id).ok) acted = true;
     }

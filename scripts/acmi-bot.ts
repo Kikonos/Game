@@ -463,7 +463,17 @@ function offers(g: GameState, t: Tally): void {
       continue;
     }
     const best = bestFit(g, o);
-    if (!best && o.leadId) pipeNote(o, noFitWhy(g, o));
+    if (!best && o.leadId) {
+      pipeNote(o, noFitWhy(g, o));
+      // --why: the checks behind a pipeline offer nobody can fly (v0.16 balance).
+      if (WHY_CREW && !crewSkip.has(`p:${o.id}`)) {
+        crewSkip.add(`p:${o.id}`);
+        for (const id of Object.keys(g.fleet)) {
+          const r = feasibility(g, o.id, id, { paint: paintOn(o), quick: true });
+          console.error(`${fmtDateTime(g.now)} PIPE ${o.archetype} ${o.id} start ${fmtDateTime(o.start)} end ${fmtDateTime(o.end)} ${g.fleet[id].reg} ${r.level} ${r.checks.filter((c) => c.level !== 'ok').map((c) => `${c.id}:${c.level}:${c.label}`).join(' | ')}`);
+        }
+      }
+    }
     if (!best && process.argv.includes('--why') && o.created > g.now - DAY) {
       if (o.slip) console.error(`${fmtDateTime(g.now)} WHY slip offer ${o.id} ${o.archetype} seats-fit ${seatsFit(g, o).length} start ${fmtDateTime(o.start)}`);
       for (const id of seatsFit(g, o)) {

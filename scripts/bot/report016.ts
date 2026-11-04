@@ -4,7 +4,7 @@
 
 import type { GameState } from '../../src/engine/core/types';
 import { statsV016 } from '../../src/engine/core/stats016';
-import { BROKER_IDS, brokerName } from '../../src/engine/commercial/sales';
+import { BROKER_IDS } from '../../src/engine/commercial/sales';
 
 const k$ = (v: number) => `${Math.round(v / 1000)}k`;
 
@@ -16,7 +16,7 @@ export function botSalesFinanceReport(g: GameState): string {
   for (const l of leads) bySrc[l.source] = (bySrc[l.source] ?? 0) + 1;
   const pitches = c?.pitches ?? [];
   const pr = (r: string) => pitches.filter((p) => p.result === r).length;
-  const brokers = BROKER_IDS.filter((id) => c?.brokers?.[id]).map((id) => `${brokerName(id).split(' ')[0]} ${Math.round(c!.brokers![id]!.relation)}/${c!.brokers![id]!.deals}`).join(', ') || 'none';
+  const brokers = BROKER_IDS.filter((id) => c?.brokers?.[id]).map((id) => `${id} ${Math.round(c!.brokers![id]!.relation)}/${c!.brokers![id]!.deals}`).join(', ') || 'none';
   const reps = (c?.reps ?? []).map((r) => `${r.market} ${r.skill}`).join(', ') || 'none';
   const by = s.leadsBy ? Object.entries(s.leadsBy).map(([k, v]) => `${k} ${v}`).join(', ') : `in save: ${Object.entries(bySrc).map(([k, v]) => `${k} ${v}`).join(', ') || '-'}`;
   const sales = `v0.16 sales: leads ${s.leads} (open now ${leads.filter((l) => l.stage === 'lead' || l.stage === 'proposal' || l.stage === 'negotiation').length}; by source {${by}}) · cold ${s.leadsCold}, lost ${s.leadsLost}, signed ${s.leadsSigned} · pitches ${s.pitches} (maybe ${pr('maybe')}, offer ${pr('offer')}, no ${pr('no')}, pending ${pitches.filter((p) => !p.result).length}) · brokers {${brokers}} deals ${s.brokerDeals} · sales managers {${reps}} · stretch ${s.stretchOffers}/${s.stretchSigned} · hidden ${s.hidden} · ramp saved ${s.rampSaved}`;

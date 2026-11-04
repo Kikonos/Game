@@ -246,7 +246,8 @@ function pickLeadClient(g: GameState, r: RngHolder, pool: Client[]): Client | un
  * or two) and a season series second: series are negotiated with the airline directly, brokers move groups.
  */
 export function leadArchetypes(c: Client, focus: Archetype[] = []): Archetype[] {
-  const base: Archetype[] = c.kind === 'airline' ? ['seasonBase', 'aogCover', 'capacityLease']
+  // An AOG cover is asked for the same day (a call, a market offer), never worked through a proposal: not a lead kind.
+  const base: Archetype[] = c.kind === 'airline' ? ['seasonBase', 'capacityLease']
     : c.kind === 'tourOperator' ? ['adhoc', 'tourSeries']
     : c.kind === 'government' ? (roleOf(c) === 'defence' ? ['troopRotation', 'repatriation'] : ['repatriation', 'adhoc'])
     : c.kind === 'agency' ? (isGovernment(c) ? ['humanitarian', 'unRotation'] : ['adhoc', 'tourSeries'])
