@@ -62,7 +62,7 @@ describe('offerHidden', () => {
     expect(offerHidden(g, o)).toBe(false);
   });
 
-  it('humanitarian work, repeat business and a client we have flown for always show', () => {
+  it('humanitarian work and repeat business always show; a plain new offer from a known client follows the filter', () => {
     const g = newGame(5);
     setOfferFilter(g, { on: true, kindsOff: ['tourOperator', 'airline', 'government', 'agency', 'sports', 'music', 'corporate', 'operator'] });
     const t = offer(g, 'tourSeries');
@@ -70,9 +70,8 @@ describe('offerHidden', () => {
     t.repeatOf = 'k1';
     expect(offerHidden(g, t)).toBe(false);
     delete t.repeatOf;
-    g.clients[t.clientId].jobs = 1;
-    expect(offerHidden(g, t)).toBe(false);
-    g.clients[t.clientId].jobs = 0;
+    g.clients[t.clientId].jobs = 3;
+    expect(offerHidden(g, t)).toBe(true);
     const ev = offer(g, 'evacuation');
     expect(offerHidden(g, ev)).toBe(false);
   });

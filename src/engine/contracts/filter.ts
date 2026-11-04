@@ -2,7 +2,7 @@
 // when an offer is created (offers.ts finalize): a hidden offer gets `hidden`, no cue, no message, no pause; it still
 // exists and expires as usual (the Market tab counts them under "N offers hidden by your filter"). Changing the filter
 // re-evaluates the open offers without a chime. Humanitarian work, tenders we won, leads we worked and repeat business
-// from our own clients are never hidden.
+// (a client asking for the same job again) are never hidden; a plain new offer follows the filter whoever sends it.
 
 import { marketOfAirport, marketOfCountry, type MarketId } from '../../data/markets';
 import type { RatingFamily } from '../../data/acmiTypes';
@@ -67,7 +67,6 @@ export function offerHidden(g: GameState, o: ContractOffer): boolean {
   if (o.leadId || o.repeatOf || o.call) return false;
   if (g.com?.tenders?.some((t) => t.result?.offerId === o.id)) return false;
   const c = g.clients[o.clientId];
-  if (c?.jobs) return false;
   if (c && f.kindsOff.includes(c.kind)) return true;
   if (f.minPrestige && c && clientPrestige(c) < f.minPrestige) return true;
   if (f.minRatePerBH && o.product.kind === 'wet' && o.product.ratePerBH < f.minRatePerBH) return true;
