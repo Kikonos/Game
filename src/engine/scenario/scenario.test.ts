@@ -157,6 +157,12 @@ describe('scenarios', () => {
     g.scen!.tally.cxl = 2;
     r = scoreNow(g);
     expect(r.stars).toBe(3);
+    // v0.15.1 the goals view (the top-bar chip) shows the stars the run would get now: none while a condition is missed.
+    expect(scenarioView(g)!.stars).toBe(3);
+    g.scen!.tally.cxl = 10;
+    expect(scenarioView(g)!.stars).toBe(0);
+    expect(scenarioView(createScenario('crewCrisis'))!.stars).toBe(0);
+    g.scen!.tally.cxl = 2;
     // The end: the result, the clock stops, the outcome reads it.
     finish(g, d);
     expect(g.gameOver).not.toBeNull();

@@ -182,7 +182,16 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
     if (c.payment.basis !== 'arrears') {
       const rest = net - dep;
       const total = prog.trips.reduce((s, t) => s + tripMin(t), 0) || 1;
-      c.instalments = prog.trips.map((t) => ({ at: Math.max(g.now, t.std - cp.balanceDaysBefore * DAY), amount: Math.round((rest * tripMin(t)) / total) }));
+      // v0.15.1 rounded on the running total, so the instalments add up to the balance exactly (each rounded on its
+      // own they came to a few dollars over or under, refunded or billed as "$4" at completion).
+      let cum = 0;
+      let billed = 0;
+      c.instalments = prog.trips.map((t) => {
+        cum += (rest * tripMin(t)) / total;
+        const amount = Math.round(cum) - billed;
+        billed += amount;
+        return { at: Math.max(g.now, t.std - cp.balanceDaysBefore * DAY), amount };
+      });
       runInstalments(g, c);
     }
   }
@@ -615,6 +624,8 @@ function completeContract(g: GameState, c: Contract): void {
   c.status = 'completed';
   // v0.6: service quality settles into the client relation; a job well done thanks its crews.
   onContractDoneMorale(g, c);
+  // v0.15.1 prepaid money for legs that never flew goes back to the client: the message says so (it used to leave).
+  let refund = 0;
   if (c.product.kind === 'wet') {
     const months = new Set<number>(Object.keys(c.use).map(Number));
     for (let k = monthKey(c.start); monthStart(k) < c.end; k++) months.add(k);
@@ -636,7 +647,7 @@ function completeContract(g: GameState, c: Contract): void {
       c.instalments = [];
       c.balanceAt = null;
     }
-    settleCharter(g, c, Math.round(c.accrued ?? 0), c.payment.basis === 'arrears' ? `Invoice: ${c.title}` : `Final balance: ${c.title}`);
+    refund = settleCharter(g, c, Math.round(c.accrued ?? 0), c.payment.basis === 'arrears' ? `Invoice: ${c.title}` : `Final balance: ${c.title}`);
   }
   // v0.12.1 the legs that did not fly count: ours (recovery, AOG, no crew) against the on-time score; the client's
   // own or force majeure (a closure, a court) not. Flights are pruned a week after their day, so older
@@ -681,7 +692,7 @@ function completeContract(g: GameState, c: Contract): void {
   if (cxUs + cxFm) parts.push(`${cxUs + cxFm} cancelled`);
   pushMessage(g, {
     tone: flewAny ? 'good' : 'info', cat: 'commercial', title: flewAny ? `Completed: ${c.title}` : `Closed without flying: ${c.title}`,
-    body: `${parts.join(', ')}. ${cl?.name ?? 'The client'} ${!flewAny ? 'has closed the contract' : onTime >= 0.85 ? 'is pleased' : 'noticed the delays'}.`,
+    body: `${parts.join(', ')}. ${cl?.name ?? 'The client'} ${!flewAny ? 'has closed the contract' : onTime >= 0.85 ? 'is pleased' : 'noticed the delays'}.${refund > 0 ? ` Prepaid $${refund.toLocaleString('en-US')} refunded for the legs not flown.` : ''}`,
     ref: { kind: 'contract', id: c.id },
   });
   completeHook?.(g, c);

@@ -45,7 +45,7 @@ export { marketPerWeek };
 import { afterOfferDays, isQuiet, QUIET_MARKET_OFFERS } from '../ops/director';
 import { marketTilt, presenceWeight } from '../commercial/presence';
 import { clientCrewOnCabin, fuelFactor, MISSION_BUILDERS, missionWeights, presidential, rollClientCabin, WINDOW_FIT_V08 } from './missions';
-import { lockOf, themeWeight } from '../scenario/rules';
+import { lockOf, themeWeight, unreachableApproval } from '../scenario/rules';
 
 // ---------- process ----------
 
@@ -1254,6 +1254,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // Everyday work stays within the ETOPS approval we hold; aspirational jobs show the ladder.
   const etopsHeld = g.company.approvals.includes('etops240') ? 240 : g.company.approvals.includes('etops180') ? 180 : g.company.approvals.includes('etops120') ? 120 : 0;
   if (!aspire && requirements.etops > etopsHeld) return null;
+  // v0.15.1 a scenario whose rules keep the Ladder shut never offers work that needs an approval it cannot get.
+  if (unreachableApproval(g, requirements)) return null;
   // Everyday work must also be flyable without ETOPS on a type we operate (its own fuel-stop routing).
   const fleetTypes = [...new Set(Object.values(g.fleet).map((a) => a.typeId))];
   if (!aspire && fleetTypes.length && fleetTypes.every((ft) => sectors.some(([a, b]) => planSector(ft, a, b).legs.some((l) => etopsNeeded(ft, l.from, l.to) > etopsHeld)))) return null;
