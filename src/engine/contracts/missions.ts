@@ -864,6 +864,12 @@ export const FAR_ROUTES: readonly FarRoute[] = [
 const FAR = BAL.v016.prestige;
 /** A day's chance of a far-route offer by standing (Newcomer never: the long legs ask for ETOPS and a widebody). */
 const FAR_PER_DAY = [0, 0.03, 0.045];
+/**
+ * The daily far-route roll. Off under vitest by default (as the ladder's market effects, contracts/prestige.ts
+ * PRESTIGE_GATE): an extra offer on a random day would move the offer-flow and world-tour fixtures; farRoutes.test.ts
+ * switches it on for its own cases. Always on in the game and the bot.
+ */
+export const FAR_ROUTE_GATE = { on: !(typeof process !== 'undefined' && process.env?.VITEST) };
 /** Minutes on the ground at the stop when the crews change (a turn plus the handover). */
 const FAR_CHANGE_MIN = 90;
 
@@ -983,6 +989,7 @@ export function farRoute(g: GameState, id?: string, opts: { start?: Minute; rota
  * sits one level above ours (contracts/prestige.ts).
  */
 export function dailyFarRoute(g: GameState): ContractOffer | null {
+  if (!FAR_ROUTE_GATE.on) return null;
   const p = FAR_PER_DAY[standingOf(g)] ?? 0;
   if (!p || isQuiet(g)) return null;
   if (!chance(sideRng(g, `far:${Math.floor(g.now / DAY)}`), p)) return null;

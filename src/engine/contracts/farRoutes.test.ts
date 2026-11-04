@@ -10,7 +10,7 @@ import { blockMinutes } from '../core/perf';
 import { DAY } from '../core/time';
 import type { ContractOffer, GameState } from '../core/types';
 import { feasibility } from './feasibility';
-import { dailyFarRoute, devFarRoute, FAR_ROUTES, farRoute, makeFarRoute, nearOrigin } from './missions';
+import { dailyFarRoute, devFarRoute, FAR_ROUTE_GATE, FAR_ROUTES, farRoute, makeFarRoute, nearOrigin } from './missions';
 import { ARCH_MULT } from './pricing';
 import { addAircraft, newGame } from './testkit';
 
@@ -138,6 +138,8 @@ describe('v0.16 far routes', () => {
   });
 
   it('nobody at our level calls: a level-1 start gets no far route from the daily roll, a level-3 company does now and then, never two at once', () => {
+    FAR_ROUTE_GATE.on = true;
+    try {
     const g = established(8);
     g.company.prestige = { level: 1, visibility: 0, levelAt: {} };
     let made = 0;
@@ -172,5 +174,8 @@ describe('v0.16 far routes', () => {
       if (dailyFarRoute(n)) z++;
     }
     expect(z).toBe(0);
+    } finally {
+      FAR_ROUTE_GATE.on = false;
+    }
   });
 });
