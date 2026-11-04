@@ -32,7 +32,7 @@ import { busyShare } from '../ops/director';
 import { lockOf } from '../scenario/rules';
 import { mkHurt, type ProblemCard } from '../problems/types';
 import { rollPeople } from './people';
-import { bumpPresence, clientMarket, homeMarket } from './presence';
+import { bumpPresence, clientMarket, homeMarket, presenceWeight } from './presence';
 import { busyNow, com, comStats, paceOf, sideOf, usdK, withStream } from './state';
 import type { Tender } from './types';
 
@@ -76,7 +76,6 @@ const leads = (g: GameState): Lead[] => (com(g).leads ??= []);
 const live = (l: Lead): boolean => l.stage === 'lead' || l.stage === 'proposal' || l.stage === 'negotiation';
 /** A widebody fleet may be offered widebody work; otherwise the builders stay narrowbody. */
 const wideOpt = (g: GameState): false | undefined => (Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide') ? undefined : false);
-const lower = (t: string) => (/^[A-Z0-9]{2,}\b/.test(t) ? t : t.charAt(0).toLowerCase() + t.slice(1));
 const joined = (g: GameState): SalesRep[] => (g.com?.reps ?? []).filter((r) => r.joins <= g.now);
 
 // ---------- brokers ----------
@@ -222,7 +221,8 @@ function pickLeadClient(g: GameState, r: RngHolder, pool: Client[]): Client | un
     const d = clientPrestige(c) - lvl;
     const w = P.weight[String(d)] ?? 0;
     if (d >= 1 && !stretchOk) return 0;
-    return w * (1 + Math.max(0, c.relation) / 100);
+    // Brokers sell us where we are known (the ordinary draw's presence weight), and to clients who know us.
+    return w * (0.2 + presenceWeight(g, c.country)) * (1 + Math.max(0, c.relation) / 100);
   });
 }
 
@@ -302,7 +302,7 @@ function newLead(g: GameState, c: Client, x: NewLead): Lead | null {
 /** A lead from a sales trip (trips.ts): the client met asked about work; it waits in the pipeline for a proposal. */
 export function fairLead(g: GameState, c: Client, tripId: string, fairName: string | null): Lead | null {
   if (!hooks) return null;
-  return newLead(g, c, { source: fairName ? 'fair' : 'visit', archetypes: leadArchetypes(c), key: `trip:${tripId}:${c.id}`, why: (t) => `${fairName ? `Met at ${fairName}` : 'After the visit'}: ${c.name} asked about ${lower(t)}.` });
+  return newLead(g, c, { source: fairName ? 'fair' : 'visit', archetypes: leadArchetypes(c), key: `trip:${tripId}:${c.id}`, why: (t) => `${fairName ? `Met at ${fairName}` : 'After the visit'}: ${c.name} asked about it. ${t}.` });
 }
 
 // ---------- the pipeline ----------
@@ -437,7 +437,7 @@ function answerProposal(g: GameState, l: Lead): void {
   l.moved = g.now;
   l.why = c && c.ceased !== undefined ? 'They stopped flying.' : pick(r, LOST_WHY);
   statsV016(g).leadsLost++;
-  pushMessage(g, { tone: 'info', cat: 'commercial', title: `No deal: ${name}, ${lower(l.title ?? 'the lead')}`, body: `${l.why} Nothing lost but the work.`, ref: { kind: 'lead', id: l.id } });
+  pushMessage(g, { tone: 'info', cat: 'commercial', title: `No deal: ${name}, ${l.title ?? 'the lead'}`, body: `${l.why} Nothing lost but the work.`, ref: { kind: 'lead', id: l.id } });
 }
 
 /** A lead under negotiation follows its offer: signed when a contract carries it, lost when the offer closed without one. */
@@ -470,7 +470,7 @@ function leadLifetimes(g: GameState): void {
         l.stage = 'cold';
         l.moved = g.now;
         statsV016(g).leadsCold++;
-        pushMessage(g, { tone: 'info', cat: 'commercial', title: `Lead gone cold: ${g.clients[l.clientId]?.name ?? 'a client'}, ${lower(l.title ?? 'the job')}`, body: `No proposal went out in ${S.lead.coldDays} days; they moved on. About ${usdK(l.value)} of work.`, ref: { kind: 'lead', id: l.id } });
+        pushMessage(g, { tone: 'info', cat: 'commercial', title: `Lead gone cold: ${g.clients[l.clientId]?.name ?? 'a client'}, ${l.title ?? 'the job'}`, body: `No proposal went out in ${S.lead.coldDays} days; they moved on. About ${usdK(l.value)} of work.`, ref: { kind: 'lead', id: l.id } });
       } else if (!l.warned && l.expires - g.now <= S.lead.warnDays * DAY) {
         l.warned = true;
         const card = leadColdCard(g, l.id);
@@ -510,11 +510,11 @@ function brokerLead(g: GameState, id: BrokerId): void {
       return;
     }
   }
-  const lead = newLead(g, c, { source: 'broker', brokerId: id, archetypes: leadArchetypes(c, F.archetypes), key, why: (t) => `From ${brokerName(id)}: ${c.name} is looking for ${lower(t)}.` });
+  const lead = newLead(g, c, { source: 'broker', brokerId: id, archetypes: leadArchetypes(c, F.archetypes), key, why: (t) => `From ${brokerName(id)}. ${t}.` });
   if (!lead) return;
   rel.lastLead = g.now;
   pushMessage(g, {
-    tone: 'info', cat: 'commercial', title: `Lead from ${brokerName(id)}: ${c.name}, ${lower(lead.title ?? 'a job')}`,
+    tone: 'info', cat: 'commercial', title: `Lead from ${brokerName(id)}: ${c.name}, ${lead.title ?? 'a job'}`,
     body: `About ${usdK(lead.value)} of work. Send a proposal within ${S.lead.coldDays} days or they move on; ${brokerName(id)} takes ${Math.round(commissionOf(id) * 100)} % if it closes.`,
     ref: { kind: 'lead', id: lead.id }, cue: 'message',
   });
@@ -651,7 +651,7 @@ function pitchReply(g: GameState, p: Pitch): void {
     return;
   }
   if (roll === 'maybe') {
-    const lead = newLead(g, c, { source: 'pitch', archetypes: ['seasonBase'], key: `pitch:${p.id}`, stage: 'proposal', why: (t) => `After our ${label} pitch: ${name} may need ${lower(t)}.` });
+    const lead = newLead(g, c, { source: 'pitch', archetypes: ['seasonBase'], key: `pitch:${p.id}`, stage: 'proposal', why: (t) => `After our ${label} pitch: ${name} may need cover. ${t}.` });
     if (lead) {
       p.result = 'maybe';
       p.leadId = lead.id;
@@ -686,7 +686,7 @@ function pitchOffer(g: GameState, p: Pitch): void {
     p.leadId = '';
     return;
   }
-  const lead = newLead(g, c, { source: 'pitch', archetypes: ['seasonBase'], key: `pitcho:${p.id}`, stage: 'proposal', why: (t) => `After our ${seasonLabel(p.season)} pitch: ${c.name} wants ${lower(t)}.` });
+  const lead = newLead(g, c, { source: 'pitch', archetypes: ['seasonBase'], key: `pitcho:${p.id}`, stage: 'proposal', why: (t) => `After our ${seasonLabel(p.season)} pitch: ${c.name} wants our cover. ${t}.` });
   if (!lead) {
     p.leadId = '';
     return;
@@ -816,11 +816,11 @@ function repWork(g: GameState): void {
     const pool = Object.values(g.clients).filter((c) => !c.rivalId && c.ceased === undefined && c.kind !== 'broker' && c.kind !== 'operator' && !!AIRPORT_BY_CODE[c.base] && clientMarket(c) === rep.market);
     const c = pickLeadClient(g, r, pool);
     if (!c) continue;
-    const lead = newLead(g, c, { source: 'staff', repId: rep.id, archetypes: leadArchetypes(c), key, why: (t) => `${rep.name} (${marketName(rep.market)}): ${c.name} is looking for ${lower(t)}.` });
+    const lead = newLead(g, c, { source: 'staff', repId: rep.id, archetypes: leadArchetypes(c), key, why: (t) => `${rep.name}, ${marketName(rep.market)}. ${t}.` });
     if (!lead) continue;
     rep.leads++;
     pushMessage(g, {
-      tone: 'info', cat: 'commercial', title: `Lead from ${rep.name}: ${c.name}, ${lower(lead.title ?? 'a job')}`,
+      tone: 'info', cat: 'commercial', title: `Lead from ${rep.name}: ${c.name}, ${lead.title ?? 'a job'}`,
       body: `About ${usdK(lead.value)} of work in ${marketName(rep.market)}. Send a proposal within ${S.lead.coldDays} days or they move on.`,
       ref: { kind: 'lead', id: lead.id }, cue: 'message',
     });

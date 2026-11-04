@@ -226,6 +226,21 @@ API (commercial/sales.ts): `BROKERS_016`, `brokerView`, `registerBroker`, `leads
 
 UI: Contracts gets a **Sales** tab (brokers with relation bars and Register / Visit; the pipeline as a short list with Send proposal / Drop; pitches with the season window and the replies due); Team gets **Sales managers** rows. Bot: `scripts/bot/sales.ts botSales(g)` registers with two brokers in month 2, works every lead, pitches 2 airlines a season, hires one sales manager for the home market when cash > $3M.
 
+### C.8 As built (lane `sales`)
+
+- `commercial/sales.ts` gets its builders through `setSalesHooks` from `commercial/index.ts` (generateOffer, issueTender, roundAt, the issuers' list): accept.ts and problems/index.ts import sales.ts, so sales.ts imports neither offers.ts nor tenders.ts.
+- A lead is priced by a quiet draft of the job (built and dropped at once on a borrowed stream; the stretch slot and the client's last title are given back); the real offer is built when the proposal is answered yes (first refusal, no rival, 5 days at least, `leadId` + `brokerId`). A pitch answered "maybe" is a proposal-stage lead; "yes" is a negotiation-stage lead with its season-base offer 60–120 days before the season.
+- Brokers favour where we are known (`presenceWeight`) and clients who know us; in tender season an airline that tenders gets us invited instead (the tender carries `brokerId`, +4 relation on a win). A broker visit ($1,500, +5 relation, monthly) sits beside Register. Deals are credited once from the contract (`Contract.brokerDone`): +6 flown ≥ 90 % on time, +2 flown worse, −10 cancelled; −1 a month idle, floor 10.
+- Fair and visit leads go into the pipeline (`TripLead.kind 'lead'`); a fair also earns the prestige ladder's +15 visibility, a tender won +40 (prestige.ts addVisibility).
+- Ordinary offers that name a broker (data/naming.ts BROKERS) carry its `brokerId` too, so the broker table's rate replaces the flat 5 %. The commission is still netted off revenue (no separate `commission` statement line yet: finance.ts billing would have to un-net it — open for the merge).
+- `Contracts.tsx` whitelists the `sales` / `filter` views (step 0 left them unreachable); `screenLogic.ts refTarget` routes `lead` / `broker` to Contracts › Sales and `rep` / `compliance` to Team.
+- F as built: `ops/compliance.ts` (candidates via `commercial/people.ts rollPeople`, hire / fire / bill / factors), one-line hunks in `ramp.ts` (mean × `complianceFactor`, `noteRampSaved`) and `audit.ts` (paperwork roll × `complianceAuditFactor`, Level 2 +30 days, task cost × 0.8, the ramp task "The CMM adds line-station checks" at half the cost). Bot: `--cmm` hires the mid candidate on day 1 (`scripts/bot/sales.ts botCompliance`).
+
+**What's new (sales lane):**
+- "About half the work now comes to you; the rest you chase. Contracts › Sales: register with the real brokers (Air Charter Service, Chapman Freeborn, ACC Aviation, Air Partner, Hunt & Palmer), work a leads pipeline (lead → proposal → offer → signed; a lead goes cold after 14 days), pitch airlines before the season, and hire regional sales managers in Team. Fairs bring leads into the pipeline; tenders come more often as you climb."
+- "A Compliance Monitoring Manager is a real hire in Team › Nominated posts: fewer ramp and audit findings, longer deadlines, cheaper fixes."
+
+
 ---
 
 ## D. Offer filter (lane `ops`)
