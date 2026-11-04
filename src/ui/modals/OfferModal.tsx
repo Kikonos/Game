@@ -269,7 +269,7 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal
         </span>
         <span className="right">
           <b className={`num ${block ? 'dim' : margin >= 0 ? 'good' : 'bad'}`}>{money(margin)}</b>
-          <span className="tiny dim">contribution</span>
+          <span className="tiny dim">profit</span>
         </span>
       </button>
       {portal}

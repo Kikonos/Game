@@ -47,6 +47,10 @@ export function createScenario(id: string): GameState {
         (x.company.approvalsAt ??= {})[a] = start - 200 * DAY;
       }
       for (const p of d.pending ?? []) x.company.pendingApprovals.push({ id: p.id, started: start - 60 * DAY, done: start + p.days * DAY, cost: 0 });
+      // v0.15.1 an ETOPS application cannot be filed without the ETOPS maintenance programme under way: the airline
+      // set it up with the filing, ready on the approval's day (Long-Haul Debut's ETOPS 120 waited for it instead).
+      const etops = (d.pending ?? []).find((p) => /^etops/.test(p.id));
+      if (etops && !x.company.etopsMx) x.company.etopsMx = { started: start - 60 * DAY, done: start + etops.days * DAY, cost: 0 };
     },
   });
   // Money owed to us from before the start (paid when the client pays: governments late).

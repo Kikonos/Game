@@ -344,6 +344,12 @@ export function forecastItems(g: GameState, days: number): ForecastItem[] {
     // v0.14.1 (M7) as accept.ts bill() invoices them: due in 7 days, a government's on its own terms (arrears).
     const due = c.payment.basis === 'arrears' ? c.payment.dueDays : 7;
     for (const it of c.instalments ?? []) add(it.at + due * DAY, it.amount, 'charter balances');
+    // v0.15.1 a charter paid in arrears (governments, the UN) is invoiced when the job completes, on the client's
+    // terms: the price less any deposit already asked for. The forecast saw no money at all from government work.
+    if (c.product.kind === 'charter' && c.payment.basis === 'arrears' && !c.dry) {
+      const left = Math.round(c.product.price * (1 - brokerCut(c)) - (c.invoiced ?? 0));
+      if (left > 0) add(Math.max(c.end, g.now) + due * DAY, left, 'charter balances');
+    }
     if (c.dry && c.product.kind === 'dry') dryLeaseItems(g, c, add);
   }
   // v0.14.1 (M2) an administrator's payout on our claim (commercial/crises.ts), on its date.

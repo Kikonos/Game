@@ -151,6 +151,23 @@ export function themeWeight(g: GameState, a: Archetype): number {
   return lockOf(g, 'market', { archetype: a }) ? 0 : 1;
 }
 
+/**
+ * v0.15.1 an approval a job needs that this scenario's rules never let us file for (one held, filed or allowed is fine),
+ * else null. The market keeps such work off the desk: an aspirational ETOPS 120 job in Summer Surge pointed at a Ladder
+ * the scenario had shut. Pure.
+ */
+export function unreachableApproval(g: GameState, req: { etops: number; approvals: readonly ApprovalId[] }): ApprovalId | null {
+  const r = rulesOf(g);
+  if (!r) return null;
+  const have = (id: ApprovalId) => g.company.approvals.includes(id) || g.company.pendingApprovals.some((p) => p.id === id) || r.approvals.includes(id);
+  for (const a of req.approvals) if (!have(a)) return a;
+  if (req.etops > 0) {
+    const fits = (['etops120', 'etops180', 'etops240'] as ApprovalId[]).filter((id) => Number(id.slice(5)) >= req.etops);
+    if (fits.length && !fits.some(have)) return fits[0];
+  }
+  return null;
+}
+
 /** The warning on a 'penalty' cancel of a core contract ("the run ends with no stars"), else null. Pure. */
 export function cancelWarning(g: GameState, contractId: string): string | null {
   const r = rulesOf(g);

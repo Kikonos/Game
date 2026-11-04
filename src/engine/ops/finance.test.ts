@@ -639,3 +639,22 @@ describe('v0.14.1 the forecast: money on the day it really moves (M2, M7, UI-3)'
     expect(forecastItems(g, 30).some((x) => x.what === "administrators' claims")).toBe(false);
   });
 });
+
+describe('v0.15.1 the forecast: a charter paid in arrears', () => {
+  it('a government charter is expected when the job completes, on its terms (it was never in the forecast)', () => {
+    const g = newGame(5);
+    const end = g.now + 12 * DAY;
+    const k = { id: 'kg', status: 'active', product: { kind: 'charter', price: 400_000 }, payment: { basis: 'arrears', dueDays: 45 }, end, aircraftIds: [], billedMonths: [], invoiced: 0 } as unknown as Contract;
+    g.contracts.kg = k;
+    expect(forecastItems(g, 90).filter((x) => x.what === 'charter balances')).toEqual([{ t: end + 45 * DAY, amount: 400_000, what: 'charter balances' }]);
+    // A deposit the credit controller asked for is invoiced already: the rest comes; a broker's cut comes off.
+    k.invoiced = 80_000;
+    k.broker = 'Air Partner';
+    expect(forecastItems(g, 90).find((x) => x.what === 'charter balances')!.amount).toBe(400_000 * 0.95 - 80_000);
+    // A job that ran late is invoiced from now, not from a date gone by; a completed one is not expected again.
+    k.end = g.now - 2 * DAY;
+    expect(forecastItems(g, 90).find((x) => x.what === 'charter balances')!.t).toBe(g.now + 45 * DAY);
+    k.status = 'completed';
+    expect(forecastItems(g, 90).some((x) => x.what === 'charter balances')).toBe(false);
+  });
+});

@@ -523,6 +523,10 @@ export function loadApprovals(g: GameState): void {
   for (const id of co.approvals) co.approvalsAt[id] ??= g.started;
   // v0.10.2 technical dispatch reliability from the records an older save has (its departures by month, its AOGs).
   seedTechLog(g);
+  // v0.15.1 an application filed before the game began (a scenario's, Long-Haul Debut) had no 'approval.done' queued,
+  // so its day never came and it stayed pending for good: queued here (a save with one stuck gets it on load).
+  const queued = new Set(g.queue.filter((e) => e.type === 'approval.done').map((e) => e.id));
+  for (const p of co.pendingApprovals) if (!p.waiting && !queued.has(p.id)) schedule(g, p.done, 'approval.done', p.id);
   if (!firstV07) {
     g.stats.incidents ??= [];
     return;

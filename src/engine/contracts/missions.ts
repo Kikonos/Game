@@ -38,6 +38,7 @@ import { defaultSeats } from './pricing';
 import { warRiskCost } from './missionChecks';
 import { levelOf } from './relations';
 import { isActive } from './rivals';
+import { lockOf } from '../scenario/rules';
 
 const V = BAL.v08;
 const month = (t: Minute) => toDate(t).getUTCMonth();
@@ -947,6 +948,8 @@ function lessees(g: GameState, typeId: string): Client[] {
  * leased-in airframe; half the lessees want their colours (they paint at their own MRO). `w`: a specific window.
  */
 export function makeDryLeaseOffer(g: GameState, w?: IdleWindow, clientId?: string): ContractOffer | null {
+  // v0.15.1 a scenario with a fixed fleet: no dry-lease requests (they reached the desk and could only be refused).
+  if (lockOf(g, 'market', { archetype: 'dryLeaseOut' })) return null;
   const D = V.dry;
   const r = sideRng(g, `dry:${g.seq}:${g.now}`);
   const ws = w ? [w] : idleWindows(g, 60, 330).filter((x) => {
