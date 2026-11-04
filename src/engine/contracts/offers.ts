@@ -35,7 +35,7 @@ import { anchorsOf, computeWaves, flownRotations, localToUTC, longestChains, max
 export { maxPax, seatNeed };
 import { ARCH_MULT, defaultSeats, flownTypes, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
-import { markStretch, prestigeOfferWeight } from './prestige';
+import { clientPrestige, markStretch, noteStretch, prestigeOfferWeight, prestigePayPct, prestigePenaltyX } from './prestige';
 import { offerHidden } from './filter';
 import { statsV016 } from '../core/stats016';
 import { rivalTakes, rollRivalBid } from './rivals';
@@ -1309,11 +1309,14 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   if (!wet && d.archetype !== 'evacuation' && p.kind === 'legs') d.passThrough = (d.passThrough ?? 0) + warRiskLandings(g, p.legs, typeOf(ref).body === 'wide');
   const levelPct = d.product ? 0 : perks(g, d.client).rate;
   const standingPct = d.product ? 0 : standingRate(g);
+  // v0.16 the client's prestige level pays its part (brochure work −4 % … majors +8 %; contracts/prestige.ts).
+  const prestigeLv = clientPrestige(g.clients[d.client.id] ?? d.client);
+  const prestigePct = d.product ? 0 : prestigePayPct(prestigeLv);
   const product: Product = d.product ?? priceProduct(g, {
     archetype: d.archetype, typeId: ref, estBH: wet ? revBH : revBH + emptyMin / 60 + (d.extraBH ?? 0), start: d.start, end: d.end, lead: d.start - g.now,
     mult: d.mult, departures: deps, revDepartures: revDeps, roomNights, crewDays, tickets: tickets + (d.passThrough ?? 0), government: gov, mghPerMonth: d.mghPerMonth,
     // v0.14 an ordinary market offer: fewer of them, better paid (BAL.marketOffers.ratePct).
-    loyalty: (1 + levelPct) * (1 + standingPct) * (ordinaryDraw ? 1 + BAL.marketOffers.ratePct : 1) - 1, wet: d.wet, ...((d.jumbo || bigFull(d)) && !wet ? { fuelAtCostBH: revBH } : {}),
+    loyalty: (1 + levelPct) * (1 + standingPct) * (1 + prestigePct) * (ordinaryDraw ? 1 + BAL.marketOffers.ratePct : 1) - 1, wet: d.wet, ...((d.jumbo || bigFull(d)) && !wet ? { fuelAtCostBH: revBH } : {}),
     // v0.12.1 a world tour's five-star catering.
     ...(d.archetype === 'worldTour' ? { cateringX: BAL.v0121.tour.catering } : {}),
   });
@@ -1350,8 +1353,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     id: nextId(g, 'o'),
     archetype: d.archetype, clientId: d.client.id, broker: d.broker, title: d.title, blurb: d.blurb,
     product, requirements, pattern: p, start: d.start, end: d.end, created: g.now, expires: g.now + Math.round(expiresIn), urgency,
-    // v0.8 a Newcomer's clients are demanding (delay compensation × 1.5).
-    penalties: { cancelScale: BAL.cancelScale.map(([a, b]) => [a, b] as [number, number]), perDelay: Math.round(BAL.perDelay[wide ? 1 : 0] * (standingOf(g) === 0 ? BAL.v08.standing.demandingDelay : 1)), perCancelledLeg: BAL.perCancelledLeg[wide ? 1 : 0] },
+    // v0.8 a Newcomer's clients are demanding (delay compensation × 1.5). v0.16 a client's level scales it (× 0.8 … × 1.6).
+    penalties: { cancelScale: BAL.cancelScale.map(([a, b]) => [a, b] as [number, number]), perDelay: Math.round(BAL.perDelay[wide ? 1 : 0] * (standingOf(g) === 0 ? BAL.v08.standing.demandingDelay : 1) * prestigePenaltyX(prestigeLv)), perCancelledLeg: BAL.perCancelledLeg[wide ? 1 : 0] },
     payment: product.kind === 'dry'
       ? { basis: 'advance', dueDays: 5, depositPct: 0 }
       : wet
@@ -1365,7 +1368,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     status: 'open',
     pin: d.pin ?? firstAway,
     hook: d.hook,
-    ...(levelPct ? { levelPct } : {}), ...(standingPct ? { standingPct } : {}), ...(firstRefusal ? { firstRefusal: true } : {}),
+    ...(levelPct ? { levelPct } : {}), ...(standingPct ? { standingPct } : {}), ...(prestigePct ? { prestigePct } : {}), ...(firstRefusal ? { firstRefusal: true } : {}),
     ...(d.repeatOf ? { repeatOf: d.repeatOf } : {}), ...(d.eventId ? { eventId: d.eventId } : {}), ...(d.dryFor ? { dryFor: d.dryFor } : {}),
   };
   if (d.terms) o.terms = d.terms;
@@ -1435,7 +1438,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // v0.14 an ordinary market offer is never a look-alike of one open now (the same title, the same kind of job to the
   // same place, the same client's same shape of work), and one no aircraft of ours could fly is mostly drawn again
   // (BAL.marketOffers.unfitDrop; the ladder's aspirational jobs stay).
-  if (ordinaryDraw && (lookAlike(g, o) || (!aspire && !fleetCanFly(g, o.id) && chance(sideRng(g, `fit:${o.id}`), BAL.marketOffers.unfitDrop)))) {
+  // v0.16 a stretch offer stays even when we cannot fly it yet: it shows what the next level asks for.
+  if (ordinaryDraw && (lookAlike(g, o) || (!aspire && !d.stretch && !fleetCanFly(g, o.id) && chance(sideRng(g, `fit:${o.id}`), BAL.marketOffers.unfitDrop)))) {
     delete g.offers[o.id];
     if (shut) shut.offerIds = shut.offerIds.filter((x) => x !== o.id);
     if (cl) cl.lastTitle = lastTitle;
@@ -1532,6 +1536,8 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     if (d) markStretch(g, d);
     const o = d && finalize(g, d, ctx.aspire);
     if (o) {
+      // v0.16 a stretch offer made: the next one waits a month (contracts/prestige.ts).
+      noteStretch(g, o);
       // v0.6: the last gap-fit offer (the quiet-week floor looks at it).
       if (ctx.window) g.stats.lastGapOfferAt = g.now;
       if (opts.ordinary) g.stats.lastMarketOfferAt = g.now;
@@ -1584,7 +1590,8 @@ export function lapseCues(g: GameState): void {
   const s = lapsed.get(g) ?? new Set<string>();
   lapsed.set(g, s);
   for (const o of Object.values(g.offers)) {
-    if (o.status !== 'open' || o.call || o.expires <= g.now || o.expires - g.now >= LAPSE_WARN || s.has(o.id)) continue;
+    // v0.16 an offer hidden by the player's filter never writes (contracts/filter.ts).
+    if (o.status !== 'open' || o.call || o.hidden || o.expires <= g.now || o.expires - g.now >= LAPSE_WARN || s.has(o.id)) continue;
     s.add(o.id);
     if (first) continue;
     if (!o.seen && !Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) continue;

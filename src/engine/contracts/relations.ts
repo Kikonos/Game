@@ -65,6 +65,9 @@ export const perksOf = (g: GameState, clientId: string): LevelPerks => LEVEL_PER
 export function bumpClient(g: GameState, clientId: string | undefined, delta: number, why: string): void {
   const c = clientId ? g.clients[clientId] : undefined;
   if (!c || !delta) return;
+  // v0.16 a hit from a national carrier, a major or a government lands harder (× 1.3 / × 1.5; the monthly drift, told
+  // with no reason, is not a hit).
+  if (delta < 0 && why) delta *= BAL.v016.prestige.relationX[c.prestige ?? 2] ?? 1;
   const was = c.relation;
   c.relation = clamp(Math.round((c.relation + delta) * 100) / 100, -100, 100);
   const d = c.relation - was;
