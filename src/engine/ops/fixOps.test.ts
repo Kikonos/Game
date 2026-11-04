@@ -7,14 +7,14 @@ import { blockMinutes, typeOf } from '../core/perf';
 import { DAY } from '../core/time';
 import type { Aircraft, Flight, GameState, Minute } from '../core/types';
 import { acceptOffer } from '../contracts';
-import { leased, legsOffer, newGame, owned } from '../contracts/testkit';
+import { hamBase, leased, legsOffer, newGame, owned } from '../contracts/testkit';
 import { advanceTo } from '../sim';
 import { devDisruption } from './disrupt';
-import { aogDecision } from './events';
+import { aogDecision, changeRequestFor } from './events';
 import { cancelCost, planHold, subcharterCost } from './flights';
 import { resolveDecision } from '.';
-import { setAogEnd, startAog } from './maintenance';
-import { isRevenue } from './util';
+import { scheduleCheck, setAogEnd, startAog } from './maintenance';
+import { isRevenue, stats } from './util';
 
 const H = 60;
 const leg = (g: GameState, ac: Aircraft, from: string, to: string, std: Minute, kind: Flight['kind'] = 'revenue') =>
@@ -78,13 +78,54 @@ function aogDay(seed: number, hours: number, otherBusy = false) {
   return { g, ac, m, d: g.decisions.find((x) => x.kind === 'aog')!, legs };
 }
 
+describe('v0.15.1 a client never gets an extra rotation offered while the aircraft is in the shop', () => {
+  it('the request skips a two-day cabin shop visit booked into the Hamburg programme (seed 21: DE848 was added on the shop day)', () => {
+    const g = newGame(21);
+    const ac = leased(g);
+    const o = hamBase(g, g.now + 3 * DAY, 30);
+    o.broker = undefined;
+    const r = acceptOffer(g, o.id, [ac.id]);
+    if (!r.ok) throw new Error(r.error);
+    const c = g.contracts[r.data!.contractId];
+    advanceTo(g, c.start + DAY, new Set());
+    g.decisions.length = 0;
+    stats(g).askedAt = [];
+    const start = Math.floor((g.now + 2 * DAY) / DAY) * DAY + 20 * H;
+    const m = scheduleCheck(g, ac.id, 'refit', start, 'HAM', { refit: { cabin: ac.cabin, days: 2, cost: 1000 }, dropLegs: true });
+    if (!m.ok) throw new Error(m.error);
+    const mx = g.maintenance[m.data!.maintId];
+    let asked = 0;
+    for (let i = 0; i < 30; i++) {
+      g.decisions.length = 0;
+      if (!changeRequestFor(g, c)) continue;
+      asked++;
+      const d = g.decisions.find((x) => x.kind === 'changeRequest')!;
+      const std = Number(d.data!.std);
+      expect(std >= mx.end || std + 8 * H <= mx.start).toBe(true);
+      expect(resolveDecision(g, d.id, 'accept').ok).toBe(true);
+      expect(flightsOf(g, ac.id).some((f) => f.status === 'scheduled' && f.std < mx.end && f.sta > mx.start)).toBe(false);
+    }
+    expect(asked).toBeGreaterThan(0);
+  });
+});
+
 describe('v0.15.1 the AOG default is the cheapest way out', () => {
-  it('a free aircraft of the family is swapped in when the wait would drop legs', () => {
-    const { g, d } = aogDay(21, 30);
+  it('a free aircraft of the family is swapped in when even the AOG team would drop legs', () => {
+    const { g, d } = aogDay(21, 50);
     expect(Number(d.data!.cutC)).toBeGreaterThan(0);
+    expect(Number(d.data!.cutT)).toBeGreaterThan(0);
     expect(d.options.find((o) => o.id === 'swap')!.tone).toBe('good');
     expect(d.defaultOption).toBe('swap');
     expect(resolveDecision(g, d.id, 'swap').ok).toBe(true);
+  });
+
+  it('the AOG team that only delays the legs beats a swap (S0228: 10 legs moved to another aircraft for nothing)', () => {
+    const { g, d } = aogDay(24, 30);
+    expect(Number(d.data!.cutC)).toBeGreaterThan(0);
+    expect(Number(d.data!.cutT)).toBe(0);
+    expect(d.options.find((o) => o.id === 'swap')!.tone).toBe('good');
+    expect(d.defaultOption).toBe('team');
+    expect(resolveDecision(g, d.id, 'team').ok).toBe(true);
   });
 
   it('with no aircraft free, the AOG team when its fee is less than the legs it saves', () => {

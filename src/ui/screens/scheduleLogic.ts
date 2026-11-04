@@ -168,6 +168,8 @@ export function maintLabel(m: MaintenanceEvent): [string, string] {
   if (m.kind === 'AOG') return [`AOG ${m.at}`, 'AOG'];
   if (m.kind === 'refit') return [`Refit → ${m.refit?.cabin.label ?? 'new cabin'} · ${m.at}`, 'Refit'];
   if (m.kind === 'return') return [`Lease return ${m.at}`, 'Return'];
+  // v0.15.1 line maintenance (an inspection after a diversion or a bird strike, a ramp finding) read "line-check".
+  if (m.kind === 'line') return [`Inspection ${m.at}`, 'Insp.'];
   return [`${m.kind}-check ${m.at}`, m.kind];
 }
 

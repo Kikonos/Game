@@ -347,7 +347,7 @@ function titleOf(g: GameState, r: Ref): string {
     return f ? `${f.no} ${f.from} → ${f.to}` : 'Flight';
   }
   const m = g.maintenance[r.id];
-  return m ? (m.kind === 'AOG' ? `AOG repair at ${m.at}` : m.kind === 'paint' ? `${paintLabel(g, m)} at ${m.at}` : m.kind === 'refit' || m.kind === 'return' ? maintLabel(m)[0] : `${m.kind}-check at ${m.at}`) : 'Maintenance';
+  return m ? (m.kind === 'AOG' ? `AOG repair at ${m.at}` : m.kind === 'paint' ? `${paintLabel(g, m)} at ${m.at}` : m.kind === 'refit' || m.kind === 'return' ? maintLabel(m)[0] : m.kind === 'line' ? `Inspection at ${m.at}` : `${m.kind}-check at ${m.at}`) : 'Maintenance';
 }
 
 /** v0.8 a dry lease out (the Gantt's lease block): phases, money, the lessee's hours, the C-check line. */
