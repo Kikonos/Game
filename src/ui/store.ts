@@ -18,7 +18,7 @@ import { pushDecision } from '../engine/core/messages';
 import type { ClientLevel } from '../engine/contracts';
 import type { WorldEventKind } from '../engine/core/types';
 import { devCrisisNow, devFair, devTender, devTenderBoard, type CrisisKind } from '../engine/commercial';
-import { devDeportation, devDryLease, devEvacuation, devHajj, devLevel, devMixedCrew, devRivalBid, devWorldEvent, devWorldTour } from '../engine/dev';
+import { devDeportation, devDryLease, devEvacuation, devFarRoute, devHajj, devLevel, devMixedCrew, devRivalBid, devWorldEvent, devWorldTour } from '../engine/dev';
 import { devTourStopClosed } from '../engine/ops/tourStop';
 import { demoFlights, devAddType, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
 import { dropTargets, moveDuty, publishedTo, resignNow, type DropTarget, type MoveScope } from '../engine/crew';
@@ -1466,6 +1466,8 @@ class GameStore {
     deportation: () => this.devOffer(devDeportation),
     /** v0.12.1 a world tour offer (TMR unless another client is named: 'Abercrombie & Kent', 'Kuoni Group Travel'). */
     worldTour: (client?: string) => this.devOffer((g) => devWorldTour(g, client)),
+    /** v0.16 a far-route offer (any template, or one by id: 'frNoumea', 'ukFalklands', 'klmTriangle', 'tahitiNui'…). */
+    farRoute: (id?: string) => this.devOffer((g) => devFarRoute(g, id)),
     evacuation: () => this.devOffer(devEvacuation),
     rivalBid: () => this.devOffer(devRivalBid),
     mixedCrew: () => this.devScene(devMixedCrew, 'duty'),

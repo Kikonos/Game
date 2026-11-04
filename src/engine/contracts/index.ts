@@ -12,7 +12,7 @@ import { dailyRelations, loadRelations, monthlyRelationDrift } from './relations
 import { dailyPrestige, loadPrestige } from './prestige';
 import { loadFilter } from './filter';
 import { loadRivals, onRivalBid, refreshRivals } from './rivals';
-import { dailyDryLease, dailyRepeats, dailySubIn, dailyWorldTour } from './missions';
+import { dailyDryLease, dailyFarRoute, dailyRepeats, dailySubIn, dailyWorldTour } from './missions';
 
 export { acceptOffer, askingPrice, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, isTenderOffer, leadDays, setPrice, type ContractProgress, type SignOpts } from './accept';
 export { paintQuote, paintTermsText, paintWindow, type PaintSlot } from './paintTerms';
@@ -49,6 +49,8 @@ function daily(g: GameState) {
     dailyRepeats(g);
     // v0.12.1 a round-the-world tour now and then, once we fly a widebody with ETOPS 180.
     dailyWorldTour(g);
+    // v0.16 a far route (an overseas rotation with a crew change on the way) now and then, once Established.
+    dailyFarRoute(g);
   }
 }
 
