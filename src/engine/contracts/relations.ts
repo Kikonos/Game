@@ -5,6 +5,7 @@
 
 import { clientVoice } from '../../data/clientVoice';
 import { BAL } from '../core/balance';
+import { prestigeRelationX } from './prestige';
 import { pushMessage } from '../core/messages';
 import { DAY, fmtDay, fmtMonth, monthKey } from '../core/time';
 import { clamp } from '../core/util';
@@ -67,7 +68,7 @@ export function bumpClient(g: GameState, clientId: string | undefined, delta: nu
   if (!c || !delta) return;
   // v0.16 a hit from a national carrier, a major or a government lands harder (× 1.3 / × 1.5; the monthly drift, told
   // with no reason, is not a hit).
-  if (delta < 0 && why) delta *= BAL.v016.prestige.relationX[c.prestige ?? 2] ?? 1;
+  if (delta < 0 && why) delta *= prestigeRelationX(c.prestige ?? 2);
   const was = c.relation;
   c.relation = clamp(Math.round((c.relation + delta) * 100) / 100, -100, 100);
   const d = c.relation - was;

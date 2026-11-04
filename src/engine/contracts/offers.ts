@@ -212,8 +212,9 @@ export interface Draft {
   extraBH?: number;
   /** v0.9 §Y.2 a jumbo load (420–480 passengers, all economy). */
   jumbo?: boolean;
-  /** v0.16 clients: a stretch offer (one level above ours; prestige.ts markStretch); a far-flung route (missions.ts farRoute). */
+  /** v0.16 clients: a stretch offer (one level above ours; prestige.ts markStretch); IOSA asked by the client (kept on the market even when we lack it); a far-flung route (missions.ts farRoute). */
   stretch?: true;
+  iosaAsked?: true;
   exotic?: true;
   /** v0.16 sales: the broker that brought it and the pipeline lead it answers (commercial/sales.ts). */
   brokerId?: BrokerId;
@@ -1438,8 +1439,8 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // v0.14 an ordinary market offer is never a look-alike of one open now (the same title, the same kind of job to the
   // same place, the same client's same shape of work), and one no aircraft of ours could fly is mostly drawn again
   // (BAL.marketOffers.unfitDrop; the ladder's aspirational jobs stay).
-  // v0.16 a stretch offer stays even when we cannot fly it yet: it shows what the next level asks for.
-  if (ordinaryDraw && (lookAlike(g, o) || (!aspire && !d.stretch && !fleetCanFly(g, o.id) && chance(sideRng(g, `fit:${o.id}`), BAL.marketOffers.unfitDrop)))) {
+  // v0.16 a stretch offer, or one asking for IOSA, stays even when we cannot fly it yet: it shows what the level asks for.
+  if (ordinaryDraw && (lookAlike(g, o) || (!aspire && !d.stretch && !d.iosaAsked && !fleetCanFly(g, o.id) && chance(sideRng(g, `fit:${o.id}`), BAL.marketOffers.unfitDrop)))) {
     delete g.offers[o.id];
     if (shut) shut.offerIds = shut.offerIds.filter((x) => x !== o.id);
     if (cl) cl.lastTitle = lastTitle;
@@ -1532,8 +1533,9 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     if (d && opts.repeatOf) d.repeatOf = opts.repeatOf;
     if (d && opts.eventId) d.eventId = opts.eventId;
     if (d && opts.cabin !== undefined) d.cabin = opts.cabin;
-    // v0.16 a draft from a client one level above ours is a stretch offer (contracts/prestige.ts).
-    if (d) markStretch(g, d);
+    // v0.16 a draft from a client one level above ours is a stretch offer, a national carrier or a major asks for IOSA
+    // (contracts/prestige.ts); the hand-shaped opening offers are a new company's fair first jobs and ask nothing.
+    if (d && !opening) markStretch(g, d);
     const o = d && finalize(g, d, ctx.aspire);
     if (o) {
       // v0.16 a stretch offer made: the next one waits a month (contracts/prestige.ts).

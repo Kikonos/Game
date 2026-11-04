@@ -108,6 +108,7 @@ import { fleetWords } from '../src/engine/newGame';
 import { bidQuote, bookTrip, com, fairsAhead, homeMarket, placeBid, travellers } from '../src/engine/commercial';
 import { botFinance } from './bot/finance';
 import { botSales } from './bot/sales';
+import { botLadder, botLadderReport } from './bot/ladder';
 
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
@@ -1370,6 +1371,8 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     // v0.16 the bank and the sales desk (scripts/bot/finance.ts, scripts/bot/sales.ts).
     if (botFinance(g)) act(g, t);
     if (botSales(g)) act(g, t);
+    // v0.16 the prestige ladder (scripts/bot/ladder.ts): IOSA filed when allowed.
+    if (botLadder(g)) act(g, t);
     policies(g, t);
     rehire(g, t);
     extraCrew(g, t);
@@ -2418,6 +2421,7 @@ console.log(`cancelled legs by reason: ${[...cancels].sort((a, b) => b[1] - a[1]
 for (const e of errors.slice(0, 3)) console.log(e);
 // Soft target (information): the ladder in practice, a widebody signed with a job inside the year.
 console.log(`ladder: widebody signed ${dayOf(tally.wideSigned)}; tour series / troop rotations signed ${tally.longLead}`);
+console.log(botLadderReport(g));
 // v0.12.1 world tours offered, signed and flown (the same crew all the way round?).
 tourReport(g);
 {

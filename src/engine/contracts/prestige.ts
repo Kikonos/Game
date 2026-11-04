@@ -154,6 +154,13 @@ export function onContractDoneVisibility(g: GameState, c: Contract): void {
 
 // ---------- effects on offers ----------
 
+/**
+ * The ladder's effects on the market (weights, stretch, IOSA asked, pay, penalties, relation hits). Tests of the offer
+ * flow switch them off (testkit) so the pre-v0.16 fixtures hold; prestige.test.ts switches them on. The levels, the
+ * visibility and the level-ups themselves are never off.
+ */
+export const PRESTIGE_GATE = { on: true };
+
 /** Our level now (level 1 before the record exists). Pure. */
 export const playerLevel = (g: GameState): Prestige => g.company.prestige?.level ?? 1;
 
@@ -172,6 +179,7 @@ export const isStretchClient = (g: GameState, c: Client): boolean => clientPrest
  * A client we have flown for keeps calling whatever its level (they know us). Pure.
  */
 export function prestigeOfferWeight(g: GameState, c: Client): number {
+  if (!PRESTIGE_GATE.on) return 1;
   const cur = g.clients[c.id] ?? c;
   const diff = clientPrestige(cur) - playerLevel(g);
   if (diff <= 0) return P.weight[String(Math.max(-3, diff))] ?? 0;
@@ -186,14 +194,17 @@ export function prestigeOfferWeight(g: GameState, c: Client): number {
  * asks for IOSA registration: a major wants it held, a level-3 client is content with it filed (feasibility then
  * says what is missing). Clients we have flown for ask nothing new.
  */
-export function markStretch(g: GameState, d: { client: Client; stretch?: true; req?: { approvals: ApprovalId[] } }): void {
+export function markStretch(g: GameState, d: { client: Client; stretch?: true; iosaAsked?: true; req?: { approvals: ApprovalId[] } }): void {
   const cur = g.clients[d.client.id] ?? d.client;
-  if (cur.jobs) return;
+  if (!PRESTIGE_GATE.on || cur.jobs) return;
   const lv = clientPrestige(cur);
   if (lv === playerLevel(g) + 1) d.stretch = true;
   if (lv >= 3 && d.req && !d.req.approvals.includes('iosa') && !g.company.approvals.includes('iosa')) {
     const filed = g.company.pendingApprovals.some((p) => p.id === 'iosa');
-    if (lv === 4 || !filed) d.req.approvals.push('iosa');
+    if (lv === 4 || !filed) {
+      d.req.approvals.push('iosa');
+      d.iosaAsked = true;
+    }
   }
 }
 
@@ -206,16 +217,16 @@ export function noteStretch(g: GameState, o: { stretch?: true }): void {
 
 /** The rate part of a client's level (−4 % brochure work … +8 % majors and governments). Pure. */
 export function prestigePayPct(level: Prestige): number {
-  return P.payPct[level] ?? 0;
+  return PRESTIGE_GATE.on ? P.payPct[level] ?? 0 : 0;
 }
 
 /** Delay penalties scale with the client's level (× 0.8 … × 1.6). Pure. */
 export function prestigePenaltyX(level: Prestige): number {
-  return P.penaltyX[level] ?? 1;
+  return PRESTIGE_GATE.on ? P.penaltyX[level] ?? 1 : 1;
 }
 
 /** Relation hits for our failures scale with the client's level (× 1 … × 1.5; relations.ts bumpClient). Pure. */
-export const prestigeRelationX = (level: Prestige): number => P.relationX[level] ?? 1;
+export const prestigeRelationX = (level: Prestige): number => (PRESTIGE_GATE.on ? P.relationX[level] ?? 1 : 1);
 
 /** Player words for the rate line: '+4 % rate (national carrier, included)'. Pure. */
 export const PRESTIGE_SHORT: Record<Prestige, string> = { 1: 'brochure work', 2: 'charter market', 3: 'national carrier', 4: 'major or government' };
