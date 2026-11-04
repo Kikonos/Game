@@ -108,6 +108,9 @@ describe('v0.15 scenario rules: the engine refuses what is locked', () => {
       const g = fresh(d.id);
       const r = d.rules;
       for (const o of Object.values(g.offers)) if (o.status === 'open') expect(lockOf(g, 'market', { archetype: o.archetype, airports: offerAirports(o) })).toBeNull();
+      // v0.15.1 no Inbox line about an offer the rules withdrew or the setup signed (Crew Crisis opened with "Urgent:
+      // Schedule cover, Manchester" and no market to find it on).
+      for (const m of g.messages) if (m.ref?.kind === 'offer') expect(g.offers[m.ref.id]?.status, m.title).toBe('open');
       if (r.market === 'off') {
         expect(Object.values(g.offers).filter((o) => o.status === 'open')).toEqual([]);
         expect(generateOffer(g, 'adhoc')).toBeNull();

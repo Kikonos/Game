@@ -65,6 +65,9 @@ export function createScenario(id: string): GameState {
   // off the market (the opening offers came before them) are withdrawn.
   g.scen!.core = Object.keys(g.contracts).filter((id) => g.contracts[id].status === 'signed' || g.contracts[id].status === 'active');
   for (const o of Object.values(g.offers)) if ((o.status === 'open' || o.status === 'countered') && offerLock(g, o)) delete g.offers[o.id];
+  // v0.15.1 and their Inbox lines go with them (Crew Crisis opened with "Urgent: Schedule cover, Manchester" and no
+  // market), as do the lines about the offers the setup has just signed (the "Signed" line says it).
+  g.messages = g.messages.filter((m) => m.ref?.kind !== 'offer' || (g.offers[m.ref.id] && g.offers[m.ref.id].status === 'open'));
   // A fixed fleet: no aircraft on the market (the start's lease offer and its note go).
   if (lockOf(g, 'fleet')) {
     g.market.aircraft = [];
