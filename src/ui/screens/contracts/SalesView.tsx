@@ -14,7 +14,7 @@ import { Bar, Empty } from '../../components/ui';
 import { money } from '../../format';
 import { store } from '../../store';
 
-const pct = (x: number) => `${Math.round(x * 100)} %`;
+const pct = (x: number) => `${Math.round(x * 1000) / 10} %`;
 const usdK = (v: number) => (Math.abs(v) >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${Math.round(v / 1e3)}K`);
 
 /** Leads waiting for a proposal (the tab's count). Pure. */
@@ -57,7 +57,7 @@ function BrokerRow({ b }: { b: BrokerView }) {
     <div className="v16s-row">
       <span className="col grow" style={{ minWidth: 0, gap: 2 }}>
         <b className="ellipsis">{b.name} <span className="chip v16s-chip">{pct(b.commission)} commission</span></b>
-        <span className="small muted ellipsis">{b.focus}</span>
+        <span className="small muted v16s-focus">{b.focus}</span>
         {rel ? (
           <span className="row gap-8 small" style={{ alignItems: 'center' }}>
             <span className="v16s-bar"><Bar value={rel.relation / 100} size="thin" tone="good" title={`Relation ${rel.relation}`} /></span>
@@ -144,7 +144,7 @@ export function SalesView({ g }: { g: GameState }) {
           <section className="card v16s-card col gap-8">
             <div className="row between" style={{ alignItems: 'baseline' }}>
               <b className="row gap-6" style={{ alignItems: 'center' }}><Handshake className="sc-ico-s" /> Leads pipeline</b>
-              <span className="small muted">lead → proposal → offer → signed</span>
+              <span className="small muted v16s-hint">lead → proposal → offer → signed</span>
             </div>
             {!liveLeads.length && !past.length && (
               <Empty icon={<Handshake />} title="No leads yet">
@@ -164,7 +164,7 @@ export function SalesView({ g }: { g: GameState }) {
           <section className="card v16s-card col gap-8">
             <div className="row between" style={{ alignItems: 'baseline' }}>
               <b className="row gap-6" style={{ alignItems: 'center' }}><Briefcase className="sc-ico-s" /> Brokers</b>
-              <span className="small muted">leads on busy days; their cut on each deal</span>
+              <span className="small muted v16s-hint">leads on busy days; their cut on each deal</span>
             </div>
             <div className="v16s-list">{brokers.map((b) => <BrokerRow key={b.id} b={b} />)}</div>
           </section>

@@ -23,6 +23,8 @@
 .v16s-pitch-form .btn { min-height: 40px; }
 :where(.touch) .v16s-pitch-form .btn { min-height: 44px; }
 .v16s-desk { padding: 0 2px; }
+.v16s-focus { line-height: 1.25; }
+@media (max-width: 900px) { .v16s-hint { display: none; } }
 
 /* Team: the blocks under the heads' list. */
 .v16s-team { border-top: 1px solid var(--border); }

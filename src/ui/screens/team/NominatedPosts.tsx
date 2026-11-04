@@ -50,7 +50,7 @@ export function NominatedPosts({ g }: { g: GameState }) {
                   <span className="small muted">{c.blurb}</span>
                   <span className="row gap-8 small"><span className="dim">Skill {pct(c.skill)}</span><Bar value={c.skill} size="thin" tone="good" /><span className="num nowrap">{money(c.salary)}/mo</span></span>
                 </div>
-                <button className="btn btn-primary" onClick={() => store.act((g2) => hireComplianceManager(g2, i))}><UserPlus /> Hire</button>
+                <button className="btn btn-primary" onClick={() => { if (store.act((g2) => hireComplianceManager(g2, i)).ok) setOpen(false); }}><UserPlus /> Hire</button>
               </div>
             </div>
           ))}
