@@ -6,7 +6,7 @@ import { typeOf } from '../core/perf';
 import { DAY, fmtDateTime, fmtDay, fmtDuration } from '../core/time';
 import type { ContractOffer, GameState, Message } from '../core/types';
 import { counterView } from '../contracts/counter';
-import { feasibility, type FeasibilityCheck, type FeasibilityReport } from '../contracts/feasibility';
+import { type FeasibilityCheck, type FeasibilityReport, quickReports } from '../contracts/feasibility';
 import { jobName } from '../contracts/flavor';
 import { mkHurt, type ProblemAction, type ProblemCard } from './types';
 
@@ -79,8 +79,7 @@ const hardNos = (r: FeasibilityReport) => r.checks.filter((c) => c.level === 'no
  */
 function bestReport(g: GameState, o: ContractOffer): FeasibilityReport | null {
   let best: FeasibilityReport | null = null;
-  for (const id of Object.keys(g.fleet)) {
-    const r = feasibility(g, o.id, id, { quick: true });
+  for (const r of quickReports(g, o.id)) {
     const better = !best || RANK[r.level] < RANK[best.level]
       || (r.level === best.level && (hardNos(r) < hardNos(best) || (hardNos(r) === hardNos(best) && r.estMargin > best.estMargin)));
     if (better) best = r;

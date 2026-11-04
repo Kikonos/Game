@@ -7,6 +7,7 @@ import type { SimModule } from './core/module';
 import { clearPause, takePause, type PauseReason } from './core/pause';
 import { peek, pop, schedule } from './core/queue';
 import { safetyTrip } from './core/safety';
+import { asStep } from './core/uiRev';
 import { DAY, monthKey, nextDayStart } from './core/time';
 import type { GameState, Minute, SimEvent, SimEventType } from './core/types';
 import { crewModule } from './crew';
@@ -49,7 +50,9 @@ export function onLoad(g: GameState): void {
  * retimed, cancelled or reassigned). Runs after every event and after every player action (store.act).
  */
 export function settle(g: GameState, full = true): void {
-  for (const m of MODULES) m.settle?.(g, full);
+  asStep(() => {
+    for (const m of MODULES) m.settle?.(g, full);
+  });
 }
 
 export interface AdvanceResult {
@@ -67,6 +70,11 @@ export interface AdvanceResult {
  * tests and the bot). Requests outside `honour` are dropped, so they never leak into a later event.
  */
 export function advanceTo(g: GameState, target: Minute, honour?: ReadonlySet<PauseReason>): AdvanceResult {
+  // v0.15.1 (perf) an engine step: the screens' read-side caches (problem cards, quick feasibility) stay out of it.
+  return asStep(() => advanceToRaw(g, target, honour));
+}
+
+function advanceToRaw(g: GameState, target: Minute, honour?: ReadonlySet<PauseReason>): AdvanceResult {
   const startHour = Math.floor(g.now / 60);
   let events = 0;
   let pause: PauseReason | null = null;

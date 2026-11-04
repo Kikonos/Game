@@ -3,7 +3,8 @@
 import { ACMI_TYPES, ACMI_TYPES_LIST, type CabinLayout } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
-import { flightsOf } from '../core/entities';
+import { flightsOf, flightsRev } from '../core/entities';
+import { readCache, uiRev } from '../core/uiRev';
 import { distanceNm } from '../core/geo';
 import { blockMinutes, complement, etopsCap, etopsNeeded, maxSectorNm, planSector, rangeFromNm, reportMinutes, runwayFit, typeOf, usableRangeNm } from '../core/perf';
 import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime, toDate, fmtDayRange } from '../core/time';
@@ -13,7 +14,7 @@ import { dutyNeed, type ChainShape, type DutyNeed } from '../crew/duties';
 import { restOf } from '../crew/restPlan';
 import { minRest, tzDeltaH } from '../crew/rules';
 import { farBase, patternSets, reserveDayCost, reserveRoles } from '../crew/farBase';
-import { dhBlock, ticketPrice } from '../crew/timeline';
+import { crewRev, dhBlock, ticketPrice } from '../crew/timeline';
 import { bestSlip, slipCost, slipDetail, type SlipPlan } from '../crew/slip';
 import { A_CHECK_DAYS, anchorsOf, chainForward, chainsOf, CHARTER_SLACK, DEPLOY_LEAD, gapMoves, longestChains, maxPax, noRouteWhy, programmeOf, route, type Anchor, type ChainLeg, type Programme, type Trip } from './plan';
 import { etopsCapText, etopsFixText } from '../ops/etops';
@@ -290,6 +291,32 @@ function permitAt(g: GameState, aircraftId: string, at: string, t: Minute): stri
     if (x.status !== 'cancelled' && x.kind !== 'deadhead') prev = x;
   }
   return prev && prev.to === at && prev.contractId ? g.contracts[prev.contractId]?.eventId : undefined;
+}
+
+/**
+ * v0.15.1 (perf) the quick reports of an offer, one per aircraft in fleet order, as the offer's fit card and the
+ * analyst's score both need them: computed once per game hour, state revision (flights, crew), player edit and a short
+ * signature of what else they read (the offer's terms and clock, each aircraft's status, cabin and hours, the checks
+ * booked, the approvals held, cash), shared read-only. Only the app reads the memo (uiRev.ts), never an engine step.
+ */
+const quickMemo = new WeakMap<GameState, Map<string, { key: string; reports: FeasibilityReport[] }>>();
+export function quickReports(g: GameState, offerId: string): FeasibilityReport[] {
+  const fresh = () => Object.keys(g.fleet).map((id) => feasibility(g, offerId, id, { quick: true }));
+  if (!readCache()) return fresh();
+  const o = g.offers[offerId];
+  if (!o) return fresh();
+  let sig = `${Math.floor(g.now / 60)}:${flightsRev(g)}:${crewRev(g)}:${uiRev()}:${o.status}:${o.expires}:${o.counter?.result ?? ''}:${o.counter?.price ?? ''}:${o.counter?.replyAt ?? ''}:${o.product.kind === 'wet' ? o.product.ratePerBH : o.product.kind === 'charter' ? o.product.price : ''}`;
+  sig += `:${Object.keys(g.maintenance).length}:${g.company.approvals.length}:${Math.round(g.company.cash / 1000)}:${g.world?.events.length ?? 0}`;
+  for (const ac of Object.values(g.fleet)) sig += `|${ac.id}:${ac.status}:${ac.cabin.label}:${Math.round(ac.maint.fhSinceA)}:${Math.round(ac.maint.fhSinceC)}:${ac.returning ? 1 : 0}:${ac.delivery ? 1 : 0}`;
+  let m = quickMemo.get(g);
+  if (!m) quickMemo.set(g, (m = new Map()));
+  const hit = m.get(offerId);
+  if (hit && hit.key === sig) return hit.reports;
+  const reports = fresh();
+  m.set(offerId, { key: sig, reports });
+  // Offers gone from the market take their reports with them.
+  if (m.size > 64) for (const k of m.keys()) if (!g.offers[k]) m.delete(k);
+  return reports;
 }
 
 export function feasibility(g: GameState, offerId: string, aircraftId: string, opts: { paint?: boolean; cabin?: boolean; crewExtra?: CrewExtra; quick?: boolean } = {}): FeasibilityReport {

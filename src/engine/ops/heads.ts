@@ -18,7 +18,7 @@ import type {
   ActionResult, Aircraft, AlertRule, Contract, Decision, Flight, GameState, Head, HeadCandidate, HeadId, HeadLogLine, HeadProposal, HeadRules, MessageCat, Minute, Ref,
 } from '../core/types';
 import { hash, hashUnit } from '../core/util';
-import { feasibility } from '../contracts';
+import { feasibility, quickReports } from '../contracts/feasibility';
 import { setCompleteHook, setDepositHook, setSignHook } from '../contracts/accept';
 import { counterBase, counterOdds } from '../contracts/counter';
 import { sideRng } from '../contracts/paintTerms';
@@ -1049,8 +1049,8 @@ export function analystView(g: GameState, offerId: string): AnalystView | null {
   let best: { id: string; margin: number; rev: number } | null = null;
   // An aircraft refused only for being busy on the dates (its margin if it were free): 'no aircraft free', not 'pass'.
   let busy: { id: string; margin: number; rev: number } | null = null;
-  for (const id of Object.keys(g.fleet)) {
-    const r = feasibility(g, offerId, id, { quick: true });
+  for (const r of quickReports(g, offerId)) {
+    const id = r.aircraftId;
     if (r.estRevenue <= 0) continue;
     if (r.level === 'no') {
       const only = r.checks.filter((c) => c.level === 'no').every((c) => c.id === 'availability' || /busy/i.test(c.label));
