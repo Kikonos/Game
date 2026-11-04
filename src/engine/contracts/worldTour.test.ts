@@ -340,7 +340,8 @@ describe('v0.14 world tours: no permit delay', () => {
     // the eight legs after it (all cancelled). Forced risky here, as an old save's offer could be.
     // v0.14 seeds 13 and 7 (seed 3's tour now meets a sick first officer on day one; see 'a whole tour played').
     // v0.14.1 seeds 3 and 7 (seed 13's tour now meets the crew shortage above).
-    for (const seed of [3, 7]) {
+    // v0.16 seeds 3 and 11 (the new clients moved the draws: seed 7's tour now loses its crew after the first leg).
+    for (const seed of [3, 11]) {
       const { g, acId } = tourGame(seed);
       const o = g.offers[devWorldTour(g)];
       expect(o.risk.permit).toBe(0);
