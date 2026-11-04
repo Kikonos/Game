@@ -53,7 +53,15 @@ export function DecisionModal({ decisionId }: { decisionId?: string }) {
     store.openModal({ kind: 'crewControl', flightId: flightId! });
   };
   return (
-    <Modal title={d.title} icon={<AlertTriangle className="warn" />} className="decision sc-decision" onClose={close}>
+    <Modal title={d.title} icon={<AlertTriangle className="warn" />} className="decision sc-decision" onClose={close} footer={
+      // 'Look first' in the footer: always in view, not below a long card on a phone.
+      !closable ? (
+        <>
+          <span className="small dim grow cc-foot-note">Check the map, schedule or crew first; tap the amber Paused badge to come back.</span>
+          <button className="btn" onClick={close}>Look first</button>
+        </>
+      ) : undefined
+    }>
       {(() => { const tail = decisionBodyTail(d.body, card); return tail ? <p className="muted">{tail}</p> : null; })()}
       {card && <ProblemCardView card={card} g={g} hideActions />}
       {dspec && <DiversionMap spec={dspec} onPick={d.kind === 'divertOnward' ? undefined : pick} />}
@@ -81,12 +89,6 @@ export function DecisionModal({ decisionId }: { decisionId?: string }) {
         {fmtDateTime(d.t)} UTC · {def ? `“${def.label}” applies by itself at ${fmtDateTime(d.expires)} UTC (${spanLabel(d.expires - g.now)}).` : ''}
         {!closable && s.settings.autoPause.decision ? ' Time is paused until you decide.' : ''}
       </div>
-      {!closable && (
-        <div className="row between gap-8 mt-12">
-          <span className="tiny dim">Check the map, schedule or crew first; tap the amber Paused badge to come back.</span>
-          <button className="btn btn-sm" onClick={close}>Look first</button>
-        </div>
-      )}
     </Modal>
   );
 }

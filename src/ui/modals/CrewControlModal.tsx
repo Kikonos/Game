@@ -239,7 +239,8 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
               const canApply = x.available && (!x.options?.length || ids.length > 0);
               return (
                 <Row key={x.id} s={x} open={isOpen} onOpen={() => setOpen(isOpen ? null : x.id)}>
-                  <div className="small muted">{x.desc}</div>
+                  {/* The row's own line already shows the description when it has nothing else to say. */}
+                  {(leftover(x) || (x.consequences[0] && x.consequences[0] !== x.desc)) && <div className="small muted">{x.desc}</div>}
                   {x.options && x.options.length > 0 && (() => {
                     // Candidates: the role chip, the seat each tick fills, and no second tick for a seat already taken.
                     const plan = multi ? seatPlan(view.missing, ids.map((id) => ({ id, role: roleOf(id) }))) : null;

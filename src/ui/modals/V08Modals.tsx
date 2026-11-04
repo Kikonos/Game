@@ -113,7 +113,7 @@ function Calendar({ g, o }: { g: GameState; o: MarketOutlook }) {
     // Under ~100 px the short label ('In', 'Winter'); the full text stays in the tooltip and the lines below.
     const txt = w > 13 ? b.label : w > 4 ? (b.short ?? b.label) : '';
     // A short event names itself beside its bar (each event has its own lane), so its bar stays empty.
-    const tagged = b.cls === 'event' && txt !== b.label && l + w <= 70;
+    const tagged = b.cls === 'evt' && txt !== b.label && l + w <= 70;
     const bar = <span key={i} className={`v8-cal-bar ${b.cls}`} style={{ left: `${l}%`, width: `${w}%` }} title={b.label}>{tagged ? '' : txt}</span>;
     if (!tagged) return bar;
     return [bar, <span key={`${i}t`} className="v8-cal-tag small muted" style={{ left: `calc(${l + w}% + 6px)` }}>{b.label}</span>];
@@ -130,7 +130,7 @@ function Calendar({ g, o }: { g: GameState; o: MarketOutlook }) {
   // Overlapping events go on separate lanes (at most 3; the rest share the last).
   const lanes: Bar[][] = [];
   for (const e of [...worldEvents(g, { active: true })].sort((a, b) => a.start - b.start)) {
-    const b: Bar = { from: e.start, to: e.end, cls: 'event', label: e.title, short: e.title.split(/[\s–-]/)[0] };
+    const b: Bar = { from: e.start, to: e.end, cls: 'evt', label: e.title, short: e.title.split(/[\s–-]/)[0] };
     const lane = lanes.find((ln) => ln[ln.length - 1].to <= b.from) ?? (lanes.length < 3 ? (lanes[lanes.length] = []) : lanes[2]);
     lane.push(b);
   }

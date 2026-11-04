@@ -67,7 +67,7 @@ div.worldmap { overflow: clip; }
 .spot-route .bar span { transition: width 0.6s linear; }
 .spot-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .spot-stats > div { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.spot-stats > div > span:first-child { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); }
+.spot-stats > div > span:first-child { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); }
 .spot-stats b { font-size: 15px; white-space: nowrap; }
 .spot-empty { margin: 0; }
 @media (prefers-reduced-motion: reduce) { .spot-route .bar span { transition: none; } }
@@ -359,8 +359,7 @@ div.worldmap { overflow: clip; }
 
 /* Up Next: the private jet's type (not mono) and the CREW SHORT chip in the type cell. */
 .ops-next-row.jet > b { font-size: 12px; }
-.ops-short { font: 700 11px/16px var(--font-mono); letter-spacing: 0.06em; padding: 0 5px; border-radius: 4px; border: 1px solid; }
-.touch .ops-short { font-size: 12px; letter-spacing: 0.04em; }
+.ops-short { font: 700 12px/16px var(--font-mono); letter-spacing: 0.04em; padding: 0 5px; border-radius: 4px; border: 1px solid; }
 .ops-short.amber { color: var(--c-fg-fde68a); border-color: rgba(var(--warn-rgb), 0.55); }
 .ops-short.red { color: var(--c-fg-fecaca); border-color: rgba(var(--bad-rgb), 0.6); }
 .ops-next-row .ops-type:has(.ops-short) .ops-tkey { display: none; }
