@@ -208,6 +208,9 @@ describe('crew short', () => {
     expect(d.title).toBe(`Crew out of hours: ${f.no} ${f.from}–${f.to}`);
     expect(d.body).not.toContain(` for ${f.no}.`);
     expect(d.body).not.toMatch(/Yes:|Not much:/);
+    // Raised at the departure check, before any wait: no 'It has been waiting 0m'.
+    expect(f.delay).toBe(0);
+    expect(d.body).not.toMatch(/waiting 0m/);
     // v0.7.1: the options are Crew Control's fixes (discretion first; delay and cancel always offered).
     expect(d.options.map((o) => o.id)).toContain('discretion');
     expect(d.options.map((o) => o.id)).toContain('delay');

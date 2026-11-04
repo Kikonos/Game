@@ -29,16 +29,18 @@ export function Toasts() {
   const g = s.game;
   const m = s.modal;
   const dec = !g ? undefined : m?.kind === 'decision' ? g.decisions.find((d) => d.id === m.decisionId) : !m && s.decisionOpen ? g.decisions[0] : undefined;
-  const open = dec ? { title: dec.title, ref: dec.ref } : m?.kind === 'offer' ? { ref: { kind: 'offer' as const, id: m.offerId } } : m?.kind === 'crewControl' ? { ref: { kind: 'flight' as const, id: m.flightId } } : null;
+  const open = dec ? { title: dec.title, ref: dec.ref } : m?.kind === 'offer' || m?.kind === 'offerCall' ? { ref: { kind: 'offer' as const, id: m.offerId } } : m?.kind === 'crewControl' ? { ref: { kind: 'flight' as const, id: m.flightId } } : null;
   const all = withoutOpenSubject(s.toasts, open);
   const list = short ? shownToasts(all, 2) : all;
+  // A dialog on the stage: one the player opened, the decision that opened by itself, or the game-over card.
+  const dialog = !!m || !!dec || !!g?.gameOver;
   // v0.9.1 a tap dismisses a toast (it fades and leaves the stack). v0.12.1 a tap opens what it is about when it is about
   // something; hovering or touching holds it; the urgent ones stay until closed (×); the clock button opens the log.
   return (
     <>
       {/* With a dialog open the toasts move to the top centre, clear of its footer buttons. */}
-      <div className={`toasts ${s.modal ? 'over-modal' : ''}`} aria-live="polite">
-        {s.toasts.length > 0 && !s.modal && (
+      <div className={`toasts ${dialog ? 'over-modal' : ''}`} aria-live="polite">
+        {s.toasts.length > 0 && !dialog && (
           <button className="toast-log-btn" onClick={() => store.navigate('inbox', { view: 'popups' })} aria-label="Recent pop-ups" title="Recent pop-ups">
             <History />
           </button>

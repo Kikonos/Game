@@ -476,7 +476,8 @@ export function crewShortDecision(g: GameState, f: Flight, ac: Aircraft): void {
   const hours = crewAlertKind(g, f.id) === 'hours';
   ask(g, {
     kind: 'crewShort', title: `${hours ? 'Crew out of hours' : 'Crew short'}: ${f.no} ${f.from}–${f.to}`,
-    body: card ? `${card.what.replace(` for ${f.no}`, '')}. ${card.why} ${hurtProse(card)}. It has been waiting ${fmtDuration(f.delay)} at ${city(f.from)}.` : `${f.no} has been waiting ${fmtDuration(f.delay)} at ${city(f.from)}: ${what}.`,
+    // Raised before the flight has waited at all (the departure check): no 'waiting 0m'.
+    body: card ? `${card.what.replace(` for ${f.no}`, '')}. ${card.why} ${hurtProse(card)}.${f.delay > 0 ? ` It has been waiting ${fmtDuration(f.delay)} at ${city(f.from)}.` : ''}` : f.delay > 0 ? `${f.no} has been waiting ${fmtDuration(f.delay)} at ${city(f.from)}: ${what}.` : `${f.no} is held at ${city(f.from)}: ${what}.`,
     options, defaultOption: def, expires: g.now + 60, ref: { kind: 'flight', id: f.id },
     data: { flightId: f.id, aircraftId: ac.id, dutyId: d?.id ?? '', factor, rivalId },
   });

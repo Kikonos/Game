@@ -65,9 +65,9 @@ export function ScenarioChip({ g }: { g: GameState }) {
   const v = scenarioView(g);
   if (!v) return null;
   return (
-    <button className="sc-chip" onClick={() => store.openModal({ kind: 'scenario' })} aria-label={`${v.def.name}: ${v.stars} of 3 stars, ${v.daysLeft} days left. Goals`}>
+    <button className="scen-chip" onClick={() => store.openModal({ kind: 'scenario' })} aria-label={`${v.def.name}: ${v.stars} of 3 stars, ${v.daysLeft} days left. Goals`}>
       <Stars n={v.stars} size={13} label="" />
-      <span className="sc-chip-d">{v.daysLeft}d</span>
+      <span className="scen-chip-d">{v.daysLeft}d</span>
     </button>
   );
 }
