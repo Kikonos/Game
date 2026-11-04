@@ -531,6 +531,100 @@ export const BAL = {
     },
   },
 
+  // ---------- v0.16 Finance & Sales (UPDATE-0.16.md). Each lane tunes its own sub-block only. ----------
+  v016: {
+    /** §A finance (lane finance; engine/finance). Rates are a year. */
+    finance: {
+      /** The bank's benchmark (EURIBOR / SOFR-like) and its move by market phase. */
+      benchmark: 0.04, benchmarkByPhase: { boom: 0.0075, steady: 0, soft: -0.005, slump: -0.01 } as Record<string, number>,
+      credit: {
+        /** Limit = revenueMonths × average monthly revenue (last `revenueWindow` closed months, at least `minStatements`) + bookShare × owned book value; rounded, clamped; a Newcomer's cap. */
+        revenueMonths: 1.5, revenueWindow: 6, minStatements: 2, bookShare: 0.1, roundTo: 100_000, limit: [500_000, 20_000_000] as [number, number], newcomerCap: 1_000_000,
+        /** Margin over the benchmark by standing (Newcomer, Established, Respected); the step-up after a second breach. */
+        margin: [0.04, 0.03, 0.025] as [number, number, number], stepUp: 0.02,
+        commitmentFee: 0.005, arrangementFee: 0.005, arrangementMin: 10_000, drawStep: 50_000,
+        /** Covenants: liquidity (cash + undrawn ≥ liquidityMonths × next month's bill), leverage (net debt ≤ × EBITDA of the last 12 months); waiver fee (share of the limit); cure days; freeze after this many consecutive breaches, repaid in `repayParts` month ends; margin back after `cleanMonths`. */
+        liquidityMonths: 1, leverage: 3.5, waiverFee: 0.0025, cureDays: 30, freezeAfter: 3, repayParts: 3, cleanMonths: 3,
+      },
+      loan: {
+        ltv: 0.6, minLoan: 1_000_000, terms: [3, 5, 7] as number[], maxAgeAtEnd: 25, margin: 0.035, arrangementFee: 0.01,
+        /** Early repayment fee: share of the balance, and after half the term. */
+        earlyFee: 0.02, earlyFeeLate: 0.01, lateFee: 0.01, callAfterMissed: 2, callDays: 60,
+        /** The loanDue card: amber this many days before the 1st when the forecast is short; red inside this many hours. */
+        warnDays: 7, redH: 48,
+      },
+      leaseback: {
+        lessors: ['AerCap', 'Avolon', 'SMBC Aviation Capital', 'Air Lease Corporation', 'BOC Aviation', 'Carlyle Aviation Partners'] as string[],
+        /** Price as a share of market value (Respected / Established, Newcomer); terms (years); the aircraft's age at lease end. */
+        priceShare: 0.97, priceShareNewcomer: 0.94, roundTo: 10_000, terms: [5, 6, 8] as number[], maxAgeAtEnd: 25,
+        /** Lease rate factor a month: base + perAgeYear × (age − ageFrom), clamped. */
+        lrf: { base: 0.0075, perAgeYear: 0.0004, ageFrom: 5, clamp: [0.0075, 0.011] as [number, number] }, depositMonths: 2,
+      },
+      factoring: {
+        minAmount: 20_000, maxDaysToDue: 90, maxOverdueDays: 30, totalCap: 5_000_000,
+        /** Advance share with and without recourse; fee = base + perDay × days to due (overdue: overdueBase + overduePerDay × days overdue); without recourse + nonRecourse (+ government for a ministry); clamped. */
+        advance: 0.95, advanceNonRecourse: 0.92, feeBase: 0.01, feePerDay: 0.0004, overdueBase: 0.03, overduePerDay: 0.001, nonRecourse: 0.015, government: 0.03, feeClamp: [0.01, 0.08] as [number, number],
+        /** Recourse: bought back this many days past due; the card from. */
+        buyBackDays: 90, warnDays: 60,
+      },
+      deposit: {
+        /** Deposit norm by client kind (share of the price); a level 3–4 client's norm is `prestigeLess` lower; the choices offered. */
+        norm: { tourOperator: 0.2, airline: 0.2, sports: 0.3, music: 0.4, corporate: 0.1, agency: 0.2, government: 0, broker: 0.2, operator: 0.2 } as Record<string, number>,
+        prestigeLess: 0.1, choices: [0, 0.1, 0.2, 0.3, 0.4, 0.5] as number[],
+        /** Per 10 points above the norm: acceptance chance (points), the chance a plain accept is signed at the norm; per 10 below: acceptance, the floor eased. */
+        abovePer10: -0.06, aboveSignAtNorm: 0.25, belowPer10: 0.04, belowFloorPer10: 0.005,
+      },
+      /** Money market: cash above the float earns benchmark − spread (at least `floor`). */
+      moneyMarket: { float: 250_000, spread: 0.01, floor: 0.015 },
+    },
+    /** §B prestige (lane clients; contracts/prestige.ts). */
+    prestige: {
+      /** Visibility per revenue block hour and per completed contract, by the client's level 1–4; a fair; a tender won. */
+      perBH: { 1: 0.25, 2: 0.6, 3: 1.2, 4: 2.0 } as Record<number, number>, perContract: { 1: 10, 2: 20, 3: 40, 4: 70 } as Record<number, number>, fair: 15, tenderWon: 40,
+      /** To reach level 2, 3, 4: visibility, contracts done, reliable, clean (level 4), IOSA held (3, 4), months on the AOC. */
+      levels: {
+        2: { visibility: 800, contracts: 3, reliable: 60, clean: 0, iosa: false, months: 6 },
+        3: { visibility: 3_000, contracts: 12, reliable: 70, clean: 0, iosa: true, months: 18 },
+        4: { visibility: 8_000, contracts: 30, reliable: 78, clean: 60, iosa: true, months: 36 },
+      } as Record<number, { visibility: number; contracts: number; reliable: number; clean: number; iosa: boolean; months: number }>,
+      /** The rate part by the client's level; penalties and relation hits × by level. */
+      payPct: { 1: -0.04, 2: 0, 3: 0.04, 4: 0.08 } as Record<number, number>, penaltyX: { 1: 0.8, 2: 1, 3: 1.3, 4: 1.6 } as Record<number, number>, relationX: { 1: 1, 2: 1, 3: 1.3, 4: 1.5 } as Record<number, number>,
+      /** Offer weight by (client level − our level): −3 … +1; +2 and more never. A stretch offer at most once in `stretchDays`. */
+      weight: { '-3': 0.1, '-2': 0.25, '-1': 0.5, '0': 1, '1': 0.1 } as Record<string, number>, stretchDays: 30,
+      /** What a level 3 / 4 client checks before it signs: reliable, fleet average age (years), clean (4). */
+      reqs: { 3: { reliable: 65, maxAge: 22, clean: 0 }, 4: { reliable: 75, maxAge: 18, clean: 60 } } as Record<number, { reliable: number; maxAge: number; clean: number }>,
+      /** Far-flung routes (missions.ts farRoute): the archetype multiplier on top. */
+      exoticMult: 1.25,
+      /** Older saves: a client level counts as reached with this many completed jobs for a client there (one job: the level below). */
+      derivedJobs: 2,
+    },
+    /** §C sales (lane sales; commercial/sales.ts). */
+    sales: {
+      brokers: {
+        acs: { name: 'Air Charter Service', commission: 0.04 }, chapman: { name: 'Chapman Freeborn', commission: 0.05 }, acc: { name: 'ACC Aviation', commission: 0.035 },
+        airPartner: { name: 'Air Partner', commission: 0.045 }, huntPalmer: { name: 'Hunt & Palmer', commission: 0.03 },
+      } as Record<string, { name: string; commission: number }>,
+      /** Relation: at registration; per deal flown well; per deal we cancelled; monthly drift idle; the floor once registered; leads a week at relation 100 (× fit). */
+      relation: { register: 20, deal: 6, cancelled: -10, drift: -1, floor: 10, onTime: 0.9 }, leadsPerWeek: 0.35,
+      /** Leads: days before a lead goes cold; the proposal's answer window (days) and its odds of an offer; worked at once (the desk, per sales manager). */
+      lead: { coldDays: 14, replyDays: [2, 7] as [number, number], offerChance: 0.55, workedBase: 3, workedPerRep: 3, warnDays: 3 },
+      /** Pitches: windows (UTC months, 1–12) for summer and winter cover; max a season per desk; cost; reply days; odds maybe / offer / no; the offer's lead before the season (days). */
+      pitch: { summerMonths: [10, 11, 12, 1, 2] as number[], winterMonths: [4, 5, 6, 7, 8] as number[], perSeason: 4, cost: 1_500, replyDays: [14, 42] as [number, number], maybe: 0.4, offer: 0.2, offerLead: [60, 120] as [number, number], relation: 1 },
+      /** Sales managers: the cap, candidate tiers (skill, salary × mid), mid salary a month, days to join, severance months, re-hire days; leads a month × skill; presence a day in their market; extra pitches a season. */
+      reps: { max: 4, tiers: [[0.6, 0.75], [0.75, 1], [0.9, 1.35]] as [number, number][], salary: 6_000, joinDays: 14, severanceMonths: 1, rehireDays: 30, leadsPerMonth: 1.5, presencePerDay: 0.15, pitches: 2 },
+      /** Fairs and tenders: leads a fair yields [min, max]; extra RFPs a round at level 2 / 3+; broker relation for a tender won through one. */
+      fairLeads: [1, 3] as [number, number], tenderExtra: { 2: 1, 3: 2 } as Record<number, number>, tenderBroker: 4,
+    },
+    /** §D filter (lane ops; contracts/filter.ts): archetypes that always ring (humanitarian). */
+    filter: { alwaysShow: ['evacuation', 'repatriation', 'humanitarian', 'medical'] as string[] },
+    /** §F compliance (lane ops; ops/compliance.ts): candidate tiers (skill, salary × mid), mid salary a month, days to join, severance, re-hire days; effects × skill. */
+    compliance: {
+      tiers: [[0.6, 0.75], [0.75, 1], [0.9, 1.4]] as [number, number][], salary: 8_500, joinDays: 14, severanceMonths: 1, rehireDays: 30,
+      /** Ramp finding mean × (1 − rampCut × skill); the audit's random finding × (1 − auditCut × skill); Level 2 deadlines + days; corrective actions × cost. */
+      rampCut: 0.4, auditCut: 0.6, deadlinePlusDays: 30, taskCostX: 0.8, rampTaskCostX: 0.5,
+    },
+  },
+
   // ---------- v0.12.1 world tours (contracts/missions.ts worldTour) ----------
   v0121: {
     /**

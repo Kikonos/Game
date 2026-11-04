@@ -12,7 +12,8 @@ import { crewPeakCard } from '../crew/forecast';
 import { cabinRestCard, captainAsFoCard, crewFlightCard, crewHoursCard, crewProblems, crewResignedCard, crewSickCard, restCards, restFacilityCard, restSeatsCard, restTooShortCard } from './crew';
 import { changeRequestCard, commercialProblems, contractCancelledCard, counterExpiryCard, offerFitCard, penaltyCard } from './commercial';
 import { deliveryWaitCard, ferryUncrewedCard, noFerryCard, fleetProblems, leaseReturnCard, refitMissedCard, saleCard } from './fleet';
-import { cashLowCard, cashNegativeCard, invoiceOverdueCard, leaseDueCard, lossMonthCard, moneyProblems } from './money';
+import { cashLowCard, cashNegativeCard, covenantBreachCard, creditHeadroomCard, factorRecourseCard, invoiceOverdueCard, leaseDueCard, loanDueCard, lossMonthCard, moneyProblems } from './money';
+import { leadColdCard } from '../commercial/sales';
 import { aogCard, checkCard, checkClashCard, noSlotCard, techProblems } from './tech';
 import { hurtBadges, hurtProse, type ProblemCard } from './types';
 import { auditFindingCard, disruptionAt, disruptionCard, isDisruption, opsProblems, rampFindingCard } from './ops';
@@ -110,6 +111,12 @@ function problemForRaw(g: GameState, subject: ProblemRef): ProblemCard | null {
     case 'approvalLate': return approvalLateCard(g, id);
     // v0.14
     case 'clientCrisis': return clientCrisisCard(g, id);
+    // v0.16 finance (problems/money.ts) and sales (commercial/sales.ts).
+    case 'covenantBreach': return covenantBreachCard(g);
+    case 'loanDue': return loanDueCard(g, id);
+    case 'creditHeadroom': return creditHeadroomCard(g);
+    case 'factorRecourse': return factorRecourseCard(g, id);
+    case 'leadCold': return leadColdCard(g, id);
   }
 }
 

@@ -2,7 +2,7 @@
 // saves load with `??=` defaults in commercial/state.ts).
 
 import type { MarketId } from '../../data/markets';
-import type { ContractOffer, Minute } from '../core/types';
+import type { BrokerId, BrokerRel, ContractOffer, HeadCandidate, Lead, Minute, Pitch, SalesRep } from '../core/types';
 
 /** A seat on an airline (same shape as a crew ticket: on the hour, door-to-door minutes from ops/commercial.ts). */
 export interface TravelTicket {
@@ -136,6 +136,17 @@ export interface CommercialState {
   /** v0.14 market presence 0–100 by market (commercial/presence.ts); seeded on a new game or the first load. */
   presence?: PresenceState;
   stats?: { bids: number; won: number; lost: number; trips: number; leads: number; crises: number; written: number };
+  // ---------- v0.16 sales (UPDATE-0.16.md §C; commercial/sales.ts). load: ??= empty ----------
+  /** Broker relationships by broker (absent = not registered with them). */
+  brokers?: Partial<Record<BrokerId, BrokerRel>>;
+  /** The leads pipeline (cold and lost ones pruned after 30 days). */
+  leads?: Lead[];
+  /** Pre-season pitches made. */
+  pitches?: Pitch[];
+  /** Regional sales managers; candidates by market while hiring; the last dismissal. */
+  reps?: SalesRep[];
+  repCandidates?: Record<string, HeadCandidate[]>;
+  repFiredAt?: Minute;
 }
 
 /** v0.14 how well known we are in each market (0–100), and the last day it was updated. */

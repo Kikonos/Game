@@ -28,7 +28,9 @@ export function cashOnly(g: GameState, amount: number): void {
 }
 
 /** v0.12.1 the statement's revenue lines (the Finance rows and the totals split the same way). */
-export const REVENUE_CATS: readonly LedgerCat[] = ['acmiRevenue', 'charterRevenue', 'otherRevenue', 'leaseIncome', 'assetSale'];
+export const REVENUE_CATS: readonly LedgerCat[] = ['acmiRevenue', 'charterRevenue', 'otherRevenue', 'leaseIncome', 'assetSale',
+  // v0.16 interest on spare cash (engine/finance).
+  'interestIncome'];
 
 /** v0.12.1 the statement's cost lines, in the Finance screen's order. */
 export const COST_CATS: readonly LedgerCat[] = [
@@ -38,6 +40,8 @@ export const COST_CATS: readonly LedgerCat[] = [
   'sales', 'badDebt',
   // v0.14.1 a lessor's sub-lease consent fee (was under rent).
   'consent',
+  // v0.16 bank fees (arrangement, commitment, waiver, early repayment, factoring) and brokers' commission.
+  'bankFees', 'commission',
 ];
 
 /**

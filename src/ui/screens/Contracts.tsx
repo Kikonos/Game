@@ -20,7 +20,9 @@ import { money } from '../format';
 import { store, useClock, useGame } from '../store';
 import { ArchIcon, Chips, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
-import { archLabel, COUNTDOWN_MIN, expiryLabel, offerModal, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays, v09Chips } from './screenLogic';
+import { archLabel, COUNTDOWN_MIN, expiryLabel, fuelLine, offerModal, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays, v09Chips } from './screenLogic';
+import { SalesView } from './contracts/SalesView';
+import { FilterView, HiddenOffersRow } from './contracts/FilterView';
 import { analystView } from '../../engine/ops';
 import { ScreenHint } from '../components/ScreenHint';
 import { clientList } from '../../engine/contracts';
@@ -30,7 +32,7 @@ import { MarketsView } from './Markets';
 import { cancelWarning, lockOf, rulesOf } from '../../engine/scenario';
 import { LockedPanel, LockNote, lockedProps } from '../components/Locked';
 
-type View = 'market' | 'active' | 'tenders' | 'missed' | 'clients' | 'markets';
+type View = 'market' | 'active' | 'tenders' | 'missed' | 'clients' | 'markets' | /** v0.16 */ 'sales' | 'filter';
 
 /** v0.14 the card's time left: hours and minutes ticking with the clock in the last 6 h, a phone call marked. */
 function OfferLeft({ o, now }: { o: ContractOffer; now: number }) {
@@ -87,6 +89,8 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
         <b>{productLine(o.product, o)}</b>
         <span className="muted small">est. <b className="num">{money(o.estValue)}</b></span>
       </div>
+      {/* v0.16 (G) who pays the fuel, on every card. */}
+      <div className="small muted">{fuelLine(o.product)}</div>
       <Chips chips={v08Chips(o, offerClientLine(g, o.id), offerCompetition(g, o.id).level)} />
       <Chips chips={chips.slice(0, 4)} />
       {cv && <div className={`small sc-counter-line ${cv.tone === 'info' ? 'accent' : cv.tone}`}>{cv.text}</div>}
@@ -113,10 +117,12 @@ function Market({ g }: { g: GameState }) {
         <Empty icon={<InboxIcon />} title="No offers right now">
           Brokers and clients send work every few days. Idle aircraft attract gap-fit offers.
         </Empty>
+        <HiddenOffersRow g={g} />
       </>
     );
   }
-  return <>{note}<div className="sc-offer-grid">{list.map((o) => <OfferCard key={o.id} g={g} o={o} windows={windows} />)}</div></>;
+  // v0.16 "N offers hidden by your filter" (ui/screens/contracts/FilterView.tsx).
+  return <>{note}<div className="sc-offer-grid">{list.map((o) => <OfferCard key={o.id} g={g} o={o} windows={windows} />)}</div><HiddenOffersRow g={g} /></>;
 }
 
 const STATUS_LABEL: Record<Contract['status'], string> = { signed: 'Signed', active: 'Flying', completed: 'Completed', cancelled: 'Cancelled' };
@@ -329,6 +335,9 @@ export function ContractsScreen() {
           { id: 'clients', label: 'Clients', count: nClients || undefined },
           // v0.14 market presence, the trade fairs and sales trips (moved here from Company › Team).
           { id: 'markets', label: 'Markets' },
+          // v0.16 chasing work (brokers, leads, pitches) and the offer filter.
+          { id: 'sales', label: 'Sales' },
+          { id: 'filter', label: 'Filter' },
         ]} />
       </ScreenHead>
       <ScreenHint id="contracts" />
@@ -339,6 +348,8 @@ export function ContractsScreen() {
       {view === 'missed' && <Missed g={g} />}
       {view === 'clients' && <ClientsView g={g} />}
       {view === 'markets' && <MarketsView g={g} />}
+      {view === 'sales' && <SalesView g={g} />}
+      {view === 'filter' && <FilterView g={g} />}
     </div>
   );
 }

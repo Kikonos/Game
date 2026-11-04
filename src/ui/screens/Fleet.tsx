@@ -4,6 +4,7 @@
 
 import { BadgeDollarSign, BedDouble, CalendarRange, HelpCircle, Lock, Palette, Pencil, Plane, Sofa, TimerOff, Undo2, Wrench, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
+import { FinanceButtons } from './fleet/FinanceButtons';
 import { artFor } from '../../data/acmiTypes';
 import { enginesOf, variantOf } from '../../data/variants';
 import { MRO_STATIONS } from '../../data/market';
@@ -236,6 +237,8 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
         {o.kind === 'owned' && !ac.sale && ac.status !== 'delivering' && <button className={`btn grow ${fleetLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'sell', aircraftId: ac.id })} {...lockedProps(fleetLock)}><BadgeDollarSign /> Sell…</button>}
         {o.kind === 'dryLeaseIn' && !ac.returning && ac.status !== 'delivering' && o.leaseEnd - g.now >= 90 * DAY && <button className={`btn grow ${fleetLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'lease', aircraftId: ac.id, tab: 'early' })} {...lockedProps(fleetLock)}><Undo2 /> Return early…</button>}
       </div>
+      {/* v0.16 borrow against it, sell and lease back (ui/screens/fleet/FinanceButtons.tsx). */}
+      <FinanceButtons g={g} ac={ac} />
       {/* v0.15 a scenario's fixed fleet: the buttons stay, disabled, with the reason. */}
       <LockNote why={fleetLock} className="mt-8" />
     </div>

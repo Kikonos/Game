@@ -106,6 +106,8 @@ import { SETUP_BY_ID, type SetupId } from '../src/data/setups';
 import { createScenario, METRICS, SCENARIO_BY_ID, fmtValue, reliability, scenarioOutcome, scenarioView } from '../src/engine/scenario';
 import { fleetWords } from '../src/engine/newGame';
 import { bidQuote, bookTrip, com, fairsAhead, homeMarket, placeBid, travellers } from '../src/engine/commercial';
+import { botFinance } from './bot/finance';
+import { botSales } from './bot/sales';
 
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
@@ -1365,6 +1367,9 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
   if (newDay) {
     auditTasks(g);
     heads(g, t);
+    // v0.16 the bank and the sales desk (scripts/bot/finance.ts, scripts/bot/sales.ts).
+    if (botFinance(g)) act(g, t);
+    if (botSales(g)) act(g, t);
     policies(g, t);
     rehire(g, t);
     extraCrew(g, t);

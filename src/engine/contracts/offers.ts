@@ -21,7 +21,7 @@ import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
 import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, localMinuteOfDay, toDate, toLocal } from '../core/time';
 import type {
-  AcRest, ApprovalId, Archetype, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent, WorldEvent,
+  AcRest, ApprovalId, Archetype, BrokerId, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent, WorldEvent,
 } from '../core/types';
 import { acceptOffer, closeOffer, setPrice } from './accept';
 import { callReplyMin, isCallOffer, missedCall, REPLY_MIN } from './call';
@@ -35,6 +35,9 @@ import { anchorsOf, computeWaves, flownRotations, localToUTC, longestChains, max
 export { maxPax, seatNeed };
 import { ARCH_MULT, defaultSeats, flownTypes, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
 import { LEVEL_PERKS, levelOf, standingRate } from './relations';
+import { markStretch, prestigeOfferWeight } from './prestige';
+import { offerHidden } from './filter';
+import { statsV016 } from '../core/stats016';
 import { rivalTakes, rollRivalBid } from './rivals';
 import { closedAirport, closedUntil, closurePlanned, inWarZone, permitEvent, setClosureOfferHook, warRiskLandings } from '../ops/world';
 import { setClosurePlannedHook, setOpenFromHook } from './schedule';
@@ -209,6 +212,12 @@ export interface Draft {
   extraBH?: number;
   /** v0.9 §Y.2 a jumbo load (420–480 passengers, all economy). */
   jumbo?: boolean;
+  /** v0.16 clients: a stretch offer (one level above ours; prestige.ts markStretch); a far-flung route (missions.ts farRoute). */
+  stretch?: true;
+  exotic?: true;
+  /** v0.16 sales: the broker that brought it and the pipeline lead it answers (commercial/sales.ts). */
+  brokerId?: BrokerId;
+  leadId?: string;
 }
 
 export const city = (c: string) => AIRPORT_BY_CODE[c]?.city ?? c;
@@ -311,7 +320,8 @@ export function clientWeight(g: GameState, c: Client): number {
   const clean = g.company.reputation.clean;
   const cf = Math.max(0.05, 1 - (cur.cleanSensitivity * Math.max(0, 60 - clean)) / 60);
   const dem = (g.company.standing ?? 0) === 0 && cur.payReliability < 0.8 ? BAL.v08.standing.demandingPay : 1;
-  return lv * cf * dem;
+  // v0.16 the client's prestige level against ours (contracts/prestige.ts; 1 for everyone until the clients lane lands).
+  return lv * cf * dem * prestigeOfferWeight(g, cur);
 }
 
 /** v0.8 company standing: 0 Newcomer, 1 Established, 2 Respected. */
@@ -1360,6 +1370,11 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   };
   if (d.terms) o.terms = d.terms;
   if (d.jumbo) o.jumbo = true;
+  // v0.16 pass-throughs: a stretch offer, a far-flung route, the broker and the lead behind it.
+  if (d.stretch) o.stretch = true;
+  if (d.exotic) o.exotic = true;
+  if (d.brokerId) o.brokerId = d.brokerId;
+  if (d.leadId) o.leadId = d.leadId;
   if (ordinaryDraw) o.ordinary = true;
   if (shut && !shut.offerIds.includes(o.id)) shut.offerIds.push(o.id);
   // The chip names the stops of the type that will fly it: a fleet type that can (seats, range, crew), else the reference.
@@ -1431,6 +1446,15 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     const v = v09Stats(g);
     v.offersWide = (v.offersWide ?? 0) + 1;
     if (d.jumbo) v.offersJumbo = (v.offersJumbo ?? 0) + 1;
+  }
+  // v0.16 the player's offer filter (contracts/filter.ts): a hidden offer gets no cue, no message and no pause; it stays
+  // on the market under "N offers hidden by your filter" and expires as usual.
+  if (offerHidden(g, o)) {
+    o.hidden = true;
+    statsV016(g).hidden++;
+    schedule(g, o.expires, 'offer.expire', o.id);
+    rollRivalBid(g, o);
+    return o;
   }
   // Urgent work we could actually fly stops the clock (setting) and gets an inbox line; the rest just pins the map.
   const flyable = urgency === 'urgent' && Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no');
@@ -1504,6 +1528,8 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     if (d && opts.repeatOf) d.repeatOf = opts.repeatOf;
     if (d && opts.eventId) d.eventId = opts.eventId;
     if (d && opts.cabin !== undefined) d.cabin = opts.cabin;
+    // v0.16 a draft from a client one level above ours is a stretch offer (contracts/prestige.ts).
+    if (d) markStretch(g, d);
     const o = d && finalize(g, d, ctx.aspire);
     if (o) {
       // v0.6: the last gap-fit offer (the quiet-week floor looks at it).

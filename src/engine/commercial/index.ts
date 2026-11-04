@@ -10,6 +10,7 @@ import { seedMarketClients } from '../contracts/clients';
 import { dailyPresence, loadPresence, presence } from './presence';
 import { bidQuote, dailyTenders, decideTender, issueTender, placeBid } from './tenders';
 import { bookTrip, dailyTrips, fairsAhead, travelLegs } from './trips';
+import { dailySales, loadSales, monthlySales } from './sales';
 import type { CrisisKind } from './types';
 
 export * from './types';
@@ -31,6 +32,8 @@ function daily(g: GameState): void {
   dailyTrips(g);
   dailyTenders(g);
   dailyCrises(g);
+  // v0.16 brokers' leads, the pipeline's lifetimes, pitch replies, the sales managers' leads (commercial/sales.ts).
+  dailySales(g);
 }
 
 export const commercialModule: SimModule = {
@@ -39,14 +42,18 @@ export const commercialModule: SimModule = {
   init(g) {
     seedMarketClients(g);
     presence(g);
+    // v0.16 the sales records, empty (exactly as load sets them).
+    loadSales(g);
   },
   load(g) {
     loadCommercial(g);
     seedMarketClients(g);
     // v0.14 an older save: presence seeded from its clients and contracts.
     loadPresence(g);
+    loadSales(g);
   },
-  handlers: { day: daily },
+  // v0.16 month end (before ops closes the statement): the sales payroll.
+  handlers: { day: daily, month: (g) => monthlySales(g) },
 };
 
 // ---------- dev helpers (console: __contrail.dev.tender() / fair() / crisis(kind)) ----------

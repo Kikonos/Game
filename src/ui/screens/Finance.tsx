@@ -19,6 +19,7 @@ import { earnedUnbilled, showLossMonth, statementView } from './screenLogic';
 import { type MonthPoint, monthSeries, seriesKey } from './financeCharts';
 import { ScreenHint } from '../components/ScreenHint';
 import { monthEndCosts } from '../shell/cashRate';
+import { Financing } from './finance/Financing';
 
 const tone = (v: number) => (v < 0 ? 'bad' : v > 0 ? 'good' : '');
 
@@ -182,6 +183,8 @@ export function FinanceScreen() {
           <Receivables g={g} />
         </Card>
       </div>
+      {/* v0.16 the bank: credit line, loans, leaseback, factoring, interest on cash (ui/screens/finance/Financing.tsx). */}
+      <Financing g={g} />
       <Card title="Statement" className="mt-16">
         <Statement g={g} earned={earned} />
       </Card>

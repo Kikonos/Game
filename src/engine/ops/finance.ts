@@ -18,6 +18,9 @@ import { warRiskCost } from '../contracts/missionChecks';
 import { legCostEstimate } from './flights';
 import { warRiskAt } from './world';
 import { latePaymentDecision, rescueDecision } from './events';
+import { salesBill } from '../commercial/sales';
+import { complianceBill } from './compliance';
+import { treasuryForecastItems } from '../finance';
 import { stats, usd } from './util';
 
 export function newStatement(month: MonthKey, cash: number): MonthStatement {
@@ -273,7 +276,7 @@ export function headsBill(g: GameState, k: MonthKey = monthKey(g.now)): number {
 }
 
 /** v0.12.1 what the month-end run of month k takes out: rent, insurance, overhead, crew and heads' pay. Pure. */
-export interface MonthEndBill { rent: number; insurance: number; overhead: number; salaries: number; heads: number; total: number }
+export interface MonthEndBill { rent: number; insurance: number; overhead: number; salaries: number; heads: number; /** v0.16 the sales managers and the compliance manager (paid under salaries). */ sales: number; compliance: number; total: number }
 
 /**
  * v0.12.1 the month-end bill of month k, the one figure the forecast, the cash card and the top bar read: fixed
@@ -296,7 +299,10 @@ export function monthEndBill(g: GameState, k: MonthKey): MonthEndBill {
   }
   const salaries = Math.round(pay * (1 + BAL.onCosts));
   const heads = headsBill(g, k);
-  return { ...fc, salaries, heads, total: fc.rent + fc.insurance + fc.overhead + salaries + heads };
+  // v0.16 the sales managers (commercial/sales.ts) and the compliance manager (ops/compliance.ts).
+  const sales = salesBill(g, k);
+  const compliance = complianceBill(g, k);
+  return { ...fc, salaries, heads, sales, compliance, total: fc.rent + fc.insurance + fc.overhead + salaries + heads + sales + compliance };
 }
 
 /** v0.12.1 one cash movement of the forecast, kept with what it is (the cash card names the biggest). */
@@ -352,6 +358,8 @@ export function forecastItems(g: GameState, days: number): ForecastItem[] {
     }
     if (c.dry && c.product.kind === 'dry') dryLeaseItems(g, c, add);
   }
+  // v0.16 financing: loan instalments, credit repayments, factored balances (engine/finance).
+  for (const x of treasuryForecastItems(g, days)) add(x.t, x.amount, x.what);
   // v0.14.1 (M2) an administrator's payout on our claim (commercial/crises.ts), on its date.
   for (const x of g.com?.crises ?? []) if (x.claim && !x.claim.paid && x.claim.amount > 0) add(x.claim.payAt, x.claim.amount, "administrators' claims");
   for (const m of Object.values(g.maintenance)) {

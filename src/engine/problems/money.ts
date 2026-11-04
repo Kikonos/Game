@@ -81,7 +81,31 @@ const COST_WORD: Partial<Record<LedgerCat, string>> = {
   insurance: 'insurance', overhead: 'overhead', training: 'training', hiring: 'hiring', penalties: 'penalties', subcharter: 'sub-charters',
   approvals: 'approvals', interest: 'interest', capex: 'aircraft bought', refit: 'cabin refits', leaseReturn: 'lease returns', warRisk: 'war-risk cover',
   disruption: 'disruptions', compliance: 'safety and compliance', delivery: 'ferry companies', sales: 'sales trips', badDebt: 'bad debts', consent: 'lessor consent fees',
+  // v0.16
+  bankFees: 'bank fees', commission: 'brokers\' commission',
 };
+
+// ---------- v0.16 finance cards (UPDATE-0.16.md §A; lane finance). Step 0: no card yet. ----------
+
+/** The bank's covenant broken (red): which one, the waiver fee, what to do. */
+export function covenantBreachCard(_g: GameState): ProblemCard | null {
+  return null;
+}
+
+/** A loan instalment the 30-day forecast cannot pay (amber 7 days ahead, red inside 48 h). */
+export function loanDueCard(_g: GameState, _loanId: string): ProblemCard | null {
+  return null;
+}
+
+/** Cash plus undrawn credit under one month's bill (amber). */
+export function creditHeadroomCard(_g: GameState): ProblemCard | null {
+  return null;
+}
+
+/** A factored invoice 60+ days overdue: the bank will hand it back (amber). */
+export function factorRecourseCard(_g: GameState, _receivableId: string): ProblemCard | null {
+  return null;
+}
 
 /**
  * A closed month that lost money. v0.14.1 (UI-6) the WHY reads the statement itself: the cost lines that grew most on

@@ -34,6 +34,8 @@ import { ProblemCardView, runAction } from '../components/ProblemCard';
 import { Modal, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { ArchIcon, Chips, Dot, KV } from '../screens/common';
+import { fuelLine } from '../screens/screenLogic';
+import { DepositPicker } from './offer/DepositPicker';
 import { archLabel, counterSteps, expiryLabel, offerCrewLine, pctLabel, reqChips, riskChips, routeSummary, offerDays, v09Chips, type Chip } from '../screens/screenLogic';
 import { analystView } from '../../engine/ops';
 import { HintButton, ScreenHint } from '../components/ScreenHint';
@@ -80,9 +82,9 @@ function Terms({ g, o }: { g: GameState; o: ContractOffer }) {
       const n = p.balanceDaysBefore;
       rows.push(['Balance', lead > n ? `${n} days before each trip` : days <= n ? 'At signing' : `At signing for trips in the next ${n} days, then ${n} days before each trip`]);
     }
-    // v0.15.1 a jumbo or big full load bills the burn to the client after each leg (it read 'Our risk').
-    rows.push(['Fuel', p.fuelAtCost ? 'At cost: the client pays the burn after each leg' : p.fuelEscalation ? 'Escalation clause' : 'Our risk, in the price']);
   } else rows.push(['Rent', `${usd(p.rentPerMonth)} / month`], ['Reserves', `${usd(p.reservesPerFH)} / FH`]);
+  // v0.16 (G) who pays the fuel, on every kind of offer (the rule is ops/flights.ts paysFuel).
+  rows.push(['Fuel', fuelLine(p)]);
   const [d0, d1] = offerDays(o);
   rows.push(['Dates', `${fmtDate(d0)} – ${fmtDate(d1)}${o.pattern.kind === 'base' ? ` (${o.pattern.base} local)` : ''}`], ['Lead time', lead <= 0 ? 'Starts now' : `${lead} day${lead === 1 ? '' : 's'}`]);
   // A dry lease bills no block hours (rent and reserves only).
@@ -92,7 +94,13 @@ function Terms({ g, o }: { g: GameState; o: ContractOffer }) {
   rows.push(['Payment', `${pay.basis === 'advance' ? 'In advance' : pay.basis === 'arrears' ? arrears : 'Deposit and balances before the trips'}, net ${pay.dueDays} days`]);
   rows.push(['If we cancel', o.penalties.cancelScale.map(([d, f]) => `${d} d ${Math.round(f * 100)}%`).join(' · ') || '—']);
   if (o.penalties.perCancelledLeg) rows.push(['Per cancelled leg', usd(o.penalties.perCancelledLeg)]);
-  return <KV rows={rows} />;
+  return (
+    <>
+      <KV rows={rows} />
+      {/* v0.16 the deposit as a negotiation lever (ui/modals/offer/DepositPicker.tsx, lane finance). */}
+      <DepositPicker g={g} o={o} value={p.kind === 'charter' ? p.depositPct : 0} onChange={() => undefined} />
+    </>
+  );
 }
 
 function Programme({ o }: { o: ContractOffer }) {

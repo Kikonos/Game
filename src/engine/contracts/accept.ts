@@ -10,7 +10,7 @@ import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
 import { DAY, fmtDay, fmtDayAt, monthKey, monthStart, fmtDayRange } from '../core/time';
 import { clamp } from '../core/util';
-import type { ActionResult, Contract, ContractOffer, CrewExtra, Flight, GameState, Minute, OfferStatus, Product, Receivable, SimEvent } from '../core/types';
+import type { ActionResult, BrokerId, Contract, ContractOffer, CrewExtra, Flight, GameState, Minute, OfferStatus, Product, Receivable, SimEvent } from '../core/types';
 import { autoRoster, crewExtraFor, flightCrewStatus, onContractDoneMorale } from '../crew';
 import { billContractMonth, issueBill, mghFor, mghRemaining } from './billing';
 import { feasibility } from './feasibility';
@@ -25,6 +25,8 @@ import { replyTime } from './counter';
 import { bumpClient, noteJobDone, statsV08 } from './relations';
 import { noteHiredUs } from './rivals';
 import { rollRepeat } from './missions';
+import { onContractDoneVisibility } from './prestige';
+import { commissionOf } from '../commercial/sales';
 import { cancelDry, recallDry, recallTerms, signDryLease } from '../ops/dryLease';
 import { notOursCancel } from '../ops/latePolicy';
 import { lockOf, offerLock } from '../scenario/rules';
@@ -51,8 +53,8 @@ export function closeOffer(g: GameState, o: ContractOffer, status: OfferStatus, 
   if (lostTo) o.lostTo = lostTo;
 }
 
-/** Broker commission share (5%) when the job came through a broker. */
-export const brokerCut = (c: { broker?: string }) => (c.broker ? BAL.brokerCommission : 0);
+/** Broker commission share when the job came through a broker: v0.16 the broker's own rate (commercial/sales.ts), else the flat 5%. */
+export const brokerCut = (c: { broker?: string; brokerId?: BrokerId }) => (c.brokerId ? commissionOf(c.brokerId) : c.broker ? BAL.brokerCommission : 0);
 
 const firstNo = (rep: ReturnType<typeof feasibility>, skipPaint = false, skipCabin = false) => rep.checks.find((c) => c.level === 'no' && !(skipPaint && c.id === 'paint') && !(skipCabin && c.id === 'cabinReq'));
 
@@ -131,6 +133,8 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   const c: Contract = {
     id: nextId(g, 'k'),
     offerId: o.id, archetype: o.archetype, clientId: o.clientId, broker: o.broker, title: o.title,
+    // v0.16 the broker's own commission and the lead it closes follow the offer.
+    ...(o.brokerId ? { brokerId: o.brokerId } : {}), ...(o.leadId ? { leadId: o.leadId } : {}),
     product: opts.priced ? structuredClone(o.product) : termsProduct(o, { paint, cabin: cabinOn }), pattern: structuredClone(o.pattern), requirements: structuredClone(o.requirements),
     penalties: structuredClone(o.penalties), payment: { ...o.payment }, effects: { ...o.effects },
     aircraftIds: ids, start: o.start, end: o.end, signed: g.now, status: 'signed',
@@ -685,6 +689,8 @@ function completeContract(g: GameState, c: Contract): void {
     // v0.12.1 a world tour all the way round: every leg it planned flown (none of ours cancelled).
     if (c.archetype === 'worldTour' && !cxUs && (c.revMinDone ?? 0) >= (c.planRevMin ?? 0) * 0.99) v.tourDone = (v.tourDone ?? 0) + 1;
     rollRepeat(g, c.id);
+    // v0.16 the visibility the job earned on the prestige ladder (contracts/prestige.ts).
+    onContractDoneVisibility(g, c);
   }
   const own = flown - sub;
   const parts = [`${own} ${own === 1 ? 'leg' : 'legs'} flown${own ? `, ${Math.round(onTime * 100)}% on time` : ''}`];
