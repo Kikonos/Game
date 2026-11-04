@@ -359,7 +359,7 @@ export function forecastItems(g: GameState, days: number): ForecastItem[] {
       if (m.status === 'planned') add(m.start, -((ac?.returning?.quote ?? m.cost) + (ac?.returning?.earlyFee ?? 0)), `${reg}'s lease return on ${fmtDay(m.start)}`);
       const dep = ac?.ownership.kind === 'dryLeaseIn' ? ac.ownership.deposit ?? 0 : 0;
       add(m.end, dep, 'lease deposit back');
-    } else add(m.end, -m.cost, `${reg}'s ${m.kind === 'AOG' ? 'repair' : m.kind === 'paint' ? 'paint' : `${m.kind}-check`} on ${fmtDay(m.end)}`);
+    } else add(m.end, -m.cost, `${reg}'s ${m.kind === 'AOG' ? 'repair' : m.kind === 'paint' ? 'paint' : m.kind === 'line' ? 'inspection' : `${m.kind}-check`} on ${fmtDay(m.end)}`);
   }
   for (const f of Object.values(g.flights)) {
     if (f.status !== 'scheduled' || !f.aircraftId || f.std > end) continue;
