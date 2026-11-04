@@ -752,8 +752,8 @@ const EXTRA_V016: Record<string, Row[]> = {
     ['GEO', 'Cheddi Jagan Intl', 'Georgetown', 'GY', 6.499, -58.254, 0.6, 1, 0.3, 0.3],
   ],
   SAF: [['DZA', 'Dzaoudzi–Pamandzi', 'Mayotte', 'YT', -12.805, 45.281, 0.3, 1, 0.1, 0.5]],
+  // (Papeete PPT is in the base PAC table already: the far routes read it from there.)
   PAC: [
-    ['PPT', "Faa'a Intl", 'Papeete', 'PF', -17.557, -149.611, 0.2, 2, 0.2, 1.0],
     ['WLS', 'Hihifo', 'Wallis', 'WF', -13.238, -176.199, 0.01, 1, 0.1, 0.5],
     ['POM', 'Jacksons Intl', 'Port Moresby', 'PG', -9.443, 147.220, 0.5, 2, 0.3, 0.2],
   ],
@@ -761,7 +761,7 @@ const EXTRA_V016: Record<string, Row[]> = {
   UKI: [['BZZ', 'RAF Brize Norton', 'Brize Norton', 'GB', 51.750, -1.584, 0.01, 1, 0.1, 0.05]],
 };
 const RUNWAY_V016: Record<string, number> = {
-  PTP: 3505, FDF: 3300, POS: 3200, BGI: 3353, KIN: 2716, ANU: 2744, PLS: 2316, GCM: 2139, CAY: 3200, GEO: 3353, DZA: 1930, PPT: 3420, WLS: 2100, POM: 2750, TRN: 3300, BZZ: 3049,
+  PTP: 3505, FDF: 3300, POS: 3200, BGI: 3353, KIN: 2716, ANU: 2744, PLS: 2316, GCM: 2139, CAY: 3200, GEO: 3353, DZA: 1930, WLS: 2100, POM: 2750, TRN: 3300, BZZ: 3049,
 };
 /** v0.16 Mayotte (1,930 m) and Wallis take narrowbodies only. */
 const NARROW_V016 = ['DZA', 'WLS'];
