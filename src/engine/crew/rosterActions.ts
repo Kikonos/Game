@@ -4,7 +4,7 @@
 // to fly. Manual assignments are locked: the rolling re-plan keeps them, flagged when illegal, never silently.
 
 import { onStandby, readyMinOf, standbyFor } from './standby';
-import { canFill, reportMinutes, typeOf } from '../core/perf';
+import { canFill, typeOf } from '../core/perf';
 import { DAY, fmtDateTime, fmtDay, fmtTime } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role, StandbyKind } from '../core/types';
 import { atomic } from './atomic';
@@ -13,7 +13,7 @@ import { crewName } from './generate';
 import { rootReason, type Reason } from './reasons';
 import { emptyResult, fillAll, placeCrew, recheckPairing, releaseCrew } from './roster';
 import { levelOf, worst, type IssueCode } from './rules';
-import { block28, locAt, segsOf, ticketPrice, touchCrew, typeIdOf, viaText } from './timeline';
+import { block28, freshReport, locAt, segsOf, ticketPrice, touchCrew, typeIdOf, viaText } from './timeline';
 
 const LEVEL_RANK: Record<Legality, number> = { legal: 0, tight: 1, illegal: 2 };
 const hm = (m: number) => `${Math.floor(m / 60)}:${String(Math.round(m % 60)).padStart(2, '0')}`;
@@ -95,15 +95,8 @@ export function dutyCrew(g: GameState, dutyOrFlightId: string): DutyCrewView | n
 /** v0.14.1 a duty's release, dated when it falls on another UTC day than the report ('2 Mar 06:50'). Pure. */
 export const releaseText = (report: Minute, release: Minute): string => (Math.floor(release / DAY) === Math.floor(report / DAY) ? fmtTime(release) : fmtDateTime(release));
 
-/**
- * v0.9 round 4 (§Y.1): the report of a crew member who takes a seat after the duty reported: their own check-in for
- * the held departure (never the hours the first crew waited at the gate), and never before now. Pure.
- */
-export function freshReport(g: GameState, p: Pairing, d: Duty, f = g.flights[d.flightIds[0]]): Minute {
-  if (!f) return g.now;
-  const checkIn = f.id === d.flightIds[0] && f.std > d.report ? f.std - d.report : reportMinutes(typeIdOf(g, p)).report;
-  return Math.max(g.now, f.std + f.delay - checkIn);
-}
+// v0.9 round 4 (§Y.1) freshReport lives in timeline.ts since the crew round (Nov 2026); kept here for its callers.
+export { freshReport };
 
 export interface DutyCandidate {
   crewId: string;

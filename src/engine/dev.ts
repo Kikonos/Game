@@ -286,7 +286,9 @@ export function devStandby(g: GameState): string {
   const fam = typeOf(ac.typeId).family;
   const home = g.company.homeBase;
   const crewOn = new Set(Object.values(g.pairings).flatMap((p) => p.slots.map((s) => s.crewId)));
-  const c = Object.values(g.crew).find((x) => x.role === 'CPT' && x.ratings.includes(fam) && x.base === home && x.loc === home && !crewOn.has(x.id) && x.restUntil <= g.now && !x.blocks?.length);
+  // Crew round (Nov 2026): a captain free today (planned leave weeks away is no bar: with `!blocks.length` nobody
+  // qualified in a new game, and the scene only "worked" while standbyFor matched windows starting after the report).
+  const c = Object.values(g.crew).find((x) => x.role === 'CPT' && x.ratings.includes(fam) && x.base === home && x.loc === home && !crewOn.has(x.id) && x.restUntil <= g.now && !x.blocks?.some((b) => b.from < g.now + DAY && b.to > g.now));
   if (c) {
     const from = g.now - 60;
     (c.standby ??= []).push({ from, to: from + 12 * 60 });
