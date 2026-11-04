@@ -118,7 +118,8 @@ describe('BLU2032: the APU delay after report', () => {
     expect(flightCrewStatus(g, f.id).level).not.toBe('illegal');
     expect(titles(g).some((t) => /OUT OF HOURS/.test(t))).toBe(false);
     const note = g.messages.find((m) => m.title === 'In-flight rest on AW2032');
-    expect(note?.body).toMatch(/delayed after the crew reported.*14:19, over the 13:00 planned with 2 pilots\. The [34] pilots aboard rest in turns in the bunks; the limit is now 1[78]:00\./);
+    // The plan the day reported with, as the sheet showed it (13:15 of 14:00): never the basic 13:00.
+    expect(note?.body).toMatch(/delayed after the crew reported.*14:19, over the 14:00 planned with 2 pilots\. The [34] pilots aboard rest in turns in the bunks; the limit is now 1[78]:00\./);
     // It leaves on time with the delay and lands legal.
     run(g, f.std + 30);
     expect(f.status).toBe('enroute');
@@ -208,6 +209,9 @@ describe('BLU2032: a save in the broken state', () => {
     expect(d.augment).toBeGreaterThanOrEqual(1);
     expect(d.legality).toBe('legal');
     expect(flightCrewStatus(g, f.id).level).not.toBe('illegal');
-    expect(g.messages.find((m) => m.title === 'In-flight rest on AW2032')?.body).toMatch(/Technical: APU/);
+    const note = g.messages.find((m) => m.title === 'In-flight rest on AW2032');
+    expect(note?.body).toMatch(/Technical: APU/);
+    // The limit the day reported with (the extension given back), not the basic 13:00 the broken save carried.
+    expect(note?.body).toMatch(/over the 14:00 planned with 2 pilots/);
   });
 });

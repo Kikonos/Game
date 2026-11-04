@@ -481,7 +481,7 @@ function repairLostExtension(g: GameState): void {
     d.maxFdp = m;
     syncDuty(g, d, p);
     recheckPairing(g, p);
-    if (d.augment > 0) noteAugmentedAboard(g, d);
+    if (d.augment > 0) noteAugmentedAboard(g, d, { max: m, pilots: 2 });
     else if (d.legality === 'illegal') coverByDiscretion(g, d);
   }
 }

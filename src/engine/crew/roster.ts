@@ -1865,6 +1865,7 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
       }
       d.flightIds = keep;
       const aug0 = d.augment;
+      const max0 = d.maxFdp;
       syncDuty(g, d, p);
       // A leg under way now leaving a night-stop later: the duty ends at the last landing (hotel, then a new duty).
       // v0.14.1 so does a duty not yet reported whose legs moved a night's rest apart (an empty move retimed to the
@@ -1874,7 +1875,7 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
       // augAboard: one note), or with discretion when that covers the overrun, never an out-of-hours alarm and a pause
       // for a day the gate would let go anyway (flights.fdpOver).
       if (p.status === 'active' && d.report <= g.now && crewCount(p) > 0) {
-        if (d.augment > aug0) noteAugmentedAboard(g, d);
+        if (d.augment > aug0) noteAugmentedAboard(g, d, { max: max0, pilots: 2 + aug0 });
         else if (d.legality === 'illegal') coverByDiscretion(g, d);
       }
       if (crewCount(p) > 0) {
@@ -2314,9 +2315,11 @@ export function discretionMax(g: GameState, d: Duty): number {
  */
 /**
  * BLU2032 round: the note when a reported day a delay ran over its planned limit goes on augmented with the relief
- * pilots already aboard (duties.augAboard): 'In-flight rest on BLU2032'.
+ * pilots already aboard (duties.augAboard): 'In-flight rest on BLU2032'. `was`: the plan the day reported with (its
+ * limit and pilots), as the flight sheet showed it ('13:15 of 14:00' on a planned extension); without it the basic
+ * 2-pilot limit. (v0.15.1 review: it read "over the 13:00 planned" for a day the sheet had shown as 13:15 of 14:00.)
  */
-export function noteAugmentedAboard(g: GameState, d: Duty): void {
+export function noteAugmentedAboard(g: GameState, d: Duty, was?: { max: number; pilots: number }): void {
   const fl = d.flightIds.map((id) => g.flights[id]).filter((f): f is Flight => !!f && f.status !== 'cancelled');
   const next = fl.find((f) => f.status === 'scheduled') ?? fl[0];
   if (!next) return;
@@ -2324,9 +2327,10 @@ export function noteAugmentedAboard(g: GameState, d: Duty): void {
   const p = g.pairings[d.pairingId];
   const rest = restOf(g, p?.aircraftId ?? null);
   const where = rest.fc?.kind === 'ldmcr' ? 'lower-deck bunks' : 'bunks';
+  const planned = was ?? { max: d.basicFdp ?? d.maxFdp, pilots: 2 };
   pushMessage(g, {
     tone: 'info', cat: 'crew', title: `In-flight rest on ${next.no}`,
-    body: `${next.no} was delayed after the crew reported${next.delayReason ? ` (${next.delayReason})` : ''}: the day runs ${hm(d.fdp)}, over the ${hm(d.basicFdp ?? d.maxFdp)} planned with 2 pilots. The ${2 + d.augment} pilots aboard rest in turns in the ${where}; the limit is now ${hm(d.maxFdp)}.`,
+    body: `${next.no} was delayed after the crew reported${next.delayReason ? ` (${next.delayReason})` : ''}: the day runs ${hm(d.fdp)}, over the ${hm(planned.max)} planned with ${planned.pilots} pilots. The ${2 + d.augment} pilots aboard rest in turns in the ${where}; the limit is now ${hm(d.maxFdp)}.`,
     ref: { kind: 'flight', id: next.id },
   });
 }
