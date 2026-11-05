@@ -380,6 +380,9 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     // v0.9 round 4 credit control's note: the receivable on Finance.
     case 'receivable':
       return { tab: 'finance', sel: ref };
+    // v0.16.3 the debt plan (deferrals, the investor's board, the restructuring): Finance › Get out of debt.
+    case 'debt':
+      return { tab: 'finance', view: 'debt' };
     // v0.14 a tender: Contracts › Tenders; a sales trip: Contracts › Markets (was Company › Team).
     case 'tender':
       return { tab: 'contracts', view: 'tenders', sel: ref };
