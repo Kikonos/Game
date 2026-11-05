@@ -633,3 +633,7 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
 - Balance: market offers at half; the leads pipeline adds about 30–38 offers a year; L2 in months 7–9; all seeds solvent. Average margin is about −1% excluding seed 1 (−18.8%; it borrows and breaks covenants), against about +8% at base. Prices untouched. Tune if the player finds it too tight.
 - s0329 loads at level 3 (visibility 5394), never demoted.
 - Open: old red BLU2032 inbox line kept in history; Settings "Now playing" wording while muted; the crewTries/held and SAME_CREW_MIN leftovers.
+
+## v0.16.1 in progress (2026-11-05)
+- Save /home/user/work/saves/s0429.json: evacuation charter k30se from Niamey (NIM closed by a coup) has no positioning LIS–NIM before the first leg BLU2049, so Crew Control offered only a private jet.
+- An agent is fixing it on branch v0161, together with a "Report a bug" feature (reports with a saved game state, Export all). State file: /home/user/work/v0161/STATE.txt. It merges into acmi. The parent then releases v0.16.1 as usual: the player releases fixes once they're tested.
