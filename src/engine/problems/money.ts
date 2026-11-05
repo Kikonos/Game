@@ -7,7 +7,7 @@ import { DAY, fmtDay, fmtMonth, monthKey, nextMonthStart } from '../core/time';
 import type { GameState, LedgerCat, MonthStatement } from '../core/types';
 import { cashForecast, cashSeries, daysOverdue, forecastItems, monthEndBill } from '../ops/finance';
 import { cashLowBefore, creditView } from '../finance';
-import { distressProblems } from '../finance/distress';
+import { distressProblems, perActive } from '../finance/distress';
 import { usd } from '../ops/util';
 import { mkHurt, type ProblemCard, type TimelineSpec } from './types';
 
@@ -281,12 +281,14 @@ export function cashNegativeCard(g: GameState): ProblemCard | null {
   const bill = monthEndBill(g, monthKey(g.now));
   const owed = g.finance.receivables.filter((r) => r.paid === null).reduce((s, r) => s + r.amount, 0);
   const again = (g.finance.rescues ?? 0) >= 1;
+  // v0.16.3 under a restructuring plan the clock is stopped: the date that matters is the plan's end.
+  const per = perActive(g) ? g.treasury!.distress!.per! : null;
   const decision = g.decisions.find((d) => d.kind === 'latePayment');
   return {
     subject: { kind: 'cashNegative', ref: { kind: 'cash', id: 'cash' } }, severity: 'red',
     title: `Cash is below zero (${usd(cash)})`, what: `Cash is below zero (${usd(cash)})`,
     why: `Costs outran what came in: about ${usd(bill.total)} a month in rent, insurance and salaries before any flying${owed ? `; ${usd(owed)} of invoices are still unpaid` : ''}.`,
-    hurt: mkHurt({ money: -cash, what: 'short', extra: again ? `the company fails after ${BAL.rescueDays} days in the red` : `in ${daysLeft} day${daysLeft === 1 ? '' : 's'} an investor offers a rescue for a quarter of the company` }),
+    hurt: mkHurt({ money: -cash, what: 'short', extra: per ? `the court protects the company until ${fmtDay(per.until)}; cash must be above zero by then` : again ? `the company fails after ${BAL.rescueDays} days in the red` : `in ${daysLeft} day${daysLeft === 1 ? '' : 's'} an investor offers a rescue for a quarter of the company` }),
     actions: [
       // v0.16.3 the ways out of debt (Finance › Get out of debt): a secured line, deferrals, an investor, a restructuring.
       { id: 'debt', label: 'Ways out of debt', open: { tab: 'finance', view: 'debt' }, primary: true },
@@ -296,7 +298,7 @@ export function cashNegativeCard(g: GameState): ProblemCard | null {
     details: [`Below zero since ${fmtDay(since)}`, `Fixed costs this month ${usd(bill.rent + bill.insurance + bill.overhead)}, salaries ${usd(bill.salaries + bill.heads)}`, `Outstanding invoices ${usd(owed)}`],
     // The gauge carries no `by`: Gauge prints a time of day for it, and the hurt line already gives the date.
     visuals: { gauges: [{ id: 'cash', label: 'Days in the red', value: Math.min(BAL.rescueDays, Math.floor((g.now - since) / DAY)), limit: BAL.rescueDays, unit: 'hm', text: `${Math.floor((g.now - since) / DAY)} of ${BAL.rescueDays} days`, tone: 'bad' }] },
-    terms: [], by: rescueAt,
+    terms: [], by: per ? per.until : rescueAt,
   };
 }
 
