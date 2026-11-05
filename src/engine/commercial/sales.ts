@@ -938,7 +938,8 @@ export function leadColdCard(g: GameState, leadId: string): ProblemCard | null {
   const days = Math.max(0, Math.ceil(left / DAY));
   const name = g.clients[l.clientId]?.name ?? 'The client';
   const what = `${name}'s lead goes cold ${days <= 0 ? 'today' : `in ${days} day${days === 1 ? '' : 's'}`}`;
-  const open = { tab: 'contracts' as const, view: 'sales', sel: { kind: 'lead' as const, id: l.id } };
+  // v0.16.3 the lead sits under Contracts › Market › Leads (was the Sales tab).
+  const open = { tab: 'contracts' as const, view: 'leads', sel: { kind: 'lead' as const, id: l.id } };
   return {
     subject: { kind: 'leadCold', ref: { kind: 'lead', id: l.id } }, severity: 'amber',
     title: `Lead going cold: ${name}`, what,

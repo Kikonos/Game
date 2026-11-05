@@ -699,9 +699,9 @@ export function fileRestructuring(g: GameState): ActionResult {
   const d = distress(g);
   // Court and advisers first; then the creditors' haircut: the bank forgives part of the overdraft (a gain, cash up),
   // the plans, deferred rent and pay are cut (a gain on the statement, no cash), an unsecured line's drawn balance too.
+  const over = Math.max(0, -g.company.cash);
   post(g, 'distress', -q.fee);
   let written = 0;
-  const over = Math.max(0, -g.company.cash);
   const w0 = Math.round(over * P.writeOff);
   if (w0 > 0) { post(g, 'distress', w0); written += w0; }
   const cut = (xs: Instalment[]): number => {

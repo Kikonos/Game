@@ -1,9 +1,14 @@
 // v0.16 Contracts › Sales (UPDATE-0.16.md §C; lane sales): the leads pipeline (send a proposal, drop, open the offer
 // under negotiation; days left), the brokers (relation, register, a visit) and the pre-season pitches (the window,
-// who to pitch, the answers due). Two columns on an iPad, one on a phone; every row three lines at most.
+// who to pitch, the answers due). Every row three lines at most.
+// v0.16.3 Sales lives under Contracts › Market as the Leads segment (Offers · Leads · Tenders): the pipeline on top,
+// one tap to send a proposal, and the sales desk (brokers, pitches, sales managers) folded away under it.
 
-import { Briefcase, Handshake, Megaphone, Send } from 'lucide-react';
+import { Briefcase, ChevronDown, ChevronRight, Handshake, Megaphone, Send, Users } from 'lucide-react';
+import { useEffect } from 'react';
 import { useMemo, useState } from 'react';
+import { salesRepsView } from '../../../engine/commercial';
+import { DAY } from '../../../engine/core/time';
 import { flag } from '../../../data/countries';
 import {
   brokerView, dropLead, leadsView, pitchAirline, pitchTargets, pitchesView, registerBroker, salesDesk, visitBroker, workLead, type BrokerView, type LeadView,
@@ -17,13 +22,15 @@ import { store } from '../../store';
 const pct = (x: number) => `${Math.round(x * 1000) / 10} %`;
 const usdK = (v: number) => (Math.abs(v) >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${Math.round(v / 1e3)}K`);
 
-/** Leads waiting for a proposal (the tab's count). Pure. */
+/** Leads waiting for a proposal (the segment's count). Pure. */
 export const salesTabCount = (g: GameState): number => (g.com?.leads ?? []).filter((l) => l.stage === 'lead').length;
+/** v0.16.3 leads going cold within three days (the segment's count turns amber). Pure. */
+export const leadsUrgent = (g: GameState): number => (g.com?.leads ?? []).filter((l) => l.stage === 'lead' && l.expires - g.now <= 3 * DAY).length;
 
 /** The right-hand words of a lead row: what happens next and when. */
 function nextLine(l: LeadView): { text: string; tone: string } {
   const d = l.daysLeft;
-  if (l.stage === 'lead') return { text: d <= 0 ? 'Goes cold today' : `Cold in ${d} d`, tone: d <= 3 ? 'warn' : 'muted' };
+  if (l.stage === 'lead') return { text: d <= 0 ? 'Goes cold today' : `Goes cold in ${d} day${d === 1 ? '' : 's'}`, tone: d <= 3 ? 'warn' : 'muted' };
   if (l.stage === 'proposal') return { text: d <= 0 ? 'Answer due' : `Answer in ${d} d`, tone: 'muted' };
   if (l.stage === 'negotiation') return { text: l.offerOpen ? `Answer by ${fmtDay(l.expires)}` : 'Offer closed', tone: 'accent' };
   return { text: fmtDay(l.moved), tone: 'dim' };
@@ -125,52 +132,99 @@ function Pitches({ g }: { g: GameState }) {
   );
 }
 
-export function SalesView({ g }: { g: GameState }) {
+/** v0.16.3 the sales desk, folded under the pipeline: brokers, pitches and the sales managers (hired in Team). */
+function SalesDesk({ g, brokers }: { g: GameState; brokers: BrokerView[] }) {
+  const [open, setOpen] = useState(() => { try { return sessionStorage.getItem('bh:salesDesk') === '1'; } catch { return false; } });
+  const toggle = () => { setOpen(!open); try { sessionStorage.setItem('bh:salesDesk', open ? '0' : '1'); } catch { /* private window */ } };
+  const desk = salesDesk(g);
+  const reps = salesRepsView(g);
+  const w = desk.window;
+  const summary = `${desk.registered} of 5 brokers · ${w ? `${desk.pitches.used} of ${desk.pitches.max} pitches this season` : 'no pitch window now'} · ${desk.repsJoined ? `${desk.repsJoined} sales manager${desk.repsJoined === 1 ? '' : 's'}` : 'no sales manager'}`;
+  return (
+    <section className="col gap-0">
+      <button className="mh-desk" onClick={toggle} aria-expanded={open} aria-label="Sales desk">
+        {open ? <ChevronDown className="sc-ico-s dim" /> : <ChevronRight className="sc-ico-s dim" />}
+        <span className="col grow mh-desk-t" style={{ gap: 2 }}>
+          <b className="row gap-6" style={{ alignItems: 'center' }}><Briefcase className="sc-ico-s" /> Sales desk</b>
+          <span className="small muted ellipsis">{summary}</span>
+        </span>
+        <span className="small dim nowrap">{desk.worked} of {desk.cap} proposals in work</span>
+      </button>
+      {open && (
+        <div className="v16s-sales mh-desk-body">
+          <div className="col gap-12">
+            <section className="card v16s-card col gap-8">
+              <div className="row between" style={{ alignItems: 'baseline' }}>
+                <b className="row gap-6" style={{ alignItems: 'center' }}><Briefcase className="sc-ico-s" /> Brokers</b>
+                <span className="small muted v16s-hint">leads on busy days; their cut on each deal</span>
+              </div>
+              <div className="v16s-list">{brokers.map((b) => <BrokerRow key={b.id} b={b} />)}</div>
+            </section>
+          </div>
+          <div className="col gap-12">
+            <Pitches g={g} />
+            <section className="card v16s-card col gap-8">
+              <div className="row between" style={{ alignItems: 'baseline' }}>
+                <b className="row gap-6" style={{ alignItems: 'center' }}><Users className="sc-ico-s" /> Sales managers</b>
+                <button className="btn btn-sm" onClick={() => store.navigate('company', { view: 'team' })}>Team</button>
+              </div>
+              {reps.length ? (
+                <div className="v16s-list">{reps.map((r) => (
+                  <div key={r.id} className="v16s-row v16s-row-s">
+                    <span className="col grow" style={{ minWidth: 0, gap: 2 }}>
+                      <b className="ellipsis">{r.name} <span className="small muted">· {r.marketName}</span></b>
+                      <span className="small muted ellipsis">{r.status}</span>
+                    </span>
+                  </div>
+                ))}</div>
+              ) : (
+                <div className="small muted">None yet. A regional sales manager (hired in Company › Team) brings leads from their market and works more proposals at once.</div>
+              )}
+            </section>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+/** v0.16.3 Contracts › Market › Leads: the pipeline first (one tap sends a proposal), the sales desk folded under it. */
+export function LeadsView({ g }: { g: GameState }) {
   const day = Math.floor(g.now / 1440);
   const leads = useMemo(() => leadsView(g), [g, day, store.editCount, g.com?.leads?.length]); // eslint-disable-line react-hooks/exhaustive-deps
   const brokers = useMemo(() => brokerView(g), [g, day, store.editCount]); // eslint-disable-line react-hooks/exhaustive-deps
-  const desk = salesDesk(g);
   const sel = store.nav.sel?.kind === 'lead' ? store.nav.sel.id : null;
-  const liveLeads = leads.filter((l) => l.stage === 'lead' || l.stage === 'proposal' || l.stage === 'negotiation');
-  const past = leads.filter((l) => !(l.stage === 'lead' || l.stage === 'proposal' || l.stage === 'negotiation')).slice(0, 8);
+  // A deep link from the Inbox (a lead going cold) scrolls to its row.
+  useEffect(() => {
+    if (sel) document.querySelector(`.v16s-row[data-lead="${sel}"]`)?.scrollIntoView({ block: 'nearest' });
+  }, [sel]);
+  const live = leads.filter((l) => l.stage === 'lead' || l.stage === 'proposal' || l.stage === 'negotiation');
+  // Soonest to go cold first; then proposals and offers on the market.
+  const order = (l: LeadView) => (l.stage === 'lead' ? 0 : l.stage === 'negotiation' ? 1 : 2);
+  live.sort((a, b) => order(a) - order(b) || a.daysLeft - b.daysLeft);
+  const past = leads.filter((l) => !(l.stage === 'lead' || l.stage === 'proposal' || l.stage === 'negotiation')).slice(0, 6);
+  const waiting = live.filter((l) => l.stage === 'lead').length;
   return (
     <div className="col gap-12 v16s-sales-wrap">
-      <div className="small muted v16s-desk">
-        Your sales desk: {desk.worked} of {desk.cap} proposals in work{desk.repsJoined ? ` · ${desk.repsJoined} sales manager${desk.repsJoined === 1 ? '' : 's'}` : ''} · registered with {desk.registered} of 5 brokers.
-        About half the work finds you; the rest you chase here: brokers, fairs and visits (Markets tab), pitches, sales managers (Company › Team).
-      </div>
-      <div className="v16s-sales">
-        <div className="col gap-12">
-          <section className="card v16s-card col gap-8">
-            <div className="row between" style={{ alignItems: 'baseline' }}>
-              <b className="row gap-6" style={{ alignItems: 'center' }}><Handshake className="sc-ico-s" /> Leads pipeline</b>
-              <span className="small muted v16s-hint">lead → proposal → offer → signed</span>
-            </div>
-            {!liveLeads.length && !past.length && (
-              <Empty icon={<Handshake />} title="No leads yet">
-                Register with a broker, go to a fair or visit a client (Markets tab), pitch an airline before the season. A lead waits 14 days for your proposal, then goes cold.
-              </Empty>
-            )}
-            {liveLeads.length > 0 && <div className="v16s-list">{liveLeads.map((l) => <LeadRow key={l.id} l={l} on={l.id === sel} />)}</div>}
-            {past.length > 0 && (
-              <>
-                <div className="upper dim" style={{ marginTop: 4 }}>Closed lately</div>
-                <div className="v16s-list">{past.map((l) => <LeadRow key={l.id} l={l} on={l.id === sel} />)}</div>
-              </>
-            )}
-          </section>
+      <section className="card v16s-card col gap-8">
+        <div className="row between" style={{ alignItems: 'baseline' }}>
+          <b className="row gap-6" style={{ alignItems: 'center' }}><Handshake className="sc-ico-s" /> Leads{waiting ? <span className="small muted">· {waiting} waiting for a proposal</span> : null}</b>
+          <span className="small muted v16s-hint">lead → proposal → offer → signed</span>
         </div>
-        <div className="col gap-12">
-          <section className="card v16s-card col gap-8">
-            <div className="row between" style={{ alignItems: 'baseline' }}>
-              <b className="row gap-6" style={{ alignItems: 'center' }}><Briefcase className="sc-ico-s" /> Brokers</b>
-              <span className="small muted v16s-hint">leads on busy days; their cut on each deal</span>
-            </div>
-            <div className="v16s-list">{brokers.map((b) => <BrokerRow key={b.id} b={b} />)}</div>
-          </section>
-          <Pitches g={g} />
-        </div>
-      </div>
+        {!live.length && !past.length && (
+          <Empty icon={<Handshake />} title="No leads yet">
+            Register with a broker (below), go to a fair or visit a client (Markets tab), pitch an airline before the season. A lead waits 14 days for your proposal, then goes cold.
+          </Empty>
+        )}
+        {live.length > 0 && <div className="v16s-list">{live.map((l) => <LeadRow key={l.id} l={l} on={l.id === sel} />)}</div>}
+        {past.length > 0 && (
+          <>
+            <div className="upper dim" style={{ marginTop: 4 }}>Closed lately</div>
+            <div className="v16s-list">{past.map((l) => <LeadRow key={l.id} l={l} on={l.id === sel} />)}</div>
+          </>
+        )}
+      </section>
+      <SalesDesk g={g} brokers={brokers} />
     </div>
   );
 }

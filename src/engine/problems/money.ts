@@ -42,8 +42,7 @@ export function cashLowCard(g: GameState): ProblemCard | null {
     why: `The 30-day forecast dips to ${usd(low.cash)}${top ? `. Biggest cost before then: ${top[0]} (${usd(-top[1])})` : ''}.`,
     hurt: mkHurt({ money: -low.cash, what: `short on ${fmtDay(low.t)}`, extra: `salaries late = morale ${BAL.morale.salaryLate}` }),
     actions: [
-      // v0.16.3 the ways out of debt (Finance › Get out of debt): a secured line, deferrals, an investor, a restructuring.
-      { id: 'debt', label: 'Ways out of debt', open: { tab: 'finance', view: 'debt' }, primary: true },
+      { id: 'finance', label: 'Finance', open: { tab: 'finance' }, primary: true },
       { id: 'findWork', label: 'Find work', open: { tab: 'contracts' } },
       ...(decision ? [{ id: 'factor', label: 'Sell an invoice', open: { modal: 'decision' as const, id: decision.id } }] : []),
     ],
@@ -289,7 +288,8 @@ export function cashNegativeCard(g: GameState): ProblemCard | null {
     why: `Costs outran what came in: about ${usd(bill.total)} a month in rent, insurance and salaries before any flying${owed ? `; ${usd(owed)} of invoices are still unpaid` : ''}.`,
     hurt: mkHurt({ money: -cash, what: 'short', extra: again ? `the company fails after ${BAL.rescueDays} days in the red` : `in ${daysLeft} day${daysLeft === 1 ? '' : 's'} an investor offers a rescue for a quarter of the company` }),
     actions: [
-      { id: 'finance', label: 'Finance', open: { tab: 'finance' }, primary: true },
+      // v0.16.3 the ways out of debt (Finance › Get out of debt): a secured line, deferrals, an investor, a restructuring.
+      { id: 'debt', label: 'Ways out of debt', open: { tab: 'finance', view: 'debt' }, primary: true },
       { id: 'findWork', label: 'Find work', open: { tab: 'contracts' } },
       ...(decision ? [{ id: 'factor', label: 'Sell an invoice', open: { modal: 'decision' as const, id: decision.id } }] : []),
     ],
