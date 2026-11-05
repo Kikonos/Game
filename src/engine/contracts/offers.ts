@@ -1894,8 +1894,12 @@ function closureOn(g: GameState, stops: [string, Minute][], own?: string): World
 setClosureOfferHook(sweepOffersForClosure);
 // v0.12.1 (review) empty legs wait for a closed airport to reopen (3 h after, as a held leg does), unless the aircraft
 // flies under the closing event's permit (its job's own event).
-setOpenFromHook((g, code, t, contractId) => {
-  const e = closedAirport(g, code, t, contractId ? permitEvent(g.contracts[contractId]) : undefined);
+// v0.16.1 the permits of every job the leg flies for (the job that flew the aircraft in, the job it flies out to): an
+// evacuation's empty leg into the closed airport flies under the evacuation's clearance (s0429: Niamey shut by a coup,
+// CS-TVP's positioning LIS–NIM for the evacuation was planned after the reopening, a week after the flights it was for).
+setOpenFromHook((g, code, t, contractIds) => {
+  const ids = Array.isArray(contractIds) ? contractIds : [contractIds];
+  const e = closedAirport(g, code, t, ids.map((id) => (id ? permitEvent(g.contracts[id]) : undefined)));
   return e ? closedUntil(e) + 3 * 60 : null;
 });
 setClosurePlannedHook(closurePlanned);

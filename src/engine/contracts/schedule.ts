@@ -33,13 +33,19 @@ export function emptyDay(g: GameState, aircraftId: string): number {
 }
 
 /**
+ * v0.16.1 the jobs whose event permits an empty leg flies under: the job that flew the aircraft in (its permit lets it
+ * out) and the job it flies out to (an evacuation's clearance lets its positioning into the closed airport).
+ */
+export type Permit = string | null | (string | null)[];
+
+/**
  * v0.12.1 (review) when an airport a world event has closed at t opens again for our empty legs (the reopening plus
- * 3 h), or null when it is open then; `contractId`: the job the aircraft flew in on (its event's permit lets it out).
+ * 3 h), or null when it is open then; `permit`: the job(s) whose event permits apply (Permit).
  * Set by contracts/offers.ts from ops/world (no import cycle).
  */
 // (var, no initialiser: the hook may be set before this module finishes loading, as ops/world.ts's hooks.)
 // eslint-disable-next-line no-var
-var openFrom: ((g: GameState, code: string, t: Minute, contractId: string | null) => Minute | null) | null | undefined;
+var openFrom: ((g: GameState, code: string, t: Minute, permit: Permit) => Minute | null) | null | undefined;
 export function setOpenFromHook(f: typeof openFrom): void {
   openFrom = f;
 }
@@ -65,17 +71,17 @@ export function setFarLateHook(f: typeof farLateHook): void {
  * v0.12.1 (review) the first time at or after t an empty leg may leave `code` (S1027: BLU1574 GOM–NDJ planned 29 Oct
  * 06:40, Goma shut to 30 Oct). Pure. v0.15 exported for the checker (scripts/invariants.ts pos-fdp).
  */
-export const openAfter = (g: GameState, code: string, t: Minute, contractId: string | null): Minute => Math.max(t, openFrom?.(g, code, t, contractId) ?? t);
+export const openAfter = (g: GameState, code: string, t: Minute, permit: Permit): Minute => Math.max(t, openFrom?.(g, code, t, permit) ?? t);
 
 /**
  * v0.12.1 (review) a chain that leaves or lands at an airport closed then (a leg landing inside a closure, a fuel stop
  * shut): the time that airport opens again, else null. Pure.
  */
-function shutIn(g: GameState, chain: ChainLeg[], contractId: string | null | ((std: Minute) => string | null)): Minute | null {
+function shutIn(g: GameState, chain: ChainLeg[], permit: Permit | ((std: Minute) => Permit)): Minute | null {
   if (!openFrom || !chain.length) return null;
-  if (typeof contractId === 'function') contractId = contractId(chain[0].std);
+  if (typeof permit === 'function') permit = permit(chain[0].std);
   for (const l of chain) {
-    const t = openFrom(g, l.from, l.std, contractId) ?? openFrom(g, l.to, l.sta, contractId);
+    const t = openFrom(g, l.from, l.std, permit) ?? openFrom(g, l.to, l.sta, permit);
     if (t !== null) return t;
   }
   return null;
@@ -94,12 +100,12 @@ function inboundJob(g: GameState, aircraftId: string, a: Anchor, X: string): str
 }
 
 /** v0.12.1 (review) chainForward from `from`, moved past any closure on its way (a few tries). */
-function openForward(g: GameState, typeId: string, X: string, Y: string, from: Minute, cap: number, contractId: string | null | ((std: Minute) => string | null), day = Infinity): ChainLeg[] | null {
+function openForward(g: GameState, typeId: string, X: string, Y: string, from: Minute, cap: number, permit: Permit | ((std: Minute) => Permit), day = Infinity): ChainLeg[] | null {
   let t = from;
   for (let i = 0; i < 4; i++) {
     const ch = chainForward(typeId, X, Y, t, cap, day);
     if (!ch) return null;
-    const re = shutIn(g, ch, contractId);
+    const re = shutIn(g, ch, permit);
     if (re === null) return ch;
     // A landing inside the closure: leave late enough to land after the reopening.
     t = Math.max(t + 60, re - (ch[ch.length - 1].sta - ch[0].std));
@@ -211,8 +217,8 @@ export function planPositioning(g: GameState, aircraftId: string, to: string, ar
   for (const n of anchorsOf(g, aircraftId)) if (n.std < arriveBy && (!prev || n.sta > prev.sta)) prev = n;
   if (!prev) return null;
   if (prev.to === to) return [];
-  // v0.12.1 (review) never out of an airport while it is closed.
-  const job = inboundJob(g, aircraftId, prev, prev.to);
+  // v0.12.1 (review) never out of an airport while it is closed. v0.16.1 the leg's own job's permit lets it in.
+  const job: Permit = [inboundJob(g, aircraftId, prev, prev.to), contractId];
   const earliest = openAfter(g, prev.to, prev.kind === 'start' ? prev.sta : prev.sta + turn, job);
   const cap = etopsCap(g.company.approvals, ac.typeId);
   const day = emptyDay(g, aircraftId);
@@ -576,8 +582,12 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     // v0.12.1 (review) and not before X reopens when a world event has it closed (unless under the event's permit).
     // The permit holds only for a leg leaving before the gap's next flight (after it, that flight is the one before it,
     // as permitOf reads at the gate: planned later, the leg was held there "Waiting: Fighting near Goma").
+    // v0.16.1 and the job the leg flies out to, when live: its event's clearance lets an evacuation's positioning into
+    // the closed airport (s0429: LIS–NIM for the Niamey evacuation was planned after the reopening, a week late; Crew
+    // Control then read "no crew can be flown in"). The leg is tagged to that job (inId), so the gate reads the same.
     const job0 = inboundJob(g, aircraftId, a, X);
-    const job = (std: Minute): string | null => (b && b.kind === 'flight' && std >= b.std ? null : job0);
+    const jobTo = b && live(g, b.contractId) ? b.contractId : null;
+    const job = (std: Minute): Permit => [b && b.kind === 'flight' && std >= b.std ? null : job0, jobTo];
     const base0 = Math.max(a.kind === 'start' ? a.sta : a.sta + turn, held, restAfterCurfew(g, a, aircraftId, X));
     const earliest = openAfter(g, X, base0, job(base0));
     if (!b) {
