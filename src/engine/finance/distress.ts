@@ -927,7 +927,7 @@ export function distressOptions(g: GameState): DistressOption[] {
   out.push({
     id: 'plan', title: 'Spread the bills with a creditor', rank: 4,
     gives: planOk.length ? `Up to ${k$(Math.max(...planOk.map((p) => p.amount)))} kept now (${planOk.map((p) => p.creditor).join(', ')})` : 'Half of the last two months\' bills paid back over 3–6 months',
-    costs: `${Math.round(D.plan.feeMin * 100)}–${Math.round(D.plan.feePerMonth * 600) / 100} % fee; the parts are taken at the month ends whatever the cash`,
+    costs: `${Math.round(D.plan.feeMin * 100)}–${Math.round(D.plan.feePerMonth * D.plan.months[D.plan.months.length - 1] * 100)} % fee; the parts are taken at the month ends whatever the cash`,
     consequence: `Two parts from an overdrawn account and the creditor calls the rest (${Math.round(D.plan.callFee * 100)} % fee) and wants cash in advance`,
     why: planOk.length ? null : plans[0].why?.startsWith('Too much') ? plans[0].why : 'Nothing big enough owed lately, or a plan already runs with each',
     choices: D.plan.months.map((m) => ({ value: m, label: `${m} months` })), choiceLabel: 'Over',
