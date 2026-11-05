@@ -1253,6 +1253,8 @@ const rotation = (g: GameState) => g.company.policies.rotationWeeks * 7 * DAY;
  * rotation, never short of it (the player: crews go home at five weeks or more).
  */
 export const TOUR_TAIL = 7 * DAY;
+/** Rotations round: a set's work block the chaining aims for (then its two days off together). */
+const RUN_DAYS = 4;
 
 function periodRaw(dep: Deployment, s: number, t: Minute, R: number): { from: Minute; to: Minute } | null {
   const a = dep.anchors?.[s];
@@ -1404,10 +1406,13 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
       const last = st.segs[at - 1];
       const segs = [...st.segs.slice(0, at), virtualSeg(g, d, tripStart, home, true), ...st.segs.slice(at)];
       // A fresh set arrives rested the day before its period (positioning counts as duty).
-      const ctx: TimelineCtx = { base: home, restUntil: -Infinity, lastRecovery: per.from - DAY, blockYear: 0, blockYearOf: yearOf(d.report), slack: BAL.rosterSlack };
+      // Rotations round: the set is free from the day before its period (freeSince): a long gap before its first known duty
+      // is a recovery rest, so a lone duty far into an empty period (a deployment's return leg months out) is not refused
+      // for "no 36 h recovery in 168 h" and flown as a trip from base.
+      const ctx: TimelineCtx = { base: home, restUntil: -Infinity, lastRecovery: per.from - DAY, freeSince: per.from - DAY, blockYear: 0, blockYearOf: yearOf(d.report), slack: BAL.rosterSlack };
       const bad = why ? evalSegs(ctx, segs).filter((i) => i.level === 'illegal' && i.code !== 'fdp') : null;
       if (bad ? bad.length : evalSegs(ctx, segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) {
-        why?.push(`set ${s}: ${bad!.map((i) => i.code).join('+')}`);
+        why?.push(`set ${s}: ${bad!.map((i) => `${i.code} (${i.text})`).join("+")} days ${st.days.join(",")}`);
         continue;
       }
       crewOkWhy = '';
@@ -1422,7 +1427,11 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
       // three sets on two waves). Round-robin by rest end alone spread the duties every other day and no set ever got
       // two days off in a row, so the 6-on/2-off rule failed within a tour and the sizing asked for twice the sets
       // (the short first tours of the old stagger had hidden it).
-      const run = st.days.includes(dayOf(d.report) - 1) && longestWorkBlock(days) <= LIMITS.blockDays;
+      // Blocks of at most RUN_DAYS (4 on, 2 off: the 36 h recovery then always falls inside 168 h; a 6-day block broke
+      // it and left the duty to nobody).
+      let runLen = 0;
+      for (let k = dayOf(d.report) - 1; st.days.includes(k); k--) runLen++;
+      const run = runLen > 0 && runLen < RUN_DAYS && longestWorkBlock(days) <= LIMITS.blockDays;
       const onEve = (early && (sizing || (!!st.pairing && crewCount(st.pairing) > 0)) && st.days.includes(eve)) || run;
       if (rank > pickRank || (rank === pickRank && (Number(onEve) > Number(pickEve) || (onEve === pickEve && restEnd < pickRest)))) {
         pick = st;

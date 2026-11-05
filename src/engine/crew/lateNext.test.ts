@@ -24,10 +24,12 @@ function trip(): { g: GameState; d: Duty; t: Flight } {
   o.broker = undefined;
   const r = acceptOffer(g, o.id, [leased(g).id]);
   if (!r.ok) throw new Error(r.error);
-  run(g, g.contracts[r.data!.contractId].start - DAY);
+  // Rotations round: a set's ticket home follows its last duty of the rotation (it moves with the tour as the programme
+  // rolls in): played to the last week, so the duty found is the one the ticket really follows.
+  run(g, g.contracts[r.data!.contractId].start + 22 * DAY);
   const duties = Object.values(g.duties).filter((d) => !d.done && d.report > g.now + 12 * 60).sort((a, b) => a.report - b.report);
   for (const d of duties) {
-    const t = d.deadheadIds.map((id) => g.flights[id]).find((x) => x?.kind === 'deadhead' && x.status === 'scheduled' && x.std >= d.release && x.from === d.restAt && x.crewIds.length >= 2);
+    const t = d.deadheadIds.map((id) => g.flights[id]).find((x) => x?.kind === 'deadhead' && x.status === 'scheduled' && x.std >= d.release && x.std < d.release + DAY && x.from === d.restAt && x.crewIds.length >= 2);
     if (t) return { g, d, t };
   }
   throw new Error('no duty with a ticket home');
@@ -36,6 +38,8 @@ function trip(): { g: GameState; d: Duty; t: Flight } {
 /** Plays to the duty's last leg airborne, then holds it: it lands `late` minutes after its schedule. */
 function landLate(g: GameState, d: Duty, late: number): Flight {
   const last = g.flights[d.flightIds[d.flightIds.length - 1]];
+  // (Rotations round: the tour's ticket home sits after its last duty, weeks on: play up to that day first.)
+  if (d.report - 2 * 60 > g.now) run(g, d.report - 2 * 60);
   for (let i = 0; i < 2000 && last.status === 'scheduled'; i++) run(g, g.now + 10);
   expect(last.status).toBe('enroute');
   last.eta = Math.max(last.eta ?? last.sta, last.sta) + late;

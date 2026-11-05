@@ -12,6 +12,10 @@
 }
 .cp-chip.short { border-color: rgba(var(--warn-rgb), 0.45); }
 .cp-chip b { font-size: 14px; }
+/* Rotations round (v0.16.4): the sets on station, one chip per set; not a button. */
+.cp-deploy { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.cp-chip.static { cursor: default; align-items: flex-start; }
+.cp-chip.static .cp-line { display: flex; flex-direction: column; gap: 2px; white-space: normal; max-width: 320px; }
 
 /* ---- Planning view ---- */
 .cp-view { display: flex; flex-direction: column; gap: 12px; padding-bottom: calc(var(--safe-b) + 16px); }
