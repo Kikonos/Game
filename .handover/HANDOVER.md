@@ -637,3 +637,6 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
 ## v0.16.1 in progress (2026-11-05)
 - Save /home/user/work/saves/s0429.json: evacuation charter k30se from Niamey (NIM closed by a coup) has no positioning LIS–NIM before the first leg BLU2049, so Crew Control offered only a private jet.
 - An agent is fixing it on branch v0161, together with a "Report a bug" feature (reports with a saved game state, Export all). State file: /home/user/work/v0161/STATE.txt. It merges into acmi. The parent then releases v0.16.1 as usual: the player releases fixes once they're tested.
+
+## v0.16.1 "Niamey" RELEASED 2026-11-05
+- Release on main from acmi 783ae13; live index--Q3mMWzr.js. Contents: positioning permits into closed airports; honest crew alerts and auto-resume; Report a bug (scripts/bugs.ts loads an exported file); client stars 0-5; filtered offers kept off the map.
