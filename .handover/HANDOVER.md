@@ -661,3 +661,4 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
   6. A new type needs an AOC variation (months) and rated crew. Existing gates stay (widebody approval, ETOPS).
   7. A spot market for short-term leases of other airlines' surplus aircraft, plus the existing random offers.
   The builder must research real 2025–26 numbers (lease rates, transition times, lessor requirements).
+- v0.17 research and design workflow wf_976e5158-a9b is running (Opus, high effort; the player asked for a workflow on Opus at high effort). It writes docs/UPDATE-0.17.md on branch v017doc and notes in /home/user/work/v017/. Build the feature with a second workflow (Opus, high) once v0.16.3 and v0.16.4 are merged and released.
