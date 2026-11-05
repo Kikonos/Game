@@ -684,3 +684,4 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
   - a crew bug lane for 2–4 plus the alarm self-check;
   - the v0.17 build lanes from docs/UPDATE-0.17.md (branch v017doc);
   - then merge, balance, review, and release when green.
+- v0.16.3 "Ways out of debt" RELEASED 2026-11-05 from acmi 3430de1 (live index-DDR80FkK.js). Open: maybe cap the secured line (s0501 gets $9.65M); PER cancellations are chance-based.
