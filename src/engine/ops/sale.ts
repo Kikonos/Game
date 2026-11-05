@@ -15,7 +15,7 @@ import type { ActionResult, Aircraft, GameState, Minute, SimEvent } from '../cor
 import { clamp, hashUnit } from '../core/util';
 import { planPositioning } from '../contracts';
 import { settleDeparture } from './finance';
-import { loanOn, loanPayoff, repayLoanFromProceeds } from '../finance';
+import { loanOn, loanPayoff, pledgedWhy, repayLoanFromProceeds } from '../finance';
 import { cancelLegs, subcharterInstead } from './flights';
 import { cCheckGross, checkStatus } from './maintenance';
 import { isRevenue, usd } from './util';
@@ -92,6 +92,9 @@ export function saleQuote(g: GameState, aircraftId: string): SaleQuote {
   // v0.15 a scenario's fleet is fixed.
   const lk = lockOf(g, 'fleet');
   if (lk) return { ...none, why: lk };
+  // v0.16.3 the bank's security for the secured credit line.
+  const pw = pledgedWhy(g, aircraftId);
+  if (pw) return { ...none, why: pw };
   const S = BAL.v072.sale;
   const t = typeOf(ac.typeId);
   const w = t.body === 'wide' ? 1 : 0;

@@ -2,6 +2,9 @@
 // credit line once the bank allows it, draw when the 30-day forecast dips below zero and repay when cash is
 // comfortable, sell invoices to the bank before cash runs short, borrow against an owned aircraft when the line is
 // used up, and sell and lease back only when cash has been negative for a while. Pure in g (engine actions only).
+// v0.16.3 below zero the bank's line is a secured one (creditOpenWhy allows it; the same code opens it), and the bot
+// asks its clients to pay early (one invoice a day, the biggest first) before it sells invoices. It never files for
+// restructuring, furloughs or seeks an investor: those are the player's calls.
 
 import { BAL } from '../../src/engine/core/balance';
 import { DAY, monthKey } from '../../src/engine/core/time';
@@ -10,6 +13,7 @@ import {
   creditOpenWhy, creditView, drawCredit, drawStepOf, factorInvoice, factorQuote, leasebackQuote, loanOn, loanPayoff, loanQuote, marketValueOf, openCreditLine, repayCredit, repayLoan, sellAndLeaseBack, takeLoan,
 } from '../../src/engine/finance';
 import { cashForecast, monthEndBill } from '../../src/engine/ops/finance';
+import { askPrepayment, prepayQuote } from '../../src/engine/finance/distress';
 
 const F = BAL.v016.finance;
 /** Cash the bot likes to keep in hand before it repays the line. */
@@ -51,6 +55,16 @@ export function botFinance(g: GameState): boolean {
     if (po && cash - COMFORT - bill >= po.total && low30(g) > 0 && repayLoan(g, l.id).ok) {
       acted = true;
       break;
+    }
+  }
+
+  // 3c. v0.16.3 still short: ask the client with the biggest invoice not yet due to pay early (one a day: each ask costs
+  // relation, and a refusal closes that invoice to a second ask).
+  if (low30(g) < 0) {
+    const open = g.finance.receivables.filter((r) => r.paid === null && !r.factor && !r.factored && !r.written && !r.prepay).sort((a, b) => b.amount - a.amount);
+    for (const r of open) {
+      const q = prepayQuote(g, r.id);
+      if (q && !q.why && askPrepayment(g, r.id).ok) { acted = true; break; }
     }
   }
 

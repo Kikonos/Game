@@ -14,6 +14,7 @@ import { changeRequestCard, commercialProblems, contractCancelledCard, counterEx
 import { deliveryWaitCard, ferryUncrewedCard, noFerryCard, fleetProblems, leaseReturnCard, refitMissedCard, saleCard } from './fleet';
 import { cashLowCard, cashNegativeCard, covenantBreachCard, creditHeadroomCard, factorRecourseCard, invoiceOverdueCard, leaseDueCard, loanDueCard, lossMonthCard, moneyProblems } from './money';
 import { leadColdCard, leadProblems } from '../commercial/sales';
+import { boardTargetCard, restructuringCard } from '../finance/distress';
 import { aogCard, checkCard, checkClashCard, noSlotCard, techProblems } from './tech';
 import { hurtBadges, hurtProse, type ProblemCard } from './types';
 import { auditFindingCard, disruptionAt, disruptionCard, isDisruption, opsProblems, rampFindingCard } from './ops';
@@ -117,6 +118,9 @@ function problemForRaw(g: GameState, subject: ProblemRef): ProblemCard | null {
     case 'creditHeadroom': return creditHeadroomCard(g);
     case 'factorRecourse': return factorRecourseCard(g, id);
     case 'leadCold': return leadColdCard(g, id);
+    // v0.16.3 distress finance (finance/distress.ts).
+    case 'boardTarget': return boardTargetCard(g);
+    case 'restructuring': return restructuringCard(g);
   }
 }
 

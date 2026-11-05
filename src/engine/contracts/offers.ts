@@ -1,6 +1,7 @@
 // Offer generation per archetype and the offer lifecycle (B1). DESIGN.md §5.1.1–5.1.2.
 
 import { v09Stats } from '../crew/dayPlan';
+import { restructuringPct } from '../finance/distress';
 import { ACMI_TYPES_LIST, type CabinLayout, type RatingFamily } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
 import { AIRLINE_FAMILIES, AIRLINE_MARKETS, BROKERS } from '../../data/naming';
@@ -1340,11 +1341,13 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   // v0.16 the client's prestige level pays its part (brochure work −4 % … majors +8 %; contracts/prestige.ts).
   const prestigeLv = clientPrestige(g.clients[d.client.id] ?? d.client);
   const prestigePct = d.product ? 0 : prestigePayPct(prestigeLv);
+  // v0.16.3 the 'Restructuring' label: clients price the risk (finance/distress.ts).
+  const distressPct = d.product ? 0 : restructuringPct(g);
   const product: Product = d.product ?? priceProduct(g, {
     archetype: d.archetype, typeId: ref, estBH: wet ? revBH : revBH + emptyMin / 60 + (d.extraBH ?? 0), start: d.start, end: d.end, lead: d.start - g.now,
     mult: d.mult, departures: deps, revDepartures: revDeps, roomNights, crewDays, tickets: tickets + (d.passThrough ?? 0), government: gov, mghPerMonth: d.mghPerMonth,
     // v0.14 an ordinary market offer: fewer of them, better paid (BAL.marketOffers.ratePct).
-    loyalty: (1 + levelPct) * (1 + standingPct) * (1 + prestigePct) * (ordinaryDraw ? 1 + BAL.marketOffers.ratePct : 1) - 1, wet: d.wet, ...((d.jumbo || bigFull(d)) && !wet ? { fuelAtCostBH: revBH } : {}),
+    loyalty: (1 + levelPct) * (1 + standingPct) * (1 + prestigePct) * (1 + distressPct) * (ordinaryDraw ? 1 + BAL.marketOffers.ratePct : 1) - 1, wet: d.wet, ...((d.jumbo || bigFull(d)) && !wet ? { fuelAtCostBH: revBH } : {}),
     // v0.12.1 a world tour's five-star catering.
     ...(d.archetype === 'worldTour' ? { cateringX: BAL.v0121.tour.catering } : {}),
   });
@@ -1396,7 +1399,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     status: 'open',
     pin: d.pin ?? firstAway,
     hook: d.hook,
-    ...(levelPct ? { levelPct } : {}), ...(standingPct ? { standingPct } : {}), ...(prestigePct ? { prestigePct } : {}), ...(firstRefusal ? { firstRefusal: true } : {}),
+    ...(levelPct ? { levelPct } : {}), ...(standingPct ? { standingPct } : {}), ...(prestigePct ? { prestigePct } : {}), ...(distressPct ? { distressPct } : {}), ...(firstRefusal ? { firstRefusal: true } : {}),
     ...(d.repeatOf ? { repeatOf: d.repeatOf } : {}), ...(d.eventId ? { eventId: d.eventId } : {}), ...(d.dryFor ? { dryFor: d.dryFor } : {}),
   };
   if (d.terms) o.terms = d.terms;

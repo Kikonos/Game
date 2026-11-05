@@ -1,6 +1,7 @@
 // v0.14 Update 2 "Commercial": tenders, sales trips and fairs, client crises. One simulation module (daily), after
 // contracts and before crew. Its state is g.com (optional; old saves get the defaults on load).
 
+import { fairLead } from './sales';
 import type { SimModule } from '../core/module';
 import type { GameState } from '../core/types';
 import { setTravelHook } from '../ops/commercial';
@@ -93,6 +94,15 @@ export function devFair(g: GameState, fairId?: string): string {
     if (res.ok) return res.data!.tripId;
   }
   return '';
+}
+
+/** v0.16.3 a lead now in the pipeline (a client we know, else any), for the Market › Leads screen checks; its id ('' when none). */
+export function devLead(g: GameState, clientName?: string): string {
+  const cs = Object.values(g.clients).filter((c) => !c.ceased && !c.rivalId && (!clientName || c.name === clientName));
+  const c = cs.find((x) => (x.jobs ?? 0) > 0) ?? cs[0];
+  if (!c) return '';
+  const l = fairLead(g, c, `dev:${g.now}`, null);
+  return l?.id ?? '';
 }
 
 /** A crisis now; the world event id. */

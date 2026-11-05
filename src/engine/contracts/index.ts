@@ -14,7 +14,7 @@ import { loadFilter } from './filter';
 import { loadRivals, onRivalBid, refreshRivals } from './rivals';
 import { dailyDryLease, dailyFarRoute, dailyRepeats, dailySubIn, dailyWorldTour } from './missions';
 
-export { acceptOffer, askingPrice, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, isTenderOffer, leadDays, setPrice, type ContractProgress, type SignOpts } from './accept';
+export { acceptOffer, askingPrice, cancelByClient, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, isTenderOffer, leadDays, setPrice, type ContractProgress, type SignOpts } from './accept';
 export { paintQuote, paintTermsText, paintWindow, type PaintSlot } from './paintTerms';
 export { cabinQuote, cabinTarget, cabinTermsText, rollCabin, termsProduct } from './cabinTerms';
 export { billContractMonth, type BillingLine } from './billing';

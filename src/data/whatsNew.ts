@@ -16,6 +16,24 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.16.3',
+    name: 'Ways out of debt',
+    features: [
+      'Finance › Get out of debt: while cash is below zero, one panel lists every way out, the gentlest first, each with what it gives, what it costs and what follows. The cash card and the investor\'s rescue card link to it.',
+      'The bank lends to a struggling airline, on worse terms: below zero you can open a secured credit line sized on 80 % of the invoices due within 90 days and 50 % of the owned aircraft without a loan, at the bank rate plus 7–9 % with a 2 % arrangement fee. The bank holds those aircraft as security (no sale, loan or leaseback until the line is repaid), wants cash plus undrawn credit at 1.5 months\' bills and re-measures the base every month end. At the yearly renewal, with cash above zero and no breach, it becomes a normal line and the security is released. Cash Crunch still has no line.',
+      'Ask a lessor to defer two or three months\' rent: repaid afterwards plus 10 %, the lease runs twice those months longer, reliability −1. Refused with a deferral still open, under four months left, or after a repayment taken from an overdrawn account (that lessor says no for a year).',
+      'Spread the last two months\' bills with a creditor: Lufthansa Technik, TAP M&E, Swissport, Menzies, World Fuel Services, Air BP and others let half of what you owe them go back over 3–6 months for a 3–6 % fee. Two parts taken from an overdrawn account and they call the rest with a 2 % fee. Refused once more than two months\' bills are deferred.',
+      'Bring in an investor now instead of waiting 30 days for the forced rescue: Castlelake, Indigo Partners, Apollo and others pay the overdraft plus a month\'s bills for 5 points less of the company than the rescue would take, and sit on the board: every quarter cash must be above zero and the three-month margin at or above 0 %. Two misses in a row and the board sells an aircraft; three and it replaces you. Four quarters met and the board stands down. Signed below zero it counts as your one rescue.',
+      'Cost cuts: furlough a quarter or half of each role for 4 or 8 weeks (the ones with the least work ahead; unpaid, morale −15 for them and −4 for the rest, resignations follow); defer 30 % of crew pay and all of the heads\' pay for one or two months (morale −8 a month, paid back over two); plan the A-checks late for 90 days, inside the 10 % the authority allows, at the price of more technical delays.',
+      'Ask a client to pay an invoice early for 2–6 % off (relation −3; about half say no when they barely know you), next to selling the invoice to the bank.',
+      'File for restructuring (Portugal\'s PER, or the home country\'s equivalent) when deeply insolvent: six months of court protection, claims frozen and the 30-day insolvency clock stopped, 30 % of the unsecured claims written off. The price: reliability −10, clean −10, every client you fly for −15 (some cancel), a lessor may take an aircraft back, no new credit for a year and a "Restructuring" label on your offers (−5 % rate, no deposits) for a year after. Once only; cash below zero at the end means liquidation.',
+      'Sales lives under Contracts › Market now, as Offers · Leads · Tenders. Leads shows the pipeline first with one tap to send a proposal and "goes cold in N days" on each; the brokers, pitches and sales managers are folded under it as the sales desk. Inbox lead messages open the right lead. The old Sales and Tenders tabs are gone (old links still land in the right place).',
+    ],
+    improvements: [
+      'Deferrals, plan fees, early-payment discounts and restructuring write-offs are one statement line, "Deferrals & restructuring"; every repayment is in the cash forecast.',
+    ],
+  },
+  {
     version: 'v0.16.2',
     name: 'Rescue',
     features: [],

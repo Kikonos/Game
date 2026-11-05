@@ -25,8 +25,10 @@ import { usd } from '../ops/util';
 import { covenantBreachCard, creditHeadroomCard, factorRecourseCard, loanDueCard } from '../problems/money';
 import { postProblem } from '../problems';
 import { lockOf } from '../scenario/rules';
+import { dailyDistress, distressForecastItems, loadDistress, monthlyDistress, noCreditWhy, perActive, restructuringLabel } from './distress';
 
 const F = BAL.v016.finance;
+const SEC = BAL.v0163.secured;
 const YEAR = 365 * DAY;
 const MONTH = 30.44 * DAY;
 
@@ -48,6 +50,8 @@ export function loadTreasury(g: GameState): void {
     t.credit.repay ??= [];
   }
   for (const l of t.loans) l.missed ??= [];
+  // v0.16.3 the ways out of debt (empty for an older save).
+  loadDistress(g);
   // A factored invoice that was paid while the list still names it (a written-off one stays until the bank has settled
   // it: dailyFactoring takes the advance back or books the bank's loss).
   t.factored = t.factored.filter((id) => {
@@ -92,6 +96,51 @@ export function creditLimitFor(g: GameState): number {
 
 /** The margin over the benchmark by standing (§A.2). Pure. */
 export const creditMargin = (g: GameState): number => F.credit.margin[(g.company.standing ?? 0) as 0 | 1 | 2];
+
+/**
+ * v0.16.3 the secured facility's borrowing base: 80 % of eligible receivables (open, not sold, due within 90 days or
+ * overdue ≤ 30) plus 50 % of the market value of owned aircraft not already carrying a loan, rounded to $50K. Pure.
+ */
+export function borrowingBase(g: GameState): { base: number; receivables: number; aircraft: number; pledge: string[] } {
+  let recv = 0;
+  for (const r of g.finance.receivables) {
+    if (r.paid !== null || r.written || r.factor || r.factored) continue;
+    const days = (r.due - g.now) / DAY;
+    if (days > SEC.recvDays || -days > SEC.recvOverdue) continue;
+    recv += r.amount;
+  }
+  let ac = 0;
+  const pledge: string[] = [];
+  for (const a of Object.values(g.fleet)) {
+    if (a.ownership.kind !== 'owned' || a.sale || a.status === 'delivering' || loanOn(g, a.id)) continue;
+    ac += marketValueOf(g, a);
+    pledge.push(a.id);
+  }
+  const raw = SEC.recvShare * recv + SEC.acShare * ac;
+  const base = Math.min(SEC.limit[1], Math.floor(raw / SEC.roundTo) * SEC.roundTo);
+  return { base, receivables: recv, aircraft: ac, pledge };
+}
+
+export interface CreditTerms { secured: boolean; limit: number; margin: number; fee: number; pledge: string[] }
+
+/** v0.16.3 the line the bank offers today: a normal one, or, while cash is below zero, a secured one on the borrowing base at a distressed margin. Pure. */
+export function creditTerms(g: GameState): CreditTerms {
+  const standing = (g.company.standing ?? 0) as 0 | 1 | 2;
+  if (g.company.cash < 0) {
+    const b = borrowingBase(g);
+    return { secured: true, limit: b.base, margin: SEC.margin[standing], fee: Math.max(SEC.arrangementMin, Math.round(b.base * SEC.arrangementFee)), pledge: b.pledge };
+  }
+  const limit = creditLimitFor(g);
+  return { secured: false, limit, margin: creditMargin(g), fee: arrangementFee(limit), pledge: [] };
+}
+
+/** v0.16.3 why an aircraft the bank holds as security for the secured line cannot be sold, borrowed against or leased back (plain), else null. Pure. */
+export function pledgedWhy(g: GameState, aircraftId: string): string | null {
+  const line = g.treasury?.credit;
+  if (!line?.secured || !line.pledged?.includes(aircraftId)) return null;
+  const reg = g.fleet[aircraftId]?.reg ?? 'it';
+  return `The bank holds ${reg} as security for the credit line: repay ${usd(line.drawn)} and close it first`;
+}
 
 /** The market value of an airframe today: the type's used value × the age factor × the segment's index (the sale quote's basis). Pure. */
 export function marketValueOf(g: GameState, ac: Pick<Aircraft, 'typeId' | 'builtYear'>): number {
@@ -140,9 +189,14 @@ export function covenantCheck(g: GameState, k: MonthKey = monthKey(g.now)): Cove
   const line = g.treasury?.credit;
   const undrawn = line && !line.frozen ? Math.max(0, line.limit - line.drawn) : 0;
   const liquid = g.company.cash + undrawn;
-  const bill = monthEndBill(g, k + 1).total * C.liquidityMonths;
+  // v0.16.3 a secured line wants 1.5 months' bills, and the drawn balance under the borrowing base instead of the leverage test.
+  const bill = monthEndBill(g, k + 1).total * (line?.secured ? SEC.liquidityMonths : C.liquidityMonths);
   const nd = netDebt(g);
   const e = ebitda12(g);
+  if (line?.secured) {
+    const base = borrowingBase(g).base;
+    return { liquidity: liquid >= bill, leverage: line.drawn <= base, liquid, bill, netDebt: nd, ebitda12: e, debtCap: base };
+  }
   const debtCap = Math.max(0, e) * C.leverage;
   return { liquidity: liquid >= bill, leverage: nd <= 0 || (e > 0 && nd <= debtCap), liquid, bill, netDebt: nd, ebitda12: e, debtCap };
 }
@@ -170,9 +224,11 @@ export function creditView(g: GameState): CreditView | null {
   const undrawn = line.frozen ? 0 : Math.max(0, line.limit - line.drawn);
   const cov = covenantCheck(g);
   const lines: string[] = [
-    `${pct1(rate)} a year on what is drawn (bank rate ${pct1(benchmarkRate(g))} + margin ${pct1(line.margin)}${line.stepUp ? ', stepped up after a breach' : ''}); ${pct1(F.credit.commitmentFee)} on the undrawn part`,
-    `Covenant: cash + undrawn (${usd(cov.liquid)}) ≥ next month's bill (${usd(cov.bill)})${cov.liquidity ? '' : ' · broken'}`,
-    `Covenant: net debt (${usd(cov.netDebt)}) ≤ ${F.credit.leverage} × yearly EBITDA (${usd(cov.debtCap)})${cov.leverage ? '' : ' · broken'}`,
+    `${pct1(rate)} a year on what is drawn (bank rate ${pct1(benchmarkRate(g))} + margin ${pct1(line.margin)}${line.stepUp ? ', stepped up after a breach' : ''}${line.secured ? ', secured terms' : ''}); ${pct1(F.credit.commitmentFee)} on the undrawn part`,
+    `Covenant: cash + undrawn (${usd(cov.liquid)}) ≥ ${line.secured ? `${SEC.liquidityMonths} months' bills` : 'next month\'s bill'} (${usd(cov.bill)})${cov.liquidity ? '' : ' · broken'}`,
+    line.secured
+      ? `Security: drawn (${usd(line.drawn)}) ≤ the borrowing base (${usd(cov.debtCap)}: receivables and ${(line.pledged ?? []).map((id) => g.fleet[id]?.reg).filter(Boolean).join(', ') || 'no aircraft'})${cov.leverage ? '' : ' · over: repaid within the month'}`
+      : `Covenant: net debt (${usd(cov.netDebt)}) ≤ ${F.credit.leverage} × yearly EBITDA (${usd(cov.debtCap)})${cov.leverage ? '' : ' · broken'}`,
   ];
   if (line.notRenewed) lines.push(`Not renewed: ${usd(line.drawn)} repaid on the bank's schedule, then closed`);
   else if (line.frozen) lines.push(`Frozen since ${fmtDay(line.frozen)}: no draws; the balance is repaid in ${F.credit.repayParts} parts at the next month ends`);
@@ -192,8 +248,12 @@ export function creditOpenWhy(g: GameState): string | null {
   // v0.15 Scenarios (Cash Crunch): the bank already carries the overdraft and no one else lends; a new line would sidestep the goal.
   if (g.scen?.noRescue) return 'The bank already carries our overdraft: no new line in this scenario';
   if (g.finance.history.length < F.credit.minStatements) return `The bank wants ${F.credit.minStatements} closed monthly statements first`;
+  // v0.16.3 a restructuring shuts the bank's door for a year.
+  const nc = noCreditWhy(g);
+  if (nc) return nc;
+  // v0.16.3 below zero the bank lends against security instead of refusing: receivables and unpledged owned aircraft.
+  if (g.company.cash < 0) return creditTerms(g).limit < SEC.limit[0] ? 'Nothing to secure a line on: no receivables due soon and no owned aircraft free of a loan' : null;
   if (!creditLimitFor(g)) return 'No revenue on the statements yet: the bank sizes the line on revenue';
-  if (g.company.cash < 0) return 'The bank will not open a line while cash is below zero';
   return null;
 }
 
@@ -204,16 +264,22 @@ export function openCreditLine(g: GameState): ActionResult {
   const why = creditOpenWhy(g);
   if (why) return { ok: false, error: why };
   const t = treasury(g);
-  const limit = creditLimitFor(g);
-  const fee = arrangementFee(limit);
+  const terms = creditTerms(g);
+  const { limit, fee } = terms;
   post(g, 'bankFees', -fee);
   t.stats.fees += fee;
-  t.credit = { limit, drawn: 0, margin: creditMargin(g), openedAt: g.now, renewsAt: g.now + YEAR, accrued: 0, accruedFee: 0, breaches: 0, clean: 0, repay: [] };
-  pushMessage(g, {
+  t.credit = { limit, drawn: 0, margin: terms.margin, openedAt: g.now, renewsAt: g.now + YEAR, accrued: 0, accruedFee: 0, breaches: 0, clean: 0, repay: [], ...(terms.secured ? { secured: true, pledged: terms.pledge, base: limit } : {}) };
+  if (terms.secured) {
+    const regs = terms.pledge.map((id) => g.fleet[id]?.reg).filter(Boolean).join(', ');
+    pushMessage(g, {
+      tone: 'warn', cat: 'finance', title: `Secured credit line opened: ${usd(limit)}`, cue: null,
+      body: `With cash below zero the bank lends against security: ${usd(limit)} on ${Math.round(SEC.recvShare * 100)} % of the receivables due soon and ${Math.round(SEC.acShare * 100)} % of the owned aircraft${regs ? ` (${regs}, now pledged: no sale, loan or leaseback until the line is repaid)` : ''}. ${pct1(benchmarkRate(g) + terms.margin)} a year on what is drawn, ${pct1(F.credit.commitmentFee)} on the rest; arrangement fee ${usd(fee)}. At each month end cash plus undrawn credit must cover ${SEC.liquidityMonths} months' bills, and the base is re-measured: anything drawn above it is repaid within the month. At the renewal, with cash above zero and no breach, the bank re-prices it as a normal line and releases the security.`,
+    });
+  } else pushMessage(g, {
     tone: 'info', cat: 'finance', title: `Credit line opened: ${usd(limit)}`, cue: null,
     body: `The bank gives us a revolving line of ${usd(limit)} for a year. ${pct1(benchmarkRate(g) + t.credit.margin)} a year on what is drawn, ${pct1(F.credit.commitmentFee)} on the rest; arrangement fee ${usd(fee)}. Two covenants are checked at each month end: cash plus undrawn credit must cover next month's bill, and net debt must stay under ${F.credit.leverage} × yearly EBITDA.`,
   });
-  return { ok: true, msg: `Credit line of ${usd(limit)} open; arrangement fee ${usd(fee)}` };
+  return { ok: true, msg: `${terms.secured ? 'Secured credit' : 'Credit'} line of ${usd(limit)} open; arrangement fee ${usd(fee)}` };
 }
 
 /** A draw rounded down to the bank's step. Pure. */
@@ -332,19 +398,35 @@ function renewCredit(g: GameState): void {
     line.frozen = null;
     line.repay = [];
   }
-  const limit = creditLimitFor(g) || line.limit;
-  const margin = creditMargin(g) + (line.stepUp ? F.credit.stepUp : 0);
-  const fee = arrangementFee(limit);
+  // v0.16.3 re-pricing: a secured line with cash above zero and no breach becomes a normal line (security released);
+  // a normal line renewed below zero, or a secured one still below, is (re-)sized on the borrowing base at secured terms.
+  const terms = creditTerms(g);
+  const wasSecured = !!line.secured;
+  const limit = (terms.secured ? terms.limit : creditLimitFor(g)) || line.limit;
+  const margin = terms.margin + (line.stepUp ? F.credit.stepUp : 0);
+  const fee = terms.secured ? Math.max(SEC.arrangementMin, Math.round(limit * SEC.arrangementFee)) : arrangementFee(limit);
   post(g, 'bankFees', -fee);
   t.stats.fees += fee;
   const was = line.limit;
   line.limit = limit;
   line.margin = margin;
   line.renewsAt = g.now + YEAR;
+  if (terms.secured) {
+    line.secured = true;
+    line.pledged = terms.pledge;
+    line.base = limit;
+  } else {
+    delete line.secured;
+    delete line.pledged;
+    delete line.base;
+  }
   if (line.drawn > limit) scheduleRepay(line, g.now, line.drawn - limit, F.credit.repayParts);
+  const how = terms.secured && !wasSecured ? 'With cash below zero the bank moves the line to secured terms: sized on the receivables and the owned aircraft, which it now holds as security. '
+    : !terms.secured && wasSecured ? 'Cash is above zero and the covenants held: the bank re-prices the line as a normal one and releases the aircraft. '
+    : terms.secured ? 'Still below zero: re-sized on the borrowing base at secured terms. ' : '';
   pushMessage(g, {
-    tone: limit >= was ? 'info' : 'warn', cat: 'finance', title: `Credit line renewed: ${usd(limit)}`, cue: 'message',
-    body: `${thawed ? 'The freeze is lifted: the covenants held again. ' : ''}${limit > was ? 'Up' : limit < was ? 'Down' : 'Unchanged'} from ${usd(was)}, sized on the last six months' revenue and the owned fleet. Margin ${pct1(margin)} over the bank rate; arrangement fee ${usd(fee)}.${line.drawn > limit ? ` ${usd(line.drawn - limit)} above the new limit is repaid at the next ${F.credit.repayParts} month ends.` : ''}`,
+    tone: limit >= was && !terms.secured ? 'info' : 'warn', cat: 'finance', title: `Credit line renewed: ${usd(limit)}${terms.secured ? ' (secured)' : ''}`, cue: 'message',
+    body: `${thawed ? 'The freeze is lifted: the covenants held again. ' : ''}${how}${limit > was ? 'Up' : limit < was ? 'Down' : 'Unchanged'} from ${usd(was)}${terms.secured ? '' : ', sized on the last six months\' revenue and the owned fleet'}. Margin ${pct1(margin)} over the bank rate; arrangement fee ${usd(fee)}.${line.drawn > limit ? ` ${usd(line.drawn - limit)} above the new limit is repaid at the next ${F.credit.repayParts} month ends.` : ''}`,
   });
 }
 
@@ -375,6 +457,16 @@ function checkCovenants(g: GameState, line: CreditLine, k: MonthKey): void {
   const t = treasury(g);
   const cov = covenantCheck(g, k);
   line.last = { t: g.now, liquidity: cov.liquidity, leverage: cov.leverage, netDebt: cov.netDebt, ebitda12: cov.ebitda12 };
+  // v0.16.3 a secured line: the base re-measured; what is drawn above it comes back at the next month end.
+  if (line.secured) {
+    line.base = cov.debtCap;
+    const over = line.drawn - cov.debtCap;
+    const scheduled = (line.repay ?? []).reduce((s, r) => s + r.amount, 0);
+    if (over > scheduled) {
+      scheduleRepay(line, g.now, over - scheduled, 1);
+      pushMessage(g, { tone: 'warn', cat: 'finance', title: `Borrowing base re-measured: ${usd(over)} to repay`, body: `The receivables and aircraft behind the line are worth ${usd(cov.debtCap)} to the bank today; ${usd(line.drawn)} is drawn. The difference is taken at the next month end.`, cue: 'latePayer' });
+    }
+  }
   if (cov.liquidity && cov.leverage) {
     const wasBreach = line.breaches > 0;
     line.breaches = 0;
@@ -461,6 +553,8 @@ export function loanQuote(g: GameState, aircraftId: string, years: number): Loan
   else if (ac.sale) q.why = `${ac.reg} is sold to ${ac.sale.buyer}: hands over ${fmtDay(ac.sale.closes)}`;
   else if (ac.status === 'stored' || ac.status === 'leasedOut') q.why = `${ac.reg} is not on the AOC`;
   else if (loanOn(g, aircraftId)) q.why = `${ac.reg} already carries a loan: repay it first`;
+  else if (pledgedWhy(g, aircraftId)) q.why = pledgedWhy(g, aircraftId);
+  else if (noCreditWhy(g)) q.why = noCreditWhy(g);
   else if (g.scen?.noSale) q.why = 'The bank already holds it as security for the overdraft';
   else if (lk) q.why = lk;
   else if (!terms.length) q.why = `Too old: the bank wants the aircraft under ${L.maxAgeAtEnd} at the end of the term`;
@@ -650,6 +744,8 @@ export function leasebackQuote(g: GameState, aircraftId: string, years: number):
   else if (ac.sale) q.why = `${ac.reg} is already sold to ${ac.sale.buyer}`;
   else if (ac.status === 'stored' || ac.status === 'leasedOut') q.why = `${ac.reg} is not on the AOC`;
   else if (g.scen?.noSale) q.why = 'The bank holds it as security for the overdraft: it cannot be sold now';
+  else if (pledgedWhy(g, aircraftId)) q.why = pledgedWhy(g, aircraftId);
+  else if (noCreditWhy(g)) q.why = noCreditWhy(g);
   else if (lk) q.why = lk;
   else if (!terms.length) q.why = `Too old: the lessors want the aircraft under ${B.maxAgeAtEnd} at the end of the lease`;
   else if (q.cashIn <= 0) q.why = `The price (${usd(price)}) does not cover the loan (${usd(loanRepaid)}) and the deposit (${usd(deposit)})`;
@@ -809,6 +905,8 @@ export function depositNorm(g: GameState, clientId: string): number {
   const c = g.clients[clientId];
   if (!c) return BAL.charterDeposit;
   if (c.kind === 'government') return 0;
+  // v0.16.3 nobody pays a deposit to a company in restructuring.
+  if (restructuringLabel(g)) return 0;
   const D = F.deposit;
   let norm = D.norm[c.kind] ?? BAL.charterDeposit;
   if ((c.prestige ?? 2) >= 3) norm = Math.max(0, norm - D.prestigeLess);
@@ -887,6 +985,8 @@ export function dailyTreasury(g: GameState): void {
   accrueMoneyMarket(g);
   dailyLoans(g);
   dailyFactoring(g);
+  // v0.16.3 the investor's board reviews, the restructuring plan's end.
+  dailyDistress(g);
   // Little headroom left (cash plus undrawn under one month's bill), once a fortnight at most, never below zero (the cash card).
   if (t.credit && !t.credit.notRenewed && g.company.cash >= 0 && g.now - (t.headroomAt ?? -Infinity) >= 14 * DAY) {
     const card = creditHeadroomCard(g);
@@ -905,6 +1005,9 @@ export function monthlyTreasury(g: GameState, k: MonthKey): void {
   const mm = Math.round(t.mmAccrued);
   if (mm) post(g, 'interestIncome', mm);
   t.mmAccrued = 0;
+  // v0.16.3 deferred rent and pay, plan parts and repayments (before the loans and the line: a restructuring freezes those).
+  monthlyDistress(g, k);
+  if (perActive(g)) return;
   runLoans(g, end);
   if (t.credit) {
     runRepaySchedule(g, t.credit, end);
@@ -919,8 +1022,9 @@ export function treasuryForecastItems(g: GameState, days: number): ForecastItem[
   if (!t) return [];
   const out: ForecastItem[] = [];
   const end = g.now + days * DAY;
+  const frozen = perActive(g);
   for (const l of t.loans ?? []) {
-    if (l.balance <= 0) continue;
+    if (l.balance <= 0 || frozen) continue;
     if (l.calledDue) {
       if (l.calledDue <= end) out.push({ t: l.calledDue, amount: -l.balance, what: `the called loan on ${g.fleet[l.aircraftId]?.reg ?? 'an aircraft'}` });
       continue;
@@ -949,6 +1053,8 @@ export function treasuryForecastItems(g: GameState, days: number): ForecastItem[
       from = m;
     }
   }
+  // v0.16.3 deferrals and plans.
+  out.push(...distressForecastItems(g, days));
   const mmBal = moneyMarketBalance(g);
   if (mmBal > 0 || (t.mmAccrued ?? 0) > 0) {
     const perDay = (mmBal * moneyMarketRate(g)) / 365;

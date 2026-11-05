@@ -527,7 +527,7 @@ describe('spare cash and the forecast', () => {
     const g = newGame();
     delete g.treasury;
     loadTreasury(g);
-    expect(g.treasury).toEqual({ loans: [], mmAccrued: 0, factored: [], stats: { interest: 0, fees: 0, factored: 0, leasebacks: 0, loans: 0, drawnMax: 0 } });
+    expect(g.treasury).toEqual({ loans: [], mmAccrued: 0, factored: [], stats: { interest: 0, fees: 0, factored: 0, leasebacks: 0, loans: 0, drawnMax: 0 }, distress: { rentDeferrals: [], plans: [], lessorBlock: {}, stats: { deferred: 0, premiums: 0, discounts: 0, furloughSaved: 0, writtenOff: 0 } } });
     dailyTreasury(g);
     monthlyTreasury(g, g.finance.current.month);
     expect(treasuryForecastItems(g, 30)).toEqual([]);
