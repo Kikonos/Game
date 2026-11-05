@@ -186,7 +186,8 @@ function viewOf(g: GameState, e: WorldEvent): WorldEventView {
   return {
     id: e.id, kind: e.kind, title: e.title, body: e.body, place: `${city(e.at)}${AIRPORT_BY_CODE[e.at] ? `, ${e.country}` : ''}`, at: e.at, country: e.country,
     start: e.start, end: e.end, active: isLive(g, e), effects: effectsOf(g, e), flights,
-    offers: e.offerIds.filter((id) => g.offers[id] && (g.offers[id].status === 'open' || g.offers[id].status === 'countered')),
+    // v0.16.1 not an offer the player's filter hides (contracts/filter.ts): it shows under "N hidden" on the Market tab only.
+    offers: e.offerIds.filter((id) => g.offers[id] && !g.offers[id].hidden && (g.offers[id].status === 'open' || g.offers[id].status === 'countered')),
     ...(e.zoneId ? { zoneId: e.zoneId } : {}), icon: EVENT_ICON[e.kind], flightsHit: e.flightsHit ?? 0,
   };
 }

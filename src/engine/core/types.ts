@@ -249,6 +249,8 @@ export interface Company {
 
 /** 1 brochure work · 2 charter market · 3 national carriers and agencies · 4 majors and governments. */
 export type Prestige = 1 | 2 | 3 | 4;
+/** v0.16.1 a client's star rating 0–5 (the finer display of its prestige level; contracts/prestige.ts clientStars). */
+export type Stars = 0 | 1 | 2 | 3 | 4 | 5;
 
 export interface PlayerPrestige {
   level: Prestige;
@@ -427,6 +429,8 @@ export interface Client {
   ceased?: Minute;
   /** v0.16 prestige level 1–4 (UPDATE-0.16.md §B.2). load: ??= from its seed, else by kind. */
   prestige?: Prestige;
+  /** v0.16.1 star rating 0–5 shown for the level (contracts/prestige.ts). load: ??= from its seed, else derived. */
+  stars?: Stars;
 }
 
 /** v0.8 client relationship level (contracts/relations.ts). */
@@ -2080,8 +2084,10 @@ export interface OfferFilter {
   on: boolean;
   /** Client kinds we do not want to hear about. */
   kindsOff: ClientKind[];
-  /** Only clients at this level or above. */
+  /** Only clients at this level or above (v0.16; load: converted to minStars). */
   minPrestige?: Prestige;
+  /** v0.16.1 only clients with this many stars or more. */
+  minStars?: Stars;
   /** ACMI: a rate per block hour below this is hidden; charters: an estimated profit below this. */
   minRatePerBH?: number;
   minProfit?: number;

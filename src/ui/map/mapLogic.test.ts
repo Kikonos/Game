@@ -219,6 +219,11 @@ describe('selection data', () => {
     mk('o3', 'HAM', 'short');
     mk('o4', 'JED', 'normal', 'lost');
     mk('o5', 'XXX', 'normal');
+    // v0.16.1 an offer the player's filter hides has no pin (one alone at its airport: no pin there at all).
+    mk('o6', 'HAM', 'normal');
+    g.offers.o6.hidden = true;
+    mk('o7', 'FCO', 'urgent');
+    g.offers.o7.hidden = true;
     const pins = offerPins(g);
     expect(pins.map((p) => p.code)).toEqual(['KBL', 'HAM']);
     expect(pins[1].offers.length).toBe(2);

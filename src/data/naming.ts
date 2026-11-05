@@ -1,7 +1,7 @@
 // Naming kit: the player's own company presets are fictional; clients, brokers and rivals are real companies.
 
 import type { RatingFamily } from './acmiTypes';
-import type { Prestige } from '../engine/core/types';
+import type { Prestige, Stars } from '../engine/core/types';
 
 export interface CompanyPreset {
   name: string;
@@ -149,6 +149,8 @@ export interface ClientSeed {
    * 4 the majors and big governments. Absent: contracts/prestige.ts seedPrestige derives it from the kind.
    */
   prestige?: Prestige;
+  /** v0.16.1 star rating 0–5 when the level alone does not say (a flagship carrier 5, a small brochure 0); else derived (contracts/prestige.ts seedStars). */
+  stars?: Stars;
   /**
    * v0.16 a client outside Europe that comes through the market and our trips only, like the v0.14 market-presence
    * airlines (contracts/clients.ts isMarketClient): an ordinary offer once we are known in its market, or one asked of
@@ -166,7 +168,7 @@ export const CLIENT_SEEDS: ClientSeed[] = [
   { name: 'LOT Polish Airlines', kind: 'airline', country: 'PL', base: 'WAW', prestige: 3 },
   { name: 'Condor', kind: 'airline', country: 'DE', base: 'HAM', prestige: 2 },
   { name: 'Eurowings', kind: 'airline', country: 'DE', base: 'DUS', prestige: 2 },
-  { name: 'Lufthansa', kind: 'airline', country: 'DE', base: 'FRA', prestige: 4 },
+  { name: 'Lufthansa', kind: 'airline', country: 'DE', base: 'FRA', prestige: 4, stars: 5 },
   { name: 'TAP Air Portugal', kind: 'airline', country: 'PT', base: 'LIS', prestige: 3 },
   { name: 'Royal Air Maroc', kind: 'airline', country: 'MA', base: 'CMN', prestige: 3 },
   { name: 'Royal Jordanian', kind: 'airline', country: 'JO', base: 'AMM', prestige: 3 },
@@ -224,9 +226,9 @@ export const CLIENT_SEEDS_B1: ClientSeed[] = [
   { name: 'Bulgarian Ministry of Defence', kind: 'government', country: 'BG', base: 'SOF', role: 'defence', prestige: 3 },
   { name: 'Estonian Ministry of Foreign Affairs', kind: 'government', country: 'EE', base: 'TLL', role: 'foreign', prestige: 3 },
   { name: 'Estonian Ministry of Defence', kind: 'government', country: 'EE', base: 'TLL', role: 'defence', prestige: 3 },
-  { name: 'Čedok', kind: 'tourOperator', country: 'CZ', base: 'PRG', prestige: 1 },
+  { name: 'Čedok', kind: 'tourOperator', country: 'CZ', base: 'PRG', prestige: 1, stars: 0 },
   { name: 'Bulgaria Air', kind: 'airline', country: 'BG', base: 'SOF', prestige: 3 },
-  { name: 'Novatours', kind: 'tourOperator', country: 'LT', base: 'VNO', prestige: 1 },
+  { name: 'Novatours', kind: 'tourOperator', country: 'LT', base: 'VNO', prestige: 1, stars: 0 },
   { name: 'Frontex', kind: 'agency', country: 'PL', base: 'WAW', role: 'aid', prestige: 3 },
   { name: 'EU Civil Protection and Humanitarian Aid (ECHO)', kind: 'agency', country: 'BE', base: 'BRU', role: 'aid', prestige: 3 },
   { name: 'Fiji Airways', kind: 'airline', country: 'FJ', base: 'NAN', prestige: 3 },
@@ -308,7 +310,7 @@ export const CLIENT_SEEDS_V014: ClientSeed[] = [
   { name: 'Cebu Pacific', kind: 'airline', country: 'PH', base: 'MNL', prestige: 1 },
   { name: 'AirAsia', kind: 'airline', country: 'MY', base: 'KUL', prestige: 1 },
   { name: 'VietJet Air', kind: 'airline', country: 'VN', base: 'SGN', prestige: 1 },
-  { name: 'Qantas', kind: 'airline', country: 'AU', base: 'SYD', prestige: 4 },
+  { name: 'Qantas', kind: 'airline', country: 'AU', base: 'SYD', prestige: 4, stars: 5 },
   { name: 'Virgin Australia', kind: 'airline', country: 'AU', base: 'BNE', prestige: 3 },
   { name: 'Jetstar Airways', kind: 'airline', country: 'AU', base: 'MEL', prestige: 1 },
   { name: 'Air Transat', kind: 'airline', country: 'CA', base: 'YUL', prestige: 2 },
@@ -351,9 +353,9 @@ export const RIVALS_B1: RivalSeed[] = [
  */
 export const CLIENT_SEEDS_V016: ClientSeed[] = [
   // ----- airlines: the majors (4) -----
-  { name: 'Air France', kind: 'airline', country: 'FR', base: 'CDG', prestige: 4 },
-  { name: 'KLM', kind: 'airline', country: 'NL', base: 'AMS', prestige: 4 },
-  { name: 'British Airways', kind: 'airline', country: 'GB', base: 'LHR', prestige: 4 },
+  { name: 'Air France', kind: 'airline', country: 'FR', base: 'CDG', prestige: 4, stars: 5 },
+  { name: 'KLM', kind: 'airline', country: 'NL', base: 'AMS', prestige: 4, stars: 5 },
+  { name: 'British Airways', kind: 'airline', country: 'GB', base: 'LHR', prestige: 4, stars: 5 },
   { name: 'Virgin Atlantic', kind: 'airline', country: 'GB', base: 'LHR', prestige: 4 },
   { name: 'Iberia', kind: 'airline', country: 'ES', base: 'MAD', prestige: 4 },
   { name: 'SWISS', kind: 'airline', country: 'CH', base: 'ZRH', prestige: 4 },
@@ -423,11 +425,11 @@ export const CLIENT_SEEDS_V016: ClientSeed[] = [
   { name: 'Apollo (DER Touristik Nordic)', kind: 'tourOperator', country: 'SE', base: 'ARN', prestige: 1 },
   { name: 'Rainbow Tours', kind: 'tourOperator', country: 'PL', base: 'WAW', prestige: 1 },
   { name: 'Itaka', kind: 'tourOperator', country: 'PL', base: 'WAW', prestige: 1 },
-  { name: 'Exim Tours', kind: 'tourOperator', country: 'CZ', base: 'PRG', prestige: 1 },
-  { name: 'Soltour', kind: 'tourOperator', country: 'ES', base: 'PMI', prestige: 1 },
-  { name: 'Travelplan', kind: 'tourOperator', country: 'ES', base: 'MAD', prestige: 1 },
+  { name: 'Exim Tours', kind: 'tourOperator', country: 'CZ', base: 'PRG', prestige: 1, stars: 0 },
+  { name: 'Soltour', kind: 'tourOperator', country: 'ES', base: 'PMI', prestige: 1, stars: 0 },
+  { name: 'Travelplan', kind: 'tourOperator', country: 'ES', base: 'MAD', prestige: 1, stars: 0 },
   { name: 'Alpitour', kind: 'tourOperator', country: 'IT', base: 'MXP', prestige: 1 },
-  { name: 'Aurinkomatkat', kind: 'tourOperator', country: 'FI', base: 'HEL', prestige: 1 },
+  { name: 'Aurinkomatkat', kind: 'tourOperator', country: 'FI', base: 'HEL', prestige: 1, stars: 0 },
   { name: 'Club Med', kind: 'tourOperator', country: 'FR', base: 'CDG', prestige: 2 },
   // ----- governments: defence and foreign ministries (big states 4; the small ones' everyday rotations 3) -----
   { name: 'French Ministry of the Armed Forces', kind: 'government', country: 'FR', base: 'CDG', role: 'defence', prestige: 4 },

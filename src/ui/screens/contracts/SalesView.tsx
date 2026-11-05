@@ -95,7 +95,7 @@ function Pitches({ g }: { g: GameState }) {
           {targets.length ? (
             <div className="v16s-pitch-form">
               <select className="select" value={chosen?.client.id ?? ''} aria-label="Airline to pitch" onChange={(e) => setPick(e.target.value)}>
-                {targets.map((t) => <option key={t.client.id} value={t.client.id}>{t.client.name}{t.stretch ? ' · one level up' : ''}{t.cost ? '' : ' · free'}</option>)}
+                {targets.map((t) => <option key={t.client.id} value={t.client.id}>{t.client.name}{t.stretch ? ' · more stars than yours' : ''}{t.cost ? '' : ' · free'}</option>)}
               </select>
               <button className="btn btn-primary" disabled={!chosen || quotaFull} onClick={() => chosen && store.act((g) => pitchAirline(g, chosen.client.id))}>
                 Pitch{chosen && chosen.cost ? ` · ${money(chosen.cost)}` : ''}

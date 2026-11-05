@@ -10,6 +10,7 @@ import { bumpClient } from './relations';
 import {
   clientPrestige, contractVisibility, dailyPrestige, derivePrestige, levelReached, loadPrestige, markStretch, noteStretch, onContractDoneVisibility, playerLevel, prestigeOfferWeight,
   prestigePayPct, prestigePenaltyX, prestigeRequirements, prestigeView, seedPrestige, stretchOpen, PRESTIGE_GATE, PRESTIGE_NAME,
+  clientStars, LEVEL_OF_STARS, levelUpText, nextStars, playerPrestige, playerStars, seedStars, starsLabel, starsText,
 } from './prestige';
 import { newGame, offer } from './testkit';
 
@@ -190,7 +191,7 @@ describe('visibility and level-ups', () => {
     expect(p.level).toBe(2);
     expect(p.levelAt[2]).toBe(g.now);
     const m = g.messages[0];
-    expect(m.title).toBe(`New level: ${PRESTIGE_NAME[2]}`);
+    expect(m.title).toBe(`New rating: ★★☆☆☆ ${PRESTIGE_NAME[2]}`);
     expect(m.topic).toBe('ladder');
     expect(m.body).toContain('Next, National carriers');
     expect(takeCues()).toContain('ladder');
@@ -258,5 +259,47 @@ describe('older saves', () => {
     expect(derivePrestige(g).level).toBe(3);
     g.contracts.d8 = { id: 'd8', clientId: major.id, status: 'completed', use: {}, dry: false } as never;
     expect(derivePrestige(g).level).toBe(4);
+  });
+});
+
+describe('v0.16.1 stars: a finer display per client, the four levels unchanged', () => {
+  it('seeds and derivation: flagships 5, majors 4, governments 5, national carriers 3, charter market 2, big brochures 1, small ones 0', () => {
+    const g = newGame(3);
+    const by = (name: string) => Object.values(g.clients).find((c) => c.name === name);
+    const stars = (name: string) => (by(name) ? clientStars(by(name)) : seedStars({ name, kind: 'airline', country: 'XX' }));
+    expect(seedStars({ name: 'Air France', kind: 'airline', country: 'FR' })).toBe(5);
+    expect(seedStars({ name: 'Lufthansa', kind: 'airline', country: 'DE' })).toBe(5);
+    expect(seedStars({ name: 'Iberia', kind: 'airline', country: 'ES' })).toBe(4);
+    expect(seedStars({ name: 'UK Ministry of Defence', kind: 'government', country: 'GB' })).toBe(5);
+    expect(seedStars({ name: 'Portuguese Ministry of Foreign Affairs', kind: 'government', country: 'PT' })).toBe(3);
+    expect(seedStars({ name: 'Condor', kind: 'airline', country: 'DE' })).toBe(2);
+    expect(seedStars({ name: 'TUI Deutschland', kind: 'tourOperator', country: 'DE' })).toBe(1);
+    expect(seedStars({ name: 'easyJet', kind: 'airline', country: 'GB' })).toBe(1);
+    expect(seedStars({ name: 'Čedok', kind: 'tourOperator', country: 'CZ' })).toBe(0);
+    expect(seedStars({ name: 'Some Small Tours', kind: 'tourOperator', country: 'PT' })).toBe(0);
+    // Every star band belongs to its level; the level a client has is what the engine still gates on.
+    for (const c of Object.values(g.clients)) expect(LEVEL_OF_STARS[clientStars(c)]).toBe(clientPrestige(c));
+    expect(stars('Air France') === 5 || !by('Air France')).toBe(true);
+  });
+  it('a save without stars gets them on load; the old minimum level becomes a minimum of stars', () => {
+    const g = newGame(3);
+    for (const c of Object.values(g.clients)) delete c.stars;
+    g.filter = { on: true, kindsOff: [], minPrestige: 3 };
+    loadPrestige(g);
+    for (const c of Object.values(g.clients)) expect(c.stars).toBe(seedStars(c));
+    expect(g.filter.minPrestige).toBeUndefined();
+    expect(g.filter.minStars).toBe(3);
+  });
+  it('our own stars: the highest band the level reaches, and what the next band needs', () => {
+    const g = newGame(3);
+    playerPrestige(g).level = 1;
+    expect(playerStars(g)).toBe(1);
+    expect(nextStars(g)).toEqual({ stars: 2, level: 2 });
+    playerPrestige(g).level = 4;
+    expect(playerStars(g)).toBe(5);
+    expect(nextStars(g)).toBeNull();
+    expect(starsLabel(3)).toBe('3 of 5 stars');
+    expect(starsText(2)).toBe('★★☆☆☆');
+    expect(levelUpText(g, 3).title).toBe('New rating: ★★★☆☆ National carriers');
   });
 });

@@ -46,7 +46,8 @@ const count = (n: number) => (n > 99 ? '99+' : String(n));
 /** Badges: open offers on Contracts; on Inbox the bell's rule (decisions + unread bad/warn), a dot for other unread. */
 function useNavBadges(): Partial<Record<Tab, string>> {
   const g = useGame();
-  const offers = Object.values(g.offers).filter((o) => o.status === 'open').length;
+  // v0.16.1 the badge counts what the Market tab lists: never an offer the player's filter hides.
+  const offers = Object.values(g.offers).filter((o) => o.status === 'open' && !o.hidden).length;
   const alerts = g.decisions.length + g.messages.filter((m) => !m.read && (m.tone === 'bad' || m.tone === 'warn')).length;
   const b: Partial<Record<Tab, string>> = {};
   if (offers) b.contracts = count(offers);
