@@ -9,9 +9,9 @@ import { ACMI_TYPES_LIST, type RatingFamily } from '../../../data/acmiTypes';
 import { flag } from '../../../data/countries';
 import { MARKETS, type MarketId } from '../../../data/markets';
 import { clearOfferFilter, FILTER_KINDS, filterEmpty, hiddenOffers, KIND_LABEL, setOfferFilter } from '../../../engine/contracts/filter';
-import { PRESTIGE_NAME } from '../../../engine/contracts/prestige';
+import { STARS_NAME } from '../../../engine/contracts/prestige';
 import { fmtDay } from '../../../engine/core/time';
-import type { ClientKind, GameState, OfferFilter, Prestige } from '../../../engine/core/types';
+import type { ClientKind, GameState, OfferFilter, Stars } from '../../../engine/core/types';
 import { Card, Seg, Stepper, Toggle } from '../../components/ui';
 import { money } from '../../format';
 import { store } from '../../store';
@@ -69,10 +69,11 @@ export function FilterView({ g }: { g: GameState }) {
         <Row label="Do not bring me work from" hint="tap to switch a kind off">
           <ChipSet items={FILTER_KINDS.map((k) => ({ id: k, label: KIND_LABEL[k] }))} selected={f.kindsOff} off onToggle={(k: ClientKind) => set({ kindsOff: toggleIn(f.kindsOff, k) })} />
         </Row>
-        <Row label="Client level" hint="only clients at this level or above">
-          <Seg<Prestige | 0> value={f.minPrestige ?? 0} onChange={(v) => set({ minPrestige: v || undefined })} options={[
-            { value: 0, label: 'Any' }, { value: 2, label: `2+ ${PRESTIGE_NAME[2]}` }, { value: 3, label: `3+ ${PRESTIGE_NAME[3]}` }, { value: 4, label: `4 ${PRESTIGE_NAME[4]}` },
+        <Row label="Client stars" hint="only clients with this many stars or more">
+          <Seg<Stars | 0> value={f.minStars ?? 0} onChange={(v) => set({ minStars: v || undefined })} options={[
+            { value: 0, label: 'Any' }, ...([1, 2, 3, 4, 5] as Stars[]).map((n) => ({ value: n, label: `${'★'.repeat(n)}${n < 5 ? '+' : ''}` })),
           ]} />
+          {f.minStars ? <div className="tiny dim">{f.minStars} of 5 stars and up: {STARS_NAME[f.minStars].toLowerCase()} and above.</div> : null}
         </Row>
         <div className="flt-two">
           <Row label="Minimum rate per block hour" hint="ACMI and wet leases">

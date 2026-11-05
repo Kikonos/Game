@@ -339,6 +339,7 @@ export function loadRivals(g: GameState): void {
         rivalId: r.id, jobs: 0, firstJob: null, lastJob: null, log: [], level: 'new',
         // v0.16 a rival operator sits in the charter market.
         prestige: 2,
+        stars: 2,
       };
       r.clientId = id;
     }

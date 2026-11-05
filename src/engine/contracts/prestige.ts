@@ -8,12 +8,12 @@
 // a level-up is a message with its card and the `ladder` chime. Nothing here draws from the RNG (offers.ts draws).
 
 import { TENDER_CLIENT_SEEDS } from '../../data/fairs';
-import { CLIENT_SEEDS, CLIENT_SEEDS_B1, CLIENT_SEEDS_V014, CLIENT_SEEDS_V08, CLIENT_SEEDS_V0121, type ClientSeed } from '../../data/naming';
+import { CLIENT_SEEDS, CLIENT_SEEDS_B1, CLIENT_SEEDS_V014, CLIENT_SEEDS_V016, CLIENT_SEEDS_V08, CLIENT_SEEDS_V0121, type ClientSeed } from '../../data/naming';
 import { BAL } from '../core/balance';
 import { statsV016 } from '../core/stats016';
 import { DAY, yearOf } from '../core/time';
 import { pushMessage } from '../core/messages';
-import type { ApprovalId, Client, Contract, GameState, PlayerPrestige, Prestige } from '../core/types';
+import type { ApprovalId, Client, Contract, GameState, PlayerPrestige, Prestige, Stars } from '../core/types';
 import { aocSince } from './relations';
 
 const P = BAL.v016.prestige;
@@ -33,10 +33,14 @@ export const PRESTIGE_WHO: Record<Prestige, string> = {
 const HOME_STATES = new Set(['PT', 'ES', 'LT', 'MT', 'LV', 'CZ', 'BG', 'EE']);
 
 const BY_NAME: Record<string, Prestige> = {};
+/** v0.16.1 stars by seed name, where the seed says (a flagship carrier 5, a small brochure 0). */
+const STARS_BY_NAME: Record<string, Stars> = {};
 /** Roles by seed name (clients.ts keeps its own copy; no import either way, so neither module waits on the other). */
 const ROLE_BY_NAME: Record<string, ClientSeed['role']> = {};
-for (const s of [...CLIENT_SEEDS, ...CLIENT_SEEDS_B1, ...CLIENT_SEEDS_V08, ...CLIENT_SEEDS_V014, ...CLIENT_SEEDS_V0121]) {
+// (v0.16.1 the v0.16 seeds too: Air France read by name was a plain airline, level 3.)
+for (const s of [...CLIENT_SEEDS, ...CLIENT_SEEDS_B1, ...CLIENT_SEEDS_V08, ...CLIENT_SEEDS_V014, ...CLIENT_SEEDS_V0121, ...CLIENT_SEEDS_V016]) {
   if (s.prestige) BY_NAME[s.name] = s.prestige;
+  if (s.stars !== undefined) STARS_BY_NAME[s.name] = s.stars;
   if (s.role) ROLE_BY_NAME[s.name] = s.role;
 }
 for (const s of TENDER_CLIENT_SEEDS) if (s.prestige) BY_NAME[s.name] = s.prestige;
@@ -59,6 +63,52 @@ export function seedPrestige(c: Pick<Client, 'name' | 'kind' | 'country'> & { ri
 
 /** A client's level (its stored one, else derived now). Pure. */
 export const clientPrestige = (c: Client | undefined): Prestige => (c ? c.prestige ?? seedPrestige(c, ROLE_BY_NAME[c.name]) : 2);
+
+// ---------- stars (v0.16.1) ----------
+// The four levels stay the engine's (gating, weights, pay); the player sees a finer star rating per client: level 1 is
+// 0★ (small brochures, tiny tour operators) or 1★ (the big tour operators, low-cost airlines), 2 → 2★, 3 → 3★, level 4
+// is 4★ (the majors) or 5★ (flagship carriers, head-of-state, government and military work).
+
+/** The big tour operators (1★; the rest of level 1's tour operators are 0★ unless their seed says). */
+const BIG_BROCHURE = /^(TUI\b|Jet2holidays|DER Touristik|Apollo \(DER|Coral Travel|Anex Tour|Alpitour|Sunweb|alltours|Schauinsland|Corendon$|Itaka|Rainbow Tours|Sunwing|H\.I\.S\.)/;
+
+/** The stars a client of this level shows (the level's lowest band when nothing finer is known). Pure. */
+export const STARS_OF_LEVEL: Record<Prestige, Stars> = { 1: 0, 2: 2, 3: 3, 4: 4 };
+/** The level a star band belongs to (the filter and the ladder read levels). Pure. */
+export const LEVEL_OF_STARS: Record<Stars, Prestige> = { 0: 1, 1: 1, 2: 2, 3: 3, 4: 4, 5: 4 };
+/** Player words for each star band. */
+export const STARS_NAME: Record<Stars, string> = { 0: 'Small brochures', 1: 'Big tour operators and low-cost', 2: 'Charter market', 3: 'National carriers', 4: 'The majors', 5: 'Flagships and governments' };
+/** '3 of 5 stars' (accessible label, exports). Pure. */
+export const starsLabel = (n: Stars): string => `${n} of 5 stars`;
+/** '★★★☆☆' for plain text (messages). Pure. */
+export const starsText = (n: Stars): string => '★'.repeat(n) + '☆'.repeat(5 - n);
+
+/** A client's stars from its seed, else derived from its level, kind and role. Pure. */
+export function seedStars(c: Pick<Client, 'name' | 'kind' | 'country'> & { rivalId?: string; prestige?: Prestige }, role: ClientSeed['role'] | undefined = ROLE_BY_NAME[c.name]): Stars {
+  const byName = STARS_BY_NAME[c.name];
+  if (byName !== undefined) return byName;
+  const level = c.prestige ?? seedPrestige(c, role);
+  if (level === 1) return c.kind === 'airline' || (c.kind === 'tourOperator' && BIG_BROCHURE.test(c.name)) ? 1 : 0;
+  if (level === 4) return c.kind === 'government' || role === 'presidency' || role === 'defence' ? 5 : 4;
+  return STARS_OF_LEVEL[level];
+}
+
+/** The stars a new client gets at creation (its seed's, else derived), so a fresh game and a loaded one agree. Pure. */
+export function seedClientStars(s: Pick<Client, 'name' | 'kind' | 'country'> & { role?: ClientSeed['role']; prestige?: Prestige; stars?: Stars; rivalId?: string }): Stars {
+  return s.stars ?? seedStars({ name: s.name, kind: s.kind, country: s.country, rivalId: s.rivalId, prestige: s.prestige ?? seedPrestige(s, s.role ?? ROLE_BY_NAME[s.name]) }, s.role ?? ROLE_BY_NAME[s.name]);
+}
+
+/** A client's stars (its stored ones, else derived now). Pure. */
+export const clientStars = (c: Client | undefined): Stars => (c ? c.stars ?? seedStars(c) : 2);
+
+/** Our own stars: the highest band our level reaches (level 4 reaches the flagships). Pure. */
+export const PLAYER_STARS: Record<Prestige, Stars> = { 1: 1, 2: 2, 3: 3, 4: 5 };
+export const playerStars = (g: GameState): Stars => PLAYER_STARS[playerLevel(g)];
+/** The next star band above ours and the level it needs (null at the top). Pure. */
+export function nextStars(g: GameState): { stars: Stars; level: Prestige } | null {
+  const lv = playerLevel(g);
+  return lv >= 4 ? null : { stars: PLAYER_STARS[(lv + 1) as Prestige], level: (lv + 1) as Prestige };
+}
 
 // ---------- our level ----------
 
@@ -127,7 +177,15 @@ export function derivePrestige(g: GameState): PlayerPrestige {
  * rivals.ts, so a client added after this pass is never without); our record derived once from history, never lowered.
  */
 export function loadPrestige(g: GameState): void {
-  for (const c of Object.values(g.clients)) c.prestige ??= seedPrestige(c, ROLE_BY_NAME[c.name]);
+  for (const c of Object.values(g.clients)) {
+    c.prestige ??= seedPrestige(c, ROLE_BY_NAME[c.name]);
+    c.stars ??= seedStars(c);
+  }
+  // v0.16.1 the filter's minimum level becomes a minimum of stars (the same clients hidden).
+  if (g.filter?.minPrestige) {
+    g.filter.minStars ??= STARS_OF_LEVEL[g.filter.minPrestige] || 2;
+    delete g.filter.minPrestige;
+  }
   if (!g.company.prestige) g.company.prestige = derivePrestige(g);
   const p = g.company.prestige;
   p.levelAt ??= {};
@@ -252,13 +310,13 @@ export function prestigeRequirements(g: GameState, level: Prestige): { line: str
 }
 
 /** The offer dialog's prestige lines for a client: its level, a stretch note, what a level 3 / 4 client checks. Pure. */
-export function offerPrestigeLines(g: GameState, offerId: string): { level: Prestige; name: string; stretch: boolean; pay: string | null; checks: { line: string; ok: boolean }[] } | null {
+export function offerPrestigeLines(g: GameState, offerId: string): { level: Prestige; stars: Stars; name: string; stretch: boolean; pay: string | null; checks: { line: string; ok: boolean }[] } | null {
   const o = g.offers[offerId];
   const c = o ? g.clients[o.clientId] : undefined;
   if (!o || !c) return null;
   const level = clientPrestige(c);
   const pay = o.prestigePct ? `${o.prestigePct > 0 ? '+' : '−'}${Math.round(Math.abs(o.prestigePct) * 100)} % rate (${PRESTIGE_SHORT[level]}, included)` : null;
-  return { level, name: PRESTIGE_NAME[level], stretch: !!o.stretch, pay, checks: level >= 3 && !c.jobs ? prestigeRequirements(g, level) : [] };
+  return { level, stars: clientStars(c), name: PRESTIGE_NAME[level], stretch: !!o.stretch, pay, checks: level >= 3 && !c.jobs ? prestigeRequirements(g, level) : [] };
 }
 
 /** The sales module: a trade fair attended (+15, counted at our level) and a tender won (+40, the client's level). */
@@ -292,7 +350,7 @@ export function levelBrings(level: Prestige): string[] {
   return [
     `Rates ${pay ? pctWord(pay) : 'as quoted'} for ${PRESTIGE_SHORT[level]} clients`,
     pen === 1 ? 'Normal delay penalties' : `Delay penalties × ${pen}${pen > 1 ? ' and a harder relation hit when we fail' : ''}`,
-    level < 4 ? `One stretch offer a month from a ${PRESTIGE_SHORT[(level + 1) as Prestige]}` : 'Every client in the market calls',
+    level < 4 ? `One stretch offer a month from a ${PRESTIGE_SHORT[(level + 1) as Prestige]} (more stars than yours)` : 'Every client in the market calls',
   ];
 }
 
@@ -331,7 +389,7 @@ export function levelUpText(g: GameState, level: Prestige): { title: string; bod
   const brings = levelBrings(level).map((x) => x.charAt(0).toLowerCase() + x.slice(1)).join('; ');
   const v = prestigeView({ ...g, company: { ...g.company, prestige: { ...playerPrestige(g), level } } });
   const nextLine = v.next ? ` Next, ${v.next.name}: ${v.next.missing.length ? v.next.missing.join(', ') : 'every requirement met'}.` : ' This is the top of the ladder.';
-  return { title: `New level: ${PRESTIGE_NAME[level]}`, body: `We are flying for ${who} now. It brings: ${brings}.${nextLine}` };
+  return { title: `New rating: ${starsText(PLAYER_STARS[level])} ${PRESTIGE_NAME[level]}`, body: `We are flying for ${who} now. It brings: ${brings}.${nextLine}` };
 }
 
 /**

@@ -3,7 +3,7 @@
 // v0.7.2: the live ops strip (OpsStrip) fills the space between the speed control and cash.
 
 import {
-  Bell, Building2, CalendarRange, FileSignature, Globe2, Inbox as InboxIcon, Menu, Pause, Plane, Play, TrendingDown, TrendingUp, Users, Wallet,
+  Bell, Bug, Building2, CalendarRange, FileSignature, Globe2, Inbox as InboxIcon, Menu, Pause, Plane, Play, TrendingDown, TrendingUp, Users, Wallet,
 } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo } from 'react';
 import { fmtDate, fmtTime } from '../../engine/core/time';
@@ -46,7 +46,8 @@ const count = (n: number) => (n > 99 ? '99+' : String(n));
 /** Badges: open offers on Contracts; on Inbox the bell's rule (decisions + unread bad/warn), a dot for other unread. */
 function useNavBadges(): Partial<Record<Tab, string>> {
   const g = useGame();
-  const offers = Object.values(g.offers).filter((o) => o.status === 'open').length;
+  // v0.16.1 the badge counts what the Market tab lists: never an offer the player's filter hides.
+  const offers = Object.values(g.offers).filter((o) => o.status === 'open' && !o.hidden).length;
   const alerts = g.decisions.length + g.messages.filter((m) => !m.read && (m.tone === 'bad' || m.tone === 'warn')).length;
   const b: Partial<Record<Tab, string>> = {};
   if (offers) b.contracts = count(offers);
@@ -192,6 +193,8 @@ function Alerts() {
         <Bell />
         {n > 0 && <span className="pip">{count(n)}</span>}
       </button>
+      {/* v0.16.1 Report a bug, one tap from the header (also in the Menu). */}
+      <button className="btn btn-ghost btn-icon hdr-bug" onClick={() => store.openModal({ kind: 'bugReport', prefill: { modal: store.modal?.kind } })} aria-label="Report a bug" data-tip="Report a bug"><Bug /></button>
       <button className="btn btn-ghost btn-icon" onClick={() => store.openModal({ kind: 'menu' })} aria-label="Menu"><Menu /></button>
     </>
   );

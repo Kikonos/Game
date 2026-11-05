@@ -10,7 +10,7 @@ import { BAL } from '../core/balance';
 import { typeOf } from '../core/perf';
 import type { ActionResult, ClientKind, ContractOffer, GameState, OfferFilter } from '../core/types';
 import { feasibility } from './feasibility';
-import { clientPrestige } from './prestige';
+import { clientPrestige, clientStars } from './prestige';
 
 const F = BAL.v016.filter;
 
@@ -69,6 +69,8 @@ export function offerHidden(g: GameState, o: ContractOffer): boolean {
   const c = g.clients[o.clientId];
   if (c && f.kindsOff.includes(c.kind)) return true;
   if (f.minPrestige && c && clientPrestige(c) < f.minPrestige) return true;
+  // v0.16.1 a minimum of stars (the finer rating; the engine's levels stay as they are).
+  if (f.minStars && c && clientStars(c) < f.minStars) return true;
   if (f.minRatePerBH && o.product.kind === 'wet' && o.product.ratePerBH < f.minRatePerBH) return true;
   if (f.minProfit && o.product.kind === 'charter') {
     const p = bestProfit(g, o);
@@ -113,6 +115,7 @@ export function refilterOffers(g: GameState): void {
 function tidy(f: OfferFilter): void {
   f.kindsOff = [...new Set(f.kindsOff)];
   if (!f.minPrestige || f.minPrestige <= 1) delete f.minPrestige;
+  if (!f.minStars) delete f.minStars;
   if (!f.minRatePerBH || f.minRatePerBH <= 0) delete f.minRatePerBH;
   if (!f.minProfit || f.minProfit <= 0) delete f.minProfit;
   if (f.families) {
@@ -126,7 +129,7 @@ function tidy(f: OfferFilter): void {
 }
 
 /** Whether the filter would hide anything at all (every setting at "any"). Pure. */
-export const filterEmpty = (f: OfferFilter | undefined): boolean => !f || (!f.kindsOff.length && !f.minPrestige && !f.minRatePerBH && !f.minProfit && !f.families?.length && !f.markets?.length);
+export const filterEmpty = (f: OfferFilter | undefined): boolean => !f || (!f.kindsOff.length && !f.minPrestige && !f.minStars && !f.minRatePerBH && !f.minProfit && !f.families?.length && !f.markets?.length);
 
 /** Set (merge) the filter and re-evaluate the open offers. Player action. */
 export function setOfferFilter(g: GameState, patch: Partial<OfferFilter>): ActionResult<{ hidden: number }> {

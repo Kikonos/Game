@@ -89,10 +89,16 @@ export function addItem(hold: Hold, item: HoldItem): Hold {
   return { ...hold, items: hold.items.map((x, i) => (i === at ? { reason: x.reason, keys } : x)) };
 }
 
+/**
+ * v0.16.1 reasons that are always about named flights: one with nothing to point at is resolved, not a note (s0501: a
+ * "Crew out of hours" pause whose flight was legal again by the end of the step kept the game paused for nothing).
+ */
+export const CREW_REASONS = new Set<PauseReason>(['crewShortage', 'crewHours']);
+
 /** The reasons still waiting: a note always, a reason with subjects while any of them is still there. Pure. */
 export function pendingItems(g: GameState, hold: Hold): HoldItem[] {
   return hold.items.filter((it) => {
-    if (!it.keys.length) return true;
+    if (!it.keys.length) return !CREW_REASONS.has(it.reason);
     const now = new Set(subjectsOf(g, it.reason));
     return it.keys.some((k) => now.has(k));
   });

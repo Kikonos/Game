@@ -23,7 +23,8 @@ import { contractColor } from './palette';
 import { archLabel, COUNTDOWN_MIN, expiryLabel, fuelLine, offerModal, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays, v09Chips } from './screenLogic';
 import { SalesView, salesTabCount } from './contracts/SalesView';
 import { FilterView, HiddenOffersRow } from './contracts/FilterView';
-import { PRESTIGE_NAME, playerLevel } from '../../engine/contracts/prestige';
+import { clientStars, PRESTIGE_NAME, playerLevel, playerStars, starsLabel } from '../../engine/contracts/prestige';
+import { ClientStars } from '../components/ClientStars';
 import { analystView } from '../../engine/ops';
 import { ScreenHint } from '../components/ScreenHint';
 import { clientList } from '../../engine/contracts';
@@ -72,7 +73,7 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
         <span className="row gap-8 nowrap">
           {prob && <Why refs={{ kind: 'offer', id: o.id }} tone={prob.severity === 'red' ? 'bad' : 'warn'} label={`${prob.what}: why?`} />}
           {/* v0.16 a stretch offer: a client one level above ours. */}
-          {o.stretch && <span className="badge pr-stretch" data-tip="A client one level above yours: a taste of what's to come">Stretch offer</span>}
+          {o.stretch && <span className="badge pr-stretch" data-tip="A client with more stars than yours: a taste of what's to come">Stretch offer</span>}
           {o.urgency !== 'normal' && <span className={`badge ${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
           {pending ? (
             <span className="small accent nowrap" data-tip="The offer cannot lapse while the client considers your counter">Clock paused</span>
@@ -84,6 +85,7 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
       <div className="sc-offer-title ellipsis">{o.title}</div>
       <div className="small muted row gap-8">
         <span className="ellipsis">{cl ? `${flag(cl.country)} ${cl.name}` : 'Client'}</span>
+        {cl && <ClientStars n={clientStars(cl)} size={11} />}
         {o.broker && <span className="chip sc-chip sc-broker">via {o.broker}</span>}
       </div>
       <div className="sc-offer-route mono ellipsis">{routeSummary(o.pattern)}</div>
@@ -310,8 +312,9 @@ function HeadStrip({ g }: { g: GameState }) {
         <ChevronRight className="sc-ico-s dim" />
       </button>
       {/* v0.16 our level on the client ladder (offers come at this level; tap: the Prestige card). */}
-      <button className="pr-level" onClick={() => store.navigate('company', { view: 'overview' })} aria-label={`Prestige level ${lv}: ${PRESTIGE_NAME[lv]}`} data-tip="Offers come at your level, with one stretch offer a month from a level up">
-        <Crown className="sc-ico-s" /><b>Level {lv}</b><span className="small muted">{PRESTIGE_NAME[lv]}</span>
+      {/* v0.16.1 shown as stars (the engine's level behind them). */}
+      <button className="pr-level" onClick={() => store.navigate('company', { view: 'overview' })} aria-label={`Your rating: ${starsLabel(playerStars(g))}, ${PRESTIGE_NAME[lv]}`} data-tip="Offers come at your stars, with one stretch offer a month from a client with more">
+        <Crown className="sc-ico-s" /><ClientStars n={playerStars(g)} size={13} label="" /><span className="small muted">{PRESTIGE_NAME[lv]}</span>
       </button>
       <button className="v8-outlook-btn" onClick={() => store.openModal({ kind: 'outlook' })} aria-label="Market outlook">
         <OutlookTiles o={o} now={g.now} />

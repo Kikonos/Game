@@ -4,7 +4,8 @@
 import { deliveryCardFor } from './modals/deliveryCard';
 import { startTransition, useEffect, useState, useSyncExternalStore } from 'react';
 import { clearPause, takePause, type PauseReason } from '../engine/core/pause';
-import { addItem, holdFromSave, holdToSave, pauseKeys, pendingItems, subjectsOf, topReason, type Hold } from './autoResume';
+import type { BugPrefill } from './bugReports';
+import { addItem, CREW_REASONS, holdFromSave, holdToSave, pauseKeys, pendingItems, subjectsOf, topReason, type Hold } from './autoResume';
 import { pausingRuleKeys } from '../engine/ops/heads';
 import { CLOCK_STEP, type GameSpeed, minutesPerMs, monthKey } from '../engine/core/time';
 import type { CabinLayout, RatingFamily } from '../data/acmiTypes';
@@ -143,6 +144,9 @@ export interface Nav {
 
 export type ModalSpec =
   | { kind: 'menu' }
+  /** v0.16.1 Report a bug (the form, with what a Report link pre-fills) and the list of reports. */
+  | { kind: 'bugReport'; prefill?: BugPrefill }
+  | { kind: 'bugReports' }
   /** v0.12 a scenario's goals in full. */
   | { kind: 'scenario' }
   | { kind: 'saves'; mode: 'save' | 'load' }
@@ -720,6 +724,12 @@ class GameStore {
    */
   private autoPause(reason: PauseReason, keys?: string[]) {
     const g = this.game;
+    // v0.16.1 a crew alarm about no flight (the step's own settle re-cut the duty and the flight is legal again) stops
+    // nothing: a pause with nothing to resolve stayed on screen as "PAUSED · Crew out of hours" until Play (s0501).
+    if (g && CREW_REASONS.has(reason)) {
+      keys ??= pauseKeys(g, reason, this.rulesSeen);
+      if (!keys.length) return;
+    }
     if (!this.paused || !this.hold) this.hold = { resume: this.paused ? null : this.speed, items: [] };
     this.paused = true;
     if (g) {

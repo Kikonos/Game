@@ -4,6 +4,7 @@
 // Glossary words are wrapped in <Term>. The mini-map is the MAP lane's MiniMap.
 
 import { ChevronDown, ChevronUp } from 'lucide-react';
+import { ReportLink } from '../modals/BugReportModals';
 import { useState, type ReactNode } from 'react';
 import { fmtDateTime } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
@@ -108,14 +109,16 @@ export function ProblemCardView({ card, compact, g, hideActions, onAction, child
           </span>
         </div>
       ) : null}
-      {card.details.length > 0 && (
-        <div className="pc-details">
+      <div className="pc-details">
+        {card.details.length > 0 && (
           <button className="btn btn-ghost btn-sm pc-details-btn" onClick={() => setDetails(!details)} aria-expanded={details}>
             {details ? <ChevronUp /> : <ChevronDown />} Details
           </button>
-          {details && <ul className="pc-details-list small muted">{card.details.map((d, i) => <li key={i}>{d}</li>)}</ul>}
-        </div>
-      )}
+        )}
+        {/* v0.16.1 a bug report about this card: the subject and the card's words are pre-filled. */}
+        <ReportLink prefill={{ ref: card.subject.ref, title: card.what }} />
+        {details && card.details.length > 0 && <ul className="pc-details-list small muted">{card.details.map((d, i) => <li key={i}>{d}</li>)}</ul>}
+      </div>
     </div>
   );
 }

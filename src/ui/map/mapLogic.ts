@@ -373,11 +373,11 @@ export interface PinGroup {
   urgent: boolean;
 }
 
-/** Open offers grouped by pin airport (urgent groups first). */
+/** Open offers grouped by pin airport (urgent groups first). v0.16.1 never one the player's filter hides (contracts/filter.ts). */
 export function offerPins(g: GameState): PinGroup[] {
   const by = new Map<string, PinGroup>();
   for (const o of Object.values(g.offers)) {
-    if (o.status !== 'open' || !AIRPORT_BY_CODE[o.pin]) continue;
+    if (o.status !== 'open' || o.hidden || !AIRPORT_BY_CODE[o.pin]) continue;
     let p = by.get(o.pin);
     if (!p) by.set(o.pin, (p = { code: o.pin, offers: [], urgent: false }));
     p.offers.push(o);

@@ -127,3 +127,19 @@ describe('the market with a filter', () => {
     expect(g.filter).toEqual({ on: true, kindsOff: ['sports'], markets: ['me'] });
   });
 });
+
+describe('v0.16.1 a minimum of stars', () => {
+  it('hides clients below it and leaves the rest; the level filter still works for an old save', () => {
+    const g = newGame(5);
+    const o = offer(g, 'tourSeries');
+    const c = g.clients[o.clientId];
+    c.stars = 1;
+    setOfferFilter(g, { on: true, kindsOff: [], minStars: 2 });
+    expect(offerHidden(g, o)).toBe(true);
+    c.stars = 2;
+    expect(offerHidden(g, o)).toBe(false);
+    setOfferFilter(g, { minStars: 0 });
+    expect(g.filter?.minStars).toBeUndefined();
+    expect(filterEmpty(g.filter)).toBe(true);
+  });
+});

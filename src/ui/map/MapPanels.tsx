@@ -581,7 +581,8 @@ function AirportPanel({ g, code }: { g: GameState; code: string }) {
   const here = Object.values(g.fleet).filter((ac) => !waiting.includes(ac) && ((!ac.flightId && ac.at === code) || (ac.flightId && g.flights[ac.flightId]?.to === code)));
   const hotel = Object.values(g.crew).filter((m) => m.loc === code && m.base !== code && m.status !== 'onDuty' && m.status !== 'joining');
   const based = code === g.company.homeBase ? Object.values(g.crew).filter((m) => m.loc === code && (m.status === 'available' || m.status === 'off' || m.status === 'resting')).length : 0;
-  const offers = Object.values(g.offers).filter((o) => o.status === 'open' && o.pin === code);
+  // v0.16.1 not the offers the player's filter hides (they sit under "N hidden" on the Market tab only).
+  const offers = Object.values(g.offers).filter((o) => o.status === 'open' && !o.hidden && o.pin === code);
   const deps: Flight[] = [];
   for (const id of Object.keys(g.fleet)) for (const f of flightsOf(g, id)) if (f.status === 'scheduled' && f.from === code && f.std + f.delay < t + DAY) deps.push(f);
   deps.sort((x, y) => x.std + x.delay - (y.std + y.delay));
@@ -870,7 +871,7 @@ function EventPanel({ g, id }: { g: GameState; id: string }) {
   const Icon = eventIcon(ev.kind);
   const tone = EVENT_TONE[ev.kind];
   const flights = ev.flights.map((f) => g.flights[f]).filter((f): f is Flight => !!f).sort((a, b) => a.std - b.std);
-  const offers = ev.offers.map((o) => g.offers[o]).filter(Boolean);
+  const offers = ev.offers.map((o) => g.offers[o]).filter((o) => o && !o.hidden);
   const zoneStyle = ev.zoneId ? safe(() => worldZoneStyle(g, ev.id), null) : null;
   const moreModal = () => store.openModal({ kind: 'worldEvent', eventId: ev.id } as unknown as ModalSpec);
   return (

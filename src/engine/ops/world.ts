@@ -111,10 +111,15 @@ export function warRiskAt(g: GameState, code: string): 0 | 1 | 2 | 3 {
  */
 export const openDuring = (e: WorldEvent, code: string): boolean => !!TPL_BY_ID[e.tpl]?.openAirports?.includes(code) && !(e.airportClosedUntil && e.at === code);
 
-/** The live event closing this airport at t (its airspace or the airport itself); never `exempt` (the event whose own work it is: an evacuation or relief permit). Pure. */
-export function closedAirport(g: GameState, code: string, t: Minute = g.now, exempt?: string): WorldEvent | null {
+/**
+ * The live event closing this airport at t (its airspace or the airport itself); never `exempt` (the event whose own
+ * work it is: an evacuation or relief permit; v0.16.1 several permits for an empty leg that leaves under one job's and
+ * lands under another's). Pure.
+ */
+export function closedAirport(g: GameState, code: string, t: Minute = g.now, exempt?: string | readonly (string | undefined)[]): WorldEvent | null {
+  const ex = typeof exempt === 'string' ? [exempt] : exempt ?? [];
   for (const e of eventsOf(g)) {
-    if (e.done || t < e.start || t >= e.end || e.id === exempt) continue;
+    if (e.done || t < e.start || t >= e.end || ex.includes(e.id)) continue;
     if (e.airportClosedUntil && e.at === code && t < e.airportClosedUntil) return e;
     if (e.closed && e.zoneId && ZONE_BY_ID[e.zoneId] && inZone(ZONE_BY_ID[e.zoneId], code) && !openDuring(e, code)) return e;
   }
@@ -181,7 +186,8 @@ function viewOf(g: GameState, e: WorldEvent): WorldEventView {
   return {
     id: e.id, kind: e.kind, title: e.title, body: e.body, place: `${city(e.at)}${AIRPORT_BY_CODE[e.at] ? `, ${e.country}` : ''}`, at: e.at, country: e.country,
     start: e.start, end: e.end, active: isLive(g, e), effects: effectsOf(g, e), flights,
-    offers: e.offerIds.filter((id) => g.offers[id] && (g.offers[id].status === 'open' || g.offers[id].status === 'countered')),
+    // v0.16.1 not an offer the player's filter hides (contracts/filter.ts): it shows under "N hidden" on the Market tab only.
+    offers: e.offerIds.filter((id) => g.offers[id] && !g.offers[id].hidden && (g.offers[id].status === 'open' || g.offers[id].status === 'countered')),
     ...(e.zoneId ? { zoneId: e.zoneId } : {}), icon: EVENT_ICON[e.kind], flightsHit: e.flightsHit ?? 0,
   };
 }

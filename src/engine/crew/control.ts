@@ -5,7 +5,7 @@
 
 import { JET_BASES, JET_CLASS_LABEL, JET_CLASSES, JETS } from '../../data/jets';
 import { BAL } from '../core/balance';
-import { addDeadhead, flightsOf, flightsRev, liveFlightsOf, removeFlights, takeFlightChanges } from '../core/entities';
+import { addDeadhead, flightsOf, flightsRev, liveFlightsOf, removeFlights, takeFlightChanges, touchFlights } from '../core/entities';
 import { distance } from '../core/geo';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
@@ -30,7 +30,7 @@ import { crewWindows } from './ftl';
 import { crewName } from './generate';
 import { moraleShock } from './morale';
 import { city, rootReason, type Reason, type ReasonCode } from './reasons';
-import { applyDiscretion, autoRoster, closureTickets, discretionCheck, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
+import { applyDiscretion, autoRoster, closureTickets, discretionCheck, dutyStale, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
 import { assignCrew, dutyCandidates, freshReport, type DutyCandidate } from './rosterActions';
 import { levelOf, LIMITS, minRest, offsetAt } from './rules';
 import { cabinEarly, crewCount, crewIx, crewRev, dhBlock, fdpLimitAt, locAt, OUT_CONNECT, posSeg, segsOf, setClosedCheck, touchCrew, typeIdOf, type TicketPlan } from './timeline';
@@ -283,6 +283,10 @@ export function shortFlights(g: GameState): { flightId: string; stage: 'amber' |
     for (const f of legs) {
       if (f.status !== 'scheduled' || f.aircraftId !== id || f.std > until || f.std + f.delay < g.now - 6 * 60) continue;
       if (phantomLeg(f, legs)) continue;
+      // v0.16.1 a duty the roster has not re-formed since its legs moved is not judged: it is read again after the sync
+      // (s0429: BLU2049 moved 12 h at the gate, its reported crew read out of hours for the minute before the duty was
+      // re-cut, and the red alarm with its pause stood on a legal flight).
+      if (f.dutyId && dutyStale(g, g.duties[f.dutyId])) continue;
       const cs = flightCrewStatus(g, f.id, { live: false });
       if (cs.level !== 'missing' && cs.level !== 'illegal') continue;
       const hoursLeft = Math.max(0, Math.round(((f.std - g.now) / 60) * 10) / 10);
@@ -472,6 +476,18 @@ function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
       if (BAD(flightCrewStatus(g, f.id, { live: false }).level)) standbyCallOut(g, f.id);
     }
     list = shortFlights(g);
+  }
+  // v0.16.1 a mark on a flight whose crew is complete and legal again (a fix, a re-cut duty) is cleared: the alarm, the
+  // Schedule's red mark and the sheet's "Crew legal" must agree, and a new shortage later rings again.
+  const marked = new Set(list.map((x) => x.flightId));
+  for (const f of Object.values(g.flights)) {
+    if (!f.crewAlert || f.status !== 'scheduled' || marked.has(f.id)) continue;
+    const lv = flightCrewStatus(g, f.id, { live: false }).level;
+    if (lv !== 'missing' && lv !== 'illegal' && !(f.dutyId && dutyStale(g, g.duties[f.dutyId]))) {
+      delete f.crewAlert;
+      delete f.crewWarned;
+      touchFlights(g);
+    }
   }
   const kindOf = new Map<string, CrewAlertKind>();
   for (const x of list) {
@@ -786,6 +802,14 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
     const noWayIn = shut ?? closedAirport(g, x.dep, g.now);
     if (shut) {
       why = `${city(x.dep)} is closed (${shut.title}) until ${at(closedUntil(shut), g.now)}: no crew can be flown in or rest there before then. ${f.no} waits for the reopening.`;
+      visuals.reach = undefined;
+      visuals.minimap = undefined;
+    } else if (noWayIn && permitOf(g, f) === noWayIn.id) {
+      // v0.16.1 the flight is the closure's own operation (an evacuation): cleared in. No airline sells a ticket there,
+      // but crew ride our own flight in, or a jet chartered under the same clearance (s0429: "no crew can be flown
+      // in" stood beside a jet that then landed at the closed airport).
+      const ride = f.aircraftId ? liveFlightsOf(g, f.aircraftId).find((y) => y.status === 'scheduled' && y.to === x.dep && y.std < f.std && y.sta <= d.report) : undefined;
+      why = `${city(x.dep)} is closed (${noWayIn.title}) until ${at(closedUntil(noWayIn), g.now)}: no airline flies there. ${f.no} flies under the operation's clearance: crew ride our own flight in${ride ? ` (${ride.no} ${ride.from}–${ride.to} lands ${at(ride.sta, g.now)})` : ''} or a private jet under the same clearance.`;
       visuals.reach = undefined;
       visuals.minimap = undefined;
     } else if (noWayIn) {
@@ -1609,6 +1633,8 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
     }
     case 'jet': {
       if (!d || !p) return { ok: false, error: 'No crew plan for this flight yet' };
+      const shutDep = closedAirport(h, x.dep, h.now, permitOf(h, f));
+      if (shutDep) return { ok: false, error: `${city(x.dep)} is closed (${shutDep.title}): no jet may land there` };
       const cls = (opts.optionId && JET_CLASSES.includes(opts.optionId as JetClass) ? opts.optionId : undefined) as JetClass | undefined;
       const used = new Set<string>();
       const picks: { c: CrewMember; ready: Minute; loc: string; replaces?: string }[] = [];
@@ -2062,7 +2088,10 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
   };
   if (want('jet')) {
     const s = base('jet');
+    // v0.16.1 a jet lands at a closed airport only under the flight's own clearance (the evacuation's permit).
+    const shutDep = closedAirport(g, x.dep, g.now, permitOf(g, f));
     if (!d || !p || !x.seats.length) out.push(no(s, x.seats.length ? 'No crew plan for this flight yet' : fullWhy(x)));
+    else if (shutDep) out.push(no(s, `${city(x.dep)} is closed (${shutDep.title}) until ${at(closedUntil(shutDep), g.now)}: no jet may land there`));
     else {
       const local = new Map<Role, DutyCandidate[]>();
       for (const role of new Set(x.seats)) local.set(role, seatCandidates(g, d, role, true));

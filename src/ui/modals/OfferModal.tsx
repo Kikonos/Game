@@ -3,8 +3,9 @@
 
 import { askSublease, SchedulePortal } from './OfferPortal';
 import { clashTrips, subleaseGroups } from './offerPortalLogic';
-import { BedDouble, Check, ChevronRight, Crown, Handshake, LineChart, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
+import { BedDouble, Check, ChevronRight, Handshake, LineChart, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
 import { offerPrestigeLines } from '../../engine/contracts/prestige';
+import { ClientStars } from '../components/ClientStars';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Term } from '../components/Term';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -360,7 +361,7 @@ function PrestigeLines({ g, o }: { g: GameState; o: ContractOffer }) {
   return (
     <div className="col gap-4 small">
       <div className="row gap-8 wrap">
-        <span className="pr-pill"><Crown className="sc-ico-s" />Level {p.level} · {p.name}</span>
+        <span className="pr-pill"><ClientStars n={p.stars} size={11} /> {p.name}</span>
         {p.stretch && <span className="badge pr-stretch">Stretch offer: a taste of what's to come</span>}
         {p.pay && <span className="muted">{p.pay}</span>}
       </div>
