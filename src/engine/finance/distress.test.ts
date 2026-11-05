@@ -382,10 +382,19 @@ describe('PER restructuring', () => {
     g.now = p.labelUntil;
     expect(restructuringLabel(g)).toBe(false);
   });
-  it('not in a scenario; the cash card points at the ways out; the panel ranks the gentle ways first', () => {
+  it('not in a scenario; Cash Crunch keeps its crunch (no plans, deferrals, investor or line); the cash card points at the ways out; the panel ranks the gentle ways first', () => {
     const g = inTheRed();
     g.scen = { id: 'summerSurge', end: g.now + 90 * DAY, tally: {} as NonNullable<GameState['scen']>['tally'], scan: g.now, fired: [] };
     expect(perQuote(g).why).toMatch(/Not in a scenario/);
+    g.scen.noRescue = true;
+    expect(planQuote(g, 'mro', 3).why).toBeTruthy();
+    expect(rentDeferralQuote(g, leased(g).id, 2)!.why).toMatch(/no deferrals in this scenario/);
+    expect(salaryDeferralQuote(g, 1).why).toMatch(/no deferrals in this scenario/);
+    expect(investorQuote(g).why).toMatch(/No investor comes/);
+    expect(creditOpenWhy(g)).toMatch(/overdraft/);
+    // Furlough, stretched checks and early payment stay: they inject no credit.
+    expect(furloughQuote(g, 0.25, 4).why).toBeNull();
+    expect(prepayQuote(g, g.finance.receivables[0].id)!.why).toBeNull();
     delete g.scen;
     expect(inDebt(g)).toBe(true);
     const card = cashNegativeCard(g)!;

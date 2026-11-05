@@ -73,6 +73,9 @@ export const restructuringLabel = (g: GameState): boolean => {
   return !!p && !p.failed && g.now < p.labelUntil;
 };
 
+/** v0.15 Scenarios (Cash Crunch, noRescue): the creditors already carry the overdraft; a deferral that puts cash in would sidestep the goal. Pure. */
+const crunchWhy = (g: GameState): string | null => (g.scen?.noRescue ? 'The creditors already carry our overdraft: no deferrals in this scenario' : null);
+
 /** Why the bank lends nothing new (a restructuring within the year), else null. Pure. */
 export function noCreditWhy(g: GameState): string | null {
   const p = g.treasury?.distress?.per;
@@ -89,7 +92,7 @@ export function deferredOutstanding(g: GameState): number {
   if (!d) return 0;
   const sum = (xs: Instalment[]) => xs.reduce((s, x) => s + x.amount, 0);
   let out = 0;
-  for (const r of d.rentDeferrals ?? []) if (!r.done) out += sum(r.repay) + Math.max(0, r.months - monthsDeferred(g, r)) * 0;
+  for (const r of d.rentDeferrals ?? []) if (!r.done) out += sum(r.repay);
   for (const p of d.plans ?? []) if (!p.done) out += sum(p.repay);
   if (d.salaryDeferral && !d.salaryDeferral.done) out += sum(d.salaryDeferral.repay);
   return out;
@@ -164,6 +167,7 @@ export function rentDeferralQuote(g: GameState, aircraftId: string, months: numb
   else if (d.rentDeferrals.some((x) => x.lessor === lessor && x.defaulted && !x.done)) q.why = `${lessor} is still owed a missed repayment: no second deferral`;
   else if ((d.lessorBlock[lessor] ?? 0) > g.now) q.why = `${lessor} refuses after the missed repayment, until ${fmtDay(d.lessorBlock[lessor])}`;
   else if (perActive(g)) q.why = 'The plan freezes the lessors\' claims already';
+  else if (crunchWhy(g)) q.why = crunchWhy(g);
   return q;
 }
 
@@ -272,6 +276,7 @@ export function planQuote(g: GameState, gp: CreditorGroup, months: number): Plan
   else if (amount < P.min) q.why = `Too little owed to ${creditor} lately (${usd(bills)}): a plan starts at ${usd(P.min)}`;
   else if (deferredOutstanding(g) + amount + fee > P.maxBillX * bill) q.why = `Too much is deferred already (${usd(deferredOutstanding(g))}): creditors stop at ${P.maxBillX} months' bills`;
   else if (perActive(g)) q.why = 'The plan freezes the creditors\' claims already';
+  else if (crunchWhy(g)) q.why = crunchWhy(g);
   return q;
 }
 
@@ -504,6 +509,7 @@ export function salaryDeferralQuote(g: GameState, months: number): SalaryDeferra
   const q: SalaryDeferralQuote = { months: m, share: S.share, perMonth, total: perMonth * m, repayFrom: monthStart(monthKey(g.now) + m + 1), why: null };
   if (d.salaryDeferral && !d.salaryDeferral.done) q.why = `Pay is deferred already (${usd(d.salaryDeferral.repay.reduce((s, x) => s + x.amount, 0) || d.salaryDeferral.deferred)} to repay)`;
   else if (perMonth < 20_000) q.why = 'Too small a payroll to make a difference';
+  else if (crunchWhy(g)) q.why = crunchWhy(g);
   return q;
 }
 
