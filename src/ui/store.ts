@@ -19,7 +19,7 @@ import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
 import type { ClientLevel } from '../engine/contracts';
 import type { WorldEventKind } from '../engine/core/types';
-import { devCrisisNow, devFair, devTender, devTenderBoard, type CrisisKind } from '../engine/commercial';
+import { devCrisisNow, devFair, devLead, devTender, devTenderBoard, type CrisisKind } from '../engine/commercial';
 import { devDeportation, devDryLease, devEvacuation, devFarRoute, devHajj, devLevel, devMixedCrew, devRivalBid, devWorldEvent, devWorldTour } from '../engine/dev';
 import { devTourStopClosed } from '../engine/ops/tourStop';
 import { demoFlights, devAddType, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
@@ -1526,6 +1526,17 @@ class GameStore {
       this.surfaceMessages();
       this.navigate('contracts', { view: 'tenders' });
       return ids;
+    },
+    /** v0.16.3 a lead in the pipeline now (Contracts › Market › Leads opens on it). */
+    lead: (client?: string) => {
+      const g = this.game;
+      if (!g) return '';
+      const id = devLead(g, client);
+      settle(g);
+      this.surfaceMessages();
+      if (id) this.navigate('contracts', { view: 'leads', sel: { kind: 'lead', id } });
+      else this.emit();
+      return id;
     },
     fair: (fairId?: string) => {
       const g = this.game;
