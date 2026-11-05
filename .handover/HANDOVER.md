@@ -640,3 +640,8 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
 
 ## v0.16.1 "Niamey" RELEASED 2026-11-05
 - Release on main from acmi 783ae13; live index--Q3mMWzr.js. Contents: positioning permits into closed airports; honest crew alerts and auto-resume; Report a bug (scripts/bugs.ts loads an exported file); client stars 0-5; filtered offers kept off the map.
+
+## v0.16.2 "Rescue" RELEASED 2026-11-05
+- The rescue is now sized to the overdraft plus the next month-end bill (events.ts rescueNeed/rescueStake) and re-measured at signing.
+- repairRescue on load gives a one-time top-up to a save the old flat sum left below zero. On s0501 cash goes from -2.66M to +3.24M.
+- Live index-Vogs08S0.js.
