@@ -1292,8 +1292,19 @@ function virtualSeg(g: GameState, d: Duty, tripStart: Minute, base: string, fres
 }
 
 interface Chainer {
-  take(d: Duty): boolean;
+  take(d: Duty, why?: string[]): boolean;
   tours: Map<string, TourState>;
+}
+
+/** Rotations round, dev/audit hook: a deployment duty no set on station could take, with each set's refusal. */
+let chainSpy: ((g: GameState, dep: Deployment, d: Duty, why: string[]) => void) | null = null;
+export function setChainSpy(f: typeof chainSpy): void {
+  chainSpy = f;
+}
+/** The crewOk hook's last refusal, in words (set by roster.ts for the spy). */
+let crewOkWhy = '';
+export function noteCrewOkWhy(s: string): void {
+  crewOkWhy = s;
 }
 
 /**
@@ -1324,7 +1335,7 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
       segs: duties.map((d) => virtualSeg(g, d, p.start, home)), days: [...new Set(duties.map((d) => dayOf(d.report)))].sort((a, b) => a - b),
     });
   }
-  const take = (d: Duty): boolean => {
+  const take = (d: Duty, why?: string[]): boolean => {
     let pick: TourState | null = null;
     let pickRest = Infinity;
     let pickRank = 0;
@@ -1337,12 +1348,18 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
     const early = eve !== dayOf(d.report);
     for (let s = 0; s < sets; s++) {
       const per = periodOf(dep, s, d.report, R);
-      if (!per) continue;
+      if (!per) {
+        why?.push(`set ${s}: no period`);
+        continue;
+      }
       const key = `${s}:${per.from}`;
       const st = tours.get(key) ?? { set: s, from: per.from, to: per.to, pairing: null, duties: [], segs: [], days: [] };
       const dd = daysOf(d);
       const days = dd.every((x) => st.days.includes(x)) ? st.days : [...new Set([...st.days, ...dd])].sort((a, b) => a - b);
-      if (longestWorkBlock(days) > LIMITS.blockDays) continue;
+      if (longestWorkBlock(days) > LIMITS.blockDays) {
+        why?.push(`set ${s}: 6-on/2-off block`);
+        continue;
+      }
       const tripStart = Math.min(st.duties[0]?.report ?? d.report, d.report);
       const i = st.segs.findIndex((x) => x.start > d.report);
       const at = i < 0 ? st.segs.length : i;
@@ -1350,9 +1367,17 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
       const segs = [...st.segs.slice(0, at), virtualSeg(g, d, tripStart, home, true), ...st.segs.slice(at)];
       // A fresh set arrives rested the day before its period (positioning counts as duty).
       const ctx: TimelineCtx = { base: home, restUntil: -Infinity, lastRecovery: per.from - DAY, blockYear: 0, blockYearOf: yearOf(d.report), slack: BAL.rosterSlack };
-      if (evalSegs(ctx, segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) continue;
+      const bad = why ? evalSegs(ctx, segs).filter((i) => i.level === 'illegal' && i.code !== 'fdp') : null;
+      if (bad ? bad.length : evalSegs(ctx, segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) {
+        why?.push(`set ${s}: ${bad!.map((i) => i.code).join('+')}`);
+        continue;
+      }
+      crewOkWhy = '';
       const rank = st.pairing && crewCount(st.pairing) > 0 ? crewOk(st.pairing, d) : 2;
-      if (!rank) continue;
+      if (!rank) {
+        why?.push(`set ${s}: crew ${crewOkWhy || '?'}`);
+        continue;
+      }
       const restEnd = last ? last.end + last.rest : -Infinity;
       const onEve = early && (sizing || (!!st.pairing && crewCount(st.pairing) > 0)) && st.days.includes(eve);
       if (rank > pickRank || (rank === pickRank && (Number(onEve) > Number(pickEve) || (onEve === pickEve && restEnd < pickRest)))) {
@@ -1460,15 +1485,17 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
   // flew from Lisbon).
   const grow = farBase(g.company.homeBase, base, dep.start) ? 2 : 1;
   for (const d of duties) {
-    if (ch.take(d)) continue;
+    const why: string[] | undefined = chainSpy ? [] : undefined;
+    if (ch.take(d, why)) continue;
     // One extra set at most beyond the sizing (a whole tour of crew for a stray duty is waste: it flies as a
     // trip from base instead); a duty before the deployment's start can't join any set.
     if (d.report >= dep.start && dep.anchors.length < Math.min(BAL.maxSetsOnStation, dep.sized + grow)) {
       dep.anchors.push(dayStart(d.report) + R);
       dep.setsOnStation = dep.anchors.length;
-      if (ch.take(d)) continue;
+      if (ch.take(d, why)) continue;
     }
     left.push(d);
+    if (chainSpy && why) chainSpy(g, dep, d, why);
   }
   for (const st of ch.tours.values()) {
     if (st.pairing) {

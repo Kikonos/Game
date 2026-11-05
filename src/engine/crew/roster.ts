@@ -10,7 +10,7 @@ import { canFill, complement, typeOf } from '../core/perf';
 import { DAY, fmtDateTime, monthKey } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { acceptable, crewIds, crewIssuesFor, crewKey, mergeSegs, openDuties, otherTrip, overForAnyone, planCrew, type CrewPlan } from './check';
-import { deletePairing, dropGoneCrew, dutyLegality, unboardGone, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setDropBuyBackHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
+import { deletePairing, dropGoneCrew, dutyLegality, noteCrewOkWhy, unboardGone, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setDropBuyBackHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './standby';
 import { applyBuyBack, buyBackFor, buyBackMode, undoBuyBack, type BuyBack } from './buyBack';
@@ -72,7 +72,7 @@ export function boardCrew(g: GameState, f: Flight): void {
 type TicketLike = { from: string; to: string; std: Minute; sta: Minute; rideId?: string };
 
 /** Buys a ticket for a group and attaches it to a duty; cost posted to 'deadhead' unless the client pays. */
-function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: TicketLike, res: RosterResult): Flight | null {
+function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: TicketLike, res: RosterResult, why?: string): Flight | null {
   // v0.7.1: a chartered jet already booked for these crew (planCrew used it as their ride out): nothing to buy.
   const booked = (t as Partial<Flight>).id ? g.flights[(t as Partial<Flight>).id!] : undefined;
   if (booked && booked.charter && booked.status === 'scheduled') {
@@ -96,7 +96,7 @@ function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: Tick
     if (!left.length) return ride;
     const out = ride.to === (g.flights[d.flightIds[0]]?.from ?? d.restAt) && ride.sta <= d.report;
     const alt = out ? planOut(g, p, d, ride.from) : planHome(d, ride.to, cabinEarly(g, p, d));
-    const f = buyTicket(g, p, d, left, alt, res);
+    const f = buyTicket(g, p, d, left, alt, res, why);
     return seated.length ? ride : f;
   }
   const cost = clientPaysCrewTravel(g, p) ? 0 : ticketPrice(t.from, t.to) * crewIds.length;
@@ -112,6 +112,7 @@ function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: Tick
     late = at - t.std;
   }
   const f = addDeadhead(g, { crewIds, from: t.from, to: t.to, std: t.std + late, sta: t.sta + late, cost, contractId: p.contractId });
+  if (why) f.why = why;
   leaveAfterTicket(g, crewIds, f);
   if (cost) post(g, 'deadhead', -cost);
   d.deadheadIds.push(f.id);
@@ -204,17 +205,17 @@ export function buyTickets(g: GameState, p: Pairing, plans: Map<string, CrewPlan
   if (!duties.length) return;
   const first = duties[0];
   const last = duties[duties.length - 1];
-  const groups = new Map<string, { d: Duty; t: TicketLike; ids: string[] }>();
+  const groups = new Map<string, { d: Duty; t: TicketLike; ids: string[]; why: string }>();
   for (const [id, plan] of plans) {
     for (const [t, d] of [[plan.out, first], [plan.home, last]] as const) {
       if (!t) continue;
       const k = `${d.id}:${t.from}:${t.to}:${t.std}:${t.rideId ?? ''}`;
-      const gr = groups.get(k) ?? { d, t, ids: [] };
+      const gr = groups.get(k) ?? { d, t, ids: [], why: ticketWhy(g, p, id, d === first) };
       gr.ids.push(id);
       groups.set(k, gr);
     }
   }
-  for (const gr of groups.values()) buyTicket(g, p, gr.d, gr.ids, gr.t, res);
+  for (const gr of groups.values()) buyTicket(g, p, gr.d, gr.ids, gr.t, res, gr.why);
   // v0.12.1 later trips whose ticket out this one leaves wrong are re-ticketed from where the crew will be (read on the
   // timeline with this trip in it).
   if ([...plans.values()].some((x) => x.retick?.length)) touchCrew(g);
@@ -231,8 +232,22 @@ export function buyTickets(g: GameState, p: Pairing, plans: Map<string, CrewPlan
 /** v0.6: the crew member whose own absence (sickness, course, leaving) is being rostered around: no late-change hit. */
 let ownRelease: string | null = null;
 
+/**
+ * Rotations round: what a crew ticket is for, in plain words (Flight.why): a tour's own change, a replacement for someone
+ * who left a seat early (the seat remembers whom and why: CrewSlot.left), or a trip's own positioning.
+ */
+function ticketWhy(g: GameState, p: Pairing, crewId: string, out: boolean): string {
+  const seat = p.slots.find((s) => s.crewId === crewId);
+  const left = seat?.left && seat.left.crewId !== crewId ? seat.left : undefined;
+  const who = left ? g.crew[left.crewId] : undefined;
+  if (out && left) return `Replaces ${who ? crewName(who) : 'a crew member'}: ${left.why}`;
+  const dep = p.deploymentId ? g.deployments[p.deploymentId] : undefined;
+  if (p.tour) return `${out ? 'Tour out' : 'Tour home'}: set ${p.tour.set + 1}${dep ? ` at ${dep.base}` : ''}`;
+  return out ? 'Trip out' : 'Trip home';
+}
+
 /** Takes a crew member off a pairing: slot, flights still to fly and unused tickets (cancelled when empty). */
-export function releaseCrew(g: GameState, p: Pairing, crewId: string): void {
+export function releaseCrew(g: GameState, p: Pairing, crewId: string, why?: string): void {
   if (crewId !== ownRelease && p.slots.some((s) => s.crewId === crewId)) lateChange(g, crewId, nextReport(g, p));
   for (const s of p.slots) {
     if (s.crewId !== crewId) continue;
@@ -241,7 +256,12 @@ export function releaseCrew(g: GameState, p: Pairing, crewId: string): void {
     s.crewId = null;
     delete s.locked;
     delete s.from;
+    // Rotations round: the seat remembers who left it and why (the replacement's ticket and the inbox say so).
+    if (why) s.left = { crewId, why, at: g.now };
+    else delete s.left;
   }
+  // Rotations round: away from base, the reason travels with them to the ticket home (sendHome).
+  if (why && g.crew[crewId] && g.crew[crewId].loc !== g.crew[crewId].base) g.crew[crewId].homeWhy = { why, at: g.now };
   // An extra seat exists only while someone holds it.
   if (p.slots.some((s) => s.extra && !s.crewId)) p.slots = p.slots.filter((s) => !(s.extra && !s.crewId));
   for (const id of p.dutyIds) {
@@ -578,7 +598,10 @@ function waitsAway(g: GameState, c: CrewMember, q: Pairing, t: Minute, ready: Mi
 
 /** A crew member left away from base without a plan gets a ticket home after rest. */
 function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void {
-  if (c.loc === c.base) return;
+  if (c.loc === c.base) {
+    delete c.homeWhy;
+    return;
+  }
   const ix = crewIx(g);
   const segs = segsOf(g, c);
   // Checked in once rested: after the last duty (restUntil) and (v0.11 debug) after a standby already begun, whose
@@ -672,11 +695,15 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void
   const contractId = p?.contractId ?? null;
   // Crew going home together share one booking (one flight per group, DESIGN §3.5).
   const group = Object.values(g.flights).find((f) => f.kind === 'deadhead' && f.status === 'scheduled' && f.from === c.loc && f.to === c.base && f.std === std && f.contractId === contractId && !ix.ticketDuty.has(f.id));
+  // Rotations round: the ticket says why they go home (an early release's reason, else 'home after the trip').
+  const why = c.homeWhy && c.homeWhy.at >= g.now - 3 * DAY ? c.homeWhy.why : 'Home after the trip';
+  delete c.homeWhy;
   if (group) {
     group.crewIds.push(c.id);
     group.cost = (group.cost ?? 0) + cost;
+    if (group.why && group.why !== why) group.why = `${group.why}; ${crewName(c)}: ${why}`;
     touchTickets(g);
-  } else addDeadhead(g, { crewIds: [c.id], from: c.loc, to: c.base, std, sta: std + blk, cost, contractId });
+  } else addDeadhead(g, { crewIds: [c.id], from: c.loc, to: c.base, std, sta: std + blk, cost, contractId }).why = why;
   leaveAfterTicket(g, [c.id], { std, sta: std + blk, to: c.base });
   if (cost) post(g, 'deadhead', -cost);
   touchCrew(g);
@@ -1042,7 +1069,7 @@ function detachDuty(g: GameState, p: Pairing, d: Duty): void {
 }
 
 function dissolve(g: GameState, p: Pairing): void {
-  for (const s of p.slots) if (s.crewId) releaseCrew(g, p, s.crewId);
+  for (const s of p.slots) if (s.crewId) releaseCrew(g, p, s.crewId, 'Trip dissolved');
   deletePairing(g, p);
   touchCrew(g);
 }
@@ -1243,7 +1270,7 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
     if (d && bad.length) {
       const p = g.pairings[d.pairingId];
       const q = openDuties(g, p)[0] === d ? p : splitPairing(g, p, d.report) ?? p;
-      for (const b of bad) releaseCrew(g, q, b.crewId);
+      for (const b of bad) releaseCrew(g, q, b.crewId, b.issue.text);
       if (q !== p) setFlightsCrew(g, p);
       fillAll(g, [q], emptyResult(), new Set(bad.map((b) => b.crewId)));
       setFlightsCrew(g, q);
@@ -1571,6 +1598,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   }
   if (!plans.size) return;
   buyTickets(g, p, plans, res);
+  for (const s of p.slots) if (s.crewId && plans.has(s.crewId)) delete s.left;
   // The run's timelines learn the tickets home just bought, so a later trip from there can drop them (droppableHome).
   const lastD = duties[duties.length - 1];
   for (const [id, plan] of plans) {
@@ -1633,7 +1661,7 @@ export function dropStraySpares(g: GameState, f: Flight): boolean {
     if (!s.above || !s.crewId) continue;
     const c = g.crew[s.crewId];
     if (c && c.loc === f.from && !bad.has(c.id)) continue;
-    releaseCrew(g, p, s.crewId);
+    releaseCrew(g, p, s.crewId, 'Spare seat: not at the departure or over a limit');
     n++;
   }
   if (n) setFlightsCrew(g, p);
@@ -1910,7 +1938,7 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
       dissolve(g, p);
       continue;
     }
-    for (const id of refreshPairing(g, p)) releaseCrew(g, p, id);
+    for (const id of refreshPairing(g, p)) releaseCrew(g, p, id, 'Seat dropped: smaller complement');
     setFlightsCrew(g, p);
     touchCrew(g);
     if (crewCount(p) > 0 && recheckPairing(g, p).level === 'illegal' && inHorizon(g, p.start)) reroster = true;
@@ -1946,7 +1974,7 @@ export function splitOverlong(g: GameState): void {
     const moved = new Set<string>();
     retimeTickets(g, p, d, moved);
     retimeTickets(g, p, d2, moved);
-    for (const id of refreshPairing(g, p)) releaseCrew(g, p, id);
+    for (const id of refreshPairing(g, p)) releaseCrew(g, p, id, 'Seat dropped: smaller complement');
     setFlightsCrew(g, p);
     touchCrew(g);
     recheckLater(g, new Set(p.slots.filter((x) => x.crewId).map((x) => x.crewId!)), p);
@@ -1996,7 +2024,7 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
         continue;
       }
       if (!openDuties(g, p).length) continue;
-      for (const id of refreshPairing(g, p)) releaseCrew(g, p, id);
+      for (const id of refreshPairing(g, p)) releaseCrew(g, p, id, 'Seat dropped: smaller complement');
     }
     if (crewCount(p) === 0) continue;
     const firstOpen = openDuties(g, p)[0];
@@ -2020,7 +2048,7 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
         const plan = planCrew(g, c, p, segsOf(g, c, p.id), true);
         if (!plan.issues.some((i) => i.code === 'location' && i.level === 'illegal' && i.dutyId === firstOpen.id)) continue;
         const flying = (crewIx(g).tickets.get(c.id) ?? []).some((t) => t.status === 'scheduled' && t.std <= g.now && t.sta > g.now);
-        if (c.loc !== dep || flying) releaseCrew(g, p, c.id);
+        if (c.loc !== dep || flying) releaseCrew(g, p, c.id, `Not at ${dep} for the departure`);
         else retick(g, p, c);
       }
       setFlightsCrew(g, p);
@@ -2060,10 +2088,11 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
       if (f0 && firstOpen.report - g.now < 4 * DAY && code && code !== 'daysOff' && code !== 'status') f0.crewLost = { crewId: id, why: 'change', t: g.now };
     }
     for (const id of out) {
+      const why = rc.issue.get(id)?.text ?? 'No longer legal for the trip';
       if (q && (rc.from.get(id) ?? 0) >= cut) {
-        releaseCrew(g, q, id);
+        releaseCrew(g, q, id, why);
         if (eve) markOoh(g, q, id, rc.issue.get(id)!);
-      } else if (!under) releaseCrew(g, p, id);
+      } else if (!under) releaseCrew(g, p, id, why);
     }
     setFlightsCrew(g, p);
     if (q) setFlightsCrew(g, q);
@@ -2150,16 +2179,25 @@ setCrewOkHook((g, p, d) => {
     if (!s.crewId) continue;
     const c = g.crew[s.crewId];
     if (!c) continue;
-    if (otherTrip(g, c, p, d.report, d.release, false)) return 0;
+    if (otherTrip(g, c, p, d.report, d.release, false)) {
+      noteCrewOkWhy(`${c.last} on another trip`);
+      return 0;
+    }
     // v0.9 round 5: never onto leave, sickness, training or a joining period (a tour that grew onto a crew member's
     // leave was found only by the daily re-check: the seat went red at an outstation with nobody to reach it). A
     // block between two duties of the tour is the re-check's (check.ts statusIssues): the tour splits at the first
     // duty after it and that part is re-crewed; the duties before it fly.
-    if (c.blocks?.some((b) => b.from < d.release && b.to > d.report)) return 0;
+    if (c.blocks?.some((b) => b.from < d.release && b.to > d.report)) {
+      noteCrewOkWhy(`${c.last} ${c.blocks.find((b) => b.from < d.release && b.to > d.report)!.why}`);
+      return 0;
+    }
     // v0.9 never onto a planned day off; a tour moves them to its free days (the planner's own re-plan, no morale).
     // Round 4: the move is made by the take hook, only for the set the chainer picks (a set with no change first).
     if (offDaysHit(c, d.report, d.release).length) {
-      if (!p.tour) return 0;
+      if (!p.tour) {
+        noteCrewOkWhy(`${c.last} day off`);
+        return 0;
+      }
       moves.push(c);
     }
     // The tour's own tickets are re-planned around its new ends (retick), so they are left out here.
@@ -2168,9 +2206,20 @@ setCrewOkHook((g, p, d) => {
     const base = mergeSegs(segsOf(g, c, p.id), own);
     const fresh = dutySegs(g, c, p, d, null, null, true);
     const segs = mergeSegs(base, fresh);
-    if (evalSegs({ ...ctxOf(g, c), slack: BAL.rosterSlack }, segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) return 0;
+    const ill = evalSegs({ ...ctxOf(g, c), slack: BAL.rosterSlack }, segs).filter((i) => i.level === 'illegal' && i.code !== 'fdp');
+    if (ill.length) {
+      noteCrewOkWhy(`${c.last} ${ill.map((i) => i.code).join('+')}`);
+      return 0;
+    }
     // v0.9 fix: never below a month's 7 days off, and a day off it lands on only moves when its month has room.
-    if (monthFloorIssue(g, c, base, fresh) || (moves.includes(c) && !offMovable(g, c, segs, true))) return 0;
+    if (monthFloorIssue(g, c, base, fresh)) {
+      noteCrewOkWhy(`${c.last} month floor`);
+      return 0;
+    }
+    if (moves.includes(c) && !offMovable(g, c, segs, true)) {
+      noteCrewOkWhy(`${c.last} day off not movable`);
+      return 0;
+    }
   }
   return moves.length ? 1 : 2;
 });
@@ -2415,7 +2464,7 @@ export function replaceCrew(g: GameState, pairingId: string, slot: number, crewI
     recheckPairing(g, p);
     return { ok: false, error: 'Extra seat removed' };
   }
-  if (cur) releaseCrew(g, p, cur);
+  if (cur) releaseCrew(g, p, cur, 'Replaced by hand');
   fillAll(g, [p], emptyResult(), cur ? new Set([cur]) : undefined);
   const now = p.slots[slot].crewId;
   recheckPairing(g, p);
@@ -2426,12 +2475,17 @@ export function replaceCrew(g: GameState, pairingId: string, slot: number, crewI
 }
 
 /** Takes a crew member off every slot overlapping [from, to) (sickness, leave) and re-rosters those pairings. */
-export function removeCrew(g: GameState, crewId: string, from: Minute, to: Minute): RosterResult {
+export function removeCrew(g: GameState, crewId: string, from: Minute, to: Minute, why?: string): RosterResult {
   const res = emptyResult();
   const c = g.crew[crewId];
   if (!c) return res;
   c.blocks ??= [];
   if (!c.blocks.some((b) => b.from <= from && b.to >= to)) c.blocks.push({ from, to, why: 'leave' });
+  // Rotations round: the reason the seats and the ticket home carry (the block that covers the window says what it is).
+  if (!why) {
+    const b = c.blocks.find((x) => x.from <= from && x.to >= to) ?? c.blocks.find((x) => x.from < to && x.to > from);
+    why = b?.why === 'sick' ? `Sick from ${fmtDateTime(b.from)}` : b?.why === 'training' ? `Course from ${fmtDateTime(b.from)}` : b?.annual ? `Annual leave from ${fmtDateTime(b.from)}` : `Off from ${fmtDateTime(from)}`;
+  }
   // v0.9 standby planned inside the block goes too (the day plan re-picks cover for those days).
   dropStandby(g, c, from, to);
   const hit: Pairing[] = [];
@@ -2442,11 +2496,14 @@ export function removeCrew(g: GameState, crewId: string, from: Minute, to: Minut
   }
   ownRelease = crewId;
   try {
-    for (const p of hit) releaseCrew(g, p, crewId);
+    for (const p of hit) releaseCrew(g, p, crewId, why);
   } finally {
     ownRelease = null;
   }
-  if (c.loc !== c.base) sendHome(g, c, hit[0]);
+  if (c.loc !== c.base) {
+    c.homeWhy ??= { why, at: g.now };
+    sendHome(g, c, hit[0]);
+  }
   fillAll(g, hit, res, new Set([crewId]));
   for (const p of hit) if (g.pairings[p.id]) recheckPairing(g, p);
   res.uncovered = uncoveredOf(g, hit, g.now, Infinity);
@@ -2459,13 +2516,13 @@ export function removeCrew(g: GameState, crewId: string, from: Minute, to: Minut
  * still to leave, and the seats re-crewed. The caller deletes the record.
  */
 export function releaseLeaver(g: GameState, crewId: string): RosterResult {
-  const res = removeCrew(g, crewId, g.now, g.now + 3650 * DAY);
+  const res = removeCrew(g, crewId, g.now, g.now + 3650 * DAY, 'Leaving the company');
   const left = Object.values(g.pairings).filter((p) => p.slots.some((s) => s.crewId === crewId) && openDuties(g, p).length > 0);
   ownRelease = crewId;
   try {
     for (const p of left) {
       if (p.status === 'done' || p.status === 'broken') p.status = p.dutyIds.some((id) => g.duties[id]?.done) ? 'active' : 'planned';
-      releaseCrew(g, p, crewId);
+      releaseCrew(g, p, crewId, 'Leaving the company');
     }
   } finally {
     ownRelease = null;
@@ -2518,7 +2575,7 @@ export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember,
   const seat = p.slots[slot];
   if (!seat) throw new Error(`placeCrew: no seat ${slot} on ${p.id}`);
   const cur = seat.crewId;
-  if (cur) releaseCrew(g, p, cur);
+  if (cur) releaseCrew(g, p, cur, `Replaced by ${crewName(c)}`);
   if (!p.slots.includes(seat)) p.slots.splice(Math.min(slot, p.slots.length), 0, seat);
   slot = p.slots.indexOf(seat);
   const hadCrew = crewCount(p) > 0;

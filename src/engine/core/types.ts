@@ -883,6 +883,8 @@ export interface Flight {
   born?: Minute;
   /** v0.7.1 a chartered business jet carrying our crew (kind 'deadhead'). */
   charter?: { cls: JetClass; model: string; operator: string; reg: string };
+  /** Rotations round (v0.16.4): why this crew ticket was bought: a tour change, an early trip home and its reason, a replacement. */
+  why?: string;
   /** v0.8 held by a closed airport (world event id). */
   closedBy?: string;
   /** v0.8 rerouted around a closed zone: extra minutes (set once). */
@@ -1031,6 +1033,8 @@ export interface CrewMember {
   discretion: number;
   /** Total flying hours (seniority; command upgrades). */
   totalHours: number;
+  /** Rotations round: why this crew member leaves a trip or tour early (sendHome writes it on the ticket home, then clears it). */
+  homeWhy?: { why: string; at: Minute };
   /** B2: unavailable windows (sick, leave, training, joining); pruned once past. */
   blocks?: { from: Minute; to: Minute; why: 'sick' | 'leave' | 'training' | 'joining'; /** v0.9 planned annual leave. */ annual?: true }[];
   /** B2: calendar year that blockYear counts. */
@@ -1092,6 +1096,8 @@ export interface CrewSlot {
   ooh?: { crewId: string; limit: OohLimit; over: number; at: Minute };
   /** v0.9 round 4 (§Y.1): a replacement who joined after the duty reported: their own report (a fresh day). Cleared with the seat. */
   from?: Minute;
+  /** Rotations round: who left this seat and why (the replacement's ticket says whom they replace). Cleared on refill. */
+  left?: { crewId: string; why: string; at: Minute };
   /** v0.12.1 a day-off buy-back planned for this seat, not yet paid: the pay, the base-local month, the days bought and the days given back. */
   buyBack?: {
     cost: number; month: string; days: number[]; repay: number[];
