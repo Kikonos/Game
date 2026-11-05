@@ -8,7 +8,7 @@ import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } f
 import { dayFloorIssue, eveFloorIssue, monthFloorIssue, offIssue, offMovable } from './dayPlan';
 import { evalSegs, EXT_REST, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { flightsRev } from '../core/entities';
-import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
+import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outMerges, outTicket, planHome, planHomeAfter, planOut, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 import { sameTour, tourHomePlan, tourSpan } from './tours';
 
 export interface CrewPlan {
@@ -220,7 +220,7 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
       if (back.length && nextFrom(stay, last.release) === last.restAt) {
         base = stay;
         dropped.push(...back);
-      } else home = p.tour ? tourHomePlan(g, p, last, c.base, cabinEarly(g, p)) : planHome(last, c.base, cabinEarly(g, p));
+      } else home = p.tour ? tourHomePlan(g, p, last, c.base, cabinEarly(g, p)) : planHome(last, c.base, cabinEarly(g, p) + outExtra(out, duties));
     }
   }
   let segs = buildSegs(g, c, p, duties, out, home);
@@ -338,6 +338,17 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
   }
   issues.push(...ftl);
   return { level: levelOf(issues), issues, out, home, segs, drop: dropped.length ? dropped : undefined, ...(retick.length ? { retick, retickCost } : {}) };
+}
+
+/**
+ * Rotations round: on a one-duty trip whose ticket out joins the duty's day (it lands too close to the report to rest),
+ * the day runs from the ticket's check-in: the rest the ticket home waits for is measured from there (planHome's
+ * `early`). Before, the ticket home left 11:30 after a 12:30 day and the whole plan read illegal. Pure.
+ */
+function outExtra(out: TicketPlan | null, duties: Duty[]): number {
+  if (!out || duties.length !== 1 || out.rideId) return 0;
+  const first = duties[0];
+  return outMerges(out, first.report) ? Math.max(0, first.report - (out.std - BAL.deadheadCheckIn)) : 0;
 }
 
 /**

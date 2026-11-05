@@ -108,6 +108,13 @@ function buyTicket(g: GameState, p: Pairing, d: Duty, crewIds: string[], t: Tick
   // v0.12.1 a ticket home waits for a seat that exists: no closed airport, no landing in a night curfew.
   // Rotations round: and a departure of the route's timetable with seats; one passed over as full is named.
   let note = '';
+  if (t.std < d.release && !isDeparture(t.from, t.to, t.std + late)) {
+    // A ticket out planned off the timetable (a fallback plan): the last departure before it that can still be checked
+    // in for, else no seat.
+    const before = prevDeparture(t.from, t.to, t.std + late);
+    if (before === null || before < g.now + BAL.deadheadCheckIn || before + (t.sta - t.std) > d.report - OUT_CONNECT) return null;
+    late = before - t.std;
+  }
   if (t.std >= d.release || !isDeparture(t.from, t.to, t.std + late)) {
     // v0.12.1 (review) no seat at all (a closure past SLOT_AHEAD): nothing is bought; the crew wait at the hotel and
     // the daily run home (sendStrandedHome) buys one once a seat exists.
@@ -356,7 +363,8 @@ function retimeTickets(g: GameState, p: Pairing, d: Duty, moved: Set<string>): v
       // ticket and the duty past one FDP: re-planned.
       const t = planOut(g, p, d, f.from);
       // (A re-plan for the FDP only when the new ticket fits: else the booked one stays and the 2 h check decides.)
-      if (!t.rideId && t.std - BAL.deadheadCheckIn >= g.now && (f.sta > d.report || outStillFits(g, p, d, f.from, t.std, t.sta - t.std))) std = t.std;
+      // Rotations round: and only onto a timetable departure (a fallback plan is not one).
+      if (!t.rideId && t.std - BAL.deadheadCheckIn >= g.now && isDeparture(f.from, f.to, t.std) && (f.sta > d.report || outStillFits(g, p, d, f.from, t.std, t.sta - t.std))) std = t.std;
     }
     if (std === f.std) continue;
     retimeFlight(g, f, std, std + f.block);

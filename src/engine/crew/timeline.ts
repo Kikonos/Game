@@ -210,6 +210,9 @@ export const dhBlock = (from: string, to: string) => ticketBlock(from, to);
  * (seed 1: crew ticketed LIS–SJU, 13:25 on the way, then a duty from San Juan 13:45 later). */
 const posRest = (t: TicketPlan, atHome: boolean, tzShift = 0) => minRest({ dutyMin: t.sta - t.std + CHECKIN(), atHome, augmented: false, tzShift });
 
+/** Rotations round: the ticket out lands so close to the report that it joins the duty's day (no rest between). Pure. */
+export const outMerges = (out: TicketPlan, report: Minute): boolean => report - out.sta < posRest(out, false);
+
 /** Minimum time from a ticket's arrival at the outstation to the duty's report (airport to crew room). */
 export const OUT_CONNECT = 60;
 /** Preferred arrival margin before report (delays, immigration): used whenever a ticket that early still fits. */

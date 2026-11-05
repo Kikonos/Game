@@ -7,7 +7,7 @@ import { BAL } from '../core/balance';
 import { DAY } from '../core/time';
 import type { CrewMember, Deployment, GameState, Minute, Pairing } from '../core/types';
 import { periodOf } from './duties';
-import { crewIx, dhBlock, planHome, type TicketPlan } from './timeline';
+import { crewIx, dhBlock, planHome, snapDeparture, type TicketPlan } from './timeline';
 
 /** The deployment of a tour pairing. */
 export const deploymentOf = (g: GameState, p: Pairing): Deployment | undefined => (p.tour && p.deploymentId ? g.deployments[p.deploymentId] : undefined);
@@ -117,6 +117,6 @@ export function tourHomePlan(g: GameState, p: Pairing, last: { release: Minute; 
   const plan = planHome(last as never, base, early);
   const span = tourSpan(g, p);
   if (!span || tourEndKnown(g, p)) return plan;
-  const std = Math.max(plan.std, Math.ceil((span.to - 12 * 60) / 60) * 60);
+  const std = snapDeparture(last.restAt, base, Math.max(plan.std, Math.ceil((span.to - 12 * 60) / 60) * 60));
   return { from: last.restAt, to: base, std, sta: std + dhBlock(last.restAt, base) };
 }

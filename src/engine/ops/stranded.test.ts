@@ -174,7 +174,9 @@ describe('(c) no out-and-back around a ferry home; the load repair', () => {
     expect(g.messages.some((m) => m.title === 'CS-TVP refit re-priced: $760K refunded')).toBe(true);
     // A second load changes nothing (idempotent).
     const cash = g.company.cash;
-    advanceTo(g, g.now + 3 * DAY, new Set());
+    // (Rotations round: the crew fly out on the route's timetable, a connection or two a day to Port Sudan: the ferry
+    // waits for them a day or two longer than when tickets left at any hour.)
+    advanceTo(g, g.now + 5 * DAY, new Set());
     const left = Object.values(g.flights).find((f) => f.id === out[0].id);
     expect(left?.status).toBe('done');
     expect(left?.detour).toBe(20);
