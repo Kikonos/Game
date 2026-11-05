@@ -2,6 +2,7 @@
 // navigation, modals, quiet toasts, settings and saving. DESIGN.md §3.4 and §6.
 
 import { deliveryCardFor } from './modals/deliveryCard';
+import type { DistressId } from '../engine/finance/distress';
 import { startTransition, useEffect, useState, useSyncExternalStore } from 'react';
 import { clearPause, takePause, type PauseReason } from '../engine/core/pause';
 import type { BugPrefill } from './bugReports';
@@ -18,7 +19,7 @@ import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
 import type { ClientLevel } from '../engine/contracts';
 import type { WorldEventKind } from '../engine/core/types';
-import { devCrisisNow, devFair, devTender, devTenderBoard, type CrisisKind } from '../engine/commercial';
+import { devCrisisNow, devFair, devLead, devTender, devTenderBoard, type CrisisKind } from '../engine/commercial';
 import { devDeportation, devDryLease, devEvacuation, devFarRoute, devHajj, devLevel, devMixedCrew, devRivalBid, devWorldEvent, devWorldTour } from '../engine/dev';
 import { devTourStopClosed } from '../engine/ops/tourStop';
 import { demoFlights, devAddType, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
@@ -181,6 +182,8 @@ export type ModalSpec =
   | { kind: 'sell'; aircraftId: string }
   /** v0.16 finance: borrow against an aircraft, sell and lease it back, sell an invoice, open the credit line (ui/modals/FinanceModals.tsx). */
   | { kind: 'financing'; what: 'loan' | 'leaseback' | 'factor' | 'credit'; id?: string }
+  /** v0.16.3 one way out of debt (Finance › Get out of debt; ui/modals/FinanceModals.tsx DistressModal). */
+  | { kind: 'distress'; id: DistressId }
   | { kind: 'approval'; id: ApprovalId }
   | { kind: 'ladderStep'; messageId: string }
   | { kind: 'whatsNew'; /** v0.8 fix pack: every version (Settings), not just the unseen ones. */ all?: boolean }
@@ -1523,6 +1526,17 @@ class GameStore {
       this.surfaceMessages();
       this.navigate('contracts', { view: 'tenders' });
       return ids;
+    },
+    /** v0.16.3 a lead in the pipeline now (Contracts › Market › Leads opens on it). */
+    lead: (client?: string) => {
+      const g = this.game;
+      if (!g) return '';
+      const id = devLead(g, client);
+      settle(g);
+      this.surfaceMessages();
+      if (id) this.navigate('contracts', { view: 'leads', sel: { kind: 'lead', id } });
+      else this.emit();
+      return id;
     },
     fair: (fairId?: string) => {
       const g = this.game;

@@ -499,7 +499,19 @@ export function cancelContract(g: GameState, contractId: string): ActionResult {
   return r;
 }
 
-function cancelNow(g: GameState, c: Contract): ActionResult {
+/**
+ * v0.16.3 the client walks away (our restructuring filing): the flights go as on a cancel, but no penalty is charged
+ * to us and our reliability stands; the client's relation takes a smaller hit. `why` is the Inbox line's reason.
+ */
+export function cancelByClient(g: GameState, contractId: string, why: string): ActionResult {
+  const c = g.contracts[contractId];
+  if (!c) return { ok: false, error: 'Contract not found' };
+  if (c.status !== 'signed' && c.status !== 'active') return { ok: false, error: 'This contract is already closed' };
+  if (c.dry && c.dry.leasedAt !== undefined) return { ok: false, error: 'A delivered dry lease stays' };
+  return cancelNow(g, c, why);
+}
+
+function cancelNow(g: GameState, c: Contract, byClient?: string): ActionResult {
   const contractId = c.id;
   // v0.8 a delivered dry lease can't just stop: we recall her (back in 2 days, ferried home, a month's rent to them).
   if (c.dry && c.dry.leasedAt !== undefined) {
@@ -512,7 +524,7 @@ function cancelNow(g: GameState, c: Contract): ActionResult {
     pushMessage(g, { tone: 'warn', cat: 'commercial', title: `Recalled: ${c.title}`, body: `${g.clients[c.clientId]?.name ?? 'The lessee'} hands ${ac?.reg ?? 'her'} back in 2 days and our pilots ferry her home. One month's rent ($${penalty.toLocaleString('en-US')}) compensates them${refund ? `, and $${refund.toLocaleString('en-US')} of prepaid rent goes back` : ''}.`, ref: { kind: 'contract', id: c.id }, hurt: { money: penalty + refund, pax: 0, delayMin: 0, level: 'low' } });
     return { ok: true, msg: `Recalled ${c.title}` };
   }
-  const penalty = cancelPenalty(g, contractId);
+  const penalty = byClient ? 0 : cancelPenalty(g, contractId);
   const future = Object.values(g.flights).filter((f) => f.contractId === c.id && f.status === 'scheduled').map((f) => f.id);
   removeFlights(g, future);
   // v0.5.1: paint-ins not started are called off; finished paint is stripped (dailyPaint), not reimbursed.
@@ -535,10 +547,15 @@ function cancelNow(g: GameState, c: Contract): ActionResult {
   c.status = 'cancelled';
   if (c.dry) cancelDry(g, c);
   const rep = g.company.reputation;
-  rep.reliable = clamp(rep.reliable - 5, 0, 100);
   const cl = g.clients[c.clientId];
-  bumpClient(g, c.clientId, -30, `We cancelled ${c.title}`);
   for (const id of c.aircraftIds) relinkPositioning(g, id);
+  if (byClient) {
+    bumpClient(g, c.clientId, -10, `${cl?.name ?? 'The client'} walked away from ${c.title}`);
+    pushMessage(g, { tone: 'bad', cat: 'commercial', title: `${cl?.name ?? 'The client'} cancels ${c.title}`, body: `${byClient}${refund ? ` $${refund.toLocaleString('en-US')} prepaid goes back.` : ''}`, ref: { kind: 'contract', id: c.id }, problem: { kind: 'contractCancelled', ref: { kind: 'contract', id: c.id } }, hurt: { money: Math.round(refund), pax: 0, delayMin: 0, level: 'high' } });
+    return { ok: true, msg: `${cl?.name ?? 'The client'} cancelled ${c.title}` };
+  }
+  rep.reliable = clamp(rep.reliable - 5, 0, 100);
+  bumpClient(g, c.clientId, -30, `We cancelled ${c.title}`);
   const money = `Penalty $${penalty.toLocaleString('en-US')}${refund ? ` and $${refund.toLocaleString('en-US')} prepaid refunded` : ''}.`;
   pushMessage(g, { tone: 'bad', cat: 'commercial', title: `Cancelled: ${c.title}`, body: `${money} ${cl?.name ?? 'The client'} will remember this.`, ref: { kind: 'contract', id: c.id }, problem: { kind: 'contractCancelled', ref: { kind: 'contract', id: c.id } }, hurt: { money: Math.round(penalty), pax: 0, delayMin: 0, level: penalty >= 10_000 ? 'high' : 'low' } });
   return { ok: true, msg: `Cancelled ${c.title}` };

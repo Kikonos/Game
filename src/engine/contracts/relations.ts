@@ -229,6 +229,8 @@ export function offerClientLine(g: GameState, offerId: string): { level: ClientL
   const lp = o.levelPct ?? 0;
   if (lp) lines.push(`${pct(lp)} rate (${LEVEL_NAME[level]} client, included)`);
   if (o.standingPct) lines.push(`${pct(o.standingPct)} rate (${o.standingPct < 0 ? 'Newcomer' : 'Respected'} company, included)`);
+  // v0.16.3 the restructuring label.
+  if (o.distressPct) lines.push(`${pct(o.distressPct)} rate (company in restructuring, included)`);
   if (o.firstRefusal) lines.push('First refusal: no rival will take it before it expires');
   if (p.forgive) lines.push(forgiveLine(p.forgive));
   if (p.payDays) lines.push(`Pays ${p.payDays} days sooner`);

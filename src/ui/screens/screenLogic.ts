@@ -245,6 +245,8 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   consent: 'Lessor consent fees',
   // v0.16
   interestIncome: 'Interest on cash', bankFees: 'Bank fees', commission: 'Brokers\' commission',
+  // v0.16.3
+  distress: 'Deferrals & restructuring',
 };
 
 /**
@@ -378,6 +380,9 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     // v0.9 round 4 credit control's note: the receivable on Finance.
     case 'receivable':
       return { tab: 'finance', sel: ref };
+    // v0.16.3 the debt plan (deferrals, the investor's board, the restructuring): Finance › Get out of debt.
+    case 'debt':
+      return { tab: 'finance', view: 'debt' };
     // v0.14 a tender: Contracts › Tenders; a sales trip: Contracts › Markets (was Company › Team).
     case 'tender':
       return { tab: 'contracts', view: 'tenders', sel: ref };
@@ -387,10 +392,10 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     case 'ramp':
     case 'audit':
       return { tab: 'company', view: 'overview' };
-    // v0.16 a pipeline lead or a broker: Contracts › Sales; a sales manager or the compliance manager: Company › Team.
+    // v0.16 a pipeline lead or a broker: Contracts › Market › Leads (v0.16.3: was the Sales tab); a sales manager or the compliance manager: Company › Team.
     case 'lead':
     case 'broker':
-      return { tab: 'contracts', view: 'sales', sel: ref };
+      return { tab: 'contracts', view: 'leads', sel: ref };
     case 'rep':
     case 'compliance':
       return { tab: 'company', view: 'team', sel: ref };

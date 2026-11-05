@@ -63,7 +63,7 @@ describe('a lead', () => {
     expect(card.what).toBe(`${c.name}'s lead goes cold in 3 days`);
     expect(card.why).toMatch(/^Nobody has sent them a proposal since /);
     expect(card.hurt.text).toBeTruthy();
-    expect(card.actions[0]).toMatchObject({ label: 'Send proposal', open: { tab: 'contracts', view: 'sales', sel: { kind: 'lead', id: l.id } } });
+    expect(card.actions[0]).toMatchObject({ label: 'Send proposal', open: { tab: 'contracts', view: 'leads', sel: { kind: 'lead', id: l.id } } });
     expect(card.by).toBe(l.expires);
     expect(problems(g).some((p) => p.subject.kind === 'leadCold' && p.subject.ref.id === l.id)).toBe(true);
     expect(problemFor(g, { kind: 'leadCold', ref: { kind: 'lead', id: l.id } })).not.toBeNull();

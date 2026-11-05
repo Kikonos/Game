@@ -22,6 +22,7 @@ import { type MonthPoint, monthSeries, seriesKey } from './financeCharts';
 import { ScreenHint } from '../components/ScreenHint';
 import { monthEndCosts } from '../shell/cashRate';
 import { Financing } from './finance/Financing';
+import { DebtPanel } from './finance/DebtPanel';
 
 const tone = (v: number) => (v < 0 ? 'bad' : v > 0 ? 'good' : '');
 
@@ -189,6 +190,8 @@ export function FinanceScreen() {
           <Receivables g={g} />
         </Card>
       </div>
+      {/* v0.16.3 the ways out of debt, while cash is below zero or a way out still runs (ui/screens/finance/DebtPanel.tsx). */}
+      <DebtPanel g={g} focus={store.nav.view === 'debt'} />
       {/* v0.16 the bank: credit line, loans, leaseback, factoring, interest on cash (ui/screens/finance/Financing.tsx). */}
       <Financing g={g} />
       <Card title="Statement" className="mt-16">

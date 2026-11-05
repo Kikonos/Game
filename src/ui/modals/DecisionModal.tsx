@@ -65,6 +65,13 @@ export function DecisionModal({ decisionId }: { decisionId?: string }) {
       {(() => { const tail = decisionBodyTail(d.body, card); return tail ? <p className="muted">{tail}</p> : null; })()}
       {card && <ProblemCardView card={card} g={g} hideActions />}
       {dspec && <DiversionMap spec={dspec} onPick={d.kind === 'divertOnward' ? undefined : pick} />}
+      {/* v0.16.3 the forced rescue is one way out: the others (a secured line, deferrals, an investor on better terms, a restructuring) are on Finance. */}
+      {d.kind === 'rescue' && (
+        <div className="row gap-8 small mt-8" style={{ alignItems: 'center' }}>
+          <span className="muted grow">Not the only way out: a secured credit line, rent and pay deferrals, creditor plans or an investor on better terms.</span>
+          <button className="btn btn-sm" onClick={() => { close(); store.navigate('finance', { view: 'debt' }); }}>Ways out of debt</button>
+        </div>
+      )}
       <div className="col gap-8 mt-12">
         {d.options.map((o) => (
           <button key={o.id} className={`decision-opt sc-opt ${o.tone ?? ''}`} onClick={() => pick(o.id)}>

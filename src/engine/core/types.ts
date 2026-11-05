@@ -637,6 +637,8 @@ export interface ContractOffer {
   stretch?: true;
   /** v0.16 clients: the rate part of the client's prestige level (−4 % brochure work … +8 % majors), priced in. */
   prestigePct?: number;
+  /** v0.16.3 the 'Restructuring' label's rate part (−5 %) while the company carries it, priced in. */
+  distressPct?: number;
   /** v0.16 clients: a far-flung multi-stop route with a crew change on the way (missions.ts farRoute). */
   exotic?: true;
   /** v0.16 sales: the pipeline lead it answers, and the broker that brought it (its commission; `broker` keeps the name). */
@@ -943,6 +945,8 @@ export type ProblemKind =
   | 'crewHours'
   /** v0.11 Operations: a live disruption (its decision), a ramp inspection finding, an authority audit finding. */
   | 'disruption' | 'rampFinding' | 'auditFinding'
+  /** v0.16.3 the investor's board targets; the restructuring plan. */
+  | 'boardTarget' | 'restructuring'
   /** Peak-staffing round: a busy month ahead short of crew (crew/forecast.ts). */
   | 'crewPeak'
   /** v0.12.1 a leg that needs an approval we won't hold by its departure (ops/approvalGate.ts). */
@@ -1032,7 +1036,7 @@ export interface CrewMember {
   /** Total flying hours (seniority; command upgrades). */
   totalHours: number;
   /** B2: unavailable windows (sick, leave, training, joining); pruned once past. */
-  blocks?: { from: Minute; to: Minute; why: 'sick' | 'leave' | 'training' | 'joining'; /** v0.9 planned annual leave. */ annual?: true }[];
+  blocks?: { from: Minute; to: Minute; why: 'sick' | 'leave' | 'training' | 'joining'; /** v0.9 planned annual leave. */ annual?: true; /** v0.16.3 unpaid leave (furlough): no salary over the block. */ furlough?: true }[];
   /** B2: calendar year that blockYear counts. */
   blockYearOf?: number;
   /** v0.6: resigned; keeps flying until `leaves` (then removed from g.crew). */
@@ -1312,7 +1316,9 @@ export interface Ref {
     /** v0.14 a tender (Contracts › Tenders), a sales trip (Company › Team › Sales trips). */
     | 'tender' | 'trip'
     /** v0.16 a loan (Finance › Financing), a pipeline lead or a broker (Contracts › Sales), a sales manager or the compliance manager (Team). */
-    | 'loan' | 'lead' | 'broker' | 'rep' | 'compliance';
+    | 'loan' | 'lead' | 'broker' | 'rep' | 'compliance'
+    /** v0.16.3 the debt plan on Finance (deferrals, the investor's board, the restructuring). */
+    | 'debt';
   id: string;
 }
 
@@ -1385,7 +1391,9 @@ export type LedgerCat =
   /** v0.14.1 a lessor's consent to sub-lease (a dry lease out of a leased-in airframe); was booked as rent. */
   | 'consent'
   /** v0.16 finance: interest earned on spare cash (revenue); bank fees (arrangement, commitment, waiver, early repayment, factoring); brokers' commission shown apart. */
-  | 'interestIncome' | 'bankFees' | 'commission';
+  | 'interestIncome' | 'bankFees' | 'commission'
+  /** v0.16.3 distress finance (engine/finance/distress.ts): deferral premiums, payment-plan fees, early-payment discounts, restructuring costs and write-offs (a gain). */
+  | 'distress';
 
 export interface MonthStatement {
   month: MonthKey;
@@ -1420,6 +1428,8 @@ export interface Receivable {
   written?: true;
   /** v0.16 finance: sold to the bank (engine/finance factoring): the advance paid, the fee, with or without recourse; settled when the client paid; bought back when it never did (recourse). */
   factor?: { advance: number; fee: number; recourse: boolean; at: Minute; settled?: Minute; boughtBack?: Minute };
+  /** v0.16.3 we asked the client to pay early (once per invoice): the discount given, or refused. */
+  prepay?: { at: Minute; discount: number; refused?: true };
 }
 
 export interface Finance {
@@ -1965,6 +1975,11 @@ export interface CreditLine {
   clean?: number;
   /** Not renewed (frozen at the anniversary): nothing more to draw, the balance repaid on the schedule, closed when it is 0. */
   notRenewed?: true;
+  /** v0.16.3 a secured (distressed) facility: opened while cash was below zero, sized on a borrowing base (receivables and unpledged owned aircraft), a higher margin, the bank's security over `pledged` aircraft (no sale, loan or leaseback without repaying first). Re-priced to a normal line at a renewal once healthy. */
+  secured?: boolean;
+  pledged?: string[];
+  /** The borrowing base at the last measure (month end). */
+  base?: number;
 }
 
 export interface AircraftLoan {
@@ -2003,6 +2018,116 @@ export interface Treasury {
   headroomAt?: Minute;
   /** Loans repaid in full (ids), kept for the Finance screen's history line. */
   repaid?: number;
+  /** v0.16.3 the ways out of debt taken (engine/finance/distress.ts). */
+  distress?: Distress;
+}
+
+// ======================================================================
+// v0.16.3 Distress finance (engine/finance/distress.ts)
+// ======================================================================
+
+/** Instalments the engine sweeps at month ends (cash goes out even below zero). */
+export interface Instalment { at: Minute; amount: number; /** The premium or fee part of it, posted under 'distress'. */ fee: number }
+
+export interface RentDeferral {
+  id: string;
+  aircraftId: string;
+  lessor: string;
+  /** Month ends whose rent is deferred (first, count), the rent so far deferred, the premium share. */
+  from: Minute;
+  months: number;
+  deferred: number;
+  premium: number;
+  /** Repayments after the deferred months (built as each month's rent is deferred). */
+  repay: Instalment[];
+  /** The lease extension the lessor asked for (months), applied at signing. */
+  extendMonths: number;
+  at: Minute;
+  /** A repayment swept while cash was below zero. */
+  defaulted?: Minute;
+  done?: Minute;
+}
+
+export type CreditorGroup = 'mro' | 'handling' | 'fuel';
+
+export interface PaymentPlan {
+  id: string;
+  group: CreditorGroup;
+  creditor: string;
+  amount: number;
+  fee: number;
+  months: number;
+  repay: Instalment[];
+  at: Minute;
+  missed: number;
+  done?: Minute;
+}
+
+export interface Investor {
+  name: string;
+  at: Minute;
+  amount: number;
+  stake: number;
+  /** Quarterly board reviews: the next one, misses in a row, met in a row, aircraft the board had sold. */
+  reviewAt: Minute;
+  misses: number;
+  met: number;
+  forcedSales: number;
+  /** The board stood down (four quarters met). */
+  released?: Minute;
+}
+
+export interface Furlough {
+  crewIds: string[];
+  from: Minute;
+  until: Minute;
+  /** Salary saved a month (with on-costs) at signing. */
+  saved: number;
+  at: Minute;
+}
+
+export interface SalaryDeferral {
+  /** Month ends still to defer; the share of crew pay deferred; the heads' pay deferred in full. */
+  monthsLeft: number;
+  share: number;
+  /** Pay deferred so far and its repayments. */
+  deferred: number;
+  repay: Instalment[];
+  at: Minute;
+  done?: Minute;
+}
+
+export interface Restructuring {
+  at: Minute;
+  /** The plan period: claims frozen, the insolvency clock paused; targets checked at `until`. */
+  until: Minute;
+  /** The 'Restructuring' label (rate −5 %, deposits demanded) stays until this date; no new credit until `noCreditUntil`. */
+  labelUntil: Minute;
+  noCreditUntil: Minute;
+  writtenOff: number;
+  fees: number;
+  /** The aircraft a lessor repossessed, if any. */
+  repossessed?: string;
+  /** Contracts cancelled by clients at the filing. */
+  cancelled: number;
+  exited?: Minute;
+  failed?: Minute;
+}
+
+export interface Distress {
+  rentDeferrals: RentDeferral[];
+  plans: PaymentPlan[];
+  investor?: Investor | null;
+  furlough?: Furlough | null;
+  salaryDeferral?: SalaryDeferral | null;
+  /** Checks stretched towards the tolerance until this date. */
+  checksUntil?: Minute | null;
+  per?: Restructuring | null;
+  /** A lessor refusing another deferral until this date (after a default). */
+  lessorBlock: Record<string, Minute>;
+  /** We sought an investor and were refused (once); the day. */
+  investorRefusedAt?: Minute;
+  stats: { deferred: number; premiums: number; discounts: number; furloughSaved: number; writtenOff: number };
 }
 
 // ======================================================================

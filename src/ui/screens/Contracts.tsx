@@ -15,13 +15,13 @@ import { crewExtraFor, extraCabinMax, setCrewExtra, shortFlights } from '../../e
 import { problemAt } from '../../engine/problems';
 import { ProblemCardView } from '../components/ProblemCard';
 import { Why } from '../components/Why';
-import { Bar, Empty, Stepper, Tabs, Toggle } from '../components/ui';
+import { Bar, Empty, Seg, Stepper, Tabs, Toggle } from '../components/ui';
 import { money } from '../format';
 import { store, useClock, useGame } from '../store';
 import { ArchIcon, Chips, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
 import { archLabel, COUNTDOWN_MIN, expiryLabel, fuelLine, offerModal, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays, v09Chips } from './screenLogic';
-import { SalesView, salesTabCount } from './contracts/SalesView';
+import { LeadsView, leadsUrgent, salesTabCount } from './contracts/SalesView';
 import { FilterView, HiddenOffersRow } from './contracts/FilterView';
 import { clientStars, PRESTIGE_NAME, playerLevel, playerStars, starsLabel } from '../../engine/contracts/prestige';
 import { ClientStars } from '../components/ClientStars';
@@ -34,7 +34,10 @@ import { MarketsView } from './Markets';
 import { cancelWarning, lockOf, rulesOf } from '../../engine/scenario';
 import { LockedPanel, LockNote, lockedProps } from '../components/Locked';
 
-type View = 'market' | 'active' | 'tenders' | 'missed' | 'clients' | 'markets' | /** v0.16 */ 'sales' | 'filter';
+type View = 'market' | 'active' | 'tenders' | 'missed' | 'clients' | 'markets' | /** v0.16.3 the Market hub's Leads segment (was the Sales tab) */ 'leads' | 'filter';
+/** v0.16.3 the Market hub's segments; 'sales' (old links) opens Leads. */
+type Hub = 'market' | 'leads' | 'tenders';
+const HUB: Record<string, Hub> = { market: 'market', leads: 'leads', sales: 'leads', tenders: 'tenders' };
 
 /** v0.14 the card's time left: hours and minutes ticking with the clock in the last 6 h, a phone call marked. */
 function OfferLeft({ o, now }: { o: ContractOffer; now: number }) {
@@ -64,6 +67,8 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
   // v0.9 the analyst's score (when hired and on): once per offer and game hour.
   const av = useMemo(() => analystView(g, o.id), [g, o.id, o.status, Math.floor(g.now / 60)]); // eslint-disable-line react-hooks/exhaustive-deps
   const chips = [...v09Chips(o, av), ...paint, ...cabin, ...reqChips(o.requirements, o.pattern), ...riskChips(o.risk)];
+  // v0.16.3 the restructuring label the client prices in.
+  if (o.distressPct) chips.unshift({ label: `Restructuring ${Math.round(o.distressPct * 100)} %`, tone: 'warn', tip: 'The client knows the company is in a court-protected restructuring and prices the risk' });
   // v0.7.1 §13: a WHY? dot when the offer can't be flown as it stands or a counter is about to expire.
   const prob = problemAt(g, { kind: 'offer', id: o.id });
   return (
@@ -101,6 +106,26 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
       {cv && <div className={`small sc-counter-line ${cv.tone === 'info' ? 'accent' : cv.tone}`}>{cv.text}</div>}
       {hook && !cv && <div className="small dim ellipsis">{hook}</div>}
     </button>
+  );
+}
+
+/**
+ * v0.16.3 the Market hub's segmented control: Offers · Leads · Tenders with their counts (Leads amber when one goes
+ * cold within three days), so bidding on a lead sits next to the offers (the player: "the sales tab should be a sub tab
+ * under market for easier access to bid for leads").
+ */
+function MarketSeg({ g, hub, counts }: { g: GameState; hub: Hub; counts: Record<Hub, number> }) {
+  const hot = leadsUrgent(g);
+  const label = (name: string, n: number, warn = 0) => <>{name}{n > 0 && <span className={`mh-count ${warn ? 'hot' : ''}`}>{n}</span>}</>;
+  return (
+    <div className="mh-seg" data-hub={hub}>
+      <Seg<Hub> value={hub} options={[
+        { value: 'market', label: label('Offers', counts.market) },
+        { value: 'leads', label: label('Leads', counts.leads, hot) },
+        { value: 'tenders', label: label('Tenders', counts.tenders) },
+      ]} onChange={(v) => store.navigate('contracts', { view: v })} />
+      {hub === 'leads' && hot > 0 && <span className="small mh-urgent">{hot} lead{hot === 1 ? '' : 's'} go{hot === 1 ? 'es' : ''} cold within 3 days</span>}
+    </div>
   );
 }
 
@@ -327,8 +352,12 @@ export function ContractsScreen() {
   useRenderCount('contracts');
   const g = useGame();
   const nav = store.nav;
-  const view = (['market', 'active', 'tenders', 'missed', 'clients', 'markets', 'sales', 'filter'].includes(nav.view ?? '') ? nav.view : 'market') as View;
+  const raw = nav.view === 'sales' ? 'leads' : nav.view;
+  const view = (['market', 'active', 'tenders', 'missed', 'clients', 'markets', 'leads', 'filter'].includes(raw ?? '') ? raw : 'market') as View;
+  const hub: Hub | null = HUB[view] ?? null;
   const nMarket = marketOffers(g).length;
+  const nLeads = salesTabCount(g);
+  const nTenders = openTenders(g);
   const nActive = Object.values(g.contracts).filter((c) => c.status === 'signed' || c.status === 'active').length;
   const nMissed = missedOffers(g).length;
   // v0.11 Clients moved here from Company. Same rule as the Clients list's first filter (a job done, a contract or an open offer); moves at most daily.
@@ -337,29 +366,28 @@ export function ContractsScreen() {
   return (
     <div className="screen sc-contracts">
       <ScreenHead hint="contracts" title="Contracts" sub="Offers from brokers and clients, and the work you have signed.">
-        <Tabs<View> value={view} onChange={(v) => store.navigate('contracts', { view: v })} tabs={[
-          { id: 'market', label: 'Market', count: nMarket },
+        <Tabs<View> value={hub ? 'market' : view} onChange={(v) => store.navigate('contracts', { view: v })} tabs={[
+          // v0.16.3 one Market tab: offers, the leads pipeline and the tender board as segments (Sales and Tenders were tabs).
+          { id: 'market', label: 'Market', count: nMarket + nLeads + nTenders || undefined },
           { id: 'active', label: 'Active', count: nActive },
-          // v0.14 the tender board.
-          { id: 'tenders', label: 'Tenders', count: openTenders(g) || undefined },
           { id: 'missed', label: 'Missed', count: nMissed },
           { id: 'clients', label: 'Clients', count: nClients || undefined },
           // v0.14 market presence, the trade fairs and sales trips (moved here from Company › Team).
           { id: 'markets', label: 'Markets' },
-          // v0.16 chasing work (brokers, leads, pitches) and the offer filter.
-          { id: 'sales', label: 'Sales', count: salesTabCount(g) || undefined },
+          // v0.16 the offer filter.
           { id: 'filter', label: 'Filter' },
         ]} />
       </ScreenHead>
       <ScreenHint id="contracts" />
       <HeadStrip g={g} />
+      {hub && <MarketSeg g={g} hub={hub} counts={{ market: nMarket, leads: nLeads, tenders: nTenders }} />}
       {view === 'market' && <Market g={g} />}
-      {view === 'active' && <Active g={g} sel={nav.sel?.kind === 'contract' ? nav.sel.id : null} />}
+      {view === 'leads' && <LeadsView g={g} />}
       {view === 'tenders' && <TendersView g={g} />}
+      {view === 'active' && <Active g={g} sel={nav.sel?.kind === 'contract' ? nav.sel.id : null} />}
       {view === 'missed' && <Missed g={g} />}
       {view === 'clients' && <ClientsView g={g} />}
       {view === 'markets' && <MarketsView g={g} />}
-      {view === 'sales' && <SalesView g={g} />}
       {view === 'filter' && <FilterView g={g} />}
     </div>
   );
