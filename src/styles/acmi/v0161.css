@@ -24,3 +24,6 @@
 .bug-link:hover { color: var(--text); text-decoration: underline; }
 .bug-link svg { width: 12px; height: 12px; }
 .pc .bug-link { margin-left: auto; }
+.bug-link.grow-end { margin-left: auto; }
+.pc-details { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.pc-details .pc-details-list { flex-basis: 100%; }

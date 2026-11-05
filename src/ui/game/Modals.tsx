@@ -2,7 +2,8 @@
 
 import { WelcomeModal } from '../modals/WelcomeModal';
 import { TenderModal } from '../modals/TenderModal';
-import { BookOpenText, Download, FolderOpen, Home, Lightbulb, Play, PlusCircle, RefreshCw, Save, Settings as SettingsIcon, Sparkles, Trash2, Upload, Volume2 } from 'lucide-react';
+import { BookOpenText, Bug, ClipboardList, Download, FolderOpen, Home, Lightbulb, Play, PlusCircle, RefreshCw, Save, Settings as SettingsIcon, Sparkles, Trash2, Upload, Volume2 } from 'lucide-react';
+import { BugReportModal, BugReportsModal } from '../modals/BugReportModals';
 import { sound, SOUND_MEANING } from '../sound';
 import { TERMINAL, TRACKS } from '../music';
 import { HeadUnlockedModal } from '../modals/HeadUnlockedModal';
@@ -129,6 +130,9 @@ function MenuModal() {
         <button className="menu-item" onClick={exportSave}><Download /> Export save file</button>
         <button className="menu-item" onClick={() => fileRef.current?.click()}><Upload /> Import save file</button>
         <button className="menu-item" onClick={() => store.openModal({ kind: 'settings' })}><SettingsIcon /> Settings</button>
+        {/* v0.16.1 bug reports: the form and the list (Export all). */}
+        <button className="menu-item" onClick={() => store.openModal({ kind: 'bugReport', prefill: { modal: 'menu' } })}><Bug /> Report a bug</button>
+        <button className="menu-item" onClick={() => store.openModal({ kind: 'bugReports' })}><ClipboardList /> Bug reports</button>
         {offline.updateReady && <button className="menu-item" onClick={() => { store.saveAuto(true); location.reload(); }}><RefreshCw /> Save & restart to update</button>}
         <button className="menu-item danger" onClick={() => store.quitToTitle()}><Home /> Save & quit to title</button>
       </div>
@@ -366,6 +370,8 @@ export function GlobalModals() {
   if (!m) return null;
   switch (m.kind) {
     case 'menu': return <MenuModal />;
+    case 'bugReport': return s.game ? <BugReportModal prefill={m.prefill} /> : null;
+    case 'bugReports': return <BugReportsModal />;
     case 'scenario': return s.game ? <ScenarioModal /> : null;
     case 'saves': return <SavesModal mode={m.mode} />;
     case 'settings': return <SettingsModal />;

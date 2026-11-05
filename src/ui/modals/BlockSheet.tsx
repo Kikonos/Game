@@ -21,6 +21,7 @@ import { ProblemCardView } from '../components/ProblemCard';
 import { restSeatWord } from '../components/RestLines';
 import { RestTimeline } from '../components/RestTimeline';
 import { Term } from '../components/Term';
+import { ReportLink } from './BugReportModals';
 import { Modal, Stepper } from '../components/ui';
 import { money, plural } from '../format';
 import { Dot, KV } from '../screens/common';
@@ -172,7 +173,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
           {short && f.crewAlert && <span className={`cs-banner ${card.severity}`}>{crewAlertKind(g, f.id) === 'hours' ? 'CREW OUT OF HOURS' : 'CREW SHORTAGE'}</span>}
         </ProblemCardView>
       )}
-      <div className="small muted">{AIRPORT_BY_CODE[f.from]?.city ?? f.from} → {AIRPORT_BY_CODE[f.to]?.city ?? f.to}</div>
+      <div className="small muted row gap-8">{AIRPORT_BY_CODE[f.from]?.city ?? f.from} → {AIRPORT_BY_CODE[f.to]?.city ?? f.to}<ReportLink prefill={{ ref: { kind: 'flight', id: f.id }, title: `${f.no} ${f.from}–${f.to}: ` }} className="grow-end" /></div>
       {(() => {
         // v0.9 §W.3: a crew change at a fuel stop on this flight's duty.
         const sv = f.kind !== 'deadhead' ? slipOfFlight(g, f.id) : null;

@@ -16,6 +16,23 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.16.1',
+    name: 'Niamey',
+    features: [
+      'Report a bug: Menu › Report a bug, the bug button in the header, or the small Report link on a problem card, a flight sheet or Crew Control. Say what happened and what you expected; the game adds the time (UTC and local), the version, the screen and dialog you were in, the flight or crew it is about with its state, the last Inbox lines, your settings and the device, and keeps a snapshot of the whole game at that moment. Menu › Bug reports lists them: open, delete, Copy summary, and Export all writes one file with every report, its snapshot and your current save. Nothing leaves the device until you export. Reports are kept on this device; a note appears once there are many.',
+      'Clients show a star rating, 0 to 5, instead of a level number: small brochures and tiny tour operators have none, the big tour operators and low-cost airlines one, the charter market two, national carriers three, the majors four, flagship carriers (Air France, KLM, Lufthansa, British Airways, Qantas) and head-of-state, government and military work five. On offer cards, the offer dialog, Clients and the Prestige card; your own standing shows as stars with what the next band needs; the filter asks for a minimum of stars. The four levels behind them, and what they open, are unchanged.',
+      'Offers your filter hides stay off the map and the globe (no pins or counts), the airport and event panels and the Contracts badge. Only the "N offers hidden by your filter" line on the Market tab counts them. Evacuations, tenders, leads and repeat work still show.',
+    ],
+    improvements: [
+      'The flight sheet and the alarms agree: a red crew mark clears as soon as the flight is legal again, and a "Crew out of hours" pause with no flight behind it stops nothing. A game saved while paused for one of those opens unheld.',
+      'A passenger flight moved hours behind the next flight in (the aircraft was elsewhere) says so in the Inbox, with the flight it waits for.',
+    ],
+    fixes: [
+      'Evacuation flights from Niamey (a coup closed the airport): the empty flight in to fetch the first load was planned after the airport reopened, a week after the flights it was for, and Crew Control said no crew could be flown in and offered only a private jet. An empty flight into a closed airport now flies under the clearance of the job it is for, is planned before the first flight and its crew fly it; an existing save is re-planned on load. Crew Control says plainly that no airline flies there and that crew ride our own flight in or a jet under the same clearance; a jet lands at a closed airport only with that clearance.',
+      'A crew alarm no longer rings for the minute between a flight moving at the gate and the roster re-cutting its duty (BLU2049: "out of hours" on a legal crew, with a pause that stayed).',
+    ],
+  },
+  {
     version: 'v0.16',
     name: 'Finance & Sales',
     features: [

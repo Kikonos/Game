@@ -21,6 +21,7 @@ import { spanLabel } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 import { canTake, chooseWord, defaultPicks, goneText, hurtTone, keepHurt, seatPlan } from './crewControlLogic';
 import { HintButton, ScreenHint } from '../components/ScreenHint';
+import { ReportLink } from './BugReportModals';
 
 const FIX_ICON: Record<CrewFix, ReactNode> = {
   autoFix: <Wand2 />, deadhead: <Ticket />, delay: <Clock />, jet: <PlaneTakeoff />, callIn: <PhoneCall />, discretion: <Hourglass />,
@@ -190,6 +191,7 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
     <Modal size="xwide" className="cc-modal" title={<>{title}<HintButton id="crewControl" align="left" /></>} icon={icon} onClose={close} footer={
       <>
         <span className="small dim grow cc-foot-note" title={done ? `Applied: ${done[0]}` : undefined}>{done ? `Applied: ${done[0]}` : 'Tap a solution to see what it changes, then Apply.'}</span>
+        <ReportLink prefill={{ ref: { kind: 'flight', id: f.id }, title: `Crew Control ${f.no}: ` }} />
         <button className="btn" onClick={() => f.dutyId && store.openModal({ kind: 'duty', id: f.id })} disabled={!f.dutyId}><Users /> Adjust crew</button>
         <button className="btn btn-primary" onClick={close}>Close</button>
       </>
