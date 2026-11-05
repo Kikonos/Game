@@ -209,8 +209,11 @@ export function createTicketLog(startNow?: Minute): TicketLog {
     // Stray duties the sets refused.
     const sw = new Map<string, number>();
     for (const s of strays) for (const w of s.why) sw.set(w.replace(/^set \d+: /, '').replace(/\b[A-Z][a-zà-ü]+ /g, '').slice(0, 60), (sw.get(w.replace(/^set \d+: /, '').replace(/\b[A-Z][a-zà-ü]+ /g, '').slice(0, 60)) ?? 0) + 1);
-    out.push(`Deployment duties no set on station took (flown as trips from base): ${strays.length}; set refusals by cause:`);
+    const sb = new Map<string, number>();
+    for (const x of strays) sb.set(x.base, (sb.get(x.base) ?? 0) + 1);
+    out.push(`Deployment duties no set on station took (flown as trips from base): ${strays.length} (${[...sb].sort((a, b) => b[1] - a[1]).map(([k, n]) => `${k} ${n}`).join(', ')}); set refusals by cause:`);
     for (const [k, n] of [...sw].sort((a, b) => b[1] - a[1]).slice(0, 12)) out.push(`- ${n} × ${k}`);
+    for (const x of strays.slice(0, 6)) out.push(`  e.g. ${fmtDateTime(x.at)} ${x.base} ${x.duty}: ${x.why.join('; ')}`);
     out.push('');
     const dw = new Map<string, number>();
     for (const r of dropped) {
