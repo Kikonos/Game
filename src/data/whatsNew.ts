@@ -16,6 +16,17 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.16.2',
+    name: 'Rescue',
+    features: [],
+    improvements: [
+      'The investor\'s rescue is sized to the hole: enough to clear the overdraft and pay the next month-end bills, never less than before. A bigger cheque buys a bigger stake (25 to 49%). The offer and the signed message say how much, for what share, and what cash is afterwards.',
+    ],
+    fixes: [
+      'A rescue that arrived the same minute as the month-end bills left cash where it was (−$2.66M before and after on 1 May). Signing now covers anything that went out since the offer. A save rescued that way gets the fund\'s top-up once on load, so the "insolvent again" clock does not end a game the rescue never cleared.',
+    ],
+  },
+  {
     version: 'v0.16.1',
     name: 'Niamey',
     features: [
