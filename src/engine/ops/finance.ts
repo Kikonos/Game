@@ -241,7 +241,7 @@ export function dailyFinance(g: GameState): void {
       if (cash < BAL.bankruptFloor) return gameOver(g, `Cash fell below ${usd(BAL.bankruptFloor)}: the creditors closed the company.`);
     } else if (g.now - f.negSince >= BAL.rescueDays * DAY) {
       if ((f.rescues ?? 0) >= 1) return gameOver(g, `Insolvent again for ${BAL.rescueDays} days after the rescue.`);
-      if (!f.refusedRescue && !g.decisions.some((d) => d.kind === 'rescue')) rescueDecision(g);
+      if (!f.refusedRescue && !g.decisions.some((d) => d.kind === 'rescue')) rescueDecision(g, monthEndBill(g, monthKey(g.now)).total);
     }
   } else {
     // Recovered on our own after refusing the investor: the offer may come round again next time.

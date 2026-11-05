@@ -700,28 +700,47 @@ function resolveLatePayment(g: GameState, d: Decision, opt: string): ActionResul
   return { ok: false, error: 'Unknown option' };
 }
 
-export function rescueDecision(g: GameState): void {
-  const amount = Math.round(range(g, BAL.rescueCash[0], BAL.rescueCash[1]) / 100_000) * 100_000;
+/**
+ * The investor's rescue. v0.16.2: sized to the hole, not a flat sum: enough to clear the overdraft and pay the coming
+ * month-end bill (`bill`, from finance), never less than the old $2–4M offer; a bigger cheque buys a bigger stake (25–49 %).
+ * The player's save of 1 May 2028: $3.20M arrived the minute the $3.33M month-end bill went out, so cash read the same.
+ */
+export function rescueDecision(g: GameState, bill = 0): void {
+  const base = Math.round(range(g, BAL.rescueCash[0], BAL.rescueCash[1]) / 100_000) * 100_000;
+  const need = rescueNeed(g.company.cash, bill);
+  const amount = Math.max(base, need);
+  const stake = rescueStake(amount);
   ask(g, {
     kind: 'rescue', title: 'An investor offers a rescue',
-    body: `Cash has been negative for ${BAL.rescueDays} days. A private-equity fund offers ${usd(amount)} for 25% of the company.`,
+    body: `Cash has been negative for ${BAL.rescueDays} days (now ${usd(g.company.cash)}). A private-equity fund offers ${usd(amount)} for ${stake}% of the company: enough to clear the overdraft and pay the next month-end bills (${usd(bill)}).`,
     options: [
-      { id: 'accept', label: 'Take the money', desc: 'Cash now; the market notices.', tone: 'warn', chips: [`+${usd(amount)}`, 'Reliability −5'] },
+      { id: 'accept', label: 'Take the money', desc: 'Cash now; the market notices.', tone: 'warn', chips: [`+${usd(amount)}`, `${stake}% of the company`, 'Reliability −5'] },
       { id: 'refuse', label: 'Refuse', desc: `Fight on alone: below ${usd(BAL.bankruptFloor)} the company is finished.`, tone: 'bad', chips: ['Risky'] },
     ],
-    defaultOption: 'accept', expires: g.now + 3 * DAY, data: { amount },
+    defaultOption: 'accept', expires: g.now + 3 * DAY, data: { amount, bill, stake },
   }, true);
 }
+
+/** v0.16.2 what a rescue must bring: the overdraft plus one month-end bill, rounded up to $100K. Pure. */
+export const rescueNeed = (cash: number, bill: number): number => Math.ceil((Math.max(0, -cash) + Math.max(0, bill)) / 100_000) * 100_000;
+/** v0.16.2 the fund's stake for a cheque: 25 % up to $3M, more for more, at most 49 % (in 5 % steps). Pure. */
+export const rescueStake = (amount: number): number => Math.min(49, Math.max(25, Math.round((25 * amount) / 3_000_000 / 5) * 5));
 
 function resolveRescue(g: GameState, d: Decision, opt: string): ActionResult {
   const f = g.finance;
   if (opt === 'accept') {
-    cashOnly(g, num(d.data, 'amount'));
+    // v0.16.2 re-measured at signing: if more went out since the offer (a month end), the fund covers it too.
+    const offered = num(d.data, 'amount');
+    const bill = num(d.data, 'bill') || 0;
+    const amount = Math.max(offered, rescueNeed(g.company.cash, bill));
+    const stake = num(d.data, 'stake') || rescueStake(amount);
+    cashOnly(g, amount);
     f.rescues = (f.rescues ?? 0) + 1;
+    f.rescuedAt = g.now;
     f.negSince = null;
     bumpReliable(g, -5);
     g.company.reputation.clean = Math.max(0, g.company.reputation.clean - 3);
-    pushMessage(g, { tone: 'warn', cat: 'finance', title: 'Rescue signed', body: `${usd(num(d.data, 'amount'))} in. A second insolvency will end the company.` });
+    pushMessage(g, { tone: 'warn', cat: 'finance', title: 'Rescue signed', body: `${usd(amount)} in for ${stake}% of the company${amount > offered ? ' (raised to cover what went out since the offer)' : ''}. Cash now ${usd(g.company.cash)}. A second insolvency will end the company.` });
     return { ok: true, msg: 'Rescue signed' };
   }
   if (opt === 'refuse') {
@@ -729,6 +748,23 @@ function resolveRescue(g: GameState, d: Decision, opt: string): ActionResult {
     return { ok: true, msg: 'Investor refused' };
   }
   return { ok: false, error: 'Unknown option' };
+}
+
+/**
+ * v0.16.2 load repair: a save rescued by the old flat sum that left cash below zero (the month-end bill went out the
+ * same minute) gets the top-up the fund now pays, once, so the 30-day "insolvent again" clock does not end the game
+ * for a rescue that never cleared the overdraft.
+ */
+export function repairRescue(g: GameState, bill: number): void {
+  const f = g.finance;
+  if (!f || !(f.rescues ?? 0) || f.rescuedAt !== undefined) return;
+  const at = [...g.messages].reverse().find((m) => m.title === 'Rescue signed')?.t;
+  f.rescuedAt = at ?? g.now;
+  if (at === undefined || g.now - at > 40 * DAY || g.company.cash >= 0) return;
+  const amount = rescueNeed(g.company.cash, bill);
+  cashOnly(g, amount);
+  f.negSince = null;
+  pushMessage(g, { tone: 'good', cat: 'finance', title: 'The fund tops up its rescue', body: `The first payment went straight into the month-end bills, so the fund adds ${usd(amount)}: the overdraft cleared and next month's bills (${usd(bill)}) covered. Cash now ${usd(g.company.cash)}.` });
 }
 
 // ---------- client change requests ----------

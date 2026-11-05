@@ -1430,6 +1430,8 @@ export interface Finance {
   /** B3 solvency: cash negative since; rescues taken; rescue refused; last low-cash warning. */
   negSince?: Minute | null;
   rescues?: number;
+  /** v0.16.2 when the rescue was signed (load repair runs once). */
+  rescuedAt?: Minute;
   refusedRescue?: boolean;
   lowCashAt?: Minute;
 }

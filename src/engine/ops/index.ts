@@ -19,13 +19,14 @@ import { dailyMarket, loadMarket, onDelivery, onLeaseEnd, refreshMarket } from '
 import { dailyPaint, normaliseLivery } from './paint';
 import { loadRest, loadRest074, rollRestFor } from '../crew/restPlan';
 import { dailyClientCabin } from './clientCabin';
-import { DAY } from '../core/time';
+import { DAY, monthKey } from '../core/time';
 import { dailyDryLeases, onLeaseBack, onLeaseFerryHome, onLeaseOut } from './dryLease';
 import { dailyWorld, farStrandedAsk, healStranded, loadWorld, onWorldEnd } from './world';
 import { setFarLateHook } from '../contracts/schedule';
 import { relinkPositioning } from '../contracts/schedule';
 import { retireTypes } from './retired';
-import { registerResolvers } from './events';
+import { registerResolvers, repairRescue } from './events';
+import { monthEndBill } from './finance';
 import { dailyApprovalGate, resolveApprovalLate } from './approvalGate';
 export { atRiskLine, gateMisses, jobsAtRisk, legApprovals, legsAtRisk } from './approvalGate';
 import { DISRUPT_RESOLVERS, holdingForDecision, onDivertedArrival, onOpsEvent, opsState, rollBirdStrike, rollSickAway } from './disrupt';
@@ -210,6 +211,8 @@ export const opsModule: SimModule = {
     // v0.16 finance (credit line, loans, factoring) and the compliance post: defaults for an older save.
     loadTreasury(g);
     loadCompliance(g);
+    // v0.16.2 a rescue that never cleared the overdraft gets its top-up once.
+    repairRescue(g, monthEndBill(g, monthKey(g.now)).total);
   },
   handlers: {
     day: daily,
