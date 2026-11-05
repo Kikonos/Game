@@ -262,9 +262,13 @@ describe('crew legality: the days-off floor on rostered work (v0.9 round 4 fix r
     const mk = (d: Duty) => Math.floor(dayIndex(c.base, d.report) / 1) >= 0 && monthKey(d.report);
     const first = duties[0];
     const inMonth = duties.filter((d) => d !== first && dayOf(d) > 0 && dayOf(d) < 20 && mk(d) === mk(duties[1]));
-    const dK = inMonth[inMonth.length - 1];
-    expect(dayOf(dK)).toBeGreaterThan(dayOf(duties[1]));
-    expect(eveFloorIssue(g, c, duties, segsOf(g, c))).toMatchObject({ code: 'daysOff', level: 'illegal', text: expect.stringMatching(/^Days off in March would fall to [23] \(minimum 5\)$/), dutyId: dK.id });
+    expect(inMonth.length).toBeGreaterThan(0);
+    const issue = eveFloorIssue(g, c, duties, segsOf(g, c))!;
+    expect(issue).toMatchObject({ code: 'daysOff', level: 'illegal', text: expect.stringMatching(/^Days off in March would fall to [1-4] \(minimum 5\)$/) });
+    // (Rotations round: the set works its days in a row, so which early duty has a free eve depends on the pattern.)
+    const dK = duties.find((d) => d.id === issue.dutyId)!;
+    expect(dK).toBeTruthy();
+    expect(dK).not.toBe(first);
     expect(recheckPairing(g, p).level).toBe('illegal');
     expect(p.illegalFrom).toBe(dK.report);
     const legsK = [...dK.flightIds];

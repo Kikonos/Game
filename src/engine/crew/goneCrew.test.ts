@@ -92,7 +92,8 @@ describe('crew who have left never hold a seat (seeds 3 and 4)', () => {
 
   it('refreshPairing empties a seat held by someone who has left (and takes them off its flights)', () => {
     const { g } = dublin();
-    const p = Object.values(g.pairings).find((q) => q.status === 'planned' && q.slots.filter((s) => s.crewId).length >= 3)!;
+    // (Rotations round: the sets' first tours are under way for five weeks; any crewed tour with work still to fly.)
+    const p = Object.values(g.pairings).find((q) => (q.status === 'planned' || q.status === 'active') && q.dutyIds.some((id) => g.duties[id] && !g.duties[id].done) && q.slots.filter((s) => s.crewId).length >= 3)!;
     expect(p).toBeTruthy();
     const gone = p.slots.find((s) => s.crewId)!.crewId!;
     delete g.crew[gone];

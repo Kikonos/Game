@@ -395,7 +395,8 @@ describe('private jets', () => {
   });
 
   it('charterJet: a charter deadhead the crew are legal after, cost to crewJet, one jet leg, purpose and calendar', () => {
-    const { g, flightId, d, was } = shortOfCaptain('DUS', 'LHR', 8);
+    // (Rotations round: tickets leave on the route's timetable; 12 h out, a seat after the captain's rest lands in time.)
+    const { g, flightId, d, was } = shortOfCaptain('DUS', 'LHR', 12);
     for (const c of Object.values(g.crew)) if (c.role === 'CPT' && c.id !== was) { c.blocks = [{ from: g.now - DAY, to: g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
     const v = crewControl(g, flightId)!;
     const jet = v.solutions.find((x) => x.id === 'jet')!;
@@ -500,7 +501,8 @@ describe('private jets', () => {
     expect(r.ok).toBe(true);
     expect(g.flights[flightId].std).toBeGreaterThan(std);
     expect(flightCrewStatus(g, flightId).level).not.toBe('missing');
-    const ride = Object.values(g.flights).find((f) => f.kind === 'deadhead' && f.crewIds.includes(was))!;
+    // (Rotations round: his ticket home shares the crew's booking; the ride out is the jet.)
+    const ride = Object.values(g.flights).find((f) => f.kind === 'deadhead' && f.crewIds.includes(was) && f.to === 'FNC')!;
     expect(ride.charter).toBeDefined();
     expect(g.stats.jets).toBe(jets + 1);
     expect(g.stats.crewFixes?.jet).toBe(1);
@@ -573,6 +575,8 @@ describe('the warning ladder', () => {
     // a new shortage later rings again).
     g.crew[was].blocks = [];
     g.crew[was].status = 'available';
+    // (Rotations round: tickets leave on the route's timetable; with 14 h in hand a seat that fits the day exists.)
+    g.now = d.report - 14 * 60;
     expect(applyCrewFix(g, flightId, 'autoFix').ok).toBe(true);
     expect(shortFlights(g)).toEqual([]);
     escalateShortages(g);

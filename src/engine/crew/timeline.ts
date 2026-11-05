@@ -6,7 +6,7 @@ import { BAL } from '../core/balance';
 import { distance } from '../core/geo';
 import { deadheadFlights, flightsOf, flightsRev } from '../core/entities';
 import { reportMinutes } from '../core/perf';
-import { itinerary, ticketBlock } from '../ops/commercial';
+import { fullDeparture, isDeparture, itinerary, nextDeparture, ourSeats, ticketBlock, TT_CREW_SEATS } from '../ops/commercial';
 import { curfewOk } from '../core/curfew';
 import { DAY, fmtDateTime, fmtTime, monthKey, yearOf } from '../core/time';
 import type { Archetype, CrewMember, Duty, Flight, GameState, Minute, Pairing, StandbyKind } from '../core/types';
@@ -225,9 +225,26 @@ export const OUT_FAR_BLOCK = 6 * 60;
  * an event permit are rides, not tickets, and are not judged here. Pure.
  */
 export function ticketSlotOk(g: GameState, from: string, to: string, std: Minute, sta: Minute): boolean {
+  // Rotations round (v0.16.4): only a departure of the route's timetable (ops/commercial.ts departures), with seats: not
+  // one sold out before we booked, nor one that already carries our limit of crew (the next departure then).
+  if (from !== to && !isDeparture(from, to, std)) return false;
+  if (from !== to && (fullDeparture(from, to, std) || ourSeats(g, from, to, std) >= TT_CREW_SEATS)) {
+    skippedFull = { from, to, std };
+    return false;
+  }
   // v0.12.1 nothing leaves inside the departure airport's night curfew either (a FRA–LIS seat at 02:00 local).
   return !(closedCheck && (closedCheck(g, from, std) || closedCheck(g, to, sta))) && curfewOk(from, std) && curfewOk(to, sta);
 }
+
+/** Rotations round: the last departure a seat search passed over as full (read once by the booking, for its note). */
+let skippedFull: { from: string; to: string; std: Minute } | null = null;
+export function takeSkippedFull(from: string, to: string, before: Minute): Minute | null {
+  const x = skippedFull;
+  skippedFull = null;
+  return x && x.from === from && x.to === to && x.std < before ? x.std : null;
+}
+/** Rotations round: the route's next timetable departure at or after t (t itself when the route has none). Pure. */
+export const snapDeparture = (from: string, to: string, t: Minute): Minute => (from === to ? t : nextDeparture(from, to, t) ?? t);
 
 /** v0.12.1 the world's closure check (ops/world.ts closedAirport), set by crew control (no import cycle). */
 let closedCheck: ((g: GameState, code: string, t: Minute) => boolean) | null = null;
@@ -237,7 +254,8 @@ export function setClosedCheck(f: typeof closedCheck): void {
 
 /** The latest hour at or before t (not before lo) whose seat exists (ticketSlotOk), or null. Pure. */
 function slotBefore(g: GameState, from: string, to: string, t: Minute, lo: Minute, blk: number): Minute | null {
-  for (let x = t; x >= lo; x -= 60) if (ticketSlotOk(g, from, to, x, x + blk)) return x;
+  // (Rotations round: departures sit on whole hours; a search from an odd minute walks the hours below it.)
+  for (let x = Math.floor(t / 60) * 60; x >= lo; x -= 60) if (ticketSlotOk(g, from, to, x, x + blk)) return x;
   return null;
 }
 
@@ -250,7 +268,7 @@ export const SLOT_AHEAD = 32 * DAY;
  * (S1027, Goma closed to 6 Nov: the GOM–LIS 01:00 seat dropped and bought again). Pure.
  */
 export function slotAfter(g: GameState, from: string, to: string, t: Minute, blk: number): Minute | null {
-  for (let x = t; x < t + SLOT_AHEAD; x += 60) if (ticketSlotOk(g, from, to, x, x + blk)) return x;
+  for (let x = Math.ceil(t / 60) * 60; x < t + SLOT_AHEAD; x += 60) if (ticketSlotOk(g, from, to, x, x + blk)) return x;
   return null;
 }
 
@@ -355,7 +373,8 @@ export function outTicket(g: GameState, p: Pairing, d: Duty, from: string, ready
   const resting = free > g.now ? `Resting at ${from} until ${t(free)}; ` : '';
   const cap = (x: string) => (resting ? x : x[0].toUpperCase() + x.slice(1));
   if (last < first) {
-    const arr = first + blk;
+    // (Rotations round: the earliest arrival is the next timetable departure's.)
+    const arr = snapDeparture(from, to, first) + blk;
     // v0.12.1 (C7) never a deadline already past: a duty that has reported is joined later or not at all.
     if (rep - OUT_CONNECT <= g.now) return { plan, why: resting + cap(`earliest arrival ${to} ${t(arr)}${viaText(from, to, first, arr)}, after the crew reported (${t(rep)})`) };
     return { plan, why: resting + cap(`earliest arrival ${to} ${t(arr)}${viaText(from, to, first, arr)}, must land by ${t(rep - OUT_CONNECT)} (report ${t(rep)})`) };
@@ -590,16 +609,17 @@ export function planHome(d: Duty, to: string, early = 0, extCut = 0): TicketPlan
   // v0.7.2 `early`: the cabin crew's earlier report (one ticket for the whole crew: the longest day sets the rest).
   const from = d.restAt;
   const blk = dhBlock(from, to);
-  const std = hour(d.release + 60, true);
+  // Rotations round: on the route's timetable (the next departure).
+  const std = snapDeparture(from, to, hour(d.release + 60, true));
   if (std + blk - d.report + early <= 13 * 60) return { from, to, std, sta: std + blk };
   const rest = minRest({ dutyMin: d.release - d.report + early, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(to, from, d.release), extended: !!d.ext }) - (d.ext ? extCut : 0);
-  const std2 = hour(d.release + rest + CHECKIN(), true);
+  const std2 = snapDeparture(from, to, hour(d.release + rest + CHECKIN(), true));
   return { from, to, std: std2, sta: std2 + blk };
 }
 
 /** Ticket home leaving `wait` after release (a recovery rest at the hotel before positioning home). */
 export function planHomeAfter(d: Duty, to: string, wait: number): TicketPlan {
-  const std = hour(d.release + wait + CHECKIN(), true);
+  const std = snapDeparture(d.restAt, to, hour(d.release + wait + CHECKIN(), true));
   return { from: d.restAt, to, std, sta: std + dhBlock(d.restAt, to) };
 }
 

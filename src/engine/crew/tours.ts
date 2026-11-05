@@ -7,7 +7,7 @@ import { BAL } from '../core/balance';
 import { DAY } from '../core/time';
 import type { CrewMember, Deployment, GameState, Minute, Pairing } from '../core/types';
 import { periodOf } from './duties';
-import { crewIx } from './timeline';
+import { crewIx, dhBlock, planHome, type TicketPlan } from './timeline';
 
 /** The deployment of a tour pairing. */
 export const deploymentOf = (g: GameState, p: Pairing): Deployment | undefined => (p.tour && p.deploymentId ? g.deployments[p.deploymentId] : undefined);
@@ -104,4 +104,19 @@ export function deploymentSets(g: GameState): SetLine[] {
     }
   }
   return out;
+}
+
+/**
+ * Rotations round: the ticket home of a tour's crew. After the period's last duty when that duty is known (the period's
+ * end lies inside the schedule horizon); else at the period's end: the set stays on station (days off at the hotel) for
+ * the duties still to roll in, and the ticket is moved earlier once the last duty is known (roster.ts moveHome). Before,
+ * it was booked after the last duty known at roster time, so a set on a thin programme flew home in the middle of its
+ * rotation and a replacement was flown out when the next duty came.
+ */
+export function tourHomePlan(g: GameState, p: Pairing, last: { release: Minute; report: Minute; restAt: string; augment: number; ext?: boolean }, base: string, early = 0): TicketPlan {
+  const plan = planHome(last as never, base, early);
+  const span = tourSpan(g, p);
+  if (!span || tourEndKnown(g, p)) return plan;
+  const std = Math.max(plan.std, Math.ceil((span.to - 12 * 60) / 60) * 60);
+  return { from: last.restAt, to: base, std, sta: std + dhBlock(last.restAt, base) };
 }

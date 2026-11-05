@@ -7,6 +7,7 @@ import { writeFileSync } from 'node:fs';
 import { DAY, fmtDateTime, fmtDay, monthKey } from '../src/engine/core/time';
 import type { Deployment, Duty, Flight, GameState, MonthKey } from '../src/engine/core/types';
 import { setChainSpy } from '../src/engine/crew/duties';
+import { setDropSpy } from '../src/engine/crew/roster';
 import { crewIx } from '../src/engine/crew/timeline';
 
 export type TicketClass = 'tourChange' | 'midTourHome' | 'midTourOut' | 'strayDutyTrip' | 'charterTrip' | 'crewJet' | 'other';
@@ -28,6 +29,8 @@ export interface TicketRow {
   stint?: number;
   /** At the report: flown, still booked, or dropped before it flew (its cost sunk: a re-booking or a change of plan). */
   fate?: 'flown' | 'booked' | 'dropped';
+  /** Why crew came off it before it flew (the last reason seen). */
+  dropWhy?: string;
 }
 type Minute = number;
 
@@ -134,6 +137,10 @@ export function createTicketLog(startNow?: Minute): TicketLog {
     strays.push({ at: g.now, base: dep.base, duty: `${f0?.no ?? d.id} ${f0?.from ?? '?'}–${f0?.to ?? '?'} ${fmtDateTime(d.report)}`, why });
   });
   const pending = new Map<string, TicketRow>();
+  setDropSpy((_g, f, _crewId, why) => {
+    const r = pending.get(f.id);
+    if (r) r.dropWhy = why;
+  });
   const observe = (g: GameState) => {
     // Fates: a ticket seen flown stays flown (tickets are pruned 2 days after landing); one gone before it left was dropped.
     for (const [id, r] of pending) {
@@ -217,11 +224,11 @@ export function createTicketLog(startNow?: Minute): TicketLog {
     out.push('');
     const dw = new Map<string, number>();
     for (const r of dropped) {
-      const k = r.why.replace(/\d+:\d\d/g, 'h:mm').replace(/ set \d+ at \w+/, '').slice(0, 70) || '(no reason)';
+      const k = `${r.why.replace(/\d+:\d\d/g, 'h:mm').replace(/ set \d+ at \w+/, '').slice(0, 40) || '(no reason)'} → ${(r.dropWhy ?? '?').replace(/\d+:\d\d/g, 'h:mm').replace(/\b\d+ \w{3}\b/g, 'date').slice(0, 60)}`;
       dw.set(k, (dw.get(k) ?? 0) + r.n);
     }
-    out.push('Dropped tickets by what they were bought for (people):');
-    for (const [k, n] of [...dw].sort((a, b) => b[1] - a[1]).slice(0, 10)) out.push(`- ${n} × ${k}`);
+    out.push('Dropped tickets by what they were bought for → why dropped (people):');
+    for (const [k, n] of [...dw].sort((a, b) => b[1] - a[1]).slice(0, 14)) out.push(`- ${n} × ${k}`);
     out.push('');
     out.push('Sample mid-tour tickets:');
     for (const r of rows.filter((x) => x.fate !== 'dropped' && (x.cls === 'midTourHome' || x.cls === 'midTourOut')).slice(0, 40)) out.push(`- ${fmtDateTime(r.std)} ${r.from}–${r.to} ${r.crew.join(', ')} [${r.cls}${r.stint !== undefined ? ` ${r.stint} d` : ''}] ${r.why}`);
