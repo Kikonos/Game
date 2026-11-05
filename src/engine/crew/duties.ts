@@ -1247,21 +1247,47 @@ function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
 
 const rotation = (g: GameState) => g.company.policies.rotationWeeks * 7 * DAY;
 
-/** On-station period of set s that contains t (null before the set exists). */
-export function periodOf(dep: Deployment, s: number, t: Minute, R: number): { from: Minute; to: Minute } | null {
+/**
+ * Rotations round (v0.16.4): a set whose next change would fall within this of the deployment's end stays to the end
+ * instead (no fresh set flown out for a stub of a few days); the first tours are staggered over this span past the
+ * rotation, never short of it (the player: crews go home at five weeks or more).
+ */
+export const TOUR_TAIL = 7 * DAY;
+
+function periodRaw(dep: Deployment, s: number, t: Minute, R: number): { from: Minute; to: Minute } | null {
   const a = dep.anchors?.[s];
   if (a === undefined) return null;
-  if (t < a) {
-    const from = Math.max(dep.start, a - R);
-    return t < from ? null : { from, to: a };
-  }
+  // The first period runs from the deployment's start to the first change (Rotations round: up to a week past R).
+  if (t < a) return t < dep.start ? null : { from: dep.start, to: a };
   const k = Math.floor((t - a) / R);
   return { from: a + k * R, to: a + (k + 1) * R };
 }
 
+/**
+ * On-station period of set s that contains t (null before the set exists). Rotations round: the last period before the
+ * deployment's end absorbs a stub shorter than TOUR_TAIL (the set stays to the end).
+ */
+export function periodOf(dep: Deployment, s: number, t: Minute, R: number): { from: Minute; to: Minute } | null {
+  const per = periodRaw(dep, s, t, R);
+  if (!per) return null;
+  const end = dep.end;
+  // t falls in the stub after the last change: that change never happens; the previous period runs to the end.
+  if (per.from > dep.start && per.from < end && end - per.from <= TOUR_TAIL) {
+    const prev = periodRaw(dep, s, per.from - 1, R);
+    if (prev) return { from: prev.from, to: end };
+  }
+  if (per.to < end && end - per.to <= TOUR_TAIL) return { from: per.from, to: end };
+  return per;
+}
+
+/**
+ * First tour change per set. Rotations round: every first tour is at least the rotation long, the sets staggered over
+ * the week after it (35, 37, 40, 42 days for four sets at five weeks); before, the stagger cut the first tours short
+ * (9, 18, 26 and 35 days), a short stint and two more tickets for every set but the last.
+ */
 function anchorsFor(start: Minute, sets: number, R: number): Minute[] {
   const out: Minute[] = [];
-  for (let s = 0; s < sets; s++) out.push(start + Math.max(1, Math.round(((s + 1) * R) / sets / DAY)) * DAY);
+  for (let s = 0; s < sets; s++) out.push(start + R + (sets > 1 ? Math.round((s * (TOUR_TAIL / DAY)) / (sets - 1)) : 0) * DAY);
   return out;
 }
 
@@ -1273,6 +1299,8 @@ interface TourState {
   duties: Duty[];
   segs: Seg[];
   days: number[];
+  /** Rotations round: worked days with the eve of an early report (the 7-days-off-in-28 cap, LIMITS.workDays28). */
+  work: number[];
 }
 
 /** A duty as a virtual crew set's seg (no tickets); v0.7.2 from the cabin crew's earlier report (the longer day). */
@@ -1333,6 +1361,7 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
     tours.set(`${p.tour.set}:${p.tour.from}`, {
       set: p.tour.set, from: p.tour.from, to: p.tour.to, pairing: p, duties,
       segs: duties.map((d) => virtualSeg(g, d, p.start, home)), days: [...new Set(duties.map((d) => dayOf(d.report)))].sort((a, b) => a - b),
+      work: [...new Set(duties.flatMap((d) => [dayOf(d.report - mf), dayOf(d.report)]))].sort((a, b) => a - b),
     });
   }
   const take = (d: Duty, why?: string[]): boolean => {
@@ -1353,11 +1382,20 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
         continue;
       }
       const key = `${s}:${per.from}`;
-      const st = tours.get(key) ?? { set: s, from: per.from, to: per.to, pairing: null, duties: [], segs: [], days: [] };
+      const st = tours.get(key) ?? { set: s, from: per.from, to: per.to, pairing: null, duties: [], segs: [], days: [], work: [] };
       const dd = daysOf(d);
       const days = dd.every((x) => st.days.includes(x)) ? st.days : [...new Set([...st.days, ...dd])].sort((a, b) => a - b);
       if (longestWorkBlock(days) > LIMITS.blockDays) {
         why?.push(`set ${s}: 6-on/2-off block`);
+        continue;
+      }
+      // Rotations round: at most 21 worked days (eves of early reports included) in any 28 of the tour, so a set keeps
+      // its 7 local days off a month on station. Before, a set's first tour was 9 days and the month floor was found
+      // only by the crew-level check: the seat then went to nobody (bot: a Dhaka tour of 19 duties in 30 days uncrewed).
+      const we = [dayOf(d.report - mf), dayOf(d.report)];
+      const work = we.every((x) => st.work.includes(x)) ? st.work : [...new Set([...st.work, ...we])].sort((a, b) => a - b);
+      if (work.length > LIMITS.workDays28 && overWorkDays(work, we)) {
+        why?.push(`set ${s}: days off in 28`);
         continue;
       }
       const tripStart = Math.min(st.duties[0]?.report ?? d.report, d.report);
@@ -1379,7 +1417,13 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
         continue;
       }
       const restEnd = last ? last.end + last.rest : -Infinity;
-      const onEve = early && (sizing || (!!st.pairing && crewCount(st.pairing) > 0)) && st.days.includes(eve);
+      // Rotations round: a set inside a work block (it worked the day before, and the block has room) comes before one
+      // on its days off, so a set works its days in a row and then has its two days off together (4 on, 2 off with
+      // three sets on two waves). Round-robin by rest end alone spread the duties every other day and no set ever got
+      // two days off in a row, so the 6-on/2-off rule failed within a tour and the sizing asked for twice the sets
+      // (the short first tours of the old stagger had hidden it).
+      const run = st.days.includes(dayOf(d.report) - 1) && longestWorkBlock(days) <= LIMITS.blockDays;
+      const onEve = (early && (sizing || (!!st.pairing && crewCount(st.pairing) > 0)) && st.days.includes(eve)) || run;
       if (rank > pickRank || (rank === pickRank && (Number(onEve) > Number(pickEve) || (onEve === pickEve && restEnd < pickRest)))) {
         pick = st;
         pickRest = restEnd;
@@ -1397,9 +1441,23 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
     pick.segs.sort((x, y) => x.start - y.start);
     const dd = daysOf(d);
     if (!dd.every((x) => pick.days.includes(x))) pick.days = [...new Set([...pick.days, ...dd])].sort((a, b) => a - b);
+    const we = [dayOf(d.report - mf), dayOf(d.report)];
+    if (!we.every((x) => pick.work.includes(x))) pick.work = [...new Set([...pick.work, ...we])].sort((a, b) => a - b);
     return true;
   };
   return { take, tours };
+}
+
+/** Any 28-day window holding one of `days` has more than LIMITS.workDays28 of the (sorted) worked days. Pure. */
+function overWorkDays(work: number[], days: number[]): boolean {
+  for (const k of days) {
+    for (const lo of [k - 27, k]) {
+      let n = 0;
+      for (const x of work) if (x >= lo && x < lo + 28) n++;
+      if (n > LIMITS.workDays28) return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -1489,7 +1547,9 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
     if (ch.take(d, why)) continue;
     // One extra set at most beyond the sizing (a whole tour of crew for a stray duty is waste: it flies as a
     // trip from base instead); a duty before the deployment's start can't join any set.
-    if (d.report >= dep.start && dep.anchors.length < Math.min(BAL.maxSetsOnStation, dep.sized + grow)) {
+    // Rotations round: and only for a duty a week or more ahead (a programme bigger than its sizing), never for one
+    // this week that a late landing, a sick call or a limit took off its set: that is one trip, not a new set for 35 days.
+    if (d.report >= dep.start && d.report - g.now >= TOUR_TAIL && dep.anchors.length < Math.min(BAL.maxSetsOnStation, dep.sized + grow)) {
       dep.anchors.push(dayStart(d.report) + R);
       dep.setsOnStation = dep.anchors.length;
       if (ch.take(d, why)) continue;
