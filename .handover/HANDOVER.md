@@ -645,3 +645,9 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
 - The rescue is now sized to the overdraft plus the next month-end bill (events.ts rescueNeed/rescueStake) and re-measured at signing.
 - repairRescue on load gives a one-time top-up to a save the old flat sum left below zero. On s0501 cash goes from -2.66M to +3.24M.
 - Live index-Vogs08S0.js.
+
+## v0.16.3 in progress (2026-11-05)
+- An agent is building:
+  - distress finance: a secured credit line while in debt, lessor rent deferral, creditor payment plans, an investor sought at any time with board targets, furlough and salary deferral, client prepayment, PER restructuring;
+  - Sales moved under Contracts › Market (Offers · Leads · Tenders).
+- Branch v0163; STATE in /home/user/work/v0163/STATE.txt. The parent releases it after it is tested.
