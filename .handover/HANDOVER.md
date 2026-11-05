@@ -651,3 +651,13 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
   - distress finance: a secured credit line while in debt, lessor rent deferral, creditor payment plans, an investor sought at any time with board targets, furlough and salary deferral, client prepayment, PER restructuring;
   - Sales moved under Contracts › Market (Offers · Leads · Tenders).
 - Branch v0163; STATE in /home/user/work/v0163/STATE.txt. The parent releases it after it is tested.
+- QUEUED v0.17 "Aircraft market" (player asked 2026-11-05; build after v0.16.3 and v0.16.4). Current market: market7 ~1 offer a month, at most 4 open, each open 7–21 days. The player finds it "a little bit too slow" but wants the challenge kept (no leasing every widebody).
+  Planned design:
+  1. Lessor RFPs: request type, age, term and start; real lessors answer in 1–4 weeks. Answers depend on how tight that type is and on our credit.
+  2. Market tightness per type: neo almost unobtainable for small operators; ceo and NG tight; A330/777 easier; 747 rare. It moves with world events.
+  3. Credit check: AOC years, fleet, cash, stars, distress. The answer is approve, decline, or a bigger deposit or guarantee. Each lessor caps how many aircraft it puts with us.
+  4. Real terms: 2–3 months' deposit, maintenance reserves, lease rate factor, return conditions.
+  5. Transition takes 6–16 weeks (records, C-check, repaint, registration), and our CAMO can only handle a few transitions at once.
+  6. A new type needs an AOC variation (months) and rated crew. Existing gates stay (widebody approval, ETOPS).
+  7. A spot market for short-term leases of other airlines' surplus aircraft, plus the existing random offers.
+  The builder must research real 2025–26 numbers (lease rates, transition times, lessor requirements).
