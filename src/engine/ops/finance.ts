@@ -21,6 +21,7 @@ import { latePaymentDecision, rescueDecision } from './events';
 import { salesBill } from '../commercial/sales';
 import { complianceBill } from './compliance';
 import { paidToUs, settleFactored, treasuryForecastItems } from '../finance';
+import { furloughSaving, perActive } from '../finance/distress';
 import { stats, usd } from './util';
 
 export function newStatement(month: MonthKey, cash: number): MonthStatement {
@@ -83,7 +84,7 @@ export function rentOver(own: Lease, x: Minute, y: Minute, len: number): number 
  * v0.12.1 rent of a leased-in aircraft for month k: its days on lease, and a holdover past the lease end while it
  * is still with us (the lessor's +10%), so an aircraft kept after its lease never flies rent-free.
  */
-function rentOf(g: GameState, ac: GameState['fleet'][string], k: MonthKey, leaveAt?: Minute): number {
+export function rentOf(g: GameState, ac: GameState['fleet'][string], k: MonthKey, leaveAt?: Minute): number {
   if (ac.ownership.kind !== 'dryLeaseIn') return 0;
   const own = ac.ownership;
   const a = monthStart(k), b = monthStart(k + 1);
@@ -189,7 +190,7 @@ export function onPayment(g: GameState, ev: SimEvent): void {
   }
 }
 
-function gameOver(g: GameState, reason: string): void {
+export function gameOver(g: GameState, reason: string): void {
   if (g.gameOver) return;
   g.gameOver = { t: g.now, reason };
   pushMessage(g, { tone: 'bad', cat: 'finance', title: 'The company has failed', body: reason });
@@ -235,6 +236,8 @@ export function dailyFinance(g: GameState): void {
       const card = cashNegativeCard(g);
       if (card) postProblem(g, card, { cat: 'finance', tone: 'bad', cue: 'cashNegative', tail: 'Find work, chase receivables or cut costs.' });
     }
+    // v0.16.3 a court-protected restructuring (finance/distress.ts): claims frozen, the clock stopped until the plan ends.
+    if (perActive(g)) return;
     if (f.refusedRescue && cash < BAL.bankruptFloor) return gameOver(g, `Cash fell below ${usd(BAL.bankruptFloor)} after the rescue was refused.`);
     // v0.12 Scenarios (Cash Crunch): no investor comes; below the floor the creditors close the company.
     if (g.scen?.noRescue) {
@@ -299,7 +302,8 @@ export function monthEndBill(g: GameState, k: MonthKey): MonthEndBill {
       if (at !== null && at < end) pay += c.salary * paidShare({ ...c, payFrom: at }, a, end);
     }
   }
-  const salaries = Math.round(pay * (1 + BAL.onCosts));
+  // v0.16.3 crew on unpaid leave (furlough) are not paid for it (finance/distress.ts books the saving at the month end).
+  const salaries = Math.max(0, Math.round(pay * (1 + BAL.onCosts)) - furloughSaving(g, k));
   const heads = headsBill(g, k);
   // v0.16 the sales managers (commercial/sales.ts) and the compliance manager (ops/compliance.ts).
   const sales = salesBill(g, k);

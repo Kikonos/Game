@@ -2,6 +2,7 @@
 // navigation, modals, quiet toasts, settings and saving. DESIGN.md §3.4 and §6.
 
 import { deliveryCardFor } from './modals/deliveryCard';
+import type { DistressId } from '../engine/finance/distress';
 import { startTransition, useEffect, useState, useSyncExternalStore } from 'react';
 import { clearPause, takePause, type PauseReason } from '../engine/core/pause';
 import type { BugPrefill } from './bugReports';
@@ -181,6 +182,8 @@ export type ModalSpec =
   | { kind: 'sell'; aircraftId: string }
   /** v0.16 finance: borrow against an aircraft, sell and lease it back, sell an invoice, open the credit line (ui/modals/FinanceModals.tsx). */
   | { kind: 'financing'; what: 'loan' | 'leaseback' | 'factor' | 'credit'; id?: string }
+  /** v0.16.3 one way out of debt (Finance › Get out of debt; ui/modals/FinanceModals.tsx DistressModal). */
+  | { kind: 'distress'; id: DistressId }
   | { kind: 'approval'; id: ApprovalId }
   | { kind: 'ladderStep'; messageId: string }
   | { kind: 'whatsNew'; /** v0.8 fix pack: every version (Settings), not just the unseen ones. */ all?: boolean }

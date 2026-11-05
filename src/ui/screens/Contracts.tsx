@@ -64,6 +64,8 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
   // v0.9 the analyst's score (when hired and on): once per offer and game hour.
   const av = useMemo(() => analystView(g, o.id), [g, o.id, o.status, Math.floor(g.now / 60)]); // eslint-disable-line react-hooks/exhaustive-deps
   const chips = [...v09Chips(o, av), ...paint, ...cabin, ...reqChips(o.requirements, o.pattern), ...riskChips(o.risk)];
+  // v0.16.3 the restructuring label the client prices in.
+  if (o.distressPct) chips.unshift({ label: `Restructuring ${Math.round(o.distressPct * 100)} %`, tone: 'warn', tip: 'The client knows the company is in a court-protected restructuring and prices the risk' });
   // v0.7.1 §13: a WHY? dot when the offer can't be flown as it stands or a counter is about to expire.
   const prob = problemAt(g, { kind: 'offer', id: o.id });
   return (

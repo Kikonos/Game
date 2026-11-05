@@ -1,0 +1,32 @@
+/* v0.16.3 Finance › Get out of debt (ui/screens/finance/DebtPanel.tsx) and the distress dialog; Contracts › Market hub. */
+
+.fin-debt .dp-body { display: flex; flex-direction: column; gap: 10px; }
+.dp-com { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
+.dp-com-row.warn { color: var(--warn); }
+.dp-com-row.bad { color: var(--bad); }
+.dp-com-row.good { color: var(--good); }
+.dp-com-row.muted { color: var(--text-muted, inherit); }
+.dp-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.dp-opt { display: flex; align-items: center; gap: 10px; text-align: left; padding: 10px 12px; min-height: 64px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); color: inherit; font: inherit; cursor: pointer; }
+.dp-opt:hover:not(:disabled) { border-color: var(--accent); }
+.dp-opt:disabled { cursor: default; opacity: 0.6; }
+.dp-opt.off b { color: var(--text-muted, inherit); }
+.dp-lines { display: flex; flex-direction: column; gap: 1px; line-height: 1.3; }
+.dp-lines .dim { display: inline-block; min-width: 42px; }
+.dp-chev { flex: none; }
+.dp-select { max-width: 100%; min-height: 40px; }
+:where(.touch) .dp-select { min-height: 44px; }
+@media (max-width: 899.98px) { .dp-list { grid-template-columns: minmax(0, 1fr); } .dp-opt { min-height: 56px; } }
+
+/* Contracts › Market hub: the segmented control (Offers · Leads · Tenders) with counts, the sales desk folded away. */
+.mh-seg { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.mh-seg .seg button { min-height: 40px; padding: 0 14px; display: inline-flex; align-items: center; gap: 6px; }
+:where(.touch) .mh-seg .seg button { min-height: 44px; }
+.mh-count { display: inline-flex; align-items: center; justify-content: center; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; font-size: 11px; font-weight: 600; background: rgba(var(--line-rgb), 0.14); }
+.seg button.active .mh-count { background: rgba(var(--accent-rgb, 90, 160, 255), 0.25); }
+.mh-count.hot { background: rgba(var(--warn-rgb), 0.25); color: var(--warn); }
+.mh-desk { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; padding: 10px 14px; min-height: 48px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); color: inherit; font: inherit; cursor: pointer; }
+.mh-desk:hover { border-color: var(--accent); }
+.mh-desk .mh-desk-t { min-width: 0; }
+.mh-desk-body { margin-top: 10px; }
+.mh-urgent { color: var(--warn); }

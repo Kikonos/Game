@@ -26,6 +26,8 @@ export const LUMP_CATS: readonly LedgerCat[] = [
   // v0.14.1 (M4) a write-off and an administrator's payout on it, a sales trip or fair booked in one go, a factoring
   // fee, a lessor's consent fee.
   'badDebt', 'sales', 'interest', 'consent',
+  // v0.16.3 deferral premiums, plan fees, discounts and write-offs come in lumps.
+  'distress',
   // v0.14.1 (M5) the month-end lines booked before the month end are an aircraft leaving (its part-month rent,
   // insurance and overhead) or a leaver's pay, severance or a bought-back day off: once each, while the month-end bill
   // no longer counts them.

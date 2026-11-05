@@ -7,6 +7,7 @@ import { DAY, fmtDay, fmtMonth, monthKey, nextMonthStart } from '../core/time';
 import type { GameState, LedgerCat, MonthStatement } from '../core/types';
 import { cashForecast, cashSeries, daysOverdue, forecastItems, monthEndBill } from '../ops/finance';
 import { cashLowBefore, creditView } from '../finance';
+import { distressProblems } from '../finance/distress';
 import { usd } from '../ops/util';
 import { mkHurt, type ProblemCard, type TimelineSpec } from './types';
 
@@ -41,7 +42,8 @@ export function cashLowCard(g: GameState): ProblemCard | null {
     why: `The 30-day forecast dips to ${usd(low.cash)}${top ? `. Biggest cost before then: ${top[0]} (${usd(-top[1])})` : ''}.`,
     hurt: mkHurt({ money: -low.cash, what: `short on ${fmtDay(low.t)}`, extra: `salaries late = morale ${BAL.morale.salaryLate}` }),
     actions: [
-      { id: 'finance', label: 'Finance', open: { tab: 'finance' }, primary: true },
+      // v0.16.3 the ways out of debt (Finance › Get out of debt): a secured line, deferrals, an investor, a restructuring.
+      { id: 'debt', label: 'Ways out of debt', open: { tab: 'finance', view: 'debt' }, primary: true },
       { id: 'findWork', label: 'Find work', open: { tab: 'contracts' } },
       ...(decision ? [{ id: 'factor', label: 'Sell an invoice', open: { modal: 'decision' as const, id: decision.id } }] : []),
     ],
@@ -331,5 +333,7 @@ export function moneyProblems(g: GameState): ProblemCard[] {
     const c = factorRecourseCard(g, id);
     if (c) out.push(c);
   }
+  // v0.16.3 the investor's board and the restructuring plan.
+  out.push(...distressProblems(g));
   return out;
 }

@@ -3,6 +3,7 @@
 import { v09Stats } from '../crew/dayPlan';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
+import { checkStretch } from '../finance/distress';
 import { addFlight, flightsOf, nextId, removeFlights, retimeFlight, touchFlights } from '../core/entities';
 import { C_HUBS, cHubAt, type CHub } from '../../data/mro';
 import { post } from '../core/ledger';
@@ -474,8 +475,12 @@ export function planChecks(g: GameState): void {
     if (ac.status === 'delivering' || ac.status === 'stored' || ac.status === 'leasedOut') continue;
     const st = checkStatus(g, ac);
     // A-check.
-    if (!st.nextA && (st.aUsed >= BAL.planAt || st.aDue - g.now <= BAL.planAheadDays * DAY)) {
-      const booked = g.company.policies.autoMaintenance && planA(g, ac, Math.max(st.aDue, g.now + DAY));
+    // v0.16.3 checks stretched towards the tolerance while the company digs out of debt (finance/distress.ts): planned
+    // later, due later (never past the 10 % the authority allows).
+    const stretch = checkStretch(g);
+    const aDue = st.aDue + Math.round((stretch.dueX - 1) * BAL.aCheckDays * DAY);
+    if (!st.nextA && (st.aUsed >= stretch.planAt || aDue - g.now <= BAL.planAheadDays * DAY)) {
+      const booked = g.company.policies.autoMaintenance && planA(g, ac, Math.max(aDue, g.now + DAY));
       if (!booked && st.aDue - g.now <= 7 * DAY && (ac.maint.aWarned ?? 0) < g.now - 3 * DAY) {
         ac.maint.aWarned = g.now;
         pushMessage(g, {

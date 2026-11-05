@@ -629,6 +629,31 @@ export const BAL = {
     },
   },
 
+  // ---------- v0.16.3 distress finance (engine/finance/distress.ts) ----------
+  v0163: {
+    /** The secured facility while cash is below zero: borrowing base = recvShare × eligible receivables (open, not sold, due within recvDays or overdue ≤ recvOverdue) + acShare × the market value of owned aircraft without a loan; rounded; clamped; margin over the bank rate by standing; arrangement fee (min); the liquidity covenant wants this many months' bill; drawn above the base is repaid within one month. */
+    secured: {
+      recvShare: 0.8, recvDays: 90, recvOverdue: 30, acShare: 0.5, roundTo: 50_000, limit: [250_000, 20_000_000] as [number, number],
+      margin: [0.09, 0.08, 0.07] as [number, number, number], arrangementFee: 0.02, arrangementMin: 25_000, liquidityMonths: 1.5,
+    },
+    /** Lessor rent deferral: months offered; premium on the deferred rent; the lease extension asked (× months deferred); the reliability and clean hits; a default (swept below zero) blocks that lessor for `blockDays`. */
+    rent: { months: [2, 3] as number[], premium: 0.1, extendX: 2, reliable: -1, clean: -1, defaultReliable: -2, blockDays: 365 },
+    /** Creditor payment plans: the share of the last two months' bills a creditor spreads; months offered; fee a month (min); the smallest plan; outstanding deferrals (plans + rent) at most this × the month-end bill; a plan called after this many misses, with this fee. */
+    plan: { share: 0.5, months: [3, 4, 6] as number[], feePerMonth: 0.01, feeMin: 0.03, min: 50_000, maxBillX: 2, callAfterMissed: 2, callFee: 0.02 },
+    /** An investor sought: the stake relief against the forced rescue (points), the floor; the reliability and clean hits; quarterly reviews (days); targets: cash ≥ 0 at the review and a 3-month operating margin ≥ marginMin; misses before a forced sale and before the board takes over; released after `metToRelease` reviews met in a row. */
+    investor: { stakeLess: 5, stakeMin: 20, reliable: -3, clean: -2, reviewDays: 91, marginMin: 0, forceSaleAt: 2, takeOverAt: 3, metToRelease: 4, names: ['Castlelake', 'Indigo Partners', 'Apollo Global Management', 'Bain Capital', 'Cerberus Capital Management', 'Oaktree Capital'] as string[] },
+    /** Furlough: shares and weeks offered; morale hits (furloughed, the rest); the days before it starts. */
+    furlough: { shares: [0.25, 0.5] as number[], weeks: [4, 8] as number[], morale: -15, moraleOthers: -4, startDays: 2 },
+    /** Salary deferral: the share of crew pay deferred (heads in full), months offered, repaid over `repayMonths` after, morale a month. */
+    salary: { share: 0.3, months: [1, 2] as number[], repayMonths: 2, morale: -8 },
+    /** Checks stretched: days; the A-check planned when this share of the interval is used (tolerance 1.1); deferred-defects added a month (AOG risk). */
+    checks: { days: 90, planAt: 0.97, dueX: 1.07, deferredPerMonth: 0.04 },
+    /** Early payment: discount = base + perDay × days to the due date, clamped; the relation hit (asked, refused); the chance a client agrees at relation 0 / 100. */
+    prepay: { base: 0.02, perDay: 0.0005, clamp: [0.02, 0.06] as [number, number], relation: -3, refusedRelation: -2, agree: [0.55, 0.95] as [number, number] },
+    /** PER restructuring: eligible when cash is below −minBillX × the month-end bill or below zero for `minDays`; plan months; the write-off on unsecured claims (the overdraft, plans, rent arrears, an unsecured drawn line); court and adviser fees (share of claims, min); label months after exit; no new credit (months); reputation hits; relation hit with every client we work for; the share of them that cancel at relation < cancelBelow; a lessor repossesses one aircraft with this chance; the deposit demanded while labelled; the rate part while labelled. */
+    per: { minBillX: 1, minDays: 20, months: 6, writeOff: 0.3, fee: 0.015, feeMin: 60_000, labelMonths: 12, noCreditMonths: 12, reliable: -10, clean: -10, relation: -15, cancelChance: 0.3, cancelBelow: 30, repossessChance: 0.5, deposit: 0.3, ratePct: -0.05 },
+  },
+
   // ---------- v0.12.1 world tours (contracts/missions.ts worldTour) ----------
   v0121: {
     /**

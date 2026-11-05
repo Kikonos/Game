@@ -245,6 +245,8 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   consent: 'Lessor consent fees',
   // v0.16
   interestIncome: 'Interest on cash', bankFees: 'Bank fees', commission: 'Brokers\' commission',
+  // v0.16.3
+  distress: 'Deferrals & restructuring',
 };
 
 /**
