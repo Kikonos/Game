@@ -672,3 +672,15 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
   - When the check disagrees: no alarm, no pause. A silent "Self-check" record is kept and auto-filed into Bug reports with a snapshot, so the player can export it.
   - Counters in dev and in the bot report: confirmed vs withheld.
   - Must be cheap (runs only when an alarm would fire) and deterministic.
+- 2026-11-05 night: the player sent a bug report export, /home/user/work/bugs1105/report.json (unpacked to /home/user/work/bugs1105/out with scripts/bugs.ts; snapshots 01–05 + current). Five reports:
+  1. Luxair wants an A320-size aircraft, but the offer dialog lets them pick the A330.
+  2. BLU2003 AMS–MBJ: the in-flight rest plan includes the previous leg (BLU2011 CMN–AMS positioning in the same duty). Also a CREW SHORTAGE alarm on BLU2004.
+  3. Resignation "because of long standby runs": the player (a flight attendant) says standby doesn't hurt morale. Remove or soften it, and fix the stray "The".
+  4. HX6001 SHA–HKG, a 2 h flight crewed with 4 pilots: is that needed?
+  5. CS-TQM stuck at HKG with no ferry or crew planned to bring it home (its next legs start at LIS in July).
+- The player wants exotic types (A380, 747 and so on) to be POSSIBLE to lease or buy: hard and expensive, not realistic-easy, but never impossible. The v0.17 build must allow a route to them, e.g. end-of-life A380s and 747s from specialist lessors or airlines retiring them, with high deposits and requirements, at grade B and above or with a large deposit.
+- Plan: after v0.16.3 (agent done; on acmi) and v0.16.4 (rot) merge, run ONE overnight workflow (Opus, high effort):
+  - a bug lane for 1 and 5;
+  - a crew bug lane for 2–4 plus the alarm self-check;
+  - the v0.17 build lanes from docs/UPDATE-0.17.md (branch v017doc);
+  - then merge, balance, review, and release when green.
