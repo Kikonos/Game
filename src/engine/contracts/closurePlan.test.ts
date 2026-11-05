@@ -69,3 +69,41 @@ describe('empty legs and world closures (v0.12.1 review)', () => {
     expect(g.flights[older.id]).toBeUndefined();
   });
 });
+
+describe("v0.16.1 an empty leg into a closed airport flies under the clearance of the job it is for (s0429: Niamey)", () => {
+  it('the evacuation out of the closed airport gets its positioning in before the first leg, tagged to the job', () => {
+    const g = newGame(41);
+    const ac = owned(g);
+    const home = g.company.homeBase;
+    const e = startEvent(g, { ...TPL_BY_ID.coupNiger, days: [10, 10] });
+    expect(closedUntil(e) - g.now).toBeGreaterThan(5 * DAY);
+    const t = g.now + 3 * DAY;
+    const o = legsOffer(g, [['NIM', home, t]]);
+    o.archetype = 'evacuation';
+    o.eventId = e.id;
+    if (!g.company.approvals.includes('etops120')) g.company.approvals.push('etops120');
+    const r = acceptOffer(g, o.id, [ac.id]);
+    if (!r.ok) throw new Error(r.error);
+    const k = r.data!.contractId;
+    const pos = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled' && f.kind === 'positioning' && f.to === 'NIM');
+    expect(pos.length).toBe(1);
+    expect(pos[0].sta).toBeLessThan(t);
+    expect(pos[0].contractId).toBe(k);
+    // Re-planned (the daily relink), it stays.
+    relinkPositioning(g, ac.id);
+    expect(flightsOf(g, ac.id).filter((f) => f.status === 'scheduled' && f.kind === 'positioning' && f.to === 'NIM' && f.sta < t).length).toBe(1);
+  });
+
+  it('ordinary work has no such clearance: nothing lands there before the reopening', () => {
+    const g = newGame(41);
+    const ac = owned(g);
+    const home = g.company.homeBase;
+    const e = startEvent(g, { ...TPL_BY_ID.coupNiger, days: [10, 10] });
+    const t = g.now + 3 * DAY;
+    const o = legsOffer(g, [['NIM', home, t]]);
+    if (!g.company.approvals.includes('etops120')) g.company.approvals.push('etops120');
+    acceptOffer(g, o.id, [ac.id]);
+    relinkPositioning(g, ac.id);
+    for (const f of flightsOf(g, ac.id)) if (f.status === 'scheduled' && f.to === 'NIM' && f.kind === 'positioning') expect(f.sta).toBeGreaterThanOrEqual(closedUntil(e) + 3 * 60);
+  });
+});

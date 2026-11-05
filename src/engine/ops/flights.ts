@@ -11,7 +11,8 @@ import { pushMessage } from '../core/messages';
 import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, next, pick, range } from '../core/rng';
-import { DAY, fmtDuration, fmtTime, monthKey } from '../core/time';
+import { DAY, fmtDateTime, fmtDuration, fmtTime, monthKey } from '../core/time';
+const city = (code: string): string => AIRPORT_BY_CODE[code]?.city ?? code;
 import type { ActionResult, Aircraft, Contract, Duty, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, Rival, SimEvent, WorldEvent } from '../core/types';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { distance } from '../core/geo';
@@ -1191,7 +1192,18 @@ function notReady(g: GameState, f: Flight, ac: Aircraft): void {
   const inbound = flightsOf(g, ac.id).find((x) => x !== f && x.status === 'scheduled' && x.to === f.from && x.std < f.std + DAY);
   if (inbound) {
     const at = Math.max(g.now + 30, inbound.std + inbound.delay + inbound.block + turnOf(ac));
-    return at > f.std + f.delay ? void delayChain(g, f, at, 'Late inbound aircraft') : holdFlight(g, f, 30);
+    if (at <= f.std + f.delay) return holdFlight(g, f, 30);
+    const was = f.std + f.delay;
+    delayChain(g, f, at, 'Late inbound aircraft');
+    // v0.16.1 a move of hours behind the next flight in says so (s0429: BLU2049 moved 12 h behind BLU2050 without a word).
+    if (f.status === 'scheduled' && f.std + f.delay - was >= 2 * 60) {
+      pushMessage(g, {
+        tone: 'warn', cat: 'ops', title: `${f.no} moved ${fmtDuration(f.std + f.delay - was)}: aircraft not at ${f.from}`,
+        body: `${ac.reg} is at ${city(ac.at)}; the next flight to ${city(f.from)} is ${inbound.no} ${inbound.from}–${inbound.to}, landing ${fmtDateTime(inbound.std + inbound.delay + inbound.block)} UTC. ${f.no} now leaves ${fmtDateTime(f.std + f.delay)} UTC.`,
+        ref: { kind: 'flight', id: f.id },
+      });
+    }
+    return;
   }
   if (heldFor(g, f) < 180) return holdFlight(g, f, 30);
   dropUnit(g, ac, f, 'Aircraft out of position', `${ac.reg} is at ${ac.at}, not ${f.from}, and no flight brings it there in time.`, 'ops');

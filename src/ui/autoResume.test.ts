@@ -320,3 +320,21 @@ describe('v0.15 hold helpers (pure)', () => {
     expect(subjectsOf(y, 'monthEnd')).toEqual([]);
   });
 });
+
+describe('v0.16.1 a crew alarm about no flight (s0501: "PAUSED · Crew out of hours" on a legal flight)', () => {
+  it('a crew reason with nothing to point at is resolved, not a note; a save holding one loads unheld', () => {
+    const g = fixtureGame(5);
+    const hold: Hold = { resume: 4, items: [{ reason: 'crewHours', keys: [] }, { reason: 'crewShortage', keys: [] }, { reason: 'monthEnd', keys: [] }] };
+    expect(pendingItems(g, hold).map((x) => x.reason)).toEqual(['monthEnd']);
+    g.autoHold = { speed: 4, items: [{ reason: 'crewHours', keys: [] }] };
+    expect(holdFromSave(g, true)).toBeNull();
+  });
+  it('the store does not stop the clock for it', () => {
+    start(4);
+    autoPause('crewHours');
+    autoPause('crewShortage');
+    expect(store.paused).toBe(false);
+    expect(store.hold).toBeNull();
+    expect(store.speed).toBe(4);
+  });
+});

@@ -1802,6 +1802,22 @@ const inHorizon = (g: GameState, t: Minute) => t < g.now + BAL.rosterHorizonDays
  * sub-charter); called from crew's settle hook. Drops foreign flights from duties, re-measures changed duties
  * (ev++, re-queued), re-checks crew; illegal or uncovered work inside the roster horizon goes through rerosterFrom.
  */
+/**
+ * v0.16.1 a duty whose legs changed since the roster last formed it (moved, cancelled, re-assigned): its report, day and
+ * legality are the old ones until onFlightsChanged re-cuts it this settle. Pure.
+ */
+export function dutyStale(g: GameState, d: Duty | undefined): boolean {
+  if (!d || d.done) return false;
+  const p = g.pairings[d.pairingId];
+  let ev = 0;
+  for (const fid of d.flightIds) {
+    const f = g.flights[fid];
+    if (!f || f.status === 'cancelled' || (p?.aircraftId && f.aircraftId !== p.aircraftId)) return true;
+    ev += f.ev;
+  }
+  return ev !== d.flightsEv;
+}
+
 export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): void {
   let reroster = false;
   let changed = false;

@@ -155,6 +155,9 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   // price alike, as the offer dialog shows it (the client-paid extra crew's lift works the same way).
   const biz = tourBizPct(c.archetype, g.fleet[ids[0]].cabin.j);
   if (biz > 0 && c.product.kind === 'charter') setPrice(c, Math.round((c.product.price * (1 + biz)) / 1000) * 1000);
+  // v0.16.1 the event the job is for, before its flights are planned: the planner reads the contract's event permit
+  // (s0429: set after generateFlights, the evacuation's positioning into closed Niamey was planned after the reopening).
+  if (o.eventId) c.eventId = o.eventId;
   signHook?.(g, c, o, ids[0]);
   g.contracts[c.id] = c;
   signCrewExtra(g, c, ids[0], opts.crewExtra);
@@ -211,7 +214,6 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
   schedule(g, Math.max(g.now, c.start), 'contract.start', c.id);
   schedule(g, Math.max(g.now + 1, c.end), 'contract.end', c.id);
   if (o.terms) c.terms = o.terms.map(([a, b]) => [a, b] as [Minute, Minute]);
-  if (o.eventId) c.eventId = o.eventId;
   // v0.8 a presidential job flies a spare pilot on every duty.
   if (c.requirements.extraPilot) c.crewExtra = { cabin: c.crewExtra?.cabin ?? crewExtraFor(g, ids[0], c.id).cabin, pilot: 1 };
   // v0.8 short-notice cover is a favour; a rival hiring us counts on both sides.

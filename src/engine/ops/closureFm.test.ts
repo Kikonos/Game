@@ -88,7 +88,7 @@ describe('v0.12.1 (Goma) a world closure that keeps the crew out is force majeur
     expect(v?.card.visuals.reach).toBeUndefined();
   });
 
-  it('under the event\'s permit the aircraft may leave, but the card still says no crew can be flown in', () => {
+  it('under the event\'s permit the aircraft may leave; the card says no airline flies there, but our own flight or a jet under the clearance does', () => {
     const { g, out, e, c } = stuck(true);
     // The relief job that flew it in holds the event's permit; its leg in landed just before the empty leg out.
     c.eventId = e!.id;
@@ -98,7 +98,13 @@ describe('v0.12.1 (Goma) a world closure that keeps the crew out is force majeur
     autoRoster(g);
     expect(closureCause(g, out)?.id).toBe(e!.id);
     const v = crewControl(g, out.id);
-    expect(v?.card.why).toMatch(/^Madrid is closed \(Strike closes Madrid\) until .+: no crew can be flown in before then; only crew already there can take XX1 out\.$/);
+    expect(v?.card.why).toMatch(/^Madrid is closed \(Strike closes Madrid\) until .+: no airline flies there\. XX1 flies under the operation's clearance: crew ride our own flight in or a private jet under the same clearance\.$/);
+    // v0.16.1 a jet lands at the closed airport only under that clearance: offered here, refused without it.
+    expect(v?.solutions.find((s) => s.id === 'jet')?.why ?? '').not.toMatch(/no jet may land/);
+    const plain = stuck(true);
+    autoRoster(plain.g);
+    expect(crewControl(plain.g, plain.out.id)?.solutions.find((s) => s.id === 'jet')?.available).toBe(false);
+    expect(crewControl(plain.g, plain.out.id)?.solutions.find((s) => s.id === 'jet')?.why).toMatch(/^Madrid is closed \(Strike closes Madrid\) until .+: no jet may land there$/);
     expect(v?.card.visuals.reach).toBeUndefined();
     // Applied: nothing paid, the job's legs off as force majeure, and the note says so.
     const pen0 = line(g, 'penalties');

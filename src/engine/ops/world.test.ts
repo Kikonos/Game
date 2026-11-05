@@ -16,7 +16,7 @@ import { hamBase, leased, legsOffer, newGame, owned } from '../contracts/testkit
 import { resolveDecision } from './events';
 import { advanceTo } from '../sim';
 import { sweepOffersForClosure } from '../contracts/offers';
-import { cancelForceMajeure, closedAtDeparture, resolveAirspace, resolveUninsurable, closureHits, crosses, dailyWorld, flightZone, isLive, onWorldEnd, payWarRisk, permitOf, setClosureOfferHook, startEvent, warRiskAt, worldEvent, worldEventPins, worldEvents, worldZones } from './world';
+import { cancelForceMajeure, closedAirport, closedAtDeparture, resolveAirspace, resolveUninsurable, closureHits, crosses, dailyWorld, flightZone, isLive, onWorldEnd, payWarRisk, permitOf, setClosureOfferHook, startEvent, warRiskAt, worldEvent, worldEventPins, worldEvents, worldZones } from './world';
 import { flightsOf } from '../core/entities';
 import { blockMinutes, typeOf } from '../core/perf';
 
@@ -463,5 +463,18 @@ describe('v0.12.1 war-risk wait is not our delay', () => {
     expect(fl[0].std - (fl[0].schedStd ?? fl[0].std)).toBe(DAY);
     fl[0].delayReason = 'Late inbound aircraft';
     expect(latePenalty(c, fl[0]).money).toBe(0);
+  });
+});
+
+describe('v0.16.1 closedAirport with several permits', () => {
+  it('any of the permits exempts the closing event', async () => {
+    const { TPL_BY_ID } = await import('../../data/worldEvents');
+    const { newGame } = await import('../contracts/testkit');
+    const g = newGame(41);
+    const e = startEvent(g, { ...TPL_BY_ID.coupNiger, days: [10, 10] });
+    expect(closedAirport(g, 'NIM')?.id).toBe(e.id);
+    expect(closedAirport(g, 'NIM', g.now, e.id)).toBeNull();
+    expect(closedAirport(g, 'NIM', g.now, [undefined, e.id])).toBeNull();
+    expect(closedAirport(g, 'NIM', g.now, [undefined, 'other'])?.id).toBe(e.id);
   });
 });

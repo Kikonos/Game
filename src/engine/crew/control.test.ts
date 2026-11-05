@@ -569,12 +569,14 @@ describe('the warning ladder', () => {
     delete file.state.flights[flightId].crewAlert;
     file.state.flights[flightId].crewWarned = true;
     expect(deserialize(JSON.stringify(file)).flights[flightId].crewAlert).toBe('amber');
-    // Fixed: off the list (the mark stays so it never re-warns).
+    // Fixed: off the list. v0.16.1 the mark goes with it (the Schedule's red mark and the sheet's "Crew legal" agree;
+    // a new shortage later rings again).
     g.crew[was].blocks = [];
     g.crew[was].status = 'available';
     expect(applyCrewFix(g, flightId, 'autoFix').ok).toBe(true);
     expect(shortFlights(g)).toEqual([]);
-    expect(g.flights[flightId].crewAlert).toBe('red');
+    escalateShortages(g);
+    expect(g.flights[flightId].crewAlert).toBeUndefined();
   });
 });
 
