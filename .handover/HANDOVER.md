@@ -662,3 +662,13 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
   7. A spot market for short-term leases of other airlines' surplus aircraft, plus the existing random offers.
   The builder must research real 2025–26 numbers (lease rates, transition times, lessor requirements).
 - v0.17 research and design workflow wf_976e5158-a9b is running (Opus, high effort; the player asked for a workflow on Opus at high effort). It writes docs/UPDATE-0.17.md on branch v017doc and notes in /home/user/work/v017/. Build the feature with a second workflow (Opus, high) once v0.16.3 and v0.16.4 are merged and released.
+- QUEUED "Alarm self-check" (player asked 2026-11-05): an extra lane in the next workflow, alongside the v0.17 build, after rot and v0163 merge.
+  - Before any crew problem card or alarm fires (out of hours, no crew, crew shortage, crew problem, rest or in-flight-rest cards), re-check it independently:
+    - sync the duty and recompute it from the flights as they are now;
+    - judge each named person with a separate FTL evaluator (the same rules as scripts/invariants.ts, not planCrew's cache);
+    - check that nothing is stale (the flight was moved, the duty re-cut, a cached result);
+    - try the planner's own fix in a dry run.
+  - Only a confirmed problem chimes, pauses and shows a card, with a small "Checked ✓" and the evidence: who, which limit, value against limit, at which time.
+  - When the check disagrees: no alarm, no pause. A silent "Self-check" record is kept and auto-filed into Bug reports with a snapshot, so the player can export it.
+  - Counters in dev and in the bot report: confirmed vs withheld.
+  - Must be cheap (runs only when an alarm would fire) and deterministic.
