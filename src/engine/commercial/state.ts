@@ -9,7 +9,7 @@ import type { RngHolder } from '../core/rng';
 import type { Client, GameState, Pace } from '../core/types';
 import { hash } from '../core/util';
 import { ensureClient } from '../contracts/clients';
-import { seedPrestige } from '../contracts/prestige';
+import { seedClientStars, seedPrestige } from '../contracts/prestige';
 import { isQuiet } from '../ops/director';
 import type { CommercialState } from './types';
 
@@ -72,6 +72,7 @@ export function clientByName(g: GameState, name: string): Client | undefined {
     relation: 0, jobs: 0, firstJob: null, lastJob: null, log: [], level: 'new',
     // v0.16 its prestige level (low-cost 1, leisure 2).
     prestige: seedPrestige(s),
+    stars: seedClientStars(s),
   };
   g.clients[c.id] = c;
   return c;

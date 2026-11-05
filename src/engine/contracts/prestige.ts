@@ -93,6 +93,11 @@ export function seedStars(c: Pick<Client, 'name' | 'kind' | 'country'> & { rival
   return STARS_OF_LEVEL[level];
 }
 
+/** The stars a new client gets at creation (its seed's, else derived), so a fresh game and a loaded one agree. Pure. */
+export function seedClientStars(s: Pick<Client, 'name' | 'kind' | 'country'> & { role?: ClientSeed['role']; prestige?: Prestige; stars?: Stars; rivalId?: string }): Stars {
+  return s.stars ?? seedStars({ name: s.name, kind: s.kind, country: s.country, rivalId: s.rivalId, prestige: s.prestige ?? seedPrestige(s, s.role ?? ROLE_BY_NAME[s.name]) }, s.role ?? ROLE_BY_NAME[s.name]);
+}
+
 /** A client's stars (its stored ones, else derived now). Pure. */
 export const clientStars = (c: Client | undefined): Stars => (c ? c.stars ?? seedStars(c) : 2);
 
