@@ -33,7 +33,7 @@ import { city, rootReason, type Reason, type ReasonCode } from './reasons';
 import { applyDiscretion, autoRoster, closureTickets, discretionCheck, dutyStale, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
 import { assignCrew, dutyCandidates, freshReport, type DutyCandidate } from './rosterActions';
 import { levelOf, LIMITS, minRest, offsetAt } from './rules';
-import { cabinEarly, crewCount, crewIx, crewRev, dhBlock, fdpLimitAt, locAt, OUT_CONNECT, posSeg, segsOf, setClosedCheck, touchCrew, typeIdOf, type TicketPlan } from './timeline';
+import { cabinEarly, crewCount, crewIx, crewRev, dhBlock, fdpLimitAt, locAt, OUT_CONNECT, posSeg, segsOf, setClosedCheck, touchCrew, typeIdOf, type TicketPlan, snapDeparture } from './timeline';
 
 // v0.12.1 crew tickets never fly into or out of an airport a world event has closed.
 setClosedCheck((g, code, t) => !!closedAirport(g, code, t));
@@ -620,7 +620,8 @@ export function reachFor(g: GameState, p: Pairing, d: Duty, c: CrewMember, depar
   const segs = segsOf(g, c, p.id);
   const from = locAt(c, segs, d.report);
   const ready = Math.max(g.now, readyAt(c, segs, d.report, g.now));
-  const first = Math.ceil((ready + BAL.deadheadCheckIn) / 60) * 60;
+  // Rotations round: the first departure of the route's timetable they can check in for (not the next whole hour).
+  const first = snapDeparture(from, dep, Math.ceil((ready + BAL.deadheadCheckIn) / 60) * 60);
   const arr = first + dhBlock(from, dep);
   const legs = from === dep ? [] : itinerary(from, dep, first, arr).map((l) => ({ no: l.no, airline: l.airline, from: l.from, to: l.to, dep: l.dep, arr: l.arr }));
   // Crew round (Nov 2026): on a duty that has reported, the fresh crew's own report for the held departure (the bar

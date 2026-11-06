@@ -101,6 +101,7 @@ import { setHeldHook } from '../src/engine/ops/flights';
 import { crewIssuesFor, crewShortCard, dutyCandidates, flightCrewStatus } from '../src/engine/crew';
 import { dayIndex as dayIndexAt, isOff } from '../src/engine/crew/dayPlan';
 import { offsetAt } from '../src/engine/crew/rules';
+import { createTicketLog } from './ticketlog';
 import { createChecker } from './invariants';
 import { SETUP_BY_ID, type SetupId } from '../src/data/setups';
 import { createScenario, METRICS, SCENARIO_BY_ID, fmtValue, reliability, scenarioOutcome, scenarioView } from '../src/engine/scenario';
@@ -142,6 +143,9 @@ const STEP = 6 * 60;
 /** Debug round (26 Oct 2026): --base=XXX starts at another home base; --inv runs scripts/invariants.ts every step (slower). */
 const BASE = process.argv.find((a) => a.startsWith('--base='))?.slice(7) ?? 'LIS';
 const INV = process.argv.includes('--inv') ? createChecker() : null;
+/** Rotations round: --ticketlog=<file>: every crew ticket bought, classified against the tours (scripts/ticketlog.ts). */
+const TLOG_FILE = process.argv.find((a) => a.startsWith('--ticketlog='))?.slice(12);
+const TLOG = TLOG_FILE ? createTicketLog() : null;
 /** v0.12 --setup=<id>: another New Game start setup (data/setups.ts: boeing, leisure, newtech, mixed, veterans, shoestring). */
 const SETUP = process.argv.find((a) => a.startsWith('--setup='))?.slice(8) as SetupId | undefined;
 
@@ -2100,6 +2104,7 @@ function onStep(): void {
   // they change (stderr; also once the record is gone: crew who have left).
   if (process.env.IDPROBE) idProbe(g, process.env.IDPROBE);
   INV?.observe(g);
+  TLOG?.observe(g);
   const m = mon(monthKey(g.now));
   if (WHYHELD) noteOffShare(g);
   if (SEATLOG) seatLog(g);
@@ -2399,6 +2404,10 @@ errors.push(...badNumbers(g).map((p) => `final: non-finite ${p}`));
 errors.push(...safetyTrips.map((x) => `safety net tripped: ${x}`));
 if (FCLOG) fcPrint();
 if (FORECAST_HIRE) console.log(`forecast hires: ${fcHired} (${[...fcHiredBy].map(([r, n]) => `${r} ${n}`).join(', ') || 'none'}) on ${fcActed.size} heads-ups (packing ${PEAK.packing})`);
+if (TLOG && TLOG_FILE) {
+  writeFileSync(TLOG_FILE, `${TLOG.report(g, `seed ${seed} ${days} days ${process.argv.slice(3).filter((a) => a.startsWith('--') && !a.startsWith('--ticketlog')).join(' ')}`)}\n`);
+  console.log(`ticket log written to ${TLOG_FILE}`);
+}
 if (INV) {
   INV.finish(g);
   INV.print(`invariants seed ${seed}${process.argv.slice(3).filter((a) => a.startsWith('--')).join(' ')}`);

@@ -92,7 +92,8 @@ describe('crew who have left never hold a seat (seeds 3 and 4)', () => {
 
   it('refreshPairing empties a seat held by someone who has left (and takes them off its flights)', () => {
     const { g } = dublin();
-    const p = Object.values(g.pairings).find((q) => q.status === 'planned' && q.slots.filter((s) => s.crewId).length >= 3)!;
+    // (Rotations round: the sets' first tours are under way for five weeks; any crewed tour with work still to fly.)
+    const p = Object.values(g.pairings).find((q) => (q.status === 'planned' || q.status === 'active') && q.dutyIds.some((id) => g.duties[id] && !g.duties[id].done) && q.slots.filter((s) => s.crewId).length >= 3)!;
     expect(p).toBeTruthy();
     const gone = p.slots.find((s) => s.crewId)!.crewId!;
     delete g.crew[gone];
@@ -103,7 +104,8 @@ describe('crew who have left never hold a seat (seeds 3 and 4)', () => {
 
   it('leaving takes them off a trip even when it is marked finished, and off loose tickets', () => {
     const { g } = dublin();
-    const p = Object.values(g.pairings).find((q) => q.status === 'planned' && q.start > g.now + DAY && q.slots.filter((s) => s.crewId).length >= 3)!;
+    // (Rotations round: the sets' first tours are under way for five weeks; a tour with work a day or more ahead.)
+    const p = Object.values(g.pairings).find((q) => (q.status === 'planned' || q.status === 'active') && q.dutyIds.some((id) => (g.duties[id]?.report ?? 0) > g.now + DAY && !g.duties[id]?.done) && q.slots.filter((s) => s.crewId).length >= 3)!;
     expect(p).toBeTruthy();
     const c = g.crew[p.slots.find((s) => s.crewId && g.crew[s.crewId].loc === g.crew[s.crewId].base)?.crewId ?? p.slots.find((s) => s.crewId)!.crewId!];
     // The trip mis-marked as finished (an older build's grown tour); a loose ticket in their name too.
@@ -135,8 +137,13 @@ describe('crew who have left never hold a seat (seeds 3 and 4)', () => {
     expect(goneRefs(h)).toEqual([]);
     const q2 = h.pairings[q.id];
     expect(q2.status).not.toBe('done');
-    // Re-crewed: the seat the leaver held has someone (or the trip is short and on the crew desk's list).
-    expect(q2.slots.filter((s) => !s.above && !s.crewId).length).toBe(0);
+    // Re-crewed: the seat the leaver held has someone, from the first duty anyone can still reach (Rotations round: the
+    // other sets' crew stay with their own tours, so a duty reporting within hours may be the gap, split off alone).
+    const parts = Object.values(h.pairings).filter((x) => x.tour && x.deploymentId === q2.deploymentId && x.tour!.set === q2.tour!.set && x.tour!.from === q2.tour!.from && x.dutyIds.some((id) => h.duties[id] && !h.duties[id].done));
+    expect(parts.length).toBeGreaterThan(0);
+    const later = parts.filter((x) => x.start > h.now + 12 * 60);
+    for (const x of later) expect(x.slots.filter((s) => !s.above && !s.crewId)).toEqual([]);
+    expect(q2.slots.filter((s) => !s.above && !s.crewId).length).toBeLessThanOrEqual(1);
   });
 });
 

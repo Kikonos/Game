@@ -3,6 +3,7 @@
 // an airline seat that exists: both airports open, no landing in the destination's curfew.
 
 import { describe, expect, it } from 'vitest';
+import { nextDeparture } from '../ops/commercial';
 import { curfewOk } from '../core/curfew';
 import { DAY } from '../core/time';
 import type { GameState, Minute } from '../core/types';
@@ -58,8 +59,12 @@ describe('crew tickets are seats that exist (C9, C13)', () => {
     const shut: [Minute, Minute] = [g.now, g.now + 3 * DAY];
     setClosedCheck((_g: GameState, code: string, t: Minute) => code === 'LIS' && t >= shut[0] && t < shut[1]);
     try {
-      expect(ticketSlotOk(g, 'LIS', 'FRA', g.now + 60, g.now + 240)).toBe(false);
-      expect(ticketSlotOk(g, 'MAD', 'FRA', g.now + 60, g.now + 240)).toBe(true);
+      // (Rotations round: judged on the routes' timetable departures.)
+      const shutDep = nextDeparture('LIS', 'FRA', g.now + 60)!;
+      expect(shutDep).toBeLessThan(shut[1]);
+      expect(ticketSlotOk(g, 'LIS', 'FRA', shutDep, shutDep + 240)).toBe(false);
+      const open = nextDeparture('MAD', 'FRA', g.now + 60)!;
+      expect(ticketSlotOk(g, 'MAD', 'FRA', open, open + 240)).toBe(true);
       const t = outTicket(g, p, d, 'LIS');
       // No seat leaves Lisbon before the trip: the plan is no workable ticket (crew control looks elsewhere).
       expect(t.plan.std < shut[1] && t.why === null).toBe(false);

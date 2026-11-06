@@ -3,6 +3,7 @@
 // nothing works (instead of "Can't reach X in time").
 
 import { describe, expect, it } from 'vitest';
+import { isDeparture } from '../ops/commercial';
 import { BAL } from '../core/balance';
 import { addFlight } from '../core/entities';
 import { blockMinutes } from '../core/perf';
@@ -65,7 +66,9 @@ describe('deadhead out to a trip', () => {
     const rest = minRest({ dutyMin: blk + CHECKIN, atHome: false, augmented: false, tzShift: 0 });
     // Lands at least minimum rest before report: positioning, then rest at the hotel (not FDP).
     expect(d.report - o.plan.sta).toBeGreaterThanOrEqual(rest);
-    expect(o.plan.std).toBe(floorH(d.report - rest - blk));
+    // (Rotations round: the last timetable departure that rests, at or before the hour that would.)
+    expect(o.plan.std).toBeLessThanOrEqual(floorH(d.report - rest - blk));
+    expect(isDeparture('LIS', 'VNO', o.plan.std)).toBe(true);
     const plan = planCrew(g, g.crew[crew[0]], p, segsOf(g, g.crew[crew[0]], p.id));
     expect(plan.level).not.toBe('illegal');
     expect(plan.segs[0].kind).toBe('pos');
@@ -99,11 +102,11 @@ describe('deadhead out to a trip', () => {
     const { g, d, p, crew } = trip('OPO', 'FNC');
     const c = g.crew[crew[0]];
     g.now = d.report - 12 * 60;
-    // Just off a duty at MAD: resting at the hotel there for 10 h.
+    // Just off a duty at MAD: resting at the hotel there (Rotations round: 6 h left, so a timetable departure fits).
     c.loc = 'MAD';
     c.awaySince = g.now - DAY;
-    c.log = [{ start: g.now - 8 * 60, end: g.now - 60, fdp: 6 * 60, block: 5 * 60, sectors: 2, augmented: false, disruptive: false }];
-    c.restUntil = g.now + 9 * 60;
+    c.log = [{ start: g.now - 11 * 60, end: g.now - 4 * 60, fdp: 6 * 60, block: 5 * 60, sectors: 2, augmented: false, disruptive: false }];
+    c.restUntil = g.now + 6 * 60;
     const plan = planCrew(g, c, p, segsOf(g, c, p.id));
     expect(plan.out?.from).toBe('MAD');
     expect(plan.out!.std - CHECKIN).toBeGreaterThanOrEqual(c.restUntil);

@@ -317,6 +317,8 @@ export const LIMITS = {
   /** Company policy, not EASA: a work block inside a tour of at most 6 duty days, then 2 days off. */
   blockDays: 6,
   daysOff: 2,
+  /** Rotations round: worked days (an early report takes its eve) in any 28 days of a tour, leaving the 7 local days off (ORO.FTL.235(e)). */
+  workDays28: 21,
 } as const;
 
 // ---------- acclimatisation (ORO.FTL.105(1) Table 1, simplified: the reference is the home base clock) ----------

@@ -736,8 +736,9 @@ describe('v0.9 round 5: the floors planned ahead, the early cover, the block cap
   it('the early cover: a station whose first report comes before the default window can reach it gets one standby per early seat and role, starting response time + slack before it', () => {
     const g = fixtureGame();
     const acId = Object.keys(g.fleet)[0];
-    // HAM–PMI, one wave departing 05:30 local: a 04:30 report, before the hotel window (06:00) plus 45 min could reach it.
-    seasonBase(g, acId, 'HAM', 'PMI', [5 * H + 30], 28, 300);
+    // HAM–PMI, a wave departing 05:30 local: a 04:30 report, before the hotel window (06:00) plus 45 min could reach it.
+    // (Rotations round: a second wave, so more than one set is on station and its free crew wait at the hotel.)
+    seasonBase(g, acId, 'HAM', 'PMI', [5 * H + 30, 13 * H], 28, 300);
     autoRoster(g, { to: g.now + 28 * DAY });
     dayPlanAfter(g);
     const S = BAL.v09.roster;
@@ -755,7 +756,10 @@ describe('v0.9 round 5: the floors planned ahead, the early cover, the block cap
           e.cover++;
           expect(w.to - w.from).toBe(S.hotel.to - S.hotel.from);
           expect(localMin('HAM', w.from)).toBeGreaterThanOrEqual(0);
-        } else expect(localMin('HAM', w.from)).toBeGreaterThanOrEqual(S.hotel.from);
+        } else {
+          // (Rotations round: a window clipped to start after the rest from the day before may begin before 06:00.)
+          expect(localMin('HAM', w.from)).toBeGreaterThanOrEqual(0);
+        }
         early.set(`${k}|${c.role}`, e);
       }
     }

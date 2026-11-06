@@ -251,7 +251,9 @@ describe('previews and apply', () => {
     expect(delay.preview.after.level).toBe('ok');
     expect(delay.preview.changes[0]).toMatch(/^AW816 leaves .+ \(\+\d+h \d\dm\)$/);
     expect(delay.preview.changes.some((c) => /takes the captain seat \(deadhead/.test(c))).toBe(true);
-    expect(delay.rank).toBe(1);
+    // (Rotations round: tickets leave on the route's timetable, so the delay can be hours; a jet that lands the captain
+    // sooner may rank above it.)
+    expect(delay.rank).toBeLessThanOrEqual(2);
     // Only the return leg is still far enough out for a rival to position: handing that one over would not crew
     // this flight, so the row is off (v0.7.1 fix 7).
     const sub = v.solutions.find((x) => x.id === 'subcharter')!;
@@ -395,7 +397,8 @@ describe('private jets', () => {
   });
 
   it('charterJet: a charter deadhead the crew are legal after, cost to crewJet, one jet leg, purpose and calendar', () => {
-    const { g, flightId, d, was } = shortOfCaptain('DUS', 'LHR', 8);
+    // (Rotations round: tickets leave on the route's timetable; 12 h out, a seat after the captain's rest lands in time.)
+    const { g, flightId, d, was } = shortOfCaptain('DUS', 'LHR', 12);
     for (const c of Object.values(g.crew)) if (c.role === 'CPT' && c.id !== was) { c.blocks = [{ from: g.now - DAY, to: g.now + 10 * DAY, why: 'leave' }]; c.status = 'leave'; }
     const v = crewControl(g, flightId)!;
     const jet = v.solutions.find((x) => x.id === 'jet')!;
@@ -410,7 +413,8 @@ describe('private jets', () => {
     const only = crewControl(g, flightId, { only: ['jet'] })!.solutions[0];
     expect(only.available, only.why).toBe(true);
     expect(only.cost).toBeGreaterThan(10_000);
-    expect(only.newDeparture).toBeNull();
+    // (Rotations round: 12 h out the jet may land early enough that the captain rests first: a short wait at most.)
+    if (only.newDeparture !== null) expect(only.newDeparture - g.flights[flightId].std).toBeLessThan(4 * 60);
     // A long duty: the ride would make the day too long. Jet + a night's rest would leave no sooner than an airline
     // ticket with the same rest, so the row points at Delay (which ends crewed the next morning).
     const long = shortOfCaptain('DUS', 'FNC', 6);
@@ -426,6 +430,8 @@ describe('private jets', () => {
     expect(ld.newDeparture! - long.g.flights[long.flightId].std).toBeGreaterThan(3 * 60);
     expect(only.options!.map((o) => o.id)).toContain('light');
     expect(only.chips.some((c) => /^lands /.test(c))).toBe(true);
+    // (Rotations round: called 8 h out, as the bot's ladder would: the ride lands inside the day, no rest first.)
+    g.now = d.report - 8 * 60;
     const r = charterJet(g, flightId, [was], 'midsize');
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -500,7 +506,8 @@ describe('private jets', () => {
     expect(r.ok).toBe(true);
     expect(g.flights[flightId].std).toBeGreaterThan(std);
     expect(flightCrewStatus(g, flightId).level).not.toBe('missing');
-    const ride = Object.values(g.flights).find((f) => f.kind === 'deadhead' && f.crewIds.includes(was))!;
+    // (Rotations round: his ticket home shares the crew's booking; the ride out is the jet.)
+    const ride = Object.values(g.flights).find((f) => f.kind === 'deadhead' && f.crewIds.includes(was) && f.to === 'FNC')!;
     expect(ride.charter).toBeDefined();
     expect(g.stats.jets).toBe(jets + 1);
     expect(g.stats.crewFixes?.jet).toBe(1);
@@ -573,6 +580,8 @@ describe('the warning ladder', () => {
     // a new shortage later rings again).
     g.crew[was].blocks = [];
     g.crew[was].status = 'available';
+    // (Rotations round: tickets leave on the route's timetable; with 14 h in hand a seat that fits the day exists.)
+    g.now = d.report - 14 * 60;
     expect(applyCrewFix(g, flightId, 'autoFix').ok).toBe(true);
     expect(shortFlights(g)).toEqual([]);
     escalateShortages(g);

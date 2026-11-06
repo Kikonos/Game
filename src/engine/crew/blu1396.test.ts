@@ -7,6 +7,7 @@
 // 3. ORO.FTL.205(d) lets the operator take +2 h before and +2 h after instead of +4 h after: both are now read.
 
 import { describe, expect, it } from 'vitest';
+import { prevDeparture } from '../ops/commercial';
 import { BAL } from '../core/balance';
 import { addFlight, retimeFlight } from '../core/entities';
 import { DAY } from '../core/time';
@@ -85,8 +86,9 @@ describe('BLU1396: an extended duty far from base', () => {
     const o = outTicket(g, p, d, 'LIS');
     expect(o.why).toBeNull();
     const blk = dhBlock('LIS', 'MBJ');
-    const last = Math.floor((d.report - d.cabinEarly! - 14 * H - blk) / 60) * 60;
-    expect(o.plan.std).toBeLessThanOrEqual(last - OUT_REST_BUFFER + 59);
+    // (Rotations round: the last timetable departure that still rests.)
+    const last = prevDeparture('LIS', 'MBJ', Math.floor((d.report - d.cabinEarly! - 14 * H - blk) / 60) * 60)!;
+    expect(o.plan.std).toBeLessThanOrEqual(last);
     // Too late for the margin: the last ticket that still rests, not none.
     g.now = last - BAL.deadheadCheckIn - 30;
     const o2 = outTicket(g, p, d, 'LIS');

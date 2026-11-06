@@ -4,7 +4,7 @@
 import { BoardingPasses } from '../components/BoardingPass';
 import { RankMark } from '../components/RankMark';
 import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, CheckSquare, GraduationCap, Layers, LayoutGrid, List, Lock, Search, UserPlus, Users, X } from 'lucide-react';
-import { CrewPlanView, PeakHeadsUp, PlanStrip } from './CrewPlan';
+import { CrewPlanView, DeploymentStrip, PeakHeadsUp, PlanStrip } from './CrewPlan';
 import { ratingLine } from './crewPlanLogic';
 import type { RatingFamily } from '../../data/acmiTypes';
 import { crewSupply, familyNeeds } from '../../engine/crew/sets';
@@ -470,6 +470,7 @@ export function CrewScreen() {
       {/* v0.7.4 one calm line per type family (sets complete of needed); the detail lives in Planning. */}
       {view === 'people' && <PlanStrip g={g} onOpen={() => setView('plan')} />}
       {view === 'people' && <PeakHeadsUp g={g} />}
+      {view === 'people' && <DeploymentStrip g={g} />}
       {view === 'plan' ? (
         <CrewPlanView g={g} />
       ) : !all.length ? (

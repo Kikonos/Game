@@ -7,7 +7,8 @@ import { useState } from 'react';
 import type { RatingFamily } from '../../data/acmiTypes';
 import type { GameState } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
-import { awayOnDryLease, crewPeakCard, crewPlan, familyName, peakForecast, peakGroups, peakId, roundTargets, SETS_DETACHED, SETS_WHY, setWords, type FamilyPlan } from '../../engine/crew';
+import { awayOnDryLease, crewPeakCard, crewPlan, deploymentSets, familyName, peakForecast, peakGroups, peakId, roundTargets, SETS_DETACHED, SETS_WHY, setWords, type FamilyPlan } from '../../engine/crew';
+import { AIRPORT_BY_CODE } from '../../data/airports';
 import { fmtDay } from '../../engine/core/time';
 import { ProblemCardView, runAction } from '../components/ProblemCard';
 import { typeOf } from '../../engine/core/perf';
@@ -189,6 +190,38 @@ export function CrewPlanView({ g }: { g: GameState }) {
 }
 
 /** People view: one plain sentence per fleet ('A320: 2 of 5 full crews · short 6 cabin crew'), tap → Planning. */
+/**
+ * Rotations round (v0.16.4): one line per crew set on station, so the player sees the rotations as they run: "Set 2 at
+ * Hamburg: 23 of 35 days · home 7 Jun", and under it who went home early and why.
+ */
+export function DeploymentStrip({ g }: { g: GameState }) {
+  const lines = deploymentSets(g);
+  if (!lines.length) return null;
+  // Two deployments at one station (two aircraft): each line names its aircraft.
+  const perBase = new Map<string, Set<string>>();
+  for (const l of lines) perBase.set(l.base, (perBase.get(l.base) ?? new Set()).add(l.deploymentId));
+  const regOf = (id: string) => g.fleet[g.deployments[id]?.aircraftId ?? '']?.reg;
+  return (
+    <div className="cp-deploy">
+      <div className="tiny dim">On station · crews rotate every {g.company.policies.rotationWeeks} weeks (days off at the hotel); a set stays to the end when the deployment ends within a week of its change.</div>
+      <div className="cp-strip">
+        {lines.map((l) => {
+          const city = AIRPORT_BY_CODE[l.base]?.city ?? l.base;
+          return (
+            <div key={`${l.deploymentId}:${l.set}`} className={`cp-chip static ${l.crew ? '' : 'short'}`}>
+              <span className="cp-line">
+                <b>Set {l.set + 1} at {city}{(perBase.get(l.base)?.size ?? 0) > 1 && regOf(l.deploymentId) ? ` · ${regOf(l.deploymentId)}` : ''}</b>
+                <span>{l.crew ? `${l.day} of ${l.of} days · home ${fmtDay(l.home)}` : `not crewed yet · ${l.of}-day tour to ${fmtDay(l.home)}`}</span>
+                {l.early.map((e) => <span key={e.name} className="tiny warn">{e.name} goes home early: {e.why}</span>)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function PlanStrip({ g, onOpen }: { g: GameState; onOpen: () => void }) {
   const plans = crewPlan(g);
   if (!plans.length) return null;

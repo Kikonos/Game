@@ -17,10 +17,23 @@ export interface WhatsNewEntry {
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
     version: 'v0.16.4',
-    name: 'Fixes from your reports',
-    features: [],
-    improvements: [],
+    name: 'Rotations',
+    features: [
+      'Crew rotations work the way an ACMI crew expects: a set stays on station for the whole rotation (Company › Policies, 4 to 6 weeks) with its days off at the hotel, and goes home early only when a legal limit leaves no answer on station. A first tour is never cut short: with several sets the changes are spread over the week after the rotation, never before it. When the deployment ends within a week of a change, the set stays to the end instead of a fresh set flying out for a few days. A crew member over a limit on one or two days (rest after a late landing, 60 h in 7 days, the 168 h recovery, a day off due) keeps the tour: those days go to another set on station or fly as a trip, and a leg short of rest by a few minutes waits for its crew instead of swapping them. Annual leave is planned around the whole rotation, not only the duties known so far.',
+      'Crew › People shows the sets on station: "Set 2 at Hamburg: 23 of 35 days · home 7 Jun", and under it who went home early and why. The Inbox says the same when it happens ("Castro goes home early: Rest 11:54 < 12:06").',
+      'Airline tickets follow a timetable: every route has its named flights at fixed times each day (more on big short routes, a few a week on thin long ones), crew are booked onto those departures, and crew of one trip on the same departure travel on one booking. A flight sold out before we booked is passed over and named on the booking ("TP 1478 10:00 full: booked on the next departure"). The same flight no longer shows twice at different times on the map.',
+    ],
+    improvements: [
+      'A ticket that only moves (a tour grew into the next week, a duty moved an hour) is re-timed, never thrown away and bought again; a ticket out that still works is kept as booked. On the player\'s save 1,026 of 1,409 tickets had been bought and dropped in 60 days.',
+      'A tour\'s ticket home is booked for after its last duty once that duty is known, and for the rotation\'s end until then, so a set on a thin programme no longer flies home in the middle of its rotation and has a replacement flown out when the next day comes.',
+      'Every crew ticket carries why it was bought (the tour change, the reason someone goes home early, whom a replacement replaces).',
+      'Tickets from an older save that left at odd minutes move onto the timetable where the crew still connect; flown tickets stay as they were.',
+    ],
     fixes: [
+      'A crew member on a tour under way was taken off it and flown home when the tour grew past their booked ticket home ("Ticket HAM–LIS clashes with the trip"); the ticket is moved instead.',
+      'A deployment\'s return leg months ahead was refused by every set as "no 36 h recovery in 168 h" and flown as a trip from base: a set resting since the start of its period has had its recovery.',
+      'A set on two early waves never got two days off together (the duties went round the sets one by one), so the 6-on/2-off rule failed inside a tour and the sizing asked for twice the sets. Sets now work their days in a row (at most four) and rest together.',
+      'After a crew change that could not be made and was undone, a ticket could go missing from the plan until the game was reloaded: the crew were then given standby at a station they had already flown home from. The tickets stay in the plan now.',
       'An offer for an A320-size aircraft (a season base, cover for a grounded jet, a capacity lease, work for another operator) no longer lets you pick a widebody: the client pays the fuel and planned its slots and stands for a narrowbody. Aircraft of a type the client did not ask for are left off the offer\'s list, with one line saying why.',
       'An offer fitted to an idle aircraft is now for an aircraft of that size: no more "Follow-on: CS-TTL is free" on a narrowbody job.',
       'After a job far from base, the aircraft now comes home straight away, a crew flown out on airline tickets (over several stops for a narrowbody), instead of waiting weeks for its next job: CS-TQM sat 24 days at Hong Kong. An aircraft left away from base with nothing planned is brought home, and when no way home fits its range and our ETOPS limit, a card says so and what the parking costs.',

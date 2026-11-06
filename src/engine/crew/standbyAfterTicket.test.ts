@@ -9,6 +9,7 @@ import { DAY, dayStart } from '../core/time';
 import type { CrewMember, Flight, GameState } from '../core/types';
 import { advanceTo } from '../sim';
 import { minRest } from './rules';
+import { fitStandby } from './dayPlan';
 import { sendStrandedHome } from './roster';
 import { touchCrew } from './timeline';
 
@@ -53,5 +54,17 @@ describe('standby after a ticket home (seed 1, Madrid)', () => {
     const rest = minRest({ dutyMin: sta - std + 60, atHome: true, augmented: false, tzShift: 0 });
     for (const w of c.standby ?? []) if (w.from > std) expect(w.from - sta, 'rest before the standby').toBeGreaterThanOrEqual(rest);
   });
-});
 
+  it('a ticket leaving inside a hotel standby window drops the window (seed 1, Nantes)', () => {
+    // Rotations round: Inês Ribeiro's ticket NTE–LIS at 05:00 sat inside her 04:00–16:00 hotel standby at Nantes; the
+    // window was kept (she was at Nantes when it began) and ran on while she was at home in Lisbon.
+    const g = newGame(21);
+    const c = awayAt(g, 'NTE');
+    const from = dayStart(g.now) + DAY + 4 * 60;
+    c.standby = [{ from, to: from + 12 * 60, kind: 'hotel', at: 'NTE' }];
+    addDeadhead(g, { crewIds: [c.id], from: 'NTE', to: c.base, std: from + 60, sta: from + 175, cost: 0 });
+    touchCrew(g);
+    fitStandby(g, [c.id]);
+    expect((c.standby ?? []).filter((w) => w.at === 'NTE')).toEqual([]);
+  });
+});

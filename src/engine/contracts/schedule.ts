@@ -248,8 +248,8 @@ export function farOutstation(g: GameState, at: string): boolean {
   return farBase(g.company.homeBase, at, g.now);
 }
 
-/** v0.14 the wait for an airline's daily flight out (with the crew's notice), added before a far ticket. */
-const TICKET_WAIT = 6 * 60;
+/** v0.14 the wait for an airline's daily flight out (with the crew's notice), added before a far ticket. Rotations round: half a day (tickets leave on the route's timetable, a long thin route once or twice a day). */
+const TICKET_WAIT = 12 * 60;
 
 /**
  * Earliest departure of new empty legs from X. An aircraft idle at an outstation for a while has no crew aboard:

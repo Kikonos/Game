@@ -6,7 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import { acceptOffer } from '../contracts';
 import { leased, dubBase, newGame, run } from '../contracts/testkit';
-import { touchTickets } from '../core/entities';
+import { addDeadhead, touchTickets } from '../core/entities';
 import { DAY } from '../core/time';
 import type { Flight, GameState, Pairing } from '../core/types';
 import { problemAt } from '../problems';
@@ -25,12 +25,22 @@ function scenario(): { g: GameState; p: Pairing; fo: string; ticket: Flight; f0:
   const r = acceptOffer(g, o.id, [ac.id]);
   if (!r.ok) throw new Error(r.error);
   advanceTo(g, g.contracts[r.data!.contractId].start - DAY, new Set());
-  // The first planned trip whose FO flies out alone on an airline ticket.
-  for (const p of Object.values(g.pairings)) {
+  // The first planned trip whose FO flies out on an airline ticket; she is booked apart from the others (as a crew member
+  // added to a set later is), the case of the player's save.
+  for (const p of Object.values(g.pairings).sort((a, b) => a.start - b.start)) {
     const d = g.duties[p.dutyIds[0]];
     const fo = p.slots.find((s) => s.role === 'FO')?.crewId;
-    const ticket = d.deadheadIds.map((id) => g.flights[id]).find((t) => t && t.kind === 'deadhead' && t.status === 'scheduled' && t.crewIds.length === 1 && t.crewIds[0] === fo);
-    if (p.status === 'planned' && fo && ticket) return { g, p, fo, ticket, f0: g.flights[d.flightIds[0]] };
+    const group = d.deadheadIds.map((id) => g.flights[id]).find((t) => t && t.kind === 'deadhead' && t.status === 'scheduled' && t.std > g.now + 60 && fo && t.crewIds.includes(fo));
+    if (p.status !== 'planned' || !fo || !group) continue;
+    let ticket = group;
+    if (group.crewIds.length > 1) {
+      group.crewIds = group.crewIds.filter((id) => id !== fo);
+      ticket = addDeadhead(g, { crewIds: [fo], from: group.from, to: group.to, std: group.std, sta: group.sta, cost: 0, contractId: group.contractId });
+      d.deadheadIds.push(ticket.id);
+      touchTickets(g);
+      touchCrew(g);
+    }
+    return { g, p, fo, ticket, f0: g.flights[d.flightIds[0]] };
   }
   throw new Error('no trip with a ticket out');
 }

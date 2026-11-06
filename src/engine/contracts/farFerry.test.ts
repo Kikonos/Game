@@ -57,10 +57,10 @@ describe('v0.14 far outstations: the lead a crew flown out needs', () => {
     expect(farOutstation(g, 'LIS')).toBe(false);
   });
 
-  it('the lead covers the wait for the flight out, the ticket, a rest as long as its duty and the report (42 h to Manila, was 30 h)', () => {
+  it('the lead covers the wait for the flight out, the ticket, a rest as long as its duty and the report (48 h to Manila, was 30 h; Rotations round: half a day for the timetable)', () => {
     const blk = ticketBlock('LIS', 'MNL');
     const duty = BAL.deadheadCheckIn + blk;
-    expect(ticketLead(T, blk, true)).toBe(6 * 60 + duty + Math.max(14 * 60, duty) + 60);
+    expect(ticketLead(T, blk, true)).toBe(12 * 60 + duty + Math.max(14 * 60, duty) + 60);
     expect(ticketLead(T, blk, true)).toBeGreaterThan(40 * 60);
     // Near stations keep their lead: the same morning, or the day before with the minimum rest.
     expect(ticketLead(T, 120)).toBe(120 + 6 * 60);

@@ -9,7 +9,8 @@ import { CARRIER_BY_IATA, CARRIERS, LCC_ONLY_ALL, ROUTES_ONLY_ALL, WORLD_HUBS, t
 import { deadheadFlights } from '../core/entities';
 import { distance } from '../core/geo';
 import { blockMinutes } from '../core/perf';
-import { DAY } from '../core/time';
+import { DAY, localOffset, monthKey } from '../core/time';
+import { curfewOk } from '../core/curfew';
 import type { Flight, GameState, Minute } from '../core/types';
 import { hash } from '../core/util';
 
@@ -224,13 +225,130 @@ export function ticketBlock(from: string, to: string): number {
 /** Departure bank (3-hour UTC slot): each daily rotation of a route is its own flight. */
 const bankOf = (t: Minute) => Math.floor((((t % DAY) + DAY) % DAY) / 180);
 
+// ---------- Rotations round (v0.16.4): the timetable ----------
+// Every ticket route has a fixed, deterministic timetable: named flights at fixed times each day (frequency by the
+// city pair's size and length; thin long-haul routes a few days a week), on whole UTC hours. Crew tickets are booked
+// onto those departures (crew/timeline.ts ticketSlotOk, planHome), a later booking for the same journey joins the same
+// flight, and the same named flight never shows twice at different times (the player's save: two 'AA 272 LIS–MIA',
+// 10:00 and 11:00, each with part of one crew). Nothing is saved: all derived from the route and the day.
+
+/** Local departure window at the origin (minutes of the local day). */
+const TT_DAY = [6 * 60, 23 * 60] as const;
+/** Our crew seats one departure takes before it is full for the next booking. */
+export const TT_CREW_SEATS = 12;
+
+/** Departures a day on a city pair, and (under daily) days a week, from the pair's size and length. Pure. */
+function frequency(from: string, to: string): { perDay: number; perWeek: number } {
+  const a = AIRPORT_BY_CODE[from];
+  const b = AIRPORT_BY_CODE[to];
+  if (!a || !b || from === to) return { perDay: 0, perWeek: 0 };
+  const km = distance(from, to);
+  const sz = Math.min(a.size, b.size);
+  const hub = Math.max(a.size, b.size) >= 4;
+  const r = routing(from, to);
+  const via = r.legs.length > 1;
+  // (A connecting itinerary has as many starts as its thinner leg: the hub's departures are many.)
+  // (A long route flown through a hub has a connection every day.)
+  if (km > LONG_KM) return { perDay: via ? 2 : sz >= 4 ? 3 : sz >= 3 || hub ? 2 : 1, perWeek: via || sz >= 3 || hub ? 7 : 5 };
+  if (km > 1500) return { perDay: via ? 4 : sz >= 4 ? 6 : sz >= 3 ? 5 : 3, perWeek: 7 };
+  return { perDay: via ? 6 : sz >= 4 ? 10 : sz >= 3 ? 7 : 5, perWeek: 7 };
+}
+
+const ttCache = new Map<string, Minute[]>();
+
+/** The route's departures (ticket start times, UTC minutes) inside the UTC day `day` (= floor(t / DAY)), sorted. Pure, cached. */
+export function departures(from: string, to: string, day: number): Minute[] {
+  const key = `${from}>${to}:${day}`;
+  const hit = ttCache.get(key);
+  if (hit) return hit;
+  if (ttCache.size > 50_000) ttCache.clear();
+  const out: Minute[] = [];
+  const f = frequency(from, to);
+  if (f.perDay) {
+    const blk = ticketBlock(from, to);
+    const route = `${from}>${to}`;
+    const h0 = hash(route);
+    // Local-day departures of the local days that can touch this UTC day.
+    for (const ld of [day - 1, day, day + 1]) {
+      // A thin route flies on fixed days of the week.
+      if (f.perWeek < 7 && ((ld + (h0 % 7)) % 7) >= f.perWeek) continue;
+      const midnightUtc = ld * DAY - localOffset(from, ld * DAY);
+      const span = TT_DAY[1] - TT_DAY[0];
+      for (let i = 0; i < f.perDay; i++) {
+        // Evenly spread, each flight with its own fixed offset inside its slot (so routes do not all leave on the hour of six).
+        const slot = span / f.perDay;
+        const local = TT_DAY[0] + Math.round((i * slot + (hash(`${route}:${i}`) % Math.max(1, Math.floor(slot - 60))) ) / 60) * 60;
+        let t = midnightUtc + local;
+        t = Math.round(t / 60) * 60;
+        // Not inside a night ban at either end: the next hour that is clear, else no such flight.
+        let ok = false;
+        for (let k = 0; k < 6 && !ok; k++, t += 60) if (curfewOk(from, t) && curfewOk(to, t + blk)) ok = true;
+        if (!ok) continue;
+        t -= 60;
+        if (t >= day * DAY && t < (day + 1) * DAY && !out.includes(t)) out.push(t);
+      }
+    }
+    out.sort((a, b) => a - b);
+  }
+  ttCache.set(key, out);
+  return out;
+}
+
+/** t is one of the route's departures. Pure. */
+export function isDeparture(from: string, to: string, t: Minute): boolean {
+  return departures(from, to, Math.floor(t / DAY)).includes(t);
+}
+
+/** The first departure at or after t (within `days`), or null. Pure. */
+export function nextDeparture(from: string, to: string, t: Minute, days = 10): Minute | null {
+  const d0 = Math.floor(t / DAY);
+  for (let d = d0; d < d0 + days; d++) for (const x of departures(from, to, d)) if (x >= t) return x;
+  return null;
+}
+
+/** The last departure at or before t (within `days`), or null. Pure. */
+export function prevDeparture(from: string, to: string, t: Minute, days = 10): Minute | null {
+  const d0 = Math.floor(t / DAY);
+  for (let d = d0; d > d0 - days; d--) {
+    const l = departures(from, to, d);
+    for (let i = l.length - 1; i >= 0; i--) if (l[i] <= t) return l[i];
+  }
+  return null;
+}
+
+/** Peak months for airline seats (school holidays and the year's end). */
+const PEAK_MONTHS = new Set([6, 7, 11]);
 /**
- * A flight number for the airline on this leg: stable per route and departure bank (the same slot keeps its
- * number every day), even outbound and odd back (by airport order); long-haul low numbers.
+ * A departure sold out before we booked (deterministic, low odds: 2.5 %, 6 % in July, August and December): the booking
+ * takes the next departure and says so. Pure.
+ */
+export function fullDeparture(from: string, to: string, std: Minute): boolean {
+  const m = monthKey(std) % 12;
+  const odds = PEAK_MONTHS.has(m) ? 60 : 25;
+  return hash(`full:${from}>${to}:${std}`) % 1000 < odds;
+}
+
+/** Our crew already booked on the departure (scheduled tickets on the same route at the same time). */
+export function ourSeats(g: GameState, from: string, to: string, std: Minute): number {
+  let n = 0;
+  for (const f of deadheadFlights(g)) if (f.status === 'scheduled' && f.from === from && f.to === to && f.std === std) n += f.crewIds.length;
+  return n;
+}
+
+/** The flight number of the route's departure at std (the itinerary's first leg), for the booking line. Pure. */
+export function flightNoAt(from: string, to: string, std: Minute): string {
+  return itinerary(from, to, std, std + ticketBlock(from, to))[0]?.no ?? '';
+}
+
+/**
+ * A flight number for the airline on this leg: stable per route and departure (Rotations round: the departure's place
+ * in the day's timetable; a ticket booked off the timetable, as older saves hold, keeps its 3-hour bank), even
+ * outbound and odd back (by airport order); long-haul low numbers.
  */
 function flightNo(c: Carrier, from: string, to: string, dep: Minute): string {
   const pair = from < to ? `${from}${to}` : `${to}${from}`;
-  const h = hash(`${c.iata}:${pair}:${bankOf(dep)}`);
+  const idx = departures(from, to, Math.floor(dep / DAY)).indexOf(dep);
+  const h = hash(`${c.iata}:${pair}:${idx >= 0 ? `d${idx}` : bankOf(dep)}`);
   const long = distance(from, to) > LONG_KM;
   const span = long ? 190 : c.kind === 'lcc' ? 4400 : 500;
   const lo = long ? 10 : c.kind === 'lcc' ? 1100 : 1000;
@@ -292,7 +410,9 @@ function pickCarrier(cs: Carrier[], from: string, to: string, slot: string): Car
 export function itinerary(from: string, to: string, std: Minute, sta: Minute): CommercialLeg[] {
   const r = routing(from, to);
   const day = Math.floor(std / DAY);
-  const pickC = (l: Routing['legs'][number], dep: Minute) => pickCarrier(l.carriers, l.from, l.to, `${day}:${bankOf(dep)}`);
+  // Rotations round: a timetable departure keeps its airline every day (a named flight); any other time picks per day.
+  const idx = departures(from, to, day).indexOf(std);
+  const pickC = (l: Routing['legs'][number], dep: Minute) => pickCarrier(l.carriers, l.from, l.to, idx >= 0 && dep === std ? `d${idx}` : `${day}:${bankOf(dep)}`);
   const window = Math.max(1, sta - std);
   if (r.legs.length === 1) {
     const c = pickC(r.legs[0], std);

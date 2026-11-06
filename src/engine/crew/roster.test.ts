@@ -12,6 +12,7 @@ import { ctxOf, segsOf } from './timeline';
 import { addCrew, fixtureContract, fixtureGame, seasonBase } from './fixtures';
 import { autoRoster, buildDuties, captainAsFo, crewWindows, dutyCandidates, flightCrewStatus, rosterOf } from '.';
 import { recheckSoon } from './roster';
+import { TOUR_TAIL } from './duties';
 import { canFill, seatLabel } from '../core/perf';
 import { perfBudgetFactor, slowTimeout } from '../../test/perf';
 
@@ -87,6 +88,42 @@ describe('auto-roster: demo flights, 60 starting crew', () => {
 });
 
 describe('HAM–PMI season base (deployment)', () => {
+  it('Rotations round: a 70-day base rotates its sets at the rotation (first tours 28–35 days, then 28), a fresh crew each time; a stub shorter than a week at the end is absorbed', () => {
+    const g = fixtureGame();
+    g.company.policies.rotationWeeks = 4;
+    addCrew(g, { CPT: 12, FO: 12, PUR: 12, CC: 30 });
+    const ac = Object.keys(g.fleet)[0];
+    const k = seasonBase(g, ac, 'HAM', 'PMI', [6 * 60, 12 * 60 + 30], 70);
+    autoRoster(g, { to: g.now + 70 * DAY });
+    const dep = Object.values(g.deployments).find((d) => d.contractId === k.id)!;
+    const R = 4 * 7 * DAY;
+    const tours = dep.pairingIds.map((id) => g.pairings[id]).sort((a, b) => a.tour!.from - b.tour!.from || a.tour!.set - b.tour!.set);
+    const bySet = new Map<number, Pairing[]>();
+    for (const p of tours) bySet.set(p.tour!.set, [...(bySet.get(p.tour!.set) ?? []), p]);
+    expect([...bySet.values()].some((l) => l.length >= 2)).toBe(true);
+    for (const l of bySet.values()) {
+      // First tour R…R + 7 d; a later one exactly R unless it runs to the deployment's end (a stub under a week absorbed).
+      expect(l[0].tour!.from).toBe(dep.start);
+      expect(l[0].tour!.to - l[0].tour!.from).toBeGreaterThanOrEqual(R);
+      expect(l[0].tour!.to - l[0].tour!.from).toBeLessThanOrEqual(R + TOUR_TAIL);
+      for (let i = 1; i < l.length; i++) {
+        expect(l[i].tour!.from).toBe(l[i - 1].tour!.to);
+        const len = l[i].tour!.to - l[i].tour!.from;
+        expect(len === R || (l[i].tour!.to === dep.end && len > R && len <= R + TOUR_TAIL)).toBe(true);
+      }
+      // A fresh crew each tour: nobody stays on for the next period.
+      if (l.length >= 2 && l[0].slots.some((s) => s.crewId) && l[1].slots.some((s) => s.crewId)) {
+        const a = new Set(l[0].slots.map((s) => s.crewId).filter(Boolean));
+        for (const s of l[1].slots) if (s.crewId) expect(a.has(s.crewId)).toBe(false);
+      }
+    }
+    // No tour shorter than a week anywhere (the end stub is absorbed, the start never cut short).
+    for (const p of tours) expect(p.tour!.to - p.tour!.from).toBeGreaterThanOrEqual(7 * DAY);
+    // The sets change on different days.
+    const changes = tours.filter((p) => p.tour!.from > dep.start).map((p) => p.tour!.from);
+    expect(new Set(changes).size).toBe(changes.length);
+  });
+
   for (const [waves, sets] of [[[6 * 60, 12 * 60 + 30], 3], [[6 * 60, 12 * 60 + 30, 19 * 60], 4]] as const) {
     it(`${waves.length} waves, 28 days: HAM-only duties, ${sets} sets, tours rotate, full legal coverage`, () => {
       const g = fixtureGame();
@@ -107,19 +144,18 @@ describe('HAM–PMI season base (deployment)', () => {
       for (const f of scheduled(g)) expect(flightCrewStatus(g, f.id).level, `${f.no}`).toMatch(/ok|tight/);
       expect(duties.filter((d) => d.legality === 'illegal')).toEqual([]);
       expect(allCrewLegal(g)).toEqual([]);
-      // Tours: ≤ rotationWeeks on station; sets change on different days; crews rotate (a set has 2 tours).
+      // Tours (Rotations round): every first tour is at least rotationWeeks long and at most a week longer (the sets
+      // staggered over that week), so nobody rotates inside this 28-day base.
       const tours = dep.pairingIds.map((id) => g.pairings[id]);
       const R = 4 * 7 * DAY;
       for (const p of tours) {
-        expect(p.tour!.to - p.tour!.from).toBeLessThanOrEqual(R);
-        expect(p.end - p.start).toBeLessThanOrEqual(R);
+        expect(p.tour!.from).toBe(dep.start);
+        expect(p.tour!.to - p.tour!.from).toBeGreaterThanOrEqual(R);
+        expect(p.tour!.to - p.tour!.from).toBeLessThanOrEqual(R + TOUR_TAIL);
+        expect(p.end - p.start).toBeLessThanOrEqual(R + TOUR_TAIL);
       }
-      const bySet = new Map<number, Pairing[]>();
-      for (const p of tours) bySet.set(p.tour!.set, [...(bySet.get(p.tour!.set) ?? []), p]);
-      expect([...bySet.values()].some((l) => l.length >= 2)).toBe(true);
-      const changes = tours.filter((p) => p.tour!.from > dep.start).map((p) => p.tour!.from);
-      expect(new Set(changes).size).toBe(changes.length);
-      for (const l of bySet.values()) if (l.length >= 2) expect(l[0].slots.map((s) => s.crewId)).not.toEqual(l[1].slots.map((s) => s.crewId));
+      const changes = [...new Set(tours.map((p) => p.tour!.to))];
+      expect(changes.length).toBe(tours.length);
       // Crew are positioned to HAM by ticket (client-paid on a wet lease).
       const tickets = Object.values(g.flights).filter((f) => f.kind === 'deadhead');
       expect(tickets.some((f) => f.from === 'LIS' && f.to === 'HAM')).toBe(true);
