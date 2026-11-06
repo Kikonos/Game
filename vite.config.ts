@@ -89,6 +89,8 @@ export default defineConfig({
             // v0.15 three.js only with the 3D globe: its own chunk, loaded when the player opens the globe.
             if (id.includes('/node_modules/three/')) return 'globe3d';
             if (id.includes('/country-flag-icons/')) return 'flags';
+            // v0.17.1 the bug button's screenshot library: loaded only when the button is pressed.
+            if (id.includes('/node_modules/modern-screenshot/')) return 'shot';
             return 'vendor';
           }
           if (id.includes('/src/ui/components/aircraft/')) return 'aircraft';

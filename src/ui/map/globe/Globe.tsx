@@ -11,6 +11,7 @@ import { type BufferGeometry, CanvasTexture, type DataTexture, Group, Matrix4, M
 import { AIRPORT_BY_CODE } from '../../../data/airports';
 import type { Flight, GameState, Ref } from '../../../engine/core/types';
 import { commercialFlightsBetween, commercialProgress, type CommercialFlight, type FlightType, flightType } from '../../../engine/ops';
+import { registerCaptureCanvas } from '../../bugShot';
 import { liveMinute, store } from '../../store';
 import type { Theme } from '../../theme';
 import { isTouch } from '../../useMedia';
@@ -161,6 +162,8 @@ export default function Globe(props: GlobeProps) {
 
     const scene = new Scene();
     const camera = new PerspectiveCamera(FOV, 1, 0.01, 40);
+    // v0.17.1 the bug button's screenshot draws a fresh frame and reads it at once (no picture is kept after showing).
+    const unCapture = registerCaptureCanvas(renderer.domElement, () => renderer.render(scene, camera));
     const g0 = propsRef.current.g;
     const home = AIRPORT_BY_CODE[g0.company.homeBase];
     let orbit: Orbit = orbits.get(g0) ?? { lon: home?.lon ?? 0, lat: clampLat(home?.lat ?? 30), dist: DIST_START };
@@ -835,6 +838,7 @@ export default function Globe(props: GlobeProps) {
 
     return () => {
       disposed = true;
+      unCapture();
       api.current = null;
       stats.aim = null;
       cancelAnimationFrame(raf);

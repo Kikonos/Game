@@ -5,7 +5,6 @@ import { deliveryCardFor } from './modals/deliveryCard';
 import type { DistressId } from '../engine/finance/distress';
 import { startTransition, useEffect, useState, useSyncExternalStore } from 'react';
 import { clearPause, takePause, type PauseReason } from '../engine/core/pause';
-import type { BugPrefill } from './bugReports';
 import { addItem, CREW_REASONS, holdFromSave, holdToSave, pauseKeys, pendingItems, subjectsOf, topReason, type Hold } from './autoResume';
 import { pausingRuleKeys } from '../engine/ops/heads';
 import { CLOCK_STEP, type GameSpeed, minutesPerMs, monthKey } from '../engine/core/time';
@@ -149,8 +148,7 @@ export interface Nav {
 
 export type ModalSpec =
   | { kind: 'menu' }
-  /** v0.16.1 Report a bug (the form, with what a Report link pre-fills) and the list of reports. */
-  | { kind: 'bugReport'; prefill?: BugPrefill }
+  /** v0.16.1 the list of bug reports (the form opens from the corner button, ui/BugCorner.tsx). */
   | { kind: 'bugReports' }
   /** v0.12 a scenario's goals in full. */
   | { kind: 'scenario' }

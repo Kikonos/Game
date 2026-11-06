@@ -75,6 +75,8 @@ export function Modal({
     if (!onClose) return;
     const h = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        // v0.17.1 the bug report form sits above any open dialog: Escape closes the form only.
+        if (document.querySelector('.bug-layer') && !sheet.current?.closest('.bug-layer')) return;
         e.stopPropagation();
         onClose();
       }
