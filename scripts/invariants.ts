@@ -741,6 +741,10 @@ async function main() {
   inv.finish(g);
   console.log(`played to ${fmtDateTime(g.now)}${g.gameOver ? ` (game over: ${g.gameOver.reason})` : ''}, cash ${Math.round(g.company.cash)}, ${Object.keys(g.fleet).length} aircraft, ${Object.keys(g.crew).length} crew, ${((performance.now() - wall) / 1000).toFixed(1)} s`);
   inv.print(mode === 'save' ? `save ${args[1]}` : mode === 'scenario' ? `scenario ${args[1]}` : `seed ${args[1]}`);
+  // Alarm self-check: crew alarms confirmed vs withheld over the run (and why the withheld ones were).
+  const sc = g.selfCheck;
+  console.log(`self-check: crew alarms confirmed ${sc?.confirmed ?? 0}, withheld ${sc?.withheld ?? 0}`);
+  for (const r of sc?.log ?? []) console.log(`  withheld ${fmtDateTime(r.t)} ${r.title} — ${r.why}${r.evidence.length ? ` · ${r.evidence.slice(0, 3).join(' · ')}` : ''}`);
   for (const n of (flag('dump') ?? '').split(',').filter(Boolean)) inv.dump(n.replace(/_/g, ' '));
 }
 
