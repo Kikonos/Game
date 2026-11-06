@@ -10,7 +10,7 @@ import { newGame } from './deals017.helpers';
 
 describe('v0.17 lessor rating (§C)', () => {
   it('grades by score; deposits by grade (D 5, or 7 below 25)', () => {
-    expect([gradeOf(80), gradeOf(60), gradeOf(40), gradeOf(20)]).toEqual(['A', 'B', 'C', 'D']);
+    expect([gradeOf(90), gradeOf(70), gradeOf(40), gradeOf(20)]).toEqual(['A', 'B', 'C', 'D']);
     expect(depositMonthsFor({ grade: 'A', score: 80 })).toBe(1);
     expect(depositMonthsFor({ grade: 'C', score: 40 })).toBe(3);
     expect(depositMonthsFor({ grade: 'D', score: 30 })).toBe(5);

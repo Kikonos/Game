@@ -758,7 +758,7 @@ export const BAL = {
     rfp: { // lane deals
       maxOpen: 3, maxOpenNewcomer: 2, quietDays: 30, reply: { narrow: [5, 14], wide: [10, 24], newBuild: [14, 28] } as Record<string, [number, number]>, replyXA: 0.7,
       window: [[45, 0.5], [120, 0.9], [365, 1.15], [99999, 1.0]] as [number, number][],
-      work: { inHand: 1.4, none: 0.6 }, extra: [0.5, 0.25] as number[], laterShare: 0.3, later: [90, 180] as [number, number],
+      work: { inHand: 1.4, none: 0.6 }, extra: [0.5, 0.25] as number[], laterShare: 0.3, laterTight: 2, later: [90, 180] as [number, number],
       valid: { narrow: 10, wide: 7, newBuild: 14 } as Record<string, number>, pMax: 0.95,
       stored: { narrow: 0.45, wide: 0.3 }, freeAt: { narrow: [60, 240], wide: [90, 270] } as Record<string, [number, number]>, freeTight: 0.6, flexDays: 30,
     },

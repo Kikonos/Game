@@ -220,15 +220,24 @@ export function wideWorkInHand(g: GameState, at: Minute): boolean {
   return Object.values(g.contracts).some((c) => (c.status === 'signed' || c.status === 'active') && (c.requirements.body === 'wide' || c.requirements.minSeats >= 230) && c.start <= at + 60 * DAY && c.end >= at);
 }
 
-/** The chance a lessor has an aircraft for a request (§D.3 step 5, §T floor). Pure. */
-export function aircraftChance(g: GameState, rfp: Pick<Rfp, 'typeId' | 'from' | 'asap'>, def: LessorDef): number {
+/**
+ * The chance a lessor has an aircraft for a request (§D.3 step 5, §T floor). Pure. The §T floor is the request's: shared
+ * among the sources it goes to (balance step: per lessor, eight A330/340 lessors made a rare A340-500 likelier than an
+ * A330-200), so each source has 1 − (1 − floor)^(1/n).
+ */
+export function aircraftChance(g: GameState, rfp: Pick<Rfp, 'typeId' | 'from' | 'asap'> & { band?: AgeBand }, def: LessorDef): number {
   const t = typeOf(rfp.typeId);
   const app = def.appetite[t.body] ?? 0;
   const days = rfp.asap ? 0 : Math.max(0, (rfp.from - g.now) / DAY);
   const work = t.body === 'wide' ? (wideWorkInHand(g, rfp.from) ? R().work.inHand : R().work.none) : 1;
   const gx = BAL.v017.credit.chanceX[rating(g).grade] ?? 1;
   let p = Math.max(0, Math.min(R().pMax, app * (1 - tightNow(g, rfp.typeId)) * windowX(days) * work * gx));
-  if (X().types.includes(rfp.typeId) && aircraftGate(g, rfp.typeId).ok) p = Math.max(p, X().classics.includes(rfp.typeId) ? X().floor.classic : X().floor.default);
+  if (X().types.includes(rfp.typeId) && aircraftGate(g, rfp.typeId).ok) {
+    const classic = X().classics.includes(rfp.typeId);
+    const floor = classic ? X().floor.classic : X().floor.default;
+    const n = classic ? 1 : Math.max(1, lessorsFor(rfp.typeId, rfp.band ?? 'old', !!EX_OPERATORS[rfp.typeId]?.length).length);
+    p = Math.max(p, 1 - Math.pow(1 - floor, 1 / n));
+  }
   return p;
 }
 
@@ -381,7 +390,9 @@ function answer(g: GameState, rfp: Rfp, a: RfpAnswer): void {
     if (X().types.includes(rfp.typeId)) (L.exotic ??= { rfps: 0, proposals: 0 }).proposals += ids.length;
     return;
   }
-  if (chance(r, R().laterShare)) {
+  // Balance step: a lessor has one coming free later as often as the market is loose (a 747-400 or an A340-500 is not
+  // coming off lease next spring either): the share × min(1, laterTight × (1 − tightness)).
+  if (chance(r, R().laterShare * Math.min(1, R().laterTight * (1 - tightNow(g, rfp.typeId))))) {
     const o = makeProposal(g, rfp, def, leasingSide(g, `rfp:${rfp.id}:${def.id}:later`), true);
     if (o) {
       g.market.aircraft.push(o);

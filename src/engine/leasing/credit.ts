@@ -267,10 +267,14 @@ export function lessorStance(g: GameState, def: LessorDef, typeId: string, bandI
   return { ok: true, text: security ? 'Will deal, with big security' : 'Will look', ...(security ? { security } : {}) };
 }
 
-/** The lessors that lease a type at an age band (the previous operator only for types it has). Pure. */
+/**
+ * The lessors that lease a type at an age band (the previous operator only for types it has; balance step: for an
+ * exotic also mid-life, as Lufthansa sells its 747-8is, else no one would answer for a 747-8 before 2028). Pure.
+ */
 export function lessorsFor(typeId: string, bandIn: AgeBand, hasExOperator: boolean): LessorDef[] {
   const t = typeOf(typeId);
-  return LESSOR_DEFS.filter((l) => l.families.includes(t.family) && l.ages.includes(bandIn) && l.minGrade[t.body] !== null && (l.id !== 'exop' || hasExOperator));
+  const ageOk = (l: LessorDef) => l.ages.includes(bandIn) || (l.id === 'exop' && bandIn === 'mid' && BAL.v017.exotic.types.includes(typeId));
+  return LESSOR_DEFS.filter((l) => l.families.includes(t.family) && ageOk(l) && l.minGrade[t.body] !== null && (l.id !== 'exop' || hasExOperator));
 }
 
 // ---------- sale and leaseback (§K.2) ----------
