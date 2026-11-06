@@ -42,6 +42,17 @@ export function touchFlights(g: GameState): void {
 }
 
 /**
+ * Rotations round: the whole flight table was replaced (atomic.ts restoreState puts back a copy): the deadhead id set
+ * is rebuilt on next use. A ticket deleted during the undone change had left the set (deadheadFlights drops ids it no
+ * longer finds) and came back with the copy unseen: its crew read as holding no ticket until a reload (bot seed 1,
+ * Inês Ribeiro's NTE–LIS ticket home: the tour's ticket out was kept from Nantes and a hotel standby planned there).
+ */
+export function flightsReplaced(g: GameState): void {
+  index(g).deadheads = undefined;
+  touchFlights(g);
+}
+
+/**
  * v0.6: a change that touches no aircraft's flight list (crew tickets, riders on our legs): the revision moves on
  * for everyone keyed on it (ticket scans, UI memos), but the per-aircraft lists stay valid (no re-sort).
  */
