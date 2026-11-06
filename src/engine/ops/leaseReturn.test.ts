@@ -1,6 +1,6 @@
 // v0.7 lease returns (UPDATE-0.7.md §F6.6): the 120-day notice, extensions, the return ferry and check, return costs.
 
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
 import { addFlight, removeFlights } from '../core/entities';
 import { DAY, fmtDayRel, monthKey, monthStart } from '../core/time';
@@ -29,6 +29,9 @@ function ending(seed: number, days: number): { g: GameState; ac: Aircraft } {
 }
 
 describe('the lease notice', () => {
+  // v0.17: the v0.16 extension factors (0.97 / 0.92); the v0.17 tightness factor is tested in leaseReturn017.test.ts.
+  beforeAll(() => { (BAL.v017 as { on: boolean }).on = false; });
+  afterAll(() => { (BAL.v017 as { on: boolean }).on = true; });
   it('120 days before the end: one decision (extend 12 by default, extend 36, return) with live quotes; the default extends at × 0.97 × index', () => {
     const { g, ac } = ending(3, 125);
     dailyLeases(g);
@@ -89,6 +92,9 @@ describe('return quote', () => {
 });
 
 describe('return quote over a long lease', () => {
+  // v0.17: the v0.16 extension factors (0.97 / 0.92); the v0.17 tightness factor is tested in leaseReturn017.test.ts.
+  beforeAll(() => { (BAL.v017 as { on: boolean }).on = false; });
+  afterAll(() => { (BAL.v017 as { on: boolean }).on = true; });
   it('a 54-month A320 lease: the C-checks during the lease reset the half-life share, so the return lands in $0.3–1.2M', () => {
     const { g, ac } = ending(4, Math.round(54 * 30.44));
     ac.maint.lastC = g.now - 150 * DAY;

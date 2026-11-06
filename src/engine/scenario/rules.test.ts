@@ -171,7 +171,9 @@ describe('v0.15 scenario rules: the engine refuses what is locked', () => {
     // Forge an offer as the normal game would make it (rules off for a moment), then switch the rules back on.
     const coreIds = g.scen!.core;
     delete g.scen!.core;
-    const o = generateOffer(g, 'adhoc', { window: false });
+    // v0.17 an ad hoc offer can come out null on a given draw: a few draws (the forging only needs one).
+    let o = generateOffer(g, 'adhoc', { window: false });
+    for (let i = 0; i < 20 && !o; i++) o = generateOffer(g, 'adhoc', { window: false });
     g.scen!.core = coreIds;
     expect(o).not.toBeNull();
     const ac = Object.keys(g.fleet)[0];
