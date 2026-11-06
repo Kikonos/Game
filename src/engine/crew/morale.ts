@@ -214,22 +214,12 @@ function dailyDrivers(g: GameState, c: CrewMember, target: number): Partial<Reco
     let t = 0;
     for (const [d, v] of M().awayDays) if (days > d) t = v;
     if (t) out.tour = t;
-    // Yesterday without work, at the hotel (v0.9: a hotel standby day is work; long standby runs are their own driver).
+    // Yesterday without work, at the hotel (v0.9: a hotel standby day is work).
     const from = g.now - DAY;
     if ((c.awaySince ?? g.now) <= from && !c.log.some((e) => e.end > from && e.start < g.now) && !c.standby?.some((w) => w.from < g.now && w.to > from)) out.offAway = M().offAway;
   }
-  // v0.9 long standby runs (UPDATE-0.9.md §R.6): from the 4th day in a row on standby without a call-out.
-  const SR = BAL.v09.roster.morale;
-  if (c.standby?.length) {
-    let run = 0;
-    for (let k = 1; k <= SR.runFrom + 1; k++) {
-      const a = g.now - k * DAY;
-      const b = a + DAY;
-      if (!c.standby.some((w) => w.from >= a && w.from < b && w.calledAt === undefined) || c.log.some((e) => e.end > a && e.start < b)) break;
-      run++;
-    }
-    if (run >= SR.runFrom) out.standby = SR.runDay;
-  }
+  // Crew bug round: long standby runs are no longer a morale driver (the player, a flight attendant: standby is part of
+  // the job and does not wear people down; pay, tours, hotels, days off and late changes do).
   let duty = 0;
   for (const e of c.log) if (e.end > g.now - 28 * DAY) duty += e.end - e.start;
   if (duty > M().heavy28dH * 60) out.workload = M().heavy;
@@ -237,6 +227,19 @@ function dailyDrivers(g: GameState, c: CrewMember, target: number): Partial<Reco
   const pol = (target - M().target) * M().revert;
   if (pol) out.policy = pol;
   return out;
+}
+
+/**
+ * Crew bug round save repair: long standby runs no longer weigh on morale. What is left of that driver in the 30-day
+ * "why" comes back (it decays as the rest does) and the driver goes. Once: a save without the key is untouched.
+ */
+export function repairStandbyMorale(g: GameState): void {
+  for (const c of Object.values(g.crew)) {
+    const v = c.moraleWhy?.standby;
+    if (v === undefined) continue;
+    delete c.moraleWhy!.standby;
+    if (!c.notice && v < 0) c.morale = r1(clamp(c.morale - v, 0, 100));
+  }
 }
 
 /** Notice period for a resignation (pilots 60 days, cabin 30). */
@@ -255,7 +258,7 @@ export function setResignHooks(onResign: (g: GameState, c: CrewMember) => void, 
 /** Top drivers (by size) in a "why" record. */
 function topDrivers(why: Partial<Record<MoraleDriver, number>>, n = 3): MoraleDriverView[] {
   return (Object.entries(why) as [MoraleDriver, number][])
-    .filter(([, v]) => Math.abs(v) >= 0.5)
+    .filter(([k, v]) => k !== 'standby' && Math.abs(v) >= 0.5)
     .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]) || (a[0] < b[0] ? -1 : 1))
     .slice(0, n)
     .map(([key, v]) => ({ key, label: MORALE_LABEL[key], value: Math.round(v) }));
@@ -274,6 +277,18 @@ export function resignRoll(g: GameState, c: CrewMember): boolean {
   return h / 4294967296 < resignChance(g, c) / 30;
 }
 
+/** Crew bug round: a resignation's reason in plain words (a driver that weighs on morale). */
+export const LEAVE_WHY: Partial<Record<MoraleDriver, string>> = {
+  policy: 'low per diem or long tours', pay: 'salaries paid late', hotel: 'poor hotels', tour: 'long weeks away from home',
+  offAway: 'days off spent at a hotel away from home', workload: 'too many hours', lateChange: 'late roster changes',
+  discretion: 'duties extended past the plan', daysOff: 'too few days off', extraCrew: 'flying short-handed', career: 'a new type to learn',
+};
+
+/** Why a crew member resigned, in plain words ('salaries paid late and poor hotels'); '' when no driver stands out. Pure. */
+export function leaveWhy(c: CrewMember): string {
+  return topDrivers(c.moraleWhy ?? {}, 2).filter((d) => d.value < 0).map((d) => LEAVE_WHY[d.key] ?? d.label.toLowerCase()).join(' and ');
+}
+
 /** Reasons people leave whatever the roster (used when no morale driver stands out). */
 const OTHER_REASONS = ['an offer from a Gulf carrier', 'a job closer to family', 'a seniority offer at a legacy airline', 'leaving flying for a ground job', 'moving abroad with a partner'];
 
@@ -282,14 +297,14 @@ export function resignNow(g: GameState, crewId: string): boolean {
   const c = g.crew[crewId];
   if (!c || c.notice || c.status === 'joining') return false;
   const leaves = g.now + noticeDays(c.role) * DAY;
-  const why = topDrivers(c.moraleWhy ?? {}, 2).filter((d) => d.value < 0).map((d) => d.label.toLowerCase());
+  const why = leaveWhy(c);
   c.notice = { given: g.now, leaves };
   resignHook?.(g, c);
   const fam = c.ratings[0] ?? 'A320';
   const join = (BAL.hireDays as Record<string, number>)[c.role] ?? 45;
   pushMessage(g, {
     tone: 'warn', cat: 'crew', title: `${crewName(c)} (${c.role}) resigned`,
-    body: `${noticeDays(c.role)} days' notice: last day ${fmtDate(leaves - 1)}. Morale ${Math.round(c.morale)}: ${why.length ? why.join(', ') : OTHER_REASONS[hash(c.id) % OTHER_REASONS.length]}. Rated ${fam} ${ROLE_NAME[c.role]} take about ${join} days to join: hire now to keep ${BAL.crewSetsPerAircraft} sets.`,
+    body: `${noticeDays(c.role)} days' notice: last day ${fmtDate(leaves - 1)}. Why: ${why || OTHER_REASONS[hash(c.id) % OTHER_REASONS.length]} (morale ${Math.round(c.morale)}). Rated ${fam} ${ROLE_NAME[c.role]} take about ${join} days to join: hire now to keep ${BAL.crewSetsPerAircraft} sets.`,
     ref: { kind: 'crew', id: c.id },
   });
   touchCrew(g);

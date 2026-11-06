@@ -11,7 +11,7 @@ import { dailyCrewCosts, monthlySalaries } from './costs';
 import { afterDiversion, deletePairing, dutyLegality as dutyLevel, pairingSeats, planAircraft, refreshPairing, syncDuty } from './duties';
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
-import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
+import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, repairStandbyMorale, setResignHooks } from './morale';
 import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
 import { extFdp, localMin, minRest, referenceTime, signedTz, tzDeltaH, tzNights, woclMinutes } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
@@ -712,6 +712,8 @@ export const crewModule: SimModule = {
     // v0.12.1 open duties no longer list rides on legs already gone (a relinked positioning leg removed with crew on it).
     for (const d of Object.values(g.duties)) if (!d.done && d.deadheadIds.some((id) => !g.flights[id])) d.deadheadIds = d.deadheadIds.filter((id) => g.flights[id]);
     repairCutStandby(g);
+    // Crew bug round: long standby runs are no longer a morale driver.
+    repairStandbyMorale(g);
     // v0.14 seats, tickets and rides still held by crew who have left (a finished tour that grew again kept them).
     repairGoneCrew(g);
     repairDiverted(g);

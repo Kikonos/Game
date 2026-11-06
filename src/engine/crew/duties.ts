@@ -787,6 +787,8 @@ function partition(g: GameState, acId: string, typeId: string, rest: AcRest, uni
   const home = g.company.homeBase;
   interface Best { count: number; aug: number; slack: number; prev: number; flights: Flight[] }
   const best: (Best | null)[] = new Array(units.length + 1).fill(null);
+  // Crew bug round (HX6001): a unit of empty legs only (positioning, ferry) ends at a crew-change station.
+  const emptyUnit = units.map((u) => u.every((f) => f.kind === 'positioning' || f.kind === 'ferry'));
   best[0] = { count: 0, aug: 0, slack: Infinity, prev: -1, flights: [] };
   for (let j = 1; j <= units.length; j++) {
     let fl: Flight[] = [];
@@ -798,6 +800,19 @@ function partition(g: GameState, acId: string, typeId: string, rest: AcRest, uni
       const pa = planAugment(g, sh, { rest, canAug, split: single, ext: single, cabinN: planCabinN(g, acId, fl) });
       const tight = sh.fdp > pa.max - LIMITS.tightFdp;
       if (!single && (!pa.ok || (tight && !allowTight))) continue;
+      // Crew bug round (HX6001 SHA–HKG with four pilots): an empty leg into a crew-change station is never joined to
+      // the work there when the joined day needs extra pilots. The empty leg is flown by its own two pilots and the
+      // crew on station (or from home) takes the work: before, TAS–HKG (6 h) and HKG–CJU–HKG made one 13:40 day with
+      // four pilots, and the whole tour pairing then carried the two extra pilots on every 2-hour day after it.
+      if (!single && pa.augment > 0) {
+        let e = false;
+        let w = false;
+        for (let k = i; k < j; k++) {
+          if (emptyUnit[k]) e = true;
+          else w = true;
+        }
+        if (e && w) continue;
+      }
       if (!single && sh.sectors > NIGHT_MAX_SECTORS && disruptiveKinds(home, sh.report, sh.lastOn).night) continue;
       const prev = best[i];
       if (!prev) continue;
