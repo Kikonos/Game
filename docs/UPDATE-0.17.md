@@ -941,6 +941,25 @@ Prices of work are not touched.
 
 Step 0 is accepted on the neutral checks of §P.1–3, and when the six saves load.
 
+### Q.1a Step 0 as built (branch `v017-step0`, fast-forwarded to acmi)
+
+Neutral: `bot 1 120 --wide --inv` prints the base table line for line; only the new report line `v0.17 market: lessor rating C (50)` is added. Names that differ from the text above:
+
+- **`lessorRating(g): LessorRating`** (credit.ts) instead of `creditView` / `CreditView`: engine/finance already exports a `creditView` and a `CreditView` (the bank's credit line). It is real (a pure read nothing acts on); nothing caches it yet (`g.leasing.credit` stays empty until lane `deals` caches it daily).
+- **`inductionPlan(g, offer, opts)`** rolls on the stream `ind:<offerId>` (not the aircraft id), so the letter-of-intent dialog shows the same plan before signing. `acquireAircraft` takes its `ready` as the handover (step 0: signing + `leadDays`).
+- **`signOffer(g, offer, SignOpts)`** builds the aircraft (cash due now as `pay`, site, handover, fee, registration, `induction`). `acquireAircraft` keeps every legacy check, removes the offer from the list and calls it. The lease signing of a deal calls `signOffer` with the deal's snapshot and `pay` = deposit − holding.
+- **`dailyMarket`** calls `dailyCalls` (calls.ts) when `BAL.v017.on`, else `dailyMarketLegacy` (the v0.16 body, kept). `dailyCalls` calls `dailyMarketLegacy` in step 0. `makeOffer`, `postOffer` and `dailyMarketLegacy` are exported for the leasing modules.
+- **Supply hooks**: ops/world.ts `startEvent` calls `onSupplyEvent(g, e)` for every world event (an `airlineFailure` reaches `onAirlineFailure` through it: lane `supply` dispatches); commercial/crises.ts calls `onAirlineFailure` for an administration and `onSupplyEvent` for a strike or a grounding.
+- **Letters of credit** (`finance/lc.ts` `lcInUse`) lower the undrawn limit in `covenantCheck`, `creditView`, `drawCredit`, the daily commitment fee and the treasury forecast (all five read the same undrawn).
+- **Leaseback**: `leasebackQuote` takes its lessor from `leasebackLessorFor(g, stablePick, BAL.v016.finance.leaseback.lessors)` (credit.ts) and shows its `why` when no lessor will.
+- **AOC gate**: `gateMisses` (approvalGate.ts) checks `familyOnAoc` for legs that are not ferries, deadheads or operated by others; lane `deals` pushes the miss there (GateMiss needs an AOC kind).
+- **Month-end bill**: `MonthEndBill.leasing` (= `leasingBill`: `minHoursBill` from terms.ts + `lcFeeBill` from finance/lc.ts) is part of `total`. The forecast adds `leasingForecastItems` (deals.ts).
+- **Problems**: the five kinds go to `problems/leasing.ts`; `leasingProblems(g)` joins `problems()`; the cache key reads `g.leasing.rev` (bump it with `touchLeasing(g)` on every deal or request change).
+- **UI**: the store's modals `rfp`, `loi`, `aoc`, `spot` open `RfpModal`, `LoiModal`, `AocModal`, `SpotModal` (game/Modals.tsx). `RatingLine`, `OffersView`, `RequestsView` and `DealsView` are mounted in `MarketView`, `AocTypes` under the Ladder on Company, `LessorRating` in The bank. All render nothing.
+- **Bot**: `botMarket(g, { greedy, newfam })` once a day in `policy()`; `--market=v16` sets `BAL.v017.on = false` before the game is made; `botMarketReport(g)` prints the line after the v0.16 report.
+- **Extra files**: `leasing/side.ts` (`leasingSide`, the market side-stream formula; shared, step 0 only), `leasing/exotic.ts` (§T; lane `deals`), `leasing/step0.test.ts` (shared: a lane may extend it, never weaken the neutral checks while `--market=v16` must hold).
+- **Stub signatures** are listed in each file's header and doc comment; each says "Step 0:" what it returns now.
+
 ### Q.2 The three lanes
 
 | Lane | Owns (edits freely) | Adds | Never touches |
@@ -948,6 +967,10 @@ Step 0 is accepted on the neutral checks of §P.1–3, and when the six saves lo
 | `supply` | `src/engine/leasing/{tightness,terms,calls,spot,batches}.ts`, `src/engine/ops/market.ts` (beyond step 0: weights, caps, new-build leads, guaranteed offers through `quoteTerms`, `marketOutlook` supply), `src/engine/ops/leaseReturn.ts` (extension rent, `halfLifeShare`, the short-term return), `src/data/lessors.ts`, `src/data/market.ts` (storage sites, `SPOT_SOURCES`, `FAILURE_FLEETS`), `src/data/acmiTypes.ts` (rents of §E.1 only), `src/data/airports.ts` (TEV, MZJ, HAJ if missing: checked), `src/data/worldEvents.ts` (`delay777x`), the bodies of `onAirlineFailure` and `onSupplyEvent`, `BAL.v017.{supply,calls,newBuild,terms,spot,batch}` | tests `tightness.test.ts`, `terms.test.ts`, `calls.test.ts`, `spot.test.ts`, `batches.test.ts`, `leaseReturn017.test.ts` | `leasing/{credit,rfp,deals,induction,aoc}.ts`, `finance/**`, `ui/**`, `crew/**`, `contracts/**` |
 | `deals` | `src/engine/leasing/{credit,rfp,deals,induction,aoc,index}.ts`, `src/engine/finance/lc.ts` (new), `src/engine/problems/leasing.ts`, `src/engine/ops/approvalGate.ts` (family gate), `src/engine/ops/delivery.ts` (handover from `ready` only), `src/engine/ops/company.ts` (`aocView` for the Ladder; nothing else), `scripts/invariants.ts` (`camo-capacity` only), `BAL.v017.{credit,rfp,deal,induction,aoc,lc}` | tests `credit.test.ts`, `rfp.test.ts`, `deals.test.ts`, `induction.test.ts`, `aoc.test.ts`, `lc.test.ts`, `saveCompat017.test.ts` | `leasing/{tightness,terms,calls,spot,batches}.ts`, `ops/market.ts` beyond step 0, `finance/index.ts` and `finance/distress.ts` beyond the step-0 hooks, `ui/**`, `crew/**` |
 | `market-ui` | `src/ui/screens/Market.tsx`, `src/ui/screens/market/**`, `src/ui/modals/{RfpModal,LoiModal,AocModal,SpotModal}.tsx`, `src/ui/modals/AcquireModal.tsx` (purchases and legacy only), `src/ui/screens/Fleet.tsx` (the transition line and the tabs), `src/ui/screens/company/AocTypes.tsx`, `src/ui/screens/finance/LessorRating.tsx`, the outlook supply line where `marketOutlook` is shown, `src/ui/store.ts` (leasing actions), `src/ui/screens/screenLogic.ts` (`refTarget` for `rfp` / `deal`, `offerKind` sources), `src/data/glossary.ts` (§N.5), `scripts/bot/market.ts`, `scripts/bot/report017.ts`, CSS for the new classes | tests `marketLogic.test.ts`, Playwright shots in `/home/user/work/v017/shots/` | `src/engine/**` (reads the APIs; asks the engine lanes for changes in their STATE files), `crew/**` |
+
+Added at step 0 (§T, Q.1a):
+- `src/engine/leasing/exotic.ts` and `BAL.v017.exotic.{minGrade,securityGrade,securityMonths,reservesDepositMonths,crew}` → lane `deals`; `BAL.v017.exotic.{types,classics,floor,sale,callsPerYear}` and Amedeo's row in `data/lessors.ts` → lane `supply`.
+- `src/engine/leasing/side.ts` → step 0 only.
 
 Shared files nobody edits beyond their marked block:
 - `core/types.ts`: a lane may add optional fields inside its own `// v0.17 <lane>` block;
@@ -984,3 +1007,28 @@ Realism notes:
 Open for the player:
 1. Should the A320neo be request-only, as designed (GTF groundings make proposals rare), or stay out of the market?
 2. Should lessor calls also go through the credit check (as designed: about 2–5 weeks more before the handover), or sign at once as today, with only the grade's deposit?
+
+---
+
+## T. Exotic types: hard, expensive, never impossible (player addition, 6 Nov)
+
+The player wants the cool aircraft to be possible: leasing or buying an A380, a 747-400 or 747-8, or another rare widebody (A340-500/-600, A340-200, the 747 classics). Not realistic-easy, but never impossible. Real precedent:
+- End-of-life A380s sit with fund managers and specialist lessors (Doric's funds; Amedeo, the Dublin A380 lessor) and with airlines retiring them. A charter airline wet-leased an ex-Singapore A380 for summer peaks in 2018–2020 (Hi Fly), and a UK start-up bought ex-airline A380s in 2023–24 *(from memory, not verified in the research files)*.
+- Fewer than 80 passenger 747-400s are left; Lufthansa is selling two 747-8is and retiring two 747-400s (research-supply.md). Old ones go to freighter conversion or storage.
+
+**Who offers them** (`data/lessors.ts`): Doric (A380, B777, B787, A350; B/B), Amedeo (A380 only; B/B, and it places 1 with a C-rated airline under the security rule below), and the previous operator (`exop`: 747s, A340s, 757/767, A380; leases or sells direct). 747 classics come only from storage, as sales.
+
+**The rule** (`BAL.v017.exotic`; lane `deals`):
+- An exotic needs lessor rating **B or better** from any source.
+- At **C**, a lessor still deals with **big security**: `securityMonths` (4) more months of deposit and `reservesDepositMonths` (3) months of minimum-hours reserves up front. At **D**, no lease.
+- A **purchase** skips the lessor's credit check (§F): with the cash, any grade can buy one. The price is the used value × `sale.priceX` (0.85–1.10); `sale.share` (0.4) of exotic offers are sales.
+- Everything else still applies: the type's approvals (Widebody operations; augmented crews and ETOPS 180 for the A380 and 747-8), the AOC variation of a new family (§H, 120 days at EASA), rated crews (`crew`: 4 captains and 4 first officers before the variation is granted, more than a common type), the CAMO slot (a widebody takes 2), the grade's widebody total (§C.2) and each lessor's cap.
+
+**Never impossible** (lane `supply` with `deals`): tightness alone must not shut the door (the 747-8's 0.95 gives about 2 % a request). A request that meets every requirement and goes to a source that holds the type gets a proposal with at least `floor.default` (0.12) chance, or `floor.classic` (0.05) for a 747 classic (a sale from storage). Lessor calls of an exotic come about `callsPerYear` (1) a year once the gate allows the type. The bot's `--greedy` run reports exotic requests and their answers.
+
+**What it takes** (`exoticPath(g, typeId)`, exotic.ts; pure): one line per requirement, met or not (grade, or the security at C; approvals; AOC family; rated pilots; who has them). Lane `market-ui` shows it in the request dialog when an exotic is picked ("What it takes"), on an exotic offer card's dialog, and greys nothing out: an exotic type is always listed with its lines, never hidden. Wording: "A380: rating B or better (now C) · at C: 4 more months' deposit and 3 months of reserves up front · Widebody operations, augmented crews and ETOPS 180 · an AOC variation (120 days) · 4 + 4 rated pilots · Doric, Amedeo, airlines retiring them".
+
+**Acceptance** (added to §P):
+17. Every exotic type has at least one source in `data/lessors.ts`, and `exoticPath` lists it (step-0 test).
+18. With every requirement met at B, `--greedy` requests for the A380 and the 747-400 get at least one proposal within a year on at least 3 of 5 seeds; at C with the security, at least one within a year on 1 of 5; at D, a sale offer can be signed with the cash.
+19. An exotic signed at C carries the extra deposit and the reserves deposit on its lease.
