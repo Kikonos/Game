@@ -426,7 +426,7 @@ function billMinHours(g: GameState): void {
   const who = lines.length === 1 ? ` (${lines[0].reg})` : `: ${lines.map((l) => `${l.reg} ${l.hours} h`).join(', ')}`;
   pushMessage(g, {
     tone: 'info', cat: 'finance', topic: 'market', title: `Reserves on ${hours} unflown hours: ${usd(total)}`,
-    body: `Our newer leases bill a minimum of flight hours a month as maintenance reserves, flown or not${who}. Fly them more, or lease them out, to use the hours.`,
+    body: `New lessor leases bill a minimum of flight hours a month as maintenance reserves, flown or not${who}. Fly them more, or lease them out, to use the hours.`,
     ...(lines.length === 1 ? { ref: { kind: 'aircraft' as const, id: lines[0].aircraftId } } : {}),
   });
 }
