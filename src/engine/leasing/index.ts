@@ -6,11 +6,8 @@ import { BAL } from '../core/balance';
 import { ACMI_TYPES_LIST } from '../../data/acmiTypes';
 import type { GameState, Leasing, MonthKey } from '../core/types';
 import { dailyLc, lcFeeBill, monthlyLc } from '../finance/lc';
-import { post } from '../core/ledger';
-import { pushMessage } from '../core/messages';
 import { postProblem } from '../problems';
 import { inductionDelayCard } from '../problems/leasing';
-import { usd } from '../ops/util';
 import { dailyAoc, loadAoc } from './aoc';
 import { dailyCredit } from './credit';
 import { dailyDeals } from './deals';
@@ -86,16 +83,9 @@ export function dailyLeasing(g: GameState): void {
 /** Monthly (end of refreshMarket): tightness moves. Step 0: nothing moves. */
 export function monthlyLeasing(g: GameState): void {
   if (!g.leasing || !BAL.v017.on) return;
-  // Into the closing month (refreshMarket runs before the statement closes): letter-of-credit fees, then the
-  // minimum-hours reserves not flown (terms.ts minHoursBill; posted here once, as `reserves`).
+  // Into the closing month (refreshMarket runs before the statement closes): letter-of-credit fees. The minimum-hours
+  // reserves are posted once, by refreshMarket (ops/market.ts billMinHours; review: they were posted here too).
   monthlyLc(g);
-  const k = g.finance.current.month;
-  const minH = Math.round(minHoursBill(g, k));
-  if (minH > 0) {
-    post(g, 'reserves', -minH);
-    g.leasing.stats.minHoursBilled += minH;
-    pushMessage(g, { tone: 'info', cat: 'finance', topic: 'market', cue: null, title: `Minimum-hours reserves: ${usd(minH)}`, body: 'Leases signed since v0.17 bill a minimum of flight hours a month as reserves, flown or not.' });
-  }
   stepTightness(g);
 }
 

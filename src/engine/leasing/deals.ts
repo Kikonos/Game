@@ -141,7 +141,17 @@ export function exoticSecurityOf(g: GameState, o: AircraftOffer): { deposit: num
   const st = lessorStance(g, def, o.typeId, bandOfOffer(g, o), lessorName(o), stanceRating(g, o));
   if (!st.security) return { deposit: 0, reserves: 0 };
   const fh = o.minFH ?? BAL.v017.terms.minFH.wide;
-  return { deposit: Math.round(X().securityMonths * o.rentPerMonth), reserves: Math.round(X().reservesDepositMonths * fh * o.reservesPerFH) };
+  // Review: an offer priced at the security grade already carries it (terms.ts: in its deposit and reservesDeposit);
+  // only what is missing is asked (an offer made at B, the letter of intent signed at C).
+  return {
+    deposit: Math.max(0, Math.round(X().securityMonths * o.rentPerMonth) - (o.exoticSecurity ?? 0)),
+    reserves: Math.max(0, Math.round(X().reservesDepositMonths * fh * o.reservesPerFH) - (o.reservesDeposit ?? 0)),
+  };
+}
+
+/** The reserves deposit due at the lease signing: the offer's (its terms) and the deal's (§T security asked at the letter of intent). Pure. */
+export function reservesDue(d: LeaseDeal): number {
+  return (d.offer.reservesDeposit ?? 0) + (d.reservesDeposit ?? 0);
 }
 
 /** Why a letter of intent can't be signed now (null: it can). Pure. */
@@ -193,7 +203,7 @@ export function loiQuote(g: GameState, offerId: string, opts: LoiOpts = {}): Loi
     offerId, holding, depositAtSign, transition, techReps, paint, whyRent, reserves, ret,
     ready: plan.expected ?? plan.ready, steps: ind ? inductionSteps({ ...ind, ready: plan.expected ?? ind.ready, findings: undefined }) : [], camo,
     aoc: vq ? vq.text : null, pilots, lcAllowed: !lw, cashAfter: g.company.cash - holding,
-    why: loiWhy(g, o, holding), exoticSecurity: sec.deposit, reservesDeposit: sec.reserves, lcWhy: lw, committeeDays: cr,
+    why: loiWhy(g, o, holding), exoticSecurity: (o.exoticSecurity ?? 0) + sec.deposit, reservesDeposit: (o.reservesDeposit ?? 0) + sec.reserves, lcWhy: lw, committeeDays: cr,
     lessor: lessorName(o), grade: r.grade,
   };
 }
@@ -229,7 +239,8 @@ export function signLoi(g: GameState, offerId: string, opts: LoiOpts = {}): Acti
     autoSign: opts.autoSign ?? true, lc: !!opts.lc, paint: !!opts.paint, techReps: !!opts.techReps,
     gradeAtOffer: o.grade ?? r.grade, committeeAt: g.now + days * DAY,
     ...(reg || opts.name || opts.delivery ? { opts: { ...(reg ? { reg } : {}), ...(opts.name ? { name: opts.name } : {}), ...(opts.delivery ? { delivery: opts.delivery } : {}) } } : {}),
-    ...(sec.deposit ? { exoticSecurity: sec.deposit, reservesDeposit: sec.reserves } : {}),
+    ...(sec.deposit ? { exoticSecurity: sec.deposit } : {}),
+    ...(sec.reserves ? { reservesDeposit: sec.reserves } : {}),
   };
   L.deals.push(deal);
   L.stats.lois++;
@@ -255,7 +266,7 @@ export function depositDue(d: LeaseDeal): number {
 /** Cash due at the lease signing: the deposit unless covered by a letter of credit, the reserves deposit, transition, extras. Pure. */
 export function cashToSign(g: GameState, d: LeaseDeal): number {
   const dep = d.lc ? 0 : depositDue(d);
-  return dep + (d.reservesDeposit ?? 0) + transitionCost(g, d.offer) + (d.techReps ? techRepsCost(d.offer.typeId) : 0) + (d.paint ? paintCost(d.offer.typeId) : 0);
+  return dep + reservesDue(d) + transitionCost(g, d.offer) + (d.techReps ? techRepsCost(d.offer.typeId) : 0) + (d.paint ? paintCost(d.offer.typeId) : 0);
 }
 
 /** Signs the lease after approval (§F step 4). */
@@ -298,7 +309,9 @@ export function signLease(g: GameState, dealId: string): ActionResult<{ aircraft
   }
   const induction = plan.induction ? { ...plan.induction, ready: Math.max(plan.induction.ready, handover) } : undefined;
   const cashDep = d.lc ? 0 : dep;
-  const res = signOffer(g, { ...o, deposit: d.holding + cashDep }, { site, handover, where, fee, pay: cashDep + (d.reservesDeposit ?? 0), reg: d.opts?.reg, name: d.opts?.name, delivery: d.opts?.delivery, induction });
+  // Review: every reserves deposit is paid here once (signOffer would take the offer's again) and kept once on the lease.
+  const resDep = reservesDue(d);
+  const res = signOffer(g, { ...o, deposit: d.holding + cashDep, reservesDeposit: undefined }, { site, handover, where, fee, pay: cashDep + resDep, reg: d.opts?.reg, name: d.opts?.name, delivery: d.opts?.delivery, induction });
   if (!res.ok || !res.data) return res;
   const ac = g.fleet[res.data.aircraftId];
   const tc = transitionCost(g, o);
@@ -308,14 +321,16 @@ export function signLease(g: GameState, dealId: string): ActionResult<{ aircraft
   else ac.livery = 'white';
   if (ac.ownership.kind === 'dryLeaseIn') {
     const own = ac.ownership;
-    own.deposit = d.holding + cashDep + (d.reservesDeposit ?? 0);
+    // The deposit only: the reserves deposit is refunded on its own (ops/leaseReturn.ts onReturnEnd).
+    own.deposit = d.holding + cashDep;
     if (o.lessorId) own.lessorId = o.lessorId;
     if (o.minFH) {
       own.minFH = o.minFH;
       own.reservesEscAt = own.leaseStart + 12 * MONTH;
     }
     if (o.halfLifeShare !== undefined) own.halfLifeShare = o.halfLifeShare;
-    if (d.reservesDeposit) own.reservesDeposit = d.reservesDeposit;
+    if (resDep) own.reservesDeposit = resDep;
+    else delete own.reservesDeposit;
     own.grade = d.gradeAtCommittee ?? d.gradeAtOffer;
     if (d.lc) {
       moveLc(g, d.id, ac.id);
@@ -475,7 +490,7 @@ export function leasingForecastItems(g: GameState, days: number): ForecastItem[]
     if (at > until) continue;
     const t = typeOf(d.offer.typeId);
     const dep = d.lc ? 0 : depositDue(d);
-    if (dep + (d.reservesDeposit ?? 0)) out.push({ t: at, amount: -(dep + (d.reservesDeposit ?? 0)), what: `deposit to sign the ${t.short} lease (${lessorName(d.offer)})` });
+    if (dep + reservesDue(d)) out.push({ t: at, amount: -(dep + reservesDue(d)), what: `deposit to sign the ${t.short} lease (${lessorName(d.offer)})` });
     const tc = transitionCost(g, d.offer) + (d.techReps ? techRepsCost(d.offer.typeId) : 0) + (d.paint ? paintCost(d.offer.typeId) : 0);
     out.push({ t: at, amount: -tc, what: `transition of the ${t.short}${d.paint ? ' with paint' : ''}` });
   }
