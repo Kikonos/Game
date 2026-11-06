@@ -88,3 +88,57 @@ export const MRO_STATIONS: MroStation[] = [
   { code: 'AMM', name: 'Joramco', city: 'Amman', wide: true },
   { code: 'SIN', name: 'ST Engineering', city: 'Singapore', wide: true },
 ];
+
+// ---------- v0.17 "Aircraft market" (UPDATE-0.17.md §I, §J.3; lane `supply`) ----------
+
+/**
+ * Storage and part-out sites where failure batches and stored aircraft are handed over: Tarmac Aerosave Tarbes, Shannon,
+ * Tarmac Aerosave Teruel (TEV) and Pinal Airpark, Marana (MZJ). TEV and MZJ have no airline service and are not in
+ * airports.ts (an airport row there would also become a fuel-stop and alternate candidate for every route): codes
+ * not in airports.ts are dropped where they are used, as for LESSOR_SITES.
+ */
+export const STORAGE_SITES: Site[] = [
+  { code: 'LDE', name: 'Tarmac Aerosave', city: 'Tarbes' },
+  { code: 'TEV', name: 'Tarmac Aerosave', city: 'Teruel' },
+  { code: 'MZJ', name: 'Pinal Airpark', city: 'Marana' },
+  { code: 'SNN', name: 'Atlantic Aviation Group', city: 'Shannon' },
+];
+
+/** An airline with a spare aircraft in its quiet season (UTC months, 0 = January), subleased short-term (§I.1). */
+export interface SpotSource {
+  airline: string;
+  typeId: string;
+  /** Its base: handover and return. TUI fly Deutschland flies from Hannover, which is not in airports.ts: Frankfurt. */
+  base: string;
+  months: number[];
+}
+
+/**
+ * Real short-term lessors (§I.1, research-supply §4): European leisure airlines' 737s and A320s come free in winter,
+ * Asian and southern-hemisphere airlines' in their own quiet months (Cebu Pacific's A320s to flyadeal, Norse's
+ * 787-9s to IndiGo and Air Tahiti Nui's in the southern winter).
+ */
+export const SPOT_SOURCES: SpotSource[] = [
+  { airline: 'TUI fly Deutschland', typeId: 'b738', base: 'FRA', months: [10, 11, 0, 1, 2] },
+  { airline: 'SunExpress', typeId: 'b738', base: 'AYT', months: [10, 11, 0, 1, 2] },
+  { airline: 'Smartwings', typeId: 'b738', base: 'PRG', months: [10, 11, 0, 1, 2] },
+  { airline: 'Enter Air', typeId: 'b738', base: 'WAW', months: [10, 11, 0, 1, 2] },
+  { airline: 'Condor', typeId: 'a320ceo', base: 'FRA', months: [10, 11, 0, 1] },
+  { airline: 'Corendon', typeId: 'b738', base: 'AMS', months: [10, 11, 0, 1, 2] },
+  { airline: 'Cebu Pacific', typeId: 'a320ceo', base: 'MNL', months: [6, 7, 8] },
+  { airline: 'IndiGo', typeId: 'a320ceo', base: 'DEL', months: [6, 7, 8] },
+  { airline: 'Jetstar', typeId: 'a320ceo', base: 'MEL', months: [4, 5, 6, 7] },
+  { airline: 'Aerolíneas Argentinas', typeId: 'b738', base: 'AEP', months: [4, 5, 6, 7] },
+  { airline: 'Norse Atlantic', typeId: 'b789', base: 'OSL', months: [10, 11, 0, 1, 2] },
+  { airline: 'Air Transat', typeId: 'a333', base: 'YUL', months: [4, 5, 6, 7, 8] },
+  { airline: 'Air Tahiti Nui', typeId: 'b789', base: 'PPT', months: [4, 5, 6, 7] },
+];
+
+/**
+ * The fleets of the airlines that fail in the world events (§J.3): their main type, which comes to the market as a
+ * batch. Air Moldova flew A320s (and Embraers); TAROM 737-800s (and ATRs).
+ */
+export const FAILURE_FLEETS: Record<string, { typeId: string; wide?: string }> = {
+  'Air Moldova': { typeId: 'a320ceo' },
+  TAROM: { typeId: 'b738' },
+};

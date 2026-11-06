@@ -25,6 +25,8 @@ import { usd } from '../ops/util';
 import { covenantBreachCard, creditHeadroomCard, factorRecourseCard, loanDueCard } from '../problems/money';
 import { postProblem } from '../problems';
 import { lockOf } from '../scenario/rules';
+import { lcInUse } from './lc';
+import { leasebackLessorFor } from '../leasing/credit';
 import { dailyDistress, distressForecastItems, loadDistress, monthlyDistress, noCreditWhy, perActive, restructuringLabel } from './distress';
 
 const F = BAL.v016.finance;
@@ -187,7 +189,8 @@ export interface CovenantCheck {
 export function covenantCheck(g: GameState, k: MonthKey = monthKey(g.now)): CovenantCheck {
   const C = F.credit;
   const line = g.treasury?.credit;
-  const undrawn = line && !line.frozen ? Math.max(0, line.limit - line.drawn) : 0;
+  // v0.17 letters of credit use the line too (finance/lc.ts; step 0: none).
+  const undrawn = line && !line.frozen ? Math.max(0, line.limit - line.drawn - lcInUse(g)) : 0;
   const liquid = g.company.cash + undrawn;
   // v0.16.3 a secured line wants 1.5 months' bills, and the drawn balance under the borrowing base instead of the leverage test.
   const bill = monthEndBill(g, k + 1).total * (line?.secured ? SEC.liquidityMonths : C.liquidityMonths);
@@ -221,7 +224,8 @@ export function creditView(g: GameState): CreditView | null {
   const line = g.treasury?.credit;
   if (!line) return null;
   const rate = benchmarkRate(g) + line.margin;
-  const undrawn = line.frozen ? 0 : Math.max(0, line.limit - line.drawn);
+  // v0.17 letters of credit lower the undrawn limit (finance/lc.ts; step 0: none).
+  const undrawn = line.frozen ? 0 : Math.max(0, line.limit - line.drawn - lcInUse(g));
   const cov = covenantCheck(g);
   const lines: string[] = [
     `${pct1(rate)} a year on what is drawn (bank rate ${pct1(benchmarkRate(g))} + margin ${pct1(line.margin)}${line.stepUp ? ', stepped up after a breach' : ''}${line.secured ? ', secured terms' : ''}); ${pct1(F.credit.commitmentFee)} on the undrawn part`,
@@ -289,7 +293,8 @@ export function drawCredit(g: GameState, amount: number): ActionResult {
   const line = g.treasury?.credit;
   if (!line) return { ok: false, error: 'No credit line open' };
   if (line.frozen) return { ok: false, error: 'The bank froze the line: no draws until it is cured and renewed' };
-  const undrawn = Math.max(0, line.limit - line.drawn);
+  // v0.17 letters of credit lower the undrawn limit (finance/lc.ts; step 0: none).
+  const undrawn = Math.max(0, line.limit - line.drawn - lcInUse(g));
   const a = Math.min(drawStepOf(amount), undrawn);
   if (a <= 0) return { ok: false, error: undrawn < F.credit.drawStep ? 'Nothing left to draw' : `Draw in steps of ${usd(F.credit.drawStep)}` };
   cashOnly(g, a);
@@ -371,7 +376,8 @@ function scheduleRepay(line: CreditLine, from: Minute, amount: number, parts: nu
 function accrueCredit(g: GameState, line: CreditLine): void {
   const rate = benchmarkRate(g) + line.margin;
   line.accrued += (line.drawn * rate) / 365;
-  const undrawn = line.frozen ? 0 : Math.max(0, line.limit - line.drawn);
+  // v0.17 no commitment fee on the part letters of credit use (their own fee: finance/lc.ts; step 0: none).
+  const undrawn = line.frozen ? 0 : Math.max(0, line.limit - line.drawn - lcInUse(g));
   line.accruedFee += (undrawn * F.credit.commitmentFee) / 365;
 }
 
@@ -730,7 +736,10 @@ export function leasebackQuote(g: GameState, aircraftId: string, years: number):
   const rentPerMonth = Math.round((price * lrf) / 1000) * 1000;
   const reservesPerFH = Math.round((t.maintBH * 0.42) / 10) * 10;
   const deposit = B.depositMonths * rentPerMonth;
-  const lessor = B.lessors[Math.floor(hashUnit(`lessor:${ac.id}`) * B.lessors.length)];
+  // v0.17 (§K.2) the stable pick must have room under its cap and accept our rating, else the next willing lessor
+  // (engine/leasing/credit.ts; step 0: the stable pick, always willing).
+  const pick = leasebackLessorFor(g, B.lessors[Math.floor(hashUnit(`lessor:${ac.id}`) * B.lessors.length)], B.lessors);
+  const lessor = pick.lessor;
   const bookValue = ac.ownership.kind === 'owned' ? ac.ownership.bookValue : 0;
   const loan = loanOn(g, aircraftId);
   const loanRepaid = loan ? loanPayoff(g, loan.id)!.total : 0;
@@ -749,6 +758,7 @@ export function leasebackQuote(g: GameState, aircraftId: string, years: number):
   else if (lk) q.why = lk;
   else if (!terms.length) q.why = `Too old: the lessors want the aircraft under ${B.maxAgeAtEnd} at the end of the lease`;
   else if (q.cashIn <= 0) q.why = `The price (${usd(price)}) does not cover the loan (${usd(loanRepaid)}) and the deposit (${usd(deposit)})`;
+  else if (pick.why) q.why = pick.why;
   return q;
 }
 
@@ -1042,7 +1052,7 @@ export function treasuryForecastItems(g: GameState, days: number): ForecastItem[
     for (const r of line.repay ?? []) if (r.at <= end) out.push({ t: r.at, amount: -r.amount, what: 'credit line repayments' });
     // Interest and the commitment fee: what is accrued plus the days to each month end at today's balance.
     const rate = benchmarkRate(g) + line.margin;
-    const undrawn = line.frozen ? 0 : Math.max(0, line.limit - line.drawn);
+    const undrawn = line.frozen ? 0 : Math.max(0, line.limit - line.drawn - lcInUse(g));
     const perDay = (line.drawn * rate + undrawn * F.credit.commitmentFee) / 365;
     let acc = line.accrued + line.accruedFee;
     let from = g.now;

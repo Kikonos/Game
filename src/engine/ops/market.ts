@@ -6,7 +6,8 @@
 import { ACMI_TYPES_LIST, ageFactor, floorRent, rentForAge, type AcmiType } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { checkRegistration, cleanAircraftName } from './registration';
-import { EX_OPERATORS, FACTORIES, LESSOR_SITES, NEW_BUILD, type Site } from '../../data/market';
+import { EX_OPERATORS, FACTORIES, LESSOR_SITES, NEW_BUILD, STORAGE_SITES, type Site } from '../../data/market';
+import { LESSOR_BY_ID } from '../../data/lessors';
 import { airframeVariant, pickVariant } from '../../data/variants';
 import { BAL } from '../core/balance';
 import { flightsOf, nextId, touchFlights } from '../core/entities';
@@ -17,7 +18,7 @@ import { runwayFit, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, gaussian, int, pick, range, weightedPick, type RngHolder } from '../core/rng';
 import { DAY, fmtDate, fmtDay, monthKey, yearOf } from '../core/time';
-import type { ActionResult, Aircraft, AircraftOffer, ApprovalId, Cabin, GameState, MarketPhase, MarketShock, SimEvent } from '../core/types';
+import type { ActionResult, AgeBand, Aircraft, AircraftOffer, ApprovalId, Cabin, CreditGrade, GameState, Induction, LessorId, MarketPhase, MarketShock, Minute, OfferSource, SimEvent } from '../core/types';
 import { antarcticSeason, nextHajj } from '../../data/worldCalendar';
 import { clamp, hash } from '../core/util';
 import { familyLabel } from '../crew/conversion';
@@ -28,6 +29,13 @@ import { applyRentStep } from './leaseReturn';
 import { usedHoursCycles } from './sale';
 import { usd } from './util';
 import { lockOf } from '../scenario/rules';
+// v0.17 (UPDATE-0.17.md §Q.1): the market's hooks into engine/leasing (neutral in step 0).
+import { dailyCalls, guaranteedCall, isCall, newBuildLead } from '../leasing/calls';
+import { usesLoi } from '../leasing/deals';
+import { inductionPlan } from '../leasing/induction';
+import { monthlyLeasing } from '../leasing/index';
+import { closingMonth, minHoursLines, quoteTerms } from '../leasing/terms';
+import { hajjSupplyShock, supplyOutlook, supplyText, tightNow } from '../leasing/tightness';
 
 /** Real operating lessors (names only; they also trade used aircraft). */
 /**
@@ -75,8 +83,10 @@ export function eligibleTypes(g: GameState): { t: AcmiType; w: number; teaser: b
     if (!t.available || (t.firstYear ?? 0) > year) continue;
     if (t.newOnly && !(NEW_BUILD.includes(t.id) && FACTORIES[t.family])) continue;
     const miss = rungsAway(g, aircraftGate(g, t.id).missing);
-    if (miss === 0) out.push({ t, w: 1 - t.scarcity, teaser: false });
-    else if (miss === 1) out.push({ t, w: (1 - t.scarcity) * BAL.market7.teaserWeight, teaser: true });
+    // v0.17 weighted by 1 − tightNow (step 0: tightNow is the type's scarcity, as before).
+    const w = 1 - tightNow(g, t.id);
+    if (miss === 0) out.push({ t, w, teaser: false });
+    else if (miss === 1) out.push({ t, w: w * BAL.market7.teaserWeight, teaser: true });
   }
   return out;
 }
@@ -98,8 +108,32 @@ export function returnSiteOf(o: Pick<AircraftOffer, 'id' | 'typeId' | 'site'>): 
   return sites[hash(`${o.id}:return`) % sites.length].code;
 }
 
-/** One offer of type t (`opts.lease` forces a dry lease: the guaranteed offers). */
-function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'dryLeaseIn' | 'buy'; newBuild?: boolean; site?: string; depositMonths?: number; handoverAt?: number } = {}): AircraftOffer {
+/**
+ * What makeOffer takes. v0.16: `lease` forces a dry lease (the guaranteed offers), `kind`, `newBuild`, a handover
+ * `site`, `depositMonths`, `handoverAt`. v0.17 (UPDATE-0.17.md §D.4, §I, §J; with BAL.v017.on and a `source`): the
+ * lessor, the age band, the term asked for, our grade, the request or batch it belongs to, how long it stays open,
+ * the seller of a sale and a short-term sublease's airline.
+ */
+export interface OfferOpts {
+  lease?: boolean; kind?: 'dryLeaseIn' | 'buy'; newBuild?: boolean; site?: string; depositMonths?: number; handoverAt?: number;
+  // v0.17 supply
+  source?: OfferSource; lessorId?: LessorId; band?: AgeBand; months?: number; grade?: CreditGrade; rfpId?: string; batchId?: string;
+  /** Open for [min, max] days (else the market's 7–21). */
+  days?: [number, number];
+  /** Days from signing to the handover [min, max] (else the type's delivery days). */
+  lead?: [number, number];
+  /** A sale's seller ('Tarmac Aerosave', 'TAROM's administrator'): the offer's lessor shows '<seller> (used sale)'. */
+  seller?: string;
+  /** The previous operator (an `exop` lessor: the airline retiring it; a batch: the failed airline). */
+  exOperator?: string;
+  /** A short-term sublease: the airline, its base and the fixed return date. */
+  spot?: { airline: string; base: string; returnAt: Minute };
+}
+
+/** One offer of type t (`opts.lease` forces a dry lease: the guaranteed offers). v0.17 exported for engine/leasing (calls, batches, requests). */
+export function makeOffer(g: GameState, t: AcmiType, opts: OfferOpts = {}): AircraftOffer {
+  // v0.17 an offer from the v0.17 market (a lessor call, a proposal, a batch, a short-term sublease, a new-build slot).
+  if (BAL.v017.on && opts.source) return makeOffer017(g, t, opts);
   const M = BAL.market7;
   const id = nextId(g, 'mo');
   const r = side(g, id);
@@ -154,6 +188,11 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
       o.where = `ex-${x.airline}, ${AIRPORT_BY_CODE[x.hub].city} (${x.hub})`;
     }
   }
+  // v0.17 (§E) every offer is priced through quoteTerms (step 0: the legacy terms rolled above come back unchanged).
+  Object.assign(o, quoteTerms(g, {
+    offerId: id, typeId: t.id, kind: o.kind, builtYear: o.builtYear, newBuild: !!o.newBuild,
+    rentPerMonth: o.rentPerMonth, reservesPerFH: o.reservesPerFH, leaseMonths: o.leaseMonths, deposit: o.deposit, price: o.price,
+  }));
   if (opts.site && AIRPORT_BY_CODE[opts.site] && opts.site !== o.site) {
     // Another site: the ex-operator only when it is that operator's hub.
     const x = (EX_OPERATORS[t.id] ?? []).find((e) => e.hub === opts.site);
@@ -175,16 +214,150 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
   return o;
 }
 
+// ---------- v0.17 offers (UPDATE-0.17.md §D.4, §I, §J; lane `supply`) ----------
+
+/** The built years of an age band for a type now (inside its production years), or null when the type has none there. Pure. */
+export function bandYears(g: GameState, t: AcmiType, band: AgeBand): [number, number] | null {
+  const now = yearOf(g.now);
+  if (band === 'new') return t.newOnly || NEW_BUILD.includes(t.id) ? [now, now] : null;
+  const [a, b] = BAL.v017.terms.bands[band];
+  // Old: at most 26 years old where the type was built that recently (no 35-year-old A320s), else its last years.
+  let lo = band === 'old' ? now - Math.min(b, 26) : now - b + 1;
+  let hi = now - Math.max(1, a);
+  lo = Math.max(lo, t.firstYear ?? 1960);
+  hi = Math.min(hi, t.lastYear ?? hi);
+  if (band === 'old' && lo > hi && (t.lastYear ?? now) <= now - a) {
+    hi = Math.min(t.lastYear ?? now - a, now - a);
+    lo = Math.max(t.firstYear ?? hi - 10, hi - 10);
+  }
+  return lo <= hi ? [lo, hi] : null;
+}
+
+/** The age bands a type can be had in now (used airframes; new builds when a factory slot exists). Pure. */
+export function bandsFor(g: GameState, t: AcmiType): AgeBand[] {
+  const out: AgeBand[] = [];
+  if (!t.newOnly) for (const b of ['young', 'mid', 'old'] as AgeBand[]) if (bandYears(g, t, b)) out.push(b);
+  if (NEW_BUILD.includes(t.id) && FACTORIES[t.family]) out.push('new');
+  return out;
+}
+
+const storageSites = (t: AcmiType): Site[] => {
+  const ok = STORAGE_SITES.filter((s) => AIRPORT_BY_CODE[s.code] && runwayFit(t.id, s.code) === 'ok');
+  return ok.length ? ok : lessorSites(t);
+};
+
+/**
+ * v0.17 one offer from the v0.17 market: the airframe rolled in its age band (or a new-build slot with a realistic
+ * lead), the handover site (a lessor site, the previous operator's hub, a storage site, the factory, a short-term
+ * lessor's base), priced through quoteTerms at our grade. On the side stream of its id, as makeOffer.
+ */
+function makeOffer017(g: GameState, t: AcmiType, opts: OfferOpts): AircraftOffer {
+  const id = nextId(g, 'mo');
+  const r = side(g, id);
+  const now = yearOf(g.now);
+  const index = t.body === 'wide' ? g.market.wideIndex : g.market.narrowIndex;
+  const source = opts.source!;
+  const canNew = NEW_BUILD.includes(t.id) && !!FACTORIES[t.family];
+  const newBuild = canNew && (!!t.newOnly || !!opts.newBuild || opts.band === 'new');
+  const def = opts.lessorId ? LESSOR_BY_ID[opts.lessorId] : undefined;
+  const kind: AircraftOffer['kind'] = !newBuild && opts.kind === 'buy' ? 'buy' : 'dryLeaseIn';
+  let builtYear: number;
+  let band: AgeBand;
+  let leadDays: number;
+  let site: Site | null = null;
+  let exOperator: string | undefined;
+  let where: string;
+  if (newBuild) {
+    band = 'new';
+    leadDays = newBuildLead(g, t.id, r);
+    builtYear = yearOf(g.now + leadDays * DAY);
+    site = pick(r, FACTORIES[t.family]!.sites);
+    where = siteText(site);
+  } else {
+    const bands: AgeBand[] = bandsFor(g, t).filter((b) => b !== 'new');
+    band = opts.band && bands.includes(opts.band) ? opts.band : bands.length ? bands[bands.length - 1] : 'old';
+    const ys = bandYears(g, t, band) ?? [Math.min(t.firstYear ?? now - 20, now - 1), Math.min(t.lastYear ?? now - 1, now - 1)];
+    builtYear = int(r, ys[0], Math.max(ys[0], ys[1]));
+    const L = opts.lead ?? (t.body === 'wide' ? BAL.deliveryDaysWide : BAL.deliveryDays);
+    leadDays = int(r, L[0], L[1]);
+    const ops = (EX_OPERATORS[t.id] ?? []).filter((x) => AIRPORT_BY_CODE[x.hub] && runwayFit(t.id, x.hub) !== 'no');
+    if (opts.spot && AIRPORT_BY_CODE[opts.spot.base]) {
+      site = { code: opts.spot.base, name: opts.spot.airline, city: AIRPORT_BY_CODE[opts.spot.base].city };
+      where = `${opts.spot.airline}, ${site.city} (${site.code})`;
+    } else if (opts.lessorId === 'exop' && (opts.exOperator || ops.length)) {
+      const x = (opts.exOperator && ops.find((o) => o.airline === opts.exOperator)) || pick(r, ops);
+      exOperator = x.airline;
+      where = `ex-${x.airline}, ${AIRPORT_BY_CODE[x.hub].city} (${x.hub})`;
+      site = { code: x.hub, name: x.airline, city: AIRPORT_BY_CODE[x.hub].city };
+    } else if (source === 'batch' || (band === 'old' && chance(r, 0.5))) {
+      site = pick(r, storageSites(t));
+      where = siteText(site);
+      if (opts.exOperator) exOperator = opts.exOperator;
+    } else if (!ops.length || chance(r, BAL.market7.lessorSiteShare)) {
+      site = pick(r, lessorSites(t));
+      where = siteText(site);
+    } else {
+      const x = pick(r, ops);
+      exOperator = x.airline;
+      site = { code: x.hub, name: x.airline, city: AIRPORT_BY_CODE[x.hub].city };
+      where = `ex-${x.airline}, ${AIRPORT_BY_CODE[x.hub].city} (${x.hub})`;
+    }
+    if (source === 'batch' && opts.exOperator) where = `ex-${opts.exOperator}, ${where}`;
+  }
+  const age = Math.max(0, now - builtYear);
+  const price = kind === 'buy' ? Math.round((t.valueUsed * range(r, 0.95, 1.12) * ageFactor(age) * index) / 10_000) * 10_000 : 0;
+  const lessor = kind === 'buy'
+    ? `${opts.seller ?? def?.name ?? exOperator ?? 'A lessor'} (used sale)`
+    : opts.spot?.airline ?? (opts.lessorId === 'exop' ? exOperator ?? def?.name ?? 'The previous operator' : def?.name ?? 'A lessor');
+  const o: AircraftOffer = {
+    id, typeId: t.id, kind, lessor, builtYear, cabin: cabinOf(t), rentPerMonth: 0, reservesPerFH: 0, leaseMonths: 0, price, deposit: price,
+    leadDays, expires: 0, site: site?.code, where, ...(newBuild ? { newBuild: true } : {}), ...(exOperator ? { exOperator } : {}),
+    source, band, ...(opts.lessorId ? { lessorId: opts.lessorId } : {}), ...(opts.rfpId ? { rfpId: opts.rfpId } : {}), ...(opts.batchId ? { batchId: opts.batchId } : {}),
+    ...(opts.spot ? { spot: { ...opts.spot } } : {}),
+  };
+  Object.assign(o, quoteTerms(g, {
+    offerId: id, typeId: t.id, kind, builtYear, newBuild, source, lessorId: opts.lessorId, band, monthsWanted: opts.spot ? opts.months : opts.months,
+    grade: opts.grade, depositMonths: opts.depositMonths, rentPerMonth: 0, reservesPerFH: 0, leaseMonths: 0, deposit: price, price,
+  }));
+  if (opts.handoverAt !== undefined) o.leadDays = Math.max(BAL.deliveryDays[0], Math.round((opts.handoverAt - g.now) / DAY));
+  o.freeAt = g.now;
+  o.index = index;
+  const days = opts.days ?? (t.body === 'wide' ? BAL.v017.calls.wideDays : BAL.v017.calls.days);
+  o.expires = g.now + int(r, days[0], days[1]) * DAY;
+  o.created = g.now;
+  o.rest = rollRest(t.id, o.cabin.j, () => range(r, 0, 1));
+  const variant = pickVariant(t.id, o.builtYear, range(r, 0, 1));
+  if (variant) o.variant = variant;
+  return o;
+}
+
 const kindText = (o: AircraftOffer) => (o.newBuild ? 'new-build slot' : o.kind === 'buy' ? 'for sale' : 'for lease');
 
-/** Posts an offer: one Inbox message (topic market; the UI may hide them) and a market pause request. */
-function postOffer(g: GameState, o: AircraftOffer): void {
+/** Posts an offer: one Inbox message (topic market; the UI may hide them) and a market pause request. v0.17 exported for engine/leasing. */
+export function postOffer(g: GameState, o: AircraftOffer, opts: { quiet?: boolean } = {}): void {
   // v0.15 a scenario's fixed fleet: no aircraft on the market (the draw is made, so the day's other draws stay).
   if (lockOf(g, 'fleet')) return;
   const m = g.market;
-  // At most maxOpen: the oldest goes first.
-  while (m.aircraft.length >= BAL.market7.maxOpen) m.aircraft.shift();
-  m.aircraft.push(o);
+  if (BAL.v017.on) {
+    // v0.17 (§J.1) at most 6 lessor calls open, 2 of them widebodies (the oldest goes first); proposals, failure
+    // batches and short-term offers are not counted.
+    if (isCall(o)) {
+      const C = BAL.v017.calls;
+      const wide = typeOf(o.typeId).body === 'wide';
+      const drop = (pred: (x: AircraftOffer) => boolean) => {
+        const i = m.aircraft.findIndex(pred);
+        if (i >= 0) m.aircraft.splice(i, 1);
+      };
+      while (m.aircraft.filter(isCall).length >= C.maxOpen) drop(isCall);
+      if (wide) while (m.aircraft.filter((x) => isCall(x) && typeOf(x.typeId).body === 'wide').length >= C.maxWide) drop((x) => isCall(x) && typeOf(x.typeId).body === 'wide');
+    }
+    m.aircraft.push(o);
+    if (opts.quiet) return;
+  } else {
+    // At most maxOpen: the oldest goes first.
+    while (m.aircraft.length >= BAL.market7.maxOpen) m.aircraft.shift();
+    m.aircraft.push(o);
+  }
   const t = typeOf(o.typeId);
   const gate = aircraftGate(g, o.typeId);
   const weeks = Math.round(o.leadDays / 7);
@@ -220,15 +393,42 @@ export function refreshMarket(g: GameState): void {
   hajjShock(g);
   const month = monthKey(g.now) - monthKey(g.started);
   const r = side(g, `m${month}`);
+  // v0.17 the guaranteed offers come as lessor calls priced at our grade (engine/leasing/calls.ts guaranteedCall).
+  const v17 = BAL.v017.on;
   if (!m.gotNarrow && (month >= 1 || chance(r, 0.5))) {
     m.gotNarrow = true;
-    postOffer(g, makeOffer(g, typeOf(chance(r, 0.6) ? 'a320ceo' : 'b738'), { lease: true }));
+    const ty = typeOf(chance(r, 0.6) ? 'a320ceo' : 'b738');
+    postOffer(g, v17 ? guaranteedCall(g, ty, r) : makeOffer(g, ty, { lease: true }));
   }
   // The old widebody lease shows as a teaser while the gate is still closed.
   if (!m.gotWide && month >= 3 && (month >= 5 || chance(r, 0.4))) {
     m.gotWide = true;
-    postOffer(g, makeOffer(g, typeOf(chance(r, 0.5) ? 'b763' : 'a332'), { lease: true }));
+    const ty = typeOf(chance(r, 0.5) ? 'b763' : 'a332');
+    postOffer(g, v17 ? guaranteedCall(g, ty, r, { band: 'old' }) : makeOffer(g, ty, { lease: true }));
   }
+  // v0.17 the minimum-hours reserves of the closing month (refreshMarket runs before the month-end close).
+  if (v17 && g.now > g.started) billMinHours(g);
+  // v0.17 tightness moves monthly (engine/leasing).
+  monthlyLeasing(g);
+}
+
+/**
+ * v0.17 (§E.3) minimum hours: at the month end the hours under each v0.17 lease's minimum × its reserves rate are
+ * posted as `reserves`, with one message when there is any ("Reserves on 45 unflown hours: $18K").
+ */
+function billMinHours(g: GameState): void {
+  const lines = minHoursLines(g, closingMonth(g));
+  const total = lines.reduce((x, l) => x + l.amount, 0);
+  if (total <= 0) return;
+  post(g, 'reserves', -total);
+  const hours = lines.reduce((x, l) => x + l.hours, 0);
+  if (g.leasing) g.leasing.stats.minHoursBilled += total;
+  const who = lines.length === 1 ? ` (${lines[0].reg})` : `: ${lines.map((l) => `${l.reg} ${l.hours} h`).join(', ')}`;
+  pushMessage(g, {
+    tone: 'info', cat: 'finance', topic: 'market', title: `Reserves on ${hours} unflown hours: ${usd(total)}`,
+    body: `New lessor leases bill a minimum of flight hours a month as maintenance reserves, flown or not${who}. Fly them more, or lease them out, to use the hours.`,
+    ...(lines.length === 1 ? { ref: { kind: 'aircraft' as const, id: lines[0].aircraftId } } : {}),
+  });
 }
 
 /**
@@ -236,6 +436,13 @@ export function refreshMarket(g: GameState): void {
  * of filing Widebody operations, one old 767/A330 lease when no unlocked widebody is on offer.
  */
 export function dailyMarket(g: GameState): void {
+  // v0.17 lessor calls (engine/leasing/calls.ts) while the v0.17 market is on; `--market=v16` keeps the v0.16 roll.
+  if (BAL.v017.on) dailyCalls(g);
+  else dailyMarketLegacy(g);
+}
+
+/** The v0.16 market's daily roll (the body of dailyMarket before v0.17). */
+export function dailyMarketLegacy(g: GameState): void {
   const m = g.market;
   m.aircraft = m.aircraft.filter((o) => o.expires > g.now);
   const M = BAL.market7;
@@ -244,8 +451,17 @@ export function dailyMarket(g: GameState): void {
     const x = weightedPick(r, eligibleTypes(g), (e) => e.w);
     if (x) postOffer(g, makeOffer(g, x.t));
   }
-  // Within 45 days of filing there is an unlocked widebody lease to sign: posted when none is open (the one open on
-  // the filing day may lapse unsigned).
+  postFiling(g, r, (ty, handoverAt) => makeOffer(g, typeOf(ty), { lease: true, depositMonths: 1, handoverAt }));
+}
+
+/**
+ * Within 45 days of filing Widebody operations there is an unlocked widebody lease to sign: posted when none is open
+ * (the one open on the filing day may lapse unsigned). v0.17 shared by the v0.16 roll and the lessor calls (`make`
+ * builds the offer: legacy terms, or a v0.17 call at one month's deposit).
+ */
+export function postFiling(g: GameState, r: RngHolder, make: (typeId: string, handoverAt: Minute) => AircraftOffer): void {
+  const m = g.market;
+  const M = BAL.market7;
   const filed = g.company.pendingApprovals.find((p) => p.id === 'widebody');
   if (!m.gotWideFiled && filed) {
     const days = (g.now - filed.started) / DAY;
@@ -261,7 +477,7 @@ export function dailyMarket(g: GameState): void {
       // v0.12.1 the type our widebody pilots fly when they fly one of the two (filing needs 4 + 4 rated): a lessor
       // pitches what the operator can crew (the coin is still thrown, so the day's other draws stay as they were).
       const coin = chance(r, 0.5);
-      postOffer(g, makeOffer(g, typeOf(postFilingType(g) ?? (coin ? 'b763' : 'a332')), { lease: true, depositMonths: 1, handoverAt: filed.done + int(r, -15, 15) * DAY }));
+      postOffer(g, make(postFilingType(g) ?? (coin ? 'b763' : 'a332'), filed.done + int(r, -15, 15) * DAY));
     }
   }
 }
@@ -290,24 +506,36 @@ function registration(g: GameState): string {
   }
 }
 
+/** The player's choices when signing (registration, name, the ETOPS delivery way). */
+export interface AcquireOpts {
+  reg?: string; name?: string; /** v0.11 a delivery we may not ferry (ETOPS) */ delivery?: 'thisSide' | 'ferryCo';
+  /** v0.17 sign a letter-of-intent lease straight, skipping the lessor's credit check: the bot's widebody-with-a-job
+   * path and dev tools only (the player's dialogs always go through signLoi). */
+  direct?: boolean;
+}
+
 /**
  * Signs a dry lease in (deposit) or a purchase (price). Refused when the Ladder's gate is closed (pending counts),
  * cash is short or the offer has lapsed. The aircraft is 'delivering' at the handover site until the handover; the
  * delivery ferry home is planned at once (the roster sends rated pilots out on airline tickets before it).
  */
-export function acquireAircraft(g: GameState, offerId: string, opts: { reg?: string; name?: string; /** v0.11 a delivery we may not ferry (ETOPS) */ delivery?: 'thisSide' | 'ferryCo' } = {}): ActionResult<{ aircraftId: string }> {
+export function acquireAircraft(g: GameState, offerId: string, opts: AcquireOpts = {}): ActionResult<{ aircraftId: string }> {
   // v0.15 a scenario's fleet is fixed.
   const lk = lockOf(g, 'fleet');
   if (lk) return { ok: false, error: lk };
   const i = g.market.aircraft.findIndex((o) => o.id === offerId);
   if (i < 0) return { ok: false, error: 'Offer not found' };
   const o = g.market.aircraft[i];
+  // v0.17 a lessor's lease goes through the letter of intent and its credit check (leasing/deals.ts signLoi).
+  if (usesLoi(g, o) && !opts.direct) return { ok: false, error: 'This lease starts with a letter of intent' };
   const gate = aircraftGate(g, o.typeId);
   if (!gate.ok) return { ok: false, error: `${gate.text}: apply under Company → Ladder` };
+  // v0.17 the handover after the transition (engine/leasing/induction.ts; step 0: signing + the offer's lead days).
+  const plan = inductionPlan(g, o);
   // v0.11 no legal ferry home on our certificate (ETOPS): the seller hands over on this side, or a ferry company
   // brings it to our base; both fly it under their own approval and charge for it (paid at signing).
   let site = o.site ?? g.company.homeBase;
-  let handover = g.now + o.leadDays * DAY;
+  let handover = plan.ready;
   let where = o.where;
   let fee = 0;
   const block = deliveryQuote(g, o.typeId, site, handover, o.where).blocked;
@@ -323,7 +551,9 @@ export function acquireAircraft(g: GameState, offerId: string, opts: { reg?: str
       fee = block.ferryCo.fee;
     } else return { ok: false, error: `No legal ferry home: every way crosses water more than ${block.capText} from an airport. Pick a handover on this side or a ferry company.` };
   }
-  if (g.company.cash < o.deposit + fee) return { ok: false, error: `Not enough cash: ${usd(o.deposit + fee)} due at signing` };
+  // v0.17 a v0.17 lease signed straight (no letter of intent): the transition and any reserves deposit are due too.
+  const extra = (o.source ? o.transition ?? 0 : 0) + (o.reservesDeposit ?? 0);
+  if (g.company.cash < o.deposit + fee + extra) return { ok: false, error: `Not enough cash: ${usd(o.deposit + fee + extra)} due at signing` };
   if (o.expires <= g.now) return { ok: false, error: 'This offer has expired' };
   // v0.10.2 the registration the player chose (the prefix is the registry's): in format and free; else generated
   let chosen: string | undefined;
@@ -334,11 +564,48 @@ export function acquireAircraft(g: GameState, offerId: string, opts: { reg?: str
     if (!chk.ok) return { ok: false, error: chk.reason };
     chosen = chk.reg;
   }
-  const acName = cleanAircraftName(opts.name ?? '');
-  const t = typeOf(o.typeId);
   g.market.aircraft.splice(i, 1);
-  cashOnly(g, -o.deposit);
+  return signOffer(g, o, { site, handover, where, fee, pay: o.deposit, reg: chosen, name: opts.name, delivery: opts.delivery, induction: plan.induction, transition: o.source ? o.transition : undefined });
+}
+
+/** v0.17 what signOffer needs: the handover site and time, the fee and the cash due now, the registration and name. */
+export interface SignOpts {
+  site: string;
+  handover: Minute;
+  where?: string;
+  /** A ferry company or the seller delivering (ETOPS), posted under `delivery`. */
+  fee: number;
+  /** Cash paid now (the deposit, the price; v0.17 the rest of a deposit after the holding deposit). */
+  pay: number;
+  /** A registration already checked (else generated). */
+  reg?: string;
+  name?: string;
+  delivery?: 'thisSide' | 'ferryCo';
+  /** v0.17 the transition plan stored on the aircraft. */
+  induction?: Induction;
+  /**
+   * v0.17 supply: the transition cost to post now (`transition`, §G.3). acquireAircraft passes the offer's; a deal's
+   * lease signing passes it when it has not posted it itself. The offer's `reservesDeposit` is always paid here.
+   */
+  transition?: number;
+}
+
+/**
+ * v0.17 (UPDATE-0.17.md §F "Refactor") builds the signed aircraft from an offer: the cash due now, the aircraft
+ * 'delivering' at the handover site, the handover and lease-end events, the delivery ferry and the message. No checks
+ * (the caller made them): acquireAircraft (legacy offers, purchases) and the lease signing of a letter-of-intent deal.
+ */
+export function signOffer(g: GameState, o: AircraftOffer, s: SignOpts): ActionResult<{ aircraftId: string }> {
+  const { site, handover, where, fee } = s;
+  const chosen = s.reg;
+  const opts = { delivery: s.delivery };
+  const acName = cleanAircraftName(s.name ?? '');
+  const t = typeOf(o.typeId);
+  cashOnly(g, -s.pay);
   if (fee) post(g, 'delivery', -fee);
+  // v0.17 (§G.3, §E.3) the transition cost and an up-front reserves deposit (refunded at return).
+  if (s.transition) post(g, 'transition', -s.transition);
+  if (o.reservesDeposit && o.kind === 'dryLeaseIn') cashOnly(g, -o.reservesDeposit);
   const age = Math.max(0, yearOf(g.now) - o.builtYear);
   // v0.7.2 hours and cycles on the sale model's norms (its adjustments average 1.0 on a fresh purchase).
   const w = t.body === 'wide' ? 1 : 0;
@@ -352,7 +619,8 @@ export function acquireAircraft(g: GameState, offerId: string, opts: { reg?: str
       ? { kind: 'owned', bookValue: o.price, boughtAt: g.now, boughtPrice: o.price, boughtIndex: o.index ?? (w ? g.market.wideIndex : g.market.narrowIndex), ...(o.newBuild ? { newBuild: true } : {}) }
       : {
           kind: 'dryLeaseIn', lessor: o.lessor, rentPerMonth: o.rentPerMonth, reservesPerFH: o.reservesPerFH, leaseStart: handover, leaseEnd: handover + Math.round(o.leaseMonths * MONTH), deposit: o.deposit,
-          returnSite: returnSiteOf(o), deliveredLayout: o.cabin.layout, index: o.index ?? (t.body === 'wide' ? g.market.wideIndex : g.market.narrowIndex), ...(o.newBuild ? { newBuild: true } : {}),
+          returnSite: o.spot?.base ?? returnSiteOf(o), deliveredLayout: o.cabin.layout, index: o.index ?? (t.body === 'wide' ? g.market.wideIndex : g.market.narrowIndex), ...(o.newBuild ? { newBuild: true } : {}),
+          ...leaseTerms017(o, handover),
         },
     builtYear: o.builtYear, hours, cycles, ...(variant ? { variant } : {}),
     // Delivered fresh from a redelivery check (new-build: zero time).
@@ -367,9 +635,12 @@ export function acquireAircraft(g: GameState, offerId: string, opts: { reg?: str
     // Utilisation tracked from signing (a reload would set it at the load day otherwise: save/load determinism).
     bhSince: Math.floor(g.now / DAY),
     delivery: { site, where: where ?? `${AIRPORT_BY_CODE[site]?.city ?? site} (${site})`, handover, ferryIds: [] },
+    ...(s.induction ? { induction: s.induction } : {}),
   };
   g.fleet[ac.id] = ac;
   schedule(g, handover, 'aircraft.delivery', ac.id);
+  // v0.17 a short-term sublease ends on its fixed return date.
+  if (ac.ownership.kind === 'dryLeaseIn' && o.spot) ac.ownership.leaseEnd = Math.max(handover + DAY, o.spot.returnAt);
   if (ac.ownership.kind === 'dryLeaseIn') schedule(g, ac.ownership.leaseEnd, 'lease.end', ac.id);
   const legs = planDeliveryFerry(g, ac.id);
   touchFlights(g);
@@ -388,6 +659,23 @@ export function acquireAircraft(g: GameState, offerId: string, opts: { reg?: str
     ref: { kind: 'aircraft', id: ac.id },
   });
   return { ok: true, msg: `${ac.reg} signed · handover at ${city} ${fmtDay(handover)}`, data: { aircraftId: ac.id } };
+}
+
+/**
+ * v0.17 (§E, §I) the lease terms a v0.17 offer carries onto the lease: the lessor's id, minimum hours, the next
+ * reserves escalation (a year after the handover), the half-life share at return, our grade, the up-front reserves
+ * deposit, a short-term sublease's airline. Nothing for a legacy offer. Pure.
+ */
+export function leaseTerms017(o: AircraftOffer, handover: Minute): Partial<Extract<Aircraft['ownership'], { kind: 'dryLeaseIn' }>> {
+  if (!o.source) return {};
+  return {
+    ...(o.lessorId ? { lessorId: o.lessorId } : {}),
+    ...(o.minFH ? { minFH: o.minFH, reservesEscAt: handover + Math.round(12 * MONTH) } : {}),
+    ...(o.halfLifeShare !== undefined ? { halfLifeShare: o.halfLifeShare } : {}),
+    ...(o.grade ? { grade: o.grade } : {}),
+    ...(o.reservesDeposit ? { reservesDeposit: o.reservesDeposit } : {}),
+    ...(o.spot ? { spot: { airline: o.spot.airline, base: o.spot.base } } : {}),
+  };
 }
 
 /** v0.10.2 names (or renames) an aircraft; an empty name clears it. The registration stays as registered. */
@@ -426,6 +714,22 @@ export function onLeaseEnd(g: GameState, ev: SimEvent): void {
   if (!ac || ac.ownership.kind !== 'dryLeaseIn' || ac.ownership.leaseEnd > g.now || ac.returning) return;
   const busy = ac.status !== 'available' || ac.at !== g.company.homeBase || flightsOf(g, ac.id).some((f) => f.status === 'scheduled' || f.status === 'enroute')
     || Object.values(g.contracts).some((c) => (c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(ac.id));
+  // v0.17 (§I.2) a short-term sublease not back on its date: a week more at twice the rent, until it is returned.
+  if (ac.ownership.spot) {
+    const own = ac.ownership;
+    const sp = own.spot!;
+    sp.rent ??= own.rentPerMonth;
+    own.leaseEnd = g.now + 7 * DAY;
+    own.prevRent = { until: g.now, rent: own.rentPerMonth };
+    own.rentPerMonth = Math.round(sp.rent * BAL.v017.terms.spotReturn.lateX);
+    schedule(g, own.leaseEnd, 'lease.end', ac.id);
+    pushMessage(g, {
+      tone: 'warn', cat: 'company', title: `${ac.reg} is late back to ${sp.airline}`,
+      body: `The short-term lease ended. Until ${ac.reg} is back at ${siteCity(sp.base)}, ${sp.airline} charges twice the rent: ${usd(own.rentPerMonth)}/month. Book the return now.`,
+      ref: { kind: 'aircraft', id: ac.id },
+    });
+    return;
+  }
   // v0.12.1 a v0.7 lease (return site and return conditions) is never handed back for free: with no return booked
   // it rolls on a month at +10% and the lease-end choice comes again (the return check, its costs, the deposit).
   const terms = !!ac.ownership.returnSite;
@@ -441,6 +745,7 @@ export function onLeaseEnd(g: GameState, ev: SimEvent): void {
     return;
   }
   if (ac.ownership.deposit) cashOnly(g, ac.ownership.deposit);
+  if (ac.ownership.reservesDeposit) cashOnly(g, ac.ownership.reservesDeposit);
   delete g.fleet[ac.id];
   touchFlights(g);
   pushMessage(g, { tone: 'info', cat: 'company', title: `${ac.reg} returned`, body: `Redelivered to ${ac.ownership.lessor}.${ac.ownership.deposit ? ` Deposit ${usd(ac.ownership.deposit)} refunded.` : ''}` });
@@ -474,7 +779,9 @@ export function marketView(g: GameState): MarketOfferView[] {
         ? { level: 'ok' as const, rated: n, text: `${n} ${fam} pilots` }
         : { level: (ferryAt - g.now > (convDays + BAL.conv.leadDays + 3) * DAY ? 'warn' : 'bad') as 'warn' | 'bad', rated: n, text: `No ${fam} pilots: convert or hire (${convDays} days)` };
       const back = returnSiteOf(o);
-      const ret = o.kind === 'dryLeaseIn' ? `Return at ${siteCity(back)} · ${BAL.leaseReturn.checkDays[t.body === 'wide' ? 1 : 0]}-day check · cabin back to ${o.cabin.label}` : null;
+      const ret = o.kind !== 'dryLeaseIn' ? null
+        : o.spot ? `Back to ${o.spot.airline} at ${siteCity(o.spot.base)} on ${fmtDay(o.spot.returnAt)} · 1-day inspection`
+        : `Return at ${siteCity(back)} · ${BAL.leaseReturn.checkDays[t.body === 'wide' ? 1 : 0]}-day check · cabin back to ${o.cabin.label}${o.halfLifeShare !== undefined && o.halfLifeShare !== BAL.leaseReturn.halfLifeShare ? ` · half-life ${o.halfLifeShare}` : ''}`;
       return { offer: o, typeId: o.typeId, gate: aircraftGate(g, o.typeId), quote, crew, daysLeft: Math.max(0, Math.ceil((o.expires - g.now) / DAY)), returnText: ret };
     })
     .sort((a, b) => (b.offer.created ?? 0) - (a.offer.created ?? 0) || (a.offer.id < b.offer.id ? 1 : -1));
@@ -542,6 +849,8 @@ function hajjShock(g: GameState): void {
   const text = `Hajj ${h.ah} in June`;
   if ((g.market.shocks ?? []).some((x) => x.text === text)) return;
   addShock(g, { seg: 'wide', delta: 0.08, until: h.post[1], text });
+  // v0.17 the Hajj weeks tighten widebody supply too (§A.3).
+  hajjSupplyShock(g, h.post[1], text);
 }
 
 /** Demand index of a segment with today's shocks (pricing and offer volume read this). Pure. */
@@ -596,6 +905,10 @@ export interface MarketOutlook {
   antarctic: [number, number];
   shocks: { text: string; until: number }[];
   offersText: string;
+  /** v0.17 (§A.4) aircraft supply: the three tightest and the two easiest types near us, with a trend (empty with the v0.16 market). */
+  supply: { typeId: string; word: string; trend: -1 | 0 | 1; tight: number }[];
+  /** 'A330-200 very tight ↑ · A320ceo normal ↓' ('' with the v0.16 market). */
+  supplyText: string;
 }
 
 const trendOf = (now: number, prev: number | undefined, band: number): -1 | 0 | 1 => (prev === undefined || Math.abs(now - prev) <= band ? 0 : now > prev ? 1 : -1);
@@ -639,6 +952,8 @@ export function marketOutlook(g: GameState): MarketOutlook {
     antarctic: antarcticSeason(g.now),
     shocks: (m.shocks ?? []).filter((x) => x.until > g.now).map((x) => ({ text: `${x.text}: ${x.delta > 0 ? '+' : '−'}${Math.round(Math.abs(x.delta) * 100)} % ${x.seg === 'all' ? '' : `${x.seg}body `}demand until ${fmtDay(x.until)}`.replace('  ', ' '), until: x.until })),
     offersText: `About ${Math.round(perWeek * 10) / 10} new market offers a week at our standing and size; urgent calls, repeat work and leads come on top`,
+    supply: supplyOutlook(g),
+    supplyText: supplyText(g),
   };
 }
 

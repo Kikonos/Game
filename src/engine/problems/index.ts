@@ -20,6 +20,7 @@ import { hurtBadges, hurtProse, type ProblemCard } from './types';
 import { auditFindingCard, disruptionAt, disruptionCard, isDisruption, opsProblems, rampFindingCard } from './ops';
 import { approvalLateCard, approvalProblems } from './approval';
 import { clientCrisisCard, crisisProblems } from '../commercial/crises';
+import { inductionDelayCard, leaseConditionsCard, leaseSignCard, leasingProblems, spotReturnCard, variationNeededCard } from './leasing';
 import { airspaceClosedCard, clientUnhappyCard, dryLeaseInfoCard, leaseDamageCard, leaseLateCard, lostToRivalCard, uninsurableCard, worldProblems } from './world';
 
 export { hurtBadges, lateText, limitTone, mkHurt, usdShort } from './types';
@@ -129,6 +130,12 @@ function problemForRaw(g: GameState, subject: ProblemRef): ProblemCard | null {
     // v0.16.3 distress finance (finance/distress.ts).
     case 'boardTarget': return boardTargetCard(g);
     case 'restructuring': return restructuringCard(g);
+    // v0.17 the aircraft market (problems/leasing.ts).
+    case 'leaseConditions': return leaseConditionsCard(g, id);
+    case 'leaseSign': return leaseSignCard(g, id);
+    case 'inductionDelay': return inductionDelayCard(g, id);
+    case 'variationNeeded': return variationNeededCard(g, id);
+    case 'spotReturn': return spotReturnCard(g, id);
   }
 }
 
@@ -150,6 +157,8 @@ const KIND_RANK: ProblemKind[] = [
   'clientCrisis',
   // v0.16 sales
   'leadCold',
+  // v0.17 the aircraft market
+  'leaseConditions', 'leaseSign', 'variationNeeded', 'inductionDelay', 'spotReturn',
 ];
 const rankOf = (c: ProblemCard) => SEV[c.severity] * 100 + KIND_RANK.indexOf(c.subject.kind);
 
@@ -157,7 +166,7 @@ const cache = new WeakMap<GameState, { key: string; list: ProblemCard[] }>();
 const keyOf = (g: GameState) => {
   let fh = 0;
   for (const ac of Object.values(g.fleet)) fh += ac.maint.fhSinceA + ac.maint.fhSinceC + (ac.status === 'aog' ? 1 : 0);
-  return `${g.opsx?.audit.findings.length ?? 0}:${g.opsx?.audit.findings.filter((f) => f.closed || f.started || f.overdue).length ?? 0}:${crewRev(g)}:${flightsRev(g)}:${Math.floor(g.now / 60)}:${g.messages.length}:${g.decisions.length}:${Math.round(g.company.cash)}:${Object.keys(g.maintenance).length}:${Object.keys(g.offers).length}:${g.finance.receivables.length}:${g.finance.history.length}:${Math.round(fh)}:${g.world?.events.length ?? 0}`;
+  return `${g.opsx?.audit.findings.length ?? 0}:${g.opsx?.audit.findings.filter((f) => f.closed || f.started || f.overdue).length ?? 0}:${crewRev(g)}:${flightsRev(g)}:${Math.floor(g.now / 60)}:${g.messages.length}:${g.decisions.length}:${Math.round(g.company.cash)}:${Object.keys(g.maintenance).length}:${Object.keys(g.offers).length}:${g.finance.receivables.length}:${g.finance.history.length}:${Math.round(fh)}:${g.world?.events.length ?? 0}:${g.leasing?.rev ?? 0}`;
 };
 
 /** Every current problem, worst first (Inbox filter, dots, hints, bot). Cached per crew/flight revision and hour. Pure. */
@@ -165,7 +174,7 @@ export function problems(g: GameState): ProblemCard[] {
   const key = keyOf(g);
   const hit = cache.get(g);
   if (hit && hit.key === key) return hit.list;
-  const list = [...crewProblems(g), ...techProblems(g), ...commercialProblems(g), ...moneyProblems(g), ...fleetProblems(g), ...worldProblems(g), ...opsProblems(g), ...approvalProblems(g), ...crisisProblems(g), ...leadProblems(g)];
+  const list = [...crewProblems(g), ...techProblems(g), ...commercialProblems(g), ...moneyProblems(g), ...fleetProblems(g), ...worldProblems(g), ...opsProblems(g), ...approvalProblems(g), ...crisisProblems(g), ...leadProblems(g), ...leasingProblems(g)];
   list.sort((a, b) => rankOf(a) - rankOf(b) || (a.by ?? Infinity) - (b.by ?? Infinity) || (a.subject.ref.id < b.subject.ref.id ? -1 : 1));
   cache.set(g, { key, list });
   return list;

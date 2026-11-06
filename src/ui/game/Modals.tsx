@@ -28,6 +28,10 @@ import { LiveryModal } from '../modals/LiveryModal';
 import { ClassesModal } from '../modals/ClassesModal';
 import { ConvertModal } from '../modals/ConvertModal';
 import { AcquireModal } from '../modals/AcquireModal';
+import { AocModal } from '../modals/AocModal';
+import { LoiModal } from '../modals/LoiModal';
+import { RfpModal } from '../modals/RfpModal';
+import { SpotModal } from '../modals/SpotModal';
 import { RefitModal } from '../modals/RefitModal';
 import { LeaseModal } from '../modals/LeaseModal';
 import { SellModal } from '../modals/SellModal';
@@ -389,6 +393,11 @@ export function GlobalModals() {
     case 'convert': return s.game ? <ConvertModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} onBooked={m.onBooked} /> : null;
     case 'classes': return s.game ? <ClassesModal /> : null;
     case 'acquire': return s.game ? <AcquireModal offerId={m.offerId} /> : null;
+    // v0.17 the aircraft market (lane market-ui fills them).
+    case 'rfp': return s.game ? <RfpModal typeId={m.typeId} /> : null;
+    case 'loi': return s.game ? <LoiModal offerId={m.offerId} /> : null;
+    case 'aoc': return s.game ? <AocModal family={m.family} /> : null;
+    case 'spot': return s.game ? <SpotModal family={m.family} /> : null;
     case 'refit': return s.game ? <RefitModal aircraftId={m.aircraftId} layout={m.layout} offerId={m.offerId} rest={m.rest || m.section === 'rest'} restOption={m.restOption} after={m.after} /> : null;
     case 'lease': return s.game ? <LeaseModal aircraftId={m.aircraftId} tab={m.tab} /> : null;
     case 'sell': return s.game ? <SellModal aircraftId={m.aircraftId} /> : null;

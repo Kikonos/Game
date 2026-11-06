@@ -1,25 +1,27 @@
-// v0.7 Fleet → Market (UPDATE-0.7.md §F6.7): scarce offers in two columns, newest first. Each card shows the
-// terms, where the aircraft is handed over, the delivery ferry and the pilots' airline deadheads, and chips for
-// the ladder gate, rated crew and how long the offer stays open. Lease… / Buy… opens the AcquireModal.
+// v0.7 Fleet → Market (UPDATE-0.7.md §F6.7). v0.17 (UPDATE-0.17.md §N.1; lane `market-ui`): the lessor rating line
+// with Ask lessors… and Short-term…, then Offers · Requests · In progress. Offers are four-line cards (OffersView); the
+// terms, the delivery plan and the return conditions are in the dialogs (LoiModal for a lease through a letter of
+// intent, AcquireModal for purchases, short-term and legacy offers).
 
-import { BedDouble, Lock, ShoppingCart, TrendingUp } from 'lucide-react';
+import { DealsView } from './market/DealsView';
+import { OffersView } from './market/OffersView';
+import { RatingLine } from './market/RatingLine';
+import { RequestsView } from './market/RequestsView';
+import { Lock } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import { artFor } from '../../data/acmiTypes';
-import { AIRPORT_BY_CODE } from '../../data/airports';
-import { MARKET_LIVERY } from '../../data/livery';
+import { BAL } from '../../engine/core/balance';
 import { typeOf } from '../../engine/core/perf';
-import { DAY, fmtDate, fmtDay, yearOf } from '../../engine/core/time';
-import type { GameState } from '../../engine/core/types';
-import { hasBunks, restOfAc } from '../../engine/crew';
+import { fmtDate, fmtDay, yearOf } from '../../engine/core/time';
+import type { GameState, Ref } from '../../engine/core/types';
+import { restOfAc } from '../../engine/crew';
 import { marketView, type MarketOfferView } from '../../engine/ops';
-import { AircraftArt } from '../components/AircraftArt';
-import { RestTwoLiner } from '../components/RestLines';
-import { Flag, Toggle } from '../components/ui';
+import { Seg, Toggle } from '../components/ui';
 import { money } from '../format';
 import { store, useStore } from '../store';
-import { markMarketSeen, offerKind, sellerOf, unseenOffers } from './screenLogic';
+import { markMarketSeen, unseenOffers } from './screenLogic';
 import { lockOf } from '../../engine/scenario';
 import { LockedPanel } from '../components/Locked';
+import { marketCounts } from './market/marketLogic';
 
 /** '12 Jan', or '12 Jan 2028' outside the current year. */
 export const dayIn = (now: number, t: number) => (yearOf(t) === yearOf(now) ? fmtDay(t) : fmtDate(t));
@@ -48,55 +50,6 @@ export function GateChip({ v }: { v: Pick<MarketOfferView, 'gate'> }) {
   return <span className="chip mk-chip good">{gt.text === 'No approval needed' ? 'No approval needed' : 'Approved'}</span>;
 }
 
-function OfferCard({ g, now, v, sel }: { g: GameState; now: number; v: MarketOfferView; sel: boolean }) {
-  const o = v.offer;
-  const kind = offerKind(o);
-  const site = v.quote.site;
-  const country = AIRPORT_BY_CODE[site]?.country;
-  const lease = o.kind === 'dryLeaseIn';
-  const dh = deadheadLine(v);
-  return (
-    <div className={`card mk-card ${sel ? 'selected' : ''} ${v.gate.ok ? '' : 'locked'}`} data-offer={o.id}>
-      <div className="mk-top">
-        <div className="mk-art"><AircraftArt typeId={artFor(o.typeId, o.variant)} livery={MARKET_LIVERY} detail="simple" /></div>
-        <div className="grow" style={{ minWidth: 0 }}>
-          <div className="row gap-8 between">
-            <b className="ellipsis">{typeName(o.typeId)} · {o.builtYear} · {o.cabin.label}</b>
-            <span className={`badge ${kind.tone}`}>{kind.label}</span>
-          </div>
-          <div className="small muted mk-where">{sellerOf(o)} · {(o.where ?? site).replace(/^Airbus, |^Boeing, /, '')}{country ? <> <Flag country={country} /></> : null}</div>
-        </div>
-      </div>
-      <div className="mk-terms">
-        <b className="num">{termsLine(v)}</b>
-        {lease && <span className="small dim"> · reserves ${o.reservesPerFH.toLocaleString('en-US')}/FH</span>}
-      </div>
-      {/* v0.7.3 §2.6 item 2: pilots' and cabin crew's rest, rolled per airframe, and the longest day they allow. */}
-      <RestTwoLiner g={g} rest={offerRest(v)} typeId={o.typeId} />
-      <div className="mk-deliv small">
-        <div>{handoverLine(now, v)}</div>
-        {v.quote.legs.length > 0 && <div className="muted">Ferry {v.quote.text}</div>}
-        {/* v0.11 no legal ferry home on our certificate (ETOPS): the Lease/Buy dialog offers the ways out. */}
-        {v.quote.blocked && <div className="warn">{v.quote.text}</div>}
-        {dh && <div className="muted ellipsis">Pilots deadhead out: {dh}</div>}
-      </div>
-      <div className="mk-chips">
-        <GateChip v={v} />
-        <span className={`chip mk-chip ${v.crew.level === 'ok' ? 'good' : v.crew.level}`}>{v.crew.text}</span>
-        {hasBunks(offerRest(v)) && <span className="chip mk-chip good"><BedDouble className="sc-ico-s" />Bunks</span>}
-        <span className="chip mk-chip">{v.daysLeft <= 1 ? 'Last day' : `Open ${v.daysLeft} more days`}</span>
-      </div>
-      <div className="row gap-8 mk-foot">
-        {v.returnText && <span className="tiny dim grow mk-ret">{v.returnText}</span>}
-        {!v.returnText && <span className="grow" />}
-        {v.gate.ok
-          ? <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'acquire', offerId: o.id })}><ShoppingCart /> {lease ? 'Lease…' : 'Buy…'}</button>
-          : <button className="btn" onClick={() => store.navigate('company', { view: 'ladder' })}><TrendingUp /> See the ladder</button>}
-      </div>
-    </div>
-  );
-}
-
 /** v0.7.3 an offer's rest as the crew would use it (v0.7.4: rolled bunks, else the curtained seats of its cabin). */
 export const offerRest = (v: Pick<MarketOfferView, 'offer'>) => restOfAc(v.offer);
 
@@ -117,40 +70,58 @@ function MarketAlerts() {
   );
 }
 
-export function MarketView({ g, sel }: { g: GameState; sel: string | null }) {
+type MarketTab = 'offers' | 'requests' | 'progress';
+
+/** The tab a deep link opens: a request on Requests, a deal or a delivering aircraft on In progress. */
+const tabOf = (sel: Ref | null | undefined): MarketTab | null => (sel?.kind === 'rfp' ? 'requests' : sel?.kind === 'deal' || sel?.kind === 'aircraft' ? 'progress' : sel?.kind === 'market' ? 'offers' : null);
+
+export function MarketView({ g, sel, selRef }: { g: GameState; sel: string | null; selRef?: Ref | null }) {
   const all = marketView(g);
-  // v0.7.3 'Has bunks': offers with any class 1 facility (local to the visit).
-  const [bunks, setBunks] = useState(false);
-  const list = bunks ? all.filter((v) => hasBunks(offerRest(v))) : all;
+  const v17 = BAL.v017.on && !!g.leasing;
+  const [tab, setTab] = useState<MarketTab>(() => tabOf(selRef) ?? 'offers');
+  const want = tabOf(selRef);
+  const selKey = selRef ? `${selRef.kind}:${selRef.id}` : '';
+  // A deep link (Inbox, a card's button) opens its tab.
+  useEffect(() => {
+    if (want) setTab(want);
+  }, [selKey]); // eslint-disable-line react-hooks/exhaustive-deps
   const ids = all.map((v) => v.offer.id).join();
-  // Seen on visit: the switch's dot clears; a deep link (Inbox) scrolls to its card.
+  // Seen on visit: the switch's dot clears.
   useEffect(() => {
     const ids = all.map((v) => v.offer.id);
     const fresh = unseenOffers(ids) > 0;
     markMarketSeen(ids);
     // v0.7.2: the top bar's offer chip goes once seen.
     if (fresh) store.emit();
-    if (sel) document.querySelector(`.mk-card[data-offer="${sel}"]`)?.scrollIntoView({ block: 'nearest' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ids, sel]);
-  const early = g.now - g.started < 30 * DAY;
+  }, [ids]);
   // v0.15 a scenario's fixed fleet: the market is closed (a calm notice).
   const lock = lockOf(g, 'fleet');
   if (lock) return <LockedPanel title="Aircraft market closed" why={lock}>No leasing, buying, selling or dry leases out while the scenario runs.</LockedPanel>;
+  if (!v17) {
+    return (
+      <>
+        <MarketAlerts />
+        <OffersView g={g} sel={sel} />
+      </>
+    );
+  }
+  const n = marketCounts(g, all.length);
   return (
     <>
       <MarketAlerts />
-      <div className="row gap-12 mb-8 mk-intro">
-        <span className="small muted grow">Good airframes are scarce: about one offer a month, open for one to three weeks. Aircraft are handed over where they are; our pilots fly out on airlines and ferry them home.</span>
-        <button className={`mk-filter ${bunks ? 'on' : ''}`} aria-pressed={bunks} onClick={() => setBunks(!bunks)}><BedDouble /> Has bunks{bunks ? ` (${list.length})` : ''}</button>
+      <RatingLine g={g} />
+      <div className="row gap-12 mb-8 mk17-tabs">
+        <Seg<MarketTab> value={tab} onChange={setTab} options={[
+          { value: 'offers', label: `Offers (${n.offers})` },
+          { value: 'requests', label: `Requests (${n.requests})` },
+          { value: 'progress', label: `In progress (${n.progress})` },
+        ]} />
+        <span className="small muted grow mk17-intro">Lessors call when an aircraft comes free; or ask them for the one you want.</span>
       </div>
-      {list.length ? (
-        <div className="mk-grid">{list.map((v) => <OfferCard key={v.offer.id} g={g} now={g.now} v={v} sel={sel === v.offer.id} />)}</div>
-      ) : bunks && all.length ? (
-        <div className="card sc-pad muted small">None of the {all.length} offer{all.length === 1 ? '' : 's'} has bunks (class 1 rest for the pilots or the cabin crew). <button className="btn btn-sm" onClick={() => setBunks(false)}>Show all</button></div>
-      ) : (
-        <div className="card sc-pad muted small">No aircraft on offer right now. Lessors call every few weeks{early ? '; the first offer usually comes within two months' : ''}.{store.settings.marketAlerts ? ' Market alerts are on: you will hear about new ones.' : ' Turn on market alerts above to hear about new ones.'}</div>
-      )}
+      {tab === 'offers' && <OffersView g={g} sel={sel} />}
+      {tab === 'requests' && <RequestsView g={g} sel={selRef} onOffers={() => setTab('offers')} />}
+      {tab === 'progress' && <DealsView g={g} sel={selRef} />}
     </>
   );
 }

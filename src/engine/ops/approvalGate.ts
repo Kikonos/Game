@@ -18,15 +18,21 @@ import { APPROVALS, gateApprovals, waitingFor } from './company';
 import { ask } from './events';
 import { cancelCost, cancelLegs, moveFlight, noticeText, pickRival, rivalFactor, subcharterCost, subcharterLegs, type SubHit, unitOf } from './flights';
 import { contractOf, isRevenue, usd } from './util';
+import { aocMiss } from '../leasing/aoc';
+import type { RatingFamily } from '../../data/acmiTypes';
 
 /** Why an approval is not ours at a time: never applied for, stuck waiting at the authority, or due after it. */
 export type GateState = 'missing' | 'waiting' | 'late';
-export interface GateMiss { id: ApprovalId; state: GateState; /** Pending: the authority's due date. */ due: Minute | null }
+export interface GateMiss {
+  /** v0.17 'aoc': the type's family is not on our AOC yet (UPDATE-0.17.md §H). */
+  id: ApprovalId | 'aoc'; state: GateState; /** Pending: the authority's due date. */ due: Minute | null;
+  /** v0.17 the family of an 'aoc' miss. */ family?: RatingFamily;
+}
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 const ETOPS_ID = (min: number): ApprovalId => (min > 180 ? 'etops240' : min > 120 ? 'etops180' : 'etops120');
 /** 'Widebody operations', 'ETOPS 180'. */
-export const gateName = (id: ApprovalId): string => APPROVALS.find((a) => a.id === id)?.name ?? id;
+export const gateName = (id: ApprovalId | 'aoc'): string => (id === 'aoc' ? 'its type on our AOC' : APPROVALS.find((a) => a.id === id)?.name ?? id);
 const nameOf = gateName;
 
 /**
@@ -64,11 +70,25 @@ export function gateMisses(g: GameState, f: Flight, t: Minute = f.std + f.delay)
     else if (p.done > t) out.push({ id, state: 'late', due: p.done });
     else if (t <= g.now) out.push({ id, state: 'late', due: p.done });
   }
+  // v0.17 (§H) a revenue leg of a family not on our AOC yet (positioning without passengers, delivery ferries and
+  // training fly: ferries and deadheads are not checked).
+  const ac = f.aircraftId && !f.operatedBy && f.kind !== 'ferry' && f.kind !== 'deadhead' ? g.fleet[f.aircraftId] : undefined;
+  if (ac) {
+    const family = typeOf(ac.typeId).family;
+    const m = aocMiss(g, family, t);
+    if (m) out.push({ id: 'aoc', state: m.state, due: m.due, family });
+  }
   return out;
 }
 
 /** The WHY in one plain sentence: 'Widebody operations is stuck: the authority waits for rated pilots (…)'. Pure. */
 export function gateWhy(g: GameState, f: Flight, m: GateMiss): string {
+  if (m.id === 'aoc') {
+    const fam = m.family ?? 'type';
+    if (m.state === 'missing') return `Not on our AOC yet: no ${fam} variation is filed.`;
+    if (m.state === 'waiting') return `Not on our AOC yet: the ${fam} variation waits for rated pilots.`;
+    return `Not on our AOC yet: the ${fam} variation is due ${fmtDate(m.due ?? f.std)}, after ${f.no} leaves on ${fmtDay(f.std)}.`;
+  }
   const name = nameOf(m.id);
   if (m.state === 'missing') return `We don't hold ${name}, and it is not applied for.`;
   if (m.state === 'waiting') {

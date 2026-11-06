@@ -1,5 +1,6 @@
 // Pure helpers for the B5 screens (labels, sorting, filtering, deep links). No React, no writes.
 
+import { sourceBadge } from './market/marketLogic';
 import type { RatingFamily } from '../../data/acmiTypes';
 import { COST_CATS, REVENUE_CATS, statementTotals } from '../../engine/core/ledger';
 import { problemFor } from '../../engine/problems';
@@ -247,6 +248,8 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   interestIncome: 'Interest on cash', bankFees: 'Bank fees', commission: 'Brokers\' commission',
   // v0.16.3
   distress: 'Deferrals & restructuring',
+  // v0.17
+  transition: 'Lease transitions',
 };
 
 /**
@@ -367,6 +370,10 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
       return { tab: 'map', sel: ref };
     case 'market':
       return { tab: 'fleet', view: 'market', sel: ref };
+    // v0.17 a request to lessors or airlines, a lease deal: Fleet › Market › Requests / In progress.
+    case 'rfp':
+    case 'deal':
+      return { tab: 'fleet', view: 'market', sel: ref };
     // v0.8: a client / rival opens its pane on Company; a world event its pin on the map.
     case 'client':
       return { tab: 'contracts', view: 'clients', sel: ref };
@@ -450,7 +457,9 @@ export const needsConfirm = (plan: { warnings: { level: 'warn' | 'bad' }[] }): b
 // ---------- v0.7 aircraft market ----------
 
 /** Kind chip of a market offer. */
-export function offerKind(o: Pick<AircraftOffer, 'kind' | 'newBuild'>): { label: string; tone: string } {
+export function offerKind(o: Pick<AircraftOffer, 'kind' | 'newBuild' | 'source' | 'later'>): { label: string; tone: string } {
+  // v0.17 where it came from (lessor call, proposal, batch, short-term, new build); legacy offers keep the v0.7 words.
+  if (o.source) return sourceBadge(o);
   if (o.newBuild) return { label: 'New-build lease', tone: 'accent' };
   return o.kind === 'dryLeaseIn' ? { label: 'Lease used', tone: 'info' } : { label: 'Buy used', tone: 'gold' };
 }

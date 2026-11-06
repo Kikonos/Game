@@ -24,6 +24,8 @@ import { isLive } from '../ops/world';
 import { mkHurt, type ProblemCard } from '../problems/types';
 import { busyNow, clientByName, com, comStats, paceOf, sideOf, usdK, withStream } from './state';
 import type { Crisis, CrisisKind } from './types';
+import { onAirlineFailure } from '../leasing/batches';
+import { onSupplyEvent } from '../leasing/tightness';
 
 export const CRISIS = {
   /** Days between two crises by pace, and the chance on each busy day after that. */
@@ -167,6 +169,8 @@ export function startCrisis(g: GameState, kind: CrisisKind, clientId?: string, r
   statsV08(g).worldEvents++;
   schedule(g, e.end, 'world.end', e.id, 0);
   addShock(g, { seg, delta, until: kind === 'bankruptcy' ? g.now + 60 * DAY : end, text: title, eventId: e.id });
+  // v0.17 aircraft supply: an administration releases a batch, a grounding tightens supply (engine/leasing; step 0: nothing).
+  if (kind === 'bankruptcy') onAirlineFailure(g, e); else onSupplyEvent(g, e);
   const c = com(g);
   c.crises.push(x);
   if (c.crises.length > 30) c.crises.splice(0, c.crises.length - 30);

@@ -408,3 +408,35 @@ describe('v0.9 read APIs are pure (UPDATE-0.9.md §14)', () => {
     expect(JSON.stringify(g)).toBe(before);
   }, 120_000);
 });
+
+describe('v0.17 read APIs are pure (UPDATE-0.17.md §P.1; step 0)', () => {
+  it('lessor rating, tightness, terms, requests, deals, transition, AOC, exotic path, letters of credit, outlook', async () => {
+    const L = await import('../leasing');
+    const g = newGame(7);
+    advanceTo(g, g.now + 40 * DAY);
+    const before = JSON.stringify(g);
+    for (let i = 0; i < 2; i++) {
+      L.lessorRating(g);
+      for (const t of ['a320ceo', 'a332', 'a388', 'b744', 'b748']) {
+        L.tightNow(g, t);
+        L.exoticPath(g, t);
+        L.rfpPreview(g, { typeId: t, band: 'mid', months: 36, count: 1, from: null, flex: true });
+      }
+      L.supplyOutlook(g);
+      L.camoCapacity(g);
+      L.camoLoad(g);
+      L.aocView(g);
+      L.familyOnAoc(g, 'A320');
+      L.dealsOpen(g);
+      L.leasingForecastItems(g, 60);
+      L.leasingBill(g, monthKey(g.now));
+      L.lcInUse(g);
+      for (const o of g.market.aircraft) {
+        L.inductionPlan(g, o);
+        L.loiQuote(g, o.id);
+        L.usesLoi(g, o);
+      }
+    }
+    expect(JSON.stringify(g)).toBe(before);
+  });
+});

@@ -16,6 +16,27 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.17',
+    name: 'Aircraft market',
+    features: [
+      'Ask lessors for the aircraft you want: type, age, lease length and start (Fleet › Market › Ask lessors…). Real lessors answer in one to four weeks with a proposal or a no, and say why.',
+      'Your lessor rating, A to D, is at the top of Fleet › Market. It comes from your AOC years, fleet, cash, debts, clients and IOSA, and sets who talks to you, the deposit and how many aircraft each lessor places with you. Why? shows each part.',
+      'A lease starts with a letter of intent and a holding deposit. The lessor\'s credit committee approves, asks for more security or says no. Then come records, a check and paint before the ferry home: about 6–12 weeks for a narrowbody, longer for a widebody. Our CAMO handles a few transitions at a time; tech reps speed one up.',
+      'Real terms: rent from the market, the lease length and your rating; 1–3 months\' deposit (5 or more at rating D); maintenance reserves; minimum hours billed even when parked; return conditions by age.',
+      'The market moves like the real one. Each type is easy, normal or tight to find (see the market outlook). Narrowbodies are easing; widebodies are scarce, and new 787s and A350s are placed until 2030. Lessors call with aircraft more often.',
+      'When an airline fails, some of its aircraft come to the market below market rent. In their quiet season, airlines lease aircraft out for 3–9 months (Short-term…), back on a fixed date.',
+      'A new type family needs an AOC variation (90–120 days) and rated pilots. Company › Ladder lists the types on our AOC.',
+      'The A380 and the 747 are possible, from Doric, Amedeo or the airline retiring them. You need rating B, or C with 4 more months\' deposit and 3 months of reserves up front, or you buy one. The dialogs list What it takes.',
+    ],
+    improvements: [
+      'Fleet › Market has three tabs: Offers, Requests and In progress. An offer card is four lines: aircraft, terms, when and where it is ready, and one button.',
+      'A deal waiting for you (pay, sign, walk away, add tech reps) has a card with its buttons.',
+      'The fleet card shows a transition or a short-term lease with its dates (UTC, local alongside).',
+      'The cash forecast shows holding deposits, deposits to sign and transition costs.',
+      'Existing leases keep their rent, deposit and conditions.',
+    ],
+  },
+  {
     version: 'v0.16.4',
     name: 'Rotations',
     features: [

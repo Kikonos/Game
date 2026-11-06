@@ -21,6 +21,9 @@ import { dayIn, GateChip, offerRest, typeName } from '../screens/Market';
 import { RestTwoLiner } from '../components/RestLines';
 import { offerKind, sellerOf } from '../screens/screenLogic';
 import { store, useGame } from '../store';
+import { inductionPlan, inductionSteps, usesLoi } from '../../engine/leasing';
+import { LoiModal } from './LoiModal';
+import { WhatItTakes } from '../screens/market/WhatItTakes';
 
 const city = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
 const regName = (g: ReturnType<typeof useGame>) => COUNTRIES[regCountry(g)]?.name ?? 'national';
@@ -44,22 +47,29 @@ export function AcquireModal({ offerId }: { offerId: string }) {
     );
   }
   const o = v.offer;
+  // v0.17 a lessor's lease goes through the letter of intent (credit check, then the lease).
+  if (usesLoi(g, o)) return <LoiModal offerId={offerId} />;
   const t = typeOf(o.typeId);
-  const blk = v.quote.blocked ?? null;
+  // v0.17 a v0.17 offer (purchase, short-term, batch sale) is handed over after its transition: the plan's ready day.
+  const plan = o.source ? inductionPlan(g, o) : null;
+  const base: DeliveryQuote = plan && plan.ready !== v.quote.handover ? deliveryQuote(g, o.typeId, v.quote.site, plan.ready, o.where) : v.quote;
+  const blk = base.blocked ?? null;
   const way = blk && via === 'thisSide' && !blk.thisSide ? null : blk ? via : null;
   const fee = !blk || !way ? 0 : way === 'ferryCo' ? blk.ferryCo.fee : blk.thisSide!.fee;
   // The plan shown: ours from the site on this side, or none (the ferry company lands it at our base).
-  const q: DeliveryQuote = !blk || !way ? v.quote
-    : way === 'thisSide' ? deliveryQuote(g, o.typeId, blk.thisSide!.site, v.quote.handover + blk.thisSide!.days * DAY, blk.thisSide!.where)
+  const q: DeliveryQuote = !blk || !way ? base
+    : way === 'thisSide' ? deliveryQuote(g, o.typeId, blk.thisSide!.site, base.handover + blk.thisSide!.days * DAY, blk.thisSide!.where)
     : { ...deliveryQuote(g, o.typeId, g.company.homeBase, blk.ferryCo.homeBy), where: 'flown in by a ferry company' };
   const card = blk ? problemFor(g, { kind: 'noFerry', ref: { kind: 'market', id: o.id } }) : null;
   const pickWay = (a: ProblemAction) => (a.id === 'thisSide' || a.id === 'ferryCo' ? setVia(a.id) : runAction(g, a));
   const lease = o.kind === 'dryLeaseIn';
-  const now = (lease ? o.deposit : o.price) + fee;
+  // v0.17 the transition cost and any reserves deposit are due at signing too.
+  const extra = (o.source ? o.transition ?? 0 : 0) + (o.reservesDeposit ?? 0);
+  const now = (lease ? o.deposit : o.price) + fee + extra;
   const after = g.company.cash - now;
   // The engine refuses below the deposit (a buy's deposit is the price).
-  const short = g.company.cash < o.deposit + fee;
-  const blocker = !v.gate.ok ? 'Approval needed first' : blk && !way ? 'No legal ferry home: choose how it gets here' : short ? `Needs ${money(o.deposit + fee)} · ${money(g.company.cash)} cash` : !reg.ok ? `Registration: ${reg.reason}` : null;
+  const short = g.company.cash < o.deposit + fee + extra;
+  const blocker = !v.gate.ok ? 'Approval needed first' : blk && !way ? 'No legal ferry home: choose how it gets here' : short ? `Needs ${money(o.deposit + fee + extra)} · ${money(g.company.cash)} cash` : !reg.ok ? `Registration: ${reg.reason}` : null;
   const sign = () => {
     if (!reg.ok) return;
     const res = store.act((gg) => acquireAircraft(gg, o.id, { reg: reg.reg, name: acName, ...(way ? { delivery: way } : {}) }));
@@ -78,8 +88,10 @@ export function AcquireModal({ offerId }: { offerId: string }) {
   const steps: { k: string; t: number; title: string; sub?: string; tone?: string }[] = [
     { k: 'sign', t: g.now, title: `Sign today, ${fmtDay(g.now)}`, sub: `${lease ? `Deposit ${money(o.deposit)}` : money(o.price)}${fee ? ` + ${money(fee)} ${way === 'ferryCo' ? 'ferry company' : 'seller\'s ferry'}` : ''} now` },
   ];
-  if (way === 'ferryCo') steps.push({ k: 'co', t: v.quote.handover, title: `A ferry company flies it from ${city(v.quote.site)} · ${dayIn(g.now, v.quote.handover)}`, sub: `Under its own ETOPS approval, the usual way (${blk!.usual})` });
-  if (way === 'thisSide') steps.push({ k: 'seller', t: v.quote.handover, title: `The seller ferries it from ${city(v.quote.site)} to ${city(q.site)}`, sub: `Under its own ETOPS approval, the usual way` });
+  // v0.17 the transition: records, check, registration, paint, acceptance flight.
+  if (plan?.induction) for (const st of inductionSteps(plan.induction)) steps.push({ k: `ind-${st.label}`, t: st.from, title: `${st.label} · ${dayIn(g.now, st.from)}–${dayIn(g.now, st.to)}` });
+  if (way === 'ferryCo') steps.push({ k: 'co', t: base.handover, title: `A ferry company flies it from ${city(base.site)} · ${dayIn(g.now, base.handover)}`, sub: `Under its own ETOPS approval, the usual way (${blk!.usual})` });
+  if (way === 'thisSide') steps.push({ k: 'seller', t: base.handover, title: `The seller ferries it from ${city(base.site)} to ${city(q.site)}`, sub: `Under its own ETOPS approval, the usual way` });
   const dh = q.deadhead;
   if (dh.length) steps.push({
     k: 'dh', t: dh[0].dep, title: `Pilots fly out on airlines · ${dayIn(g.now, dh[0].dep)}`,
@@ -138,7 +150,8 @@ export function AcquireModal({ offerId }: { offerId: string }) {
         <div className="col gap-8" style={{ minWidth: 0 }}>
           <div className="upper dim">Costs</div>
           <KV rows={[
-            [lease ? 'Deposit now' : 'Price now', money(now - fee)],
+            [lease ? 'Deposit now' : 'Price now', money(now - fee - extra)],
+            ...(extra ? [['Transition and reserves', `${money(extra)} at signing`]] as [string, string][] : []),
             ...(lease ? [['Rent from handover', `${money(o.rentPerMonth)}/month × ${o.leaseMonths} months`], ['Reserves', `$${o.reservesPerFH.toLocaleString('en-US')}/FH`]] as [string, string][] : []),
             ...(q.legs.length ? [['Delivery ferry', `≈ ${money(q.fuel + q.fees)} fuel & fees`], ['Delivery crew', `≈ ${money(q.crew)} tickets, hotels`]] as [string, string][] : []),
             ...(fee ? [[way === 'ferryCo' ? 'Ferry company' : 'Seller\'s ferry', `${money(fee)} at signing`]] as [string, string][] : []),
@@ -170,6 +183,7 @@ export function AcquireModal({ offerId }: { offerId: string }) {
           <span className="tiny dim">Painted under the cockpit windows</span>
         </div>
       </div>
+      <div className="mt-12"><WhatItTakes g={g} typeId={o.typeId} /></div>
       {warns.length > 0 && (
         <div className="col gap-4 mt-12">
           {warns.map((w, i) => <div key={i} className={`small row gap-8 cv-warn ${w.tone}`}><AlertTriangle className="sc-ico-s" /><span>{w.text}</span></div>)}

@@ -25,6 +25,9 @@ import { devTourStopClosed } from '../engine/ops/tourStop';
 import { demoFlights, devAddType, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
 import { dropTargets, moveDuty, publishedTo, resignNow, type DropTarget, type MoveScope } from '../engine/crew';
 import { acquireAircraft, headsView, headView, withdrawHandled } from '../engine/ops';
+import { addTechRepsToInduction, cashToSign, meetConditions, signLease, walkAway } from '../engine/leasing';
+import type { ProblemAction } from '../engine/problems/types';
+import { money } from './format';
 import { createGame, type NewGameOptions } from '../engine/newGame';
 import { autosaveSlot, saveToSlot, serialize } from '../engine/save';
 import { createScenario, scenarioOutcome } from '../engine/scenario';
@@ -177,6 +180,11 @@ export type ModalSpec =
   | { kind: 'classes' }
   /** v0.7: sign a market offer; cabin refit; lease extend/return; an approval on the ladder; the ladder-step celebration. */
   | { kind: 'acquire'; offerId: string }
+  /** v0.17 the aircraft market (UPDATE-0.17.md §N.3): ask lessors; the letter of intent; add a type to the AOC; short-term aircraft. */
+  | { kind: 'rfp'; typeId?: string }
+  | { kind: 'loi'; offerId: string }
+  | { kind: 'aoc'; family?: RatingFamily }
+  | { kind: 'spot'; family?: RatingFamily }
   | { kind: 'refit'; aircraftId: string; layout?: CabinLayout; /** back to this offer when done */ offerId?: string; /** v0.7.2 open on crew rest seats */ rest?: boolean; /** v0.7.3 open on the crew rest section, this option picked */ section?: 'rest'; restOption?: RestRefitId; /** v0.7.2.2 from an idle gap: windows from this time */ after?: number }
   | { kind: 'lease'; aircraftId: string; /** v0.7.2 'early': the early-return tab */ tab?: 'renew' | 'early' }
   /** v0.7.2: sell an owned aircraft (quote, blockers, confirm; cancel an agreed sale). */
@@ -987,6 +995,65 @@ class GameStore {
       kind: 'confirm', title: `Take ${who ? `${who.first} ${who.last}'s` : 'their'} day off${m ? ` on ${m[1]}` : ''}?`, confirm: 'Take the day',
       body: m ? `${m[2] ? `It moves to ${m[2]}. ` : ''}Morale ${m[3]}.` : `${t.offBreak}.`,
       onConfirm: () => this.act((gg) => moveDuty(gg, dutyId, fromCrewId, toCrewId, scope, { takeOff: true })),
+    });
+  }
+
+  /**
+   * v0.17 the aircraft market's card actions (problems/leasing.ts ids 'dealPay', 'dealLc', 'dealSign', 'dealWalk',
+   * 'techReps', 'aocApply'): acted on here, then the deal row (or the aircraft) opens. False: not a market action.
+   */
+  leasingAction(a: ProblemAction): boolean {
+    const g = this.game;
+    if (!g) return false;
+    const id = 'tab' in a.open ? a.open.sel?.id : undefined;
+    const toDeal = (dealId: string) => this.navigate('fleet', { view: 'market', sel: { kind: 'deal', id: dealId } });
+    switch (a.id) {
+      case 'dealPay':
+      case 'dealLc':
+        if (!id) return false;
+        this.closeModal();
+        this.act((gg) => meetConditions(gg, id, a.id === 'dealLc' ? 'lc' : 'cash'));
+        toDeal(id);
+        return true;
+      case 'dealSign':
+        if (!id) return false;
+        this.closeModal();
+        this.act((gg) => signLease(gg, id));
+        toDeal(id);
+        return true;
+      case 'dealWalk':
+        if (!id) return false;
+        this.closeModal();
+        this.walkAwayAsk(id);
+        return true;
+      case 'techReps':
+        if (!id) return false;
+        this.closeModal();
+        this.act((gg) => addTechRepsToInduction(gg, id));
+        this.navigate('fleet', { sel: { kind: 'aircraft', id } });
+        return true;
+      case 'aocApply':
+        this.openModal({ kind: 'aoc' });
+        return true;
+    }
+    return false;
+  }
+
+  /** v0.17 walk away from a lease deal: asks first when the holding deposit would be lost (after approval). */
+  walkAwayAsk(dealId: string) {
+    const g = this.game;
+    const d = g?.leasing?.deals.find((x) => x.id === dealId);
+    if (!g || !d) return;
+    const go = () => {
+      this.act((gg) => walkAway(gg, dealId));
+      this.navigate('fleet', { view: 'market', sel: { kind: 'deal', id: dealId } });
+    };
+    if (d.stage !== 'approved') return go();
+    const who = d.offer.lessor.replace(' (used sale)', '');
+    this.openModal({
+      kind: 'confirm', title: 'Walk away from the lease?', confirm: 'Walk away',
+      body: `${who} keeps the ${money(d.holding)} holding deposit. Signing costs ${money(cashToSign(g, d))} now.`,
+      onConfirm: go,
     });
   }
 

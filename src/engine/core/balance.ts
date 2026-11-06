@@ -667,4 +667,117 @@ export const BAL = {
       mult: 1.4, idleBH: 3, catering: 4, extraCabin: [2, 4] as [number, number], bizFromJ: 16, bizPctPerJ: 0.004, bizMax: 0.12, pax: [80, 150] as [number, number],
     },
   },
+
+  // ---------- v0.17 "Aircraft market" (UPDATE-0.17.md §M; engine/leasing). Each lane tunes only its own sub-block. ----------
+  v017: {
+    /** Master switch: false gives the v0.16 market exactly (bot --market=v16, for comparisons). */
+    on: true as boolean,
+    supply: { // lane supply
+      base: {
+        a320ceo: 0.45, b738: 0.45, b739: 0.40, a321ceo: 0.55, a321neo: 0.85, a320neo: 0.90, b752: 0.55, b753: 0.80,
+        b763: 0.55, a332: 0.70, a333: 0.72, a339: 0.90, a342: 0.80, a343: 0.35, a345: 0.75, a346: 0.45,
+        b772: 0.60, b77w: 0.82, b788: 0.85, b789: 0.90, b78x: 0.92, a359: 0.93, a35k: 0.95, a35u: 0.98,
+        a388: 0.65, b744: 0.88, b748: 0.95, b741: 0.99, b742: 0.99, b743: 0.99, b779: 0.995, b778: 0.995,
+      } as Record<string, number>,
+      pull: 0.2, noise: 0.02, clamp: [0.05, 0.99] as [number, number],
+      phase: { boom: 0.08, steady: 0, soft: -0.05, slump: -0.10 } as Record<string, number>,
+      easing: { types: ['a320ceo', 'b738', 'a321ceo'] as string[], perMonth: -0.01, months: 12, floor: -0.08 },
+      seasonNarrow: [0.02, 0.06, 0.06, 0.06, 0.04, 0, -0.02, -0.04, -0.06, -0.06, -0.04, 0] as number[],
+      seasonWide: [0, 0.02, 0.02, 0.02, 0.03, 0.03, 0, 0, -0.02, -0.02, -0.02, 0] as number[],
+      shock: { failure: [-0.15, 120] as [number, number], gtfNeo: [0.10, 180] as [number, number], gtfCeo: [0.05, 180] as [number, number], delay777x: [0.05, 365] as [number, number], recession: -0.10, airspace: 0.04, hajj: 0.05 },
+      words: [[0.3, 'Easy'], [0.5, 'Normal'], [0.7, 'Tight'], [0.85, 'Very tight'], [1.01, 'Almost none']] as [number, string][],
+      rfpOnly: ['a320neo'] as string[],
+    },
+    calls: { // lane supply
+      narrowPerMonth: 1.6, widePerMonth: 0.35, maxOpen: 6, maxWide: 2, days: [7, 21] as [number, number], wideDays: [5, 14] as [number, number],
+      teaserWeight: 0.3, maxTeasers: 1, newBuildChance: 0.05,
+    },
+    newBuild: { // lane supply
+      lead: { narrow: [540, 1080], a339: [730, 1095], minLead: 540 } as Record<string, number | [number, number]>,
+      earliestYear: { b788: 2030, b789: 2030, b78x: 2030, a359: 2030, a35k: 2030, a35u: 2031, b779: 2031, b778: 2032 } as Record<string, number>,
+      months: [96, 144] as [number, number], rentX: [1.0, 1.06] as [number, number], grade: { narrow: 'B', wide: 'A' } as Record<string, string>, extraDepositMonths: 1,
+    },
+    terms: { // lane supply
+      term: [[12, 0.18], [24, 0.10], [48, 0.04], [96, 0], [9999, -0.03]] as [number, number][],
+      credit: { A: -0.03, B: 0, C: 0.05, D: 0.10 } as Record<string, number>,
+      tight: 0.25, noise: [0.95, 1.08] as [number, number],
+      batch: [-0.15, -0.08] as [number, number], spot: [0.15, 0.30] as [number, number],
+      bands: { young: [0, 8], mid: [8, 16], old: [16, 99] } as Record<string, [number, number]>,
+      termsByBand: { new: [96, 144], young: [60, 120], mid: [24, 96], old: [12, 48] } as Record<string, [number, number]>,
+      reserveShare: { new: 0.32, young: 0.38, mid: 0.44, old: 0.55, veryOld: 0.65 } as Record<string, number>, veryOldFrom: 20, reserveNoise: 0.05, reserveEsc: 0.03,
+      minFH: { narrow: 80, wide: 150 }, reservesDepositMonthsD: 3,
+      halfLife: { new: 0.6, young: 0.6, mid: 0.5, old: 0.25 } as Record<string, number>, oldCheckX: 0.6,
+      extend: { perTight: 0.12, clamp: [0.95, 1.06] as [number, number], long: -0.04 },
+      spotReturn: { inspectCost: [15_000, 30_000] as [number, number], lateX: 2 },
+    },
+    spot: { // lane supply
+      narrowPerMonth: 0.7, widePerMonth: 0.12, maxOpen: 2, days: [5, 10] as [number, number], months: [3, 9] as [number, number],
+      askReply: [3, 10] as [number, number], askChance: { narrow: 0.35, wide: 0.15 }, depositMonths: 1, depositMonthsD: 2,
+    },
+    batch: { // lane supply
+      gapDays: 300, size: [3, 6] as [number, number], wideShare: 0.15, buyShare: 0.3, buyDiscount: [0.10, 0.20] as [number, number],
+      ready: [30, 120] as [number, number], open: [14, 30] as [number, number], recordsX: 1.3, depositLess: 1, gradeRelief: 1,
+    },
+    /**
+     * Player addition (UPDATE-0.17.md §T): exotic types are hard and expensive, never impossible. Lanes supply (who
+     * offers them, sale prices, the chance floor) and deals (the grade and security rule, "What it takes").
+     * - types: the exotic list (A380, the 747s, the rare A340s);
+     * - minGrade: the lowest grade any lessor deals at for one; securityGrade: one grade lower is accepted with
+     *   `securityMonths` more deposit and `reservesDepositMonths` of minimum-hours reserves up front; D never leases one;
+     * - floor: a request that meets every requirement and goes to a source holding the type has at least this chance of
+     *   a proposal (whatever the tightness): classics (747-100/-200/-300) only from storage, at a lower floor;
+     * - sale: retiring airlines and storage owners sell them too (`share` of exotic offers, at `priceX` × the used value),
+     *   a purchase skips the lessor's credit check (§F) but not the approvals, the AOC variation or the rated crews;
+     * - callsPerYear: lessor calls of exotics once the gate allows the type (rare: about one a year);
+     * - crew: rated pilots needed before the AOC variation is granted (more than a common type: 4 + 4).
+     */
+    exotic: {
+      types: ['a388', 'b744', 'b748', 'a345', 'a346', 'a342', 'b741', 'b742', 'b743'] as string[],
+      classics: ['b741', 'b742', 'b743'] as string[],
+      minGrade: 'B' as string, securityGrade: 'C' as string, securityMonths: 4, reservesDepositMonths: 3,
+      floor: { default: 0.12, classic: 0.05 },
+      sale: { share: 0.4, priceX: [0.85, 1.10] as [number, number] },
+      callsPerYear: 1,
+      crew: { CPT: 4, FO: 4 },
+    },
+    credit: { // lane deals
+      base: 40,
+      aocMonths: [[12, 8], [24, 14], [36, 20]] as [number, number][],
+      fleet: [[3, 6], [6, 10], [11, 14]] as [number, number][],
+      cover: { negative: -25, bands: [[1, 6], [2, 10], [4, 14]] as [number, number][] },
+      profit: { loss: -8, profit: 6, margin: [0.08, 10] as [number, number], minStatements: 3 },
+      distress: { deferral: -10, plan: -5, investor: -5, breach: -8, frozen: -12 },
+      stars: { 0: 0, 1: 0, 2: 4, 3: 8, 4: 12, 5: 12 } as Record<number, number>, iosa: 6, reliableHigh: [80, 4] as [number, number], reliableLow: [60, -4] as [number, number],
+      returns: { per: 2, max: 6 },
+      grades: { A: 85, B: 60, C: 35 } as Record<string, number>,
+      deposit: { A: 1, B: 2, C: 3, D: 5, Dlow: 7, DlowBelow: 25 } as Record<string, number>,
+      wideTotal: { A: 8, B: 4, C: 2, D: 0 } as Record<string, number>, wideMinAgeC: 15,
+      chanceX: { A: 1.1, B: 1.0, C: 0.9, D: 0.8 } as Record<string, number>,
+      blockMonths: 24, deferralCapLess: 1,
+    },
+    rfp: { // lane deals
+      maxOpen: 3, maxOpenNewcomer: 2, quietDays: 30, reply: { narrow: [5, 14], wide: [10, 24], newBuild: [14, 28] } as Record<string, [number, number]>, replyXA: 0.7,
+      window: [[45, 0.5], [120, 0.9], [365, 1.15], [99999, 1.0]] as [number, number][],
+      work: { inHand: 1.4, none: 0.6 }, extra: [0.5, 0.25] as number[], laterShare: 0.3, laterTight: 2, later: [90, 180] as [number, number],
+      valid: { narrow: 10, wide: 7, newBuild: 14 } as Record<string, number>, pMax: 0.95,
+      stored: { narrow: 0.45, wide: 0.3 }, freeAt: { narrow: [60, 240], wide: [90, 270] } as Record<string, [number, number]>, freeTight: 0.6, flexDays: 30,
+    },
+    deal: { // lane deals
+      holdingMonths: 1, committee: { narrow: [10, 20], wide: [14, 30], newBuild: [21, 35] } as Record<string, [number, number]>, committeeXA: 0.6,
+      condC: 0.15, condMonths: 2, decideDays: 7, signDays: 7, lookAgainDays: 30,
+    },
+    induction: { // lane deals
+      records: { narrow: [21, 35], wide: [28, 56] } as Record<string, [number, number]>, oldX: 1.4, oldFrom: 16, spotRecords: [3, 7] as [number, number],
+      check: { narrow: [7, 12], wide: [10, 18] } as Record<string, [number, number]>,
+      findings: { narrow: 0.30, wide: 0.35, old: 0.45, days: { narrow: [5, 10], wide: [7, 14] } as Record<string, [number, number]> },
+      reg: [7, 12] as [number, number], paint: { narrow: 7, wide: 12 }, acceptance: 1, factory: 5,
+      camo: { base: 1, perAircraft: 5, max: 4, wideSlots: 2 },
+      techReps: { cost: { narrow: 40_000, wide: 75_000 }, recordsX: 0.8 },
+      cost: { narrow: 90_000, wide: 180_000, newFamilyX: 1.5 },
+    },
+    aoc: { // lane deals
+      cost: { narrow: 80_000, wide: 150_000 }, days: { easa: [90, 120], uk: [45, 60], other: [60, 90] } as Record<string, [number, number]>, pilots: { CPT: 2, FO: 2 },
+    },
+    lc: { fee: 0.0125, grades: { A: 'all', B: 'midEol' } as Record<string, string>, cashDays: 30 }, // lane deals
+  },
 } as const;

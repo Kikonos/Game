@@ -2,6 +2,7 @@
 // loans per aircraft, spare cash in the money market and the debt line. Each block is short; iPhone landscape stacks
 // them. The factoring buttons sit on the receivables rows (Finance.tsx); borrowing and leaseback on the Fleet card.
 
+import { LessorRating } from './LessorRating';
 import { Landmark, Plane, Wallet } from 'lucide-react';
 import { useState } from 'react';
 import { BAL } from '../../../engine/core/balance';
@@ -133,6 +134,8 @@ export function Financing({ g }: { g: GameState }) {
     <Card title="The bank" sub="credit line, loans on aircraft, spare cash" className="mt-16 fin-bank" bodyClass="fb-body">
       {breach && <div className="fb-breach"><ProblemCardView card={breach} g={g} /></div>}
       <CreditBlock g={g} />
+      {/* v0.17 the lessor rating and letters of credit (lane market-ui; renders nothing in step 0). */}
+      <LessorRating g={g} />
       <LoansBlock g={g} />
       <CashBlock g={g} />
     </Card>
