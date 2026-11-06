@@ -53,6 +53,8 @@ export interface Issue {
 
 interface FlightRec {
   id: string;
+  /** v0.16.4 the aircraft's seats when the leg was seen flown (a later refit changes the cabin, not the leg's minimum). */
+  seats?: number;
   no: string;
   kind: string;
   from: string;
@@ -275,7 +277,7 @@ export function createChecker(opts: CheckerOpts = {}) {
       if (f.status !== 'cancelled' && new Set(f.crewIds).size < f.crewIds.length) err('dup-crew', g.now, `${f.no} ${f.from}–${f.to} ${f.kind} ${fmtDateTime(f.std)} lists a crew member twice (${f.crewIds.filter((x, i) => f.crewIds.indexOf(x) !== i).map((x) => g.crew[x] ? `${g.crew[x].first} ${g.crew[x].last}` : x).join(', ')})`, `dup|${f.id}`);
       if (f.status === 'done' && !flights.has(f.id)) {
         flights.set(f.id, {
-          id: f.id, no: f.no, kind: f.kind, from: f.from, to: f.to, atd: f.atd ?? f.std, ata: f.ata ?? f.sta, aircraftId: f.aircraftId, contractId: f.contractId,
+          id: f.id, seats: f.aircraftId ? g.fleet[f.aircraftId]?.cabin.total : undefined, no: f.no, kind: f.kind, from: f.from, to: f.to, atd: f.atd ?? f.std, ata: f.ata ?? f.sta, aircraftId: f.aircraftId, contractId: f.contractId,
           crewIds: [...f.crewIds], riders: [...(f.riders ?? [])], purpose: f.purpose, operatedBy: f.operatedBy, reducedCabin: f.reducedCabin,
           unrated: f.kind !== 'deadhead' && f.aircraftId && g.fleet[f.aircraftId] ? f.crewIds.filter((id) => g.crew[id] && !g.crew[id].ratings.includes(typeOf(g.fleet[f.aircraftId!].typeId).family)) : [],
         });
@@ -608,8 +610,9 @@ export function createChecker(opts: CheckerOpts = {}) {
         // Mixed crews: the client's own cabin crew fly with ours (requirements.clientCabin).
         const cc = f.contractId ? g.contracts[f.contractId]?.requirements.clientCabin?.n ?? 0 : 0;
         const cabin = roles.length - pilots.length + cc;
-        const min = cabinMinimum(typeId, ac.cabin.total) - (f.reducedCabin ?? 0);
-        if (cabin < min) err('crew-min', f.atd, `${f.no} ${f.from}–${f.to} flew with ${cabin} cabin crew (minimum ${min} for ${ac.cabin.total} seats)`);
+        const seats = f.seats ?? ac.cabin.total;
+        const min = cabinMinimum(typeId, seats) - (f.reducedCabin ?? 0);
+        if (cabin < min) err('crew-min', f.atd, `${f.no} ${f.from}–${f.to} flew with ${cabin} cabin crew (minimum ${min} for ${seats} seats)`);
       }
     }
     summary = { restChecked: etc.restChecked, restShort: etc.rest, restUnknown: etc.unknown, flights: flights.size, crew: crew.size, steps, from: firstT ?? 0, to: lastT, rides: rides.n, rideLegs: ridesSeen.size };
