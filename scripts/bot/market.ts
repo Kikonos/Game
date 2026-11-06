@@ -171,13 +171,17 @@ function narrowGrowth(g: GameState): boolean {
   const main = mainNarrow(g);
   const fam = typeOf(main).family;
   const season = nextSeason(g);
-  const target = season - g.now >= 90 * DAY ? season : g.now;
+  // Balance step: with the season under 90 days away, the date 50 days out rather than "as soon as possible" (the
+  // 45–120-day window has 0.9 of the chance, as soon as possible 0.5 and stored aircraft only).
+  const target = season - g.now >= 90 * DAY ? season : g.now + 50 * DAY;
   // The offers: proposals and calls of our family, leases, not new builds, ready by the target + 30 days.
   const cands = g.market.aircraft
     .filter((o) => o.kind === 'dryLeaseIn' && !o.newBuild && !o.spot && o.expires > g.now && !wide(o.typeId) && typeOf(o.typeId).family === fam && aircraftGate(g, o.typeId).ok)
     .map((o) => ({ o, ready: readyOf(g, o), cost: o.rentPerMonth + 250 * o.reservesPerFH }))
     .filter((x) => x.ready <= Math.max(target, g.now + 120 * DAY) + 30 * DAY)
-    .sort((a, b) => a.cost - b.cost || (a.o.id < b.o.id ? -1 : 1));
+    // Balance step: a day late past the target costs about $10K of lost flying (36 months of rent + reserves against it).
+    .map((x) => ({ ...x, score: 36 * x.cost + 10_000 * Math.max(0, (x.ready - Math.max(target, g.now + 60 * DAY)) / DAY) }))
+    .sort((a, b) => a.score - b.score || (a.o.id < b.o.id ? -1 : 1));
   const asking = openRfp(g, (id) => !wide(id));
   // While our request is out, wait for its answers unless an offer is about to lapse.
   const best = cands.find((x) => !asking || (x.o.validUntil ?? x.o.expires) - g.now <= 2 * DAY);
@@ -195,7 +199,7 @@ function narrowGrowth(g: GameState): boolean {
   }
   if (asking || g.now - lastRfp(g, (id) => !wide(id)) < 14 * DAY) return false;
   const grade = rating(g).grade;
-  return ask(g, { typeId: main, band: 'mid', months: 36, count: 1, from: target > g.now ? target : null, flex: true }, grade === 'D' ? ['old', 'mid'] : ['mid', 'old']);
+  return ask(g, { typeId: main, band: 'mid', months: 36, count: 1, from: target, flex: true }, grade === 'D' ? ['old', 'mid'] : ['mid', 'old']);
 }
 
 /** The widebody family to ask for: the one with widebody pilots (rated or converting), else the A330. */
