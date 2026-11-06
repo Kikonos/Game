@@ -59,7 +59,7 @@ export interface LoiQuote {
   transition: number;
   techReps: number;
   paint: number;
-  /** 'Mid-life A320ceo $220K · 36 months +4 % · normal market −1 % · start-up rating +5 %'. */
+  /** 'Mid-life A320ceo $220K · 36 months +4 % · start-up rating +5 % · normal supply −1 %'. */
   whyRent: string;
   /** '$560/FH · at least 80 FH a month · +3 % a year'. */
   reserves: string;

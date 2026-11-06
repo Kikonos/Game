@@ -119,7 +119,7 @@ export function reserveShare(band: AgeBand, age: number): number {
 
 const pctText = (x: number) => `${x >= 0 ? '+' : '−'}${Math.abs(Math.round(x * 100))} %`;
 
-/** 'Mid-life A320ceo $220K · 36 months +4 % · normal market −1 % · rating C +5 %' (§E.1). Pure. */
+/** 'Mid-life A320ceo $220K · 36 months +4 % · rating C +5 % · normal supply −1 % · weak demand −12 %' (§E.1). Pure. */
 export function whyText(why: { label: string; pct: number }[] | undefined): string {
   if (!why?.length) return '';
   return why.map((w, i) => (i === 0 ? w.label : `${w.label} ${pctText(w.pct)}`)).join(' · ');
@@ -187,9 +187,10 @@ export function quoteTerms(g: GameState, d: TermsDraft): TermsQuote {
     if (cf) why.push({ label: `rating ${grade}`, pct: cf });
   }
   const tightF = T().tight * (tight - 0.5);
-  const marketF = (1 + tightF) * idx - 1;
   f *= (1 + tightF) * idx;
-  why.push({ label: `${tightWord(tight).toLowerCase()} market`, pct: marketF });
+  // Two plain lines (merge: one "normal market −12 %" line read oddly in a slump): the type's supply, then the demand.
+  why.push({ label: `${tightWord(tight).toLowerCase()} supply`, pct: tightF });
+  if (Math.abs(idx - 1) >= 0.005) why.push({ label: idx < 1 ? 'weak demand' : 'strong demand', pct: idx - 1 });
   // The noise is rolled before the source's factor, so a batch airframe is 8–15 % under the same airframe's call quote.
   const noise = range(r, T().noise[0], T().noise[1]);
   if (d.source === 'batch') {
