@@ -315,3 +315,18 @@ export const SCENARIO_EVENT_TPLS: WorldEventTpl[] = [
 ];
 
 export const TPL_BY_ID: Record<string, WorldEventTpl> = Object.fromEntries([...WORLD_EVENT_TPLS, ...SCENARIO_EVENT_TPLS].map((t) => [t.id, t]));
+
+/**
+ * v0.17 aircraft supply news (UPDATE-0.17.md §A.3; lane `supply`): industry events that move the aircraft market only.
+ * Never drawn by the daily world roll (WORLD_EVENT_TPLS), so the world's other events stay as they were; the leasing
+ * engine fires each at most once (engine/leasing/tightness.ts) with a supply shock and one message.
+ * - delay777x: once in 2027–2028, +0.05 on the 777-300ER and 777-200ER for 365 days. Boeing has pushed the 777-9's
+ *   first delivery back more than once (2020 → 2023 → 2025 → 2026 → 2027), and each slip kept 777-300ERs in service.
+ */
+export const SUPPLY_EVENT_TPLS: Record<'delay777x', { title: string; body: string; shockText: string }> = {
+  delay777x: {
+    title: 'Boeing pushes 777-9 deliveries back again',
+    body: 'Airlines waiting for the 777-9 keep their 777-300ERs and 777-200ERs flying longer. Fewer come back to lessors: for about a year, 777s are harder to find and dearer to lease.',
+    shockText: '777-9 delay: airlines keep their 777s',
+  },
+};
