@@ -289,7 +289,7 @@ export type Ownership =
        * our lessor rating at signing.
        */
       lessorId?: LessorId; minFH?: number; reservesEscAt?: Minute; halfLifeShare?: number; lc?: number; reservesDeposit?: number;
-      spot?: { airline: string; base: string }; grade?: CreditGrade;
+      spot?: { airline: string; base: string; /** v0.17 supply: the rent before a late return doubled it. */ rent?: number }; grade?: CreditGrade;
     };
 
 /** v0.7: handover abroad and the delivery ferry home. */
