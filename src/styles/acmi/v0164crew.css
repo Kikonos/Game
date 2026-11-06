@@ -1,0 +1,6 @@
+/* v0.16.4 crew bug round: the alarm self-check's "Checked ✓" (Inbox row chip, the evidence under the card). */
+.sc-checked { font-weight: 600; letter-spacing: 0.01em; }
+.sc-checked-box { margin-top: 8px; padding: 8px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); }
+.sc-checked-box ul { margin: 4px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; }
+.sc-checked-box li { line-height: 1.35; overflow-wrap: anywhere; }
+.pc-checked { margin-top: 6px; }

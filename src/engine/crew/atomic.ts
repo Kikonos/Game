@@ -1,7 +1,7 @@
 // v0.14.1 copies of the game state: previews (Crew Control dry runs) and an all-or-nothing wrapper for crew changes
 // the player or the engine applies (a change that throws half-way is undone, never left half-applied).
 
-import { touchFlights } from '../core/entities';
+import { flightsReplaced } from '../core/entities';
 import { safetyTrip } from '../core/safety';
 import type { GameState } from '../core/types';
 import { touchCrew, touchCrewState } from './timeline';
@@ -48,7 +48,7 @@ export function restoreState(g: GameState, snap: GameState): void {
   const gg = g as unknown as Record<string, unknown>;
   for (const k of Object.keys(gg)) if (!(k in snap)) delete gg[k];
   Object.assign(g, snap);
-  touchFlights(g);
+  flightsReplaced(g);
   touchCrew(g);
   touchCrewState(g);
 }

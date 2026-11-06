@@ -787,6 +787,8 @@ function partition(g: GameState, acId: string, typeId: string, rest: AcRest, uni
   const home = g.company.homeBase;
   interface Best { count: number; aug: number; slack: number; prev: number; flights: Flight[] }
   const best: (Best | null)[] = new Array(units.length + 1).fill(null);
+  // Crew bug round (HX6001): a unit of empty legs only (positioning, ferry) ends at a crew-change station.
+  const emptyUnit = units.map((u) => u.every((f) => f.kind === 'positioning' || f.kind === 'ferry'));
   best[0] = { count: 0, aug: 0, slack: Infinity, prev: -1, flights: [] };
   for (let j = 1; j <= units.length; j++) {
     let fl: Flight[] = [];
@@ -798,6 +800,19 @@ function partition(g: GameState, acId: string, typeId: string, rest: AcRest, uni
       const pa = planAugment(g, sh, { rest, canAug, split: single, ext: single, cabinN: planCabinN(g, acId, fl) });
       const tight = sh.fdp > pa.max - LIMITS.tightFdp;
       if (!single && (!pa.ok || (tight && !allowTight))) continue;
+      // Crew bug round (HX6001 SHA–HKG with four pilots): an empty leg into a crew-change station is never joined to
+      // the work there when the joined day needs extra pilots. The empty leg is flown by its own two pilots and the
+      // crew on station (or from home) takes the work: before, TAS–HKG (6 h) and HKG–CJU–HKG made one 13:40 day with
+      // four pilots, and the whole tour pairing then carried the two extra pilots on every 2-hour day after it.
+      if (!single && pa.augment > 0) {
+        let e = false;
+        let w = false;
+        for (let k = i; k < j; k++) {
+          if (emptyUnit[k]) e = true;
+          else w = true;
+        }
+        if (e && w) continue;
+      }
       if (!single && sh.sectors > NIGHT_MAX_SECTORS && disruptiveKinds(home, sh.report, sh.lastOn).night) continue;
       const prev = best[i];
       if (!prev) continue;
@@ -1247,21 +1262,49 @@ function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
 
 const rotation = (g: GameState) => g.company.policies.rotationWeeks * 7 * DAY;
 
-/** On-station period of set s that contains t (null before the set exists). */
-export function periodOf(dep: Deployment, s: number, t: Minute, R: number): { from: Minute; to: Minute } | null {
+/**
+ * Rotations round (v0.16.4): a set whose next change would fall within this of the deployment's end stays to the end
+ * instead (no fresh set flown out for a stub of a few days); the first tours are staggered over this span past the
+ * rotation, never short of it (the player: crews go home at five weeks or more).
+ */
+export const TOUR_TAIL = 7 * DAY;
+/** Rotations round: a set's work block the chaining aims for (then its two days off together). */
+const RUN_DAYS = 4;
+
+function periodRaw(dep: Deployment, s: number, t: Minute, R: number): { from: Minute; to: Minute } | null {
   const a = dep.anchors?.[s];
   if (a === undefined) return null;
-  if (t < a) {
-    const from = Math.max(dep.start, a - R);
-    return t < from ? null : { from, to: a };
-  }
+  // The first period runs from the deployment's start to the first change (Rotations round: up to a week past R).
+  if (t < a) return t < dep.start ? null : { from: dep.start, to: a };
   const k = Math.floor((t - a) / R);
   return { from: a + k * R, to: a + (k + 1) * R };
 }
 
+/**
+ * On-station period of set s that contains t (null before the set exists). Rotations round: the last period before the
+ * deployment's end absorbs a stub shorter than TOUR_TAIL (the set stays to the end).
+ */
+export function periodOf(dep: Deployment, s: number, t: Minute, R: number): { from: Minute; to: Minute } | null {
+  const per = periodRaw(dep, s, t, R);
+  if (!per) return null;
+  const end = dep.end;
+  // t falls in the stub after the last change: that change never happens; the previous period runs to the end.
+  if (per.from > dep.start && per.from < end && end - per.from <= TOUR_TAIL) {
+    const prev = periodRaw(dep, s, per.from - 1, R);
+    if (prev) return { from: prev.from, to: end };
+  }
+  if (per.to < end && end - per.to <= TOUR_TAIL) return { from: per.from, to: end };
+  return per;
+}
+
+/**
+ * First tour change per set. Rotations round: every first tour is at least the rotation long, the sets staggered over
+ * the week after it (35, 37, 40, 42 days for four sets at five weeks); before, the stagger cut the first tours short
+ * (9, 18, 26 and 35 days), a short stint and two more tickets for every set but the last.
+ */
 function anchorsFor(start: Minute, sets: number, R: number): Minute[] {
   const out: Minute[] = [];
-  for (let s = 0; s < sets; s++) out.push(start + Math.max(1, Math.round(((s + 1) * R) / sets / DAY)) * DAY);
+  for (let s = 0; s < sets; s++) out.push(start + R + (sets > 1 ? Math.round((s * (TOUR_TAIL / DAY)) / (sets - 1)) : 0) * DAY);
   return out;
 }
 
@@ -1273,6 +1316,8 @@ interface TourState {
   duties: Duty[];
   segs: Seg[];
   days: number[];
+  /** Rotations round: worked days with the eve of an early report (the 7-days-off-in-28 cap, LIMITS.workDays28). */
+  work: number[];
 }
 
 /** A duty as a virtual crew set's seg (no tickets); v0.7.2 from the cabin crew's earlier report (the longer day). */
@@ -1292,8 +1337,19 @@ function virtualSeg(g: GameState, d: Duty, tripStart: Minute, base: string, fres
 }
 
 interface Chainer {
-  take(d: Duty): boolean;
+  take(d: Duty, why?: string[]): boolean;
   tours: Map<string, TourState>;
+}
+
+/** Rotations round, dev/audit hook: a deployment duty no set on station could take, with each set's refusal. */
+let chainSpy: ((g: GameState, dep: Deployment, d: Duty, why: string[]) => void) | null = null;
+export function setChainSpy(f: typeof chainSpy): void {
+  chainSpy = f;
+}
+/** The crewOk hook's last refusal, in words (set by roster.ts for the spy). */
+let crewOkWhy = '';
+export function noteCrewOkWhy(s: string): void {
+  crewOkWhy = s;
 }
 
 /**
@@ -1322,9 +1378,10 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
     tours.set(`${p.tour.set}:${p.tour.from}`, {
       set: p.tour.set, from: p.tour.from, to: p.tour.to, pairing: p, duties,
       segs: duties.map((d) => virtualSeg(g, d, p.start, home)), days: [...new Set(duties.map((d) => dayOf(d.report)))].sort((a, b) => a - b),
+      work: [...new Set(duties.flatMap((d) => [dayOf(d.report - mf), dayOf(d.report)]))].sort((a, b) => a - b),
     });
   }
-  const take = (d: Duty): boolean => {
+  const take = (d: Duty, why?: string[]): boolean => {
     let pick: TourState | null = null;
     let pickRest = Infinity;
     let pickRank = 0;
@@ -1337,24 +1394,60 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
     const early = eve !== dayOf(d.report);
     for (let s = 0; s < sets; s++) {
       const per = periodOf(dep, s, d.report, R);
-      if (!per) continue;
+      if (!per) {
+        why?.push(`set ${s}: no period`);
+        continue;
+      }
       const key = `${s}:${per.from}`;
-      const st = tours.get(key) ?? { set: s, from: per.from, to: per.to, pairing: null, duties: [], segs: [], days: [] };
+      const st = tours.get(key) ?? { set: s, from: per.from, to: per.to, pairing: null, duties: [], segs: [], days: [], work: [] };
       const dd = daysOf(d);
       const days = dd.every((x) => st.days.includes(x)) ? st.days : [...new Set([...st.days, ...dd])].sort((a, b) => a - b);
-      if (longestWorkBlock(days) > LIMITS.blockDays) continue;
+      if (longestWorkBlock(days) > LIMITS.blockDays) {
+        why?.push(`set ${s}: 6-on/2-off block`);
+        continue;
+      }
+      // Rotations round: at most 21 worked days (eves of early reports included) in any 28 of the tour, so a set keeps
+      // its 7 local days off a month on station. Before, a set's first tour was 9 days and the month floor was found
+      // only by the crew-level check: the seat then went to nobody (bot: a Dhaka tour of 19 duties in 30 days uncrewed).
+      const we = [dayOf(d.report - mf), dayOf(d.report)];
+      const work = we.every((x) => st.work.includes(x)) ? st.work : [...new Set([...st.work, ...we])].sort((a, b) => a - b);
+      if (work.length > LIMITS.workDays28 && overWorkDays(work, we)) {
+        why?.push(`set ${s}: days off in 28`);
+        continue;
+      }
       const tripStart = Math.min(st.duties[0]?.report ?? d.report, d.report);
       const i = st.segs.findIndex((x) => x.start > d.report);
       const at = i < 0 ? st.segs.length : i;
       const last = st.segs[at - 1];
       const segs = [...st.segs.slice(0, at), virtualSeg(g, d, tripStart, home, true), ...st.segs.slice(at)];
       // A fresh set arrives rested the day before its period (positioning counts as duty).
-      const ctx: TimelineCtx = { base: home, restUntil: -Infinity, lastRecovery: per.from - DAY, blockYear: 0, blockYearOf: yearOf(d.report), slack: BAL.rosterSlack };
-      if (evalSegs(ctx, segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) continue;
+      // Rotations round: the set is free from the day before its period (freeSince): a long gap before its first known duty
+      // is a recovery rest, so a lone duty far into an empty period (a deployment's return leg months out) is not refused
+      // for "no 36 h recovery in 168 h" and flown as a trip from base.
+      const ctx: TimelineCtx = { base: home, restUntil: -Infinity, lastRecovery: per.from - DAY, freeSince: per.from - DAY, blockYear: 0, blockYearOf: yearOf(d.report), slack: BAL.rosterSlack };
+      const bad = why ? evalSegs(ctx, segs).filter((i) => i.level === 'illegal' && i.code !== 'fdp') : null;
+      if (bad ? bad.length : evalSegs(ctx, segs).some((i) => i.level === 'illegal' && i.code !== 'fdp')) {
+        why?.push(`set ${s}: ${bad!.map((i) => `${i.code} (${i.text})`).join("+")} days ${st.days.join(",")}`);
+        continue;
+      }
+      crewOkWhy = '';
       const rank = st.pairing && crewCount(st.pairing) > 0 ? crewOk(st.pairing, d) : 2;
-      if (!rank) continue;
+      if (!rank) {
+        why?.push(`set ${s}: crew ${crewOkWhy || '?'}`);
+        continue;
+      }
       const restEnd = last ? last.end + last.rest : -Infinity;
-      const onEve = early && (sizing || (!!st.pairing && crewCount(st.pairing) > 0)) && st.days.includes(eve);
+      // Rotations round: a set inside a work block (it worked the day before, and the block has room) comes before one
+      // on its days off, so a set works its days in a row and then has its two days off together (4 on, 2 off with
+      // three sets on two waves). Round-robin by rest end alone spread the duties every other day and no set ever got
+      // two days off in a row, so the 6-on/2-off rule failed within a tour and the sizing asked for twice the sets
+      // (the short first tours of the old stagger had hidden it).
+      // Blocks of at most RUN_DAYS (4 on, 2 off: the 36 h recovery then always falls inside 168 h; a 6-day block broke
+      // it and left the duty to nobody).
+      let runLen = 0;
+      for (let k = dayOf(d.report) - 1; st.days.includes(k); k--) runLen++;
+      const run = runLen > 0 && runLen < RUN_DAYS && longestWorkBlock(days) <= LIMITS.blockDays;
+      const onEve = (early && (sizing || (!!st.pairing && crewCount(st.pairing) > 0)) && st.days.includes(eve)) || run;
       if (rank > pickRank || (rank === pickRank && (Number(onEve) > Number(pickEve) || (onEve === pickEve && restEnd < pickRest)))) {
         pick = st;
         pickRest = restEnd;
@@ -1372,9 +1465,23 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
     pick.segs.sort((x, y) => x.start - y.start);
     const dd = daysOf(d);
     if (!dd.every((x) => pick.days.includes(x))) pick.days = [...new Set([...pick.days, ...dd])].sort((a, b) => a - b);
+    const we = [dayOf(d.report - mf), dayOf(d.report)];
+    if (!we.every((x) => pick.work.includes(x))) pick.work = [...new Set([...pick.work, ...we])].sort((a, b) => a - b);
     return true;
   };
   return { take, tours };
+}
+
+/** Any 28-day window holding one of `days` has more than LIMITS.workDays28 of the (sorted) worked days. Pure. */
+function overWorkDays(work: number[], days: number[]): boolean {
+  for (const k of days) {
+    for (const lo of [k - 27, k]) {
+      let n = 0;
+      for (const x of work) if (x >= lo && x < lo + 28) n++;
+      if (n > LIMITS.workDays28) return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -1460,15 +1567,19 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
   // flew from Lisbon).
   const grow = farBase(g.company.homeBase, base, dep.start) ? 2 : 1;
   for (const d of duties) {
-    if (ch.take(d)) continue;
+    const why: string[] | undefined = chainSpy ? [] : undefined;
+    if (ch.take(d, why)) continue;
     // One extra set at most beyond the sizing (a whole tour of crew for a stray duty is waste: it flies as a
     // trip from base instead); a duty before the deployment's start can't join any set.
-    if (d.report >= dep.start && dep.anchors.length < Math.min(BAL.maxSetsOnStation, dep.sized + grow)) {
+    // Rotations round: and only for a duty a week or more ahead (a programme bigger than its sizing), never for one
+    // this week that a late landing, a sick call or a limit took off its set: that is one trip, not a new set for 35 days.
+    if (d.report >= dep.start && d.report - g.now >= TOUR_TAIL && dep.anchors.length < Math.min(BAL.maxSetsOnStation, dep.sized + grow)) {
       dep.anchors.push(dayStart(d.report) + R);
       dep.setsOnStation = dep.anchors.length;
-      if (ch.take(d)) continue;
+      if (ch.take(d, why)) continue;
     }
     left.push(d);
+    if (chainSpy && why) chainSpy(g, dep, d, why);
   }
   for (const st of ch.tours.values()) {
     if (st.pairing) {

@@ -33,7 +33,7 @@ import { city, rootReason, type Reason, type ReasonCode } from './reasons';
 import { applyDiscretion, autoRoster, closureTickets, discretionCheck, dutyStale, flightCrewStatus, onFlightsChanged, placeCrew, recheckPairing, releaseCrew, rerosterFrom, setShortHook, type FlightCrewStatus } from './roster';
 import { assignCrew, dutyCandidates, freshReport, type DutyCandidate } from './rosterActions';
 import { levelOf, LIMITS, minRest, offsetAt } from './rules';
-import { cabinEarly, crewCount, crewIx, crewRev, dhBlock, fdpLimitAt, locAt, OUT_CONNECT, posSeg, segsOf, setClosedCheck, touchCrew, typeIdOf, type TicketPlan } from './timeline';
+import { cabinEarly, crewCount, crewIx, crewRev, dhBlock, fdpLimitAt, locAt, OUT_CONNECT, posSeg, segsOf, setClosedCheck, touchCrew, typeIdOf, type TicketPlan, snapDeparture } from './timeline';
 
 // v0.12.1 crew tickets never fly into or out of an airport a world event has closed.
 setClosedCheck((g, code, t) => !!closedAirport(g, code, t));
@@ -54,7 +54,9 @@ import { callFromStandby, calledNow, reserveContact } from './standby';
 import { SBY_LABEL } from './calendar';
 import { dayLabel, offDaysHit, takesPublishedOff, v09Stats } from './dayPlan';
 import { boughtNow, buyBackFor, buyBackMode, repayText, type BuyBack } from './buyBack';
-import { crewAlertKind, LIMIT_NAME, type CrewAlertKind } from './outOfHours';
+import { crewAlertKind, LIMIT_NAME, outOfHours, type CrewAlertKind } from './outOfHours';
+import { confirmAlarm, setAlarmHooks, type CheckHooks } from './selfCheck';
+import { syncDuty } from './duties';
 import { restPlan } from './restPlan';
 import { lockOf } from '../scenario/rules';
 
@@ -413,6 +415,33 @@ function earlyShort(g: GameState, reroster: boolean): Flight[] {
   return out;
 }
 
+/**
+ * Alarm self-check (crew/selfCheck.ts) hooks: the duty re-measured, the alarm's claims about named crew (out-of-hours
+ * limits and the roster's issue codes, read on the copy), the crew status, and the planner's free fix in a dry run.
+ */
+export const ALARM_HOOKS: CheckHooks = {
+  sync: (h, d, p) => syncDuty(h, d, p),
+  bad: (h, id) => BAD(flightCrewStatus(h, id, { live: false }).level),
+  claims: (h, id) => {
+    const f = h.flights[id];
+    const d = f?.dutyId ? h.duties[f.dutyId] : undefined;
+    return [...outOfHours(h, id).map((x) => ({ crewId: x.crewId, code: x.limit })), ...(d ? crewIssuesFor(h, d).map((x) => ({ crewId: x.crewId, code: x.issue.code })) : [])];
+  },
+  fix: (h, id) => {
+    const f = h.flights[id];
+    if (!f) return;
+    previewing++;
+    try {
+      planNow(h, f);
+      if (BAD(flightCrewStatus(h, id, { live: false }).level)) standbyCallOut(h, id);
+    } finally {
+      previewing--;
+    }
+  },
+};
+
+setAlarmHooks(ALARM_HOOKS);
+
 function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
   const amber: Flight[] = [];
   const red: Flight[] = [];
@@ -436,8 +465,10 @@ function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
       const card = crewShortCard(g, f.id);
       if (!card) continue;
       const days = Math.max(1, Math.round((f.std - g.now) / DAY));
+      const v = confirmAlarm(g, 'early', f, `Heads-up: ${card.what} (${fmtDay(f.std)})`, [], { fix: freeFix });
+      if (!v.confirmed) continue;
       pushMessage(g, {
-        tone: 'info', cat: 'crew',
+        tone: 'info', cat: 'crew', checked: v.evidence,
         title: `Heads-up: ${card.what} (${fmtDay(f.std)})`,
         body: `${lateChangeNote(g, f)}${card.why} ${days} days to go: hire, fly someone in on a ticket or a private jet, swap crews, sub-lease the trip or move it. ${hurtProse(card)}.${fl.length > 3 && f === fl[0] ? ` Also ${fl.slice(3, 6).map((y) => y.no).join(', ')}.` : ''}`,
         ref: card.subject.ref, problem: card.subject, hurt: { money: card.hurt.money, pax: card.hurt.pax, delayMin: card.hurt.delayMin, level: card.hurt.level },
@@ -530,11 +561,13 @@ function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
     const hours = kindOf.get(fl[0].id) === 'hours';
     v9.oohAmber += fl.filter((f) => kindOf.get(f.id) === 'hours').length;
     const card = hours ? crewHoursCardHook?.(g, fl[0].id) ?? crewShortCard(g, fl[0].id) : crewShortCard(g, fl[0].id);
-    if (card) {
+    const title = card ? (fl.length === 1 ? (hours ? `${fl[0].no}: crew out of hours` : card.what) : `${fl.length} flights need crew`) : '';
+    const v = card ? confirmAlarm(g, hours ? 'hours' : 'short', fl[0], title, [], { fix: freeFix }) : null;
+    if (card && v?.confirmed) {
       const h = Math.round((fl[0].std - g.now) / 60);
       pushMessage(g, {
-        tone: 'warn', cat: 'crew', cue: 'crewAmber',
-        title: fl.length === 1 ? (hours ? `${fl[0].no}: crew out of hours` : card.what) : `${fl.length} flights need crew`,
+        tone: 'warn', cat: 'crew', cue: 'crewAmber', checked: v.evidence,
+        title,
         body: `${hours ? `${card.what}. ` : ''}${lateChangeNote(g, fl[0])}${card.why} ${hurtProse(card)}. Departs in ${h} h.${fl.length > 1 ? ` Also ${fl.slice(1, 4).map((f) => f.no).join(', ')}.` : ''}`,
         ref: card.subject.ref, problem: card.subject, hurt: { money: card.hurt.money, pax: card.hurt.pax, delayMin: card.hurt.delayMin, level: card.hurt.level },
       });
@@ -551,6 +584,9 @@ function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
       if (!card) continue;
       const h = Math.max(0, Math.round((f.std - g.now) / 60));
       const also = duties.filter((y) => y !== f && y.aircraftId === f.aircraftId).map((y) => y.no);
+      // Alarm self-check: only a confirmed problem chimes, pauses and shows its card.
+      const v = confirmAlarm(g, hours ? 'hours' : 'short', f, `${hours ? 'CREW OUT OF HOURS' : 'CREW SHORTAGE'}: ${f.no} in ${h} h`, [], { fix: freeFix });
+      if (!v.confirmed) continue;
       if (hours) {
         hrs = true;
         v9.oohRed++;
@@ -558,7 +594,7 @@ function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
 
 
       pushMessage(g, {
-        tone: 'bad', cat: 'crew', topic: hours ? 'crewHours' : 'crewRed', title: `${hours ? 'CREW OUT OF HOURS' : 'CREW SHORTAGE'}: ${f.no} in ${h} h`,
+        tone: 'bad', cat: 'crew', topic: hours ? 'crewHours' : 'crewRed', title: `${hours ? 'CREW OUT OF HOURS' : 'CREW SHORTAGE'}: ${f.no} in ${h} h`, checked: v.evidence,
         body: `${hours ? `${card.what}. ` : ''}${lateChangeNote(g, f)}${card.why} ${hurtProse(card)}.${also.length ? ` Also ${also.slice(0, 3).join(', ')} on the same aircraft.` : ''}`,
         ref: card.subject.ref, problem: card.subject, hurt: { money: card.hurt.money, pax: card.hurt.pax, delayMin: card.hurt.delayMin, level: card.hurt.level },
       });
@@ -620,7 +656,8 @@ export function reachFor(g: GameState, p: Pairing, d: Duty, c: CrewMember, depar
   const segs = segsOf(g, c, p.id);
   const from = locAt(c, segs, d.report);
   const ready = Math.max(g.now, readyAt(c, segs, d.report, g.now));
-  const first = Math.ceil((ready + BAL.deadheadCheckIn) / 60) * 60;
+  // Rotations round: the first departure of the route's timetable they can check in for (not the next whole hour).
+  const first = snapDeparture(from, dep, Math.ceil((ready + BAL.deadheadCheckIn) / 60) * 60);
   const arr = first + dhBlock(from, dep);
   const legs = from === dep ? [] : itinerary(from, dep, first, arr).map((l) => ({ no: l.no, airline: l.airline, from: l.from, to: l.to, dep: l.dep, arr: l.arr }));
   // Crew round (Nov 2026): on a duty that has reported, the fresh crew's own report for the held departure (the bar

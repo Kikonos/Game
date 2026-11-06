@@ -104,7 +104,7 @@ function Decisions({ g }: { g: GameState }) {
 /** The unfolded card under a message: the live problem, or 'dealt with' with the words from when it was posted. */
 function Explain({ g, m }: { g: GameState; m: Message }) {
   const card = (m.problem ? problemFor(g, m.problem) : null) ?? (m.ref && !m.problem ? problemAt(g, m.ref) : null);
-  if (card) return <ProblemCardView card={card} g={g} />;
+  if (card) return <>{<ProblemCardView card={card} g={g} />}<CheckedLines m={m} /></>;
   // An offer that has gone was never a problem: no 'dealt with'.
   if (isOpportunity(m)) return <div className="pc dealt"><div className="row gap-8"><Dot tone="off" /><b>This offer has gone</b></div><div className="small muted">The client placed the work elsewhere. New offers land on the Contracts market.</div></div>;
   return (
@@ -112,6 +112,17 @@ function Explain({ g, m }: { g: GameState; m: Message }) {
       <div className="row gap-8"><Dot tone="good" /><b>This has been dealt with</b></div>
       <div className="small muted">{m.body}</div>
       {m.hurt && <div className="row gap-8 small dim">At the time: <HurtBadges badges={hurtBadges(m.hurt)} level={m.hurt.level} /></div>}
+    </div>
+  );
+}
+
+/** Alarm self-check: the evidence a crew alarm was checked with before it chimed (who, which limit, value vs limit, when). */
+function CheckedLines({ m }: { m: Message }) {
+  if (!m.checked?.length) return null;
+  return (
+    <div className="sc-checked-box small">
+      <b className="good">Checked ✓</b>
+      <ul>{m.checked.map((l, i) => <li key={i} className="muted">{l}</li>)}</ul>
     </div>
   );
 }
@@ -244,7 +255,7 @@ export function InboxScreen() {
                     <span className="grow col gap-4" style={{ minWidth: 0 }}>
                       {/* v0.12.1 title on its own line, badges and the date below it (iPad tiles showed 'C.'). */}
                       <b className="sc-tile-title">{m.title}</b>
-                      <span className="row gap-8 wrap"><MsgBadges m={m} /><span className="tiny dim nowrap">{fmtDateTime(m.t)}</span></span>
+                      <span className="row gap-8 wrap"><MsgBadges m={m} />{m.checked && <span className="sc-checked tiny good nowrap" title={m.checked.join('\n')}>Checked ✓</span>}<span className="tiny dim nowrap">{fmtDateTime(m.t)}</span></span>
                       <span className="small muted sc-clamp">{m.body}</span>
                     </span>
                     {m.ref && <ChevronRight className="sc-ico-s dim" />}

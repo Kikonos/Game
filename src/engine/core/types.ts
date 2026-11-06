@@ -874,6 +874,8 @@ export interface Flight {
   purpose?: 'delivery' | 'return' | 'refit' | /** v0.7.2 */ 'check' | 'sale' | /** v0.8 dry lease ferries */ 'lease';
   /** v0.7.1 crew-shortage ladder stage reached (amber ≤ 48 h, red ≤ 12 h); load: crewWarned → 'amber'. */
   crewAlert?: 'amber' | 'red';
+  /** Alarm self-check: the evidence the last confirmed crew alarm on this flight was checked with ("Checked ✓"). */
+  crewChecked?: string[];
   /** Crew-planning round: the early heads-up (beyond the 48 h amber stage) was given for this leg's trip; once. */
   crewEarly?: true;
   /**
@@ -885,6 +887,8 @@ export interface Flight {
   born?: Minute;
   /** v0.7.1 a chartered business jet carrying our crew (kind 'deadhead'). */
   charter?: { cls: JetClass; model: string; operator: string; reg: string };
+  /** Rotations round (v0.16.4): why this crew ticket was bought: a tour change, an early trip home and its reason, a replacement. */
+  why?: string;
   /** v0.8 held by a closed airport (world event id). */
   closedBy?: string;
   /** v0.8 rerouted around a closed zone: extra minutes (set once). */
@@ -933,6 +937,8 @@ export type ProblemKind =
   /** v0.9 round 4 (§S): cash below zero, the day it happens. */
   | 'cashNegative'
   | 'deliveryWait' | 'ferryUncrewed' | 'refit' | 'leaseReturn'
+  /** v0.16.4 an aircraft parked away from base with nothing planned and no way home found. */
+  | 'awayIdle'
   /** v0.11 a market offer we may not ferry home (ETOPS): told before signing, never posted. */
   | 'noFerry'
   /** v0.7.2 */
@@ -1035,6 +1041,8 @@ export interface CrewMember {
   discretion: number;
   /** Total flying hours (seniority; command upgrades). */
   totalHours: number;
+  /** Rotations round: why this crew member leaves a trip or tour early (sendHome writes it on the ticket home, then clears it). */
+  homeWhy?: { why: string; at: Minute };
   /** B2: unavailable windows (sick, leave, training, joining); pruned once past. */
   blocks?: { from: Minute; to: Minute; why: 'sick' | 'leave' | 'training' | 'joining'; /** v0.9 planned annual leave. */ annual?: true; /** v0.16.3 unpaid leave (furlough): no salary over the block. */ furlough?: true }[];
   /** B2: calendar year that blockYear counts. */
@@ -1096,6 +1104,8 @@ export interface CrewSlot {
   ooh?: { crewId: string; limit: OohLimit; over: number; at: Minute };
   /** v0.9 round 4 (§Y.1): a replacement who joined after the duty reported: their own report (a fresh day). Cleared with the seat. */
   from?: Minute;
+  /** Rotations round: who left this seat and why (the replacement's ticket says whom they replace). Cleared on refill. */
+  left?: { crewId: string; why: string; at: Minute };
   /** v0.12.1 a day-off buy-back planned for this seat, not yet paid: the pay, the base-local month, the days bought and the days given back. */
   buyBack?: {
     cost: number; month: string; days: number[]; repay: number[];
@@ -1340,6 +1350,30 @@ export interface Message {
   /** v0.7.1 the problem this message is about, and its severity when posted (a snapshot for the badge once the problem is gone). */
   problem?: ProblemRef;
   hurt?: { money: number; pax: number; delayMin: number; level: 'none' | 'low' | 'high' };
+  /** Alarm self-check: the alarm was re-checked on its own before it chimed; the evidence (who, which limit, value vs limit, when). */
+  checked?: string[];
+}
+
+/** Alarm self-check: one alarm the check withheld (it disagreed): kept for the dev panel and filed into Bug reports. */
+export interface SelfCheckRecord {
+  t: Minute;
+  kind: 'short' | 'hours' | 'early' | 'takenOff' | 'rest';
+  flightId: string;
+  no: string;
+  /** The alarm's title as it would have read. */
+  title: string;
+  /** Why it was withheld. */
+  why: string;
+  evidence: string[];
+}
+
+export interface SelfCheckState {
+  confirmed: number;
+  withheld: number;
+  /** The last 20 withheld, newest first. */
+  log: SelfCheckRecord[];
+  /** Withheld ones still to be filed into Bug reports by the UI (takeSelfCheckRecords). */
+  pending: SelfCheckRecord[];
 }
 
 export interface DecisionOption {
@@ -1584,6 +1618,10 @@ export interface Stats {
   gateStopped?: number;
   /** v0.8 fix pack: offers' and contracts' `requirements.body` means the client asks for one (older saves: stripped once on load). */
   bodyAsked?: boolean;
+  /** v0.16.4 open narrowbody wet asks (an A320-size base, cover, capacity lease, sub-charter) given body 'narrow' once on load. */
+  narrowAsked?: boolean;
+  /** v0.16.4 aircraft told stuck away from base (awayIdle card), with when that stay began (told once a stay). */
+  awayTold?: Record<string, Minute>;
   /** Peak-staffing round: busy-month gaps already told in the Inbox ('<month key>|<family>|<role>'; past months pruned). */
   peakWarned?: string[];
   /** Lifetime billable block minutes and revenue legs. */
@@ -1888,6 +1926,8 @@ export interface GameState {
    * older save (one waiting on a decision resumes at 1× once it is answered).
    */
   autoHold?: { speed?: number; manual?: boolean; items: { reason: string; keys: string[] }[] } | null;
+  /** Alarm self-check (crew/selfCheck.ts): crew alarms confirmed and withheld, the withheld ones' records. */
+  selfCheck?: SelfCheckState;
 }
 
 /** v0.12 Scenarios mode: what the daily scan counts from the scenario's start (engine/scenario/index.ts). */

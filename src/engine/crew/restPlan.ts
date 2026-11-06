@@ -668,6 +668,24 @@ export function restPlanForFlight(g: GameState, flightId: string): RestPlan | nu
   return restPlan(g, f.dutyId) ?? slipShort(g, f.dutyId)?.plan ?? null;
 }
 
+/**
+ * Crew bug round (BLU2003 AMS–MBJ): when a rest plan spans more than one leg, one plain line saying why: the same crew
+ * flies every leg of the duty (an empty leg first counts in their day), and on which legs they rest. Null for one leg. Pure.
+ */
+export function restLegsNote(g: GameState, plan: RestPlan, dutyId?: string): string | null {
+  if (plan.cruise.length < 2) return null;
+  const d = dutyId ? g.duties[dutyId] : undefined;
+  const legs = plan.cruise.map((c) => g.flights[c.flightId]).filter((f): f is Flight => !!f);
+  if (legs.length < 2) return null;
+  const word = (f: Flight) => `${f.no} ${f.from}–${f.to}${f.kind === 'positioning' || f.kind === 'ferry' ? ' (empty)' : ''}`;
+  const on = new Set([...plan.pilots, ...plan.cabin].map((t) => t.flightId));
+  const restOn = legs.filter((f) => on.has(f.id));
+  const day = d ? ` ${hm(d.fdp)}` : '';
+  const head = `One duty for the same crew: ${legs.map(word).join(', then ')}. Every leg counts in their${day} day`;
+  if (!plan.ok || !restOn.length) return `${head}.`;
+  return `${head}; they rest on ${restOn.map((f) => f.no).join(' and ')}${restOn.length < legs.length ? ' only' : ''}.`;
+}
+
 /** v0.7.3 crew resting on an aircraft at t (map panel): names, where and until when. Pure. */
 export function restNow(g: GameState, aircraftId: string, t: Minute): { names: string[]; where: RestKind; until: Minute }[] {
   const ac = g.fleet[aircraftId];

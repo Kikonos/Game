@@ -16,6 +16,35 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.16.4',
+    name: 'Rotations',
+    features: [
+      'Crew rotations work like a real ACMI tour: a set stays on station for the whole rotation (4 to 6 weeks, Company › Policies) with its days off at the hotel, and goes home early only when a legal limit leaves no answer on station. A first tour is never cut short, and a set whose deployment ends within a week stays to the end. Someone over a limit for a day or two keeps the tour: another set on station or a trip covers those days. A leg short of rest by a few minutes waits for its crew. Annual leave is planned around the whole rotation.',
+      'Crew › People shows the sets on station ("Set 2 at Hamburg: 23 of 35 days · home 7 Jun") and who went home early and why. The Inbox says so when it happens ("Castro goes home early: Rest 11:54 < 12:06").',
+      'Airline tickets follow a timetable: each route has named flights at fixed times, crew are booked onto them, and one trip\'s crew on the same departure share one booking. A flight already full is named on the booking ("TP 1478 10:00 full: booked on the next departure"). The same flight no longer shows twice on the map.',
+      'Crew alarms check themselves before they ring: the duty is re-measured from the flights as they are now, each named person is judged against the rules, and the roster\'s own fix is tried first. Only a confirmed problem chimes, pauses and shows its card, marked "Checked ✓" with the evidence: who, which limit, the value against the limit, and when. If the check disagrees, nothing rings: the case goes quietly into Menu › Bug reports with a snapshot, for you to export.',
+    ],
+    improvements: [
+      'A ticket that only needs to move is re-timed, not thrown away and bought again; a ticket that still works is kept.',
+      'A tour\'s ticket home is booked for after its last duty, so a set on a thin programme no longer flies home mid-rotation and gets replaced the next day.',
+      'Every crew ticket says why it was bought: the tour change, why someone goes home early, or whom a replacement replaces.',
+      'Tickets in an older save that left at odd minutes move onto the timetable where the crew still connect; flown tickets stay as they were.',
+    ],
+    fixes: [
+      'A crew member on a tour was flown home when the tour grew past their ticket home ("Ticket HAM–LIS clashes with the trip"). The ticket is moved instead.',
+      'A deployment\'s return leg months ahead no longer fails every set with "no 36 h recovery in 168 h" and flies as a trip from base.',
+      'Sets on early waves now work their days in a row (at most four) and rest together, so 6 on / 2 off holds inside a tour and the sizing no longer asks for twice the sets.',
+      'After a crew change was undone, a ticket could drop out of the plan until reload, leaving crew on standby at a station they had already left. Fixed.',
+      'An offer for an A320-size aircraft (Luxair\'s season base, cover for a grounded jet, a capacity lease) no longer lets you pick a widebody. Types the client did not ask for are left off the list, with one line saying why.',
+      'An offer fitted to an idle aircraft is for an aircraft of that size: no more "Follow-on: CS-TTL is free" on a narrowbody job.',
+      'A positioning flight is no longer joined to the work on station when that makes a four-pilot day (HX6001 SHA–HKG carried two extra pilots on every 2-hour day). The positioning flies with its own two pilots.',
+      'Standby is part of the job: long standby runs no longer lower morale or cause resignations, and morale lost to them comes back. A resignation names the person and the real reason ("Alba resigned on 10 Jun: salaries paid late. Last day 9 Jul.").',
+      'The in-flight rest plan of a two-leg day says it is one duty for the same crew, that every leg counts in their day, and on which leg they rest (BLU2011 CMN–AMS empty, then BLU2003 AMS–MBJ). The leg without rest is shaded on the timeline.',
+      'After a job far from base, the aircraft comes home straight away with a crew flown out for it (CS-TQM sat 24 days at Hong Kong). If no way home fits its range and ETOPS limit, a card says so and what the parking costs.',
+      'A crew member moved onto a tour is no longer blocked by a finished part of another set\'s tour at the same station, which raised a false CREW SHORTAGE.',
+    ],
+  },
+  {
     version: 'v0.16.3',
     name: 'Ways out of debt',
     features: [

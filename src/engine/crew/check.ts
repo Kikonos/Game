@@ -8,7 +8,8 @@ import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } f
 import { dayFloorIssue, eveFloorIssue, monthFloorIssue, offIssue, offMovable } from './dayPlan';
 import { evalSegs, EXT_REST, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { flightsRev } from '../core/entities';
-import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outTicket, planHome, planHomeAfter, planOut, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
+import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outMerges, outTicket, planHome, planHomeAfter, planOut, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
+import { sameTour, tourHomePlan, tourSpan } from './tours';
 
 export interface CrewPlan {
   level: Legality;
@@ -219,7 +220,7 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
       if (back.length && nextFrom(stay, last.release) === last.restAt) {
         base = stay;
         dropped.push(...back);
-      } else home = planHome(last, c.base, cabinEarly(g, p));
+      } else home = p.tour ? tourHomePlan(g, p, last, c.base, cabinEarly(g, p)) : planHome(last, c.base, cabinEarly(g, p) + outExtra(out, duties));
     }
   }
   let segs = buildSegs(g, c, p, duties, out, home);
@@ -340,6 +341,17 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
 }
 
 /**
+ * Rotations round: on a one-duty trip whose ticket out joins the duty's day (it lands too close to the report to rest),
+ * the day runs from the ticket's check-in: the rest the ticket home waits for is measured from there (planHome's
+ * `early`). Before, the ticket home left 11:30 after a 12:30 day and the whole plan read illegal. Pure.
+ */
+function outExtra(out: TicketPlan | null, duties: Duty[]): number {
+  if (!out || duties.length !== 1 || out.rideId) return 0;
+  const first = duties[0];
+  return outMerges(out, first.report) ? Math.max(0, first.report - (out.std - BAL.deadheadCheckIn)) : 0;
+}
+
+/**
  * v0.9.1: c's stand-alone ticket (no duty holds it) out of the last duty's rest airport, the first work after that
  * duty's release and before the next report there: the trip's ticket home in all but name.
  */
@@ -444,11 +456,27 @@ function nextFrom(segs: Seg[], t: Minute): string {
  */
 export function otherTrip(g: GameState, c: CrewMember, p: Pairing, from: Minute, to: Minute, existing: boolean, leaving?: string): Pairing | null {
   for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
-    if (q.id === p.id || q.id === leaving || q.status === 'done' || q.status === 'broken') continue;
+    if (q.id === p.id || q.id === leaving || q.status === 'broken') continue;
+    // Rotations round: parts of one set's tour are one commitment (a crew member re-seated on a later part of their own tour).
+    if (sameTour(p, q)) continue;
     // Re-checking a held seat: only the earlier pairing wins (the later one is flagged and re-rostered).
     if (existing && (q.start > p.start || (q.start === p.start && q.id > p.id))) continue;
     const open = openDuties(g, q);
-    if (!open.length) continue;
+    // Rotations round: a deployment tour holds its crew at the station for its whole rotation period (its duties roll in
+    // 28 days ahead; before, a set in the last week of its known work looked free, flew trips from base and was sent
+    // home, and replacements were flown out when the tour grew). While they are there, or on their way.
+    const span = tourSpan(g, q);
+    const dep = span && q.deploymentId ? g.deployments[q.deploymentId] : undefined;
+    // Crew bug round (the alarm self-check, s0501 AT1002): a finished part of another set's tour at the same station no
+    // longer holds a crew member the roster has moved onto this set's tour there ("On another tour until 29 Apr" on 1 May).
+    const moved = q.status === 'done' && !open.length && !!p.deploymentId && p.deploymentId === q.deploymentId;
+    if (span && dep && span.to > g.now && (c.loc === dep.base || open.length) && !moved) {
+      const qs = Math.min(span.from, open[0]?.report ?? Infinity, q.start);
+      const qe = Math.max(span.to, open[open.length - 1]?.release ?? -Infinity);
+      if (qs < to && qe > from) return q;
+      continue;
+    }
+    if (q.status === 'done' || !open.length) continue;
     // A tour under way holds its crew at the station between duties too (a side trip would leave them elsewhere).
     const qs = q.tour ? Math.min(open[0].report, q.start) : open[0].report;
     const qe = open[open.length - 1].release;

@@ -10,6 +10,7 @@ import { crewAlertKind, LIMIT_NAME, outOfHours, roleWord, type OohInfo } from '.
 import { crewPeakCard, peakForecast, peakGroups, peakId } from '../crew/forecast';
 import { dutyCandidates } from '../crew/rosterActions';
 import { crewName } from '../crew/generate';
+import { leaveWhy } from '../crew/morale';
 import { dutyLegality } from '../crew/rosterActions';
 import { flightCrewStatus, rosterOf } from '../crew/roster';
 import { restSeatsBlocked } from '../crew/crewRest';
@@ -29,6 +30,8 @@ export function crewFlightCard(g: GameState, flightId: string, kind: ProblemRef[
     // v0.9 round 4 (§T): a named crew member at a legal limit gets the out-of-hours card on every surface.
     const card = (crewAlertKind(g, flightId) === 'hours' ? crewHoursCard(g, flightId) : null) ?? crewShortCard(g, flightId);
     if (card && card.subject.kind !== 'crewHours' && kind !== 'crewShort' && kind !== 'crewIllegal') card.subject = { kind, ref: card.subject.ref };
+    // Alarm self-check: the alarm on this flight was confirmed with this evidence.
+    if (card && f.crewAlert && f.crewChecked?.length) card.checked = f.crewChecked;
     return card;
   }
   if (cs.level !== 'tight' || kind === 'crewShort' || kind === 'crewIllegal') return null;
@@ -76,8 +79,9 @@ export function crewResignedCard(g: GameState, crewId: string): ProblemCard | nu
   return {
     subject: { kind: 'crewResigned', ref: { kind: 'crew', id: c.id } }, severity: 'amber',
     title: `${crewName(c)} leaves in ${days} day${days === 1 ? '' : 's'}`, what: `${crewName(c)} leaves in ${days} day${days === 1 ? '' : 's'}`,
-    why: `They resigned on ${fmtDay(c.notice.given)}; from ${fmtDay(leaves)} their trips need someone else.`,
-    hurt: mkHurt({ extra: 'one fewer crew member' }),
+    // Crew bug round: the person by name and the reason in plain words (it read 'They resigned on …').
+    why: `${c.first} resigned on ${fmtDay(c.notice.given)}${leaveWhy(c) ? `: ${leaveWhy(c)}` : ''}. Last day ${fmtDay(leaves - 1)}.`,
+    hurt: mkHurt({ extra: `one ${roleWord(c.role)} fewer; the roster re-crews ${c.first}'s later trips` }),
     actions: [{ id: 'hire', label: 'Hire', open: { modal: 'hire', id: c.role }, primary: true }, { id: 'crew', label: 'Crew', open: { tab: 'crew', sel: { kind: 'crew', id: c.id } } }],
     details: [`Morale ${Math.round(c.morale)}`], visuals: {}, terms: [], by: leaves,
   };

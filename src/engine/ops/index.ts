@@ -105,7 +105,7 @@ export {
 export { achievementProgress, achievementsView, checkAchievements, grantAchievement, type AchievementView } from './achievements';
 // v0.7.1 every problem as one card (engine/problems).
 export { hurtBadges, messageBadges, postProblem, problemAt, problemFor, problems, type GaugeSpec, type Hurt, type MiniMapSpec, type ProblemAction, type ProblemCard, type ReachSpec, type TimelineSpec } from '../problems';
-import { postRestProblems } from '../problems';
+import { postAwayIdle, postRestProblems } from '../problems';
 export { FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, FLIGHT_TYPES, flightCrewAboard, flightType, type FlightType } from './flightType';
 export {
   commercialFlightsAirborne, commercialFlightsBetween, commercialItinerary, commercialProgress, CONNECT_MIN, itinerary, itineraryText, ticketBlock,
@@ -148,6 +148,8 @@ function daily(g: GameState) {
   dailyHeads(g);
   // v0.7.3 in-flight rest cards (rest too short, a 4th pilot for seats, extra cabin crew) inside the roster horizon.
   postRestProblems(g);
+  // v0.16.4 an aircraft stuck away from base with nothing planned (no way home found): told once a stay.
+  postAwayIdle(g);
 }
 
 export const opsModule: SimModule = {

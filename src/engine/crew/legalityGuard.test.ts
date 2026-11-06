@@ -77,18 +77,22 @@ describe('crew legality: a later duty\'s problem', () => {
     expect(dutyCrew(g, late.id)!.slots[0].level).toBe('illegal');
   });
 
-  it('splits the trip at the problem duty as soon as the daily re-check sees it: the crew keep the earlier duties', () => {
+  it('takes the problem duty off the crew member as soon as the daily re-check sees it: the crew keep the earlier duties (Rotations round: on a tour the duty goes to another set or a trip, the crew keep the rest of the tour)', () => {
     const { g, p, duties } = rostered();
     const { early, late, crewId } = laterRecoveryProblem(g, p, duties);
     const c = g.crew[crewId];
+    const legs = [...late.flightIds];
     recheckSoon(g);
     expect(g.pairings[early.pairingId].slots.some((s) => s.crewId === c.id)).toBe(true);
-    const q = g.pairings[g.duties[late.id].pairingId];
-    expect(q.id).not.toBe(early.pairingId);
+    // The problem duty's legs belong to a duty whose trip does not seat c, and nobody on it is illegal.
+    const d2 = g.duties[g.flights[legs[0]].dutyId!];
+    expect(d2).toBeTruthy();
+    expect(d2.pairingId).not.toBe(early.pairingId);
+    const q = g.pairings[d2.pairingId];
     expect(q.slots.some((s) => s.crewId === c.id)).toBe(false);
-    expect(crewIssuesFor(g, g.duties[late.id])).toEqual([]);
+    expect(crewIssuesFor(g, d2)).toEqual([]);
     expect(levels(g, early).some((l) => l === 'illegal')).toBe(false);
-    expect(levels(g, g.duties[late.id]).some((l) => l === 'illegal')).toBe(false);
+    expect(levels(g, d2).some((l) => l === 'illegal')).toBe(false);
   });
 
   it('counts disruptive duties for the 60 h recovery only since the last recovery', () => {
@@ -247,8 +251,8 @@ describe('crew legality: the days-off floor on rostered work (v0.9 round 4 fix r
     const D0 = dayIndex(c.base, g.now);
     const duties = openDuties(g, p);
     const dayOf = (d: Duty) => dayIndex(c.base, d.report) - D0;
-    // The set flies every other day (the eve of each duty is free of other work).
-    expect(duties.slice(0, 3).map(dayOf)).toEqual([2, 4, 6]);
+    // (Rotations round: the set flies its days in a row; the eve of a duty inside the block is a worked day, the floor
+    // reads free eves only.)
     // No days off planned and training from the 20th: March can reach 3 free days, its floor is 5.
     c.off = [];
     c.blocks = [{ from: midnight(c.base, D0 + 20), to: midnight(c.base, D0 + 46), why: 'training' }];
@@ -258,26 +262,33 @@ describe('crew legality: the days-off floor on rostered work (v0.9 round 4 fix r
     const mk = (d: Duty) => Math.floor(dayIndex(c.base, d.report) / 1) >= 0 && monthKey(d.report);
     const first = duties[0];
     const inMonth = duties.filter((d) => d !== first && dayOf(d) > 0 && dayOf(d) < 20 && mk(d) === mk(duties[1]));
-    const dK = inMonth[inMonth.length - 1];
-    expect(dayOf(dK)).toBeGreaterThan(dayOf(duties[1]));
-    expect(eveFloorIssue(g, c, duties, segsOf(g, c))).toEqual({ code: 'daysOff', level: 'illegal', text: 'Days off in March would fall to 3 (minimum 5)', dutyId: dK.id });
+    expect(inMonth.length).toBeGreaterThan(0);
+    const issue = eveFloorIssue(g, c, duties, segsOf(g, c))!;
+    expect(issue).toMatchObject({ code: 'daysOff', level: 'illegal', text: expect.stringMatching(/^Days off in March would fall to [1-4] \(minimum 5\)$/) });
+    // (Rotations round: the set works its days in a row, so which early duty has a free eve depends on the pattern.)
+    const dK = duties.find((d) => d.id === issue.dutyId)!;
+    expect(dK).toBeTruthy();
+    expect(dK).not.toBe(first);
     expect(recheckPairing(g, p).level).toBe('illegal');
     expect(p.illegalFrom).toBe(dK.report);
+    const legsK = [...dK.flightIds];
     recheckSoon(g);
-    const q = g.pairings[g.duties[dK.id].pairingId];
-    expect(q.dutyIds).toEqual([dK.id]);
+    // Rotations round: the duty leaves the crew member's tour (to another set on station, or a trip of its own); the
+    // crew keep the rest of the tour.
+    const d2 = g.duties[g.flights[legsK[0]].dutyId!];
+    expect(d2).toBeTruthy();
+    const q = g.pairings[d2.pairingId];
     expect(q.slots.some((s) => s.crewId === c.id)).toBe(false);
-    // The seat: another captain free that day (the other set's, off between its alternate days), else it says who and why.
+    // A duty of its own: the seat says who and why when nobody took it.
     const seat = q.slots.find((s) => s.role === 'CPT')!;
-    if (!seat.crewId) expect(seat.ooh).toMatchObject({ crewId: c.id, limit: 'daysOff' });
-    else expect(seat.ooh).toBeUndefined();
+    if (q.dutyIds.length === 1 && !seat.crewId) expect(seat.ooh).toMatchObject({ crewId: c.id, limit: 'daysOff' });
     // The crew keep the rest of the tour: the duties before dK stay theirs (and any after it).
     const before = duties.filter((d) => d.report < dK.report);
     expect(before.length).toBeGreaterThanOrEqual(2);
     for (const d of before) expect(g.pairings[g.duties[d.id].pairingId].slots.some((s) => s.crewId === c.id), `day ${dayOf(d)}`).toBe(true);
     for (const d of duties.filter((d) => d.report > dK.report)) expect(g.pairings[g.duties[d.id].pairingId].slots.some((s) => s.crewId === c.id), `day ${dayOf(d)}`).toBe(true);
     expect(g.pairings[first.pairingId].dutyIds.length).toBeGreaterThan(1);
-    expect(crewIssuesFor(g, g.duties[dK.id])).toEqual([]);
+    expect(crewIssuesFor(g, d2)).toEqual([]);
     // The daily top-up turns the freed eve into the day off (once the planner has reached the month's end, as it has
     // whenever the mark fires: the month's unplanned days count as free until then).
     g.dayPlan!.planned = midnight(c.base, D0 + 31);

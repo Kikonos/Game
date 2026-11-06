@@ -91,11 +91,13 @@ export function openingOffers(g: GameState): void {
   };
   opening = true;
   try {
-    opener(() => generateOffer(g, 'aogCover', { wide: false, window: false, start: g.now + int(g, 8, 20) * 60 }));
+    // v0.16.4 a start with no narrowbody (a widebody scenario) gets widebody openers (a narrowbody ask is now one).
+    const wide = !Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'narrow');
+    opener(() => generateOffer(g, 'aogCover', { wide, window: false, start: g.now + int(g, 8, 20) * 60 }));
     opener(() => generateOffer(g, 'adhoc', { wide: false, window: false, start: g.now + int(g, 3, 5) * DAY + int(g, 0, 12) * 60, variant: 'group' }));
     const y = toDate(g.now).getUTCFullYear();
     const april = fromUTC(y, 4, int(g, 1, 12));
-    opener(() => generateOffer(g, 'seasonBase', { wide: false, window: false, start: april > g.now + 14 * DAY ? april : g.now + 30 * DAY }));
+    opener(() => generateOffer(g, 'seasonBase', { wide, window: false, start: april > g.now + 14 * DAY ? april : g.now + 30 * DAY }));
   } finally {
     opening = false;
   }
@@ -484,8 +486,10 @@ function seasonBase(ctx: Ctx): Draft | null {
   if (families && own) families = own.includes(families[0]) ? families : own.length ? [own[0]] : undefined;
   // v0.7: season bases take the everyday cabins (no VIP); widebodies two- or three-class.
   const layouts: CabinLayout[] = wide ? ['two-class', 'three-class'] : layout ? [layout] : ['all-economy', 'two-class'];
-  // v0.8 fix pack: a widebody base asks for a widebody (the blurb says so; feasibility checks it).
-  const req = { minSeats, layout, layouts, families, extraCabin: 0, approvals: [] as ApprovalId[], ...(wide ? { body: 'wide' as const } : {}) };
+  // v0.8 fix pack: a widebody base asks for a widebody (the blurb says so; feasibility checks it). v0.16.4 (Luxair,
+  // player report) and an A320-size base a narrowbody: the client pays the fuel and plans its slots, stands and loads
+  // for one, so an A330 is not what it asked for (the dialog offered it).
+  const req = { minSeats, layout, layouts, families, extraCabin: 0, approvals: [] as ApprovalId[], body: wide ? 'wide' as const : 'narrow' as const };
   const ref = referenceType(req, dests.flatMap((d) => [[base, d], [d, base]] as [string, string][]), true);
   if (!ref) return null;
   let waves = computeWaves(base, dests, ref, o.waves ?? (wide ? int(g, 1, 2) : int(g, 2, 3)));
@@ -545,7 +549,8 @@ function aogCover(ctx: Ctx): Draft | null {
   const dests = o.dests ?? pickN(g, pool, wide ? int(g, 1, 2) : int(g, 2, 5), (a) => (unloved ? 6 - a.size : a.size) + a.tour * 2).map((a) => a.code);
   if (!dests.length) return null;
   const minSeats = wide ? 250 : pick(g, [150, 165, 174]);
-  const req = { minSeats, extraCabin: 0, approvals: [] as ApprovalId[], ...(wide ? { body: 'wide' as const } : {}) };
+  // v0.16.4 cover for a grounded narrowbody is a narrowbody (the client's own slots, crews' loads and fuel bill).
+  const req = { minSeats, extraCabin: 0, approvals: [] as ApprovalId[], body: wide ? 'wide' as const : 'narrow' as const };
   const ref = referenceType(req, dests.flatMap((d) => [[base, d], [d, base]] as [string, string][]), true);
   if (!ref) return null;
   const waves = computeWaves(base, dests, ref, o.waves ?? (wide ? 1 : int(g, 2, 3)));
@@ -1535,13 +1540,17 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
   const wideShare = fleet.length ? fleet.filter((a) => typeOf(a.typeId).body === 'wide').length / fleet.length : 0;
   // At most two ladder jobs on the market at once, so the board stays mostly workable.
   if (mode === 'aspire' && wideShare < 1 && Object.values(g.offers).filter((x) => x.status === 'open' && isWideJob(x.requirements)).length >= 2) mode = 'fleet';
-  const wide = opts.wide ?? (mode === 'aspire' ? wideShare < 1 : chance(g, wideShare));
+  let wide = opts.wide ?? (mode === 'aspire' ? wideShare < 1 : chance(g, wideShare));
   let window: IdleWindow | undefined;
   if (opts.window) window = opts.window;
   else if (opts.window === undefined && mode === 'gap') {
     const ws = idleWindows(g).filter((w) => !archetype || fitsWindow(archetype, w, g.now));
     window = ws.length ? weightedPick(g, ws, (w) => Math.sqrt((w.to - w.from) / DAY)) : undefined;
   }
+  // v0.16.4 a job fitted to an aircraft's idle window is a job for that aircraft's body: Luxair's A320-size base came
+  // with "Follow-on: CS-TTL is free at AMS", CS-TTL an A330 (the draw had picked a narrowbody job for its window).
+  const wac = window && opts.wide === undefined ? g.fleet[window.aircraftId] : undefined;
+  if (wac) wide = typeOf(wac.typeId).body === 'wide';
   const tries: Archetype[] = [];
   if (archetype) tries.push(archetype, archetype, archetype);
   else {

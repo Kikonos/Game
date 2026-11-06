@@ -377,7 +377,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     rep.checks.push({ id: 'layout', level: 'no', label, detail: tip?.text ?? 'No cabin layout of this type meets it.', ...(tip ? { action: { kind: 'refit' as const, layout: tip.layout } } : {}) });
     rep.level = 'no';
   } else add('layout', 'ok', `Cabin ${cab.label}${after}`);
-  if (bodyNo) add('body', 'no', bodyText(req.body!, ac.reg, ac.typeId));
+  // v0.16.4 (Luxair) a narrowbody wet ask says why a widebody will not do.
+  if (bodyNo) add('body', 'no', bodyText(req.body!, ac.reg, ac.typeId), req.body === 'narrow' && wet ? 'They pay the fuel and planned slots, stands and loads for a narrowbody: a widebody is not what they asked for.' : undefined);
   if (req.families?.length && !req.families.includes(t.family)) add('family', 'no', `The client only takes ${req.families.join(' or ')}-family aircraft (crew commonality)`);
   else if (!bodyNo) add('family', 'ok', `${t.name}`);
 
@@ -849,6 +850,9 @@ function tourCheckStop(g: GameState, aircraftId: string, prog: Programme, due: M
 }
 
 /** One report per fleet aircraft, best first (ok before warn before no, then margin). */
+/** v0.16.4 an aircraft of a type the client did not ask for (body or family): not offered on the pickers. Pure. */
+export const typeMisfit = (r: FeasibilityReport): boolean => r.checks.some((c) => c.level === 'no' && (c.id === 'body' || c.id === 'family'));
+
 export function feasibilityAll(g: GameState, offerId: string, opts: { paint?: boolean; cabin?: boolean; crewExtra?: CrewExtra } = {}): FeasibilityReport[] {
   return Object.keys(g.fleet)
     .map((id) => feasibility(g, offerId, id, opts))

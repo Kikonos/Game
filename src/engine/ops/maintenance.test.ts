@@ -230,10 +230,9 @@ describe('auto-planning', () => {
     calm();
     const g = newGame(9);
     const ac = owned(g);
-    const t = g.now + 3 * 60;
-    addFlight(g, { no: 'AWL900', aircraftId: ac.id, contractId: null, kind: 'ferry', from: 'LIS', to: 'FNC', std: t, sta: t + blockMinutes(ac.typeId, 'LIS', 'FNC') });
-    skip(g, t + 6 * 60);
-    expect(ac.at).toBe('FNC');
+    // v0.16.4 parked there directly: flown in with nothing after, the empty-move planner now brings it home at once
+    // (relinkPositioning: an aircraft away with nothing planned goes home), so no check ferry would be needed.
+    ac.at = 'FNC';
     ac.maint.lastA = g.now - (BAL.aCheckDays - 5) * DAY;
     planChecks(g);
     const st = checkStatus(g, ac);

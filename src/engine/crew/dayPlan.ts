@@ -782,9 +782,13 @@ export function planLeave(g: GameState, year: number, crewIds?: string[]): numbe
     const busy = busyDays(c, segs, first, y1);
     // Round 5: a deployment tour keeps its crew at the station from its first duty to its last, so leave never lands
     // between two of its duties (the daily re-check would split the tour and re-crew its later part).
+    // Rotations round: the whole rotation period (the duties known are not the last), so leave never starts inside a tour.
     for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
-      if (!q.tour || q.status === 'done' || q.status === 'broken') continue;
-      for (let k = Math.max(first, dayIndex(c.base, q.start)); k <= Math.min(y1 - 1, dayIndex(c.base, q.end - 1)); k++) busy.work.add(k);
+      if (!q.tour || q.status === 'broken') continue;
+      const dep = q.deploymentId ? g.deployments[q.deploymentId] : undefined;
+      const to = Math.max(q.end, Math.min(q.tour.to, dep?.end ?? q.tour.to));
+      if (to <= g.now) continue;
+      for (let k = Math.max(first, dayIndex(c.base, Math.min(q.start, q.tour.from))); k <= Math.min(y1 - 1, dayIndex(c.base, to - 1)); k++) busy.work.add(k);
     }
     const caps = groupsOf(c).map((key) => ({ arr: loadOf(key), cap: Math.max(1, Math.ceil(L.maxShare * (size.get(key) ?? 1))) }));
     const rep = c.ratings.map((f) => reports.get(f));

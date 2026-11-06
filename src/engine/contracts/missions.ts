@@ -539,7 +539,8 @@ function subcharterIn(ctx: Ctx): Draft | null {
       ? `${rival.name} has ${wide ? 'a widebody' : 'an aircraft'} AOG and needs cover for ${end.name}: ${[base, ...dests].join('–')} for ${days} days from ${fmtDay(start)}, ${end.name} flight numbers, 'operated by' notices. ${rival.name} pays us; the passengers never learn our name.`
       : `${rival.name} is full and passes on ${days} days of ${end.name} flying from ${city(base)} (${listCities(dests)}) from ${fmtDay(start)}. ${rival.name} pays us at a fair rate; ${end.name}'s flight numbers.`,
     pattern: { kind: 'base', base, dests, from: start, to: start + days * DAY, targetBH: Math.round(mghPerMonth * 1.08), waves, prefix: clientPrefix(end.name), maintEvery: 7 },
-    req: { minSeats: wide ? 250 : 150, extraCabin: 0, approvals: [], ...(wide ? { body: 'wide' as const } : {}) },
+    // v0.16.4 the end client's own slots and fuel: a narrowbody job is a narrowbody (never an A330 for an A320's work).
+    req: { minSeats: wide ? 250 : 150, extraCabin: 0, approvals: [], body: wide ? 'wide' as const : 'narrow' as const },
     start, end: start + days * DAY, expiresIn: aog ? Math.min(int(g, 3, 8) * 60, Math.max(60, start - g.now - 90)) : range(g, 2, 4) * DAY,
     wet: true, mult: aog ? range(g, 1.3, 1.6) : range(g, 1.1, 1.2), mghPerMonth,
     effects: { reliable: 1 }, risk: { disruption: 0.3, politics: 0, permit: 0 }, hook: hookFor(ctx), pin: base,

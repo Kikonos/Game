@@ -5,7 +5,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { typeOf } from '../core/perf';
 import { DAY, fmtDay } from '../core/time';
-import type { GameState } from '../core/types';
+import type { GameState, Minute } from '../core/types';
 import { flightsOf } from '../core/entities';
 import { deliveryStatus } from '../ops/delivery';
 import { approvalName } from '../ops/etops';
@@ -13,6 +13,8 @@ import { marketView } from '../ops/market';
 import { saleQuote } from '../ops/sale';
 import { leaseView, returnQuote } from '../ops/leaseReturn';
 import { usd } from '../ops/util';
+import { awayIdle } from '../contracts/schedule';
+import { etopsCap } from '../core/perf';
 import { crewFlightCard } from './crew';
 import { mkHurt, type ProblemCard } from './types';
 import type { TermId } from '../../data/glossary';
@@ -107,11 +109,48 @@ export function leaseReturnCard(g: GameState, aircraftId: string): ProblemCard |
   };
 }
 
+/**
+ * v0.16.4 (CS-TQM, player report) an aircraft parked away from base with nothing planned and no way home the planner
+ * could find (the planner otherwise brings it home or to its next job at once): WHAT, WHY, the parking it costs, and
+ * the ways out (its schedule, work from there, a sale). Pure.
+ */
+/** v0.16.4 when the aircraft's stay away began (the card's subject is told once per stay). */
+export const awayIdleSince = (g: GameState, aircraftId: string): Minute => awayIdle(g, aircraftId)?.since ?? -1;
+
+export function awayIdleCard(g: GameState, aircraftId: string): ProblemCard | null {
+  const ac = g.fleet[aircraftId];
+  const v = ac ? awayIdle(g, ac.id) : null;
+  if (!ac || !v) return null;
+  const t = typeOf(ac.typeId);
+  const days = Math.max(1, Math.ceil((g.now - v.since) / DAY));
+  const park = BAL.delivery.parkPerDay[t.body === 'wide' ? 1 : 0];
+  const cap = etopsCap(g.company.approvals, ac.typeId);
+  const where = v.to === g.company.homeBase ? 'home' : `to ${city(v.to)} for its next job`;
+  const why = v.why === 'route'
+    ? `No way ${where} fits the ${t.short}'s range and our ETOPS limit (${cap === Infinity ? 'none' : `${cap} minutes`}), so nothing is planned.`
+    : v.why === 'closed' ? `Every way ${where} lands in a closed airport or airspace, so nothing is planned until it reopens.`
+    : `Nothing is planned to take it ${where}.`;
+  return {
+    subject: { kind: 'awayIdle', ref: { kind: 'aircraft', id: ac.id } }, severity: days >= 7 ? 'red' : 'amber',
+    title: `${ac.reg} is stuck at ${city(ac.at)}`, what: `${ac.reg} is stuck at ${city(ac.at)} with nothing planned`,
+    why,
+    hurt: mkHurt({ money: park * days, what: 'parking so far', extra: `${days} day${days > 1 ? 's' : ''} at ${ac.at}` }),
+    actions: [
+      { id: 'schedule', label: 'Open Schedule', open: { tab: 'schedule', sel: { kind: 'aircraft', id: ac.id } }, primary: true },
+      { id: 'findWork', label: 'Find work from there', open: { tab: 'contracts' } },
+      { id: 'fleet', label: 'Fleet', open: { tab: 'fleet', sel: { kind: 'aircraft', id: ac.id } } },
+    ],
+    details: [`On the ground at ${ac.at} since ${fmtDay(v.since)}; parking ${usd(park)} a day.`], visuals: {}, terms: ['ferry'],
+  };
+}
+
 export function fleetProblems(g: GameState): ProblemCard[] {
   const out: ProblemCard[] = [];
   for (const ac of Object.values(g.fleet)) {
     const d = deliveryWaitCard(g, ac.id);
     if (d) out.push(d);
+    const w = awayIdleCard(g, ac.id);
+    if (w) out.push(w);
     const l = leaseReturnCard(g, ac.id);
     if (l) out.push(l);
     // v0.7.2 an agreed sale stays on the list until the handover.

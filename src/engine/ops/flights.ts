@@ -26,6 +26,7 @@ import { dutyLegality } from '../crew/duties';
 import { cue } from '../core/cues';
 import { markTech, noteDispatch } from '../core/techLog';
 import { v09Stats } from '../crew/dayPlan';
+import { confirmAlarm } from '../crew/selfCheck';
 import { requestPause } from '../core/pause';
 import { problemFor } from '../problems';
 import { hurtProse } from '../problems/types';
@@ -1312,13 +1313,16 @@ function restOutOfHours(g: GameState, f: Flight, d: Duty): void {
   for (const s of p.slots) if (s.crewId && (s.role === 'PUR' || s.role === 'CC')) s.ooh = { crewId: s.crewId, limit: 'inflightRest', over: 0, at: g.now };
   if (f.crewAlert === 'red') return;
   f.crewAlert = 'red';
+  // Alarm self-check: the rest plan read again on its own before the alarm and the pause.
+  const v = confirmAlarm(g, 'rest', f, `CREW OUT OF HOURS: ${f.no} at the gate`);
+  if (!v.confirmed) return;
   const v9 = (g.stats.v09 ??= { legalStreak: 0, cover: {}, slips: 0, oohRed: 0, oohAmber: 0, discretionUsed: 0, discretionRefused: 0, headHandled: 0, headMistakes: 0, jumboLoads: 0, lateGovPaid: 0, cOnTime: 0 });
   v9.oohRed++;
   const card = problemFor(g, { kind: 'crewHours', ref: { kind: 'flight', id: f.id } });
   pushMessage(g, {
     tone: 'bad', cat: 'crew', topic: 'crewHours', title: `CREW OUT OF HOURS: ${f.no} at the gate`,
     body: card ? `${card.what}. ${card.why} ${hurtProse(card)}.` : 'After the delay the in-flight rest plan no longer works: the cabin crew cannot all rest in this cruise.',
-    ref: { kind: 'flight', id: f.id }, problem: { kind: 'crewHours', ref: { kind: 'flight', id: f.id } },
+    ref: { kind: 'flight', id: f.id }, problem: { kind: 'crewHours', ref: { kind: 'flight', id: f.id } }, checked: v.evidence,
     ...(card ? { hurt: { money: card.hurt.money, pax: card.hurt.pax, delayMin: card.hurt.delayMin, level: card.hurt.level } } : {}),
   });
   requestPause('crewHours');

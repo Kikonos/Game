@@ -11,8 +11,8 @@ import { dailyCrewCosts, monthlySalaries } from './costs';
 import { afterDiversion, deletePairing, dutyLegality as dutyLevel, pairingSeats, planAircraft, refreshPairing, syncDuty } from './duties';
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
-import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, setResignHooks } from './morale';
-import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets } from './roster';
+import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, repairStandbyMorale, setResignHooks } from './morale';
+import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
 import { extFdp, localMin, minRest, referenceTime, signedTz, tzDeltaH, tzNights, woclMinutes } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, dropStrandedStandby, v09Stats } from './dayPlan';
@@ -36,6 +36,7 @@ export {
   type FlightCrewStatus, type RosterResult,
 } from './roster';
 export { crewIssuesFor } from './check';
+export { deploymentSets, tourDay, type SetLine } from './tours';
 export {
   assignCrew, dutyCandidates, dutyCrew, dutyLegality, dutyOf, swapCrew, unassignCrew, unlockCrew,
   type DutyCandidate, type DutyCrewView, type DutyLegalityView, type DutyLegalityWarning, type RosterOpts, type RosterSlotView,
@@ -68,7 +69,7 @@ export { crewAway, type CrewAway } from './away';
 export { crewSeatsBlocked, restClassAt, restSeatsBlocked, sellableSeats } from './crewRest';
 // v0.7.3 (UPDATE-0.7.3.md §7).
 export {
-  augLimit, bunksFor, cabinBand, effectiveRest, fittedRest, hasBunks, isSeatRest, longestDay, migrateRest, restOfAc, restWords, seatRest, ySeatsFor, planRest, restNow, restOf, restPlan, restPlanForFlight, restShort, restText, restVerdict, restWhere,
+  augLimit, bunksFor, cabinBand, effectiveRest, fittedRest, hasBunks, isSeatRest, longestDay, migrateRest, restOfAc, restWords, seatRest, ySeatsFor, planRest, restNow, restOf, restPlan, restPlanForFlight, restLegsNote, restShort, restText, restVerdict, restWhere,
   type LongestDay, type RestLeg, type RestPlan, type RestSeat, type RestTurn,
 } from './restPlan';
 export { fdpWhy, setDutyAugment, type FdpWhy } from './explain';
@@ -711,6 +712,8 @@ export const crewModule: SimModule = {
     // v0.12.1 open duties no longer list rides on legs already gone (a relinked positioning leg removed with crew on it).
     for (const d of Object.values(g.duties)) if (!d.done && d.deadheadIds.some((id) => !g.flights[id])) d.deadheadIds = d.deadheadIds.filter((id) => g.flights[id]);
     repairCutStandby(g);
+    // Crew bug round: long standby runs are no longer a morale driver.
+    repairStandbyMorale(g);
     // v0.14 seats, tickets and rides still held by crew who have left (a finished tour that grew again kept them).
     repairGoneCrew(g);
     repairDiverted(g);
@@ -720,6 +723,9 @@ export const crewModule: SimModule = {
     closureTicketsOnLoad(g);
     // v0.12.1 legs a load repair moved or removed (ops: a closure's held legs, orphan out-and-backs): duties follow now.
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
+    // Rotations round (v0.16.4): tickets booked off the timetable by an older build move onto it where the crew still
+    // connect (last: every other repair has read the tickets as they were).
+    retimeToTimetable(g);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);

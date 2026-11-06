@@ -248,8 +248,8 @@ export function farOutstation(g: GameState, at: string): boolean {
   return farBase(g.company.homeBase, at, g.now);
 }
 
-/** v0.14 the wait for an airline's daily flight out (with the crew's notice), added before a far ticket. */
-const TICKET_WAIT = 6 * 60;
+/** v0.14 the wait for an airline's daily flight out (with the crew's notice), added before a far ticket. Rotations round: half a day (tickets leave on the route's timetable, a long thin route once or twice a day). */
+const TICKET_WAIT = 12 * 60;
 
 /**
  * Earliest departure of new empty legs from X. An aircraft idle at an outstation for a while has no crew aboard:
@@ -593,7 +593,11 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     if (!b) {
       // End gap: after a live contract's last leg, go home. v0.12.1 also when the aircraft was stranded (the rest of
       // its job, the legs that would have taken it away, cancelled): one way home, at once (crewFree).
-      const wantHome = (live(g, a.contractId) || (a.kind === 'start' && stranded(g, aircraftId, X))) && X !== home && a.kind !== 'maint';
+      // v0.16.4 (CS-TQM) and whenever it is on the ground away with nothing planned at all: an aircraft away from base
+      // always has a way home (or a card says why not: problems/fleet.ts awayIdleCard). Not one being handed back or
+      // over abroad (a lease return, a sale), nor one waiting at the seller for its delivery ferry.
+      const idle = a.kind === 'start' && ac.status === 'available' && !ac.returning && !ac.sale && !(ac.delivery && !ac.delivery.arrived);
+      const wantHome = (live(g, a.contractId) || (a.kind === 'start' && stranded(g, aircraftId, X)) || idle) && X !== home && a.kind !== 'maint';
       if (legs.length ? chainOk(legs, X, null, earliest) && chainSane(typeId, legs, X, null, home, false, cap, day) : !wantHome) continue;
       const nh = nudged(legs, X, null, earliest, Infinity);
       replacing(legs);
@@ -602,7 +606,16 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
         continue;
       }
       if (wantHome) {
-        const ch = openForward(g, typeId, X, home, crewFree(g, aircraftId, X, earliest), cap, job, day);
+        // v0.16.4 the move home of an aircraft left with nothing planned (no job of its own any more) is flown by a crew
+        // flown out for it, never tacked onto the day of the crew who just landed it (an extended day just landed read
+        // illegal once a leg was added straight after it).
+        let from0 = earliest;
+        if (idle && !live(g, a.contractId) && !stranded(g, aircraftId, X)) {
+          let landed = -Infinity;
+          for (const f of flightsOf(g, aircraftId)) if (f.to === X && f.status === 'done') landed = Math.max(landed, f.ata ?? f.sta);
+          from0 = Math.max(earliest, landed + SAME_CREW_MIN + 5);
+        }
+        const ch = openForward(g, typeId, X, home, crewFree(g, aircraftId, X, from0), cap, job, day);
         if (ch && earliest > base0) pushed.set(ch[0], base0);
         if (ch) add(ch, a.contractId);
       }
@@ -618,7 +631,11 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     const allowHop = a.kind !== 'maint' && b.kind !== 'maint' && !sameBase && !emptyNext && !inHold;
     // v0.14.1 (OPS-5) before a check at home after a long wait away, the aircraft goes home at once (only the out-and-
     // back hop stays barred around checks): CS-TCS sat 13.5 days at Prague, then a lone 01:50 ferry home to its C-check.
-    const homeFirst = b.kind === 'maint' && a.kind !== 'maint' && Y === home && X !== home && !inHold && !emptyNext;
+    // v0.16.4 (CS-TQM, player report) and before any commitment that starts at home, whatever it is: an empty ferry out
+    // of home (a dry lease's delivery) barred the hop, so the move home was planned as late as possible: CS-TQM sat 24
+    // days at Hong Kong after the Hong Kong Airlines cover, its HKG–TAS–BUD–LIS planned for the eve of the ferry to
+    // Abidjan, crewless. Going home is no out-and-back: the empty ferry after it is no reason to wait away.
+    const homeFirst = a.kind !== 'maint' && Y === home && X !== home && !inHold;
     const latest = b.std - turn;
     // v0.14.1 (CS-TTL, player report) an empty move into a job is timed for the crew who fly the job, not only for the
     // aircraft: as late as possible when one crew flies both in a day that needs no more than the job alone; otherwise,
@@ -772,4 +789,26 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     if (hit && g.flights[f.id] && f.status === 'scheduled') farLateHook?.(g, f, hit[1]);
   }
   return created;
+}
+
+/**
+ * v0.16.4 (CS-TQM, player report) an aircraft on the ground away from base with nothing planned at all (no leg, no
+ * check, no job holding it), when relinkPositioning found no way home: 'route' (nothing in its range and our ETOPS
+ * limit gets it home), 'closed' (every way home lands in a closure) or 'none' (no reason found). null: not idle away (at
+ * home, flying, in a check, being delivered, handed back or sold, or something planned). Pure.
+ */
+export function awayIdle(g: GameState, aircraftId: string): { why: 'route' | 'closed' | 'none'; since: Minute; to: string } | null {
+  const ac = g.fleet[aircraftId];
+  const home = g.company.homeBase;
+  if (!ac || ac.at === home || ac.status !== 'available' || ac.flightId || ac.returning || ac.sale || (ac.delivery && !ac.delivery.arrived)) return null;
+  if (liveFlightsOf(g, aircraftId).some((f) => f.status === 'scheduled' || f.status === 'enroute') || onwardPending(g, aircraftId)) return null;
+  // Where it has to be next: its next commitment (a base programme, a check) elsewhere, else home; one here is a plan.
+  const next = anchorsOf(g, aircraftId).find((x) => x.kind !== 'start');
+  const to = next ? next.from : home;
+  if (to === ac.at) return null;
+  let since = ac.deliveredAt;
+  for (const f of flightsOf(g, aircraftId)) if (f.status === 'done' && f.to === ac.at) since = Math.max(since, f.ata ?? f.sta);
+  const ch = chainForward(ac.typeId, ac.at, to, g.now, etopsCap(g.company.approvals, ac.typeId), emptyDay(g, aircraftId));
+  const why = !ch ? 'route' : shutIn(g, ch, null) !== null ? 'closed' : 'none';
+  return { why, since, to };
 }
