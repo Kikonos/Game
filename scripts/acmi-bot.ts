@@ -114,6 +114,7 @@ import { botFarRouteReport, botFarRouteTally, farRouteOk } from './bot/clients';
 import { botSalesFinanceReport } from './bot/report016';
 // v0.17 the aircraft market (scripts/bot/market.ts, report017.ts; UPDATE-0.17.md §O).
 import { botMarket, MARKET_TALLY } from './bot/market';
+import { loiQuote, signLoi, usesLoi } from '../src/engine/leasing';
 import { botMarketReport } from './bot/report017';
 
 
@@ -992,7 +993,10 @@ function wideMonth(rent: number, typeId: string, seats: number): number {
  * soon as the aircraft can fly it.
  */
 function fleet(g: GameState, t: Tally): void {
+  // v0.17 balance step: a widebody leased through a letter of intent takes its job once the lease is signed.
+  wideJobAfterLoi(g, t);
   if (Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide')) return;
+  if ((g.leasing?.deals ?? []).some((d) => (d.stage === 'committee' || d.stage === 'conditions' || d.stage === 'approved') && typeOf(d.offer.typeId).body === 'wide')) return;
   // v0.8 fix pack (--b744): a 747-400 on the market once Widebody operations is held or filed.
   if (B744 && held(g, 'widebody') && !g.market.aircraft.some((o) => o.typeId === 'b744' && o.kind === 'dryLeaseIn' && o.expires > g.now)) devMarketOffer(g, 'b744', { kind: 'dryLeaseIn' });
   const recent = g.finance.history.slice(-3);
@@ -1025,8 +1029,12 @@ function fleet(g: GameState, t: Tally): void {
     // v0.8 pre-release: with no pilots rated on the family yet, a 6-week conversion (or a 45-day rated hire) comes first,
     // so the job it is signed for starts after that (a 747's delivery ferry waited at Amsterdam for converting pilots).
     const rated = ratedPilots(g, [typeOf(o.typeId).family]);
-    const crewLead = Math.max(o.leadDays + 7, rated.CPT >= 2 && rated.FO >= 2 ? 0 : 50);
-    const lead = o.leadDays + 7;
+    // v0.17 balance step: a lessor's lease goes through the letter of intent: in service after the lessor's committee and
+    // the transition (loiQuote's ready), not the offer's lead.
+    const loi = usesLoi(g, o);
+    const leadDays = loi ? Math.ceil(((loiQuote(g, o.id)?.ready ?? g.now + o.leadDays * DAY) - g.now) / DAY) : o.leadDays;
+    const crewLead = Math.max(leadDays + 7, rated.CPT >= 2 && rated.FO >= 2 ? 0 : 50);
+    const lead = leadDays + 7;
     // On the ladder: signed so it is home about when Widebody operations is granted (it flies revenue only then).
     // v0.12.1 the grant as it stands: an application stuck on anything but pilots signs nothing (approvals are checked
     // at departure: seed 7's 767 flew with it stuck); the first job within 60 days of the handover (was 120).
@@ -1063,6 +1071,16 @@ function fleet(g: GameState, t: Tally): void {
       t.leaseNoJob++;
       continue;
     }
+    if (loi) {
+      // The letter of intent (signed automatically on approval); the job is taken once the aircraft exists (wideJobAfterLoi).
+      if (!signLoi(g, o.id, { autoSign: true }).ok) continue;
+      t.wideSigned = g.now;
+      t.signed.push(`${typeOf(o.typeId).short} LOI day ${dayN(g)} at ${o.site} (job ${CODE[job.archetype] ?? job.archetype} taken at the lease)`);
+      act(g, t);
+      conversions(g, t);
+      hire(g, t);
+      return;
+    }
     const r = acquireAircraft(g, o.id, { direct: true });
     if (r.ok) {
       t.wideSigned = g.now;
@@ -1079,6 +1097,33 @@ function fleet(g: GameState, t: Tally): void {
       hire(g, t);
     }
     return;
+  }
+}
+
+/**
+ * v0.17 balance step: a widebody whose lease came through a letter of intent (delivering, nothing booked on it) takes
+ * the best widebody job ($1M+) it can fly from a week after it is ready, tried on a copy first. Reads only the state.
+ */
+function wideJobAfterLoi(g: GameState, t: Tally): void {
+  for (const ac of Object.values(g.fleet)) {
+    if (typeOf(ac.typeId).body !== 'wide' || ac.status !== 'delivering' || !ac.induction) continue;
+    if (Object.values(g.contracts).some((c) => c.aircraftIds.includes(ac.id))) continue;
+    const ready = ac.delivery?.handover ?? ac.induction.ready;
+    const jobs = Object.values(g.offers)
+      .filter((x) => x.status === 'open' && x.estValue >= 1_000_000 && x.start > ready + 7 * DAY && x.start < ready + 90 * DAY && (x.requirements.body === 'wide' || x.requirements.minSeats > 220) &&
+        ac.cabin.total >= x.requirements.minSeats && (!x.requirements.families?.length || x.requirements.families.includes(typeOf(ac.typeId).family)))
+      .sort((a, b) => b.estValue - a.estValue || (a.id < b.id ? -1 : 1));
+    for (const job of jobs) {
+      const h = previewCopy(g);
+      if (!acceptOffer(h, job.id, [ac.id], { paint: paintOn(job) }).ok) continue;
+      if (!acceptOffer(g, job.id, [ac.id], { paint: paintOn(job) }).ok) continue;
+      t.accepted++;
+      const code = CODE[job.archetype] ?? job.archetype;
+      t.types.set(code, (t.types.get(code) ?? 0) + 1);
+      t.signed.push(`${typeOf(ac.typeId).short} lease signed, job ${code} day ${dayN(g)}`);
+      act(g, t);
+      break;
+    }
   }
 }
 
