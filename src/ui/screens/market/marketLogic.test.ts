@@ -90,3 +90,18 @@ describe('in progress (§N.1)', () => {
     expect(spotLine({ ownership: { kind: 'dryLeaseIn', lessor: 'TUI fly', rentPerMonth: 1, reservesPerFH: 1, leaseStart: now, leaseEnd: fromUTC(2027, 3, 31), deposit: 1, spot: { airline: 'TUI fly', base: 'FRA' } } as never })).toBe('Back to TUI fly 31 Mar');
   });
 });
+
+describe('request dialog type list (§D.1, §T)', () => {
+  it('lists the fleet types, the request-only A320neo and every rare type; hides far-off common types', async () => {
+    const { createGame } = await import('../../../engine/newGame');
+    const { rfpTypes } = await import('./marketLogic');
+    const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed: 7 });
+    const ids = rfpTypes(g).map((x) => x.t.id);
+    for (const id of ['a320ceo', 'a320neo', 'a388', 'b744', 'b748', 'a345', 'b743']) expect(ids).toContain(id);
+    // Tier 4 is three approvals away at the start: not listed (not rare).
+    expect(ids).not.toContain('a359');
+    const a388 = rfpTypes(g).find((x) => x.t.id === 'a388')!;
+    expect(a388.ok).toBe(false);
+    expect(a388.note).toMatch(/Needs .* first/);
+  });
+});

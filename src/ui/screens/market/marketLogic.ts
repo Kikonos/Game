@@ -10,6 +10,10 @@ import { DAY, fmtDay, fmtDayAt, yearOf } from '../../../engine/core/time';
 import type { Aircraft, AircraftOffer, CreditGrade, GameState, LeaseDeal, LessorRating, Minute, Rfp, RfpAnswer } from '../../../engine/core/types';
 import { siteCity } from '../../../engine/ops/market';
 import { money } from '../../format';
+import { ACMI_TYPES_LIST, type AcmiType } from '../../../data/acmiTypes';
+import { FACTORIES, NEW_BUILD } from '../../../data/market';
+import { tightNow, tightWord } from '../../../engine/leasing';
+import { aircraftGate } from '../../../engine/ops/company';
 
 /** '12 Jan', or '12 Jan 2028' outside the current year. */
 const dayIn = (now: Minute, t: Minute) => (yearOf(t) === yearOf(now) ? fmtDay(t) : `${fmtDay(t)} ${yearOf(t)}`);
@@ -213,3 +217,24 @@ export function marketCounts(g: GameState, offers: number): { offers: number; re
 
 /** 'Exotic' types worth the What it takes block (§T): the BAL list. */
 export const isExoticType = (typeId: string) => BAL.v017.exotic.types.includes(typeId);
+
+// ---------- the request dialog ----------
+
+/** Types on the request list: flown now or soon (gate held, pending or one approval away), the request-only A320neo, and every rare type (never hidden, §T). */
+export function rfpTypes(g: GameState): { t: AcmiType; note: string; ok: boolean }[] {
+  const year = yearOf(g.now);
+  const out: { t: AcmiType; note: string; ok: boolean }[] = [];
+  for (const t of ACMI_TYPES_LIST) {
+    const reqOnly = BAL.v017.supply.rfpOnly.includes(t.id);
+    if (!t.available && !reqOnly) continue;
+    if ((t.firstYear ?? 0) > year && !(NEW_BUILD.includes(t.id) && FACTORIES[t.family])) continue;
+    if (t.newOnly && !(NEW_BUILD.includes(t.id) && FACTORIES[t.family])) continue;
+    const gate = aircraftGate(g, t.id);
+    const exotic = isExoticType(t.id);
+    if (gate.missing.length > 1 && !exotic) continue;
+    const word = g.leasing ? tightWord(tightNow(g, t.id)) : '';
+    const note = !gate.ok ? `${gate.text} first` : word;
+    out.push({ t, note: `${word && !gate.ok ? `${word} · ` : ''}${note}`, ok: gate.ok });
+  }
+  return out;
+}

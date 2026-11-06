@@ -5,15 +5,13 @@
 
 import { FileSignature } from 'lucide-react';
 import { useState } from 'react';
-import { ACMI_TYPES, ACMI_TYPES_LIST, type AcmiType } from '../../data/acmiTypes';
-import { FACTORIES, NEW_BUILD } from '../../data/market';
+import { ACMI_TYPES, type AcmiType } from '../../data/acmiTypes';
 import { BAL } from '../../engine/core/balance';
-import { fromUTC, toDate, yearOf } from '../../engine/core/time';
+import { fromUTC, toDate } from '../../engine/core/time';
 import type { AgeBand, GameState } from '../../engine/core/types';
-import { bandYears, rfpPreview, sendRfp, tightNow, tightWord, type RfpDraft } from '../../engine/leasing';
-import { aircraftGate } from '../../engine/ops';
+import { bandYears, rfpPreview, sendRfp, type RfpDraft } from '../../engine/leasing';
 import { Modal, Seg, Toggle } from '../components/ui';
-import { isExoticType, tName } from '../screens/market/marketLogic';
+import { rfpTypes, tName } from '../screens/market/marketLogic';
 import { WhatItTakes } from '../screens/market/WhatItTakes';
 import { store, useGame } from '../store';
 
@@ -25,25 +23,6 @@ const BANDS: { value: AgeBand; label: string; usual: string }[] = [
   { value: 'old', label: 'Old', usual: '12–48' },
 ];
 const TERMS = [12, 24, 36, 60, 96, 144];
-
-/** Types on the request list: flown now or soon (gate held, pending or one approval away), the request-only A320neo, and every rare type (never hidden, §T). */
-export function rfpTypes(g: GameState): { t: AcmiType; note: string; ok: boolean }[] {
-  const year = yearOf(g.now);
-  const out: { t: AcmiType; note: string; ok: boolean }[] = [];
-  for (const t of ACMI_TYPES_LIST) {
-    const reqOnly = BAL.v017.supply.rfpOnly.includes(t.id);
-    if (!t.available && !reqOnly) continue;
-    if ((t.firstYear ?? 0) > year && !(NEW_BUILD.includes(t.id) && FACTORIES[t.family])) continue;
-    if (t.newOnly && !(NEW_BUILD.includes(t.id) && FACTORIES[t.family])) continue;
-    const gate = aircraftGate(g, t.id);
-    const exotic = isExoticType(t.id);
-    if (gate.missing.length > 1 && !exotic) continue;
-    const word = g.leasing ? tightWord(tightNow(g, t.id)) : '';
-    const note = !gate.ok ? `${gate.text} first` : word;
-    out.push({ t, note: `${word && !gate.ok ? `${word} · ` : ''}${note}`, ok: gate.ok });
-  }
-  return out;
-}
 
 /** The fleet's main type (most aircraft), the default pick. */
 function mainType(g: GameState): string {
