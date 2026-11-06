@@ -997,6 +997,25 @@ Merged supply → deals → market-ui (no conflicts; market-ui already held the 
 - **Tests**: world-tour seeds 13 and 9 + 13 (seed 3's tour now runs out of legal crew at Sydney: a crew story, not the tour's); saveCompat v0.5.2 60 days checks FTL on what is flown and the next 3 days (at day 60 a duty stretched by a ride home leaves the next positioning, 4 days out, 1:20 short of rest; the roster re-crews it 76 h ahead: an older crew-planner gap, logged for the crew lane); tests that sign a lessor call straight to check terms pass `direct`.
 - **What's new**: one 'v0.17 Aircraft market' entry (§R lines, shortened).
 
+### Q.1e Balance step as built (branch `v017-balance`)
+
+Measured with the bot (§O), seeds 1–5 × 365 `--wide` (and `--greedy`, `--b744`), against the v0.16.4 release (bef65f7; `--market=v16` on this branch gives the same table line for line). Iteration tables: `/home/user/work/v017bal/STATE.txt`.
+
+Changed:
+- **Lessor rating pace** (§C, P7): cash cover points 6 / 10 / 14 (were 8 / 14 / 18); B from 60 (was 55), A from 85 (was 75). Before, every bot was B by month 3 on its start-up cash and two reached A by month 9 (A: 8 widebodies, tier-4 types, 1 month's deposit). Now a new game is C (46), the bots reach B in months 7–12 once profitable, and A needs about two years on the AOC. s0329 loads as B (62); s0501 loads as B (82) since the v0.16.2 rescue top-up (it was D before it).
+- **Exotic floor per request** (§T): the floor chance is the request's, shared among the sources it goes to (1 − (1 − floor)^(1/n) each). Per lessor, the eight A330/340 lessors made an A340-500 likelier than an A330-200.
+- **"Later" answers follow the market** (§D.3 step 6): `laterShare × min(1, laterTight × (1 − tightness))`, `rfp.laterTight` 2. Narrowbodies (tightness about 0.5) are unchanged; a 747-400 or an A340-500 rarely comes "later" either.
+- **The previous operator answers mid-life requests for exotics** (credit.ts `lessorsFor`): a 747-8 (built 2012–2017) had no source before 2028.
+- **Requests use the market's band years** (rfp.ts `bandYears` → ops/market.ts): no 1977 A320 or 33-year-old aircraft from a request (old is at most 26 years where the type was built that recently).
+- **Production years** in data/acmiTypes.ts for the A320ceo, 737-800, A321ceo, 757-200, 767-300ER, A330-300, A340-300, 777-200ER and A380 (no young A340-300 or 2025-built A380).
+- **Bot**: the growth request is dated 50 days out when the season start is not 3–5 months away (as soon as possible had half the chance), a proposal's lateness past the target weighs $10K a day against its rent, one ready more than about 4 months out is passed over; the widebody lease goes through the letter of intent and takes its job once the lease is signed; the report has an acquisitions line (asked, signed, in service, deposits held) and the growth need on `--market=v16`.
+
+Results (seeds 1–5 × 365 `--wide`, base → v0.17):
+- Growth narrowbody, need to service: base 87 / 133 / 157 / never / never → 62 / 61 / 100 / 59 / 55 days (median 61). Request to service 54–76 days. Every seed gets its third narrowbody.
+- Cash at day 365: 1337 / 6607 (5368 of it a loan) / 1769 / 2414 / 2188 → 1878 / 2079 / 2631 / 5769 / 1547 ($K). Margin all in: −4.6 / −4.3 / −3.5 / +0.5 / −0.5 → −6.9 / +0.9 / +0.2 / +10.4 / −1.2 % (mean −2.5 → +0.7). Seeds 2–4 earn more because the third aircraft comes 2–5 months sooner; seed 1's third A320 costs $271K a month at rating C and its revenue rises less; seed 4's cash is +$3.4M from an aircraft in May instead of October.
+- `--greedy`: widebodies leased 4 / 0 / 2 / 4 / 4 (at most the grade's total), plus two 747-100s bought on seed 5; 88 % of widebody answers are not proposals.
+- Exotic probe (every requirement met, a request a month for a year, seeds 1–5): at B the A380 brings its first proposal in month 1–4, the 747-400 and 747-8 in months 2–7; at C the same with the big security.
+
 ### Q.2 The three lanes
 
 | Lane | Owns (edits freely) | Adds | Never touches |
