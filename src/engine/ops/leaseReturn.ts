@@ -22,6 +22,7 @@ import { rentOver, settleDeparture } from './finance';
 import { cCheckGross, checkCostOf, checkUsedAt, nextPlanned, scheduleCheck } from './maintenance';
 import { maintWord, usd } from './util';
 import { lockOf } from '../scenario/rules';
+import { extensionRentX } from '../leasing/terms';
 
 export interface ReturnQuote { site: string; lines: { label: string; amount: number }[]; total: number; deposit: number; checkDays: number; ferry: DeliveryLeg[] }
 export type LeaseChoice = 'extend12' | 'extend36' | 'return';
@@ -142,7 +143,10 @@ const indexOf = (g: GameState, ac: Aircraft) => (typeOf(ac.typeId).body === 'wid
  */
 function extendedRent(g: GameState, ac: Aircraft, months: 12 | 36): number {
   if (ac.ownership.kind !== 'dryLeaseIn') return 0;
-  const raw = Math.round((ac.ownership.rentPerMonth * BAL.leaseReturn.extend[months] * (indexOf(g, ac) / (ac.ownership.index ?? 1))) / 1000) * 1000;
+  // v0.17 (§E.6) extensions offered now follow the type's tightness (a tight A330 about +2 %, an easing A320ceo about
+  // −0.5 %); an extension already agreed keeps its rent. The v0.16 market keeps the fixed 0.97 / 0.92.
+  const x = extensionRentX(g, ac.typeId, months) ?? BAL.leaseReturn.extend[months];
+  const raw = Math.round((ac.ownership.rentPerMonth * x * (indexOf(g, ac) / (ac.ownership.index ?? 1))) / 1000) * 1000;
   return floorRent(typeOf(ac.typeId), raw);
 }
 
@@ -193,13 +197,24 @@ export function returnQuote(g: GameState, aircraftId: string, at?: Minute): Retu
   const w = wideOf(ac);
   const L = BAL.leaseReturn;
   const site = own.returnSite ?? g.company.homeBase;
+  // v0.17 (§I.2, §E.5) a short-term sublease goes back to the airline after a 1-day inspection, with no half-life,
+  // cabin or paint charge; an old aircraft's lease ("as is, with the engines' green time") has a lighter check.
+  if (own.spot) {
+    const inspect = BAL.v017.terms.spotReturn.inspectCost[w];
+    const r0 = route(ac.typeId, g.company.homeBase, site, etopsCap(g.company.approvals, ac.typeId));
+    const s0 = endAt - DAY;
+    const ferry0 = r0 && r0.length ? timeChain(r0, s0 - typeOf(ac.typeId).turnMin - routeSpan(r0, ac.typeId), ac.typeId).map((l, i, all) => ({ ...l, block: l.sta - l.std, nightStopAfter: i < all.length - 1 && all[i + 1].std - l.sta > 8 * 60 })) : [];
+    return { site, lines: [{ label: 'Return inspection', amount: inspect }], total: inspect, deposit: own.deposit ?? 0, checkDays: 1, ferry: ferry0 };
+  }
   const checkDays = L.checkDays[w];
-  const lines: { label: string; amount: number }[] = [{ label: 'Return check', amount: L.checkCost[w] }];
+  const share = own.halfLifeShare ?? L.halfLifeShare;
+  const oldX = own.halfLifeShare !== undefined && own.halfLifeShare <= BAL.v017.terms.halfLife.old ? BAL.v017.terms.oldCheckX : 1;
+  const lines: { label: string; amount: number }[] = [{ label: 'Return check', amount: Math.round((L.checkCost[w] * oldX) / 1000) * 1000 }];
   const c = usedC(g, ac, endAt);
   // v0.14.1 (M1) a C-check due and not done at the return is ours: the lessor has it done on our money (what it costs
   // us to do it, the reserves paying their share), in place of the half-life.
   if (c.overdue) lines.push({ label: 'C-check due before the return', amount: checkCostOf(ac, 'C') });
-  const half = c.overdue ? 0 : Math.round((Math.max(0, c.used - 0.5) * cCheckGross(ac.typeId) * L.halfLifeShare) / 1000) * 1000;
+  const half = c.overdue ? 0 : Math.round((Math.max(0, c.used - 0.5) * cCheckGross(ac.typeId) * share) / 1000) * 1000;
   if (half > 0) lines.push({ label: 'Half-life compensation', amount: half });
   const cabin = reinstateCost(ac);
   if (cabin) lines.push({ label: `Cabin back to ${layoutName(own.deliveredLayout ?? ac.cabin.layout)}`, amount: cabin });
@@ -282,6 +297,8 @@ export function chooseLease(g: GameState, aircraftId: string, choice: LeaseChoic
     if (r.ok && dec) g.decisions.splice(g.decisions.indexOf(dec), 1);
     return r;
   }
+  // v0.17 (§I.2) a short-term sublease cannot be extended: the airline needs it back for its season.
+  if (own.spot) return { ok: false, error: `${own.spot.airline} needs ${ac.reg} back on ${fmtDay(own.leaseEnd)}` };
   const months = choice === 'extend36' ? 36 : 12;
   // v0.14.1 (M3) one agreed extension at a time: its rent starts at the old lease end.
   if (own.nextRent) return { ok: false, error: `Already extended to ${fmtDate(own.leaseEnd)}: ${usd(own.nextRent.rent)}/month from ${fmtDay(own.nextRent.from)}` };
@@ -344,6 +361,14 @@ export function dailyLeases(g: GameState): void {
       }
       continue;
     }
+    // v0.17 (§I.2) a short-term sublease: no extension; its return is booked 21 days before the date (or we are told).
+    if (own.spot) {
+      if (own.noticeGiven || ac.status === 'delivering' || own.leaseEnd - g.now > 21 * DAY || own.leaseEnd <= g.now) continue;
+      own.noticeGiven = true;
+      const b = bookLeaseReturn(g, ac);
+      if (!b.ok) pushMessage(g, { tone: 'warn', cat: 'company', title: `Book ${ac.reg}'s return to ${own.spot.airline}`, body: `It is due back at ${siteCity(own.spot.base)} on ${fmtDay(own.leaseEnd)}: ${b.error}. Late costs twice the rent.`, ref: { kind: 'aircraft', id: ac.id } });
+      continue;
+    }
     if (own.noticeGiven || ac.status === 'delivering' || own.leaseEnd - g.now > L.noticeDays * DAY) continue;
     own.noticeGiven = true;
     const v = leaseView(g, ac.id)!;
@@ -378,6 +403,8 @@ export function onReturnEnd(g: GameState, m: MaintenanceEvent): void {
   const own = ac.ownership;
   const q = returnQuote(g, ac.id);
   if (own.deposit) cashOnly(g, own.deposit);
+  // v0.17 an up-front reserves deposit comes back with the aircraft.
+  if (own.reservesDeposit) cashOnly(g, own.reservesDeposit);
   settleDeparture(g, ac);
   delete g.fleet[ac.id];
   g.stats.leaseReturns = (g.stats.leaseReturns ?? 0) + 1;

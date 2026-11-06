@@ -24,7 +24,8 @@ describe('v0.17 step 0: state and load', () => {
   it('a new game has the leasing state: base tightness for every type, empty lists, the AOC families', () => {
     const g = newGame();
     expect(g.leasing).toBeDefined();
-    for (const t of ACMI_TYPES_LIST) expect(g.leasing!.tight[t.id]).toBe(BAL.v017.supply.base[t.id] ?? t.scarcity);
+    // v0.17 supply: the start moves once toward the phase target (refreshMarket at init), a step of the monthly pull.
+    for (const t of ACMI_TYPES_LIST) expect(Math.abs(g.leasing!.tight[t.id] - (BAL.v017.supply.base[t.id] ?? t.scarcity))).toBeLessThan(0.1);
     expect(g.leasing!.rfps).toEqual([]);
     expect(g.leasing!.deals).toEqual([]);
     expect(g.company.aocFamilies).toEqual(['A320']);
@@ -50,6 +51,12 @@ describe('v0.17 step 0: state and load', () => {
 
 describe('v0.17 step 0: neutral', () => {
   it('the market weights are 1 − scarcity, the terms are the legacy ones, the handover is the legacy lead', () => {
+    // v0.17 supply: neutral means the v0.16 market (BAL.v017.on false, bot --market=v16) once the lanes fill the stubs.
+    (BAL.v017 as { on: boolean }).on = false;
+    try { neutralMarket(); } finally { (BAL.v017 as { on: boolean }).on = true; }
+  });
+
+  function neutralMarket() {
     const g = newGame(5);
     for (const e of eligibleTypes(g)) expect(e.w).toBeCloseTo((1 - e.t.scarcity) * (e.teaser ? BAL.market7.teaserWeight : 1), 12);
     for (const t of ACMI_TYPES_LIST) expect(tightNow(g, t.id)).toBe(t.scarcity);
@@ -66,7 +73,7 @@ describe('v0.17 step 0: neutral', () => {
     const ac = g.fleet[(r as { data: { aircraftId: string } }).data.aircraftId];
     expect(ac.delivery?.handover).toBe(g.now + o.leadDays * DAY);
     expect(ac.induction).toBeUndefined();
-  });
+  }
 
   it('nothing to ask, nothing billed, no letters of credit', () => {
     const g = newGame(6);

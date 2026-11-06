@@ -289,7 +289,7 @@ export type Ownership =
        * our lessor rating at signing.
        */
       lessorId?: LessorId; minFH?: number; reservesEscAt?: Minute; halfLifeShare?: number; lc?: number; reservesDeposit?: number;
-      spot?: { airline: string; base: string }; grade?: CreditGrade;
+      spot?: { airline: string; base: string; /** v0.17 supply: the rent before a late return doubled it. */ rent?: number }; grade?: CreditGrade;
     };
 
 /** v0.7: handover abroad and the delivery ferry home. */
@@ -1559,6 +1559,11 @@ export interface AircraftOffer {
   spot?: { airline: string; base: string; returnAt: Minute };
   /** v0.17 (player addition, §T) an exotic type (A380, 747, A340-500/600…): the extra security asked to deal below the lessor's grade. */
   exoticSecurity?: number;
+  // v0.17 supply
+  /** Up-front reserves deposit (grade D, an exotic at C): months of minimum-hours reserves, paid at signing, refunded at return. */
+  reservesDeposit?: number;
+  /** The airline or administrator behind a failure batch ('TAROM'). */
+  batchOf?: string;
 }
 
 export interface Market {
@@ -2485,6 +2490,8 @@ export interface Leasing {
   rev?: number;
   stats: LeasingStats;
   // v0.17 supply
+  /** Lane supply's own state: the once-only 777-9 delay (when it came). load: optional. */
+  supply?: { delay777x?: Minute };
   // v0.17 deals
   // v0.17 market-ui
 }

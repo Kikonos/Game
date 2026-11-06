@@ -511,6 +511,25 @@ export const rentForAge = (t: AcmiType, age: number): number => Math.max(t.rentF
  */
 export const floorRent = (t: Pick<AcmiType, 'rentFloor'>, rent: number): number => (t.rentFloor ? Math.max(t.rentFloor, rent) : rent);
 
+/**
+ * v0.17 reference rents (UPDATE-0.17.md §E.1; research-supply §2): what v0.17's lease pricing (engine/leasing/terms.ts
+ * quoteTerms) starts from. Kept apart from `rentMonth` / `rentNew` so the v0.16 market (bot --market=v16), the start
+ * fleets, dry-lease-out quotes, sales and insurance keep their numbers; leases already signed keep their rent.
+ * - A320ceo 220K: IBA July 2026, $220K for a 12-year-old; 737-800 228K: IBA July 2026;
+ * - A330-300 355K: $351K in Oct 2024, forecast $372K for Jan 2026; 777-300ER 485K: $470K forecast for Jan 2026, "$500K+" in 2025;
+ * - 777-200ER 260K: the research range is $150–300K (280K was at its top);
+ * - A321neo new 485K: IBA forecast $487K for Jan 2026; A350-900 new 1.20M: about $1.23M in 2026 (value × lease rate factor).
+ */
+export const RENT_V017: Record<string, { rentMonth?: number; rentNew?: number }> = {
+  a320ceo: { rentMonth: 220_000 },
+  b738: { rentMonth: 228_000 },
+  a333: { rentMonth: 355_000 },
+  b77w: { rentMonth: 485_000 },
+  b772: { rentMonth: 260_000 },
+  a321neo: { rentNew: 485_000 },
+  a359: { rentNew: 1_200_000 },
+};
+
 export function acmiType(id: string): AcmiType {
   const t = ACMI_TYPES[id];
   if (!t) throw new Error(`Unknown ACMI type ${id}`);

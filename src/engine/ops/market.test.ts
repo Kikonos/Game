@@ -1,7 +1,7 @@
 // Aircraft market and lease lifecycle (B3). DESIGN.md §5.10. v0.7 (UPDATE-0.7.md §F6): daily roll, Ladder gate
 // and teasers, new-build slots, handover sites, alerts.
 
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { EX_OPERATORS, FACTORIES, LESSOR_SITES, MRO_STATIONS, NEW_BUILD } from '../../data/market';
 import { BAL } from '../core/balance';
@@ -44,6 +44,9 @@ function market(seed: number, days: number, setup?: (g: GameState) => void) {
 }
 
 describe('market spawning (v0.7)', () => {
+  // v0.17: the v0.16 market's roll (bot --market=v16); the v0.17 lessor calls are tested in leasing/calls.test.ts.
+  beforeAll(() => { (BAL.v017 as { on: boolean }).on = false; });
+  afterAll(() => { (BAL.v017 as { on: boolean }).on = true; });
   it('about one offer a month (0.8–1.2 over 50 seeds × 2 years), at most 4 open, each open 7–21 days', () => {
     let n = 0;
     for (let seed = 1; seed <= 50; seed++) {
