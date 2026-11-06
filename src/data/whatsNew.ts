@@ -19,10 +19,10 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     version: 'v0.17',
     name: 'Aircraft market',
     features: [
-      'Ask lessors for the aircraft you want: type, age, lease length and start date (Fleet › Market › Ask lessors…). Real lessors answer in one to three weeks with a proposal or a plain no, and say why.',
+      'Ask lessors for the aircraft you want: type, age, lease length and start date (Fleet › Market › Ask lessors…). Real lessors answer in one to four weeks with a proposal or a plain no, and say why.',
       'Your lessor rating, A to D, sits at the top of Fleet › Market. It comes from your years on the AOC, fleet, cash, debts, clients and IOSA. It sets who will talk to you, the deposit, and how many aircraft each lessor places with you. Tap Why? to see each part.',
       'A lease starts with a letter of intent and a holding deposit. The lessor\'s credit committee then approves, asks for more security, or says no. Then the aircraft goes through records, a check and paint before the ferry home: about 6–12 weeks for a narrowbody, longer for a widebody. Our CAMO handles a few transitions at a time; tech reps speed one up.',
-      'Real terms: rent from the market, the lease length and your rating; 1 to 4 months\' deposit; maintenance reserves; minimum hours billed even when parked; return conditions by age.',
+      'Real terms: rent from the market, the lease length and your rating; 1 to 3 months\' deposit (5 or more at rating D); maintenance reserves; minimum hours billed even when parked; return conditions by age.',
       'The market moves like the real one. Each type is easy, normal or tight to find, with the supply in the market outlook. Narrowbodies are easing; widebodies are scarce, and new 787s and A350s are placed until 2030. Lessors call with aircraft more often.',
       'When an airline fails, a batch of its aircraft comes to the market below market rent. In their quiet season, airlines let aircraft go short-term (3–9 months, Short-term…), back on a fixed date.',
       'A new type family needs an AOC variation (90–120 days) and rated pilots. Company › Ladder lists the types on our AOC.',
