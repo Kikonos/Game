@@ -31,6 +31,7 @@ import { usd } from './util';
 import { lockOf } from '../scenario/rules';
 // v0.17 (UPDATE-0.17.md §Q.1): the market's hooks into engine/leasing (neutral in step 0).
 import { dailyCalls, guaranteedCall, isCall, newBuildLead } from '../leasing/calls';
+import { usesLoi } from '../leasing/deals';
 import { inductionPlan } from '../leasing/induction';
 import { monthlyLeasing } from '../leasing/index';
 import { closingMonth, minHoursLines, quoteTerms } from '../leasing/terms';
@@ -506,7 +507,12 @@ function registration(g: GameState): string {
 }
 
 /** The player's choices when signing (registration, name, the ETOPS delivery way). */
-export interface AcquireOpts { reg?: string; name?: string; /** v0.11 a delivery we may not ferry (ETOPS) */ delivery?: 'thisSide' | 'ferryCo' }
+export interface AcquireOpts {
+  reg?: string; name?: string; /** v0.11 a delivery we may not ferry (ETOPS) */ delivery?: 'thisSide' | 'ferryCo';
+  /** v0.17 sign a letter-of-intent lease straight, skipping the lessor's credit check: the bot's widebody-with-a-job
+   * path and dev tools only (the player's dialogs always go through signLoi). */
+  direct?: boolean;
+}
 
 /**
  * Signs a dry lease in (deposit) or a purchase (price). Refused when the Ladder's gate is closed (pending counts),
@@ -520,6 +526,8 @@ export function acquireAircraft(g: GameState, offerId: string, opts: AcquireOpts
   const i = g.market.aircraft.findIndex((o) => o.id === offerId);
   if (i < 0) return { ok: false, error: 'Offer not found' };
   const o = g.market.aircraft[i];
+  // v0.17 a lessor's lease goes through the letter of intent and its credit check (leasing/deals.ts signLoi).
+  if (usesLoi(g, o) && !opts.direct) return { ok: false, error: 'This lease starts with a letter of intent' };
   const gate = aircraftGate(g, o.typeId);
   if (!gate.ok) return { ok: false, error: `${gate.text}: apply under Company → Ladder` };
   // v0.17 the handover after the transition (engine/leasing/induction.ts; step 0: signing + the offer's lead days).

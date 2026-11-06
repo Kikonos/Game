@@ -1058,12 +1058,12 @@ function fleet(g: GameState, t: Tally): void {
       continue;
     }
     const h = previewCopy(g);
-    const rh = acquireAircraft(h, o.id);
+    const rh = acquireAircraft(h, o.id, { direct: true });
     if (!rh.ok || !acceptOffer(h, job.id, [rh.data!.aircraftId], { paint: paintOn(job) }).ok) {
       t.leaseNoJob++;
       continue;
     }
-    const r = acquireAircraft(g, o.id);
+    const r = acquireAircraft(g, o.id, { direct: true });
     if (r.ok) {
       t.wideSigned = g.now;
       const signedJob = acceptOffer(g, job.id, [r.data!.aircraftId], { paint: paintOn(job) }).ok;

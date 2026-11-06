@@ -99,6 +99,13 @@ export function usesLoi(g: GameState, o: AircraftOffer): boolean {
 
 const offerOf = (g: GameState, offerId: string) => g.market.aircraft.find((o) => o.id === offerId);
 const lessorName = (o: AircraftOffer) => o.lessor.replace(' (used sale)', '');
+/** The rating a lessor judges an offer by: a failure batch's lessor accepts one grade lower (§J.3, BAL.v017.batch.gradeRelief). Pure. */
+function stanceRating(g: GameState, o: AircraftOffer): { grade: CreditGrade } {
+  const grade = rating(g).grade;
+  if (o.source !== 'batch') return { grade };
+  const up = Math.max(0, RANK[grade] - BAL.v017.batch.gradeRelief);
+  return { grade: (Object.keys(RANK) as CreditGrade[]).find((k) => RANK[k] === up) ?? grade };
+}
 const bandOfOffer = (g: GameState, o: AircraftOffer) => o.band ?? bandOf(Math.max(0, yearOf(g.now) - o.builtYear), !!o.newBuild);
 
 /** The committee's days for an offer (§F step 2). Pure. */
@@ -131,7 +138,7 @@ export function exoticSecurityOf(g: GameState, o: AircraftOffer): { deposit: num
   if (!X().types.includes(o.typeId) || !o.lessorId) return { deposit: 0, reserves: 0 };
   const def = LESSOR_BY_ID[o.lessorId];
   if (!def) return { deposit: 0, reserves: 0 };
-  const st = lessorStance(g, def, o.typeId, bandOfOffer(g, o), lessorName(o));
+  const st = lessorStance(g, def, o.typeId, bandOfOffer(g, o), lessorName(o), stanceRating(g, o));
   if (!st.security) return { deposit: 0, reserves: 0 };
   const fh = o.minFH ?? BAL.v017.terms.minFH.wide;
   return { deposit: Math.round(X().securityMonths * o.rentPerMonth), reserves: Math.round(X().reservesDepositMonths * fh * o.reservesPerFH) };
@@ -146,7 +153,7 @@ function loiWhy(g: GameState, o: AircraftOffer, holding: number): string | null 
   if (!gate.ok) return `${gate.text}: apply under Company › Ladder`;
   const def = o.lessorId ? LESSOR_BY_ID[o.lessorId] : undefined;
   if (def) {
-    const st = lessorStance(g, def, o.typeId, bandOfOffer(g, o), lessorName(o));
+    const st = lessorStance(g, def, o.typeId, bandOfOffer(g, o), lessorName(o), stanceRating(g, o));
     if (!st.ok) return `${lessorName(o)}: ${st.text}`;
   }
   if (g.company.cash < holding) return `Not enough cash: ${usd(holding)} holding deposit`;
