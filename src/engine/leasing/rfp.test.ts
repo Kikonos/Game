@@ -141,6 +141,8 @@ describe('v0.17 AOC families and variations (§H)', () => {
   it('the gate at departure: a revenue leg of a family not on the AOC misses `aoc`', () => {
     const g = newGame(64);
     const ac = Object.values(g.fleet)[0];
+    // As if signed through the market (the start fleet's families are on the AOC whatever the list says).
+    for (const a of Object.values(g.fleet)) a.delivery = { site: 'LIS', where: 'Lisbon (LIS)', handover: g.now, ferryIds: [], arrived: g.now };
     const f = { id: 'fx', no: 'AW1', aircraftId: ac.id, kind: 'charter', from: 'LIS', to: 'FAO', std: g.now + DAY, sta: g.now + DAY + 60, delay: 0, status: 'scheduled' } as never;
     expect(gateMisses(g, f).some((m) => m.id === 'aoc')).toBe(false);
     g.company.aocFamilies = [];

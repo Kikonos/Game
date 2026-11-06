@@ -18,7 +18,7 @@ import { cashOnly, post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
 import { int, range } from '../core/rng';
-import { DAY, fmtDay } from '../core/time';
+import { DAY, fmtDay, yearOf } from '../core/time';
 import type { ActionResult, AircraftOffer, CreditGrade, GameState, LeaseDeal, Minute } from '../core/types';
 import { aircraftGate, ratedPilots } from '../ops/company';
 import { deliveryQuote } from '../ops/delivery';
@@ -99,7 +99,7 @@ export function usesLoi(g: GameState, o: AircraftOffer): boolean {
 
 const offerOf = (g: GameState, offerId: string) => g.market.aircraft.find((o) => o.id === offerId);
 const lessorName = (o: AircraftOffer) => o.lessor.replace(' (used sale)', '');
-const bandOfOffer = (g: GameState, o: AircraftOffer) => o.band ?? bandOf(Math.max(0, new Date(g.now * 60_000).getUTCFullYear() - o.builtYear), !!o.newBuild);
+const bandOfOffer = (g: GameState, o: AircraftOffer) => o.band ?? bandOf(Math.max(0, yearOf(g.now) - o.builtYear), !!o.newBuild);
 
 /** The committee's days for an offer (§F step 2). Pure. */
 function committeeRange(o: AircraftOffer, grade: CreditGrade): [number, number] {
