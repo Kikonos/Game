@@ -2502,6 +2502,8 @@ export interface Leasing {
   // v0.17 deals
   /** Letters of credit the lessor wants in cash after the credit line froze or was not renewed (§K.1): aircraft id → the day. */
   lcCashDue?: Record<string, Minute>;
+  /** The grade last told in the Inbox, and since when today's grade holds (a change is told after it holds 7 days). */
+  gradeTold?: CreditGrade; gradeSince?: Minute;
   /** Exotic requests (§T) and their proposals, for the bot's report. */
   exotic?: { rfps: number; proposals: number };
   // v0.17 market-ui

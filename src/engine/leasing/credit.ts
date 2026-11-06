@@ -123,15 +123,22 @@ export function loadCredit(g: GameState): void {
   if (g.leasing && !g.leasing.credit) g.leasing.credit = lessorRating(g);
 }
 
-/** Daily: the rating recomputed and cached; a grade change is told (up: `ladder`; down: `notice`) (§N.4). */
+/**
+ * Daily: the rating recomputed and cached; a grade change is told once it has held a week (a month-end dip below zero
+ * does not chime twice) (up: `ladder`; down: `notice`) (§N.4).
+ */
 export function dailyCredit(g: GameState): void {
   const L = g.leasing;
   if (!L) return;
   const was = L.credit;
   const now = lessorRating(g);
   L.credit = now;
-  if (!was || was.grade === now.grade) return;
-  const up = RANK[now.grade] < RANK[was.grade];
+  L.gradeTold ??= was?.grade ?? now.grade;
+  if (!was || was.grade !== now.grade) L.gradeSince = g.now;
+  if (now.grade === L.gradeTold || g.now - (L.gradeSince ?? g.now) < 7 * DAY) return;
+  const from = L.gradeTold;
+  L.gradeTold = now.grade;
+  const up = RANK[now.grade] < RANK[from];
   const months = depositMonthsFor(now);
   const dep = `${months} month${months === 1 ? '' : 's'}' deposit`;
   const what = up
@@ -140,7 +147,7 @@ export function dailyCredit(g: GameState): void {
   pushMessage(g, {
     tone: up ? 'good' : 'warn', cat: 'finance', topic: 'market', cue: up ? 'ladder' : 'notice',
     title: `Lessor rating ${up ? 'up' : 'down'} to ${now.grade}`,
-    body: `${what}. Score ${now.score} (was ${was.score}). ${gradeWords(now.grade)}.`,
+    body: `${what}. Score ${now.score}. ${gradeWords(now.grade)}.`,
   });
 }
 
