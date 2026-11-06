@@ -1017,6 +1017,26 @@ Results (seeds 1–5 × 365 `--wide`, base → v0.17):
 - Checks: seeds 1–2 `--inv` 0 errors; seed 3 has 1 (Sofia Rodrigues FO, 172:50 between recovery rests: a hotel standby on 22 Dec and a duty on 23 Dec at Amsterdam, then the ticket home at 06:00 on 24 Dec landing after the 168 h). It is the crew planner's older recovery gap (also in /home/user/work/final and /home/user/work/strand runs), reached on seed 3's new trajectory; logged for the crew lane. det 3 identical; scenarios and the ten saves 30 days 0 errors; s0612 60 days 0 errors.
 - Exotic probe (every requirement met, a request a month for a year, seeds 1–5): at B the A380 brings its first proposal in month 1–4, the 747-400 and 747-8 in months 2–7; at C the same with the big security.
 
+### Q.1f Review as built (branch `review17`)
+- Exotic security was asked twice: `quoteTerms` already prices 4 months' security and the reserves up front into an
+  offer made at the security grade, and `exoticSecurityOf` added them again at the letter of intent (an A380 at C paid
+  11 months' deposit and two reserves deposits). It now asks only what the offer is missing (an offer made at B, the
+  letter of intent at C). `reservesDue(d)` (offer's + deal's) is in `cashToSign`, the quote and the forecast; the lease
+  signing pays it once (signOffer no longer takes the offer's again outside the cash check) and keeps it once
+  (`own.deposit` no longer includes it, so the return refunds it once, not twice).
+- Minimum-hours reserves were posted twice each month end (`billMinHours` in refreshMarket and `monthlyLeasing`), with
+  two messages naming "v0.17". Now once, by `billMinHours`; the glossary and message say "new lessor leases".
+- A deal whose letter of credit can no longer be issued at the signing (rating fell, line drawn or frozen) signs with
+  the deposit in cash when the cash is there, instead of lapsing and losing the holding deposit.
+- What's new: answers in one to four weeks; deposits 1–3 months (5+ at D).
+- Tests: `src/engine/leasing/review017.test.ts`.
+- Bots: 0 invariant errors on seeds 1–3 (the acmi tip's seed 3 Sofia Rodrigues recovery error no longer occurs, by
+  divergence, not by a fix). The bots diverge from the acmi tip because one message fewer per billed month shifts
+  `g.seq` (every later id and its side stream): restoring the second post and its message gives seed 3 identical to
+  the tip line for line.
+- Not changed (design calls): the rating's cash cover counts borrowed cash (a loan raises it); a short-term lease's
+  fixed return date is kept when our CAMO delays its handover.
+
 ### Q.2 The three lanes
 
 | Lane | Owns (edits freely) | Adds | Never touches |
