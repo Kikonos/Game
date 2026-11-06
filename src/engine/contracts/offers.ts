@@ -1546,11 +1546,11 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
   else if (opts.window === undefined && mode === 'gap') {
     const ws = idleWindows(g).filter((w) => !archetype || fitsWindow(archetype, w, g.now));
     window = ws.length ? weightedPick(g, ws, (w) => Math.sqrt((w.to - w.from) / DAY)) : undefined;
-    // v0.16.4 a job fitted to an aircraft's idle window is a job for that aircraft's body: Luxair's A320-size base came
-    // with "Follow-on: CS-TTL is free at AMS", CS-TTL an A330 (the draw had picked a narrowbody job for its window).
-    const wac = window && opts.wide === undefined ? g.fleet[window.aircraftId] : undefined;
-    if (wac) wide = typeOf(wac.typeId).body === 'wide';
   }
+  // v0.16.4 a job fitted to an aircraft's idle window is a job for that aircraft's body: Luxair's A320-size base came
+  // with "Follow-on: CS-TTL is free at AMS", CS-TTL an A330 (the draw had picked a narrowbody job for its window).
+  const wac = window && opts.wide === undefined ? g.fleet[window.aircraftId] : undefined;
+  if (wac) wide = typeOf(wac.typeId).body === 'wide';
   const tries: Archetype[] = [];
   if (archetype) tries.push(archetype, archetype, archetype);
   else {
