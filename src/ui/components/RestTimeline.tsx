@@ -12,7 +12,7 @@ import { restWhere, type RestPlan, type RestTurn } from '../../engine/crew';
 const hm = (m: number) => `${Math.floor(Math.max(0, m) / 60)}:${String(Math.round(Math.max(0, m) % 60)).padStart(2, '0')}`;
 const SEAT_WORD: Record<string, string> = { CPT: 'CPT', FO: 'FO', CRP: 'CRP', CPT2: 'CPT 2', FO2: 'FO 2' };
 
-export interface RestLegBar { id: string; no: string; from: string; to: string; std: number; sta: number; x0: number; x1: number; c0: number; c1: number }
+export interface RestLegBar { id: string; no: string; from: string; to: string; std: number; sta: number; x0: number; x1: number; c0: number; c1: number; /** Crew bug round: nobody rests on this leg. */ noRest: boolean }
 export interface RestRow {
   key: string; side: 'pilots' | 'cabin';
   /** 'Capt. Silva' / 'Group A (4)'; len '3:20'; where 'bunk'; when '00:49–03:09 UTC'; names: a cabin group's crew. */
@@ -35,11 +35,12 @@ export function restLayout(g: GameState, plan: RestPlan): { legs: RestLegBar[]; 
   const t0 = fl[0].atd ?? fl[0].std;
   const t1 = Math.max(t0 + 1, ...fl.map((f) => f.ata ?? f.eta ?? f.sta));
   const x = (t: number) => Math.max(0, Math.min(100, ((t - t0) / (t1 - t0)) * 100));
+  const restOn = new Set([...plan.pilots, ...plan.cabin].map((t) => t.flightId));
   const legs: RestLegBar[] = plan.cruise.map((c) => {
     const f = g.flights[c.flightId];
     const std = f ? f.atd ?? f.std : c.from;
     const sta = f ? f.ata ?? f.eta ?? f.sta : c.to;
-    return { id: c.flightId, no: f?.no ?? '', from: f?.from ?? '', to: f?.to ?? '', std, sta, x0: x(std), x1: x(sta), c0: x(c.from), c1: x(c.to) };
+    return { id: c.flightId, no: f?.no ?? '', from: f?.from ?? '', to: f?.to ?? '', std, sta, x0: x(std), x1: x(sta), c0: x(c.from), c1: x(c.to), noRest: plan.ok && plan.cruise.length > 1 && !restOn.has(c.flightId) };
   });
   const rows: RestRow[] = [];
   for (const [i, t] of plan.pilots.entries()) {
@@ -93,13 +94,13 @@ export const RestTimeline = memo(function RestTimeline({ g, plan }: { g: GameSta
     <div className="rt" role="img" aria-label={lay.rows.map((r) => r.text).join('; ')}>
       <div className="rt-legs">
         {lay.legs.map((l) => (
-          <span key={l.id} className="rt-leg" style={{ left: `${l.x0}%`, width: `${Math.max(1, l.x1 - l.x0)}%` }}>
+          <span key={l.id} className={`rt-leg${l.noRest ? ' norest' : ''}`} title={l.noRest ? `${l.no}: no rest on this leg` : undefined} style={{ left: `${l.x0}%`, width: `${Math.max(1, l.x1 - l.x0)}%` }}>
             <span className="rt-cruise" style={{ left: `${((l.c0 - l.x0) / Math.max(0.01, l.x1 - l.x0)) * 100}%`, width: `${(Math.max(0, l.c1 - l.c0) / Math.max(0.01, l.x1 - l.x0)) * 100}%` }} />
             {l.x1 - l.x0 > 28 && <span className="rt-leg-t">{l.no} {l.from}–{l.to}</span>}
           </span>
         ))}
       </div>
-      {lay.legs.some((l) => l.x1 - l.x0 <= 28) && <div className="rt-note">{lay.legs.map((l) => `${l.no} ${l.from}–${l.to}`).join(' · ')}</div>}
+      {lay.legs.some((l) => l.x1 - l.x0 <= 28) && <div className="rt-note">{lay.legs.map((l) => `${l.no} ${l.from}–${l.to}${l.noRest ? ' (no rest)' : ''}`).join(' · ')}</div>}
       {pilots.length > 0 && <div className="rt-head">Pilots</div>}
       {pilots.map((r) => <Row key={r.key} r={r} />)}
       {cabin.length > 0 && <div className="rt-head">Cabin crew</div>}
