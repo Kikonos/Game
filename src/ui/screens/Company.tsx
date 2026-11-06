@@ -1,6 +1,7 @@
 // Company (B5): reputation, approvals (apply, progress), policies and goals; competitors for context.
 // v0.7: the Ladder across the top (Ladder.tsx); IOSA and DG stay below as other approvals. DESIGN.md §6.3.
 
+import { AocTypes } from './company/AocTypes';
 import { Award, BadgeCheck, Building2, ChevronRight, Flag as FlagIcon, Medal, Palette, Settings2, ShieldCheck, Target } from 'lucide-react';
 import { rivalSummary, standing, STANDING_NAME } from '../../engine/contracts';
 import { BAL } from '../../engine/core/balance';
@@ -274,6 +275,8 @@ function Overview({ g, fleet }: { g: GameState; fleet: number }) {
       {/* v0.12 a scenario's goals first. */}
       {g.scen && <ScenarioPanel g={g} />}
       <LadderCard g={g} />
+      {/* v0.17 Types on our AOC (ui/screens/company/AocTypes.tsx; lane market-ui; renders nothing in step 0). */}
+      <AocTypes g={g} />
       <SafetyCard g={g} />
       <div className="sc-company-cols">
         <div className="col gap-16">

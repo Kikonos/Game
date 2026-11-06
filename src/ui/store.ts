@@ -177,6 +177,11 @@ export type ModalSpec =
   | { kind: 'classes' }
   /** v0.7: sign a market offer; cabin refit; lease extend/return; an approval on the ladder; the ladder-step celebration. */
   | { kind: 'acquire'; offerId: string }
+  /** v0.17 the aircraft market (UPDATE-0.17.md §N.3): ask lessors; the letter of intent; add a type to the AOC; short-term aircraft. */
+  | { kind: 'rfp'; typeId?: string }
+  | { kind: 'loi'; offerId: string }
+  | { kind: 'aoc'; family?: RatingFamily }
+  | { kind: 'spot'; family?: RatingFamily }
   | { kind: 'refit'; aircraftId: string; layout?: CabinLayout; /** back to this offer when done */ offerId?: string; /** v0.7.2 open on crew rest seats */ rest?: boolean; /** v0.7.3 open on the crew rest section, this option picked */ section?: 'rest'; restOption?: RestRefitId; /** v0.7.2.2 from an idle gap: windows from this time */ after?: number }
   | { kind: 'lease'; aircraftId: string; /** v0.7.2 'early': the early-return tab */ tab?: 'renew' | 'early' }
   /** v0.7.2: sell an owned aircraft (quote, blockers, confirm; cancel an agreed sale). */

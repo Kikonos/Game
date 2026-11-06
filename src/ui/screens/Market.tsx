@@ -2,6 +2,10 @@
 // terms, where the aircraft is handed over, the delivery ferry and the pilots' airline deadheads, and chips for
 // the ladder gate, rated crew and how long the offer stays open. Lease… / Buy… opens the AcquireModal.
 
+import { DealsView } from './market/DealsView';
+import { OffersView } from './market/OffersView';
+import { RatingLine } from './market/RatingLine';
+import { RequestsView } from './market/RequestsView';
 import { BedDouble, Lock, ShoppingCart, TrendingUp } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { artFor } from '../../data/acmiTypes';
@@ -140,6 +144,8 @@ export function MarketView({ g, sel }: { g: GameState; sel: string | null }) {
   return (
     <>
       <MarketAlerts />
+      {/* v0.17 the lessor rating line (ui/screens/market; lane market-ui). */}
+      <RatingLine g={g} />
       <div className="row gap-12 mb-8 mk-intro">
         <span className="small muted grow">Good airframes are scarce: about one offer a month, open for one to three weeks. Aircraft are handed over where they are; our pilots fly out on airlines and ferry them home.</span>
         <button className={`mk-filter ${bunks ? 'on' : ''}`} aria-pressed={bunks} onClick={() => setBunks(!bunks)}><BedDouble /> Has bunks{bunks ? ` (${list.length})` : ''}</button>
@@ -151,6 +157,10 @@ export function MarketView({ g, sel }: { g: GameState; sel: string | null }) {
       ) : (
         <div className="card sc-pad muted small">No aircraft on offer right now. Lessors call every few weeks{early ? '; the first offer usually comes within two months' : ''}.{store.settings.marketAlerts ? ' Market alerts are on: you will hear about new ones.' : ' Turn on market alerts above to hear about new ones.'}</div>
       )}
+      {/* v0.17 slots: Offers · Requests · In progress (lane market-ui; render nothing in step 0). */}
+      <OffersView g={g} />
+      <RequestsView g={g} />
+      <DealsView g={g} />
     </>
   );
 }

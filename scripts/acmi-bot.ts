@@ -112,6 +112,9 @@ import { botSales } from './bot/sales';
 import { botLadder, botLadderReport } from './bot/ladder';
 import { botFarRouteReport, botFarRouteTally, farRouteOk } from './bot/clients';
 import { botSalesFinanceReport } from './bot/report016';
+// v0.17 the aircraft market (scripts/bot/market.ts, report017.ts; UPDATE-0.17.md §O).
+import { botMarket } from './bot/market';
+import { botMarketReport } from './bot/report017';
 
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
@@ -120,6 +123,12 @@ const seed = Number(args[0] ?? 1);
 const SCEN = process.argv.find((a) => a.startsWith('--scenario='))?.slice(11);
 const days = SCEN ? (SCENARIO_BY_ID[SCEN]?.days ?? 0) + 1 : Number(args[1] ?? 365);
 const DET = process.argv.includes('--det');
+// v0.17 --market=v16: the v0.16 market exactly (BAL.v017.on false), the base for comparisons; --greedy probes the caps;
+// --newfam adds a 737-800 variation in month 8 (§O.5–6).
+const MARKET16 = process.argv.includes('--market=v16');
+if (MARKET16) (BAL.v017 as { on: boolean }).on = false;
+const GREEDY = process.argv.includes('--greedy');
+const NEWFAM = process.argv.includes('--newfam');
 const BIG = process.argv.includes('--big');
 const MSGS = process.argv.includes('--msgs');
 /** v0.9 round 3: why each revenue leg held for crew at departure was short (the card), and whether the re-roster fixed it (stderr). */
@@ -1421,6 +1430,8 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     // v0.16 the bank and the sales desk (scripts/bot/finance.ts, scripts/bot/sales.ts).
     if (botFinance(g)) act(g, t);
     if (botSales(g)) act(g, t);
+    // v0.17 fleet planning on the aircraft market (step 0: never acts).
+    if (botMarket(g, { greedy: GREEDY, newfam: NEWFAM })) act(g, t);
     // v0.16 the prestige ladder (scripts/bot/ladder.ts): IOSA filed when allowed.
     if (botLadder(g)) act(g, t);
     // v0.16 the far routes offered and signed (scripts/bot/clients.ts; a tally only, no action).
@@ -2490,6 +2501,7 @@ console.log(`ladder: widebody signed ${dayOf(tally.wideSigned)}; tour series / t
 console.log(botLadderReport(g));
 // v0.16 balance: the sales desk and the bank in numbers (scripts/bot/report016.ts).
 console.log(botSalesFinanceReport(g));
+console.log(botMarketReport(g));
 {
   const by: Record<string, number> = {};
   for (const w of pipeOutcome.values()) by[w] = (by[w] ?? 0) + 1;
