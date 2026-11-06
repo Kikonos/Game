@@ -19,7 +19,7 @@ import { chance, int, pick, range, type RngHolder } from '../core/rng';
 import { DAY, fmtDay, yearOf } from '../core/time';
 import type { ActionResult, AgeBand, AircraftOffer, CreditGrade, GameState, LessorId, Minute, Rfp, RfpAnswer } from '../core/types';
 import { aircraftGate } from '../ops/company';
-import { makeOffer } from '../ops/market';
+import { bandYears as marketBandYears, makeOffer } from '../ops/market';
 import { lockOf } from '../scenario/rules';
 import { needsVariation, variationQuote } from './aoc';
 import { depositMonthsFor, lessorsFor, lessorStance, rating } from './credit';
@@ -62,10 +62,9 @@ export function bandYears(g: GameState, t: AcmiType, band: AgeBand): [number, nu
   const now = yearOf(g.now);
   if (band === 'new') return NEW_BUILD.includes(t.id) && FACTORIES[t.family] ? [now, now] : null;
   if (t.newOnly) return null;
-  const B = BAL.v017.terms.bands[band];
-  const lo = Math.max(now - B[1] + 1, t.firstYear ?? 1970);
-  const hi = Math.min(now - Math.max(1, B[0]), t.lastYear ?? now, now - 1);
-  return lo <= hi ? [lo, hi] : null;
+  // Balance step: the market's band years (old at most 26 years where the type was built that recently, else its last
+  // years), so a request never brings a 1977 A320 (the A320ceo has no firstYear) or a 33-year-old one.
+  return marketBandYears(g, t, band);
 }
 
 const replyRange = (t: AcmiType, band: AgeBand): [number, number] => R().reply[band === 'new' ? 'newBuild' : t.body === 'wide' ? 'wide' : 'narrow'];

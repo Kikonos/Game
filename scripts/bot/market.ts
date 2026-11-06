@@ -173,7 +173,9 @@ function narrowGrowth(g: GameState): boolean {
   const season = nextSeason(g);
   // Balance step: with the season under 90 days away, the date 50 days out rather than "as soon as possible" (the
   // 45–120-day window has 0.9 of the chance, as soon as possible 0.5 and stored aircraft only).
-  const target = season - g.now >= 90 * DAY ? season : g.now + 50 * DAY;
+  // The need is the next 60 days' flying: a season start 5 months or more away is not the target (from 1 June the next
+  // one is February, and a June need took an aircraft ready in January).
+  const target = season - g.now >= 90 * DAY && season - g.now <= 150 * DAY ? season : g.now + 50 * DAY;
   // The offers: proposals and calls of our family, leases, not new builds, ready by the target + 30 days.
   const cands = g.market.aircraft
     .filter((o) => o.kind === 'dryLeaseIn' && !o.newBuild && !o.spot && o.expires > g.now && !wide(o.typeId) && typeOf(o.typeId).family === fam && aircraftGate(g, o.typeId).ok)
