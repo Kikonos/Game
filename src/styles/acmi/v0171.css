@@ -46,3 +46,10 @@
 @media (max-width: 699.98px), (max-height: 499.98px) {
   .modal-foot, .touch .modal-foot { padding-left: max(18px, calc(var(--bug-inset) + var(--bug-gap) - var(--safe-l))); }
 }
+/* The picture is being drawn (after the page was copied, so not in it). */
+.bug-busy {
+  position: fixed; bottom: calc(var(--safe-b) + var(--bug-gap) + 7px); left: calc(max(var(--bug-gap), calc(var(--safe-l) - var(--bug-size) - var(--bug-gap))) + 7px);
+  width: 16px; height: 16px; border-radius: 50%; border: 2px solid rgba(var(--line-rgb), 0.25); border-top-color: var(--text-3);
+  animation: bug-spin 0.8s linear infinite;
+}
+@keyframes bug-spin { to { transform: rotate(360deg); } }

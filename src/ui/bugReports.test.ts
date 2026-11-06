@@ -5,8 +5,10 @@ import { fixtureGame } from '../engine/crew/fixtures';
 import { demoFlights } from '../engine/dev';
 import { deserialize } from '../engine/save';
 import {
-  addReport, BUGS_FORMAT, captureContext, entitySummary, exportFile, exportFileName, loadSnapshot, makeReport, memoryStore, parseBugsFile, snapshotOf, snapshotText, storageNote, summaryText, WARN_REPORTS,
+  addReport, BUGS_FORMAT, captureContext, entitySummary, exportFile, exportFileName, loadSnapshot, makeReport, memoryStore, parseBugsFile, shotExt, snapshotOf, snapshotText, storageBytes, storageNote, summaryText, WARN_REPORTS,
 } from './bugReports';
+import { MAX_W, shotScale } from './bugShot';
+import { modalRef } from './modals/BugReportModals';
 
 const env = { tab: 'schedule', view: 'day', modal: 'sheet', settings: { sound: true }, device: { kind: 'ipad', form: 'tablet', input: 'touch', standalone: true }, viewport: { w: 1180, h: 820, dpr: 2 }, ua: 'test' };
 
@@ -91,5 +93,74 @@ describe('v0.16.1 bug reports', () => {
     expect(txt.startsWith('# B\n')).toBe(true);
     expect(txt).toContain('What happened: w');
     expect(txt).toContain('Screen: schedule › day · dialog sheet');
+  });
+
+  it('v0.17.1 a report carries its screenshot: kept out of the list, counted in storage, in the export file', async () => {
+    const g = fixtureGame(5);
+    const ctx = captureContext(g, env);
+    const shot = { url: `data:image/jpeg;base64,${'A'.repeat(4000)}`, w: 1600, h: 1112 };
+    const a = makeReport(g, { title: 'With picture', what: '', expected: '' }, ctx, 1000, shot);
+    const b = makeReport(g, { title: 'Without', what: '', expected: '' }, ctx, 2000, null);
+    expect(a.shot).toBe(shot.url);
+    expect(a.shotBytes).toBe(shot.url.length);
+    expect(a.shotSize).toEqual({ w: 1600, h: 1112 });
+    expect(b.shot).toBeUndefined();
+    const store = memoryStore();
+    await addReport(a, store);
+    const list = await addReport(b, store);
+    expect('shot' in list[1]).toBe(false);
+    expect(storageBytes(list)).toBe(a.size * 2 + b.size * 2 + shot.url.length);
+    expect((await store.get(a.id))?.shot).toBe(shot.url);
+    const file = parseBugsFile(exportFile([a, b], g));
+    expect(file.reports[0].shot).toBe(shot.url);
+    expect(file.reports[1].shot).toBeUndefined();
+    expect(shotExt(a.shot)).toBe('jpg');
+    expect(shotExt('data:image/webp;base64,xx')).toBe('webp');
+    expect(shotExt(undefined)).toBeNull();
+    expect(shotExt('data:text/plain;base64,xx')).toBeNull();
+    const txt = summaryText([a, b]);
+    expect(txt).toContain('Screenshot: 1600×1112');
+    expect(txt).toContain('No screenshot');
+  });
+
+  it('v0.17.1 a report without a game (Title, New game): screen and device, no snapshot', () => {
+    const c = captureContext(null, { ...env, tab: 'title', view: undefined, modal: undefined });
+    expect(c.gameTime).toBe('No game running');
+    expect(c.now).toBeUndefined();
+    expect(c.inbox).toEqual([]);
+    expect(c.screen).toEqual({ tab: 'title' });
+    expect(c.device.viewport).toBe('1180×820');
+    const r = makeReport(null, { title: '', what: 'Title music stutters', expected: '' }, c, 1000);
+    expect(r.snapshot).toBe('');
+    expect(r.size).toBe(0);
+    expect(r.title).toBe('Bug report');
+    expect(parseBugsFile(exportFile([r], null)).reports[0].what).toBe('Title music stutters');
+  });
+
+  it('v0.17.1 the entity comes from the open dialog (offer, Crew Control, sheet, decision...)', () => {
+    const g = fixtureGame(5);
+    demoFlights(g);
+    const f = Object.values(g.flights)[0];
+    f.dutyId ??= 'duty-test';
+    expect(modalRef({ kind: 'offer', offerId: 'o1' }, g)).toEqual({ kind: 'offer', id: 'o1' });
+    expect(modalRef({ kind: 'crewControl', flightId: f.id }, g)).toEqual({ kind: 'flight', id: f.id });
+    expect(modalRef({ kind: 'sheet', refs: [{ kind: 'maint', id: 'm1' }] }, g)).toEqual({ kind: 'maint', id: 'm1' });
+    expect(modalRef({ kind: 'duty', id: f.dutyId! }, g)).toEqual({ kind: 'flight', id: f.id });
+    expect(modalRef({ kind: 'decision', decisionId: 'd1' }, g)).toEqual({ kind: 'decision', id: 'd1' });
+    expect(modalRef({ kind: 'problem', subject: { kind: 'crewShort', ref: { kind: 'flight', id: f.id } } }, g)).toEqual({ kind: 'flight', id: f.id });
+    expect(modalRef({ kind: 'livery', target: 'company' }, g)).toBeUndefined();
+    expect(modalRef({ kind: 'menu' }, g)).toBeUndefined();
+    expect(modalRef(null, g)).toBeUndefined();
+    // A dialog's subject wins over the selection; an answered decision still gives a line.
+    const c = captureContext(g, { ...env, sel: { kind: 'aircraft', id: Object.keys(g.fleet)[0] } }, { ref: { kind: 'flight', id: f.id }, modal: 'crewControl' });
+    expect(c.entity?.label).toBe(`Flight ${f.no}`);
+    expect(entitySummary(g, { kind: 'decision', id: 'gone' })?.lines[0]).toMatch(/not found/);
+  });
+
+  it('v0.17.1 the screenshot is as sharp as the screen, never wider than 1600 px', () => {
+    expect(shotScale(1180, 2) * 1180).toBeCloseTo(MAX_W);
+    expect(shotScale(852, 3) * 852).toBeCloseTo(MAX_W);
+    expect(shotScale(1440, 1)).toBe(1);
+    expect(shotScale(400, 0)).toBe(1);
   });
 });

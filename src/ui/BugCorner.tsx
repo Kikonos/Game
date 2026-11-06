@@ -17,7 +17,7 @@ const nextFrame = () => new Promise<void>((ok) => requestAnimationFrame(() => ok
 const skip = (el: Element) => el.classList.contains('bug-corner') || el.classList.contains('bug-shield');
 
 export function BugCorner() {
-  const [phase, setPhase] = useState<'idle' | 'capturing' | 'form'>('idle');
+  const [phase, setPhase] = useState<'idle' | 'capturing' | 'drawing' | 'form'>('idle');
   const [data, setData] = useState<{ shot: BugShot | null; ctx: BugContext } | null>(null);
   /** The game's holdTime before the press (restored when the form closes). */
   const held = useRef<boolean | null>(null);
@@ -41,7 +41,8 @@ export function BugCorner() {
     flushSync(() => setPhase('capturing'));
     await nextFrame();
     await nextFrame();
-    const shot = await captureScreen(skip);
+    // Once the page is copied, a small spinner in the corner says the picture is being drawn.
+    const shot = await captureScreen(skip, () => setPhase('drawing'));
     setData({ shot, ctx });
     setPhase('form');
   };
@@ -59,7 +60,7 @@ export function BugCorner() {
         </button>
       )}
       {/* While the picture is taken nothing on screen can be tapped (invisible; not in the picture). */}
-      {phase === 'capturing' && <div className="bug-shield" aria-busy="true" />}
+      {(phase === 'capturing' || phase === 'drawing') && <div className="bug-shield" aria-busy="true">{phase === 'drawing' && <span className="bug-busy" />}</div>}
       {phase === 'form' && data && (
         // Keys typed here stay here (Space would pause, numbers change speed in the shell).
         <div className="bug-layer" onKeyDown={(e) => e.stopPropagation()}>

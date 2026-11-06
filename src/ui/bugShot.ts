@@ -12,6 +12,11 @@ export const QUALITY = 0.7;
 /** A capture that takes longer than this gives up (the report is still filed, without a picture). */
 const TIMEOUT_MS = 12000;
 
+/** Characters XML cannot carry (the library strips them the same way). */
+const CONTROL = /[\u0000-\u0008\v\f\u000E-\u001F\uD800-\uDFFF\uFFFE\uFFFF]/gu;
+/** Safari (and every iOS browser) decodes the images inside an SVG picture late: it is drawn again twice. */
+const SAFARI = typeof navigator !== 'undefined' && /AppleWebKit/.test(navigator.userAgent) && !/Chrome|Chromium|Android/.test(navigator.userAgent);
+
 interface CanvasHook { canvas: HTMLCanvasElement; render: () => void }
 const hooks = new Set<CanvasHook>();
 
@@ -24,6 +29,18 @@ export function registerCaptureCanvas(canvas: HTMLCanvasElement, render: () => v
 
 /** The scale for a viewport `w` CSS px wide at device ratio `dpr`: sharp as the screen, never wider than MAX_W. Pure. */
 export const shotScale = (w: number, dpr: number): number => Math.max(0.25, Math.min(dpr || 1, MAX_W / Math.max(1, w)));
+
+/** The style properties copied onto the clone: every standard one, no custom properties (--*). The page has a few
+ *  hundred theme tokens; computed values already resolve them, and copying them onto every node made the picture's
+ *  SVG ten times larger and twice as slow to draw. */
+let props: string[] | null = null;
+function styleProps(): string[] {
+  if (props) return props;
+  const cs = getComputedStyle(document.documentElement);
+  const out: string[] = [];
+  for (let i = 0; i < cs.length; i++) if (!cs.item(i).startsWith('--')) out.push(cs.item(i));
+  return (props = out);
+}
 
 /** The page background (the theme's), so the picture has no transparent holes. */
 function pageBackground(): string {
@@ -42,13 +59,13 @@ function encode(c: HTMLCanvasElement): string {
 }
 
 /**
- * Takes the screenshot. `skip` elements (the button, the capture shield) are left out. Resolves null on any failure or
- * after TIMEOUT_MS.
+ * Takes the screenshot. `skip` elements (the button, the capture shield) are left out; `onCloned` runs once the page is
+ * copied (what happens on screen after that is not in the picture). Resolves null on any failure or after TIMEOUT_MS.
  */
-export async function captureScreen(skip: (el: Element) => boolean): Promise<BugShot | null> {
+export async function captureScreen(skip: (el: Element) => boolean, onCloned?: () => void): Promise<BugShot | null> {
   const restore: (() => void)[] = [];
   try {
-    const { domToCanvas } = await import('modern-screenshot');
+    const { createContext, destroyContext, domToForeignObjectSvg } = await import('modern-screenshot');
     // WebGL: draw a frame now and keep its picture for the clone (the drawing buffer is gone after it is shown).
     for (const h of hooks) {
       if (!h.canvas.isConnected) continue;
@@ -68,16 +85,50 @@ export async function captureScreen(skip: (el: Element) => boolean): Promise<Bug
     const w = window.innerWidth;
     const h = window.innerHeight;
     const scale = shotScale(w, window.devicePixelRatio || 1);
-    const work = domToCanvas(document.body, {
-      width: w,
-      height: h,
-      scale,
-      backgroundColor: pageBackground(),
-      filter: (n) => !(n instanceof Element && skip(n)),
-      timeout: 6000,
-      // Fonts are embedded from the app's own files (cached for offline play).
-      fetch: { requestInit: { cache: 'force-cache' } },
-    });
+    const work = (async () => {
+      // The page as an SVG (foreignObject), then drawn onto a canvas here: the library's own Safari redraw loop waits
+      // ~100 ms more per image on the page (seconds on a busy screen); two redraws are enough for Safari to decode.
+      const ctx = await createContext(document.body, {
+        width: w,
+        height: h,
+        scale,
+        filter: (n) => !(n instanceof Element && skip(n)),
+        includeStyleProperties: styleProps(),
+        timeout: 6000,
+        // Fonts are embedded from the app's own files (cached for offline play).
+        fetch: { requestInit: { cache: 'force-cache' } },
+        features: { fixSvgXmlDecode: false },
+      });
+      try {
+        const svg = await domToForeignObjectSvg(ctx);
+        onCloned?.();
+        const xml = new XMLSerializer().serializeToString(svg).replace(CONTROL, '');
+        const img = new Image();
+        await new Promise<void>((ok, no) => {
+          img.onload = () => ok();
+          img.onerror = () => no(new Error('the page picture could not be drawn'));
+          img.src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(xml)}`;
+        });
+        const c = document.createElement('canvas');
+        c.width = Math.floor(w * scale);
+        c.height = Math.floor(h * scale);
+        const g2 = c.getContext('2d');
+        if (!g2) return null;
+        const draw = () => {
+          g2.fillStyle = pageBackground();
+          g2.fillRect(0, 0, c.width, c.height);
+          g2.drawImage(img, 0, 0, c.width, c.height);
+        };
+        draw();
+        if (SAFARI) for (const wait of [120, 240]) {
+          await new Promise((ok) => setTimeout(ok, wait));
+          draw();
+        }
+        return c;
+      } finally {
+        destroyContext(ctx);
+      }
+    })();
     const canvas = await Promise.race([work, new Promise<null>((ok) => setTimeout(() => ok(null), TIMEOUT_MS))]);
     if (!canvas || !canvas.width || !canvas.height) return null;
     const url = encode(canvas);
