@@ -104,8 +104,10 @@ export function termFactor(months: number): number {
 /** The term a lessor offers for a band: the request's, moved into the band (§E.4); or one rolled in it (6-month steps). */
 export function termFor(band: AgeBand, wanted: number | undefined, roll: () => number): number {
   const [lo, hi] = T().termsByBand[band];
+  // Always rolled, so the stream's later rolls (the noise) do not depend on whether a term was asked.
+  const x = roll();
   if (wanted !== undefined) return Math.round(clamp(wanted, lo, hi));
-  return Math.round(lo / 6 + roll() * (hi / 6 - lo / 6)) * 6;
+  return Math.round(lo / 6 + x * (hi / 6 - lo / 6)) * 6;
 }
 
 /** The reserves share of maintBH by age at signing (§E.3). Pure. */
