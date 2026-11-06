@@ -13,7 +13,7 @@ export function WhatItTakes({ g, typeId, always }: { g: GameState; typeId: strin
   if (!p.exotic && !always && !open) return null;
   return (
     <div className="rf-box rf-path">
-      <div className="row gap-8"><Sparkles className="sc-ico-s accent" /><b className="small">What it takes{p.exotic ? `: a ${tName(typeId)} is rare` : ''}</b></div>
+      <div className="row gap-8"><Sparkles className="sc-ico-s accent" /><b className="small">What it takes{p.exotic ? `: ${/^[AE8]|^11|^18/.test(tName(typeId)) ? 'an' : 'a'} ${tName(typeId)} is rare` : ''}</b></div>
       {p.exotic && <div className="small muted">Hard and expensive, never impossible: rare types come from specialist lessors and airlines retiring them, or for sale.</div>}
       <ul>
         {p.steps.map((s) => (

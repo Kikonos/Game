@@ -13,6 +13,7 @@ import { BAL } from '../../engine/core/balance';
 import { typeOf } from '../../engine/core/perf';
 import { fmtDay } from '../../engine/core/time';
 import { loiQuote, paintCost, signLoi, type LoiOpts } from '../../engine/leasing';
+import { whyText } from '../../engine/leasing/terms';
 import { checkRegistration, cleanRegInput, marketView, NAME_MAX, problemFor, regCountry, suggestRegistration, type ProblemAction } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { ProblemCardView, runAction } from '../components/ProblemCard';
@@ -102,7 +103,7 @@ export function LoiModal({ offerId }: { offerId: string }) {
           <div className="upper dim">Terms</div>
           <KV rows={[
             ['Rent', `${money(o.rentPerMonth)} a month`],
-            ['Why this rent', <span key="w" className="small">{q.whyRent}</span>],
+            ['Why this rent', <span key="w" className="small">{whyText(o.why) || q.whyRent}</span>],
             ['Term', `${o.leaseMonths} months`],
             ['Deposit', `${money(q.holding)} now · ${money(q.depositAtSign)} at signing${useLc ? ' (letter of credit)' : ''}`],
             ...(q.reservesDeposit ? [['Reserves up front', `${money(q.reservesDeposit)} at signing, back at return`]] as [string, string][] : []),

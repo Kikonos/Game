@@ -61,15 +61,14 @@ function OfferCard17({ g, r, sel }: { g: GameState; r: Row; sel: boolean }) {
         </div>
       </div>
       <div className="mk17-line num ellipsis"><b>{offerTermsLine(o)}</b></div>
-      <div className="mk17-line small muted ellipsis">{offerReadyLine(g.now, o, r.ready, r.home)}</div>
+      <div className="mk17-line small muted ellipsis">{offerReadyLine(g.now, o, r.ready, r.home)} · <span className={left <= 2 ? 'warn' : ''}>{left <= 1 ? 'last day' : `open ${left} more days`}</span></div>
       <div className="row gap-8 mk17-foot">
         <div className="mk-chips grow">
           <GateChip v={r.v} />
-          <span className={`chip mk-chip ${crew.level === 'ok' ? 'good' : crew.level}`}>{crew.text}</span>
+          <span className={`chip mk-chip ${crew.level === 'ok' ? 'good' : crew.level}`} data-tip={crew.level === 'ok' ? undefined : crew.text}>{crew.level === 'ok' ? crew.text : crew.text.replace(/: .*$/, '')}</span>
           {r.tight && <span className="chip mk-chip" data-tip="How hard this type is to find now">{r.tight}</span>}
           {isExoticType(o.typeId) && <span className="chip mk-chip warn" data-tip="A rare type: the dialog says what it takes"><Sparkles className="sc-ico-s" />Rare</span>}
           {r.bunks && <span className="chip mk-chip good"><BedDouble className="sc-ico-s" />Bunks</span>}
-          <span className="chip mk-chip">{left <= 1 ? 'Last day' : `Open ${left} more days`}</span>
         </div>
         {gate.ok
           ? <button className="btn btn-primary" onClick={open}>{r.loi ? <><FileSignature /> Sign LOI…</> : <><ShoppingCart /> {o.kind === 'dryLeaseIn' ? 'Lease…' : 'Buy…'}</>}</button>
