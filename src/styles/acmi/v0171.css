@@ -1,0 +1,48 @@
+/* v0.17.1 the bug button (ui/BugCorner.tsx): a faint bug in the lower left corner of every screen, above every dialog.
+   --bug-inset is the room it needs; layouts that reach the corner keep that much clear so it never covers a control. */
+:root { --bug-size: 30px; --bug-gap: 4px; --bug-inset: calc(var(--bug-size) + 2 * var(--bug-gap)); }
+
+.bug-corner {
+  position: fixed; z-index: 1500; bottom: calc(var(--safe-b) + var(--bug-gap));
+  /* In a wide side inset (iPhone on its side) it sits in that unused strip, clear of the dialogs that start at it. */
+  left: max(var(--bug-gap), calc(var(--safe-l) - var(--bug-size) - var(--bug-gap)));
+  width: var(--bug-size); height: var(--bug-size); min-width: 0; min-height: 0; margin: 0; padding: 0;
+  display: grid; place-items: center; border: none; border-radius: 50%; background: transparent;
+  color: var(--text-3); opacity: 0.4; cursor: pointer; -webkit-tap-highlight-color: transparent;
+  transition: opacity 0.15s, background-color 0.15s;
+}
+.bug-corner svg { width: 16px; height: 16px; stroke-width: 1.8; }
+.bug-corner:active { opacity: 0.95; background: rgba(var(--line-rgb), 0.18); }
+.bug-corner:focus-visible { opacity: 0.95; outline: 2px solid var(--accent); outline-offset: 1px; }
+@media (hover: hover) and (pointer: fine) { .bug-corner:hover { opacity: 0.8; } }
+/* While the screenshot is taken: nothing can be tapped (invisible, left out of the picture). */
+.bug-shield { position: fixed; inset: 0; z-index: 1600; cursor: progress; }
+/* The report form sits above any open dialog. */
+.bug-layer { position: fixed; inset: 0; z-index: 1600; }
+
+/* The form: the screenshot beside where it was taken. */
+.bug-top { display: flex; gap: 12px; align-items: flex-start; }
+.bug-thumb { flex: 0 0 auto; width: 168px; max-height: 120px; object-fit: contain; object-position: left top; border-radius: 8px; border: 1px solid var(--border); background: var(--panel-2); }
+.bug-thumb.none { height: 96px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; color: var(--text-3); font-size: 12px; }
+.bug-thumb.none svg { width: 20px; height: 20px; }
+.bug-top .bug-ctx { flex: 1; min-width: 0; border: none; padding: 0; background: none; }
+.bug-top .bug-ctx span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bug-shot { width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--border); }
+@media (max-height: 499.98px) {
+  .bug-thumb { width: 132px; max-height: 76px; }
+  .bug-thumb.none { height: 64px; }
+  .bug-form textarea { min-height: 64px; }
+}
+
+/* ---------- the corner kept clear ---------- */
+/* New game, Scenarios: the bottom bar's Back button starts after the corner. */
+.ng-foot { padding-left: max(16px, calc(var(--safe-l) + var(--bug-inset))); }
+/* iPhone on its side: the rail ends above the corner (eight sections still fit 393 px). */
+@media (max-height: 499.98px) {
+  .shell.acmi.compact-acmi .sidebar { padding-bottom: calc(4px + var(--safe-b) + var(--bug-inset)); }
+  .shell.acmi.compact-acmi .nav-item { height: clamp(40px, calc((var(--app-h) - var(--safe-t) - var(--safe-b) - 8px - var(--bug-inset)) / 8), 52px); }
+}
+/* Phone dialogs are bottom sheets that can run to the left edge: the footer's first button starts after the corner. */
+@media (max-width: 699.98px), (max-height: 499.98px) {
+  .modal-foot, .touch .modal-foot { padding-left: max(18px, calc(var(--bug-inset) + var(--bug-gap) - var(--safe-l))); }
+}

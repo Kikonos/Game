@@ -4,7 +4,6 @@
 // Glossary words are wrapped in <Term>. The mini-map is the MAP lane's MiniMap.
 
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { ReportLink } from '../modals/BugReportModals';
 import { useState, type ReactNode } from 'react';
 import { fmtDateTime } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
@@ -119,8 +118,6 @@ export function ProblemCardView({ card, compact, g, hideActions, onAction, child
         )}
         {/* Alarm self-check: the alarm was checked again on its own before it chimed; the evidence is in the details. */}
         {card.checked && <button className="btn btn-ghost btn-sm sc-checked good" onClick={() => setDetails(!details)} title={card.checked.join('\n')}>Checked ✓</button>}
-        {/* v0.16.1 a bug report about this card: the subject and the card's words are pre-filled. */}
-        <ReportLink prefill={{ ref: card.subject.ref, title: card.what }} />
         {details && (card.details.length > 0 || card.checked) && <ul className="pc-details-list small muted">{[...card.details, ...(card.checked ?? []).map((x) => `Checked: ${x}`)].map((d, i) => <li key={i}>{d}</li>)}</ul>}
       </div>
     </div>

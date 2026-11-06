@@ -21,6 +21,7 @@
     "d3-geo": "^3.1.1",
     "lucide-react": "^1.59.0",
     "lz-string": "^1.5.0",
+    "modern-screenshot": "4.7.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
     "three": "0.186.1",

@@ -5,6 +5,8 @@
 // like a save. Reports live in IndexedDB (localStorage is far too small for snapshots); "Export all" writes one file
 // with every report, its snapshot and the current save (scripts/bugs.ts reads it back into plain save files).
 // No network: everything stays on the device until the player exports it.
+// v0.17.1 one corner button on every screen (ui/BugCorner.tsx): a screenshot of what the player saw (a JPEG or WebP data
+// URL, `shot`) goes with each report; reports can be made without a game (Title, New game: no snapshot).
 
 import LZString from 'lz-string';
 import { CURRENT } from '../data/whatsNew';
@@ -31,7 +33,8 @@ export interface BugContext {
   /** Game clock: '29 Apr 14:42' UTC and the home base's local time beside it. */
   gameTime: string;
   gameTimeLocal: string;
-  now: Minute;
+  /** Game minute (absent without a game: Title, New game). */
+  now?: Minute;
   company: string;
   seed: string | number | undefined;
   /** Where the player was: tab, sub-view, the open dialog and the selected entity. */
@@ -54,21 +57,33 @@ export interface BugReportMeta {
   what: string;
   expected: string;
   context: BugContext;
-  /** Snapshot size in characters (UTF-16 code units). */
+  /** Snapshot size in characters (UTF-16 code units; 0 without a game). */
   size: number;
+  /** v0.17.1 the screenshot's size in characters of its data URL (0 or absent: no screenshot) and its pixels. */
+  shotBytes?: number;
+  shotSize?: { w: number; h: number };
 }
 
 export interface BugReport extends BugReportMeta {
-  /** 'lz1:' + the compressed save text (snapshotOf). */
+  /** 'lz1:' + the compressed save text (snapshotOf); '' when no game was running. */
   snapshot: string;
+  /** v0.17.1 the screenshot as a data URL (image/jpeg or image/webp), absent when the capture failed. */
+  shot?: string;
 }
 
-/** What a "Report" link pre-fills: the entity and a first title. */
+/** What the corner button found open: the entity (the open dialog's subject, else the selection) and the dialog. */
 export interface BugPrefill {
   title?: string;
   ref?: Ref;
-  /** The dialog the link was in (the report dialog replaces it). */
+  /** The dialog that was open when the button was pressed. */
   modal?: string;
+}
+
+/** A screenshot as the corner button took it. */
+export interface BugShot {
+  url: string;
+  w: number;
+  h: number;
 }
 
 // ---------- snapshots ----------
@@ -185,6 +200,10 @@ export function entitySummary(g: GameState, ref: Ref): { ref: Ref; label: string
       return m ? { ref, label: `${m.kind} ${g.fleet[m.aircraftId]?.reg ?? ''}`.trim(), lines: [`${m.kind} at ${m.at} ${fmtDateTime(m.start)}–${fmtDateTime(m.end)} ${m.status}`] } : null;
     }
     case 'airport': return { ref, label: `${ref.id} ${city(ref.id)}`, lines: [`Local time ${fmtTime(g.now, ref.id)}`] };
+    case 'decision': {
+      const d = g.decisions.find((x) => x.id === ref.id);
+      return d ? { ref, label: d.title, lines: [`${d.kind} · ${fmtDateTime(d.t)} UTC`, d.body, ...d.options.map((o) => `  option: ${o.label}`)] } : { ref, label: `Decision ${ref.id}`, lines: ['Decision not found (answered)'] };
+    }
     default: return { ref, label: `${ref.kind} ${ref.id}`, lines: [] };
   }
 }
@@ -203,23 +222,20 @@ export interface CaptureEnv {
   hold?: unknown;
 }
 
-/** The context of a report: game time, where the player was, the entity's state, the Inbox, settings, device. Pure. */
-export function captureContext(g: GameState, env: CaptureEnv, prefill?: BugPrefill): BugContext {
-  const home = g.company.homeBase;
-  const off = localOffset(home, g.now);
-  const sign = off < 0 ? '−' : '+';
+/** The context of a report: game time, where the player was, the entity's state, the Inbox, settings, device. Pure.
+ *  Without a game (Title, New game) it keeps the screen, settings and device. */
+export function captureContext(g: GameState | null, env: CaptureEnv, prefill?: BugPrefill): BugContext {
   const ref = prefill?.ref ?? env.sel;
-  const entity = ref ? entitySummary(g, ref) ?? undefined : undefined;
-  return {
+  let entity: BugContext['entity'];
+  try {
+    entity = g && ref ? entitySummary(g, ref) ?? undefined : undefined;
+  } catch {
+    entity = ref ? { ref, label: `${ref.kind} ${ref.id}`, lines: ['(could not be summarised)'] } : undefined;
+  }
+  const modal = prefill?.modal ?? env.modal;
+  const base = {
     version: CURRENT.version,
-    gameTime: `${fmtDateTime(g.now)} UTC`,
-    gameTimeLocal: `${fmtDateTime(g.now + off)} ${home} (UTC${sign}${Math.floor(Math.abs(off) / 60)}${Math.abs(off) % 60 ? `:${String(Math.abs(off) % 60).padStart(2, '0')}` : ''})`,
-    now: g.now,
-    company: g.company.name,
-    seed: g.seed,
-    screen: { tab: env.tab, ...(env.view ? { view: env.view } : {}), ...(prefill?.modal ?? env.modal ? { modal: prefill?.modal ?? env.modal } : {}), ...(env.sel ? { sel: env.sel } : {}) },
-    ...(entity ? { entity } : {}),
-    inbox: g.messages.slice(0, 12).map((m) => `${fmtDateTime(m.t)} ${m.tone} ${m.title}`),
+    screen: { tab: env.tab, ...(env.view ? { view: env.view } : {}), ...(modal ? { modal } : {}), ...(env.sel ? { sel: env.sel } : {}) },
     settings: env.settings,
     device: {
       ...(env.device ?? {}),
@@ -229,6 +245,20 @@ export function captureContext(g: GameState, env: CaptureEnv, prefill?: BugPrefi
       ...(env.theme ? { theme: env.theme } : {}),
     },
     ...(env.hold !== undefined ? { hold: env.hold } : {}),
+  };
+  if (!g) return { ...base, gameTime: 'No game running', gameTimeLocal: '', company: '', seed: undefined, inbox: [] };
+  const home = g.company.homeBase;
+  const off = localOffset(home, g.now);
+  const sign = off < 0 ? '−' : '+';
+  return {
+    ...base,
+    gameTime: `${fmtDateTime(g.now)} UTC`,
+    gameTimeLocal: `${fmtDateTime(g.now + off)} ${home} (UTC${sign}${Math.floor(Math.abs(off) / 60)}${Math.abs(off) % 60 ? `:${String(Math.abs(off) % 60).padStart(2, '0')}` : ''})`,
+    now: g.now,
+    company: g.company.name,
+    seed: g.seed,
+    ...(entity ? { entity } : {}),
+    inbox: g.messages.slice(0, 12).map((m) => `${fmtDateTime(m.t)} ${m.tone} ${m.title}`),
   };
 }
 
@@ -241,7 +271,7 @@ export interface ReportStore {
   remove(id: string): Promise<void>;
 }
 
-const meta = ({ snapshot: _s, ...m }: BugReport): BugReportMeta => m;
+const meta = ({ snapshot: _s, shot: _p, ...m }: BugReport): BugReportMeta => m;
 
 /** An in-memory store (tests, and browsers without IndexedDB: reports last until the page closes). */
 export function memoryStore(): ReportStore {
@@ -310,10 +340,14 @@ export function setReportStore(s: ReportStore | null): void {
 
 const newId = () => `b${Date.now().toString(36)}${Math.floor(Math.random() * 1e6).toString(36)}`;
 
-/** Builds a report from the player's words, the context and a snapshot of the game now. Pure but for the clock and id. */
-export function makeReport(g: GameState, words: { title: string; what: string; expected: string }, context: BugContext, now = Date.now()): BugReport {
-  const snapshot = snapshotOf(g);
-  return { id: newId(), createdAt: now, title: words.title.trim() || context.entity?.label || 'Bug report', what: words.what.trim(), expected: words.expected.trim(), context, size: snapshot.length, snapshot };
+/** Builds a report from the player's words, the context, a snapshot of the game now (none without a game) and the
+ *  screenshot when there is one. Pure but for the clock and id. */
+export function makeReport(g: GameState | null, words: { title: string; what: string; expected: string }, context: BugContext, now = Date.now(), shot?: BugShot | null): BugReport {
+  const snapshot = g ? snapshotOf(g) : '';
+  return {
+    id: newId(), createdAt: now, title: words.title.trim() || context.entity?.label || 'Bug report', what: words.what.trim(), expected: words.expected.trim(), context, size: snapshot.length, snapshot,
+    ...(shot ? { shot: shot.url, shotBytes: shot.url.length, shotSize: { w: shot.w, h: shot.h } } : {}),
+  };
 }
 
 /** Saves a report; returns the list after. */
@@ -322,8 +356,14 @@ export async function addReport(r: BugReport, store: ReportStore = reportStore()
   return store.list();
 }
 
-/** Bytes the snapshots take (UTF-16: two bytes a character). Pure. */
-export const storageBytes = (list: readonly BugReportMeta[]): number => list.reduce((s, r) => s + r.size * 2, 0);
+/** Bytes the reports take: snapshots (UTF-16: two bytes a character) and screenshots (their data URL's length). Pure. */
+export const storageBytes = (list: readonly BugReportMeta[]): number => list.reduce((s, r) => s + r.size * 2 + (r.shotBytes ?? 0), 0);
+
+/** The screenshot's file extension from its data URL ('jpg', 'webp', 'png'; null when it is not an image). Pure. */
+export function shotExt(url: string | undefined): string | null {
+  const m = /^data:image\/(jpeg|jpg|webp|png);base64,/.exec(url ?? '');
+  return m ? (m[1] === 'jpeg' ? 'jpg' : m[1]) : null;
+}
 
 /** A warning once the store is big (null while it is not). Pure. */
 export function storageNote(list: readonly BugReportMeta[]): string | null {
@@ -345,7 +385,7 @@ export interface BugsFile {
   reports: BugReport[];
 }
 
-/** The export file: every report with its snapshot, and the current save. Pure. */
+/** The export file: every report with its snapshot and screenshot (`shot`, a data URL), and the current save. Pure. */
 export function exportFile(reports: readonly BugReport[], g: GameState | null, now = new Date()): string {
   const file: BugsFile = {
     format: BUGS_FORMAT, version: BUGS_VERSION, app: CURRENT.version, exportedAt: now.toISOString(),
@@ -380,6 +420,7 @@ export function summaryText(reports: readonly BugReportMeta[]): string {
       ...(c.entity ? [`About: ${c.entity.label}`, ...c.entity.lines.map((l) => `  ${l}`)] : []),
       c.inbox.length ? `Inbox: ${c.inbox.slice(0, 5).join(' | ')}` : '',
       `Device: ${[c.device.kind, c.device.form, c.device.input, c.device.standalone ? 'home-screen app' : '', c.device.viewport].filter(Boolean).join(' · ')}`,
+      r.shotBytes ? `Screenshot: ${r.shotSize ? `${r.shotSize.w}×${r.shotSize.h}, ` : ''}${Math.round(r.shotBytes / 1024)} KB (in the export file)` : 'No screenshot',
     ];
     return lines.filter(Boolean).join('\n');
   }).join('\n\n');

@@ -3,7 +3,7 @@
 // v0.7.2: the live ops strip (OpsStrip) fills the space between the speed control and cash.
 
 import {
-  Bell, Bug, Building2, CalendarRange, FileSignature, Globe2, Inbox as InboxIcon, Menu, Pause, Plane, Play, TrendingDown, TrendingUp, Users, Wallet,
+  Bell, Building2, CalendarRange, FileSignature, Globe2, Inbox as InboxIcon, Menu, Pause, Plane, Play, TrendingDown, TrendingUp, Users, Wallet,
 } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo } from 'react';
 import { fmtDate, fmtTime } from '../../engine/core/time';
@@ -193,8 +193,6 @@ function Alerts() {
         <Bell />
         {n > 0 && <span className="pip">{count(n)}</span>}
       </button>
-      {/* v0.16.1 Report a bug, one tap from the header (also in the Menu). */}
-      <button className="btn btn-ghost btn-icon hdr-bug" onClick={() => store.openModal({ kind: 'bugReport', prefill: { modal: store.modal?.kind } })} aria-label="Report a bug" data-tip="Report a bug"><Bug /></button>
       <button className="btn btn-ghost btn-icon" onClick={() => store.openModal({ kind: 'menu' })} aria-label="Menu"><Menu /></button>
     </>
   );
