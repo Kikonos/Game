@@ -606,7 +606,16 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
         continue;
       }
       if (wantHome) {
-        const ch = openForward(g, typeId, X, home, crewFree(g, aircraftId, X, earliest), cap, job, day);
+        // v0.16.4 the move home of an aircraft left with nothing planned (no job of its own any more) is flown by a crew
+        // flown out for it, never tacked onto the day of the crew who just landed it (an extended day just landed read
+        // illegal once a leg was added straight after it).
+        let from0 = earliest;
+        if (idle && !live(g, a.contractId) && !stranded(g, aircraftId, X)) {
+          let landed = -Infinity;
+          for (const f of flightsOf(g, aircraftId)) if (f.to === X && f.status === 'done') landed = Math.max(landed, f.ata ?? f.sta);
+          from0 = Math.max(earliest, landed + SAME_CREW_MIN + 5);
+        }
+        const ch = openForward(g, typeId, X, home, crewFree(g, aircraftId, X, from0), cap, job, day);
         if (ch && earliest > base0) pushed.set(ch[0], base0);
         if (ch) add(ch, a.contractId);
       }
