@@ -33,6 +33,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'A crew member on a tour under way was taken off it and flown home when the tour grew past their booked ticket home ("Ticket HAM–LIS clashes with the trip"); the ticket is moved instead.',
       'A deployment\'s return leg months ahead was refused by every set as "no 36 h recovery in 168 h" and flown as a trip from base: a set resting since the start of its period has had its recovery.',
       'A set on two early waves never got two days off together (the duties went round the sets one by one), so the 6-on/2-off rule failed inside a tour and the sizing asked for twice the sets. Sets now work their days in a row (at most four) and rest together.',
+      'After a crew change that could not be made and was undone, a ticket could go missing from the plan until the game was reloaded: the crew were then given standby at a station they had already flown home from. The tickets stay in the plan now.',
     ],
   },
   {
