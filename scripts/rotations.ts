@@ -59,7 +59,12 @@ async function main() {
   const reds = g.messages.slice(start.msgs).filter((m) => m.topic === 'crewRed' || m.topic === 'crewHours').length;
   const title = `${args[0].split('/').pop()} played ${days} days (${fmtDateTime(g.now - days * DAY)} → ${fmtDateTime(g.now)}${sign ? '' : ', no new contracts'})`;
   const cov = `Coverage: legs flown +${g.stats.legs - start.legs}, cancelled +${g.stats.cancelled - start.cancelled}, uncovered at departure +${(g.stats.uncovered ?? 0) - start.uncovered}, sub-chartered +${(g.stats.subchartered ?? 0) - start.sub}, red crew alarms +${(g.stats.crewRed ?? 0) - start.red} (messages ${reds}), amber +${(g.stats.crewAmber ?? 0) - start.amber}, cash ${Math.round(start.cash / 1000)}K → ${Math.round(g.company.cash / 1000)}K${g.gameOver ? ` GAME OVER ${g.gameOver.reason}` : ''}.`;
-  const rep = `${log.report(g, title)}\n\n${cov}\n\n${((performance.now() - wall) / 1000).toFixed(1)} s.\n`;
+  // The P&L of the months played (closed statements and the open one), by line, to read a cash difference.
+  const pl = [...g.finance.history, g.finance.current]
+    .slice(-Math.ceil(days / 30) - 1)
+    .map((st) => `- ${st.month}: ${Object.entries(st.lines).filter(([, v]) => Math.abs(v ?? 0) >= 1000).sort((a, b) => (b[1] ?? 0) - (a[1] ?? 0)).map(([k, v]) => `${k} ${Math.round((v ?? 0) / 1000)}K`).join(', ')}`)
+    .join('\n');
+  const rep = `${log.report(g, title)}\n\n${cov}\n\nP&L by month (the last ${Math.ceil(days / 30) + 1}):\n${pl}\n\n${((performance.now() - wall) / 1000).toFixed(1)} s.\n`;
   console.log(rep);
   if (inv) inv.print(`save ${args[0]}`);
   const out = flag('out');
