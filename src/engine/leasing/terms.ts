@@ -188,12 +188,13 @@ export function quoteTerms(g: GameState, d: TermsDraft): TermsQuote {
   const marketF = (1 + tightF) * idx - 1;
   f *= (1 + tightF) * idx;
   why.push({ label: `${tightWord(tight).toLowerCase()} market`, pct: marketF });
+  // The noise is rolled before the source's factor, so a batch airframe is 8–15 % under the same airframe's call quote.
+  const noise = range(r, T().noise[0], T().noise[1]);
   if (d.source === 'batch') {
     const b = range(r, T().batch[0], T().batch[1]);
     f *= 1 + b;
     why.push({ label: 'failure batch', pct: b });
   }
-  const noise = range(r, T().noise[0], T().noise[1]);
   const rent = floorRent(t, Math.round((base * f * noise) / 1000) * 1000);
   // Deposit months (§E.2): the grade's, +1 new build, −1 batch (min 1); short-term 1 (2 at D); an agreed one kept.
   let dm = gradeDepositMonths(grade, score);

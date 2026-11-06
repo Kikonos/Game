@@ -16,6 +16,7 @@ import type { GameState, Minute, SupplyShock, WorldEvent } from '../core/types';
 import { clamp } from '../core/util';
 import { eligibleTypes, shortName } from '../ops/market';
 import { onAirlineFailure } from './batches';
+import { isExotic } from './exotic';
 import { leasingSide } from './side';
 
 const S = () => BAL.v017.supply;
@@ -173,8 +174,10 @@ export function supplyOutlook(g: GameState): { typeId: string; word: string; tre
   const L = g.leasing;
   const seen = new Set<string>();
   const rows: { typeId: string; tight: number }[] = [];
+  // Exotics and museum pieces one rung away would always top the list ("747-100 almost none"): they show only once
+  // their gate is held.
   for (const e of eligibleTypes(g)) {
-    if (seen.has(e.t.id)) continue;
+    if (seen.has(e.t.id) || (e.teaser && isExotic(e.t.id))) continue;
     seen.add(e.t.id);
     rows.push({ typeId: e.t.id, tight: tightNow(g, e.t.id) });
   }
