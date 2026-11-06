@@ -406,6 +406,7 @@ export function dailyRfps(g: GameState): void {
       summary(g, rfp);
     }
   }
+  for (const [k, t] of Object.entries(L.quiet)) if (t <= g.now) delete L.quiet[k];
   // Requests closed over 90 days ago leave the list.
   L.rfps = L.rfps.filter((r) => r.status === 'open' || r.replyBy > g.now - 90 * DAY);
   if (changed) touch(g);
