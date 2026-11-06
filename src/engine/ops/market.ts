@@ -17,7 +17,7 @@ import { runwayFit, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, gaussian, int, pick, range, weightedPick, type RngHolder } from '../core/rng';
 import { DAY, fmtDate, fmtDay, monthKey, yearOf } from '../core/time';
-import type { ActionResult, Aircraft, AircraftOffer, ApprovalId, Cabin, GameState, MarketPhase, MarketShock, SimEvent } from '../core/types';
+import type { ActionResult, Aircraft, AircraftOffer, ApprovalId, Cabin, GameState, Induction, MarketPhase, MarketShock, Minute, SimEvent } from '../core/types';
 import { antarcticSeason, nextHajj } from '../../data/worldCalendar';
 import { clamp, hash } from '../core/util';
 import { familyLabel } from '../crew/conversion';
@@ -28,6 +28,12 @@ import { applyRentStep } from './leaseReturn';
 import { usedHoursCycles } from './sale';
 import { usd } from './util';
 import { lockOf } from '../scenario/rules';
+// v0.17 (UPDATE-0.17.md §Q.1): the market's hooks into engine/leasing (neutral in step 0).
+import { dailyCalls } from '../leasing/calls';
+import { inductionPlan } from '../leasing/induction';
+import { monthlyLeasing } from '../leasing/index';
+import { quoteTerms } from '../leasing/terms';
+import { tightNow } from '../leasing/tightness';
 
 /** Real operating lessors (names only; they also trade used aircraft). */
 /**
@@ -75,8 +81,10 @@ export function eligibleTypes(g: GameState): { t: AcmiType; w: number; teaser: b
     if (!t.available || (t.firstYear ?? 0) > year) continue;
     if (t.newOnly && !(NEW_BUILD.includes(t.id) && FACTORIES[t.family])) continue;
     const miss = rungsAway(g, aircraftGate(g, t.id).missing);
-    if (miss === 0) out.push({ t, w: 1 - t.scarcity, teaser: false });
-    else if (miss === 1) out.push({ t, w: (1 - t.scarcity) * BAL.market7.teaserWeight, teaser: true });
+    // v0.17 weighted by 1 − tightNow (step 0: tightNow is the type's scarcity, as before).
+    const w = 1 - tightNow(g, t.id);
+    if (miss === 0) out.push({ t, w, teaser: false });
+    else if (miss === 1) out.push({ t, w: w * BAL.market7.teaserWeight, teaser: true });
   }
   return out;
 }
@@ -98,8 +106,8 @@ export function returnSiteOf(o: Pick<AircraftOffer, 'id' | 'typeId' | 'site'>): 
   return sites[hash(`${o.id}:return`) % sites.length].code;
 }
 
-/** One offer of type t (`opts.lease` forces a dry lease: the guaranteed offers). */
-function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'dryLeaseIn' | 'buy'; newBuild?: boolean; site?: string; depositMonths?: number; handoverAt?: number } = {}): AircraftOffer {
+/** One offer of type t (`opts.lease` forces a dry lease: the guaranteed offers). v0.17 exported for engine/leasing (calls, batches). */
+export function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'dryLeaseIn' | 'buy'; newBuild?: boolean; site?: string; depositMonths?: number; handoverAt?: number } = {}): AircraftOffer {
   const M = BAL.market7;
   const id = nextId(g, 'mo');
   const r = side(g, id);
@@ -154,6 +162,11 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
       o.where = `ex-${x.airline}, ${AIRPORT_BY_CODE[x.hub].city} (${x.hub})`;
     }
   }
+  // v0.17 (§E) every offer is priced through quoteTerms (step 0: the legacy terms rolled above come back unchanged).
+  Object.assign(o, quoteTerms(g, {
+    offerId: id, typeId: t.id, kind: o.kind, builtYear: o.builtYear, newBuild: !!o.newBuild,
+    rentPerMonth: o.rentPerMonth, reservesPerFH: o.reservesPerFH, leaseMonths: o.leaseMonths, deposit: o.deposit, price: o.price,
+  }));
   if (opts.site && AIRPORT_BY_CODE[opts.site] && opts.site !== o.site) {
     // Another site: the ex-operator only when it is that operator's hub.
     const x = (EX_OPERATORS[t.id] ?? []).find((e) => e.hub === opts.site);
@@ -177,8 +190,8 @@ function makeOffer(g: GameState, t: AcmiType, opts: { lease?: boolean; kind?: 'd
 
 const kindText = (o: AircraftOffer) => (o.newBuild ? 'new-build slot' : o.kind === 'buy' ? 'for sale' : 'for lease');
 
-/** Posts an offer: one Inbox message (topic market; the UI may hide them) and a market pause request. */
-function postOffer(g: GameState, o: AircraftOffer): void {
+/** Posts an offer: one Inbox message (topic market; the UI may hide them) and a market pause request. v0.17 exported for engine/leasing. */
+export function postOffer(g: GameState, o: AircraftOffer): void {
   // v0.15 a scenario's fixed fleet: no aircraft on the market (the draw is made, so the day's other draws stay).
   if (lockOf(g, 'fleet')) return;
   const m = g.market;
@@ -229,6 +242,8 @@ export function refreshMarket(g: GameState): void {
     m.gotWide = true;
     postOffer(g, makeOffer(g, typeOf(chance(r, 0.5) ? 'b763' : 'a332'), { lease: true }));
   }
+  // v0.17 tightness moves monthly (engine/leasing; step 0: nothing moves).
+  monthlyLeasing(g);
 }
 
 /**
@@ -236,6 +251,13 @@ export function refreshMarket(g: GameState): void {
  * of filing Widebody operations, one old 767/A330 lease when no unlocked widebody is on offer.
  */
 export function dailyMarket(g: GameState): void {
+  // v0.17 lessor calls (engine/leasing/calls.ts) while the v0.17 market is on; `--market=v16` keeps the v0.16 roll.
+  if (BAL.v017.on) dailyCalls(g);
+  else dailyMarketLegacy(g);
+}
+
+/** The v0.16 market's daily roll (the body of dailyMarket before v0.17). */
+export function dailyMarketLegacy(g: GameState): void {
   const m = g.market;
   m.aircraft = m.aircraft.filter((o) => o.expires > g.now);
   const M = BAL.market7;
@@ -290,12 +312,15 @@ function registration(g: GameState): string {
   }
 }
 
+/** The player's choices when signing (registration, name, the ETOPS delivery way). */
+export interface AcquireOpts { reg?: string; name?: string; /** v0.11 a delivery we may not ferry (ETOPS) */ delivery?: 'thisSide' | 'ferryCo' }
+
 /**
  * Signs a dry lease in (deposit) or a purchase (price). Refused when the Ladder's gate is closed (pending counts),
  * cash is short or the offer has lapsed. The aircraft is 'delivering' at the handover site until the handover; the
  * delivery ferry home is planned at once (the roster sends rated pilots out on airline tickets before it).
  */
-export function acquireAircraft(g: GameState, offerId: string, opts: { reg?: string; name?: string; /** v0.11 a delivery we may not ferry (ETOPS) */ delivery?: 'thisSide' | 'ferryCo' } = {}): ActionResult<{ aircraftId: string }> {
+export function acquireAircraft(g: GameState, offerId: string, opts: AcquireOpts = {}): ActionResult<{ aircraftId: string }> {
   // v0.15 a scenario's fleet is fixed.
   const lk = lockOf(g, 'fleet');
   if (lk) return { ok: false, error: lk };
@@ -304,10 +329,12 @@ export function acquireAircraft(g: GameState, offerId: string, opts: { reg?: str
   const o = g.market.aircraft[i];
   const gate = aircraftGate(g, o.typeId);
   if (!gate.ok) return { ok: false, error: `${gate.text}: apply under Company → Ladder` };
+  // v0.17 the handover after the transition (engine/leasing/induction.ts; step 0: signing + the offer's lead days).
+  const plan = inductionPlan(g, o);
   // v0.11 no legal ferry home on our certificate (ETOPS): the seller hands over on this side, or a ferry company
   // brings it to our base; both fly it under their own approval and charge for it (paid at signing).
   let site = o.site ?? g.company.homeBase;
-  let handover = g.now + o.leadDays * DAY;
+  let handover = plan.ready;
   let where = o.where;
   let fee = 0;
   const block = deliveryQuote(g, o.typeId, site, handover, o.where).blocked;
@@ -334,10 +361,39 @@ export function acquireAircraft(g: GameState, offerId: string, opts: { reg?: str
     if (!chk.ok) return { ok: false, error: chk.reason };
     chosen = chk.reg;
   }
-  const acName = cleanAircraftName(opts.name ?? '');
-  const t = typeOf(o.typeId);
   g.market.aircraft.splice(i, 1);
-  cashOnly(g, -o.deposit);
+  return signOffer(g, o, { site, handover, where, fee, pay: o.deposit, reg: chosen, name: opts.name, delivery: opts.delivery, induction: plan.induction });
+}
+
+/** v0.17 what signOffer needs: the handover site and time, the fee and the cash due now, the registration and name. */
+export interface SignOpts {
+  site: string;
+  handover: Minute;
+  where?: string;
+  /** A ferry company or the seller delivering (ETOPS), posted under `delivery`. */
+  fee: number;
+  /** Cash paid now (the deposit, the price; v0.17 the rest of a deposit after the holding deposit). */
+  pay: number;
+  /** A registration already checked (else generated). */
+  reg?: string;
+  name?: string;
+  delivery?: 'thisSide' | 'ferryCo';
+  /** v0.17 the transition plan stored on the aircraft. */
+  induction?: Induction;
+}
+
+/**
+ * v0.17 (UPDATE-0.17.md §F "Refactor") builds the signed aircraft from an offer: the cash due now, the aircraft
+ * 'delivering' at the handover site, the handover and lease-end events, the delivery ferry and the message. No checks
+ * (the caller made them): acquireAircraft (legacy offers, purchases) and the lease signing of a letter-of-intent deal.
+ */
+export function signOffer(g: GameState, o: AircraftOffer, s: SignOpts): ActionResult<{ aircraftId: string }> {
+  const { site, handover, where, fee } = s;
+  const chosen = s.reg;
+  const opts = { delivery: s.delivery };
+  const acName = cleanAircraftName(s.name ?? '');
+  const t = typeOf(o.typeId);
+  cashOnly(g, -s.pay);
   if (fee) post(g, 'delivery', -fee);
   const age = Math.max(0, yearOf(g.now) - o.builtYear);
   // v0.7.2 hours and cycles on the sale model's norms (its adjustments average 1.0 on a fresh purchase).
@@ -367,6 +423,7 @@ export function acquireAircraft(g: GameState, offerId: string, opts: { reg?: str
     // Utilisation tracked from signing (a reload would set it at the load day otherwise: save/load determinism).
     bhSince: Math.floor(g.now / DAY),
     delivery: { site, where: where ?? `${AIRPORT_BY_CODE[site]?.city ?? site} (${site})`, handover, ferryIds: [] },
+    ...(s.induction ? { induction: s.induction } : {}),
   };
   g.fleet[ac.id] = ac;
   schedule(g, handover, 'aircraft.delivery', ac.id);

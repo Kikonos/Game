@@ -36,6 +36,8 @@ import { dailyAudit } from './audit';
 import { loadCompliance, monthlyCompliance } from './compliance';
 import { dailyTreasury, loadTreasury, monthlyTreasury } from '../finance';
 import { DAY as DAY_MIN } from '../core/time';
+// v0.17 the aircraft market (engine/leasing; UPDATE-0.17.md §Q.1).
+import { dailyLeasing, loadLeasing } from '../leasing';
 
 // v0.11 Operations: the disruption cards' resolvers join the decision table (wired here, after every module loaded).
 registerResolvers(DISRUPT_RESOLVERS);
@@ -138,6 +140,8 @@ function daily(g: GameState) {
   // v0.12.1 legs that need an approval we won't hold by their departure: the card and the decision ahead of time.
   dailyApprovalGate(g);
   dailyMarket(g);
+  // v0.17 requests to lessors, deals, transitions, AOC variations, short-term aircraft (step 0: neutral).
+  dailyLeasing(g);
   dailyDelivery(g);
   dailyLeases(g);
   // v0.8 the lessee's hours and the monthly rent and reserves of dry leases out.
@@ -159,6 +163,8 @@ export const opsModule: SimModule = {
     // v0.7 defaults exactly as load sets them (a fresh game and a reloaded one serialise alike).
     loadApprovals(g);
     loadMarket(g);
+    // v0.17 the aircraft market's state (before refreshMarket, which moves it monthly).
+    loadLeasing(g);
     refreshMarket(g);
     // v0.7.3 the start fleet's rest facilities: the market roll, deterministic per aircraft (widebodies only).
     // v0.7.4 fitted facilities only (bunks always as a pair; the 767 never); the cabin's curtained seats are always there.
@@ -185,6 +191,8 @@ export const opsModule: SimModule = {
     loadWorld(g);
     loadApprovals(g);
     loadMarket(g);
+    // v0.17 the aircraft market's state (tightness, requests, deals; the AOC's families from the fleet).
+    loadLeasing(g);
     // v0.11 delivery ferries planned straight across an ocean before the ETOPS rule: the legal way from the next leg.
     loadEtopsFerries(g);
     // v0.12.1 VIP refits booked at the old flat price: priced by the seats fitted (a refund when already paid).

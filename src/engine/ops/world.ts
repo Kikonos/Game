@@ -30,6 +30,7 @@ import { ticketBlock } from './commercial';
 import { subcharter, subcharterQuotes } from './subcharter';
 import { contractOf, isRevenue, turnOf, usd } from './util';
 import { tourStopAsk } from './tourStop';
+import { onSupplyEvent } from '../leasing/tightness';
 
 export type { WorldEvent, WorldEventKind };
 
@@ -413,6 +414,8 @@ export function startEvent(g: GameState, t: WorldEventTpl, r: RngHolder = side(g
   if (t.kind === 'recession') setPhase(g, 'slump', Math.round(days / 30));
   if (rival) ceaseRival(g, rival.id);
   if (e.zoneId === 'iran' || e.kind === 'war') g.market.fuelPrice = Math.min(1250, g.market.fuelPrice);
+  // v0.17 aircraft supply: shocks on tightness, a failure batch (engine/leasing; step 0: nothing).
+  onSupplyEvent(g, e);
   pushMessage(g, {
     tone: e.closed || e.kind === 'war' || e.kind === 'coup' ? 'warn' : 'info', cat: e.kind === 'airlineFailure' || e.kind === 'recession' || e.kind === 'engineCrisis' ? 'commercial' : 'ops',
     title: e.title, body: e.body, ref: { kind: 'event', id: e.id }, topic: 'world',

@@ -18,6 +18,7 @@ import { APPROVALS, gateApprovals, waitingFor } from './company';
 import { ask } from './events';
 import { cancelCost, cancelLegs, moveFlight, noticeText, pickRival, rivalFactor, subcharterCost, subcharterLegs, type SubHit, unitOf } from './flights';
 import { contractOf, isRevenue, usd } from './util';
+import { familyOnAoc } from '../leasing/aoc';
 
 /** Why an approval is not ours at a time: never applied for, stuck waiting at the authority, or due after it. */
 export type GateState = 'missing' | 'waiting' | 'late';
@@ -63,6 +64,12 @@ export function gateMisses(g: GameState, f: Flight, t: Minute = f.std + f.delay)
     else if (p.waiting) out.push({ id, state: 'waiting', due: p.done });
     else if (p.done > t) out.push({ id, state: 'late', due: p.done });
     else if (t <= g.now) out.push({ id, state: 'late', due: p.done });
+  }
+  // v0.17 (§H) a leg of a family not on our AOC yet: lane `deals` adds the variation's miss here (positioning without
+  // passengers, delivery ferries and training may fly). Step 0: familyOnAoc is always true, so nothing is added.
+  const ac = f.aircraftId && !f.operatedBy && f.kind !== 'ferry' && f.kind !== 'deadhead' ? g.fleet[f.aircraftId] : undefined;
+  if (ac && !familyOnAoc(g, typeOf(ac.typeId).family, t)) {
+    // lane deals: out.push({ … the AOC variation miss … })
   }
   return out;
 }
