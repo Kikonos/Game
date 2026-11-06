@@ -689,3 +689,10 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
   After a container restart: Workflow({scriptPath: "/root/.claude/projects/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/workflows/scripts/overnight-v0164-v017-wf_6e3bc1c8-5a2.js", resumeFromRunId: "wf_6e3bc1c8-5a2"}). Completed agents replay from cache; the agents keep STATE files under /home/user/work/<lane>/.
 - v0.16.4 "Rotations" RELEASED 2026-11-06 (overnight workflow): release f7eb417 on main + claude/contrail-airline-game, built from acmi bef65f7 (What's new tightened there); live index-pkEdFIzB.js; live.cjs 0 errors; v12check v0.16.4 true. Checks: tsc 0, vitest 248 files / 2203 tests, bots 1–2 200 --wide --inv 0 errors (bot balance lines: margin −5.7 % / −6.2 %, BH 174 / 137 a/c below target; runtime FAIL under load), s0612 30 d 0 errors (self-check 8 confirmed, 0 withheld).
 - v0.17 "Aircraft market" RELEASED 2026-11-06: release bc8cffa on main + claude/contrail-airline-game, built from acmi f995f1c (What's new v0.17 tightened there); live index-BasJBT5T.js; live.cjs 0 errors; v12check v0.17 true. Checks: tsc 0, vitest 263 files / 2297 tests, bots 1–2 200 --wide --inv 0 errors (200-day margin −7.2 % / −9.7 %, seed 2 BH 120; runtime FAIL under load), s0612 30 d 0 errors (self-check 4 confirmed, 0 withheld), vite build OK.
+- OVERNIGHT DONE 2026-11-06: v0.16.4 "Rotations" released (f7eb417) and v0.17 "Aircraft market" released (bc8cffa, live index-BasJBT5T.js).
+  Open for a follow-up:
+  - bot margins worse (v0.17 200 d: -7.2/-9.7%; v0.16.4 -5.7/-6.2%); summer BH per aircraft low on seed 2;
+  - seed 3 365 d: 1 invariant error (FO went 172:50 between recovery rests, over the 168 h limit; standby then a ticket home; also seen in older runs);
+  - rotations: more red alarms on seeds 1/3, seed 4 coverage worse (sets stay out, so the base pool is thinner; idea: let free set days absorb duties, or add a set);
+  - bot runtime over the 20 s limit;
+  - deals: the bot does not yet use RFPs or LOIs fully.
