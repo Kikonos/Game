@@ -2456,6 +2456,13 @@ export interface LeaseDeal {
   gradeAtOffer: CreditGrade; committeeAt: Minute; gradeAtCommittee?: CreditGrade;
   conditions?: { extraDeposit: number; until: Minute };
   signBy?: Minute; signedAt?: Minute; aircraftId?: string; endedAt?: Minute; why?: string;
+  // v0.17 deals
+  /** The registration, name and ETOPS delivery way chosen at the letter of intent (used at the lease signing). */
+  opts?: { reg?: string; name?: string; delivery?: 'thisSide' | 'ferryCo' };
+  /** More security met (§F 3b): paid in cash at signing, or by a letter of credit. */
+  conditionsMet?: 'cash' | 'lc';
+  /** §T an exotic signed below the lessor's grade: the extra deposit and the up-front reserves deposit. */
+  exoticSecurity?: number; reservesDeposit?: number;
 }
 export interface Induction {
   slot: Minute; records: [Minute, Minute]; check: [Minute, Minute]; reg: [Minute, Minute];
@@ -2463,6 +2470,13 @@ export interface Induction {
   findings?: { days: number; text: string }; techReps?: boolean;
   /** Days waited for a CAMO slot / for the aircraft to come free. */
   waitedCamo: number; waitedFree: number;
+  // v0.17 deals
+  /** Our CAMO's capacity when the slot was booked and the slots this transition takes (the camo-capacity invariant). */
+  cap?: number; need?: number;
+  /** Steps already told in the Inbox ('records', 'check', 'findings'). */
+  told?: string[];
+  /** The expected ready day before any findings (what the letter-of-intent dialog showed). */
+  expected?: Minute;
 }
 export interface SupplyShock { id: string; families?: RatingFamily[]; typeIds?: string[]; delta: number; until: Minute; text: string; eventId?: string }
 export interface AocVariation { family: RatingFamily; filed: Minute; done: Minute; cost: number; granted?: Minute }
@@ -2486,7 +2500,17 @@ export interface Leasing {
   stats: LeasingStats;
   // v0.17 supply
   // v0.17 deals
+  /** Letters of credit the lessor wants in cash after the credit line froze or was not renewed (§K.1): aircraft id → the day. */
+  lcCashDue?: Record<string, Minute>;
+  /** Exotic requests (§T) and their proposals, for the bot's report. */
+  exotic?: { rfps: number; proposals: number };
   // v0.17 market-ui
+}
+
+// v0.17 deals: fields merged into AircraftOffer (declaration merging keeps them in this block).
+export interface AircraftOffer {
+  /** A proposal for later than asked (the lessor's "Later" answer, §D.3). */
+  later?: true;
 }
 
 /**
