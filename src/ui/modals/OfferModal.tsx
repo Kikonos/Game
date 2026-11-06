@@ -256,9 +256,9 @@ function posLine(r: FeasibilityReport): string {
 }
 
 /** v0.16.4 the aircraft left off the picker, and why: 'Not offered: CS-TTL (A330-200). The client wants a narrowbody.' */
-function misfitLine(g: GameState, rs: FeasibilityReport[]): string {
-  const regs = rs.map((r) => (g.fleet[r.aircraftId] ? `${g.fleet[r.aircraftId].reg} (${typeOf(g.fleet[r.aircraftId].typeId).short})` : r.aircraftId));
-  const why = [...new Set(rs.map((r) => r.checks.find((c) => c.level === 'no' && (c.id === 'body' || c.id === 'family'))?.label.split(';')[0]).filter(Boolean))];
+function misfitLine(g: GameState, rs: FeasibilityReport[], client?: string): string {
+  const regs = rs.map((r) => (g.fleet[r.aircraftId] ? `${g.fleet[r.aircraftId].reg} (${typeOf(g.fleet[r.aircraftId].typeId).name})` : r.aircraftId));
+  const why = [...new Set(rs.map((r) => r.checks.find((c) => c.level === 'no' && (c.id === 'body' || c.id === 'family'))?.label.split(';')[0].replace(/^The client/, client ?? 'The client')).filter(Boolean))];
   return `Not offered: ${regs.join(', ')}. ${why.join('. ')}.`;
 }
 
@@ -732,7 +732,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
             <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} lift={lift / bizLift} offerId={o.id} long={!!restLine}
               portal={o.product.kind !== 'dry' ? <SchedulePortal g={g} o={o} aircraftId={r.aircraftId} candidates={shown.map((x) => x.aircraftId)} report={r} open={sel?.aircraftId === r.aircraftId} /> : undefined} />
           ))}
-          {notShown.length > 0 && <div className="tiny dim of-misfit">{misfitLine(g, notShown)}</div>}
+          {notShown.length > 0 && <div className="tiny dim of-misfit">{misfitLine(g, notShown, cl?.name)}</div>}
         </div>
       </div>
     </Modal>

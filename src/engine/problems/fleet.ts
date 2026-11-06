@@ -125,10 +125,11 @@ export function awayIdleCard(g: GameState, aircraftId: string): ProblemCard | nu
   const days = Math.max(1, Math.ceil((g.now - v.since) / DAY));
   const park = BAL.delivery.parkPerDay[t.body === 'wide' ? 1 : 0];
   const cap = etopsCap(g.company.approvals, ac.typeId);
+  const where = v.to === g.company.homeBase ? 'home' : `to ${city(v.to)} for its next job`;
   const why = v.why === 'route'
-    ? `No way home fits the ${t.short}'s range and our ETOPS limit (${cap === Infinity ? 'none' : `${cap} minutes`}), so nothing is planned.`
-    : v.why === 'closed' ? 'Every way home lands in a closed airport or airspace, so nothing is planned until it reopens.'
-    : 'Nothing is planned for it after its last job, and no way home was found.';
+    ? `No way ${where} fits the ${t.short}'s range and our ETOPS limit (${cap === Infinity ? 'none' : `${cap} minutes`}), so nothing is planned.`
+    : v.why === 'closed' ? `Every way ${where} lands in a closed airport or airspace, so nothing is planned until it reopens.`
+    : `Nothing is planned to take it ${where}.`;
   return {
     subject: { kind: 'awayIdle', ref: { kind: 'aircraft', id: ac.id } }, severity: days >= 7 ? 'red' : 'amber',
     title: `${ac.reg} is stuck at ${city(ac.at)}`, what: `${ac.reg} is stuck at ${city(ac.at)} with nothing planned`,

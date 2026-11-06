@@ -797,15 +797,18 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
  * limit gets it home), 'closed' (every way home lands in a closure) or 'none' (no reason found). null: not idle away (at
  * home, flying, in a check, being delivered, handed back or sold, or something planned). Pure.
  */
-export function awayIdle(g: GameState, aircraftId: string): { why: 'route' | 'closed' | 'none'; since: Minute } | null {
+export function awayIdle(g: GameState, aircraftId: string): { why: 'route' | 'closed' | 'none'; since: Minute; to: string } | null {
   const ac = g.fleet[aircraftId];
   const home = g.company.homeBase;
   if (!ac || ac.at === home || ac.status !== 'available' || ac.flightId || ac.returning || ac.sale || (ac.delivery && !ac.delivery.arrived)) return null;
   if (liveFlightsOf(g, aircraftId).some((f) => f.status === 'scheduled' || f.status === 'enroute') || onwardPending(g, aircraftId)) return null;
-  if (anchorsOf(g, aircraftId).some((x) => x.kind !== 'start')) return null;
+  // Where it has to be next: its next commitment (a base programme, a check) elsewhere, else home; one here is a plan.
+  const next = anchorsOf(g, aircraftId).find((x) => x.kind !== 'start');
+  const to = next ? next.from : home;
+  if (to === ac.at) return null;
   let since = ac.deliveredAt;
   for (const f of flightsOf(g, aircraftId)) if (f.status === 'done' && f.to === ac.at) since = Math.max(since, f.ata ?? f.sta);
-  const ch = chainForward(ac.typeId, ac.at, home, g.now, etopsCap(g.company.approvals, ac.typeId), emptyDay(g, aircraftId));
+  const ch = chainForward(ac.typeId, ac.at, to, g.now, etopsCap(g.company.approvals, ac.typeId), emptyDay(g, aircraftId));
   const why = !ch ? 'route' : shutIn(g, ch, null) !== null ? 'closed' : 'none';
-  return { why, since };
+  return { why, since, to };
 }

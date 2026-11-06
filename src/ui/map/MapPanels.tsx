@@ -33,7 +33,7 @@ import type { Aircraft, CrewMember, Flight, GameState, MaintenanceEvent, Problem
 import type { DryLeaseView } from '../../engine/ops';
 import { type CrewAlertKind, crewName, crewShortCard, dutyCrew, flightCrewStatus, outOfHours, restNow, restOf, restSeatsBlocked, restText, ridersText, sellableSeats, seatsText, slipOfFlight, slipsOfAircraft, standbyNow } from '../../engine/crew';
 import { crewHoursCard } from '../../engine/problems';
-import { checkStatus, CONNECT_MIN, commercialItinerary, deliveryStatus, dryLeaseOf, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, flightZone, problemAt, ticketPurpose, worldEvent, worldZones } from '../../engine/ops';
+import { checkStatus, CONNECT_MIN, commercialItinerary, deliveryStatus, dryLeaseOf, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, flightZone, problemAt, problemFor, ticketPurpose, worldEvent, worldZones } from '../../engine/ops';
 import { ferryCost } from '../../engine/ops/delivery';
 import { AircraftArt } from '../components/AircraftArt';
 import { Bar } from '../components/ui';
@@ -538,7 +538,13 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
         )}
       </Section>
       <Section title="Next legs">
-        {legs.length ? legs.map((f) => <LegRow key={f.id} g={g} f={f} short={short.get(f.id)} />) : <div className="small muted">Nothing scheduled. Check the market.</div>}
+        {legs.length ? legs.map((f) => <LegRow key={f.id} g={g} f={f} short={short.get(f.id)} />) : (() => {
+          // v0.16.4 parked away with no way home: the card says why (and what the parking costs).
+          const stuck = safe(() => problemFor(g, { kind: 'awayIdle', ref: { kind: 'aircraft', id: ac.id } }), null);
+          return stuck
+            ? <button className="btn btn-sm op-gap warn-t" onClick={() => store.openModal({ kind: 'problem', subject: stuck.subject } as unknown as ModalSpec)}>{stuck.what} · Why?</button>
+            : <div className="small muted">Nothing scheduled. Check the market.</div>;
+        })()}
       </Section>
       {slips.length > 0 && (
         <Section title="Crew change">
