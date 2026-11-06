@@ -102,6 +102,8 @@ export interface ProblemCard {
   terms: TermId[];
   /** Deadline the card is about (departure, due date), for 'time left' chips. */
   by?: Minute;
+  /** Alarm self-check: the evidence the alarm behind this card was confirmed with (the card's small "Checked ✓"). */
+  checked?: string[];
 }
 
 /** '$1.24M', '$340K', '$12K', '$900' (the ops helper, repeated here to keep this module import-free). */

@@ -2700,6 +2700,14 @@ console.log(
       `discretion used ${v9?.discretionUsed ?? 0} (planned ${v9?.discretionPlanned ?? 0}) refused ${v9?.discretionRefused ?? 0} · jumbo loads ${v9?.jumboLoads ?? 0} (747 invoiced ${k$(rev744)}) · runtime ${runSecs.toFixed(1)} s`,
   );
   {
+    // Alarm self-check: crew alarms confirmed vs withheld (the check disagreed), with the reasons of the withheld ones.
+    const sc = g.selfCheck;
+    const why = new Map<string, number>();
+    for (const r of sc?.log ?? []) why.set(`${r.kind}: ${r.why}`, (why.get(`${r.kind}: ${r.why}`) ?? 0) + 1);
+    console.log(`self-check: crew alarms confirmed ${sc?.confirmed ?? 0}, withheld ${sc?.withheld ?? 0}${why.size ? ` (last ${sc!.log.length}: ${[...why].map(([k, n]) => `${n}× ${k}`).join('; ')})` : ''}`);
+    for (const r of (sc?.log ?? []).slice(0, 5)) console.log(`  withheld ${fmtDateTime(r.t)} ${r.title} — ${r.why}${r.evidence.length ? ` · ${r.evidence.slice(0, 3).join(' · ')}` : ''}`);
+  }
+  {
     // v0.11 Operations: the director's quiet share, disruptions, ramp inspections and audit findings by kind (whole run).
     const all: Record<string, number> = {};
     for (const y of Object.values(g.opsx?.counts ?? {})) for (const [k, v] of Object.entries(y)) all[k] = (all[k] ?? 0) + v;

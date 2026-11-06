@@ -30,6 +30,8 @@ export function crewFlightCard(g: GameState, flightId: string, kind: ProblemRef[
     // v0.9 round 4 (§T): a named crew member at a legal limit gets the out-of-hours card on every surface.
     const card = (crewAlertKind(g, flightId) === 'hours' ? crewHoursCard(g, flightId) : null) ?? crewShortCard(g, flightId);
     if (card && card.subject.kind !== 'crewHours' && kind !== 'crewShort' && kind !== 'crewIllegal') card.subject = { kind, ref: card.subject.ref };
+    // Alarm self-check: the alarm on this flight was confirmed with this evidence.
+    if (card && f.crewAlert && f.crewChecked?.length) card.checked = f.crewChecked;
     return card;
   }
   if (cs.level !== 'tight' || kind === 'crewShort' || kind === 'crewIllegal') return null;
