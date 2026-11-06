@@ -692,8 +692,6 @@ export const crewModule: SimModule = {
   load(g) {
     // v0.7.2: CSD/SCC → PUR before anything reads roles.
     migrateRanks(g);
-    // Rotations round (v0.16.4): tickets booked off the timetable by an older build move onto it where the crew still connect.
-    retimeToTimetable(g);
     g.classes ??= {};
     // v0.12.1 pilots who lost the A320 on an A330 conversion before the CCQ get it back (both kept now).
     restoreCcqRatings(g);
@@ -723,6 +721,9 @@ export const crewModule: SimModule = {
     closureTicketsOnLoad(g);
     // v0.12.1 legs a load repair moved or removed (ops: a closure's held legs, orphan out-and-backs): duties follow now.
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
+    // Rotations round (v0.16.4): tickets booked off the timetable by an older build move onto it where the crew still
+    // connect (last: every other repair has read the tickets as they were).
+    retimeToTimetable(g);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);

@@ -27,8 +27,9 @@ describe("v0.9 What's new catch-up (UPDATE-0.9.md §X)", () => {
     expect(v(whatsNewToShow('v0.15', true))).toEqual(['v0.16.4', 'v0.16.3', 'v0.16.2', 'v0.16.1', 'v0.16']);
     expect(v(whatsNewToShow('v0.16', true))).toEqual(['v0.16.4', 'v0.16.3', 'v0.16.2', 'v0.16.1']);
     expect(v(whatsNewToShow('v0.16.1', true))).toEqual(['v0.16.4', 'v0.16.3', 'v0.16.2']);
-    expect(v(whatsNewToShow('v0.16.2', true))).toEqual(['v0.16.3']);
-    expect(whatsNewToShow('v0.16.3', true)).toEqual([]);
+    expect(v(whatsNewToShow('v0.16.2', true))).toEqual(['v0.16.4', 'v0.16.3']);
+    expect(v(whatsNewToShow('v0.16.3', true))).toEqual(['v0.16.4']);
+    expect(whatsNewToShow('v0.16.4', true)).toEqual([]);
     expect(v(whatsNewToShow('v0.7.4', false))).toEqual(['v0.16.4', 'v0.16.3', 'v0.16.2', 'v0.16.1', 'v0.16', 'v0.15', 'v0.14.1', 'v0.14', 'v0.13', 'v0.12', 'v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1', 'v0.10', 'v0.9.1', 'v0.9', 'v0.8', 'v0.7.4']);
   });
   it('a fresh install gets the newest only; an older player everything since their version', () => {
