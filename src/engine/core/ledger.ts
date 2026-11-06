@@ -44,6 +44,8 @@ export const COST_CATS: readonly LedgerCat[] = [
   'bankFees', 'commission',
   // v0.16.3 deferral premiums, payment-plan fees, early-payment discounts, restructuring costs (write-offs net against them).
   'distress',
+  // v0.17 lease transitions (tech reps, fleet-standard mods, registration, the CAMO's work: engine/leasing).
+  'transition',
 ];
 
 /**

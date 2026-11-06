@@ -247,6 +247,8 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   interestIncome: 'Interest on cash', bankFees: 'Bank fees', commission: 'Brokers\' commission',
   // v0.16.3
   distress: 'Deferrals & restructuring',
+  // v0.17
+  transition: 'Lease transitions',
 };
 
 /**

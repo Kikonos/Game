@@ -241,6 +241,10 @@ export interface Company {
   aocAt?: Minute;
   /** v0.16 the prestige ladder (contracts/prestige.ts): our level 1–4 and the visibility earned. load: ??= derived from history, never lowered. */
   prestige?: PlayerPrestige;
+  /** v0.17 (UPDATE-0.17.md §H) the type families on our AOC (a new family needs a variation). load: ??= the fleet's families. */
+  aocFamilies?: RatingFamily[];
+  /** v0.17 AOC variations filed (granted or waiting). load: ??= [] */
+  aocVariations?: AocVariation[];
 }
 
 // ======================================================================
@@ -278,6 +282,14 @@ export type Ownership =
       /** v0.14.1 an extension's rent, from the old lease end (`from`); applied then (rentPerMonth, index). */ nextRent?: { from: Minute; rent: number; index: number };
       /** v0.14.1 the rent before the last change, until `until` (the month of a change is billed at both). */ prevRent?: { until: Minute; rent: number };
       /** v0.16 finance: sold to the lessor and leased back (engine/finance leaseback): it was ours. */ leaseback?: true;
+      /**
+       * v0.17 (§E, §I, §K; leases signed in v0.17 only; older leases have none of these): the lessor's id; minimum hours
+       * a month billed as reserves; the next reserves escalation; the half-life share at return (absent = 0.5); a letter of
+       * credit in place of the cash deposit; the grade-D up-front reserves deposit; a short-term sublease from an airline;
+       * our lessor rating at signing.
+       */
+      lessorId?: LessorId; minFH?: number; reservesEscAt?: Minute; halfLifeShare?: number; lc?: number; reservesDeposit?: number;
+      spot?: { airline: string; base: string }; grade?: CreditGrade;
     };
 
 /** v0.7: handover abroad and the delivery ferry home. */
@@ -355,6 +367,8 @@ export interface Aircraft {
   crewExtra?: CrewExtra;
   /** v0.7: handover abroad and the delivery ferry (unset on v0.6 deliveries: handover at base, no ferry). */
   delivery?: DeliveryInfo;
+  /** v0.17 (§G) the transition plan of a leased aircraft (records, check, registration, paint, acceptance). Absent on older deliveries. */
+  induction?: Induction;
   /** v0.7: lease return booked (ferry + return check). */
   returning?: { site: string; maintId: string; ferryIds: string[]; quote: number; /** v0.7.2 early-return fee (posted when the return check starts). */ earlyFee?: number;
     /** v0.12.1 the lease end before an early return moved it (a slipped return check falls back to it). */ wasEnd?: Minute };
@@ -962,7 +976,9 @@ export type ProblemKind =
   /** v0.16 finance: a bank covenant broken; a loan instalment the forecast cannot pay; little credit headroom left; a factored invoice we may have to buy back. */
   | 'covenantBreach' | 'loanDue' | 'creditHeadroom' | 'factorRecourse'
   /** v0.16 sales: a lead about to go cold. */
-  | 'leadCold';
+  | 'leadCold'
+  /** v0.17 the aircraft market (problems/leasing.ts): more security asked, a lease to sign, a transition running late, a type needing an AOC variation, a short-term aircraft due back. */
+  | 'leaseConditions' | 'leaseSign' | 'inductionDelay' | 'variationNeeded' | 'spotReturn';
 
 /** v0.7.1 what a card is about: the entity (as a message Ref) plus the kind. */
 export interface ProblemRef { kind: ProblemKind; ref: Ref }
@@ -1328,7 +1344,9 @@ export interface Ref {
     /** v0.16 a loan (Finance › Financing), a pipeline lead or a broker (Contracts › Sales), a sales manager or the compliance manager (Team). */
     | 'loan' | 'lead' | 'broker' | 'rep' | 'compliance'
     /** v0.16.3 the debt plan on Finance (deferrals, the investor's board, the restructuring). */
-    | 'debt';
+    | 'debt'
+    /** v0.17 a request to lessors or airlines; a lease deal in progress (Fleet › Market). */
+    | 'rfp' | 'deal';
   id: string;
 }
 
@@ -1427,7 +1445,9 @@ export type LedgerCat =
   /** v0.16 finance: interest earned on spare cash (revenue); bank fees (arrangement, commitment, waiver, early repayment, factoring); brokers' commission shown apart. */
   | 'interestIncome' | 'bankFees' | 'commission'
   /** v0.16.3 distress finance (engine/finance/distress.ts): deferral premiums, payment-plan fees, early-payment discounts, restructuring costs and write-offs (a gain). */
-  | 'distress';
+  | 'distress'
+  /** v0.17 a lease transition (tech reps, fleet-standard mods, registration, the CAMO's work); a cost (engine/leasing). */
+  | 'transition';
 
 export interface MonthStatement {
   month: MonthKey;
@@ -1513,6 +1533,32 @@ export interface AircraftOffer {
   crewRest?: { bunks: boolean; seats: number };
   /** v0.7.3 in-flight rest facilities (rolled at creation, copied on acquisition; old open offers: ??= migrateRest). */
   rest?: AcRest;
+  // v0.17 (UPDATE-0.17.md §D–§J; all optional: an offer without `source` is a legacy offer and signs as before).
+  /** Where it came from: a lessor call, a proposal to our request, a failure batch, a short-term sublease, a new-build slot. */
+  source?: OfferSource;
+  lessorId?: LessorId;
+  rfpId?: string;
+  batchId?: string;
+  band?: AgeBand;
+  /** Our lessor rating it was quoted at, the deposit in months, the holding deposit paid at the letter of intent. */
+  grade?: CreditGrade;
+  depositMonths?: number;
+  holding?: number;
+  /** Minimum flight hours a month billed as reserves; the half-life share at return. */
+  minFH?: number;
+  halfLifeShare?: number;
+  /** The day the aircraft is free (still with its airline until then). */
+  freeAt?: Minute;
+  /** Why this rent: one line per factor ('36 months', +0.04). */
+  why?: { label: string; pct: number }[];
+  /** Transition cost due at signing. */
+  transition?: number;
+  /** Proposal validity (else `expires`). */
+  validUntil?: Minute;
+  /** A short-term sublease: the airline, its base and the fixed return date. */
+  spot?: { airline: string; base: string; returnAt: Minute };
+  /** v0.17 (player addition, §T) an exotic type (A380, 747, A340-500/600…): the extra security asked to deal below the lessor's grade. */
+  exoticSecurity?: number;
 }
 
 export interface Market {
@@ -1902,6 +1948,8 @@ export interface GameState {
   com?: CommercialState;
   /** v0.16 finance (engine/finance): the credit line, aircraft loans, factoring, the money market. load: ??= empty */
   treasury?: Treasury;
+  /** v0.17 the aircraft market (engine/leasing): tightness, requests, deals, letters of credit. load/init: loadLeasing */
+  leasing?: Leasing;
   /** v0.16 ops: the offer filter (contracts/filter.ts). Absent = no filter. */
   filter?: OfferFilter;
   /** v0.16 ops: the Compliance Monitoring Manager (ops/compliance.ts). load: ??= nobody hired */
@@ -2363,4 +2411,92 @@ export interface OpsState {
   reducedReports?: Minute[];
   /** Aircraft-days spent grounded with a check overdue (day starts; the audit reads the last year). */
   grounded?: Minute[];
+}
+
+// ======================================================================
+// v0.17 "Aircraft market" (UPDATE-0.17.md §L; engine/leasing). Step 0 adds the types; lane `deals` owns them.
+// A lane may add optional fields inside its own `// v0.17 <lane>` block below.
+// ======================================================================
+
+export type AgeBand = 'new' | 'young' | 'mid' | 'old';
+export type CreditGrade = 'A' | 'B' | 'C' | 'D';
+export type LessorId = 'aercap' | 'smbc' | 'avolon' | 'alc' | 'boc' | 'cdb' | 'acg' | 'aircastle' | 'carlyle' | 'vallair' | 'doric' | 'amedeo' | 'exop';
+export type OfferSource = 'call' | 'proposal' | 'batch' | 'spot' | 'newBuild';
+
+/**
+ * Our lessor rating (§C): the score 0–100, its grade and the parts that made it (the UI's "Why?"). Named `LessorRating`
+ * (not the design's `CreditView`): engine/finance already exports a `CreditView` (the bank's credit line).
+ */
+export interface LessorRating { score: number; grade: CreditGrade; parts: { label: string; pts: number }[]; at: Minute }
+export interface RfpAnswer {
+  /** A lessor id, or an airline name for a short-term request. */
+  lessorId: LessorId | string;
+  due: Minute;
+  at?: Minute;
+  kind?: 'proposal' | 'later' | 'none' | 'credit' | 'exposure' | 'placed' | 'blocked';
+  offerIds?: string[];
+  text?: string;
+}
+export interface Rfp {
+  id: string; typeId: string; band: AgeBand; months: number; count: 1 | 2 | 3;
+  /** Wanted handover; asap: as soon as possible; flex: ± a month. */
+  from: Minute; asap: boolean; flex: boolean;
+  sent: Minute; replyBy: Minute; answers: RfpAnswer[];
+  status: 'open' | 'done' | 'withdrawn';
+  /** A short-term request to airlines. */
+  spot?: true;
+}
+export type DealStage = 'committee' | 'conditions' | 'approved' | 'declined' | 'signed' | 'walked';
+export interface LeaseDeal {
+  id: string;
+  /** The offer as it was at the letter of intent (it leaves g.market.aircraft). */
+  offer: AircraftOffer;
+  stage: DealStage; loiAt: Minute; holding: number;
+  autoSign: boolean; lc: boolean; paint: boolean; techReps: boolean;
+  gradeAtOffer: CreditGrade; committeeAt: Minute; gradeAtCommittee?: CreditGrade;
+  conditions?: { extraDeposit: number; until: Minute };
+  signBy?: Minute; signedAt?: Minute; aircraftId?: string; endedAt?: Minute; why?: string;
+}
+export interface Induction {
+  slot: Minute; records: [Minute, Minute]; check: [Minute, Minute]; reg: [Minute, Minute];
+  paint?: [Minute, Minute]; ready: Minute;
+  findings?: { days: number; text: string }; techReps?: boolean;
+  /** Days waited for a CAMO slot / for the aircraft to come free. */
+  waitedCamo: number; waitedFree: number;
+}
+export interface SupplyShock { id: string; families?: RatingFamily[]; typeIds?: string[]; delta: number; until: Minute; text: string; eventId?: string }
+export interface AocVariation { family: RatingFamily; filed: Minute; done: Minute; cost: number; granted?: Minute }
+export interface LeasingStats {
+  rfps: number; answers: Record<string, number>; lois: number; signed: number; walked: number; declined: number; conditions: number;
+  inductions: number; inductionDays: number; camoWaitDays: number; spot: number; batches: number;
+  calls: { narrow: number; wide: number }; minHoursBilled: number; forfeited: number;
+}
+export interface Leasing {
+  tight: Record<string, number>; prevTight?: Record<string, number>; shocks: SupplyShock[];
+  rfps: Rfp[]; deals: LeaseDeal[];
+  /** `${lessorId}:${typeId}` → no new look before this day (after a "no aircraft"). */
+  quiet: Record<string, Minute>;
+  lastBatch?: Minute;
+  /** The lessor rating, cached daily (§C.1). */
+  credit?: LessorRating;
+  /** Letters of credit out: by aircraft id (or deal id before signing). */
+  lc: Record<string, number>; lcAccrued: number;
+  /** Bumped on every change the problem cards and the UI read (deals, requests): their cache key (problems/index.ts). */
+  rev?: number;
+  stats: LeasingStats;
+  // v0.17 supply
+  // v0.17 deals
+  // v0.17 market-ui
+}
+
+/**
+ * v0.17 player addition (§T): what it takes to lease or buy an exotic type (A380, 747-400/-8, A340-500/-600, 747
+ * classics). One line per requirement, met or not, for the request and letter-of-intent dialogs ("What it takes").
+ */
+export interface ExoticPath {
+  typeId: string;
+  exotic: boolean;
+  steps: { key: 'grade' | 'security' | 'approvals' | 'aoc' | 'crew' | 'camo' | 'cash' | 'source'; ok: boolean; text: string }[];
+  /** Who can supply one now: lessor ids / an airline retiring them / a sale. */
+  sources: string[];
 }
