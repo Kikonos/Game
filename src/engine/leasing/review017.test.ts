@@ -137,7 +137,7 @@ describe('v0.17 review: a letter of credit that can no longer be issued', () => 
     }
     expect(d.stage).toBe('approved');
     // The bank freezes the line before we sign.
-    g.treasury!.credit!.frozen = true;
+    g.treasury!.credit!.frozen = g.now;
     const before = g.company.cash;
     const r = signLease(g, d.id);
     expect(r.ok, r.ok ? '' : r.error).toBe(true);
