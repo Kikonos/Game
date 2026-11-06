@@ -467,7 +467,10 @@ export function otherTrip(g: GameState, c: CrewMember, p: Pairing, from: Minute,
     // home, and replacements were flown out when the tour grew). While they are there, or on their way.
     const span = tourSpan(g, q);
     const dep = span && q.deploymentId ? g.deployments[q.deploymentId] : undefined;
-    if (span && dep && span.to > g.now && (c.loc === dep.base || open.length)) {
+    // Crew bug round (the alarm self-check, s0501 AT1002): a finished part of another set's tour at the same station no
+    // longer holds a crew member the roster has moved onto this set's tour there ("On another tour until 29 Apr" on 1 May).
+    const moved = q.status === 'done' && !open.length && !!p.deploymentId && p.deploymentId === q.deploymentId;
+    if (span && dep && span.to > g.now && (c.loc === dep.base || open.length) && !moved) {
       const qs = Math.min(span.from, open[0]?.report ?? Infinity, q.start);
       const qe = Math.max(span.to, open[open.length - 1]?.release ?? -Infinity);
       if (qs < to && qe > from) return q;

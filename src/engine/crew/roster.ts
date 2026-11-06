@@ -1483,7 +1483,7 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
   let checked: string[] | undefined;
   let alarm = short > 0;
   if (short && f0) {
-    const v = confirmAlarm(g, 'takenOff', f0, `${off.length === 1 ? 'Crew member' : `${off.length} crew`} taken off ${f0.no}`, off.map((b) => ({ crewId: b.crewId, code: b.issue.code })));
+    const v = confirmAlarm(g, 'takenOff', f0, `${off.length === 1 ? 'Crew member' : `${off.length} crew`} taken off ${f0.no}`, off.map((b) => ({ crewId: b.crewId, code: b.issue.code })), { fix: false });
     if (v.confirmed) checked = v.evidence;
     else alarm = false;
   }

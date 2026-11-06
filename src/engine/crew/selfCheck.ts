@@ -33,6 +33,8 @@ export interface Verdict {
   evidence: string[];
   /** Why the alarm was withheld (empty when confirmed). */
   why: string;
+  /** Withheld because the planner's own free fix crews the flight (dry run): the caller applies it. */
+  fixable?: boolean;
 }
 
 const hm = (m: number) => `${m < 0 ? '−' : ''}${Math.floor(Math.abs(m) / 60)}:${String(Math.round(Math.abs(m) % 60)).padStart(2, '0')}`;
@@ -62,8 +64,15 @@ export function table2(reportLocal: number, sectors: number): number {
   return Math.max(9 * H, base - Math.max(0, sectors - 2) * 30);
 }
 
-/** Augmented day caps (CS FTL.1.205(c)(2), class 1 rest, one long sector): the most any augmented day may run. */
-const AUG_CAP: Record<1 | 2, number> = { 1: 17 * H, 2: 18 * H };
+/**
+ * CS FTL.1.205(c)(2) augmented crew: 3 pilots 16 / 15 / 14 h with class 1 / 2 / 3 rest, 4 pilots 17 / 16 / 15 h; one hour
+ * more for at most 2 sectors with one over 9 h of flight. The cabin crew's rest class, when worse, sets the class.
+ */
+export function augMax(augment: 1 | 2, fcCls: 1 | 2 | 3, ccCls: 1 | 2 | 3 | null, sectors: number, longestBlock: number): number {
+  const cls = Math.max(fcCls, ccCls ?? 1) as 1 | 2 | 3;
+  const base = (augment === 1 ? 16 * H : 17 * H) - (cls - 1) * H;
+  return base + (sectors <= 2 && longestBlock > 9 * H ? H : 0);
+}
 
 interface Span { start: Minute; end: Minute; block: number; aug: boolean; ext: boolean; dep: string; arr: string; kind: 'duty' | 'ticket' | 'standby' | 'log'; weight: number; /** A ticket of the duty being judged (positioning into it: part of its day, no rest before it). */ own?: true }
 
@@ -76,7 +85,10 @@ function dutySpan(g: GameState, d: Duty, p: Pairing, cabin: boolean): Span | nul
   const early = cabin ? d.cabinEarly ?? 0 : 0;
   const first = fl[0];
   const last = fl[fl.length - 1];
-  const start = (first.status === 'scheduled' ? first.std + (first.delay ?? 0) : d.report) - (first.status === 'scheduled' ? rm.report + early : 0);
+  // A duty already reported runs from its report (a hold at the gate grows the day); one still to report from its first
+  // departure as it now stands.
+  const reported = d.report <= g.now && p.status === 'active';
+  const start = reported || first.status !== 'scheduled' ? d.report - early : first.std + (first.delay ?? 0) - rm.report - early;
   const end = (last.status === 'done' ? last.ata ?? last.sta : last.status === 'enroute' ? last.eta ?? last.sta : last.sta + (last.delay ?? 0)) + rm.post;
   return { start, end, block: fl.reduce((s, f) => s + f.block, 0), aug: d.augment > 0, ext: !!d.ext, dep: first.from, arr: last.to, kind: 'duty', weight: 1 };
 }
@@ -154,9 +166,18 @@ export function judgePerson(g: GameState, c: CrewMember, d: Duty, p: Pairing): P
     values.rest = [first - prev.end, restNeed(prev.end - prev.start, atHome, prev.aug, tz, prev.ext)];
   }
   // The day's length against Table 2 at the departure's local report time (augmented: the cap of the class 1 table).
-  const fdp = me.end - me.start - reportMinutes((p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo').post;
-  const max = d.augment > 0 ? AUG_CAP[d.augment as 1 | 2] : Math.max(table2(me.start + offsetAt(me.dep, me.start), d.flightIds.length), d.ext ? 14 * H : 0, d.split ? 16 * H : 0);
-  values.fdp = [fdp, max + (d.discretion ?? 0)];
+  // The stricter of the departure's and the home base's clock (a crew not yet acclimatised reads the home clock); a
+  // split duty is not judged here (its limit grows with the break).
+  const typeId = (p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo';
+  const fdp = me.end - me.start - reportMinutes(typeId).post;
+  const legsN = d.flightIds.filter((id) => g.flights[id] && g.flights[id].status !== 'cancelled').length;
+  const longest = Math.max(0, ...d.flightIds.map((id) => g.flights[id]?.block ?? 0));
+  const t2 = Math.min(table2(me.start + offsetAt(me.dep, me.start), legsN), table2(me.start + offsetAt(c.base, me.start), legsN));
+  const rest = restOf(g, p.aircraftId);
+  let max: number | null = null;
+  if (d.augment > 0) max = rest.fc ? augMax(d.augment as 1 | 2, rest.fc.cls, rest.cc?.cls ?? null, legsN, longest) : null;
+  else if (!d.split) max = t2 + (d.ext ? H : 0);
+  if (max !== null) values.fdp = [fdp, max + (d.discretion ?? 0)];
   const bl = c.blocks?.find((b) => b.from < me.end && b.to > me.start && (b.why === 'sick' || b.why === 'leave' || b.why === 'joining' || b.why === 'training'));
   if (bl) other.status = `${bl.why} ${fmtDateTime(bl.from)}–${fmtDateTime(bl.to)} UTC`;
   const ac = p.aircraftId ? g.fleet[p.aircraftId] : undefined;
@@ -187,6 +208,7 @@ function refutes(r: PersonReading, code: string): boolean | null {
 }
 
 const CODE_WORDS: Record<string, string> = {
+  location: 'in the wrong place', rating: 'not rated on the type', status: 'not available (sick, leave, training)', overlap: 'busy on other work',
   blockYear: 'year flying limit', block12m: '12-month flying limit', recovery: 'weekly 36 h rest due', twoDays: 'two local days off due', daysOff: 'a planned day off',
   inflightRest: 'cannot rest in this cruise', ext7d: 'second extension in 7 days', nightSectors: 'too many night sectors', lateEarly: 'late finish before an early start',
   tzRest: 'rest after a time-zone change', standby: 'standby and duty too long together', workBlock: 'too many days in a row',
@@ -309,6 +331,7 @@ export function checkAlarm(g: GameState, kind: AlarmKind, flightId: string, hook
     const named = [...names, ...(hooks.claims?.(h, f.id) ?? [])];
     let claimsLeft = 0;
     let claimsRefuted = 0;
+    const refuted: string[] = [];
     const seen = new Set<string>();
     for (const n of named) {
       const c = h.crew[n.crewId];
@@ -317,6 +340,8 @@ export function checkAlarm(g: GameState, kind: AlarmKind, flightId: string, hook
       const r = judgePerson(h, c, d, p);
       if (refutes(r, n.code) === true) {
         claimsRefuted++;
+        const lim = AS_LIMIT[n.code];
+        refuted.push(`claimed ${CODE_WORDS[n.code] ?? LIMIT_WORDS[lim] ?? n.code}, read on its own: ${lim ? line(c, lim, r, at) : `${nameOf(c)}: fine`}`);
         continue;
       }
       claimsLeft++;
@@ -335,13 +360,13 @@ export function checkAlarm(g: GameState, kind: AlarmKind, flightId: string, hook
     if (!problem) {
       return withhold(
         claimsRefuted ? `every limit it names is clear when checked on its own (${claimsRefuted} claim${claimsRefuted > 1 ? 's' : ''} refuted), and every seat is filled` : 'every seat is filled and the crew aboard are within their limits',
-        evidence,
+        [...refuted, ...evidence],
       );
     }
     // 5. The planner's own fix, in a dry run: if it crews the flight, the alarm is not a confirmed problem.
     if (hooks.fix && (kind === 'short' || kind === 'early' || kind === 'takenOff') && seatsBad) {
       hooks.fix(h, f.id);
-      if (h.flights[f.id] && !hooks.bad(h, f.id)) return withhold('the planner\'s own fix crews it (dry run)', evidence);
+      if (h.flights[f.id] && !hooks.bad(h, f.id)) return { ...withhold('the planner\'s own fix crews it (dry run)', evidence), fixable: true };
       evidence.push('no free fix: the roster run again and standby call-outs leave it short (dry run)');
     }
     return { confirmed: true, evidence: evidence.slice(0, 8), why: '' };
@@ -388,9 +413,17 @@ export function setAlarmHooks(h: CheckHooks): void {
  * Self-checks one crew alarm before it fires, counts it, and files a withheld one. A confirmed alarm leaves its evidence
  * on the flight (Flight.crewChecked, the card's "Checked ✓"). Without hooks (a module test) every alarm is confirmed.
  */
-export function confirmAlarm(g: GameState, kind: AlarmKind, f: Flight, title: string, names: Claim[] = []): Verdict {
+export function confirmAlarm(g: GameState, kind: AlarmKind, f: Flight, title: string, names: Claim[] = [], opts: { fix?: boolean } = {}): Verdict {
   if (!hooksSet) return { confirmed: true, evidence: [], why: '' };
-  const v = checkAlarm(g, kind, f.id, hooksSet, names);
+  // The dry run of the planner's fix only where the caller lets the planner fix (dev scenes ask for the bare alarm).
+  const hooks = opts.fix === false ? { ...hooksSet, fix: undefined } : hooksSet;
+  const v = checkAlarm(g, kind, f.id, hooks, names);
+  // The planner's own free fix crews it on the copy: it is applied to the game (the same deterministic step), so a
+  // withheld shortage is never left standing unwarned.
+  if (!v.confirmed && v.fixable && hooks.fix) {
+    hooks.fix(g, f.id);
+    v.evidence = [...v.evidence, 'the fix was then applied'];
+  }
   noteVerdict(g, kind, f, title, v);
   if (v.confirmed) f.crewChecked = v.evidence.slice(0, 4);
   return v;

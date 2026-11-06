@@ -465,7 +465,7 @@ function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
       const card = crewShortCard(g, f.id);
       if (!card) continue;
       const days = Math.max(1, Math.round((f.std - g.now) / DAY));
-      const v = confirmAlarm(g, 'early', f, `Heads-up: ${card.what} (${fmtDay(f.std)})`);
+      const v = confirmAlarm(g, 'early', f, `Heads-up: ${card.what} (${fmtDay(f.std)})`, [], { fix: freeFix });
       if (!v.confirmed) continue;
       pushMessage(g, {
         tone: 'info', cat: 'crew', checked: v.evidence,
@@ -562,7 +562,7 @@ function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
     v9.oohAmber += fl.filter((f) => kindOf.get(f.id) === 'hours').length;
     const card = hours ? crewHoursCardHook?.(g, fl[0].id) ?? crewShortCard(g, fl[0].id) : crewShortCard(g, fl[0].id);
     const title = card ? (fl.length === 1 ? (hours ? `${fl[0].no}: crew out of hours` : card.what) : `${fl.length} flights need crew`) : '';
-    const v = card ? confirmAlarm(g, hours ? 'hours' : 'short', fl[0], title) : null;
+    const v = card ? confirmAlarm(g, hours ? 'hours' : 'short', fl[0], title, [], { fix: freeFix }) : null;
     if (card && v?.confirmed) {
       const h = Math.round((fl[0].std - g.now) / 60);
       pushMessage(g, {
@@ -585,7 +585,7 @@ function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
       const h = Math.max(0, Math.round((f.std - g.now) / 60));
       const also = duties.filter((y) => y !== f && y.aircraftId === f.aircraftId).map((y) => y.no);
       // Alarm self-check: only a confirmed problem chimes, pauses and shows its card.
-      const v = confirmAlarm(g, hours ? 'hours' : 'short', f, `${hours ? 'CREW OUT OF HOURS' : 'CREW SHORTAGE'}: ${f.no} in ${h} h`);
+      const v = confirmAlarm(g, hours ? 'hours' : 'short', f, `${hours ? 'CREW OUT OF HOURS' : 'CREW SHORTAGE'}: ${f.no} in ${h} h`, [], { fix: freeFix });
       if (!v.confirmed) continue;
       if (hours) {
         hrs = true;
