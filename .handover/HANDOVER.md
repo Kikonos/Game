@@ -696,3 +696,4 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
   - rotations: more red alarms on seeds 1/3, seed 4 coverage worse (sets stay out, so the base pool is thinner; idea: let free set days absorb duties, or add a set);
   - bot runtime over the 20 s limit;
   - deals: the bot does not yet use RFPs or LOIs fully.
+- v0.17.1 in progress: one permanent, discreet bug button in the bottom-left corner on every screen and dialog, taking a screenshot plus game data; all other report links removed; overlap audit. Branch bugbtn; STATE in /home/user/work/bugbtn/STATE.txt. The agent releases it when green.
