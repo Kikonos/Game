@@ -51,7 +51,8 @@ export function loadAoc(g: GameState): void {
 }
 
 const wideHeld = (g: GameState) => g.company.approvals.includes('widebody') || g.company.pendingApprovals.some((p) => p.id === 'widebody');
-const isWideFamily = (f: RatingFamily) => familyBody(f) === 'wide';
+/** A family with a widebody in it (the 757/767 counts: the 767 is the widebody of that rating). */
+const isWideFamily = (f: RatingFamily) => ACMI_TYPES_LIST.some((t) => t.family === f && t.body === 'wide');
 
 /**
  * The widebody family that comes with Widebody operations (§H): none while a widebody family is already on the AOC;

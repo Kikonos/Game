@@ -106,6 +106,8 @@ describe('v0.17 AOC families and variations (§H)', () => {
     g.company.approvals.push('widebody');
     expect(needsVariation(g, 'A330/340')).toBe(false);
     expect(familyOnAoc(g, 'A330/340')).toBe(true);
+    // The 767 too (its rating family also holds the narrowbody 757).
+    expect(needsVariation(g, 'B757/767')).toBe(false);
   });
 
   it('filed, due in 90 days, granted once 2 + 2 pilots are rated', () => {
