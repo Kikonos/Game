@@ -27,6 +27,8 @@ export function MiniMapSlot({ spec }: { spec: MiniMapSpec }) {
 
 /** Runs a card action: opens the modal it names or navigates there (closing the current dialog first). */
 export function runAction(g: GameState, a: ProblemAction, opts: { keepModal?: boolean } = {}) {
+  // v0.17 the aircraft market's own actions (pay, letter of credit, sign, walk away, tech reps, apply).
+  if (store.leasingAction(a)) return;
   const t = actionTarget(g, a);
   if (!t) return store.toast('info', 'Nothing to open', 'That item has gone.');
   if ('modal' in t) return store.openModal(t.modal);

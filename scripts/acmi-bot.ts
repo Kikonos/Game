@@ -1205,6 +1205,8 @@ function committed(g: GameState, days: number): number {
  * 200 for the autumn, or in the winter for next summer (home between 1 February and 1 June).
  */
 function narrowGrowth(g: GameState, t: Tally): void {
+  // v0.17 the v0.17 market plans growth by request and letter of intent (scripts/bot/market.ts).
+  if (BAL.v017.on) return;
   // From day 75 (the first two prove the business).
   if (dayN(g) < 75 || Object.values(g.fleet).some((a) => a.status === 'delivering')) return;
   if (Object.values(g.fleet).filter((a) => typeOf(a.typeId).body === 'narrow').length >= 3) return;

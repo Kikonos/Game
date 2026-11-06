@@ -24,6 +24,8 @@ import { spanLabel } from './screenLogic';
 import { store, useGame } from '../store';
 import { KV, ScreenHead, useRenderCount } from './common';
 import { MarketView } from './Market';
+import { inductionStep } from '../../engine/leasing';
+import { spotLine, transitionLine } from './market/marketLogic';
 import { capFirst, hangarWord, layoutLabel, limitTone, unseenOffers } from './screenLogic';
 import { ScreenHint } from '../components/ScreenHint';
 import { HangarView, hangarRows } from './Hangar';
@@ -167,6 +169,10 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
     ? [['Owned', `book value ${money(o.bookValue)}`]]
     : [['Lease', `${money(o.rentPerMonth)}/month`]];
   const ds = deliveryStatus(g, ac.id);
+  // v0.17 (§N.1) 'Transition at Shannon: transition check · ready 14 Mar (UTC) · 15 Mar local'; 'Back to TUI fly 31 Mar'.
+  const step = ac.induction && ac.status === 'delivering' ? inductionStep(ac.induction, g.now) : 'done';
+  const trans = step !== 'done' ? transitionLine(ac, step) : null;
+  const spot = spotLine(ac);
   const plan = (kind: 'A' | 'C') => store.openModal({ kind: 'check', aircraftId: ac.id, checkKind: kind, replace: (kind === 'A' ? cs?.nextA : cs?.nextC) ?? undefined });
   const lv = mapLivery(g, ac);
   // v0.8: leased out dry, the lessee flies, maintains (line and A-checks) and crews it.
@@ -191,7 +197,11 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
         </div>
       </div>
       {least && <LeastUsedLine g={g} ac={ac} least={least} onClose={onLeastClose} />}
-      {ds && ds.phase !== 'home' && <div className={`fl-row small ${ds.phase === 'waiting' ? 'warn' : ''}`}><span className="upper dim">Delivery</span><span>{ds.text}</span></div>}
+      {/* v0.17 the lease transition (records, check, paint, acceptance) before the handover; a short-term aircraft's return. */}
+      {trans ? (
+        <div className="fl-row small"><span className="upper dim">Transition</span><span className="grow">{trans}</span><button className="btn btn-sm" onClick={() => store.navigate('fleet', { view: 'market', sel: { kind: 'aircraft', id: ac.id } })}>Details</button></div>
+      ) : ds && ds.phase !== 'home' && <div className={`fl-row small ${ds.phase === 'waiting' ? 'warn' : ''}`}><span className="upper dim">Delivery</span><span>{ds.text}</span></div>}
+      {spot && <div className="fl-row small"><span className="upper dim">Short-term</span><span>{spot}</span></div>}
       <DryLeaseRow g={g} acId={ac.id} />
       {sf && short && (
         <div className="fl-row small cs-fleet">
@@ -357,7 +367,7 @@ export function FleetScreen() {
         ]} />
       </ScreenHead>
       <ScreenHint id="fleet" />
-      {view === 'market' ? <MarketView g={g} sel={mkSel} /> : !fleet.length ? (
+      {view === 'market' ? <MarketView g={g} sel={mkSel} selRef={nav.sel} /> : !fleet.length ? (
         <Empty icon={<Wrench />} title="No aircraft">Lease one from the Market.</Empty>
       ) : hangar ? <HangarView rows={hangar.rows} k={hangar.key} /> : (
         <div className="sc-ac-grid">{fleet.map((ac) => <AircraftCard key={ac.id} g={g} ac={ac} sel={sel === ac.id} least={least?.aircraftId === ac.id ? least : undefined} onLeastClose={() => setWhich(false)} />)}</div>
