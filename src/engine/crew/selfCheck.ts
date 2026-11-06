@@ -286,7 +286,7 @@ export interface CheckHooks {
  */
 export function checkAlarm(g: GameState, kind: AlarmKind, flightId: string, hooks: CheckHooks, names: Claim[] = []): Verdict {
   const f = g.flights[flightId];
-  const withhold = (why: string, evidence: string[] = []): Verdict => ({ confirmed: false, why, evidence });
+  const withhold = (why: string, evidence: string[] = []): Verdict => ({ confirmed: false, why, evidence: [...new Set(evidence)] });
   // 1. Staleness on the live game (cheap).
   if (!f) return withhold('the flight no longer exists');
   if (f.status !== 'scheduled') return withhold(`the flight is ${f.status}`);
@@ -369,7 +369,7 @@ export function checkAlarm(g: GameState, kind: AlarmKind, flightId: string, hook
       if (h.flights[f.id] && !hooks.bad(h, f.id)) return { ...withhold('the planner\'s own fix crews it (dry run)', evidence), fixable: true };
       evidence.push('no free fix: the roster run again and standby call-outs leave it short (dry run)');
     }
-    return { confirmed: true, evidence: evidence.slice(0, 8), why: '' };
+    return { confirmed: true, evidence: [...new Set(evidence)].slice(0, 8), why: '' };
   });
 }
 

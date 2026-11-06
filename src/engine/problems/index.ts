@@ -48,9 +48,16 @@ function lookup(g: GameState, k: string, f: () => ProblemCard | null): ProblemCa
   return v;
 }
 
+/** Alarm self-check: a crew card on a flight whose alarm was confirmed carries the evidence ("Checked ✓"). Pure. */
+function withChecked(g: GameState, card: ProblemCard | null): ProblemCard | null {
+  if (!card || card.checked || card.subject.ref.kind !== 'flight' || !card.subject.kind.startsWith('crew')) return card;
+  const f = g.flights[card.subject.ref.id];
+  return f?.crewAlert && f.crewChecked?.length ? { ...card, checked: f.crewChecked } : card;
+}
+
 /** The card for one problem (null = no problem, or not any more). Pure. */
 export function problemFor(g: GameState, subject: ProblemRef): ProblemCard | null {
-  return lookup(g, `for:${subject.kind}:${subject.ref.kind}:${subject.ref.id}`, () => problemForRaw(g, subject));
+  return lookup(g, `for:${subject.kind}:${subject.ref.kind}:${subject.ref.id}`, () => withChecked(g, problemForRaw(g, subject)));
 }
 
 function problemForRaw(g: GameState, subject: ProblemRef): ProblemCard | null {
@@ -166,7 +173,7 @@ export function problems(g: GameState): ProblemCard[] {
 
 /** The problem behind a red/amber dot: the worst current problem on this entity, else a direct look-up by kind. Pure. */
 export function problemAt(g: GameState, ref: Ref): ProblemCard | null {
-  return lookup(g, `at:${ref.kind}:${ref.id}`, () => problemAtRaw(g, ref));
+  return lookup(g, `at:${ref.kind}:${ref.id}`, () => withChecked(g, problemAtRaw(g, ref)));
 }
 
 function problemAtRaw(g: GameState, ref: Ref): ProblemCard | null {
