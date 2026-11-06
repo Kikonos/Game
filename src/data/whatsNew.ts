@@ -16,6 +16,17 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.17.1',
+    name: 'Bug button',
+    features: [
+      'To report a bug, tap the small bug in the lower left corner. It is on every screen and dialog. It takes a screenshot of what you see and saves the game with it; time stops while you write.',
+    ],
+    improvements: [
+      'The other report buttons are gone (top bar, problem cards, flight sheet, Crew Control, Menu). Menu › Bug reports still lists and exports them, screenshots included.',
+      'The corner is kept clear, so the bug never covers a button.',
+    ],
+  },
+  {
     version: 'v0.17',
     name: 'Aircraft market',
     features: [
