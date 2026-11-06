@@ -70,6 +70,13 @@ export function firstWideFamily(g: GameState): RatingFamily | null {
   return best?.fam ?? null;
 }
 
+/** Families of aircraft that never came through the market (no delivery record: start fleet, scenario, dev). Pure. */
+export function unsignedFamilies(g: GameState): Set<RatingFamily> {
+  const out = new Set<RatingFamily>();
+  for (const a of Object.values(g.fleet)) if (!a.delivery) out.add(typeOf(a.typeId).family);
+  return out;
+}
+
 /** Rated pilots a variation needs before its grant (more for an exotic family, §T). Pure. */
 export function variationCrew(family: RatingFamily): { CPT: number; FO: number } {
   const exotic = BAL.v017.exotic.types.some((id) => typeOf(id).family === family && (family === 'A380' || family === 'B747'));
@@ -81,6 +88,8 @@ export function aocMiss(g: GameState, family: RatingFamily, t: Minute = g.now): 
   if (!BAL.v017.on) return null;
   const fams = g.company.aocFamilies;
   if (!fams || fams.includes(family)) return null;
+  // An aircraft that never came through the market (the start fleet, a scenario's, a dev one) brings its family.
+  if (unsignedFamilies(g).has(family)) return null;
   // The first widebody family rides on Widebody operations (that approval's own gate applies).
   if (isWideFamily(family) && wideHeld(g) && !fams.some(isWideFamily)) {
     const first = firstWideFamily(g);
@@ -105,7 +114,7 @@ export function familyOnAoc(g: GameState, family: RatingFamily, t: Minute = g.no
 export function needsVariation(g: GameState, family: RatingFamily): boolean {
   if (!BAL.v017.on) return false;
   const fams = g.company.aocFamilies ?? fleetFamilies(g);
-  if (fams.includes(family)) return false;
+  if (fams.includes(family) || unsignedFamilies(g).has(family)) return false;
   if (isWideFamily(family) && wideHeld(g) && !fams.some(isWideFamily)) {
     const first = firstWideFamily(g);
     if (!first || first === family) return false;
@@ -183,6 +192,7 @@ export function dailyAoc(g: GameState): void {
       body: `The authority granted the variation${v.done < g.now - DAY ? ` (due ${fmtDay(v.done)}; it waited for rated pilots)` : ''}. Revenue flights on the ${v.family} may go.`,
     });
   }
+  for (const f of unsignedFamilies(g)) if (!co.aocFamilies.includes(f)) co.aocFamilies.push(f);
   if (co.approvals.includes('widebody')) {
     const first = firstWideFamily(g);
     if (first && !co.aocFamilies.includes(first)) co.aocFamilies.push(first);
