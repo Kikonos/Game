@@ -11,7 +11,7 @@ import { newGame as kitGame, run } from '../contracts/testkit';
 import { acquireAircraft, makeOffer } from '../ops/market';
 import { lessorRating } from './credit';
 import { cashToSign, dailyDeals, loiQuote, meetConditions, signLease, signLoi, transitionCost } from './deals';
-import { newGame } from './deals017.helpers';
+import { newGame, v17Offer } from './deals017.helpers';
 import { dailyRfps, sendRfp } from './rfp';
 
 function ready(seed: number, grade: CreditGrade): GameState {
@@ -116,5 +116,35 @@ describe('v0.17 review: minimum-hours reserves', () => {
     const msgs = g.messages.filter((m) => /unflown hours|Minimum-hours/.test(m.title));
     expect(msgs.length).toBe(new Set(msgs.map((m) => m.t)).size);
     expect(msgs.every((m) => !/v0\.17/.test(m.body))).toBe(true);
+  });
+});
+
+describe('v0.17 review: a letter of credit that can no longer be issued', () => {
+  it('the lease signs with the deposit in cash instead of lapsing (and losing the holding deposit)', () => {
+    const g = newGame(5);
+    g.company.cash = 20_000_000;
+    setGrade(g, 'B');
+    g.treasury!.credit = { limit: 3_000_000, drawn: 0, margin: 0.03, openedAt: g.now, renewsAt: g.now + 365 * DAY, accrued: 0, accruedFee: 0, breaches: 0 };
+    const o = v17Offer(g, 'a320ceo', 'carlyle', { grade: 'B' });
+    const s = signLoi(g, o.id, { autoSign: false, lc: true });
+    if (!s.ok) throw new Error(s.error);
+    const d = g.leasing!.deals.find((x) => x.id === s.data!.dealId)!;
+    expect(d.lc).toBe(true);
+    for (let k = 0; k < 60 && d.stage === 'committee'; k++) {
+      g.now += DAY;
+      setGrade(g, 'B');
+      dailyDeals(g);
+    }
+    expect(d.stage).toBe('approved');
+    // The bank freezes the line before we sign.
+    g.treasury!.credit!.frozen = true;
+    const before = g.company.cash;
+    const r = signLease(g, d.id);
+    expect(r.ok, r.ok ? '' : r.error).toBe(true);
+    expect(d.lc).toBe(false);
+    expect(g.leasing!.lc[d.id]).toBeUndefined();
+    const own = g.fleet[(r as { data: { aircraftId: string } }).data.aircraftId].ownership;
+    expect(own.kind === 'dryLeaseIn' && own.deposit).toBe(o.deposit);
+    expect(before - g.company.cash).toBeGreaterThanOrEqual(o.deposit - d.holding);
   });
 });

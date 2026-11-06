@@ -280,13 +280,20 @@ export function signLease(g: GameState, dealId: string): ActionResult<{ aircraft
   const o = d.offer;
   const gate = aircraftGate(g, o.typeId);
   if (!gate.ok) return { ok: false, error: `${gate.text}: apply under Company › Ladder` };
-  const due = cashToSign(g, d);
-  if (g.company.cash < due) return { ok: false, error: `Not enough cash: ${usd(due)} due to sign` };
   const dep = depositDue(d);
   if (d.lc) {
     const lw = lcWhy(g, o.lessorId, rating(g).grade, dep - (L.lc[d.id] ?? 0));
-    if (lw) return { ok: false, error: `Letter of credit: ${lw}` };
+    if (lw) {
+      // Review: a letter of credit that can no longer be issued (the rating fell, the line was drawn or frozen) is
+      // replaced by the deposit in cash when it is there; else the deal would wait to lapse and lose its holding deposit.
+      const inCash = cashToSign(g, { ...d, lc: false });
+      if (g.company.cash < inCash) return { ok: false, error: `Letter of credit: ${lw}. In cash: ${usd(inCash)} due to sign` };
+      d.lc = false;
+      releaseLc(g, d.id);
+    }
   }
+  const due = cashToSign(g, d);
+  if (g.company.cash < due) return { ok: false, error: `Not enough cash: ${usd(due)} due to sign` };
   const plan = inductionPlan(g, o, { start: g.now, techReps: d.techReps, paint: d.paint });
   let site = o.site ?? g.company.homeBase;
   let handover = plan.ready;
