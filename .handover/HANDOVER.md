@@ -685,3 +685,5 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
   - the v0.17 build lanes from docs/UPDATE-0.17.md (branch v017doc);
   - then merge, balance, review, and release when green.
 - v0.16.3 "Ways out of debt" RELEASED 2026-11-05 from acmi 3430de1 (live index-DDR80FkK.js). Open: maybe cap the secured line (s0501 gets $9.65M); PER cancellations are chance-based.
+- OVERNIGHT workflow wf_6e3bc1c8-5a2 (Opus, high) is running. Steps: rot finish + bugs-ops → bugs-crew + alarm self-check → release v0.16.4 → v0.17 step0 → lanes supply / deals / market-ui → merge → balance → review → release v0.17.
+  After a container restart: Workflow({scriptPath: "/root/.claude/projects/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/workflows/scripts/overnight-v0164-v017-wf_6e3bc1c8-5a2.js", resumeFromRunId: "wf_6e3bc1c8-5a2"}). Completed agents replay from cache; the agents keep STATE files under /home/user/work/<lane>/.
