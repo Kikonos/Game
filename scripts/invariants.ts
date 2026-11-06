@@ -384,6 +384,18 @@ export function createChecker(opts: CheckerOpts = {}) {
     }
     // ---- maintenance ----
     for (const m of Object.values(g.maintenance)) maint.set(m.id, { aircraftId: m.aircraftId, at: m.at, start: m.start, end: m.end, status: m.status, kind: m.kind });
+    // ---- v0.17 camo-capacity: transitions at once never above our CAMO's capacity when each was booked (plus the
+    // tech reps' slots). Checked at each transition's start among those running then. ----
+    {
+      const ind = Object.values(g.fleet).filter((a) => a.induction?.need !== undefined && a.induction.ready > g.now - DAY).map((a) => ({ reg: a.reg, i: a.induction! }));
+      for (const x of ind) {
+        const at = x.i.slot;
+        const live = ind.filter((y) => y.i.slot <= at && y.i.ready > at);
+        const load = live.reduce((n, y) => n + (y.i.need ?? 0), 0);
+        const room = (x.i.cap ?? 1) + live.filter((y) => y.i.techReps).length;
+        if (load > room) err('camo-capacity', g.now, `${x.reg}: ${load} CAMO slots in use at its transition start ${fmtDateTime(at)} (${live.map((y) => y.reg).join(', ')}), capacity ${room}`, `camo|${x.reg}|${at}`);
+      }
+    }
     // ---- decisions, timed events ----
     for (const d of g.decisions) if (d.expires < g.now - 2 * H) err('decision', g.now, `decision "${d.title}" open ${Math.round((g.now - d.expires) / 60)} h past its expiry`, `dec|${d.id}`);
     for (const [id, p] of Object.entries(g.opsx?.pending ?? {})) if (p.t < g.now - 6 * H) err('ops-pending', g.now, `ops event ${id} (${p.kind}) due ${fmtDateTime(p.t)} never ran`, `op|${id}`);
