@@ -1,0 +1,80 @@
+/* v0.17 "Aircraft market" (UPDATE-0.17.md §N; lane market-ui): the rating line, the tabs, four-line offer cards,
+   requests, deals in progress with stage chips, the request / letter-of-intent / AOC / short-term dialogs, Types on
+   our AOC. iPad 1180×820 two columns, iPhone 852×393 one column; nothing wider than the screen. */
+
+/* ---- rating line ---- */
+.mk17-rating { padding: 10px 14px; margin-bottom: 10px; }
+.mk17-rating-row { align-items: center; flex-wrap: wrap; }
+.mk17-rating-text { display: inline-flex; align-items: center; gap: 6px; flex-wrap: wrap; min-width: 0; }
+.mk17-rating.grade-A .sc-ico, .mk17-rating.grade-B .sc-ico { color: var(--good); }
+.mk17-rating.grade-D .sc-ico { color: var(--bad); }
+.mk17-why { min-height: 36px; gap: 2px; }
+.mk17-why svg { width: 14px; height: 14px; }
+.mk17-asks { flex-wrap: wrap; }
+.mk17-asks .btn { min-height: 44px; }
+.mk17-why-box { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); }
+.mk17-parts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 24px; }
+.mk17-parts .good { color: var(--good); }
+.mk17-parts .bad { color: var(--bad); }
+.mk17-parts-sum { color: var(--text-2); }
+
+/* ---- tabs ---- */
+.mk17-tabs { align-items: center; flex-wrap: wrap; }
+.mk17-tabs .seg button { min-height: 40px; padding: 8px 14px; }
+.mk17-intro { min-width: 0; }
+.mk17-filters { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; max-width: 100%; }
+.mk17-filters::-webkit-scrollbar { display: none; }
+.mk17-filters .mk-filter { flex: 0 0 auto; }
+
+/* ---- four-line offer card ---- */
+.mk17-card { gap: 6px; }
+.mk17-line { min-width: 0; }
+.mk17-foot { align-items: center; flex-wrap: wrap; }
+.mk17-foot .mk-chips { min-width: 0; }
+.mk17-foot .btn { flex: 0 0 auto; min-height: 44px; }
+.mk17-empty { align-items: center; flex-wrap: wrap; }
+
+/* ---- requests and deals ---- */
+.mk17-rfp, .mk17-deal { display: flex; flex-direction: column; gap: 8px; padding: 14px 16px; }
+.mk17-rfp.selected, .mk17-deal.selected { border-color: var(--accent); }
+.mk17-rfp.withdrawn, .mk17-deal.ended { opacity: 0.7; }
+.mk17-deal .btn-sm, .mk17-rfp .btn-sm { min-height: 40px; }
+.mk17-stages { display: flex; flex-wrap: wrap; gap: 4px; }
+.mk17-stage { font-size: 11.5px; padding: 3px 8px; border-radius: 12px; border: 1px solid var(--border); color: var(--text-3, var(--text-2)); white-space: nowrap; }
+.mk17-stage.done { color: var(--good); border-color: rgba(var(--good-rgb), 0.35); }
+.mk17-stage.now { color: var(--accent); border-color: var(--accent); background: rgba(var(--accent-rgb), 0.1); font-weight: 600; }
+.mk17-stage.bad { color: var(--bad); border-color: rgba(var(--bad-rgb), 0.4); }
+
+/* ---- dialogs ---- */
+.rf-rows { display: flex; flex-direction: column; gap: 12px; }
+.rf-row { display: grid; grid-template-columns: 110px minmax(0, 1fr); gap: 12px; align-items: center; }
+.rf-row > .upper { padding-top: 2px; }
+.rf-row .seg { flex-wrap: wrap; max-width: 100%; }
+.rf-row .seg button { min-height: 44px; min-width: 44px; padding: 8px 12px; }
+.rf-row select.input { min-height: 44px; max-width: 100%; }
+.rf-from { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rf-lessors { display: flex; flex-wrap: wrap; gap: 6px; }
+.rf-box { padding: 10px 12px; border-radius: 10px; background: var(--panel-2); border: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+.rf-path { display: flex; flex-direction: column; gap: 4px; }
+.rf-path li { display: flex; gap: 8px; align-items: flex-start; list-style: none; }
+.rf-path ul { margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.rf-path svg { width: 15px; height: 15px; flex: 0 0 auto; margin-top: 2px; }
+.rf-path .ok svg { color: var(--good); }
+.rf-path .no svg { color: var(--warn); }
+.lo-toggles { display: flex; flex-direction: column; gap: 8px; }
+.lo-toggles .row { align-items: center; min-height: 44px; }
+.lo-steps { display: flex; flex-direction: column; gap: 3px; }
+.lo-step { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; font-size: 13px; }
+.ao-fam { display: flex; flex-wrap: wrap; gap: 6px; }
+.ao-fam .mk-filter.on { font-weight: 600; }
+
+/* ---- Types on our AOC (Company › Ladder) ---- */
+.aoc-types { display: flex; flex-direction: column; gap: 10px; }
+.aoc-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.aoc-var { display: flex; flex-direction: column; gap: 4px; }
+
+@media (max-width: 1099.98px), (max-height: 499.98px) {
+  .mk17-parts { grid-template-columns: minmax(0, 1fr); }
+  .rf-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .mk17-intro { display: none; }
+}
