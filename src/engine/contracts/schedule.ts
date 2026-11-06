@@ -618,7 +618,11 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     const allowHop = a.kind !== 'maint' && b.kind !== 'maint' && !sameBase && !emptyNext && !inHold;
     // v0.14.1 (OPS-5) before a check at home after a long wait away, the aircraft goes home at once (only the out-and-
     // back hop stays barred around checks): CS-TCS sat 13.5 days at Prague, then a lone 01:50 ferry home to its C-check.
-    const homeFirst = b.kind === 'maint' && a.kind !== 'maint' && Y === home && X !== home && !inHold && !emptyNext;
+    // v0.16.4 (CS-TQM, player report) and before any commitment that starts at home, whatever it is: an empty ferry out
+    // of home (a dry lease's delivery) barred the hop, so the move home was planned as late as possible: CS-TQM sat 24
+    // days at Hong Kong after the Hong Kong Airlines cover, its HKG–TAS–BUD–LIS planned for the eve of the ferry to
+    // Abidjan, crewless. Going home is no out-and-back: the empty ferry after it is no reason to wait away.
+    const homeFirst = a.kind !== 'maint' && Y === home && X !== home && !inHold;
     const latest = b.std - turn;
     // v0.14.1 (CS-TTL, player report) an empty move into a job is timed for the crew who fly the job, not only for the
     // aircraft: as late as possible when one crew flies both in a day that needs no more than the job alone; otherwise,

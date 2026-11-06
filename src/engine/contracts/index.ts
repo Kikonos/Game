@@ -1,6 +1,7 @@
 // B1 — Contracts & commercial. Public API for the UI and other modules.
 
 import { flightsRev, takeRelink } from '../core/entities';
+import { typeOf } from '../core/perf';
 import type { SimModule } from '../core/module';
 import type { Archetype, GameState, SimEvent } from '../core/types';
 import { dailyContracts, onContractEnd, onContractStart } from './accept';
@@ -18,7 +19,7 @@ export { acceptOffer, askingPrice, cancelByClient, cancelContract, cancelCost, c
 export { paintQuote, paintTermsText, paintWindow, type PaintSlot } from './paintTerms';
 export { cabinQuote, cabinTarget, cabinTermsText, rollCabin, termsProduct } from './cabinTerms';
 export { billContractMonth, type BillingLine } from './billing';
-export { feasibility, feasibilityAll, marketFit, offerRestLine, type MarketFit, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningLeg } from './feasibility';
+export { feasibility, feasibilityAll, typeMisfit, marketFit, offerRestLine, type MarketFit, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningLeg } from './feasibility';
 export { fmtPrice, generateOffer, idleWindows, type IdleWindow, type OfferOpts } from './offers';
 export { maxPax, seatNeedText } from './plan';
 export { counterLift, counterOdds, counterView, type CounterOdds, type CounterView } from './counter';
@@ -82,6 +83,25 @@ function loadBodies(g: GameState): void {
   }
 }
 
+/** v0.16.4 the narrowbody wet asks (an A320-size base, AOG cover, a capacity lease, a sub-charter): body 'narrow'. */
+const ASKS_NARROW = new Set<Archetype>(['seasonBase', 'aogCover', 'capacityLease', 'subcharterIn']);
+
+/**
+ * v0.16.4 older saves (once): an open offer of a narrowbody wet ask carries no body, so a widebody passed its checks
+ * (Luxair's A320-size base offered CS-TTL, an A330). It asks for a narrowbody now, as new ones do; an offer already
+ * countered with a widebody keeps its answer. Signed contracts keep what was signed.
+ */
+function loadNarrowAsks(g: GameState): void {
+  if (g.stats.narrowAsked) return;
+  g.stats.narrowAsked = true;
+  for (const o of Object.values(g.offers)) {
+    const r = o.requirements;
+    if (!r || r.body || o.product?.kind === 'dry' || !ASKS_NARROW.has(o.archetype) || (o.status !== 'open' && o.status !== 'countered')) continue;
+    if (o.counter?.aircraftIds?.some((id) => g.fleet[id] && typeOf(g.fleet[id].typeId).body === 'wide')) continue;
+    r.body = 'narrow';
+  }
+}
+
 export const contractsModule: SimModule = {
   name: 'contracts',
   init(g) {
@@ -94,6 +114,7 @@ export const contractsModule: SimModule = {
     loadPrestige(g);
     loadFilter(g);
     g.stats.bodyAsked = true;
+    g.stats.narrowAsked = true;
     openingOffers(g);
     scheduleNextOffer(g);
   },
@@ -108,6 +129,7 @@ export const contractsModule: SimModule = {
     loadFilter(g);
     loadCounters(g);
     loadBodies(g);
+    loadNarrowAsks(g);
     loadStuckOffers(g);
   },
   /** Keeps empty legs linking commitments after any flight change (delays, swaps, cancellations by other modules). */

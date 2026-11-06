@@ -13,7 +13,7 @@ import { flag } from '../../data/countries';
 import { artFor } from '../../data/acmiTypes';
 import {
   acceptOffer, askingPrice, cabinQuote, cabinTarget, counterOffer, counterView, declineOffer, isTenderOffer, deportationCleanHit, feasibilityAll, leadDays, markOfferSeen, offerClientLine, offerCompetition,
-  offerRestLine, paintQuote, paintTermsText, termsProduct, tourBizPct, tourCrew, tourSight, tourStops, type FeasibilityReport,
+  offerRestLine, paintQuote, paintTermsText, termsProduct, tourBizPct, tourCrew, tourSight, tourStops, type FeasibilityReport, typeMisfit,
 } from '../../engine/contracts';
 import { TourMap } from '../map/TourMap';
 import { mixedCrewFlavour, mixedCrewText } from '../../engine/crew';
@@ -253,6 +253,13 @@ function posLine(r: FeasibilityReport): string {
   if (!legs.length) return 'On site, no positioning';
   const min = legs.reduce((s, l) => s + l.sta - l.std, 0);
   return `+${fmtDuration(min, true)} positioning from ${legs[0].from}${legs.length > 1 ? ` (${legs.length - 1} stop)` : ''}`;
+}
+
+/** v0.16.4 the aircraft left off the picker, and why: 'Not offered: CS-TTL (A330-200). The client wants a narrowbody.' */
+function misfitLine(g: GameState, rs: FeasibilityReport[]): string {
+  const regs = rs.map((r) => (g.fleet[r.aircraftId] ? `${g.fleet[r.aircraftId].reg} (${typeOf(g.fleet[r.aircraftId].typeId).short})` : r.aircraftId));
+  const why = [...new Set(rs.map((r) => r.checks.find((c) => c.level === 'no' && (c.id === 'body' || c.id === 'family'))?.label.split(';')[0]).filter(Boolean))];
+  return `Not offered: ${regs.join(', ')}. ${why.join('. ')}.`;
 }
 
 function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal }: { g: GameState; r: FeasibilityReport; on: boolean; onPick: () => void; billBH: number; lift?: number; offerId: string; long: boolean; portal?: ReactNode }) {
@@ -583,7 +590,11 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const reports = useMemo(() => (o ? feasibilityAll(g, o.id, { paint, cabin, crewExtra: extra ?? undefined }) : []), [g, o, rev, g.now, paint, cabin, extra]); // eslint-disable-line react-hooks/exhaustive-deps
   // Paint off on a required offer: only a counter is possible, so its 'paint' row does not block the pick.
   const blocked = (r: FeasibilityReport) => r.checks.some((c) => c.level === 'no' && !(c.id === 'paint' && !paint));
-  const best = reports.find((r) => !blocked(r)) ?? reports[0];
+  // v0.16.4 (Luxair, player report) only the aircraft the client would take are offered: a type it did not ask for
+  // (an A330 for an A320-size base, a 737 where it wants the A320 family) is one quiet line under the list instead.
+  const shown = reports.filter((r) => !typeMisfit(r));
+  const notShown = reports.filter(typeMisfit);
+  const best = shown.find((r) => !blocked(r)) ?? shown[0];
   const [pick, setPick] = useState<string | null>(null);
   const [step, setStep] = useState(2);
   // v0.8: opened = seen (a rival win is then announced in the Inbox).
@@ -591,7 +602,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
     if (store.game?.offers[offerId] && !store.game.offers[offerId].seen) store.update((gg) => markOfferSeen(gg, offerId));
   }, [offerId]);
   if (!o) return null;
-  const sel = reports.find((r) => r.aircraftId === (pick ?? best?.aircraftId));
+  const sel = shown.find((r) => r.aircraftId === (pick ?? best?.aircraftId));
   const cl = g.clients[o.clientId];
   const live = o.status === 'open' || o.status === 'countered';
   const countered = o.status === 'countered';
@@ -716,10 +727,12 @@ export function OfferModal({ offerId }: { offerId: string }) {
           <div className="upper dim">Choose an aircraft</div>
           {!reports.length && <div className="small muted">No aircraft in the fleet.</div>}
           {reports.length > 0 && o.product.kind !== 'dry' && <div className="tiny dim v91-portal-hint">Under each aircraft, its schedule around this job, every flight on its own. This job's flights are dashed outlines (not booked yet), or one shaded block while it has no flights yet; red outlines are in the way. Tap a trip to move it to another aircraft or sub-lease it, or hold and drag it onto another aircraft.</div>}
-          {reports.map((r) => (
+          {reports.length > 0 && !shown.length && <div className="small muted">None of our aircraft is what {cl?.name ?? 'the client'} asked for.</div>}
+          {shown.map((r) => (
             <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} lift={lift / bizLift} offerId={o.id} long={!!restLine}
-              portal={o.product.kind !== 'dry' ? <SchedulePortal g={g} o={o} aircraftId={r.aircraftId} candidates={reports.map((x) => x.aircraftId)} report={r} open={sel?.aircraftId === r.aircraftId} /> : undefined} />
+              portal={o.product.kind !== 'dry' ? <SchedulePortal g={g} o={o} aircraftId={r.aircraftId} candidates={shown.map((x) => x.aircraftId)} report={r} open={sel?.aircraftId === r.aircraftId} /> : undefined} />
           ))}
+          {notShown.length > 0 && <div className="tiny dim of-misfit">{misfitLine(g, notShown)}</div>}
         </div>
       </div>
     </Modal>

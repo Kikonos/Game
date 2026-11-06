@@ -1584,6 +1584,8 @@ export interface Stats {
   gateStopped?: number;
   /** v0.8 fix pack: offers' and contracts' `requirements.body` means the client asks for one (older saves: stripped once on load). */
   bodyAsked?: boolean;
+  /** v0.16.4 open narrowbody wet asks (an A320-size base, cover, capacity lease, sub-charter) given body 'narrow' once on load. */
+  narrowAsked?: boolean;
   /** Peak-staffing round: busy-month gaps already told in the Inbox ('<month key>|<family>|<role>'; past months pruned). */
   peakWarned?: string[];
   /** Lifetime billable block minutes and revenue legs. */

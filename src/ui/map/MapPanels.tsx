@@ -24,7 +24,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { MRO_STATIONS } from '../../data/market';
 import { BAL } from '../../engine/core/balance';
 import { isPilot, seatLabel } from '../../engine/core/perf';
-import { feasibilityAll, mghLabel } from '../../engine/contracts';
+import { feasibilityAll, mghLabel, typeMisfit } from '../../engine/contracts';
 import { clientless, jobName } from '../../engine/contracts/flavor';
 import { flightsOf } from '../../engine/core/entities';
 import { currentFlight, flightTimes } from '../../engine/core/query';
@@ -670,7 +670,7 @@ function routeSummary(o: GameState['offers'][string]): string {
 function OfferPanel({ g, id }: { g: GameState; id: string }) {
   const o = g.offers[id];
   const hourKey = Math.floor(g.now / 60);
-  const reports = useMemo(() => (o ? safe(() => feasibilityAll(g, id).slice(0, 3), []) : []), [id, hourKey, store.version]); // eslint-disable-line react-hooks/exhaustive-deps
+  const reports = useMemo(() => (o ? safe(() => feasibilityAll(g, id).filter((r) => !typeMisfit(r)).slice(0, 3), []) : []), [id, hourKey, store.version]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!o) return null;
   const client = g.clients[o.clientId];
   const left = o.expires - g.now;
