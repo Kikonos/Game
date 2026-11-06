@@ -23,7 +23,9 @@ export type TermId =
   /** v0.10 */
   | 'exitLimit' | 'newBuildSlot' | 'cabinMinimum' | 'crewSeats'
   /** v0.10.2 */
-  | 'techReliability' | 'etopsMx';
+  | 'techReliability' | 'etopsMx'
+  /** v0.17 the aircraft market (UPDATE-0.17.md §N.5) */
+  | 'loi' | 'creditCheck' | 'holdingDeposit' | 'letterOfCredit' | 'minHours' | 'transition' | 'recordsReview' | 'camo' | 'aocVariation' | 'sublease' | 'lessorRating';
 
 export interface GlossaryEntry {
   term: string;
@@ -34,7 +36,7 @@ export interface GlossaryEntry {
 }
 
 /** Player words for a view id (the "Show me" button). */
-export const VIEW_LABEL: Record<string, string> = { board: 'Roster board', people: 'People', plan: 'Planning' };
+export const VIEW_LABEL: Record<string, string> = { board: 'Roster board', people: 'People', plan: 'Planning', market: 'Aircraft market', ladder: 'Ladder' };
 
 export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   fdp: { term: 'FDP', short: "Flight duty period: the crew's working day, from report to the last on-blocks. There is a legal maximum.", where: { tab: 'crew', view: 'board' } },
@@ -122,6 +124,18 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   crewSeats: { term: 'Crew seats', short: 'The jump seats for the cabin crew. Crew beyond them sit in passenger seats, which cannot be sold.', where: { tab: 'fleet' } },
   techReliability: { term: 'Technical reliability', short: 'The share of our flights that left on time (at most 15 min late) and were not cancelled for a technical fault. A spare aircraft or a sub-charter that gets the flight away on time counts as on time. The big approvals ask for 95 % (Widebody operations) to 98.5 % (ULR).', where: { tab: 'company' } },
   etopsMx: { term: 'ETOPS maintenance programme', short: 'Extra maintenance rules for flying far from an airport: engine and oil watch, trained engineers, approved parts. Set up once on the Ladder; ETOPS 120, 180 and 240 all use it.', where: { tab: 'company' } },
+  // v0.17 the aircraft market
+  loi: { term: 'Letter of intent (LOI)', short: 'The first paper with a lessor: the main terms agreed and a holding deposit paid, so the aircraft comes off the market while the lessor checks our credit.', where: { tab: 'fleet', view: 'market' } },
+  creditCheck: { term: 'Credit check', short: "The lessor's credit committee looks at our accounts, cash and record before it signs the lease: approved, more security asked, or declined.", where: { tab: 'fleet', view: 'market' } },
+  holdingDeposit: { term: 'Holding deposit', short: "One month's rent paid with the letter of intent. It comes back if the lessor declines or we walk away before approval; walking away after approval loses it.", where: { tab: 'fleet', view: 'market' } },
+  letterOfCredit: { term: 'Letter of credit', short: "A bank's promise to pay the lessor if we don't: it stands in for a cash deposit, uses part of our credit line and costs about 1.25 % a year.", where: { tab: 'finance' } },
+  minHours: { term: 'Minimum hours', short: 'Leases since v0.17 bill maintenance reserves on at least 80 flight hours a month (150 on a widebody), flown or not: a parked aircraft still costs reserves.', where: { tab: 'fleet' } },
+  transition: { term: 'Transition', short: "Getting a leased aircraft ready for our AOC: the records review, a check at the lessor's site, registration and insurance, paint, and an acceptance flight. Narrowbodies take about a month, widebodies about seven weeks.", where: { tab: 'fleet', view: 'market' } },
+  recordsReview: { term: 'Records review', short: "Checking the aircraft's paperwork back to birth: every part, check and repair. Missing records are the most common cause of a late handover.", where: { tab: 'fleet', view: 'market' } },
+  camo: { term: 'CAMO', short: 'Our continuing airworthiness management organisation: the engineers who keep the fleet legal. They can run only a few transitions at once; contract tech reps add one.', where: { tab: 'fleet', view: 'market' } },
+  aocVariation: { term: 'AOC variation', short: 'Adding a new type family to our air operator certificate: manuals, the MEL, training and maintenance programmes. About 90 days (120 for a widebody), and rated pilots before the grant.', where: { tab: 'company', view: 'ladder' } },
+  sublease: { term: 'Sublease', short: "Another airline's spare aircraft for a few months of its quiet season: quick to start, dearer than a normal lease, and back on a fixed date.", where: { tab: 'fleet', view: 'market' } },
+  lessorRating: { term: 'Lessor rating', short: 'How lessors see our credit, A to D: years on the AOC, fleet, cash, profit, debts, client stars and reliability. It sets the deposit, who will deal with us and how many aircraft they place.', where: { tab: 'fleet', view: 'market' } },
   newBuildSlot: { term: 'New-build slot', short: 'A brand-new aircraft from the factory, leased before it is built. Months of waiting and the highest rent.', where: { tab: 'fleet' } },
 };
 
@@ -146,6 +160,9 @@ export const TERM_WORDS: [string, TermId][] = [
   // v0.9
   ['airport standby', 'airportStandby'], ['reserve', 'reserve'], ['days off', 'daysOff'], ['day off', 'daysOff'], ['published roster', 'publishedRoster'],
   ['out of hours', 'outOfHours'], ['crew change', 'slipCrew'], ['department head', 'departmentHead'], ['jumbo load', 'jumboLoad'], ['fuel at cost', 'fuelAtCost'],
+  // v0.17
+  ['letter of intent', 'loi'], ['credit check', 'creditCheck'], ['holding deposit', 'holdingDeposit'], ['letter of credit', 'letterOfCredit'], ['minimum hours', 'minHours'],
+  ['records review', 'recordsReview'], ['CAMO', 'camo'], ['AOC variation', 'aocVariation'], ['sublease', 'sublease'], ['lessor rating', 'lessorRating'],
 ];
 
 /** First-time hints: one plain paragraph the first time each kind of problem appears (Settings.hintsSeen). */

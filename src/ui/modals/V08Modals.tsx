@@ -165,6 +165,14 @@ export function OutlookModal() {
         <div className="upper dim">Next 12 months</div>
         <Calendar g={g} o={o} />
         <div className="small muted">Hajj: {o.hajj.map((h) => `${fmtDay(h.arafah)} ${new Date(Date.UTC(2000, 0, 1) + h.arafah * 60_000).getUTCFullYear()}`).join(' · ')} (Day of Arafah; about 11 days earlier every year)</div>
+        {/* v0.17 aircraft supply (§A.4): the tightest and easiest types near us, with the month's trend. */}
+        {o.supplyText && (
+          <div className="col gap-4">
+            <div className="upper dim">Aircraft supply</div>
+            <div className="small">{o.supplyText}</div>
+            <div className="tiny dim">How hard each type is to lease now. Tight types cost more, come with fewer proposals and extend dearer. <button className="btn btn-ghost btn-sm" onClick={() => { store.closeModal(); store.navigate('fleet', { view: 'market' }); }}>Aircraft market</button></div>
+          </div>
+        )}
         {o.shocks.length > 0 && (
           <div className="col gap-4">
             <div className="upper dim">Shocks</div>

@@ -78,3 +78,7 @@
   .rf-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
   .mk17-intro { display: none; }
 }
+
+/* ---- Finance › The bank: the lessor rating line ---- */
+.fb-lessor { width: 100%; min-height: 44px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 10px; background: var(--panel-2); color: inherit; font: inherit; text-align: left; cursor: pointer; align-items: center; }
+.fb-lessor .grow { min-width: 0; }
