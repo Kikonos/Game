@@ -960,6 +960,17 @@ Neutral: `bot 1 120 --wide --inv` prints the base table line for line; only the 
 - **Extra files**: `leasing/side.ts` (`leasingSide`, the market side-stream formula; shared, step 0 only), `leasing/exotic.ts` (§T; lane `deals`), `leasing/step0.test.ts` (shared: a lane may extend it, never weaken the neutral checks while `--market=v16` must hold).
 - **Stub signatures** are listed in each file's header and doc comment; each says "Step 0:" what it returns now.
 
+### Q.1b Lane `deals` as built (branch `v017-deals`)
+
+- **Rating** (credit.ts): `lessorRating` is cached daily in `g.leasing.credit`; a grade change is told once it has held 7 days (`gradeTold`, `gradeSince`), so a month-end dip below zero does not chime. `lessorStance(g, def, typeId, band)` gives each lessor's answer before the aircraft roll (blocked, credit, exposure, with the §T security flag). Blocks: v0.16.3 `lessorBlock` by name, or a deferral default + 24 months (read from the deferral, `distress.ts` untouched). Leaseback: the stable pick, else the next willing lessor, then Carlyle (accepts D); the −3-point price share at D is not applied (finance/index.ts is not ours).
+- **Requests** (rfp.ts): lessors that won't consider us are answered at sending (with the reason); a lessor that said "no aircraft" is not asked again for 30 days (left off the list, the dialog says when). Proposals go straight into `g.market.aircraft` (not `postOffer`), `expires` = `validUntil`. The previous operator (`exop`) answers for types with `EX_OPERATORS`, and for the 747 classics as "a storage owner" selling (a `buy` proposal).
+- **Deals** (deals.ts): the C 15 % asks one more month; a grade lower asks two. Conditions unanswered for 7 days lapse with the holding deposit back. The paint costs the middle of `BAL.paint.full`; without paint the aircraft comes `white`. The reserves deposit (§T) is part of the refundable `deposit`.
+- **Transition** (induction.ts): the plan only for offers with a `source` (legacy offers keep `leadDays`). Findings are rolled in the plan and told when the check starts; the dialog shows `expected` (no findings). Tech reps after signing (`addTechRepsToInduction`) move the handover earlier (a new delivery event; the ferry re-planned). `Induction.cap`/`need` are kept for the `camo-capacity` invariant.
+- **AOC** (aoc.ts): `aocMiss` gives the gate's `aoc` miss (`GateMiss.id` is `ApprovalId | 'aoc'`, with `family`). The first widebody family rides on Widebody operations (held or pending) and joins `aocFamilies` at the grant. Exotic families (A380, 747) need 4 + 4 rated pilots. The authority: EASA states 90/120 days, the UK 45/60, others 60/90 (home base's country).
+- **Letters of credit** (finance/lc.ts): fee accrued daily, posted to `bankFees` by `monthlyLeasing`; a frozen or not-renewed line → the lessor's cash call in 30 days (the `leaseConditions` card on the aircraft), then the deposit is taken in cash.
+- **Month end**: `monthlyLeasing` (inside `refreshMarket`, before the statement closes) posts the letter-of-credit fees and `minHoursBill` (lane `supply`'s pure figure) as `reserves`.
+- **Not done here**: contract feasibility does not yet count the variation's due date ("signs now, flies after"); the gate at departure and the ahead-of-time card do.
+
 ### Q.2 The three lanes
 
 | Lane | Owns (edits freely) | Adds | Never touches |
@@ -992,6 +1003,7 @@ Every new cue reuses the existing ones (`notice`, `decision`, `offerNew`, `ladde
 
 - Supply: "The aircraft market moves like the real one. Each type is easy, normal or tight to find. Narrowbodies are easing, and widebodies are scarce: lessees keep their A330s and 777s, and new 787s and A350s are placed until 2030. Lessors call more often with narrowbodies. When an airline fails, its aircraft come to the market in a batch below market rent. Short-term aircraft come from airlines in their quiet season."
 - Deals: "Ask lessors for the aircraft you want: type, age, lease and start. They answer in one to three weeks with a proposal or a plain no. Lessors check our credit (years on the AOC, fleet, cash, debts, who we fly for, IOSA) and set the deposit. Each lessor places only so many aircraft with us. Sign a letter of intent, pass the lessor's credit check, then the aircraft goes through records, a check and paint before the ferry home. Our CAMO handles a few transitions at a time. A new type needs an AOC variation."
+- Deals (as built): "Ask lessors for the aircraft you want. They answer in one to three weeks with a proposal or a plain no. Your lessor rating (A to D) sets who will talk to you and the deposit. Sign a letter of intent, pass the lessor's credit check, then the aircraft goes through records, a check and paint before the ferry home; our CAMO handles a few at a time. A new type family needs an AOC variation. An A380 or a 747 is possible: rating B, or C with a big deposit, or buy one."
 - UI: "Fleet › Market has Offers, Requests and In progress. Your lessor rating and why are at the top."
 
 ---
