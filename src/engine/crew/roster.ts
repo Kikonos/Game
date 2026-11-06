@@ -17,6 +17,7 @@ import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './sta
 import { applyBuyBack, buyBackFor, buyBackMode, undoBuyBack, type BuyBack } from './buyBack';
 import { dayIndex, dayLabel, fitStandby, midnight, monthFloorIssue, offDaysHit, offMovable, offSwappable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
 import { infoOf } from './outOfHours';
+import { confirmAlarm } from './selfCheck';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
@@ -1475,11 +1476,22 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
   const off = found.filter((b) => !(d && g.pairings[d.pairingId]?.slots.some((s) => s.crewId === b.crewId)));
   // v0.9 round 4 (§T): taken off for a legal limit is crew out of hours (its own kind, icon and pause), not a shortage.
   const hours = off.some((b) => infoOf(g, b.crewId, b.issue) !== null);
+  // Alarm self-check: a seat left empty pauses (and carries its card) only when the check confirms it: the people taken
+  // off judged on their own, the duty re-measured, the planner's fix tried in a dry run.
+  const fid0 = (d ?? g.duties[dutyId])?.flightIds[0];
+  const f0 = fid0 ? g.flights[fid0] : undefined;
+  let checked: string[] | undefined;
+  let alarm = short > 0;
+  if (short && f0) {
+    const v = confirmAlarm(g, 'takenOff', f0, `${off.length === 1 ? 'Crew member' : `${off.length} crew`} taken off ${f0.no}`, off.map((b) => ({ crewId: b.crewId, code: b.issue.code })));
+    if (v.confirmed) checked = v.evidence;
+    else alarm = false;
+  }
   if (off.length) {
     const fid = (d ?? g.duties[dutyId])?.flightIds[0];
     const f = fid ? g.flights[fid] : undefined;
     const what = f ? `${f.no} ${f.from}–${f.to} ${fmtDateTime(f.std)}` : 'the duty';
-    const red = !!f && short > 0 && hours && f.std - g.now <= BAL.crewControl.redH * 60;
+    const red = !!f && alarm && hours && f.std - g.now <= BAL.crewControl.redH * 60;
     pushMessage(g, {
       tone: short ? 'warn' : 'info', cat: 'crew', ...(red ? { topic: 'crewHours' as const } : {}),
       // The ladder's own red message carries the alarm; this one chimes as routine news.
@@ -1487,10 +1499,11 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
       title: `${off.length === 1 ? 'Crew member' : `${off.length} crew`} taken off ${f?.no ?? 'a duty'}`,
       body: `${off.map((b) => crewName(g.crew[b.crewId])).join(', ')}: ${off[0].issue.text}. ${short ? `No legal replacement for ${short} seat${short > 1 ? 's' : ''} on ${what} yet.` : `Replaced on ${what}.`}`,
       ref: f ? { kind: 'flight', id: f.id } : undefined,
-      ...(short && f ? { problem: { kind: hours ? 'crewHours' as const : 'crewShort' as const, ref: { kind: 'flight' as const, id: f.id } }, hurt: { money: 0, pax: f.pax ?? 0, delayMin: 0, level: (f.pax ?? 0) >= BAL.crewControl.hurtLowPax ? 'high' as const : 'low' as const } } : {}),
+      ...(alarm && f ? { problem: { kind: hours ? 'crewHours' as const : 'crewShort' as const, ref: { kind: 'flight' as const, id: f.id } }, hurt: { money: 0, pax: f.pax ?? 0, delayMin: 0, level: (f.pax ?? 0) >= BAL.crewControl.hurtLowPax ? 'high' as const : 'low' as const } } : {}),
+      ...(checked ? { checked } : {}),
     });
   }
-  if (short) requestPause(hours ? 'crewHours' : 'crewShortage');
+  if (alarm) requestPause(hours ? 'crewHours' : 'crewShortage');
   touchCrew(g);
   return !d || (!short && !crewIssuesFor(g, d).length);
 }

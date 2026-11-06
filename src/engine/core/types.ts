@@ -874,6 +874,8 @@ export interface Flight {
   purpose?: 'delivery' | 'return' | 'refit' | /** v0.7.2 */ 'check' | 'sale' | /** v0.8 dry lease ferries */ 'lease';
   /** v0.7.1 crew-shortage ladder stage reached (amber ≤ 48 h, red ≤ 12 h); load: crewWarned → 'amber'. */
   crewAlert?: 'amber' | 'red';
+  /** Alarm self-check: the evidence the last confirmed crew alarm on this flight was checked with ("Checked ✓"). */
+  crewChecked?: string[];
   /** Crew-planning round: the early heads-up (beyond the 48 h amber stage) was given for this leg's trip; once. */
   crewEarly?: true;
   /**
@@ -1348,6 +1350,30 @@ export interface Message {
   /** v0.7.1 the problem this message is about, and its severity when posted (a snapshot for the badge once the problem is gone). */
   problem?: ProblemRef;
   hurt?: { money: number; pax: number; delayMin: number; level: 'none' | 'low' | 'high' };
+  /** Alarm self-check: the alarm was re-checked on its own before it chimed; the evidence (who, which limit, value vs limit, when). */
+  checked?: string[];
+}
+
+/** Alarm self-check: one alarm the check withheld (it disagreed): kept for the dev panel and filed into Bug reports. */
+export interface SelfCheckRecord {
+  t: Minute;
+  kind: 'short' | 'hours' | 'early' | 'takenOff' | 'rest';
+  flightId: string;
+  no: string;
+  /** The alarm's title as it would have read. */
+  title: string;
+  /** Why it was withheld. */
+  why: string;
+  evidence: string[];
+}
+
+export interface SelfCheckState {
+  confirmed: number;
+  withheld: number;
+  /** The last 20 withheld, newest first. */
+  log: SelfCheckRecord[];
+  /** Withheld ones still to be filed into Bug reports by the UI (takeSelfCheckRecords). */
+  pending: SelfCheckRecord[];
 }
 
 export interface DecisionOption {
@@ -1900,6 +1926,8 @@ export interface GameState {
    * older save (one waiting on a decision resumes at 1× once it is answered).
    */
   autoHold?: { speed?: number; manual?: boolean; items: { reason: string; keys: string[] }[] } | null;
+  /** Alarm self-check (crew/selfCheck.ts): crew alarms confirmed and withheld, the withheld ones' records. */
+  selfCheck?: SelfCheckState;
 }
 
 /** v0.12 Scenarios mode: what the daily scan counts from the scenario's start (engine/scenario/index.ts). */
