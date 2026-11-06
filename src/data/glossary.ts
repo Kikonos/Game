@@ -280,4 +280,25 @@ export const HINTS: Partial<Record<ProblemKind, { title: string; text: string }>
     title: 'What a dry lease is',
     text: 'The client rents the aircraft without crew: our pilots deliver it and fetch it back, they fly it with their crews in their colours. We earn rent and reserves; our crews of that type have less work meanwhile.',
   },
+  // v0.17 the aircraft market
+  leaseConditions: {
+    title: 'A lessor wants more security',
+    text: 'After a letter of intent the lessor checks our credit again. If our rating fell, or we are a start-up, it may ask more deposit, or a letter of credit when our bank line allows one. Walking away now costs nothing: the holding deposit comes back.',
+  },
+  leaseSign: {
+    title: 'A lease to sign',
+    text: "The lessor's credit check passed. Sign within the window and the aircraft starts its transition; walk away now and the lessor keeps the holding deposit.",
+  },
+  inductionDelay: {
+    title: 'A transition running late',
+    text: 'Before a leased aircraft joins us its records are reviewed and it gets a check. Findings add days. Contract tech reps speed the paperwork; a sub-charter covers the first flights.',
+  },
+  variationNeeded: {
+    title: 'A new type for our AOC',
+    text: 'Our air operator certificate lists the type families we may fly. A new family needs a variation from the authority (about 90 days, 120 for a widebody) and rated pilots before it is granted. Delivery and positioning flights may fly before; revenue flights only after.',
+  },
+  spotReturn: {
+    title: 'A short-term aircraft goes back',
+    text: 'A sublease ends on a fixed date at the airline\'s base. Plan the last flights and the ferry back in time: late costs twice the daily rent.',
+  },
 };
