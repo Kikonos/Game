@@ -80,10 +80,16 @@ export function deploymentSets(g: GameState): SetLine[] {
   const deps = Object.values(g.deployments).filter((d) => d.start <= g.now && d.end > g.now).sort((a, b) => a.base.localeCompare(b.base) || a.start - b.start);
   for (const dep of deps) {
     for (let s = 0; s < (dep.anchors?.length ?? dep.setsOnStation); s++) {
-      const per = periodOf(dep, s, g.now, R);
+      // The period the set's own tour pairings carry when one runs now (an older save's tours keep the periods they
+      // were rostered with), else the one the rotation gives today. A period with no tour pairing (no duty for the set)
+      // is not shown: nobody is due on station.
+      const mine = dep.pairingIds.map((id) => g.pairings[id]).filter((p): p is Pairing => !!p?.tour && p.tour.set === s && p.status !== 'broken');
+      const now = mine.find((p) => p.tour!.from <= g.now && p.tour!.to > g.now)?.tour;
+      const per = now ? { from: now.from, to: now.to } : periodOf(dep, s, g.now, R);
       if (!per) continue;
       const to = Math.min(per.to, dep.end);
-      const parts = dep.pairingIds.map((id) => g.pairings[id]).filter((p): p is Pairing => !!p?.tour && p.tour.set === s && p.tour.from === per.from && p.status !== 'broken');
+      const parts = mine.filter((p) => p.tour!.from === per.from);
+      if (!parts.length) continue;
       const ids = new Set<string>();
       const early: SetLine['early'] = [];
       for (const p of parts) {

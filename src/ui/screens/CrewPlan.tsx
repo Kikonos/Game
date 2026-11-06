@@ -197,6 +197,10 @@ export function CrewPlanView({ g }: { g: GameState }) {
 export function DeploymentStrip({ g }: { g: GameState }) {
   const lines = deploymentSets(g);
   if (!lines.length) return null;
+  // Two deployments at one station (two aircraft): each line names its aircraft.
+  const perBase = new Map<string, Set<string>>();
+  for (const l of lines) perBase.set(l.base, (perBase.get(l.base) ?? new Set()).add(l.deploymentId));
+  const regOf = (id: string) => g.fleet[g.deployments[id]?.aircraftId ?? '']?.reg;
   return (
     <div className="cp-deploy">
       <div className="tiny dim">On station · crews rotate every {g.company.policies.rotationWeeks} weeks (days off at the hotel); a set stays to the end when the deployment ends within a week of its change.</div>
@@ -206,7 +210,7 @@ export function DeploymentStrip({ g }: { g: GameState }) {
           return (
             <div key={`${l.deploymentId}:${l.set}`} className={`cp-chip static ${l.crew ? '' : 'short'}`}>
               <span className="cp-line">
-                <b>Set {l.set + 1} at {city}</b>
+                <b>Set {l.set + 1} at {city}{(perBase.get(l.base)?.size ?? 0) > 1 && regOf(l.deploymentId) ? ` · ${regOf(l.deploymentId)}` : ''}</b>
                 <span>{l.crew ? `${l.day} of ${l.of} days · home ${fmtDay(l.home)}` : `not crewed yet · ${l.of}-day tour to ${fmtDay(l.home)}`}</span>
                 {l.early.map((e) => <span key={e.name} className="tiny warn">{e.name} goes home early: {e.why}</span>)}
               </span>
