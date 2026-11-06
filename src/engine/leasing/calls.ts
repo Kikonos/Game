@@ -170,10 +170,12 @@ export function dailyCalls(g: GameState): void {
   const K = C();
   const L = g.leasing;
   const all = m.aircraft.filter(isCall).length;
-  const pool = eligibleTypes(g).filter((e) => !isExotic(e.t.id) && !BAL.v017.supply.rfpOnly.includes(e.t.id));
+  // Read only when a roll comes up (the gate reads are not free).
+  let pool0: ReturnType<typeof eligibleTypes> | null = null;
+  const poolOf = () => (pool0 ??= eligibleTypes(g).filter((e) => !isExotic(e.t.id) && !BAL.v017.supply.rfpOnly.includes(e.t.id)));
   // Narrowbodies: 1.6 a month.
   if (chance(r, K.narrowPerMonth / 30.44) && all < K.maxOpen) {
-    const x = weightedPick(r, pool.filter((e) => e.t.body === 'narrow'), (e) => e.w);
+    const x = weightedPick(r, poolOf().filter((e) => e.t.body === 'narrow'), (e) => e.w);
     const o = x ? lessorCall(g, x.t, r, { newBuild: chance(r, K.newBuildChance) }) : null;
     if (o) {
       postOffer(g, o);
@@ -182,7 +184,7 @@ export function dailyCalls(g: GameState): void {
   }
   // Widebodies: 0.35 a month once a widebody gate is held or pending; one rung away a rare teaser (× 0.3, 1 open).
   if (chance(r, K.widePerMonth / 30.44)) {
-    const wide = pool.filter((e) => e.t.body === 'wide');
+    const wide = poolOf().filter((e) => e.t.body === 'wide');
     const held = wide.filter((e) => !e.teaser);
     const open = openCalls(g, 'wide');
     const teaserOk = open.teasers < K.maxTeasers;
