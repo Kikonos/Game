@@ -24,7 +24,7 @@ describe('v0.17 lease returns', () => {
     g.company.cash = 60_000_000;
     const o = makeOffer(g, ACMI_TYPES.a320ceo, { source: 'call', lessorId: 'vallair', band: 'old' });
     g.market.aircraft.push(o);
-    const r = acquireAircraft(g, o.id);
+    const r = acquireAircraft(g, o.id, { direct: true });
     expect(r.ok).toBe(true);
     const ac = g.fleet[(r as { data: { aircraftId: string } }).data.aircraftId];
     expect(own(ac).halfLifeShare).toBe(0.25);
@@ -60,7 +60,7 @@ describe('v0.17 lease returns', () => {
     expect(o.reservesDeposit).toBeGreaterThan(0);
     g.market.aircraft.push(o);
     const cash = g.company.cash;
-    const r = acquireAircraft(g, o.id);
+    const r = acquireAircraft(g, o.id, { direct: true });
     expect(r.ok).toBe(true);
     const ac = g.fleet[(r as { data: { aircraftId: string } }).data.aircraftId];
     expect(own(ac).reservesDeposit).toBe(o.reservesDeposit);

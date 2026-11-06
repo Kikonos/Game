@@ -17,7 +17,7 @@ import { pushMessage } from '../core/messages';
 import { runwayFit, typeOf } from '../core/perf';
 import { chance, int, pick, range, type RngHolder } from '../core/rng';
 import { DAY, fmtDay, yearOf } from '../core/time';
-import type { ActionResult, AgeBand, AircraftOffer, GameState, LessorId, Minute, Rfp, RfpAnswer } from '../core/types';
+import type { ActionResult, AgeBand, AircraftOffer, CreditGrade, GameState, LessorId, Minute, Rfp, RfpAnswer } from '../core/types';
 import { aircraftGate } from '../ops/company';
 import { makeOffer } from '../ops/market';
 import { lockOf } from '../scenario/rules';
@@ -73,6 +73,16 @@ const openRfps = (g: GameState) => (g.leasing?.rfps ?? []).filter((r) => r.statu
 const exOpName = (typeId: string) => (EX_OPERATORS[typeId]?.length ? 'The previous operator' : BAL.v017.exotic.classics.includes(typeId) ? 'Owners in storage' : '');
 
 /** The lessors a draft goes to, with whether each will consider us (and why not). Pure. */
+/**
+ * §T a sale, not a lease: the previous operator (or a storage owner) sells an exotic to an airline any lessor would
+ * refuse: always for a 747 classic, and at rating D for the others ("never impossible": no credit check, no lessor cap;
+ * the approvals, the AOC variation and the rated crews still apply). Pure.
+ */
+export function sellsOnly(g: GameState, def: LessorDef, typeId: string, grade: CreditGrade = rating(g).grade): boolean {
+  if (def.id !== 'exop' || !X().types.includes(typeId)) return false;
+  return X().classics.includes(typeId) || (grade === 'D' && !!EX_OPERATORS[typeId]?.length);
+}
+
 function lessorLines(g: GameState, d: Pick<RfpDraft, 'typeId' | 'band'>): { def: LessorDef; ok: boolean; why?: string; kind?: RfpAnswer['kind'] }[] {
   // The previous operator: airlines retiring the type; for the 747 classics the owners selling them from storage.
   const has = !!EX_OPERATORS[d.typeId]?.length || X().classics.includes(d.typeId);
@@ -80,6 +90,7 @@ function lessorLines(g: GameState, d: Pick<RfpDraft, 'typeId' | 'band'>): { def:
   return lessorsFor(d.typeId, d.band, has).map((def) => {
     const quiet = g.leasing?.quiet[`${def.id}:${d.typeId}`];
     if (quiet !== undefined && quiet > g.now) return { def, ok: false, why: `${def.name.split(' ')[0]} looked on ${fmtDay(quiet - R().quietDays * DAY)}: again from ${fmtDay(quiet)}` };
+    if (sellsOnly(g, def, d.typeId, r.grade)) return { def, ok: true };
     const st = lessorStance(g, def, d.typeId, d.band, def.name, r);
     return st.ok ? { def, ok: true } : { def, ok: false, why: st.text, kind: st.kind };
   });
@@ -245,9 +256,11 @@ function makeProposal(g: GameState, rfp: Rfp, def: LessorDef, r: RngHolder, late
   const now = yearOf(g.now);
   const newBuild = rfp.band === 'new';
   const classic = X().classics.includes(t.id);
+  // A sale: the 747 classics from storage, and an exotic the previous operator sells to a D-rated airline (§T).
+  const sale = !newBuild && sellsOnly(g, def, t.id);
   const years = bandYears(g, t, rfp.band);
   if (!years) return null;
-  const o = makeOffer(g, t, newBuild ? { newBuild: true } : classic ? { kind: 'buy' } : { lease: true });
+  const o = makeOffer(g, t, newBuild ? { newBuild: true } : sale ? { kind: 'buy' } : { lease: true });
   if (newBuild && !o.newBuild) return null;
   const grade = rating(g).grade;
   // Built year inside the band (at C a widebody 15 years or older).
@@ -273,11 +286,11 @@ function makeProposal(g: GameState, rfp: Rfp, def: LessorDef, r: RngHolder, late
   const rent0 = newBuild
     ? Math.round(((t.rentNew ?? t.rentMonth) * range(r, BAL.v017.newBuild.rentX[0], BAL.v017.newBuild.rentX[1]) * index) / 1000) * 1000
     : floorRent(t, Math.round((rentForAge(t, age) * range(r, BAL.v017.terms.noise[0], BAL.v017.terms.noise[1]) * index) / 1000) * 1000);
-  const months = classic ? 0 : termFor(def, rfp.band, rfp.months);
+  const months = sale ? 0 : termFor(def, rfp.band, rfp.months);
   const priceX = range(r, X().sale.priceX[0], X().sale.priceX[1]);
   o.builtYear = built;
   o.lessor = def.id === 'exop' ? (exop ? exop.airline : 'A storage owner') : def.name;
-  if (classic) o.lessor = `${o.lessor} (used sale)`;
+  if (sale) o.lessor = `${o.lessor} (used sale)`;
   o.lessorId = def.id;
   o.source = 'proposal';
   o.rfpId = rfp.id;
@@ -294,20 +307,20 @@ function makeProposal(g: GameState, rfp: Rfp, def: LessorDef, r: RngHolder, late
   o.validUntil = g.now + valid * DAY;
   o.expires = o.validUntil;
   o.created = g.now;
-  const price = classic ? Math.round((t.valueUsed * priceX * Math.max(0.3, 1 - age * 0.03)) / 10_000) * 10_000 : 0;
+  const price = sale ? Math.round((t.valueUsed * priceX * Math.max(0.3, 1 - age * 0.03)) / 10_000) * 10_000 : 0;
   Object.assign(o, {
-    kind: classic ? 'buy' : 'dryLeaseIn',
-    rentPerMonth: classic ? 0 : rent0,
-    reservesPerFH: classic ? 0 : o.reservesPerFH,
+    kind: sale ? 'buy' : 'dryLeaseIn',
+    rentPerMonth: sale ? 0 : rent0,
+    reservesPerFH: sale ? 0 : o.reservesPerFH,
     leaseMonths: months,
     price,
-    deposit: classic ? price : depMonths * rent0,
+    deposit: sale ? price : depMonths * rent0,
   } satisfies Partial<AircraftOffer>);
   Object.assign(o, quoteTerms(g, {
     offerId: o.id, typeId: t.id, kind: o.kind, builtYear: built, newBuild, source: 'proposal', lessorId: def.id, band: rfp.band, monthsWanted: rfp.months, grade,
     rentPerMonth: o.rentPerMonth, reservesPerFH: o.reservesPerFH, leaseMonths: o.leaseMonths, deposit: o.deposit, price: o.price,
   }));
-  if (!classic) {
+  if (!sale) {
     o.depositMonths ??= depMonths;
     o.minFH ??= BAL.v017.terms.minFH[t.body === 'wide' ? 'wide' : 'narrow'];
     o.halfLifeShare ??= BAL.v017.terms.halfLife[rfp.band] ?? 0.5;
@@ -328,7 +341,8 @@ function answer(g: GameState, rfp: Rfp, a: RfpAnswer): void {
   }
   const t = typeOf(rfp.typeId);
   const name = def.id === 'exop' ? exOpName(rfp.typeId) : def.name;
-  const st = lessorStance(g, def, rfp.typeId, rfp.band, def.name);
+  const sale = sellsOnly(g, def, rfp.typeId);
+  const st = sale ? { ok: true as const, text: '' } : lessorStance(g, def, rfp.typeId, rfp.band, def.name);
   if (!st.ok) {
     a.kind = st.kind;
     a.text = st.text;
@@ -352,7 +366,7 @@ function answer(g: GameState, rfp: Rfp, a: RfpAnswer): void {
     const pk = p * (k === 0 ? 1 : R().extra[k - 1] ?? 0);
     if (!chance(r, pk)) break;
     // Within the lessor's cap (the deals signed from these count when they are).
-    const st2 = lessorStance(g, def, rfp.typeId, rfp.band, def.name);
+    const st2 = sale ? { ok: true } : lessorStance(g, def, rfp.typeId, rfp.band, def.name);
     if (!st2.ok && k > 0) break;
     const o = makeProposal(g, rfp, def, leasingSide(g, `rfp:${rfp.id}:${def.id}:${k}`), false);
     if (!o) break;

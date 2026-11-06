@@ -39,7 +39,7 @@ export function exoticPath(g: GameState, typeId: string): ExoticPath {
     if (!ok) {
       steps.push({
         key: 'security', ok: r.grade !== 'D' && gradeAtLeast(r.grade, secG),
-        text: r.grade === 'D' ? 'At D no lessor leases one: buy one with the cash instead' : `At ${secG}: ${X().securityMonths} more months' deposit and ${X().reservesDepositMonths} months of reserves up front`,
+        text: r.grade === 'D' ? `At D no lessor leases one: buy one with the cash instead${EX_OPERATORS[typeId]?.length ? ' (ask lessors: the airlines retiring them sell)' : ''}` : `At ${secG}: ${X().securityMonths} more months' deposit and ${X().reservesDepositMonths} months of reserves up front`,
       });
     }
   }

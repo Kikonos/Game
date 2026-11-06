@@ -125,7 +125,7 @@ describe('v0.17 minimum hours (§E.3)', () => {
     g.company.cash = 50_000_000;
     const o = makeOffer(g, ACMI_TYPES.a320ceo, { source: 'call', lessorId: 'carlyle', band: 'mid' });
     g.market.aircraft.push(o);
-    const r = acquireAircraft(g, o.id);
+    const r = acquireAircraft(g, o.id, { direct: true }); // the terms, not the letter of intent
     expect(r.ok).toBe(true);
     const ac = g.fleet[(r as { data: { aircraftId: string } }).data.aircraftId];
     expect(ac.ownership.kind === 'dryLeaseIn' && ac.ownership.minFH).toBe(80);
