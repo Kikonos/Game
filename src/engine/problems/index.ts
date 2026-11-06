@@ -11,7 +11,7 @@ import { crewRev } from '../crew/timeline';
 import { crewPeakCard } from '../crew/forecast';
 import { cabinRestCard, captainAsFoCard, crewFlightCard, crewHoursCard, crewProblems, crewResignedCard, crewSickCard, restCards, restFacilityCard, restSeatsCard, restTooShortCard } from './crew';
 import { changeRequestCard, commercialProblems, contractCancelledCard, counterExpiryCard, offerFitCard, penaltyCard } from './commercial';
-import { deliveryWaitCard, ferryUncrewedCard, noFerryCard, fleetProblems, leaseReturnCard, refitMissedCard, saleCard } from './fleet';
+import { awayIdleCard, awayIdleSince, deliveryWaitCard, ferryUncrewedCard, noFerryCard, fleetProblems, leaseReturnCard, refitMissedCard, saleCard } from './fleet';
 import { cashLowCard, cashNegativeCard, covenantBreachCard, creditHeadroomCard, factorRecourseCard, invoiceOverdueCard, leaseDueCard, loanDueCard, lossMonthCard, moneyProblems } from './money';
 import { leadColdCard, leadProblems } from '../commercial/sales';
 import { boardTargetCard, restructuringCard } from '../finance/distress';
@@ -80,6 +80,7 @@ function problemForRaw(g: GameState, subject: ProblemRef): ProblemCard | null {
     case 'lossMonth': return lossMonthCard(g);
     case 'leaseDue': return leaseDueCard(g, id);
     case 'deliveryWait': return deliveryWaitCard(g, id);
+    case 'awayIdle': return awayIdleCard(g, id);
     case 'noFerry': return noFerryCard(g, id);
     case 'ferryUncrewed': return ferryUncrewedCard(g, id);
     case 'refit': return refitMissedCard(g, id);
@@ -126,7 +127,7 @@ function problemForRaw(g: GameState, subject: ProblemRef): ProblemCard | null {
 
 const SEV = { red: 0, amber: 1 } as const;
 const KIND_RANK: ProblemKind[] = [
-  'aog', 'grounded', 'crewHours', 'crewShort', 'crewIllegal', 'ferryUncrewed', 'cashNegative', 'cashLow', 'covenantBreach', 'loanDue', 'checkOverdue', 'checkClash', 'deliveryWait', 'crewSick', 'counterExpiry', 'changeRequest',
+  'aog', 'grounded', 'crewHours', 'crewShort', 'crewIllegal', 'ferryUncrewed', 'cashNegative', 'cashLow', 'covenantBreach', 'loanDue', 'checkOverdue', 'checkClash', 'deliveryWait', 'awayIdle', 'crewSick', 'counterExpiry', 'changeRequest',
   'invoiceOverdue', 'creditHeadroom', 'factorRecourse', 'checkDue', 'checkNoSlot', 'offerFit', 'noFerry', 'leaseReturn', 'leaseDue', 'refit', 'crewResigned', 'crewTight', 'lossMonth', 'penalty', 'contractCancelled', 'crewReach', 'crewRest', 'crewFdp',
   // v0.7.2
   'restSeats', 'captainAsFo', 'sale',
@@ -177,7 +178,7 @@ function problemAtRaw(g: GameState, ref: Ref): ProblemCard | null {
       // v0.12.1 a leg that needs an approval we won't hold by then (any leg of the job).
       return crewFlightCard(g, ref.id, f?.purpose ? 'ferryUncrewed' : 'crewShort') ?? approvalLateCard(g, ref.id) ?? crewFlightCard(g, ref.id, 'crewTight');
     }
-    case 'aircraft': return aogCard(g, ref.id) ?? checkCard(g, ref.id) ?? noSlotCard(g, ref.id) ?? deliveryWaitCard(g, ref.id) ?? leaseReturnCard(g, ref.id);
+    case 'aircraft': return aogCard(g, ref.id) ?? checkCard(g, ref.id) ?? noSlotCard(g, ref.id) ?? deliveryWaitCard(g, ref.id) ?? awayIdleCard(g, ref.id) ?? leaseReturnCard(g, ref.id);
     case 'crew': return ref.id.startsWith('peak:') ? crewPeakCard(g, ref.id) : crewSickCard(g, ref.id) ?? crewResignedCard(g, ref.id);
     case 'maint': return checkClashCard(g, ref.id) ?? refitMissedCard(g, ref.id);
     case 'offer': return counterExpiryCard(g, ref.id) ?? offerFitCard(g, ref.id) ?? lostToRivalCard(g, ref.id);
@@ -213,6 +214,18 @@ export function cardMeta(card: ProblemCard | null | undefined): { problem?: Prob
 
 /** The badge strings for a message's hurt snapshot (UI). */
 export const messageBadges = (m: Message): string[] => (m.hurt ? hurtBadges(m.hurt) : []);
+
+/** v0.16.4 daily: an aircraft stuck away from base with nothing planned is told in the Inbox once a stay (a chime). */
+export function postAwayIdle(g: GameState): void {
+  for (const ac of Object.values(g.fleet)) {
+    const card = awayIdleCard(g, ac.id);
+    if (!card) continue;
+    const since = awayIdleSince(g, ac.id);
+    if (g.stats.awayTold?.[ac.id] === since) continue;
+    (g.stats.awayTold ??= {})[ac.id] = since;
+    postProblem(g, card, { cat: 'ops' });
+  }
+}
 
 /**
  * v0.7.3 the in-flight rest cards as Inbox messages (daily): once per contract and kind (a flight without a contract:

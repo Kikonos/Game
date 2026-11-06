@@ -933,6 +933,8 @@ export type ProblemKind =
   /** v0.9 round 4 (§S): cash below zero, the day it happens. */
   | 'cashNegative'
   | 'deliveryWait' | 'ferryUncrewed' | 'refit' | 'leaseReturn'
+  /** v0.16.4 an aircraft parked away from base with nothing planned and no way home found. */
+  | 'awayIdle'
   /** v0.11 a market offer we may not ferry home (ETOPS): told before signing, never posted. */
   | 'noFerry'
   /** v0.7.2 */
@@ -1586,6 +1588,8 @@ export interface Stats {
   bodyAsked?: boolean;
   /** v0.16.4 open narrowbody wet asks (an A320-size base, cover, capacity lease, sub-charter) given body 'narrow' once on load. */
   narrowAsked?: boolean;
+  /** v0.16.4 aircraft told stuck away from base (awayIdle card), with when that stay began (told once a stay). */
+  awayTold?: Record<string, Minute>;
   /** Peak-staffing round: busy-month gaps already told in the Inbox ('<month key>|<family>|<role>'; past months pruned). */
   peakWarned?: string[];
   /** Lifetime billable block minutes and revenue legs. */

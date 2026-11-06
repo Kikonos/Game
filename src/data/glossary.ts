@@ -202,6 +202,10 @@ export const HINTS: Partial<Record<ProblemKind, { title: string; text: string }>
     title: 'An aircraft stuck at the seller',
     text: 'A new aircraft is handed over where the seller is. Your pilots fly out on airline tickets and ferry it home. Without rated pilots it waits there, and parking is charged by the day.',
   },
+  awayIdle: {
+    title: 'An aircraft stuck away from base',
+    text: 'After a job away, the planner brings the aircraft home at once (or on to its next job), with a crew flown out on airline tickets. When no way home fits its range and our ETOPS limit, or a closure is in the way, it waits where it is and parking is charged by the day.',
+  },
   leaseReturn: {
     title: 'A lease coming to an end',
     text: 'A leased aircraft goes back to its lessor with a return check, its original cabin and a white paint. You can extend the lease instead; decide before the notice date.',
