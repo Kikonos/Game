@@ -113,7 +113,7 @@ import { botLadder, botLadderReport } from './bot/ladder';
 import { botFarRouteReport, botFarRouteTally, farRouteOk } from './bot/clients';
 import { botSalesFinanceReport } from './bot/report016';
 // v0.17 the aircraft market (scripts/bot/market.ts, report017.ts; UPDATE-0.17.md §O).
-import { botMarket } from './bot/market';
+import { botMarket, MARKET_TALLY } from './bot/market';
 import { botMarketReport } from './bot/report017';
 
 
@@ -1210,6 +1210,8 @@ function narrowGrowth(g: GameState, t: Tally): void {
   // From day 75 (the first two prove the business).
   if (dayN(g) < 75 || Object.values(g.fleet).some((a) => a.status === 'delivering')) return;
   if (Object.values(g.fleet).filter((a) => typeOf(a.typeId).body === 'narrow').length >= 3) return;
+  // v0.17 balance step: the same growth need as the v0.17 planner (report only: narrowNeedToService on --market=v16).
+  if (committed(g, 60) >= (dayN(g) >= 150 ? 0.6 : 0.75)) MARKET_TALLY.needAt ??= dayN(g);
   const o = g.market.aircraft.find((x) => x.kind === 'dryLeaseIn' && !x.newBuild && x.expires > g.now && typeOf(x.typeId).family === 'A320' && aircraftGate(g, x.typeId).ok);
   // 75% committed over the next 60 days; from day 150, 60% (the winter programme is being sold by then).
   if (!o || g.company.cash < o.deposit + 1_000_000 || committed(g, 60) < (dayN(g) >= 150 ? 0.6 : 0.75)) return;
@@ -1222,7 +1224,10 @@ function narrowGrowth(g: GameState, t: Tally): void {
   const summer = homeBy <= june(y) || g.now + o.leadDays * DAY >= fromUTC(y, 10, 1);
   const series = Object.values(g.offers).some((x) => x.status === 'open' && x.end - x.start >= 60 * DAY && x.start >= homeBy && x.start <= homeBy + 21 * DAY && (x.pattern.kind === 'base' || x.archetype === 'tourSeries') && !isWideJob(x.requirements));
   if (!summer && !series) return;
-  if (acquireAircraft(g, o.id).ok) {
+  const got = acquireAircraft(g, o.id);
+  if (got.ok) {
+    if (MARKET_TALLY.needAt !== null) MARKET_TALLY.growth.push({ needAt: MARKET_TALLY.needAt, offerId: o.id, signedAt: dayN(g), aircraftId: got.data!.aircraftId });
+    MARKET_TALLY.needAt = null;
     t.narrowSigned++;
     t.signed.push(`${typeOf(o.typeId).short} day ${dayN(g)} at ${o.site}`);
     act(g, t);

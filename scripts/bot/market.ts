@@ -46,7 +46,32 @@ export const MARKET_TALLY = {
   growth: [] as { needAt: number; offerId: string; signedAt: number; dealId?: string; aircraftId?: string }[],
   exotic: { rfps: 0, signed: 0 },
   greedy: { rfps: 0, lois: 0 },
+  /**
+   * Balance step: every aircraft that joined after day 0, by id: type, source, the day it was asked for (the request
+   * sent, or the call posted), the letter of intent or signing day, the day in service (home from the ferry).
+   */
+  acq: {} as Record<string, { typeId: string; src: string; askedAt?: number; signedAt?: number; svcAt?: number }>,
+  /** Balance step: per deal, the day its request was sent (or its call posted) and the letter of intent. */
+  dealAsk: {} as Record<string, { askedAt?: number; loiAt: number }>,
 };
+
+const dayOf = (g: GameState, t: Minute) => Math.floor((t - g.started) / DAY);
+
+/** Balance step: tracks every aircraft that joins (both markets), for the report's acquisitions line. */
+export function trackFleet(g: GameState): void {
+  for (const ac of Object.values(g.fleet)) {
+    if (!ac.delivery && ac.deliveredAt <= g.started + DAY) continue;
+    let x = MARKET_TALLY.acq[ac.id];
+    if (!x) {
+      const deal = g.leasing?.deals.find((d) => d.aircraftId === ac.id);
+      const da = deal ? MARKET_TALLY.dealAsk[deal.id] : undefined;
+      const o = ac.ownership;
+      const src = deal ? (deal.offer.source ?? 'loi') : o.kind === 'owned' ? 'buy' : o.spot ? 'spot' : o.lessorId ? 'call' : 'legacy';
+      x = MARKET_TALLY.acq[ac.id] = { typeId: ac.typeId, src, signedAt: da?.loiAt ?? dayN(g), ...(da?.askedAt !== undefined ? { askedAt: da.askedAt } : {}) };
+    }
+    if (x.svcAt === undefined && ac.status !== 'delivering' && (!ac.delivery || ac.delivery.arrived !== undefined)) x.svcAt = ac.delivery?.arrived !== undefined ? dayOf(g, ac.delivery.arrived) : dayN(g);
+  }
+}
 
 const dayN = (g: GameState) => Math.floor((g.now - g.started) / DAY);
 const NOSIGN = process.argv.includes('--nosign');
@@ -84,11 +109,15 @@ function readyOf(g: GameState, o: AircraftOffer): Minute {
 
 /** Signs an offer the way it goes: a letter of intent (automatic signing) or at once. */
 function sign(g: GameState, o: AircraftOffer): { ok: boolean; dealId?: string; aircraftId?: string } {
+  const rfp = o.rfpId ? g.leasing?.rfps.find((x) => x.id === o.rfpId) : undefined;
+  const askedAt = rfp ? dayOf(g, rfp.sent) : o.created !== undefined ? dayOf(g, o.created) : undefined;
   if (usesLoi(g, o)) {
     const r = signLoi(g, o.id, { autoSign: true });
+    if (r.ok) MARKET_TALLY.dealAsk[r.data!.dealId] = { loiAt: dayN(g), ...(askedAt !== undefined ? { askedAt } : {}) };
     return r.ok ? { ok: true, dealId: r.data!.dealId } : { ok: false };
   }
   const r = acquireAircraft(g, o.id);
+  if (r.ok) MARKET_TALLY.acq[r.data!.aircraftId] = { typeId: o.typeId, src: o.source ?? 'legacy', signedAt: dayN(g), ...(askedAt !== undefined ? { askedAt } : {}) };
   return r.ok ? { ok: true, aircraftId: r.data!.aircraftId } : { ok: false };
 }
 
@@ -254,6 +283,7 @@ function greedy(g: GameState): boolean {
 
 /** Once a day from acmi-bot.ts policy(). True when it acted (the caller re-plans). */
 export function botMarket(g: GameState, opts: BotMarketOpts): boolean {
+  trackFleet(g);
   if (!BAL.v017.on || !g.leasing) return false;
   // The grade each quarter, for the report.
   if (dayN(g) > 0 && dayN(g) % 91 === 0 && MARKET_TALLY.grades.length < Math.floor(dayN(g) / 91)) MARKET_TALLY.grades.push(rating(g).grade);

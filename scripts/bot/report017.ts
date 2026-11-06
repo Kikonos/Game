@@ -54,5 +54,22 @@ export function botMarketReport(g: GameState): string {
   const ex = L.exotic;
   const line2 = `v0.17 narrowNeedToService: ${need.join(' ') || '-'}${need.length ? ` (median ${median(need)} d)` : ''}${MARKET_TALLY.needAt !== null ? ` · need open since day ${MARKET_TALLY.needAt}` : ''} · wide ${wides} (deals ${wideDeals})`
     + `${MARKET_TALLY.greedy.rfps ? ` · greedy rfps ${MARKET_TALLY.greedy.rfps} lois ${MARKET_TALLY.greedy.lois}` : ''}${ex || MARKET_TALLY.exotic.rfps ? ` · exotic rfps ${ex?.rfps ?? MARKET_TALLY.exotic.rfps} proposals ${ex?.proposals ?? 0} signed ${MARKET_TALLY.exotic.signed}` : ''}`;
-  return `${line1}\n${line2}`;
+  return `${line1}\n${line2}\n${acquisitionsLine(g)}`;
+}
+
+/** Balance step: every aircraft that joined, with the days asked → signed → in service, and the deposits held now. */
+export function acquisitionsLine(g: GameState): string {
+  const start = new Date(Date.UTC(2000, 0, 1) + g.started * 60_000);
+  const mon = (d: number) => new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate() + d)).toISOString().slice(2, 7);
+  const xs = Object.values(MARKET_TALLY.acq).sort((a, b) => (a.signedAt ?? 0) - (b.signedAt ?? 0));
+  const items = xs.map((x) => `${x.typeId} ${x.src} ${mon(x.signedAt ?? 0)}${x.askedAt !== undefined ? ` ask d${x.askedAt}` : ''} sign d${x.signedAt}${x.svcAt !== undefined ? ` svc d${x.svcAt}${x.askedAt !== undefined ? ` (${x.svcAt - x.askedAt} d)` : ''}` : ' (delivering)'}`);
+  let dep = 0, lc = 0, res = 0;
+  for (const ac of Object.values(g.fleet)) {
+    const o = ac.ownership;
+    if (o.kind !== 'dryLeaseIn') continue;
+    if (o.lc) lc += o.lc; else dep += o.deposit ?? 0;
+    res += o.reservesDeposit ?? 0;
+  }
+  const hold = (g.leasing?.deals ?? []).filter((d) => d.stage === 'committee' || d.stage === 'conditions' || d.stage === 'approved').reduce((t, d) => t + d.holding, 0);
+  return `v0.17 acquisitions: ${items.join(' · ') || '-'} · deposits held ${k(dep)} (letters of credit ${k(lc)}, reserves deposits ${k(res)}, holding ${k(hold)})`;
 }
