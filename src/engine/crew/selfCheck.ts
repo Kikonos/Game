@@ -22,6 +22,8 @@ import { restOf } from './restPlan';
 const H = 60;
 /** A claim is refuted only when the independent reading is clear of the limit by this much (rounding, report times). */
 const MARGIN = 15;
+/** Where crew are is judged only this close to the report (tickets are bought nearer the day). */
+const PLACE_H = 12 * H;
 
 export type AlarmKind = 'short' | 'hours' | 'early' | 'takenOff' | 'rest';
 
@@ -63,7 +65,7 @@ export function table2(reportLocal: number, sectors: number): number {
 /** Augmented day caps (CS FTL.1.205(c)(2), class 1 rest, one long sector): the most any augmented day may run. */
 const AUG_CAP: Record<1 | 2, number> = { 1: 17 * H, 2: 18 * H };
 
-interface Span { start: Minute; end: Minute; block: number; aug: boolean; ext: boolean; dep: string; arr: string; kind: 'duty' | 'ticket' | 'standby' | 'log'; weight: number }
+interface Span { start: Minute; end: Minute; block: number; aug: boolean; ext: boolean; dep: string; arr: string; kind: 'duty' | 'ticket' | 'standby' | 'log'; weight: number; /** A ticket of the duty being judged (positioning into it: part of its day, no rest before it). */ own?: true }
 
 /** One planned duty of a crew member, measured from its flights as they are now (report and release from the legs). */
 function dutySpan(g: GameState, d: Duty, p: Pairing, cabin: boolean): Span | null {
@@ -97,7 +99,9 @@ function workOf(g: GameState, c: CrewMember, t: Minute, skipDuty?: string): Span
       for (const tid of d.deadheadIds) {
         const tk = g.flights[tid];
         if (!tk || tk.status === 'cancelled' || !tk.crewIds.includes(c.id)) continue;
-        out.push({ start: tk.std - H, end: tk.sta, block: 0, aug: false, ext: false, dep: tk.from, arr: tk.to, kind: 'ticket', weight: 1 });
+        const t: Span = { start: tk.std - H, end: tk.sta, block: 0, aug: false, ext: false, dep: tk.from, arr: tk.to, kind: 'ticket', weight: 1, ...(id === skipDuty ? { own: true as const } : {}) };
+        // (A ticket already flown is in the log: the log entry holds it.)
+        if (!logged(t)) out.push(t);
       }
     }
   }
@@ -118,6 +122,8 @@ export interface PersonReading {
   values: Partial<Record<OohLimit, [number, number]>>;
   /** Plain problems it found on its own (status, place, rating, overlap), by the engine's issue code. */
   other: Partial<Record<'status' | 'location' | 'rating' | 'overlap', string>>;
+  /** The place is judged only close to the report (tickets are bought nearer the day). */
+  placeJudged: boolean;
 }
 
 /**
@@ -129,7 +135,7 @@ export function judgePerson(g: GameState, c: CrewMember, d: Duty, p: Pairing): P
   const values: PersonReading['values'] = {};
   const other: PersonReading['other'] = {};
   const me = dutySpan(g, d, p, !isPilot(c.role));
-  if (!me) return { values, other };
+  if (!me) return { values, other, placeJudged: false };
   const work = workOf(g, c, me.end, d.id);
   const all = [...work, me];
   const sum = (days: number, block = false) => all.reduce((s, x) => s + (block ? (x.end > me.end - days * DAY ? x.block : 0) : overlap(x, me.end - days * DAY, me.end) * x.weight), 0);
@@ -138,12 +144,14 @@ export function judgePerson(g: GameState, c: CrewMember, d: Duty, p: Pairing): P
   values.duty28d = [sum(28), 190 * H];
   values.block28d = [sum(28, true), 100 * H];
   // Rest before the report: from the end of the last work before it (a standby ended by this duty is its call-out).
-  const prev = work.filter((x) => x.end <= me.start + 1 && x.kind !== 'standby').pop();
-  const prevAny = work.filter((x) => x.end <= me.start + 1).pop();
+  // (Positioning into this duty is part of its day: the rest is owed before the ticket, not between it and the report.)
+  const first = Math.min(me.start, ...work.filter((x) => x.own).map((x) => x.start));
+  const prev = work.filter((x) => x.end <= first + 1 && x.kind !== 'standby' && !x.own).pop();
+  const prevAny = work.filter((x) => x.end <= first + 1 && !x.own).pop();
   if (prev && prevAny === prev) {
     const atHome = me.dep === c.base;
     const tz = Math.abs(offsetAt(c.base, me.start) - offsetAt(me.dep, me.start)) / 60;
-    values.rest = [me.start - prev.end, restNeed(prev.end - prev.start, atHome, prev.aug, tz, prev.ext)];
+    values.rest = [first - prev.end, restNeed(prev.end - prev.start, atHome, prev.aug, tz, prev.ext)];
   }
   // The day's length against Table 2 at the departure's local report time (augmented: the cap of the class 1 table).
   const fdp = me.end - me.start - reportMinutes((p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo').post;
@@ -155,11 +163,13 @@ export function judgePerson(g: GameState, c: CrewMember, d: Duty, p: Pairing): P
   if (ac && !c.ratings.includes(typeOf(ac.typeId).family)) other.rating = `not rated on the ${typeOf(ac.typeId).family}`;
   // Place: where the last work before the report ends (a ticket in, a duty), else where they are now.
   const lastPlace = [...work].filter((x) => x.end <= me.start + 1 && x.arr && x.kind !== 'standby').pop()?.arr ?? c.loc;
-  if (lastPlace && lastPlace !== me.dep && me.start > g.now) other.location = `at ${lastPlace}, the duty leaves from ${me.dep}`;
+  // (Judged only inside PLACE_H of the report: tickets further out are bought nearer the day.)
+  const placeJudged = me.start - g.now <= PLACE_H;
+  if (placeJudged && lastPlace && lastPlace !== me.dep && me.start > g.now) other.location = `at ${lastPlace}, the duty leaves from ${me.dep}`;
   // Busy: other work (a duty or a ticket) inside this one.
   const clash = work.find((x) => (x.kind === 'duty' || x.kind === 'ticket') && x.start < me.end - 1 && me.start < x.end - 1);
   if (clash) other.overlap = `busy ${fmtDateTime(clash.start)}–${fmtDateTime(clash.end)} UTC`;
-  return { values, other };
+  return { values, other, placeJudged };
 }
 
 /** Engine issue codes and out-of-hours limits the independent reading can judge (others are trusted as raised). */
@@ -167,6 +177,7 @@ const AS_LIMIT: Record<string, OohLimit> = { fdp: 'fdp', rest: 'rest', duty7d: '
 
 /** True when the independent reading clearly refutes the claim `code` for this person; null when it cannot judge it. */
 function refutes(r: PersonReading, code: string): boolean | null {
+  if (code === 'location' && !r.placeJudged) return null;
   if (code === 'status' || code === 'location' || code === 'rating' || code === 'overlap') return !r.other[code];
   const limit = AS_LIMIT[code];
   const v = limit ? r.values[limit] : undefined;
@@ -285,7 +296,10 @@ export function checkAlarm(g: GameState, kind: AlarmKind, flightId: string, hook
     const pilots = aboard.filter((c) => isPilot(c.role));
     const ac = p.aircraftId ? h.fleet[p.aircraftId] : undefined;
     const pax = d.flightIds.some((id) => h.flights[id]?.kind === 'revenue' || h.flights[id]?.kind === 'techstop');
-    const cabinMin = ac && pax ? cabinMinimum(ac.typeId, ac.cabin.total) : 0;
+    // (A mixed-crew job: the client's own cabin crew fill part of the minimum.)
+    const k = p.contractId ? h.contracts[p.contractId] : undefined;
+    const reduced = Math.max(0, ...d.flightIds.map((id) => h.flights[id]?.reducedCabin ?? 0));
+    const cabinMin = ac && pax ? Math.max(0, cabinMinimum(ac.typeId, ac.cabin.total) - (k?.requirements.clientCabin?.n ?? 0) - reduced) : 0;
     const cabinN = aboard.length - pilots.length;
     if (empty.length) evidence.push(`${empty.length} seat${empty.length > 1 ? 's' : ''} empty (${empty.map((s) => s.role).join(', ')}) on ${f.no} ${f.from}–${f.to}, report ${fmtDateTime(at)} UTC`);
     if (pilots.length < 2 + d.augment) evidence.push(`pilots ${pilots.length} of ${2 + d.augment}`);
