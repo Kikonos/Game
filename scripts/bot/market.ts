@@ -178,7 +178,9 @@ function narrowGrowth(g: GameState): boolean {
   const cands = g.market.aircraft
     .filter((o) => o.kind === 'dryLeaseIn' && !o.newBuild && !o.spot && o.expires > g.now && !wide(o.typeId) && typeOf(o.typeId).family === fam && aircraftGate(g, o.typeId).ok)
     .map((o) => ({ o, ready: readyOf(g, o), cost: o.rentPerMonth + 250 * o.reservesPerFH }))
-    .filter((x) => x.ready <= Math.max(target, g.now + 120 * DAY) + 30 * DAY)
+    // Balance step: ready within 4 months, or a month after a later target (a "later" proposal 5–6 months out loses to
+    // asking again in a month: the mid-life lessors answer about 3 times in 4).
+    .filter((x) => x.ready <= Math.max(target, g.now + 90 * DAY) + 30 * DAY)
     // Balance step: a day late past the target costs about $10K of lost flying (36 months of rent + reserves against it).
     .map((x) => ({ ...x, score: 36 * x.cost + 10_000 * Math.max(0, (x.ready - Math.max(target, g.now + 60 * DAY)) / DAY) }))
     .sort((a, b) => a.score - b.score || (a.o.id < b.o.id ? -1 : 1));
