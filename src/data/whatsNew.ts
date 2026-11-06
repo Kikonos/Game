@@ -16,6 +16,17 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.16.4',
+    name: 'Fixes from your reports',
+    features: [],
+    improvements: [],
+    fixes: [
+      'An offer for an A320-size aircraft (a season base, cover for a grounded jet, a capacity lease, work for another operator) no longer lets you pick a widebody: the client pays the fuel and planned its slots and stands for a narrowbody. Aircraft of a type the client did not ask for are left off the offer\'s list, with one line saying why.',
+      'An offer fitted to an idle aircraft is now for an aircraft of that size: no more "Follow-on: CS-TTL is free" on a narrowbody job.',
+      'After a job far from base, the aircraft now comes home straight away, a crew flown out on airline tickets (over several stops for a narrowbody), instead of waiting weeks for its next job: CS-TQM sat 24 days at Hong Kong. An aircraft left away from base with nothing planned is brought home, and when no way home fits its range and our ETOPS limit, a card says so and what the parking costs.',
+    ],
+  },
+  {
     version: 'v0.16.3',
     name: 'Ways out of debt',
     features: [
