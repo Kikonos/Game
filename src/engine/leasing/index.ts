@@ -5,8 +5,14 @@
 import { BAL } from '../core/balance';
 import { ACMI_TYPES_LIST } from '../../data/acmiTypes';
 import type { GameState, Leasing, MonthKey } from '../core/types';
-import { lcFeeBill } from '../finance/lc';
+import { dailyLc, lcFeeBill, monthlyLc } from '../finance/lc';
+import { post } from '../core/ledger';
+import { pushMessage } from '../core/messages';
+import { postProblem } from '../problems';
+import { inductionDelayCard } from '../problems/leasing';
+import { usd } from '../ops/util';
 import { dailyAoc, loadAoc } from './aoc';
+import { dailyCredit } from './credit';
 import { dailyDeals } from './deals';
 import { dailyInduction } from './induction';
 import { dailyRfps } from './rfp';
@@ -14,14 +20,15 @@ import { dailySpot } from './spot';
 import { baseTight, stepTightness } from './tightness';
 import { minHoursBill } from './terms';
 
-export { aocView, applyVariation, familyOnAoc, fleetFamilies, variationQuote } from './aoc';
+export { aocAuthority, aocMiss, aocView, applyVariation, familyOnAoc, fleetFamilies, needsVariation, variationCrew, variationQuote } from './aoc';
 export { onAirlineFailure } from './batches';
 export { dailyCalls } from './calls';
-export { exposureOf, gradeOf, leasebackLessorFor, leasebackLessorOk, lessorRating } from './credit';
-export { addTechReps, dealsOpen, leasingForecastItems, loiQuote, meetConditions, signLease, signLoi, usesLoi, walkAway, type LoiOpts, type LoiQuote } from './deals';
+export { capOf, depositMonthsFor, exposureOf, gradeOf, gradeWords, leasebackLessorFor, leasebackLessorOk, lessorRating, lessorStance, rating, widebodiesInAll } from './credit';
+export { addTechReps, cashToSign, dealsOpen, dealsWaiting, depositDue, exoticSecurityOf, leasingForecastItems, loiQuote, meetConditions, paintCost, signLease, signLoi, transitionCost, usesLoi, walkAway, type LoiOpts, type LoiQuote } from './deals';
 export { exoticPath, isExotic } from './exotic';
-export { camoCapacity, camoLoad, inductionPlan, type InductionPlan } from './induction';
-export { rfpPreview, sendRfp, withdrawRfp, type RfpDraft, type RfpPreview } from './rfp';
+export { addTechRepsToInduction, camoCapacity, camoFreeAt, camoLoad, inductionPlan, inductionStep, inductionSteps, type InductionPlan } from './induction';
+export { aircraftChance, bandYears, rfpPreview, sendRfp, withdrawRfp, type RfpDraft, type RfpPreview } from './rfp';
+export { issueLc, lcRoom, lcWhy, releaseLc } from '../finance/lc';
 export { askSpot, spotSources, type SpotDraft } from './spot';
 export { bandOf, extensionRentX, quoteTerms, type TermsDraft, type TermsQuote } from './terms';
 export { onSupplyEvent, shocksOn, supplyOutlook, tightNow, tightWord } from './tightness';
@@ -60,16 +67,35 @@ export function touchLeasing(g: GameState): void {
 /** Daily (ops/index.ts, after dailyMarket): requests, deals, transitions, variations, short-term. Step 0: all neutral. */
 export function dailyLeasing(g: GameState): void {
   if (!g.leasing || !BAL.v017.on) return;
+  // The lessor rating first (requests and committees read it).
+  dailyCredit(g);
   dailyRfps(g);
   dailyDeals(g);
-  dailyInduction(g);
+  // Findings with work booked soon after: the amber card (else a quiet message).
+  dailyInduction(g, (ac) => {
+    const card = inductionDelayCard(g, ac.id);
+    if (!card) return false;
+    postProblem(g, card, { cat: 'company', topic: 'market', cue: 'notice' });
+    return true;
+  });
   dailyAoc(g);
+  dailyLc(g);
   dailySpot(g);
 }
 
 /** Monthly (end of refreshMarket): tightness moves. Step 0: nothing moves. */
 export function monthlyLeasing(g: GameState): void {
   if (!g.leasing || !BAL.v017.on) return;
+  // Into the closing month (refreshMarket runs before the statement closes): letter-of-credit fees, then the
+  // minimum-hours reserves not flown (terms.ts minHoursBill; posted here once, as `reserves`).
+  monthlyLc(g);
+  const k = g.finance.current.month;
+  const minH = Math.round(minHoursBill(g, k));
+  if (minH > 0) {
+    post(g, 'reserves', -minH);
+    g.leasing.stats.minHoursBilled += minH;
+    pushMessage(g, { tone: 'info', cat: 'finance', topic: 'market', cue: null, title: `Minimum-hours reserves: ${usd(minH)}`, body: 'Leases signed since v0.17 bill a minimum of flight hours a month as reserves, flown or not.' });
+  }
   stepTightness(g);
 }
 

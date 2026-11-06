@@ -68,13 +68,19 @@ describe('v0.17 step 0: neutral', () => {
     expect(ac.induction).toBeUndefined();
   });
 
-  it('nothing to ask, nothing billed, no letters of credit', () => {
+  it('nothing to ask, nothing billed, no letters of credit (the v0.16 market, --market=v16)', () => {
     const g = newGame(6);
+    const on = BAL.v017.on;
+    (BAL.v017 as { on: boolean }).on = false;
+    try {
     expect(rfpPreview(g, { typeId: 'a320ceo', band: 'mid', months: 36, count: 1, from: null, flex: true }).blocked).toBeTruthy();
     expect(sendRfp(g, { typeId: 'a320ceo', band: 'mid', months: 36, count: 1, from: null, flex: true }).ok).toBe(false);
     expect(leasingBill(g, 0)).toBe(0);
     expect(lcInUse(g)).toBe(0);
     expect(camoCapacity(g)).toBe(1);
+    } finally {
+      (BAL.v017 as { on: boolean }).on = on;
+    }
   });
 
   it('the transition cost is a cost line; the master switch is on', () => {
@@ -110,7 +116,9 @@ describe('v0.17 step 0: lessors, rating, exotic path', () => {
       const p = exoticPath(g, t);
       expect(p.exotic).toBe(true);
       expect(p.sources.length).toBeGreaterThan(0);
-      expect(p.steps.find((s) => s.key === 'grade')?.ok).toBe(false);
+      // 747 classics are sold only (no lease, no grade rule): bought with the cash.
+      if (BAL.v017.exotic.classics.includes(t)) expect(p.steps.find((s) => s.key === 'cash')?.ok).toBe(true);
+      else expect(p.steps.find((s) => s.key === 'grade')?.ok).toBe(false);
     }
     expect(exoticPath(g, 'a388').sources).toEqual(expect.arrayContaining(['doric', 'amedeo', 'exop']));
     expect(exoticPath(g, 'b744').sources).toContain('exop');

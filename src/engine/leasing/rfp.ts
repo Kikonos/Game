@@ -70,11 +70,12 @@ export function bandYears(g: GameState, t: AcmiType, band: AgeBand): [number, nu
 
 const replyRange = (t: AcmiType, band: AgeBand): [number, number] => R().reply[band === 'new' ? 'newBuild' : t.body === 'wide' ? 'wide' : 'narrow'];
 const openRfps = (g: GameState) => (g.leasing?.rfps ?? []).filter((r) => r.status === 'open' && !r.spot);
-const exOpName = (typeId: string) => (EX_OPERATORS[typeId]?.length ? 'The previous operator' : '');
+const exOpName = (typeId: string) => (EX_OPERATORS[typeId]?.length ? 'The previous operator' : BAL.v017.exotic.classics.includes(typeId) ? 'Owners in storage' : '');
 
 /** The lessors a draft goes to, with whether each will consider us (and why not). Pure. */
 function lessorLines(g: GameState, d: Pick<RfpDraft, 'typeId' | 'band'>): { def: LessorDef; ok: boolean; why?: string; kind?: RfpAnswer['kind'] }[] {
-  const has = !!EX_OPERATORS[d.typeId]?.length;
+  // The previous operator: airlines retiring the type; for the 747 classics the owners selling them from storage.
+  const has = !!EX_OPERATORS[d.typeId]?.length || X().classics.includes(d.typeId);
   const r = rating(g);
   return lessorsFor(d.typeId, d.band, has).map((def) => {
     const quiet = g.leasing?.quiet[`${def.id}:${d.typeId}`];
@@ -266,7 +267,7 @@ function makeProposal(g: GameState, rfp: Rfp, def: LessorDef, r: RngHolder, late
   // The airline it flies with (the previous operator, or a lessor's lessee with a known hub).
   const ops = (EX_OPERATORS[t.id] ?? []).filter((x) => AIRPORT_BY_CODE[x.hub] && runwayFit(t.id, x.hub) !== 'no');
   const exop = def.id === 'exop' ? (ops.length ? pick(r, ops) : null) : !stored && !newBuild && ops.length && chance(r, 0.5) ? pick(r, ops) : null;
-  if (def.id === 'exop' && !exop) return null;
+  if (def.id === 'exop' && !exop && !classic) return null;
   const depMonths = depositMonthsFor(rating(g)) + (newBuild ? BAL.v017.newBuild.extraDepositMonths : 0);
   const index = t.body === 'wide' ? g.market.wideIndex : g.market.narrowIndex;
   const rent0 = newBuild
@@ -275,7 +276,7 @@ function makeProposal(g: GameState, rfp: Rfp, def: LessorDef, r: RngHolder, late
   const months = classic ? 0 : termFor(def, rfp.band, rfp.months);
   const priceX = range(r, X().sale.priceX[0], X().sale.priceX[1]);
   o.builtYear = built;
-  o.lessor = def.id === 'exop' && exop ? exop.airline : def.name;
+  o.lessor = def.id === 'exop' ? (exop ? exop.airline : 'A storage owner') : def.name;
   if (classic) o.lessor = `${o.lessor} (used sale)`;
   o.lessorId = def.id;
   o.source = 'proposal';
