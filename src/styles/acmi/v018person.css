@@ -38,7 +38,7 @@
   --ps-line-soft: rgba(15, 23, 42, 0.1);
 }
 
-.ps-modal.modal.xwide { width: min(1120px, 100%); }
+@media (min-width: 700px) and (min-height: 500px) { .ps-modal.modal.xwide { width: min(1120px, 100%); } }
 .ps-modal .modal-head { align-items: center; }
 .ps-modal .modal-head h2 { min-width: 0; flex: 1 1 auto; }
 .ps-title { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
