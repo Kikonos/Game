@@ -22,9 +22,22 @@ async function main() {
   let sickDays = 0;
   let crewDays = 0;
   const lens: number[] = [];
+  const mSeen = new WeakSet<object>(g.messages);
+  let msgs = 0;
+  const decSeen = new Set<string>();
+  let sickDecisions = 0;
   while (g.now < end && !g.gameOver) {
-    for (const d of [...g.decisions]) resolveDecision(g, d.id, d.defaultOption);
+    for (const d of [...g.decisions]) {
+      if (!decSeen.has(d.id) && /sick/i.test(`${d.kind} ${d.title}`)) sickDecisions++;
+      decSeen.add(d.id);
+      resolveDecision(g, d.id, d.defaultOption);
+    }
     advanceTo(g, Math.min(end, g.now + 60));
+    for (const m of g.messages) {
+      if (mSeen.has(m)) break;
+      mSeen.add(m);
+      if (/sick/i.test(m.title)) msgs++;
+    }
     if (g.now % DAY === 0) crewDays += Object.values(g.crew).filter((c) => c.status !== 'joining').length;
     for (const c of Object.values(g.crew)) {
       for (const b of c.blocks ?? []) {
@@ -43,7 +56,7 @@ async function main() {
   const crew = Object.values(g.crew).length;
   const years = crewDays / 365;
   lens.sort((a, b) => a - b);
-  console.log(`${file.split('/').pop()} ${days} d · ${crew} crew · ${n} sick episodes (${away} away from base) · ${(n / Math.max(1, years)).toFixed(2)} per crew member per year · ${(n / days).toFixed(2)} sick calls a day across the airline · sick days ${((100 * sickDays) / Math.max(1, crewDays)).toFixed(2)} % of crew days · length median ${lens[Math.floor(lens.length / 2)] ?? 0} d (min ${lens[0] ?? 0}, max ${lens[lens.length - 1] ?? 0})`);
+  console.log(`${file.split('/').pop()} ${days} d · ${crew} crew · ${n} sick episodes (${away} away from base) · ${(n / Math.max(1, years)).toFixed(2)} per crew member per year · ${(n / days).toFixed(2)} sick calls a day across the airline · sick days ${((100 * sickDays) / Math.max(1, crewDays)).toFixed(2)} % of crew days · length median ${lens[Math.floor(lens.length / 2)] ?? 0} d (min ${lens[0] ?? 0}, max ${lens[lens.length - 1] ?? 0}) · inbox lines about sickness ${msgs} (${(msgs / days).toFixed(2)} a day) · sick-call decisions ${sickDecisions}`);
 }
 
 void main();

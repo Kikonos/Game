@@ -16,6 +16,23 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.17.2',
+    name: 'Your reports',
+    features: [
+      'Bug reports now show New, Sent and Fixed. Export sends only the new ones and your save (turn on Include sent to send again). A fixed report says what we did, and goes 7 days after the update, or at once with Delete fixed.',
+      'You can change a lease-end choice until the return check starts: return early, move the date, go back to the lease end, or extend. On the aircraft card, in the lease dialog and in the lessor\'s question.',
+    ],
+    improvements: [
+      'Fewer sick calls you have to deal with: most last 1–3 days, the ones the roster covers come in one quiet line a day, and same-day sick calls away from base are rarer.',
+    ],
+    fixes: [
+      'Crew ride our own empty legs home. The crew who flew TRN–GRU now take our empty GRU–LIS straight from the gate instead of an airline ticket the next night.',
+      'Crew on a long-term base stay for the whole rotation you set under Company (4, 5 or 6 weeks). Leave that falls inside a rotation moves to just after it. Only a real limit, sickness or leave sends someone home early.',
+      'The check dialog says when the aircraft goes back to its lessor, with the year. You can book a C-check that falls due before the return. Near a return it shows the options (book it, fly on, park it, hand it back early) with costs, days lost and what we recommend.',
+      'A C-check due at the lease return is charged by the lessor, as it should be.',
+    ],
+  },
+  {
     version: 'v0.17.1',
     name: 'Bug button',
     features: [

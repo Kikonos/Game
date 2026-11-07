@@ -15,7 +15,7 @@ import { leaveAfterTours, publishedTo } from './dayPlan';
 import { TOUR_STAGGER, TOUR_TAIL } from './duties';
 import { tourHolding } from './tours';
 
-function base(weeks: number, days = 120, seed = 21): { g: GameState; k: string } {
+function base(weeks: 4 | 5 | 6, days = 120, seed = 21): { g: GameState; k: string } {
   const g = newGame(seed);
   g.company.policies.rotationWeeks = weeks;
   const ac = leased(g);
@@ -29,7 +29,7 @@ function base(weeks: number, days = 120, seed = 21): { g: GameState; k: string }
 const tours = (g: GameState): Pairing[] => Object.values(g.pairings).filter((p) => !!p.tour && p.status !== 'broken');
 
 describe('v0.17.2 rotations follow the length set under Company', () => {
-  for (const weeks of [4, 5, 6]) {
+  for (const weeks of [4, 5, 6] as const) {
     it(`${weeks} weeks: every tour is the rotation long (first ones at most ${TOUR_STAGGER} days more, the last up to the end)`, () => {
       const { g, k } = base(weeks);
       run(g, g.contracts[k].start + 75 * DAY);

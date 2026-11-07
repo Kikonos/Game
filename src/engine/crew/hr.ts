@@ -599,12 +599,15 @@ export function dailyPay(g: GameState): number {
  * A slot that can't be refilled becomes a B3 'sickCrew' decision.
  */
 export function dailySickness(g: GameState): void {
+  // v0.17.2 sick calls the roster covered: one quiet line for the day, not one each.
+  const covered: string[] = [];
+  let spareCover = false;
   for (const c of Object.values(g.crew)) {
     if (c.status === 'sick' || c.status === 'joining' || c.status === 'training' || c.status === 'leave' || c.status === 'onDuty') continue;
     if (c.blocks?.some((b) => b.why === 'sick' && b.to > g.now)) continue;
     const p = (BAL.sickPerMonth / 30) * sickMult(c.morale);
     if (!chance(g, p)) continue;
-    const days = int(g, BAL.sickDays[0], BAL.sickDays[1]);
+    const days = chance(g, BAL.sickLong.share) ? int(g, BAL.sickLong.days[0], BAL.sickLong.days[1]) : int(g, BAL.sickDays[0], BAL.sickDays[1]);
     // A sick call covers the coming days (crew call in the evening before): today's duties stay, tomorrow's are
     // re-crewed with a day's notice for a replacement to position.
     let from = dayStart(g.now) + DAY;
@@ -633,9 +636,15 @@ export function dailySickness(g: GameState): void {
       });
     } else {
       // v0.12.1 a spare with their crew (a far base's reserve, a tour's spare) took the seat: said so.
-      const spare = (g.stats.sparesCovered ?? 0) > spares;
-      pushMessage(g, { tone: 'info', cat: 'crew', title: `${crewName(c)} is off sick`, body: `From tomorrow, ${days} days. ${spare ? 'The reserve with their crew takes the seat.' : 'Their duties were re-crewed.'}`, ref: { kind: 'crew', id: c.id } });
+      if ((g.stats.sparesCovered ?? 0) > spares) spareCover = true;
+      covered.push(`${crewName(c)} (${c.role}, ${days} day${days === 1 ? '' : 's'})`);
     }
+  }
+  if (covered.length) {
+    pushMessage(g, {
+      cue: null, tone: 'info', cat: 'crew', title: covered.length === 1 ? `${covered[0].replace(/ \(.*$/, '')} is off sick` : `${covered.length} crew off sick from tomorrow`,
+      body: `${covered.join(', ')}. ${spareCover ? 'Reserves with their crews and the roster cover the seats.' : 'Their duties were re-crewed.'}`,
+    });
   }
 }
 
