@@ -159,9 +159,10 @@ describe('crew calendar', () => {
     expect(duties.length).toBe(2);
     expect(duties[0].flights![0].type).toBe('positioning');
     expect(duties[1].flights!.every((f) => f.type === 'operating')).toBe(true);
-    const dh = cc.find((b) => b.kind === 'deadhead')!;
+    // (v0.17.2 home on the trip's own ferry when it leaves in time, else a real airline.)
+    const dh = cc.find((b) => b.kind === 'deadhead' || (b.kind === 'positioning' && /^Riding our/.test(b.detail ?? '')))!;
     expect(dh).toBeTruthy();
-    expect(dh.detail).toMatch(/[A-Z0-9]{2} \d{1,4} ZAG–/);
+    expect(dh.detail).toMatch(dh.kind === 'deadhead' ? /[A-Z0-9]{2} \d{1,4} ZAG–/ : /^Riding our ferry leg [A-Z0-9]+ ZAG–/);
     expect(cc.some((b) => b.kind === 'rest')).toBe(true);
     expect(cc.some((b) => b.kind === 'off')).toBe(true);
     noOverlap(cc);

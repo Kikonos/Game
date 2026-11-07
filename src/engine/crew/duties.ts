@@ -1274,8 +1274,11 @@ const RUN_DAYS = 4;
 function periodRaw(dep: Deployment, s: number, t: Minute, R: number): { from: Minute; to: Minute } | null {
   const a = dep.anchors?.[s];
   if (a === undefined) return null;
-  // The first period runs from the deployment's start to the first change (Rotations round: up to a week past R).
-  if (t < a) return t < dep.start ? null : { from: dep.start, to: a };
+  // The first period runs from the deployment's start to the first change (Rotations round: up to a few days past R).
+  // v0.17.2 a set added later (its first change a rotation after the duty it was added for) starts then: its first tour
+  // is the rotation long, not from the deployment's start (SGN: sets added in September read 63- and 66-day tours).
+  const from = a - R > dep.start + TOUR_TAIL ? a - R : dep.start;
+  if (t < a) return t < from ? null : { from, to: a };
   const k = Math.floor((t - a) / R);
   return { from: a + k * R, to: a + (k + 1) * R };
 }
@@ -1298,15 +1301,20 @@ export function periodOf(dep: Deployment, s: number, t: Minute, R: number): { fr
 }
 
 /**
- * First tour change per set. Rotations round: every first tour is at least the rotation long, the sets staggered over
- * the week after it (35, 37, 40, 42 days for four sets at five weeks); before, the stagger cut the first tours short
+ * First tour change per set. Rotations round: every first tour is at least the rotation long, the sets staggered after
+ * it (v0.17.2 a day apart: 35, 36, 37, 38 days for four sets at five weeks); before, the stagger cut the first tours short
  * (9, 18, 26 and 35 days), a short stint and two more tickets for every set but the last.
  */
 function anchorsFor(start: Minute, sets: number, R: number): Minute[] {
   const out: Minute[] = [];
-  for (let s = 0; s < sets; s++) out.push(start + R + (sets > 1 ? Math.round((s * (TOUR_TAIL / DAY)) / (sets - 1)) : 0) * DAY);
+  // v0.17.2 the player's rotation length, followed closely: the changes a day apart (at most TOUR_STAGGER days past it),
+  // not spread over a week (35, 37, 40, 42 days read as six-week tours at five weeks).
+  for (let s = 0; s < sets; s++) out.push(start + R + Math.min(s, TOUR_STAGGER) * DAY);
   return out;
 }
+
+/** v0.17.2 the most days past the rotation length a set's first tour runs (the sets' changes a day apart). */
+export const TOUR_STAGGER = 3;
 
 interface TourState {
   set: number;
@@ -1399,7 +1407,8 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
         continue;
       }
       const key = `${s}:${per.from}`;
-      const st = tours.get(key) ?? { set: s, from: per.from, to: per.to, pairing: null, duties: [], segs: [], days: [], work: [] };
+      // (v0.17.2 an older save's tour of an added set keeps the period it was rostered with, from the deployment's start.)
+      const st = tours.get(key) ?? [...tours.values()].find((x) => x.set === s && x.pairing && x.to === per.to && x.from <= d.report) ?? { set: s, from: per.from, to: per.to, pairing: null, duties: [], segs: [], days: [], work: [] };
       const dd = daysOf(d);
       const days = dd.every((x) => st.days.includes(x)) ? st.days : [...new Set([...st.days, ...dd])].sort((a, b) => a - b);
       if (longestWorkBlock(days) > LIMITS.blockDays) {
