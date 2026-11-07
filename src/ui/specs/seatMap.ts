@@ -73,16 +73,16 @@ const WALL = 6;
 
 const sum = (a: readonly number[]) => a.reduce((s, x) => s + x, 0);
 
-/** A pattern reduced to at most `max` seats abreast: the outer blocks lose a seat first, then the middle. */
+/** A pattern reduced to at most `max` seats abreast: the fullest block loses a seat first (the outer ones on a tie). */
 export function capPattern(p: readonly number[], max?: number): number[] {
   const out = [...p];
   if (!max) return out;
-  let i = 0;
-  const order = out.length === 3 ? [0, 2, 1] : out.length === 2 ? [0, 1] : [0];
-  let guard = 0;
-  while (sum(out) > max && guard++ < 40) {
-    const k = order[i++ % order.length];
-    if (out[k] > 1) out[k]--;
+  const order = out.length === 3 ? [0, 2, 1] : out.map((_, i) => i);
+  while (sum(out) > max) {
+    let k = order[0];
+    for (const i of order) if (out[i] > out[k]) k = i;
+    if (out[k] <= 1) break;
+    out[k]--;
   }
   return out;
 }
