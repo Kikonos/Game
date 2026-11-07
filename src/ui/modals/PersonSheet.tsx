@@ -167,7 +167,8 @@ function DutyCard({ g, c, b, rests, hi }: { g: GameState; c: CrewMember; b: CalB
   const to = fl.length ? fl[fl.length - 1].to : b.at;
   const block = fl.reduce((n, f) => n + Math.max(0, f.sta - f.std), 0);
   const rest = b.kind === 'duty' ? rests.find((r) => r.start >= b.end - 1 && r.start <= b.end + 6 * HOUR) : undefined;
-  const route = fl.length ? [fl[0].from, ...fl.map((f) => f.to)].join(' – ') : b.detail.split('\n')[0];
+  // A flown duty whose flights are gone keeps only its log line: shown once, in the facts below (not as a route).
+  const route = fl.length ? [fl[0].from, ...fl.map((f) => f.to)].join(' – ') : /^Flown: /.test(b.detail) ? '' : b.detail.split('\n')[0];
   const travel = b.kind !== 'duty';
   return (
     <div className={`ps-duty ${hi ? 'hi' : ''}`}>
@@ -195,7 +196,7 @@ function DutyCard({ g, c, b, rests, hi }: { g: GameState; c: CrewMember; b: CalB
         <span className="k">{travel ? 'Arrives' : 'Release'}</span><span>{fmtDay(b.end)} · {both(b.end, to)}</span>
         {block > 0 && !travel && <><span className="k">Block</span><span className="num">{hm(block)}</span></>}
         {d && <><span className="k">FDP</span><span className="num">{hm(d.fdp)} <span className="dim">of {hm(d.maxFdp + (d.discretion ?? 0))}{d.augment ? ` · ${2 + d.augment} pilots` : ''}</span></span></>}
-        {!fl.length && !d && b.detail && <><span className="k">Flown</span><span>{b.detail.replace(/^Flown: /, '')}</span></>}
+        {!fl.length && b.detail && (!d || /^Flown: /.test(b.detail)) && <><span className="k">Flown</span><span>{b.detail.replace(/^Flown: /, '')}</span></>}
         {rest && <><span className="k">Rest</span><span className="num">{hm(rest.end - rest.start)} <span className="dim">{rest.at ? `at ${rest.at}` : 'at home'} · until {fmtDay(rest.end)} {fmtTime(rest.end)} UTC</span></span></>}
       </div>
       {d && !d.done && <button className="btn btn-sm ps-change" onClick={() => store.openModal({ kind: 'duty', id: d.id })}><Users /> Change crew</button>}
