@@ -10,9 +10,9 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../../engine/core/balance';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
-import { DAY, HOUR, dayStart, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
+import { DAY, HOUR, dayStart, fmtDate, fmtDateTime, fmtDay, fmtDayRel, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { ActionResult, GameState } from '../../engine/core/types';
-import { addRestToCCheck, bookCCheck, cCheckOptions, cCheckSlots, cancelCheck, checkAirportOk, checkLogistics, checkCostOf, checkStatus, checkUsedAt, groundGaps, restRefitOptions, scheduleCheck, type CCheckOption } from '../../engine/ops';
+import { addRestToCCheck, bookCCheck, cCheckOptions, cCheckSlots, cancelCheck, checkAirportOk, checkBeforeReturn, checkLogistics, checkCostOf, checkStatus, checkUsedAt, groundGaps, restRefitOptions, scheduleCheck, type CCheckOption, type CheckBeforeReturn } from '../../engine/ops';
 import { Term } from '../components/Term';
 import { money } from '../format';
 import { Modal, Seg, Stepper } from '../components/ui';
@@ -55,6 +55,64 @@ const asFit = (x: unknown): RestFit | undefined => (x === 'fcrc' || x === 'overh
 const legsBlock = (legs: { block: number }[]) => legs.reduce((n, l) => n + l.block, 0);
 const pct = (p: number) => (p === 1 ? 'base price' : `${p < 1 ? '−' : '+'}${Math.round(Math.abs(1 - p) * 100)}%`);
 
+/** v0.17.2 a hub's ferries in words: '3:05 out, 3:10 back', 'no ferry' when it is already there, '' when not worked out. */
+function ferryWords(o: CCheckOption): string {
+  if (!o.ferryOut.length && !o.ferryHome.length) return o.ok ? 'no ferry' : '';
+  const out = o.ferryOut.length ? fmtDuration(legsBlock(o.ferryOut)) : null;
+  const back = o.ferryHome.length ? fmtDuration(legsBlock(o.ferryHome)) : null;
+  return `ferry ${[out && `${out} out`, back && `${back} back`].filter(Boolean).join(', ')}`;
+}
+
+/** v0.17.2 the plan's cost line: only the parts that cost something. */
+function planCost(o: CCheckOption, fit: { cost: number } | null, fitWord: string): string {
+  const parts = [`Check ${money(o.checkCost - (fit?.cost ?? 0))}`];
+  if (fit) parts.push(`${fitWord} ${money(fit.cost)}`);
+  if (o.ferryCost > 0) parts.push(`ferries ${money(o.ferryCost)}`);
+  if (o.crewCost > 0) parts.push(`ferry pilots' airline tickets and hotels ${money(o.crewCost)}`);
+  return parts.join(' · ');
+}
+
+/**
+ * v0.17.2 (player's CS-TCS) a leased aircraft going back: what the return means for this C-check, in plain words. Near
+ * the return, the ways to handle a check due before it (book, fly on, park, hand back early), costs and days lost, and
+ * the one we recommend; a return long after the due date: the check is simply needed; a return before it: none needed.
+ */
+function ReturnNote({ g, aircraftId, cbr, due }: { g: GameState; aircraftId: string; cbr: CheckBeforeReturn | null; due: number }) {
+  const ac = g.fleet[aircraftId];
+  const m = ac?.returning ? g.maintenance[ac.returning.maintId] : undefined;
+  if (!ac || !m || ac.ownership.kind !== 'dryLeaseIn') return null;
+  const lessor = ac.ownership.lessor.replace(' (used sale)', '');
+  if (!cbr) {
+    return (
+      <div className="ck-return small">
+        <b>Going back to {lessor}: return check from {fmtDayRel(m.start, g.now)}</b>
+        <span className="muted">{due < m.start
+          ? `That is long after the C-check falls due (${fmtDayRel(due, g.now)}), so ${ac.reg} needs this check to keep flying until then.`
+          : `It goes back before the C-check falls due (${fmtDayRel(due, g.now)}): no C-check is needed.`}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="ck-return small">
+      <b>{ac.reg} goes back to {cbr.lessor} at {cbr.site}: return check from {fmtDayRel(cbr.start, g.now)}</b>
+      <span className="muted">The C-check falls due {fmtDayRel(cbr.due, g.now)}, before that. Without it, it can't fly past {fmtDay(cbr.due)} (the {Math.round(BAL.overdueTolerance * 100)} % tolerance stretches that to {fmtDay(cbr.groundedAt)}). Not done, {cbr.lessor} has it done at the return on our money: {money(cbr.atReturn)}.</span>
+      <div className="col gap-8 mt-4">
+        {cbr.ways.map((w) => (
+          <div key={w.id} className={`ck-way ${w.id === cbr.recommend ? 'rec' : ''} ${w.ok ? '' : 'off'}`}>
+            <span className="row between gap-8">
+              <b>{w.title}{w.id === cbr.recommend && <span className="badge good ck-rec">Recommended</span>}</b>
+              {w.ok && <span className="num nowrap">{w.cost < 0 ? `saves ${money(-w.cost)}` : money(w.cost)}{w.idle ? ` · ${w.idle} days not flying` : ''}</span>}
+            </span>
+            {w.lines.map((l) => <span key={l} className={w.ok ? 'muted' : 'dim'}>{l}</span>)}
+            {w.id === 'early' && w.ok && <button className="btn btn-sm mt-4" onClick={() => store.openModal({ kind: 'lease', aircraftId, tab: 'early' })}>Return early…</button>}
+          </div>
+        ))}
+      </div>
+      <span className="good">{cbr.why}</span>
+    </div>
+  );
+}
+
 /** v0.7.2 §7.3: the C-check at an MRO hub. */
 function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit, hub0, after }: { aircraftId: string; replace?: string; setKind: (k: Kind) => void; restFit?: RestFit; backToRefit?: boolean; hub0?: string; after?: number }) {
   const g = useGame();
@@ -85,6 +143,10 @@ function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit, hub0,
   const inWork = old?.status === 'inWork';
   const lg = old ? checkLogistics(g, old.id) : null;
   const proj = start !== undefined ? checkUsedAt(g, ac, 'C', start) : null;
+  const best = opts.find((o) => o.ok);
+  // v0.17.2 going back before the C-check is due: no hubs or windows, just the note.
+  const noneNeeded = !!ac.returning && !old && opts.length > 0 && opts.every((o) => !o.ok && !!o.why?.startsWith('Going back'));
+  const cbr = ac.returning ? checkBeforeReturn(g, ac.id, best && { total: best.total, ok: best.ok, awayDays: best.awayDays, start: best.start, end: best.end, city: best.hub.city, why: best.why }) : null;
   const book = () => {
     if (start === undefined || !code) return;
     const res = store.act((gg): ActionResult<{ maintId: string }> => {
@@ -131,6 +193,7 @@ function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit, hub0,
           <Seg<Kind> value="C" onChange={setKind} options={[{ value: 'A', label: 'A-check' }, { value: 'C', label: 'C-check' }]} />
           <span className="small muted">{t.cCheckDays}{fitAdd ? ` + ${fitAdd.addDays}` : ''} days at an <Term id="mro">MRO</Term> hub · due {fmtDate(st.cDue)} ({Math.round(st.cUsed * 100)}% used)</span>
         </div>
+        {ac.returning && !old && <ReturnNote g={g} aircraftId={aircraftId} cbr={cbr} due={st.cDue} />}
         {old && (
           <div className="ck-booked small">
             <b>{inWork ? 'In work' : 'Booked'}: {old.hub ? `${old.hub.name}, ` : ''}{AIRPORT_BY_CODE[old.at]?.city ?? old.at} {fmtDay(old.start)}–{fmtDay(old.end)}</b>
@@ -158,13 +221,14 @@ function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit, hub0,
             </span>
           </button>
         )}
+        {!noneNeeded && <>
         <div className="upper dim">Hubs for the {t.short}</div>
         <div className="col gap-8">
           {opts.map((o) => (
             <button key={o.hub.code} className={`sc-slot ck-hub ${o.hub.code === code ? 'on' : ''}`} aria-pressed={o.hub.code === code} onClick={() => { setHub(o.hub.code); setPick(null); }}>
               <span className="row between gap-8"><b>{o.hub.name}</b><b className="num">{money(o.total)}</b></span>
               <span className="row between gap-8 small">
-                <span className="muted">{o.hub.city} ({o.hub.code}) · {pct(o.hub.price)} · ferry {o.ferryOut.length ? fmtDuration(legsBlock(o.ferryOut)) : '—'} each way · {o.awayDays} days away</span>
+                <span className="muted">{[`${o.hub.city} (${o.hub.code})`, pct(o.hub.price), ferryWords(o), o.awayDays > 0 ? `${Math.round(o.awayDays)} days away` : ''].filter(Boolean).join(' · ')}</span>
                 {!o.ok && o.why && <span className="warn">{o.why}</span>}
               </span>
             </button>
@@ -183,12 +247,13 @@ function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit, hub0,
         {opt && start !== undefined && (
           <div className="cv-cost small ck-plan">
             <span>{fo.length ? <>Ferry out <b>{fmtDay(fo[0].std)} {fmtTime(fo[0].std)}</b> {fo[0].from}→{fo[fo.length - 1].to} ({fmtDuration(legsBlock(fo))}) · </> : null}check <b>{fmtDay(opt.start)}–{fmtDay(opt.end)}</b>{fh.length ? <> · ferry home <b>{fmtDay(fh[0].std)} {fmtTime(fh[0].std)}</b></> : null}</span>
-            <span className="muted">Check {money(opt.checkCost - (fitAdd?.cost ?? 0))}{fitAdd ? ` + ${fitWord} ${money(fitAdd.cost)}` : ''} · ferries {money(opt.ferryCost)} · 2 pilots fly home and back out on airline tickets, hotels ≈ {money(opt.crewCost)}</span>
+            <span className="muted">{planCost(opt, fitAdd, fitWord)}</span>
             {proj && <span className={proj.used > 1 ? 'bad' : proj.used > 0.9 ? 'warn' : 'good'}>By then: {Math.round(proj.calUsed * 100)}% of the calendar interval used · {proj.fh} / {proj.limitFH} FH</span>}
             {proj && proj.used < 0.5 && <span className="muted">Early: the check restarts the count, so you lose most of the current check's life.</span>}
             {!opt.ok && opt.why && <span className="warn">{opt.why}</span>}
           </div>
         )}
+        </>}
       </div>
     </Modal>
   );

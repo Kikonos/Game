@@ -19,9 +19,10 @@ import { route, routeSpan, timeChain } from '../contracts/plan';
 import { layoutName, reinstateCost } from './cabin';
 import type { DeliveryLeg } from './delivery';
 import { rentOver, settleDeparture } from './finance';
-import { cCheckGross, checkCostOf, checkUsedAt, nextPlanned, scheduleCheck } from './maintenance';
+import { cCheckGross, cDueAt, checkCostOf, checkUsedAt, nextPlanned, scheduleCheck } from './maintenance';
 import { maintWord, usd } from './util';
 import { lockOf } from '../scenario/rules';
+import { atomic } from '../crew/atomic';
 import { extensionRentX } from '../leasing/terms';
 
 export interface ReturnQuote { site: string; lines: { label: string; amount: number }[]; total: number; deposit: number; checkDays: number; ferry: DeliveryLeg[] }
@@ -55,8 +56,14 @@ export function earlyReturnQuote(g: GameState, aircraftId: string, end?: Minute)
   if (lk) return no(lk);
   const own = ac.ownership;
   if (ac.status === 'delivering') return no(`${ac.reg} has not been delivered yet`);
-  if (ac.returning) return no('The return is already booked');
-  if (own.leaseEnd - g.now < E.minLeftDays * DAY) return no(`Under ${E.minLeftDays} days left: use the normal return`);
+  // v0.17.2 a return already booked (at the lease end, or early) can still be brought forward or moved until its check
+  // starts: quoted as if it were not booked (its ferry and check are not work that keeps the aircraft busy).
+  const booked = ac.returning ? g.maintenance[ac.returning.maintId] : undefined;
+  if (booked?.status === 'inWork') return no('The return check is under way');
+  const skipM = ac.returning?.maintId;
+  const skipF = new Set(ac.returning?.ferryIds ?? []);
+  const leaseEnd = ac.returning?.wasEnd ?? own.leaseEnd;
+  if (leaseEnd - g.now < E.minLeftDays * DAY) return no(`Under ${E.minLeftDays} days left: use the normal return`);
   const w = wideOf(ac);
   const checkDays = BAL.leaseReturn.checkDays[w];
   const turn = typeOf(ac.typeId).turnMin;
@@ -66,18 +73,18 @@ export function earlyReturnQuote(g: GameState, aircraftId: string, end?: Minute)
   const earliest = Math.ceil((g.now + E.noticeDays * DAY) / DAY) * DAY + 12 * 60;
   // Signed work that keeps it busy: legs (not soft positioning), checks, base programmes.
   const work: { end: Minute; what: string; contractId: string | null }[] = [];
-  for (const f of flightsOf(g, ac.id)) if ((f.status === 'scheduled' || f.status === 'enroute') && f.kind !== 'positioning') work.push({ end: f.eta ?? f.sta, what: `${f.no} ${f.from}–${f.to}`, contractId: f.contractId });
-  for (const m of Object.values(g.maintenance)) if (m.aircraftId === ac.id && (m.status === 'planned' || m.status === 'inWork')) work.push({ end: m.end, what: `${maintWord(m)} ${fmtDay(m.start)}`, contractId: null });
+  for (const f of flightsOf(g, ac.id)) if ((f.status === 'scheduled' || f.status === 'enroute') && f.kind !== 'positioning' && !skipF.has(f.id)) work.push({ end: f.eta ?? f.sta, what: `${f.no} ${f.from}–${f.to}`, contractId: f.contractId });
+  for (const m of Object.values(g.maintenance)) if (m.aircraftId === ac.id && m.id !== skipM && (m.status === 'planned' || m.status === 'inWork')) work.push({ end: m.end, what: `${maintWord(m)} ${fmtDay(m.start)}`, contractId: null });
   for (const c of Object.values(g.contracts)) if ((c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(ac.id)) work.push({ end: c.pattern.kind === 'base' ? c.pattern.to : c.end, what: c.title, contractId: c.id });
   const busyEnd = Math.max(0, ...work.map((x) => x.end));
   const e = end ?? Math.max(earliest, Math.ceil((busyEnd + ferryMin + checkDays * DAY) / DAY) * DAY + 12 * 60);
   if (e < earliest - 60) return no(`The lessor wants ${E.noticeDays} days' notice: from ${fmtDay(earliest)}`, e);
-  if (own.leaseEnd - e < E.minLeftDays * DAY) return no(`That leaves under ${E.minLeftDays} days of the lease: use the normal return`, e);
+  if (leaseEnd - e < E.minLeftDays * DAY) return no(`That leaves under ${E.minLeftDays} days of the lease: use the normal return`, e);
   const ferryOut = e - checkDays * DAY - ferryMin;
   const blockers: string[] = [];
   const byContract = new Map<string, number>();
   for (const f of flightsOf(g, ac.id)) {
-    if (f.status !== 'scheduled' || f.kind === 'positioning' || (f.eta ?? f.sta) <= ferryOut) continue;
+    if (f.status !== 'scheduled' || f.kind === 'positioning' || skipF.has(f.id) || (f.eta ?? f.sta) <= ferryOut) continue;
     const k = f.contractId ?? '';
     byContract.set(k, (byContract.get(k) ?? 0) + 1);
   }
@@ -86,10 +93,10 @@ export function earlyReturnQuote(g: GameState, aircraftId: string, end?: Minute)
     if ((c.status === 'signed' || c.status === 'active') && c.aircraftIds.includes(ac.id) && c.pattern.kind === 'base' && c.pattern.to > ferryOut && !byContract.has(c.id)) blockers.push(`${c.title}: runs to ${fmtDay(c.pattern.to)}`);
   }
   const rq = returnQuote(g, ac.id, e)!;
-  const monthsLeft = (own.leaseEnd - e) / MONTH;
+  const monthsLeft = (leaseEnd - e) / MONTH;
   const fee = Math.round((Math.max(E.feeMinMonths, E.feeShare * monthsLeft) * own.rentPerMonth) / 1000) * 1000;
   // v0.14.1 an agreed extension's rent counts from its start.
-  const rentSaved = Math.round((rentOver(own, e, own.leaseEnd, MONTH)) / 1000) * 1000;
+  const rentSaved = Math.round((rentOver(own, e, leaseEnd, MONTH)) / 1000) * 1000;
   const deposit = own.deposit ?? 0;
   const net = rentSaved + deposit - fee - rq.total;
   return { ok: !blockers.length, why: blockers.length ? blockers[0] : null, end: e, fee, rentSaved, returnCosts: rq, deposit, net, blockers };
@@ -101,6 +108,18 @@ export function returnEarly(g: GameState, aircraftId: string, end: Minute): Acti
   if (!q.ok) return { ok: false, error: q.why ?? 'Cannot return it early' };
   const ac = g.fleet[aircraftId];
   if (ac.ownership.kind !== 'dryLeaseIn') return { ok: false, error: 'Not a leased aircraft' };
+  // v0.17.2 a return already booked (the player chose 'return at the lease end', or an earlier date) is replaced: all
+  // or nothing (a booking that fails puts the old one back).
+  if (ac.returning) return atomic(g, 'returnEarly', (error): ActionResult => ({ ok: false, error }), () => {
+    const u = unbook(g, ac);
+    return u.ok ? bookEarly(g, ac, q) : u;
+  }, (r) => !r.ok);
+  return bookEarly(g, ac, q);
+}
+
+function bookEarly(g: GameState, ac: Aircraft, q: EarlyReturnQuote): ActionResult {
+  if (ac.ownership.kind !== 'dryLeaseIn') return { ok: false, error: 'Not a leased aircraft' };
+  const aircraftId = ac.id;
   const own = ac.ownership;
   const was = own.leaseEnd;
   own.leaseEnd = q.end;
@@ -175,7 +194,7 @@ const pct = (a: number, b: number) => `${a <= b ? '−' : '+'}${Math.abs(Math.ro
  * the clock has restarted (the share past 100 %, mod 1, as over a long lease). Was the calendar share mod 1 from
  * 100 %: an airframe handed back with its C-check due went back free.
  */
-function usedC(g: GameState, ac: Aircraft, at: Minute): { used: number; overdue: boolean } {
+function usedC(g: GameState, ac: Aircraft, at: Minute, stop: Minute = at): { used: number; overdue: boolean } {
   const t = typeOf(ac.typeId);
   const interval = t.cCheckMonths * MONTH;
   const when = Math.max(at, g.now);
@@ -183,7 +202,10 @@ function usedC(g: GameState, ac: Aircraft, at: Minute): { used: number; overdue:
   if (c && c.end <= when) return { used: Math.min(1, Math.max(0, ((when - c.end) / interval) % 1)), overdue: false };
   const u = checkUsedAt(g, ac, 'C', when).used;
   if (u < 1) return { used: Math.max(0, u), overdue: false };
-  if (u <= 1 + BAL.overdueTolerance) return { used: 1, overdue: true };
+  // v0.17.2 (player's CS-TCS) judged when it stops flying (`stop`: the return check's start): still inside the
+  // tolerance then, nothing forced the check before the return, so it is due at the return and ours (it read past the
+  // tolerance at the lease end, a week into the return check, and the return looked free of it).
+  if (u <= 1 + BAL.overdueTolerance || checkUsedAt(g, ac, 'C', Math.max(stop, g.now)).used <= 1 + BAL.overdueTolerance) return { used: 1, overdue: true };
   return { used: Math.min(1, (u - 1) % 1), overdue: false };
 }
 
@@ -210,7 +232,8 @@ export function returnQuote(g: GameState, aircraftId: string, at?: Minute): Retu
   const share = own.halfLifeShare ?? L.halfLifeShare;
   const oldX = own.halfLifeShare !== undefined && own.halfLifeShare <= BAL.v017.terms.halfLife.old ? BAL.v017.terms.oldCheckX : 1;
   const lines: { label: string; amount: number }[] = [{ label: 'Return check', amount: Math.round((L.checkCost[w] * oldX) / 1000) * 1000 }];
-  const c = usedC(g, ac, endAt);
+  const booked = ac.returning ? g.maintenance[ac.returning.maintId] : undefined;
+  const c = usedC(g, ac, endAt, at === undefined && booked?.status === 'planned' ? booked.start : endAt - checkDays * DAY);
   // v0.14.1 (M1) a C-check due and not done at the return is ours: the lessor has it done on our money (what it costs
   // us to do it, the reserves paying their share), in place of the half-life.
   if (c.overdue) lines.push({ label: 'C-check due before the return', amount: checkCostOf(ac, 'C') });
@@ -292,6 +315,16 @@ export function chooseLease(g: GameState, aircraftId: string, choice: LeaseChoic
   const own = ac.ownership;
   const dec = openDecision(g, aircraftId);
   if (choice === 'return') {
+    // v0.17.2 an early return booked goes back to the return at the lease end (no fee; the rent runs to the end).
+    if (ac.returning && ac.returning.wasEnd !== undefined) {
+      return atomic(g, 'chooseLease', (error): ActionResult => ({ ok: false, error }), () => {
+        const u = unbook(g, ac);
+        if (!u.ok) return u;
+        const r = bookLeaseReturn(g, ac);
+        if (r.ok && dec) g.decisions.splice(g.decisions.indexOf(dec), 1);
+        return r;
+      }, (r) => !r.ok);
+    }
     if (ac.returning) return { ok: false, error: 'The return is already booked' };
     const r = bookLeaseReturn(g, ac);
     if (r.ok && dec) g.decisions.splice(g.decisions.indexOf(dec), 1);
@@ -414,4 +447,121 @@ export function onReturnEnd(g: GameState, m: MaintenanceEvent): void {
     tone: 'info', cat: 'company', title: `${ac.reg} returned to ${lessorOf(ac)}`,
     body: `Redelivered at ${siteCity(m.at)} after a ${Math.round((m.end - m.start) / DAY)}-day return check. Return costs ${usd(ac.returning?.quote ?? m.cost)}${parts.length ? ` (${parts.join(', ')})` : ''}.${own.deposit ? ` Deposit ${usd(own.deposit)} refunded.` : ''}${ac.returning?.ferryIds.length ? ' The ferry crew deadheads home.' : ''}`,
   });
+}
+
+/** v0.17.2 a return this close after the C-check falls due weighs flying on, parking or an early return against the check. */
+export const RETURN_NEAR = 183 * DAY;
+
+/** v0.17.2 one way to handle a C-check that falls due before a lease return (CheckModal, 'Before the return'). */
+export interface ReturnCheckWay {
+  id: 'book' | 'fly' | 'park' | 'early';
+  title: string;
+  ok: boolean;
+  /** What it costs us on top of the return check and the usual return items ($). */
+  cost: number;
+  /** Days it cannot fly that it otherwise could (0: none). */
+  idle: number;
+  /** One or two plain lines: what happens, and why not when it can't be done. */
+  lines: string[];
+}
+
+export interface CheckBeforeReturn {
+  lessor: string;
+  site: string;
+  /** The C-check falls due (100 %), and the end of the 10 % tolerance (grounded after). */
+  due: Minute;
+  groundedAt: Minute;
+  /** The return: ferry out (it stops flying), check start and end (the lease end). */
+  stop: Minute;
+  start: Minute;
+  end: Minute;
+  /** What the lessor charges at the return for a C-check due and not done (our share, the reserves paying theirs). */
+  atReturn: number;
+  ways: ReturnCheckWay[];
+  recommend: ReturnCheckWay['id'];
+  /** The recommendation in one plain line. */
+  why: string;
+}
+
+/**
+ * v0.17.2 (player's CS-TCS: "What does this mean? Should I book the check or is it not worth it?") a leased aircraft
+ * going back to its lessor whose C-check falls due before the return check starts: the real choices, with what each
+ * costs and the flying it loses. The lessor's return conditions (UPDATE-0.7.md §F6.6, usedC): a C-check due and not
+ * done at the return is done by the lessor on our money (our share: the reserves pay theirs); done before, the
+ * aircraft goes back with the interval fresh and nothing more to pay. The ways:
+ * - book the C-check at a hub in a free window (cost all in, days away);
+ * - fly on the 10 % tolerance to the return, when it lasts that long (the C-check charged at the return);
+ * - park it from the due date to the return ferry (the C-check charged at the return, days lost);
+ * - ask the lessor to take it back early, before the due date (its fee, rent saved, the half-life charge), when the
+ *   lease allows (30 days' notice, 90 days of the lease left).
+ * Recommended: the cheapest counting each day lost at the rent it still costs, flying on the tolerance only when the
+ * check cannot be booked (it leaves no slack: a late ferry or a delay grounds it). Null when none of this applies. Pure.
+ */
+export function checkBeforeReturn(g: GameState, aircraftId: string, hub?: { total: number; ok: boolean; awayDays: number; start: Minute; end: Minute; city: string; why: string | null }): CheckBeforeReturn | null {
+  const ac = g.fleet[aircraftId];
+  if (!ac || ac.ownership.kind !== 'dryLeaseIn' || !ac.returning) return null;
+  const m = g.maintenance[ac.returning.maintId];
+  if (!m || m.status !== 'planned' || nextPlanned(g, ac.id, 'C')) return null;
+  const due = cDueAt(g, ac);
+  // (A return months or years after the check falls due: the check is simply needed to keep flying.)
+  if (due >= m.start || m.start - due > RETURN_NEAR) return null;
+  const own = ac.ownership;
+  const groundedAt = cDueAt(g, ac, 1 + BAL.overdueTolerance);
+  const f0 = ac.returning.ferryIds.map((id) => g.flights[id]).find((f) => !!f && f.status === 'scheduled');
+  const stop = Math.min(m.start, f0?.std ?? m.start);
+  const atReturn = checkCostOf(ac, 'C');
+  const perDay = own.rentPerMonth / MONTH * DAY;
+  const days = (a: Minute, b: Minute) => Math.max(0, Math.round((b - a) / DAY));
+  const lessor = lessorOf(ac);
+  const site = siteCity(ac.returning.site);
+  const ways: ReturnCheckWay[] = [];
+  ways.push(hub
+    ? {
+      id: 'book', title: 'Book the C-check now', ok: hub.ok, cost: hub.total, idle: 0,
+      lines: hub.ok
+        ? [`${hub.city} ${fmtDayRange(hub.start, hub.end)}, in a gap with no flights (${Math.round(hub.awayDays)} days away). It then flies to the return and goes back with nothing more to pay for the check.`]
+        : [hub.why ?? 'No hub window fits before it falls due.'],
+    }
+    : { id: 'book', title: 'Book the C-check now', ok: false, cost: 0, idle: 0, lines: ['No hub window fits before it falls due.'] });
+  const fly = groundedAt >= stop;
+  ways.push({
+    id: 'fly', title: 'Fly on the tolerance to the return', ok: fly, cost: atReturn, idle: 0,
+    lines: fly
+      ? [`Past ${fmtDay(due)} it flies on the ${Math.round(BAL.overdueTolerance * 100)} % tolerance (grounded after ${fmtDay(groundedAt)}) up to the return on ${fmtDay(stop)}. ${lessor} then has the C-check done at the return on our money.`, 'No slack: a late ferry or a long delay grounds it.']
+      : [`The tolerance runs out ${fmtDay(groundedAt)}, before the return on ${fmtDay(stop)}.`],
+  });
+  const idlePark = days(due, stop);
+  ways.push({
+    id: 'park', title: `Park it from ${fmtDay(due)}`, ok: true, cost: atReturn, idle: idlePark,
+    lines: [`It stops flying when the check falls due and waits ${idlePark} days for the return ferry (rent runs on, about ${usd(Math.round((idlePark * perDay) / 1000) * 1000)}). ${lessor} has the C-check done at the return on our money.`],
+  });
+  // Brought forward to end before the C-check falls due (the lessor's minimum notice and lease left permitting).
+  const eq = earlyReturnQuote(g, aircraftId, Math.floor(Math.min(due, (ac.returning.wasEnd ?? own.leaseEnd) - BAL.v072.earlyReturn.minLeftDays * DAY) / DAY) * DAY + 12 * 60);
+  const lost = eq.ok ? days(eq.end - eq.returnCosts.checkDays * DAY, stop) : 0;
+  ways.push({
+    id: 'early', title: `Ask ${lessor} to take it back early`, ok: eq.ok, cost: eq.ok ? eq.fee + eq.returnCosts.total - eq.rentSaved - baseReturn(g, ac) : 0, idle: lost,
+    lines: eq.ok
+      ? [`Back by ${fmtDay(eq.end)}, before the check is due: fee ${usd(eq.fee)}, about ${usd(eq.rentSaved)} of rent saved, the half-life charge instead of the check. It stops flying ${lost} days sooner.`]
+      : [`${lessor} won't: ${lower((eq.why ?? 'not possible').replace(/: use the normal return$/, '').replace(/^That leaves under/, 'it would leave under'))}.`],
+  });
+  const score = (w: ReturnCheckWay) => w.cost + w.idle * perDay;
+  const firm = ways.filter((w) => w.ok && w.id !== 'fly');
+  const best = firm.sort((a, b) => score(a) - score(b))[0];
+  const rec = best?.id === 'park' && fly ? ways[1] : best ?? ways[2];
+  const why = rec.id === 'book'
+    ? `Book it: ${usd(rec.cost)} now${atReturn > rec.cost ? `, less than the ${usd(atReturn)} ${lessor} charges at the return,` : ''} and it keeps flying until it goes back.`
+    : rec.id === 'fly'
+      ? `No window to book it: fly on the tolerance and let ${lessor} do the check at the return (${usd(atReturn)}).`
+      : rec.id === 'early'
+        ? `Hand it back early: it costs less than doing the check or parking it.`
+        : `Park it: the check costs more than the ${idlePark} days it would still fly.`;
+  return { lessor, site, due, groundedAt, stop, start: m.start, end: m.end, atReturn, ways, recommend: rec.id, why };
+}
+
+const lower = (x: string) => (x ? x[0].toLowerCase() + x.slice(1) : x);
+
+/** The return costs as booked now without a C-check line (the early way's cost counts only what it adds or saves). */
+function baseReturn(g: GameState, ac: Aircraft): number {
+  const q = returnQuote(g, ac.id);
+  return q ? q.lines.filter((l) => l.label !== 'C-check due before the return').reduce((n, l) => n + l.amount, 0) : 0;
 }

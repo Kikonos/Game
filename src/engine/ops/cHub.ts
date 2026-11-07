@@ -95,7 +95,7 @@ export function cCheckOptions(g: GameState, aircraftId: string, start?: Minute, 
   const extra = restFit ? BAL.v073.restRefit[restFit].cost : 0;
   const dur = durationOf(ac, 'C') + addOf(restFit) * DAY;
   const out: CCheckOption[] = [];
-  const leaving = disposalWhy(g, ac);
+  const leaving = disposalWhy(g, ac, 'C');
   for (const hub of C_HUBS[typeOf(ac.typeId).family]) {
     if (leaving) {
       const t = start ?? g.now;
@@ -144,7 +144,7 @@ export function bookCCheck(g: GameState, aircraftId: string, hub: string, start:
   const quiet = typeof opts === 'boolean' ? false : !!opts.quiet;
   const ac = g.fleet[aircraftId];
   if (!ac) return { ok: false, error: 'Aircraft not found' };
-  const leaving = forced ? null : disposalWhy(g, ac);
+  const leaving = forced ? null : disposalWhy(g, ac, 'C');
   if (leaving) return { ok: false, error: leaving };
   const h = cHubAt(typeOf(ac.typeId).family, hub);
   if (!h) return { ok: false, error: `${city(hub)} does not do ${typeOf(ac.typeId).short} C-checks` };

@@ -13,7 +13,7 @@ import { blockMinutes, typeOf } from '../core/perf';
 import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
 import { int, pick, range } from '../core/rng';
-import { DAY, fmtDate, fmtDateTime, fmtDay, fmtTime, toDate, fmtDayRange } from '../core/time';
+import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDayRel, fmtTime, toDate, fmtDayRange } from '../core/time';
 import type { ActionResult, Aircraft, Cabin, Flight, GameState, MaintenanceEvent, MaintKind, Minute, SimEvent } from '../core/types';
 import { clamp } from '../core/util';
 import { planPositioning } from '../contracts';
@@ -196,12 +196,40 @@ function locationAt(g: GameState, ac: Aircraft, t: Minute): { at: string; free: 
  * with `dropLegs` (auto-planner): wet base-programme legs with ≥ 12 h notice are cancelled (no penalty, relation −2).
  * A ferry is booked when the aircraft would be elsewhere (B1 planPositioning).
  */
-/** v0.7.2 why an aircraft takes no new checks or refits: sold (until the handover) or going back to its lessor. */
-export function disposalWhy(g: GameState, ac: Aircraft): string | null {
+/**
+ * v0.17.2 when the C-check share reaches `limit` (1 = due, 1 + tolerance = grounded), counting the scheduled legs:
+ * the first day it does, within two years. Pure.
+ */
+export function cDueAt(g: GameState, ac: Aircraft, limit = 1): Minute {
+  if (checkUsedAt(g, ac, 'C', g.now).used >= limit) return g.now;
+  let lo = g.now;
+  let hi = g.now + 2 * 365 * DAY;
+  if (checkUsedAt(g, ac, 'C', hi).used < limit) return hi;
+  while (hi - lo > 60) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (checkUsedAt(g, ac, 'C', mid).used >= limit) hi = mid;
+    else lo = mid;
+  }
+  return hi;
+}
+
+/** v0.17.2 a leased aircraft going back whose C-check falls due before its return check starts (it may take one first). */
+export function cDueBeforeReturn(g: GameState, ac: Aircraft): boolean {
+  const m = ac.returning ? g.maintenance[ac.returning.maintId] : undefined;
+  return !!m && m.status === 'planned' && !nextPlanned(g, ac.id, 'C') && cDueAt(g, ac) < m.start;
+}
+
+/**
+ * v0.7.2 why an aircraft takes no new checks or refits: sold (until the handover) or going back to its lessor.
+ * v0.17.2 `kind` 'C': a lease return whose C-check falls due before the return check takes one (CheckModal weighs it
+ * against flying on to the return and parking it).
+ */
+export function disposalWhy(g: GameState, ac: Aircraft, kind?: 'C'): string | null {
   if (ac.sale) return `Sold to ${ac.sale.buyer}: hands over ${fmtDay(ac.sale.closes)}`;
   if (ac.returning) {
+    if (kind === 'C' && cDueBeforeReturn(g, ac)) return null;
     const m = g.maintenance[ac.returning.maintId];
-    return `Going back to the lessor${m ? `: return check from ${fmtDay(m.start)}` : ''}`;
+    return `Going back to the lessor${m ? `: return check from ${fmtDayRel(m.start, g.now)}${kind === 'C' ? ', before the C-check is due' : ''}` : ''}`;
   }
   return null;
 }
@@ -224,7 +252,7 @@ export function scheduleCheck(
   if (kind !== 'A' && kind !== 'C' && !pt) return { ok: false, error: 'Only A- and C-checks can be booked' };
   if (ac.status === 'delivering' || ac.status === 'stored' || ac.status === 'leasedOut') return { ok: false, error: `${ac.reg} is not on the AOC` };
   // v0.7.2 no C-check or refit on an aircraft that is leaving (the sale price already allows for the check).
-  const leaving = (kind === 'C' || kind === 'refit') && !opts.auto && !opts.forced ? disposalWhy(g, ac) : null;
+  const leaving = (kind === 'C' || kind === 'refit') && !opts.auto && !opts.forced ? disposalWhy(g, ac, kind === 'C' ? 'C' : undefined) : null;
   if (leaving) return { ok: false, error: leaving };
   if (!AIRPORT_BY_CODE[at]) return { ok: false, error: 'Unknown airport' };
   if (!pt && !opts.moved && !checkAirportOk(g, kind as 'A' | 'C', at, ac.id)) return { ok: false, error: kind === 'C' ? `C-checks are done at an MRO hub for the ${typeOf(ac.typeId).short}` : 'A-checks need the home base, a deployment base or a major airport' };

@@ -1,0 +1,7 @@
+/* v0.17.2: the check dialog's lease-return note (CheckModal ReturnNote), the bug reports' statuses (BugReports). */
+.ck-return { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(var(--accent-rgb), 0.35); background: rgba(var(--accent-rgb), 0.06); }
+.ck-way { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); }
+.ck-way.rec { border-color: rgba(var(--good-rgb), 0.55); }
+.ck-way.off { opacity: 0.6; }
+.ck-way .btn { align-self: flex-start; }
+.ck-rec { margin-left: 8px; vertical-align: 1px; }
