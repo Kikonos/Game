@@ -82,9 +82,12 @@ export const BAL = {
   /** Cross-crew / operator conversion onto a related family (pilots / cabin). */
   conversion: { pilotDays: 14, pilotCost: 12_000, cabinDays: 5, cabinCost: 1_000 },
   startMorale: [58, 76] as [number, number],
-  /** Sickness: chance per crew member per month at morale ≥ 60, and days off sick. */
+  /** Sickness: chance per crew member per month at morale ≥ 60, and days off sick. v0.17.2 (the player, a former
+   *  flight attendant: "a lot of sick calls, a bit unrealistic") most short-term sickness is 1–3 days, one in eight
+   *  longer (sickLong, 4–7 days); covered calls make one quiet line a day. */
   sickPerMonth: 0.04,
-  sickDays: [2, 5] as [number, number],
+  sickDays: [1, 3] as [number, number],
+  sickLong: { share: 0.12, days: [4, 7] as [number, number] },
   /** Sizing (RESEARCH §5.3): productive BH per person-month and reserve factor. */
   pilotBHMonth: 80,
   cabinBHMonth: 85,
@@ -241,7 +244,8 @@ export const BAL = {
     awayDays: [[28, -0.15], [42, -0.3]] as [number, number][], offAway: -0.5, heavy28dH: 150, heavy: -0.2,
     lateChange: -2, lateNoticeH: 72, extraDuty: 0.4, career: 4, recognition: 2, salaryLate: -15,
     /** Sick calls rise below sickFrom (×1 + (sickFrom − m)/sickSlope); resignations interpolate between [morale, ×] points. */
-    sickFrom: 65, sickSlope: 50, resignPerMonth: 0.008,
+    // v0.17.2 sickSlope 50 → 80: low morale adds sick calls more gently (at most about ×1.8, was ×2.3).
+    sickFrom: 65, sickSlope: 80, resignPerMonth: 0.008,
     resignMult: [[80, 0.4], [70, 0.6], [60, 0.9], [50, 1.8], [40, 2.5], [30, 3]] as [number, number][],
     noticeDays: { pilot: 60, cabin: 30 }, whyDecay: 29 / 30,
     /** Service → client satisfaction: relation per settled mean score (×2 VIP-like), its pull on offers and price, monthly decay. */

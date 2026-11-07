@@ -10,6 +10,7 @@
 
 import LZString from 'lz-string';
 import { CURRENT } from '../data/whatsNew';
+import { fixedIn } from '../data/fixedReports';
 import { AIRPORT_BY_CODE } from '../data/airports';
 import { clientStars, clientPrestige } from '../engine/contracts/prestige';
 import { flightsOf } from '../engine/core/entities';
@@ -62,7 +63,61 @@ export interface BugReportMeta {
   /** v0.17.1 the screenshot's size in characters of its data URL (0 or absent: no screenshot) and its pixels. */
   shotBytes?: number;
   shotSize?: { w: number; h: number };
+  /** v0.17.2 included in an Export all (absent: new). Fixed is read from the version installed (reportStatus). */
+  status?: 'sent';
+  /** v0.17.2 real time it was first exported. */
+  sentAt?: number;
+  /** v0.17.2 real time the version installed first listed it as fixed (deleted 7 days later). */
+  fixedSeenAt?: number;
 }
+
+// ---------- status (v0.17.2) ----------
+
+export type ReportStatus = 'new' | 'sent' | 'fixed';
+/** v0.17.2 a fixed report is deleted from the device this long after the update that fixed it was first seen. */
+export const FIXED_KEEP_MS = 7 * 24 * 3600 * 1000;
+
+/** New → Sent (in an Export all) → Fixed (the version installed lists its id as fixed). Pure. */
+export function reportStatus(r: Pick<BugReportMeta, 'id' | 'status'>, installed: string = CURRENT.version): ReportStatus {
+  if (fixedIn(r.id, installed)) return 'fixed';
+  return r.status === 'sent' ? 'sent' : 'new';
+}
+
+/** The fix line for the list ('Fixed in v0.17.2: …'), or null. Pure. */
+export function fixedLine(id: string, installed: string = CURRENT.version): string | null {
+  const f = fixedIn(id, installed);
+  return f ? `Fixed in ${f.version}: ${f.what}` : null;
+}
+
+/**
+ * v0.17.2 housekeeping when the list opens: fixed reports not yet marked get the time first seen (`mark`), those seen
+ * fixed 7 days ago or more go (`remove`). Pure.
+ */
+export function fixedHousekeeping(list: readonly BugReportMeta[], now: number, installed: string = CURRENT.version): { mark: string[]; remove: string[] } {
+  const mark: string[] = [];
+  const remove: string[] = [];
+  for (const r of list) {
+    if (reportStatus(r, installed) !== 'fixed') continue;
+    if (r.fixedSeenAt === undefined) mark.push(r.id);
+    else if (now - r.fixedSeenAt >= FIXED_KEEP_MS) remove.push(r.id);
+  }
+  return { mark, remove };
+}
+
+/** v0.17.2 the reports an Export all carries: the new ones (and the sent ones with `includeSent`), and the ids it skipped. Pure. */
+export function exportSelection<T extends BugReportMeta>(list: readonly T[], includeSent: boolean, installed: string = CURRENT.version): { take: T[]; skipped: { id: string; status: ReportStatus }[] } {
+  const take: T[] = [];
+  const skipped: { id: string; status: ReportStatus }[] = [];
+  for (const r of list) {
+    const st = reportStatus(r, installed);
+    if (st === 'new' || (st === 'sent' && includeSent)) take.push(r);
+    else skipped.push({ id: r.id, status: st });
+  }
+  return { take, skipped };
+}
+
+/** v0.17.2 a report marked sent (keeps the first time it was sent). Pure. */
+export const markSent = <T extends BugReportMeta>(r: T, now: number): T => ({ ...r, status: 'sent', sentAt: r.sentAt ?? now });
 
 export interface BugReport extends BugReportMeta {
   /** 'lz1:' + the compressed save text (snapshotOf); '' when no game was running. */
@@ -383,13 +438,16 @@ export interface BugsFile {
   /** The game as it is now (a plain save file's text), when a game is running. */
   currentSave: string | null;
   reports: BugReport[];
+  /** v0.17.2 reports on the device left out of this export: already sent, or fixed in the version installed. */
+  skipped?: { id: string; status: ReportStatus }[];
 }
 
-/** The export file: every report with its snapshot and screenshot (`shot`, a data URL), and the current save. Pure. */
-export function exportFile(reports: readonly BugReport[], g: GameState | null, now = new Date()): string {
+/** The export file: the reports given with their snapshots and screenshots (`shot`, a data URL), the current save, and (v0.17.2) the ids of those left out. Pure. */
+export function exportFile(reports: readonly BugReport[], g: GameState | null, now = new Date(), skipped: { id: string; status: ReportStatus }[] = []): string {
   const file: BugsFile = {
     format: BUGS_FORMAT, version: BUGS_VERSION, app: CURRENT.version, exportedAt: now.toISOString(),
     company: g?.company.name ?? null, currentSave: g ? serialize(g, 'bugs-export') : null, reports: [...reports].sort((a, b) => a.createdAt - b.createdAt),
+    ...(skipped.length ? { skipped } : {}),
   };
   return JSON.stringify(file);
 }

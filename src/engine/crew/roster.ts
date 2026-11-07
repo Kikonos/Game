@@ -656,7 +656,26 @@ export function settleRides(g: GameState): void {
     if (!f || !revenueRide(f)) {
       // v0.12.1 its duties no longer list it (both saves: 'duty du1jfo lists missing ticket f10t3', a positioning leg
       // the relink removed with ten crew riding it).
-      if (!f || f.status === 'cancelled') forgetRide(g, fid);
+      if (!f || f.status === 'cancelled') {
+        // v0.17.2 riders on their way home on it (no open trip lists the ride: their trip is flown) get a way home now
+        // (another of our flights, else a ticket), not at the next daily run.
+        // A cancelled leg the trip still flying rode home on (it leaves from where the duty ends, after it): its riders'
+        // way home is re-planned with the trip, as on a passenger flight.
+        const open = new Set<string>();
+        const tripHome = new Set<string>();
+        for (const d of Object.values(g.duties)) {
+          if (d.done || !d.deadheadIds.includes(fid)) continue;
+          const home = !!f && f.from === d.restAt && f.std >= d.release - 60;
+          for (const x of g.pairings[d.pairingId]?.slots ?? []) if (x.crewId) (home ? tripHome : open).add(x.crewId);
+        }
+        const gone = ids.filter((id) => !open.has(id) && !tripHome.has(id));
+        if (f && tripHome.size) lostRide(g, fid, ids.filter((id) => tripHome.has(id)));
+        forgetRide(g, fid);
+        for (const id of gone) {
+          const c = g.crew[id];
+          if (c && c.status !== 'onDuty' && !(crewIx(g).tickets.get(id) ?? []).some((t) => t.id !== fid && (t.status === 'scheduled' || t.status === 'enroute'))) sendHome(g, c);
+        }
+      }
       continue;
     }
     delete f.riders;

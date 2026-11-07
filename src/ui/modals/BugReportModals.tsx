@@ -2,11 +2,11 @@
 // one corner button on every screen (ui/BugCorner.tsx) with the screenshot it took; storage and the file format:
 // ui/bugReports.ts.
 
-import { Bug, ClipboardCopy, Download, ImageOff, Trash2 } from 'lucide-react';
+import { Bug, Check, ClipboardCopy, Download, ImageOff, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { fmtDateTime } from '../../engine/core/time';
 import type { GameState, Ref } from '../../engine/core/types';
-import { addReport, captureContext, exportFile, exportFileName, hasDurableStore, makeReport, reportStore, storageBytes, storageNote, summaryText, type BugContext, type BugPrefill, type BugReport, type BugReportMeta, type BugShot } from '../bugReports';
+import { addReport, captureContext, exportFile, exportFileName, exportSelection, fixedHousekeeping, fixedLine, hasDurableStore, makeReport, markSent, reportStatus, reportStore, storageBytes, storageNote, summaryText, type BugContext, type BugPrefill, type BugReport, type BugReportMeta, type BugShot, type ReportStatus } from '../bugReports';
 import { deviceNow } from '../device';
 import { Modal } from '../components/ui';
 import { store, useStore, type ModalSpec } from '../store';
@@ -147,7 +147,25 @@ export function BugReportsModal() {
   const [list, setList] = useState<BugReportMeta[] | null>(null);
   const [open, setOpen] = useState<BugReport | null>(null);
   const [busy, setBusy] = useState(false);
-  const refresh = () => reportStore().list().then(setList, (e: Error) => { setList([]); store.toast('bad', 'Could not read the reports', e.message); });
+  // v0.17.2 Export all takes the new reports; this also takes those already sent.
+  const [withSent, setWithSent] = useState(false);
+  // v0.17.2 on opening: fixed reports get the day they were first seen fixed, and go 7 days after it.
+  const refresh = async () => {
+    try {
+      const st = reportStore();
+      const all = await st.list();
+      const hk = fixedHousekeeping(all, Date.now());
+      for (const id of hk.remove) await st.remove(id);
+      for (const id of hk.mark) {
+        const r = await st.get(id);
+        if (r) await st.put({ ...r, fixedSeenAt: Date.now() });
+      }
+      setList(hk.remove.length || hk.mark.length ? await st.list() : all);
+    } catch (e) {
+      setList([]);
+      store.toast('bad', 'Could not read the reports', (e as Error).message);
+    }
+  };
   useEffect(() => void refresh(), []);
   const close = () => store.closeModal();
   const view = async (id: string) => {
@@ -160,17 +178,22 @@ export function BugReportsModal() {
       store.openModal({ kind: 'bugReports' });
     } });
   };
+  const sel = list ? exportSelection(list, withSent) : { take: [], skipped: [] };
   const exportAll = async () => {
-    if (!list?.length || busy) return;
+    if (busy || (!sel.take.length && !g)) return;
     setBusy(true);
     try {
       const full: BugReport[] = [];
-      for (const m of list) {
+      for (const m of sel.take) {
         const r = await reportStore().get(m.id);
         if (r) full.push(r);
       }
-      download(exportFile(full, g), exportFileName(g?.company.name));
-      store.toast('good', 'Bug reports exported', `${full.length} report${full.length === 1 ? '' : 's'}${g ? ' and the current save' : ''} in one file.`);
+      download(exportFile(full, g, new Date(), sel.skipped), exportFileName(g?.company.name));
+      // v0.17.2 what went out is Sent from now on (Export all leaves it out unless Include sent is on).
+      const now = Date.now();
+      for (const r of full) if (reportStatus(r) === 'new') await reportStore().put(markSent(r, now));
+      await refresh();
+      store.toast('good', 'Bug reports exported', `${full.length} report${full.length === 1 ? '' : 's'}${g ? ' and the current save' : ''} in one file.${sel.skipped.length ? ` ${sel.skipped.length} already sent or fixed left out.` : ''}`);
     } catch (e) {
       store.toast('bad', 'Export failed', (e as Error).message);
     } finally {
@@ -187,6 +210,17 @@ export function BugReportsModal() {
     }
   };
   const note = list ? storageNote(list) : null;
+  const delFixed = () => {
+    const fixed = (list ?? []).filter((r) => reportStatus(r) === 'fixed');
+    if (!fixed.length) return;
+    store.openModal({ kind: 'confirm', title: `Delete ${fixed.length} fixed report${fixed.length === 1 ? '' : 's'}?`, confirm: 'Delete fixed', danger: true, body: 'They are fixed in this version. Their snapshots and screenshots are deleted from this device.', onConfirm: async () => {
+      for (const r of fixed) await reportStore().remove(r.id);
+      store.openModal({ kind: 'bugReports' });
+    } });
+  };
+  const groups: { st: ReportStatus; label: string; rows: BugReportMeta[] }[] = (['new', 'sent', 'fixed'] as ReportStatus[]).map((st) => ({ st, label: st === 'new' ? 'New' : st === 'sent' ? 'Sent' : 'Fixed', rows: (list ?? []).filter((r) => reportStatus(r) === st) }));
+  const nFixed = groups[2].rows.length;
+  const nSent = groups[1].rows.length;
   if (open) {
     const c = open.context;
     return (
@@ -214,24 +248,40 @@ export function BugReportsModal() {
       <>
         <span className="small dim grow">{list ? `${list.length} report${list.length === 1 ? '' : 's'} · ${Math.round(storageBytes(list) / 1024 / 1024 * 10) / 10} MB` : ''}</span>
         <button className="btn" onClick={copy} disabled={!list?.length}><ClipboardCopy /> Copy summary</button>
-        <button className="btn btn-primary" onClick={exportAll} disabled={!list?.length || busy}><Download /> Export all</button>
+        <button className="btn btn-primary" onClick={exportAll} disabled={busy || (!sel.take.length && !g)}><Download /> Export {sel.take.length ? `${sel.take.length} ` : ''}{withSent ? 'new and sent' : 'new'}</button>
       </>
     }>
       <div className="col gap-12">
-        <div className="small muted">Each report keeps a screenshot and the game at that moment. Export all writes one file with every report and your current save.</div>
+        <div className="small muted">Each report keeps a screenshot and the game at that moment. Export writes one file with your new reports and your current save; what you export is marked Sent. Fixed reports are deleted 7 days after the update that fixed them.</div>
         {note && <div className="small warn">{note}</div>}
         {list && list.length === 0 && <div className="small dim">No reports yet. To report a bug, tap the small bug button in the lower left corner.</div>}
-        <div className="bug-list">
-          {(list ?? []).map((r) => (
-            <div key={r.id} className="bug-row">
-              <button className="bug-row-main" onClick={() => view(r.id)}>
-                <b className="ellipsis">{r.title}</b>
-                <div className="small muted ellipsis">{when(r.createdAt)} · game {r.context.gameTime}{r.context.entity ? ` · ${r.context.entity.label}` : ''} · {r.context.screen.tab}</div>
+        {(nSent > 0 || nFixed > 0) && (
+          <div className="row between wrap gap-8">
+            {nSent > 0 ? (
+              <button className={`bug-toggle small ${withSent ? 'on' : ''}`} role="switch" aria-checked={withSent} onClick={() => setWithSent(!withSent)}>
+                <span className="hm-box" aria-hidden>{withSent && <Check />}</span> Include sent ({nSent}) to send again
               </button>
-              <button className="btn btn-ghost btn-icon" onClick={() => del(r)} aria-label={`Delete report ${r.title}`}><Trash2 /></button>
+            ) : <span />}
+            {nFixed > 0 && <button className="btn btn-sm" onClick={delFixed}><Trash2 /> Delete fixed ({nFixed})</button>}
+          </div>
+        )}
+        {groups.filter((x) => x.rows.length).map((grp) => (
+          <div key={grp.st} className="col gap-6">
+            <div className="upper dim">{grp.label} · {grp.rows.length}</div>
+            <div className="bug-list">
+              {grp.rows.map((r) => (
+                <div key={r.id} className={`bug-row bug-${grp.st}`}>
+                  <button className="bug-row-main" onClick={() => view(r.id)}>
+                    <b className="ellipsis">{r.title}</b>
+                    <div className="small muted ellipsis">{when(r.createdAt)} · game {r.context.gameTime}{r.context.entity ? ` · ${r.context.entity.label}` : ''} · {r.context.screen.tab}{grp.st === 'sent' && r.sentAt ? ` · sent ${when(r.sentAt)}` : ''}</div>
+                    {grp.st === 'fixed' && <div className="small good bug-fixed">{fixedLine(r.id)}</div>}
+                  </button>
+                  <button className="btn btn-ghost btn-icon" onClick={() => del(r)} aria-label={`Delete report ${r.title}`}><Trash2 /></button>
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
+          </div>
+        ))}
         <div className="tiny dim">Game time {g ? fmtDateTime(g.now) : '—'} UTC. Reports are kept on this device only.</div>
       </div>
     </Modal>

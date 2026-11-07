@@ -52,7 +52,8 @@ export const RATES = {
   /** Reported bird strike per landing (FAA: ~13 per 10,000 movements; we ask on those needing an inspection). */
   birdStrike: 0.0012,
   /** A crew member sick at the hotel away from base, per duty reporting away. */
-  sickAway: 0.003,
+  /** v0.17.2 halved (0.003): a same-day sick call at an outstation hotel is rare. */
+  sickAway: 0.0015,
 };
 
 /** Decision kinds of this module (one open at a time). */
@@ -1006,7 +1007,8 @@ function sickCall(g: GameState, dutyId: string): void {
   if (!slots.length) return;
   const slot = pickOf(g, `sickwho:${d.id}`, slots);
   const c = g.crew[slot.crewId!];
-  const days = 2 + Math.floor(roll(g, `sickdays:${c.id}:${d.id}`) * 3);
+  // v0.17.2 1–3 days (was 2–4).
+  const days = 1 + Math.floor(roll(g, `sickdays:${c.id}:${d.id}`) * 3);
   const until = dayStart(g.now) + (days + 1) * DAY;
   c.blocks = [...(c.blocks ?? []), { from: g.now, to: until, why: 'sick' }];
   // Dev/tests (forcing): the seat is left empty so the card shows (the auto-roster would usually cover it).

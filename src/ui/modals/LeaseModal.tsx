@@ -88,15 +88,21 @@ export function LeaseModal({ aircraftId, tab: tab0 }: { aircraftId: string; tab?
   const lv = ac ? leaseView(g, aircraftId) : null;
   const [sel, setSel] = useState<LeaseChoice | null>(null);
   const [end, setEnd] = useState<number | null>(null);
-  const earlyOk = !!lv && !lv.returning && lv.daysLeft >= 90;
+  // v0.17.2 the lease-end choice can change until the return check starts: an early return over a return booked at the
+  // lease end (or another date), back to the lease end, or an extension.
+  const m0 = lv?.returning ? g.maintenance[lv.returning.maintId] : undefined;
+  const inWork = m0?.status === 'inWork';
+  const early0 = lv?.returning?.wasEnd !== undefined;
+  const fullEnd = lv?.returning?.wasEnd ?? lv?.ends ?? 0;
+  const earlyOk = !!lv && !inWork && fullEnd - g.now >= 90 * DAY;
   const [tab, setTab] = useState<Tab>(tab0 === 'early' || (tab0 === undefined && lv && lv.daysLeft > 180) ? 'early' : 'renew');
   const close = () => store.closeModal();
   if (!ac || !lv) return null;
-  const opt = lv.options.find((o) => o.id === sel && !(o.id === 'return' && lv.returning));
+  const opt = inWork ? undefined : lv.options.find((o) => o.id === sel && !(o.id === 'return' && lv.returning && !early0));
   const commit = () => {
     if (opt && store.act((gg) => chooseLease(gg, aircraftId, opt.id)).ok) close();
   };
-  const label = !opt ? 'Choose an option' : opt.id === 'return' ? `Book return · ≈ ${money(opt.cost ?? 0)}` : `${opt.label} · ${money(opt.rent ?? 0)}/month`;
+  const label = !opt ? (inWork ? 'The return check is under way' : 'Choose an option') : opt.id === 'return' ? (early0 ? 'Return at the lease end instead' : `Book return · ≈ ${money(opt.cost ?? 0)}`) : `${opt.label} · ${money(opt.rent ?? 0)}/month`;
   const m = lv.returning ? g.maintenance[lv.returning.maintId] : undefined;
   const early = tab === 'early' && earlyOk;
   const eq = early ? earlyReturnQuote(g, aircraftId, end ?? undefined) : null;
@@ -108,7 +114,7 @@ export function LeaseModal({ aircraftId, tab: tab0 }: { aircraftId: string; tab?
       early ? (
         <>
           <button className="btn" onClick={close}>Close</button>
-          <button className="btn btn-primary" onClick={goEarly} disabled={!eq?.ok}><Undo2 /> Return on {fmtDayRel(eq?.end ?? g.now, g.now)} · fee {money(eq?.fee ?? 0)}</button>
+          <button className="btn btn-primary" onClick={goEarly} disabled={!eq?.ok}><Undo2 /> {lv.returning ? 'Move the return to' : 'Return on'} {fmtDayRel(eq?.end ?? g.now, g.now)} · fee {money(eq?.fee ?? 0)}</button>
         </>
       ) : (
         <>
@@ -120,7 +126,7 @@ export function LeaseModal({ aircraftId, tab: tab0 }: { aircraftId: string; tab?
     }>
       <p className="muted small">
         {lv.lessor} · {money(lv.rent)}/month · ends {fmtDate(lv.ends)} ({lv.daysLeft} days).
-        {lv.returning && m ? ` Return booked: check at ${lv.returning.site} ${fmtDayRange(m.start, m.end)}${yearOf(m.start) !== yearOf(g.now) ? ` ${yearOf(m.start)}` : ''}.` : ' If nothing is chosen, the lessor extends 12 months.'}
+        {lv.returning && m ? ` ${early0 ? 'Early return' : 'Return'} booked: check at ${lv.returning.site} ${fmtDayRange(m.start, m.end)}${yearOf(m.start) !== yearOf(g.now) ? ` ${yearOf(m.start)}` : ''}${early0 ? ` (the lease ran to ${fmtDate(fullEnd)})` : ''}.${inWork ? ' The check is under way: it can no longer change.' : ' You can still change it until the check starts.'}` : ' If nothing is chosen, the lessor extends 12 months.'}
       </p>
       {earlyOk && (
         <div className="mt-12"><Seg<Tab> value={tab} onChange={setTab} options={[{ value: 'renew', label: 'At the lease end' }, { value: 'early', label: 'Return early' }]} /></div>
@@ -129,10 +135,11 @@ export function LeaseModal({ aircraftId, tab: tab0 }: { aircraftId: string; tab?
         <>
           <div className="col gap-8 mt-12">
             {lv.options.map((o) => {
-              const cur = o.id === 'return' && !!lv.returning;
+              const cur = o.id === 'return' && !!lv.returning && !early0;
+              const back = o.id === 'return' && early0;
               return (
-                <button key={o.id} className={`decision-opt sc-opt ${cur ? 'current' : ''} ${sel === o.id ? 'on' : ''}`} aria-pressed={sel === o.id} onClick={() => setSel(o.id)} disabled={cur}>
-                  <span className="row between gap-8"><b>{o.label}</b>{o.id === 'extend12' && <span className="badge">Default</span>}{cur && <span className="badge info">Booked</span>}</span>
+                <button key={o.id} className={`decision-opt sc-opt ${cur ? 'current' : ''} ${sel === o.id ? 'on' : ''}`} aria-pressed={sel === o.id} onClick={() => setSel(o.id)} disabled={cur || inWork}>
+                  <span className="row between gap-8"><b>{back ? `Return at the lease end (${fmtDate(fullEnd)})` : o.label}</b>{o.id === 'extend12' && !lv.returning && <span className="badge">Default</span>}{cur && <span className="badge info">Booked</span>}</span>
                   <span className="sc-chips">{o.chips.filter((c) => !/^Deposit \$0 back$/.test(c)).map((c) => <span key={c} className="chip sc-chip">{c}</span>)}</span>
                 </button>
               );

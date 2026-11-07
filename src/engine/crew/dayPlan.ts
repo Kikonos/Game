@@ -1541,11 +1541,55 @@ function countYesterday(g: GameState): void {
   }
 }
 
+/**
+ * v0.17.2 (player's report: crew deadheading home from long-term bases before their five weeks) a crew member seated on
+ * a deployment tour whose planned annual leave starts inside the rotation has the leave moved to just after it (two
+ * days to fly home and rest first), as a crew planning department rosters a rotation round the leave: they stay the
+ * whole rotation instead of going home in the middle and a replacement being flown out. Only leave not yet in the
+ * published roster, and only to days with no other block, course or work. Daily, before the roster run. Returns the
+ * crew whose leave moved.
+ */
+export function leaveAfterTours(g: GameState): string[] {
+  const moved: string[] = [];
+  const pub = publishedTo(g);
+  const ix = crewIx(g);
+  for (const c of Object.values(g.crew)) {
+    if (c.notice || !c.blocks?.some((b) => b.why === 'leave' && b.annual && b.from > pub)) continue;
+    for (const q of ix.pairingsOf.get(c.id) ?? []) {
+      if (!q.tour || q.status === 'broken' || q.status === 'done') continue;
+      const dep = q.deploymentId ? g.deployments[q.deploymentId] : undefined;
+      if (!dep) continue;
+      const to = Math.min(q.tour.to, dep.end);
+      if (to <= g.now) continue;
+      for (const b of c.blocks) {
+        if (b.why !== 'leave' || !b.annual || b.from <= pub || b.from >= to || b.to <= q.tour.from) continue;
+        const len = Math.round((b.to - b.from) / DAY);
+        const k0 = dayIndex(c.base, to) + 2;
+        const from = midnight(c.base, k0);
+        const until = midnight(c.base, k0 + len);
+        // Clear of other blocks and of tours or trips already planned after this one.
+        if (c.blocks.some((x) => x !== b && x.from < until && x.to > from)) continue;
+        if ((ix.pairingsOf.get(c.id) ?? []).some((x) => x !== q && x.status !== 'broken' && x.status !== 'done' && x.start < until && x.end > from - DAY)) continue;
+        const was = b.from;
+        removeOff(c, Array.from({ length: len }, (_, i) => k0 + i));
+        clearDays(g, c, k0, k0 + len);
+        b.from = from;
+        b.to = until;
+        moved.push(c.id);
+        pushMessage(g, { cue: null, tone: 'info', cat: 'crew', title: `${c.first} ${c.last}'s leave moves after the rotation`, body: `Leave from ${fmtDay(was)} now starts ${fmtDay(from)} (${len} days), after ${dep.base}'s rotation ends ${fmtDay(to)}: they stay for the whole rotation.`, ref: { kind: 'crew', id: c.id } });
+      }
+    }
+  }
+  if (moved.length) touchCrewState(g);
+  return moved;
+}
+
 /** Before the roster run: housekeeping, annual leave, days off up to the horizon. */
 export function dayPlanBefore(g: GameState): void {
   if (!g.dayPlan) return;
   pruneStandby(g);
   countYesterday(g);
+  leaveAfterTours(g);
   for (const c of Object.values(g.crew)) if (c.off?.length && c.off[0] < dayIndex(c.base, g.now) - 40) c.off = c.off.filter((k) => k >= dayIndex(c.base, g.now) - 40);
   const y = yearOf(g.now);
   // New hires after 90 days' service; next year's leave from 1 December.

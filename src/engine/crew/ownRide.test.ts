@@ -20,7 +20,7 @@ import { openDuties } from './check';
 import { outTicket, rideRoom, rideSeats, ridersText, ridesAllowed } from './timeline';
 
 /** The Dublin base (home base Lisbon), played to 36 days in: tours have changed over at least once. */
-function dublin(seed = 21): { g: GameState; k: string; ac: string } {
+function dublin(seed = 21, days = 36): { g: GameState; k: string; ac: string } {
   const g = newGame(seed);
   const ac = leased(g);
   const o = offer(g, 'seasonBase', { airport: 'DUB', dests: ['LIS'], waves: 2, start: g.now + 3 * DAY, days: 60 });
@@ -28,7 +28,7 @@ function dublin(seed = 21): { g: GameState; k: string; ac: string } {
   const r = acceptOffer(g, o.id, [ac.id]);
   if (!r.ok) throw new Error(r.error);
   const k = r.data!.contractId;
-  run(g, g.contracts[k].start + 36 * DAY);
+  run(g, g.contracts[k].start + days * DAY);
   return { g, k, ac: ac.id };
 }
 
@@ -134,7 +134,8 @@ describe('v0.12.1 crew riding our own passenger flights', () => {
   };
 
   it('a cancelled flight: its riders are rebooked at once (a ride days out: an airline ticket or another of ours)', () => {
-    const { g, k } = dublin();
+    // (v0.17.2 the sets change a day apart from day 35: played to day 31, the changes are days out.)
+    const { g, k } = dublin(21, 31);
     const { f, p } = rideOut(g, k, g.now + 3 * DAY);
     const ids = [...f.riders!];
     cancelFlight(g, f, 'Test');

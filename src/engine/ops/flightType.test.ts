@@ -33,7 +33,7 @@ describe('flight types', () => {
     expect(flightType(g, t.posOut)).toBe('ferry');
   });
 
-  it('the roster flies the trailing empty leg with pilots only; the cabin crew deadhead home and log no duty on it', () => {
+  it('the roster flies the trailing empty leg with pilots only; the cabin crew go home as passengers and log no duty on it', () => {
     const g = fixtureGame(42);
     const t = trip(g);
     autoRoster(g, { aircraftIds: [t.ac.id], to: g.now + 10 * DAY });
@@ -46,12 +46,13 @@ describe('flight types', () => {
     // Ferry: pilots only.
     expect(t.posOut.crewIds.length).toBeGreaterThan(0);
     expect(t.posOut.crewIds.every((id) => isPilot(g.crew[id].role))).toBe(true);
-    // The revenue trip's cabin crew have a ticket home (deadhead), not a seat on the ferry.
+    // The revenue trip's cabin crew go home as passengers: v0.17.2 riding the ferry when it leaves in time (the
+    // player: "they should hitch a ride"), else on an airline ticket; never operating it.
     const cabin = revCrew.filter((c) => !isPilot(c.role)).map((c) => c.id);
     const tickets = Object.values(g.flights).filter((f) => f.kind === 'deadhead' && f.from === 'ZAG');
-    for (const id of cabin) expect(tickets.some((f) => f.crewIds.includes(id)), id).toBe(true);
+    for (const id of cabin) expect(tickets.some((f) => f.crewIds.includes(id)) || !!t.posOut.riders?.includes(id), id).toBe(true);
     expect(flightCrewAboard(g, t.posOut).operating.every((id) => isPilot(g.crew[id].role))).toBe(true);
-    expect(flightType(g, tickets[0])).toBe('deadhead');
+    if (tickets[0]) expect(flightType(g, tickets[0])).toBe('deadhead');
     // The trip's pilots fly on (their ticket home is dropped).
     expect([...t.posOut.crewIds].sort()).toEqual(revCrew.filter((c) => isPilot(c.role)).map((c) => c.id).sort());
   });

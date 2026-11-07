@@ -1,0 +1,13 @@
+/* v0.17.2: the check dialog's lease-return note (CheckModal ReturnNote), the bug reports' statuses (BugReports). */
+.ck-return { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(var(--accent-rgb), 0.35); background: rgba(var(--accent-rgb), 0.06); }
+.ck-way { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--border); }
+.ck-way.rec { border-color: rgba(var(--good-rgb), 0.55); }
+.ck-way.off { opacity: 0.6; }
+.ck-way .btn { align-self: flex-start; }
+.ck-rec { margin-left: 8px; vertical-align: 1px; }
+.bug-toggle { display: inline-flex; align-items: center; gap: 8px; min-height: 36px; padding: 4px 10px; border-radius: 10px; border: 1px solid var(--border); background: none; color: inherit; font: inherit; cursor: pointer; }
+.bug-toggle .hm-box { width: 20px; height: 20px; border-radius: 6px; border: 1.5px solid var(--border-strong); display: grid; place-items: center; flex-shrink: 0; }
+.bug-toggle .hm-box svg { width: 14px; height: 14px; }
+.bug-toggle.on { border-color: rgba(var(--accent-rgb), 0.55); }
+.bug-fixed { white-space: normal; margin-top: 2px; }
+.bug-row.bug-sent .bug-row-main b { opacity: 0.85; }
