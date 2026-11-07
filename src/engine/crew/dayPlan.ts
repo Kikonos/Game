@@ -1589,7 +1589,7 @@ export function dayPlanBefore(g: GameState): void {
   if (!g.dayPlan) return;
   pruneStandby(g);
   countYesterday(g);
-  leaveAfterTours(g);
+  if (!process.env.V172_NOLEAVE) leaveAfterTours(g);
   for (const c of Object.values(g.crew)) if (c.off?.length && c.off[0] < dayIndex(c.base, g.now) - 40) c.off = c.off.filter((k) => k >= dayIndex(c.base, g.now) - 40);
   const y = yearOf(g.now);
   // New hires after 90 days' service; next year's leave from 1 December.
