@@ -75,17 +75,22 @@ export function reportRank(r: FeasibilityReport): CheckRank {
 
 /**
  * The report to lead with: the aircraft closest to taking the job. Fine before warnings before blocked; among blocked
- * ones, the least severe top reason (busy before needs work before impossible), then the fewest reasons, then the best
- * profit. Stable for equal reports (the fleet order). Pure.
+ * ones, the least severe top reason (busy before needs work before impossible; a booking by another programme after
+ * other work), then the fewest reasons, then the best profit. Stable for equal reports (the fleet order). Pure.
  */
 export function bestByRank(reports: readonly FeasibilityReport[]): FeasibilityReport | null {
   let best: FeasibilityReport | null = null;
-  let bk = [0, 0, 0];
+  let bk = [0, 0, 0, 0];
   for (const r of reports) {
     const rank = reportRank(r);
+    // Among aircraft that need work, one booked by another programme (a season, a lease: nothing to move) comes after
+    // one a refit or a check would free (the player has a button for that).
+    const top = topBlocker(r);
+    const booked = rank === 1 && !!top && BUSY_RE.test(top.label) ? 0 : 1;
     // Higher rank number = closer to taking it (4 fine ... 0 impossible).
-    const k = [rank, -blockers(r).length, r.estMargin];
-    if (!best || k[0] > bk[0] || (k[0] === bk[0] && (k[1] > bk[1] || (k[1] === bk[1] && k[2] > bk[2])))) {
+    const k = [rank, booked, -blockers(r).length, r.estMargin];
+    const better = k.findIndex((x, i) => x !== bk[i]);
+    if (!best || (better >= 0 && k[better] > bk[better])) {
       best = r;
       bk = k;
     }

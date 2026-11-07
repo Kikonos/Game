@@ -58,6 +58,13 @@ describe('v0.18 blocker tiers', () => {
     expect(bestByRank([imp, work, busy, rep('fine', [chk('seats', 'ok', 'ok')], -5)])!.aircraftId).toBe('fine');
   });
 
+  it('a refit to plan leads over an aircraft booked for a whole programme (nothing to move), even with fewer reasons', () => {
+    const booked: FeasibilityReport = { ...rep('booked', [chk('availability', 'no', 'Busy: Capacity lease: one widebody, Jul–Apr')], 900), conflicts: { flights: [], maintenance: [], programmes: ['k1'] } };
+    const work = rep('work', [chk('layout', 'no', 'Needs a two-class cabin', { kind: 'refit', layout: 'two-class' }), chk('paint', 'no', 'No paint-shop slot')], 100);
+    expect(bestByRank([booked, work])!.aircraftId).toBe('work');
+    expect(bestByRank([work, booked])!.aircraftId).toBe('work');
+  });
+
   it('the headline names the top blocker in plain words, the rest folded beneath', () => {
     const g = newGame();
     const r = rep(Object.keys(g.fleet)[0], [
