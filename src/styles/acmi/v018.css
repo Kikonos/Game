@@ -1,0 +1,57 @@
+/* v0.18 contracts: body and haul tags, quick chips, the offer verdict (lane contracts-ui). */
+
+/* ---------- body + haul tags (ui/components/ShapeTags.tsx) ---------- */
+.shape-tags { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; min-width: 0; }
+.shape-tag {
+  display: inline-flex; align-items: center; gap: 5px; height: 20px; padding: 0 8px; border-radius: 999px;
+  border: 1px solid var(--border); background: var(--panel-2); color: var(--text-2);
+  font-size: 11.5px; font-weight: 500; letter-spacing: 0.01em; white-space: nowrap; line-height: 1;
+}
+.shape-tag.body-wide { color: var(--text); border-color: rgba(var(--accent-rgb), 0.35); background: rgba(var(--accent-rgb), 0.08); }
+.shape-meter { display: inline-flex; align-items: flex-end; gap: 1.5px; height: 9px; }
+.shape-meter i { display: block; width: 3px; border-radius: 1px; background: rgba(var(--line-rgb), 0.28); }
+.shape-meter i:nth-child(1) { height: 3px; }
+.shape-meter i:nth-child(2) { height: 5px; }
+.shape-meter i:nth-child(3) { height: 7px; }
+.shape-meter i:nth-child(4) { height: 9px; }
+.shape-meter i.on { background: var(--accent); }
+.shape-tag.haul-ultra .shape-meter i.on { background: var(--warn); }
+
+/* The offer card's route line carries the tags on the right. */
+.sc-offer-route-row { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.sc-offer-route-row .sc-offer-route { flex: 1 1 auto; min-width: 0; }
+.sc-contract-shape { margin-left: auto; }
+.sc-offer-modal .of-shape-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* ---------- Market quick chips (Contracts › Market › Offers) ---------- */
+.of-quick { display: flex; align-items: center; gap: 6px; margin-bottom: 12px; overflow-x: auto; scrollbar-width: none; -webkit-overflow-scrolling: touch; padding-bottom: 2px; }
+.of-quick::-webkit-scrollbar { display: none; }
+.of-quick .flt-chip { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; }
+.of-quick .flt-chip .n { font-size: 11.5px; color: var(--text-3, var(--text-2)); opacity: 0.8; }
+.of-quick .flt-chip.on .n { color: var(--accent); opacity: 1; }
+.of-quick-sep { flex: 0 0 1px; align-self: stretch; margin: 6px 2px; background: var(--border); }
+.of-quick .of-quick-more { flex: 0 0 auto; margin-left: auto; }
+
+/* ---------- the offer's verdict (replaces the four-line card in the offer dialog) ---------- */
+.of-verdict { border-radius: 12px; border: 1px solid var(--border); background: var(--panel-2); padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.of-verdict-head { display: flex; align-items: flex-start; gap: 10px; }
+.of-verdict-head svg { width: 18px; height: 18px; flex: 0 0 auto; margin-top: 1px; }
+.of-verdict-head b { font-weight: 600; line-height: 1.35; }
+.of-verdict.t0 { border-color: rgba(var(--bad-rgb, 239, 68, 68), 0.45); background: rgba(var(--bad-rgb, 239, 68, 68), 0.07); }
+.of-verdict.t0 .of-verdict-head svg { color: var(--bad); }
+.of-verdict.t1 { border-color: rgba(var(--warn-rgb, 245, 158, 11), 0.45); background: rgba(var(--warn-rgb, 245, 158, 11), 0.07); }
+.of-verdict.t1 .of-verdict-head svg, .of-verdict.t3 .of-verdict-head svg { color: var(--warn); }
+.of-verdict.t2 { border-color: rgba(var(--accent-rgb), 0.4); background: rgba(var(--accent-rgb), 0.07); }
+.of-verdict.t2 .of-verdict-head svg { color: var(--accent); }
+.of-verdict-acts { display: flex; flex-wrap: wrap; gap: 8px; }
+.of-verdict details { font-size: 13px; }
+.of-verdict summary { cursor: pointer; color: var(--text-2); list-style: none; display: inline-flex; align-items: center; gap: 4px; min-height: 28px; }
+.of-verdict summary::-webkit-details-marker { display: none; }
+.of-verdict summary svg { width: 14px; height: 14px; transition: transform 0.2s var(--ease, ease); }
+.of-verdict details[open] summary svg { transform: rotate(90deg); }
+.of-verdict-more { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.of-verdict-more li { display: flex; gap: 8px; align-items: baseline; color: var(--text-2); }
+.of-verdict-more .tier { flex: 0 0 auto; font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; padding: 1px 6px; border-radius: 6px; border: 1px solid var(--border); }
+.of-verdict-more .tier.r0 { color: var(--bad); border-color: rgba(var(--bad-rgb, 239, 68, 68), 0.4); }
+.of-verdict-more .tier.r1, .of-verdict-more .tier.r3 { color: var(--warn); border-color: rgba(var(--warn-rgb, 245, 158, 11), 0.4); }
+.of-verdict-more .tier.r2 { color: var(--accent); border-color: rgba(var(--accent-rgb), 0.4); }
