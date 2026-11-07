@@ -6,8 +6,8 @@
 // Renders only when something moved: the camera, the game clock or the data; never while the page is hidden.
 
 import { House, Map as MapIcon, Minus, Plus } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
-import { type BufferGeometry, CanvasTexture, type DataTexture, Group, Matrix4, Mesh, PerspectiveCamera, PlaneGeometry, Scene, Vector3, WebGLRenderer, type MeshBasicMaterial, type ShaderMaterial } from 'three';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { AmbientLight, type BufferGeometry, CanvasTexture, type DataTexture, DirectionalLight, Group, Matrix4, Mesh, type MeshLambertMaterial, MeshBasicMaterial, PerspectiveCamera, PlaneGeometry, Scene, Vector3, WebGLRenderer, type ShaderMaterial } from 'three';
 import { AIRPORT_BY_CODE } from '../../../data/airports';
 import type { Flight, GameState, Ref } from '../../../engine/core/types';
 import { commercialFlightsBetween, commercialProgress, type CommercialFlight, type FlightType, flightType } from '../../../engine/ops';
@@ -16,19 +16,22 @@ import { liveMinute, store } from '../../store';
 import type { Theme } from '../../theme';
 import { isTouch } from '../../useMedia';
 import { airlineType } from '../airlineTypes';
-import { HIT_R, inkOf } from '../LiveLayers';
-import { groupCommercial, type LegArc, pickNearest, placeLabels, regMark, standOffsets, TYPE_STROKE, type LabelBox } from '../mapLogic';
+import { HIT_R } from '../LiveLayers';
+import { groupCommercial, type LegArc, pickNearest, placeLabels, regMark, type SlipArc, standOffsets, TYPE_STROKE, type LabelBox } from '../mapLogic';
+import { contrailWindow } from '../spotter';
 import { loadMapData, worldGeo } from '../mapData';
 import { silColour } from '../silhouettes';
 import type { MapAirport, MapRoute } from '../WorldMap';
 import {
-  acMaterial, airportPoints, arcGeometry, arcMaterial, type ArcStyle, atmosphereMesh, dimM, earthMesh, type GlobeInk, inkAtmosphere, inkEarth, landTexture, QUAD_PER_DIM,
-  ribbonMesh, type RGBA, setAirports, setEarthLand, silTexture, styleArc, styleRibbon,
+  airportPoints, arcGeometry, arcMaterial, type ArcStyle, type ArcView, atmosphereMesh, dimM, disposeModels, earthMesh, type GlobeInk, inkAtmosphere, inkEarth, landTexture, modelGeometry,
+  modelMaterial, QUAD_PER_DIM, ribbonMesh, type RGBA, setAirports, setEarthLand, shadowMaterial, shadowTexture, styleArc, styleRibbon, trailTexture,
 } from './globeGL';
+import { GlobeMarks, type GlobeMarkProps } from './GlobeMarks';
+import { modelOf } from './globeModel';
 import { borderLines, drawLandField, fieldWidth, landFieldHere, ribbons } from './globeLand';
 import {
-  aimAt, angleBetween, camOf, clampDist, clampLat, dashOf, degPerPx, DIST_START, FOV, facing, gcTrack, globeFleet, globePxPerM, headingVec, IDLE_AFTER_MS, IDLE_SPIN_DEG_S, legTrack,
-  lerpOrbit, type Orbit, parseColour, project, stepInertia, sunVec, tangentsAt, vecOf, worldPerPx, wrap180, type GlobeAc, type Vec3,
+  aimAt, angleBetween, arcLift, camView, type CamView, globeTilt, projectView, clampDist, clampLat, cross, dashOf, degPerPx, DIST_START, FOV, facing, gcTrack, globeFleet, globePxPerM, headingVec, IDLE_AFTER_MS, IDLE_SPIN_DEG_S, legTrack,
+  lerpOrbit, liftAt, norm, occluded, type Orbit, parseColour, stepInertia, sub, sunVec, tangentsAt, vecOf, worldPerPx, wrap180, type GlobeAc, type Vec3,
 } from './globeLogic';
 import './globe.css';
 
@@ -39,6 +42,12 @@ export interface GlobeProps {
   nextArcs: LegArc[];
   /** World tours under way. */
   tours: MapRoute[];
+  /** v0.18 the flat map's marks (offer pins, weather, events, crew changes, diversions, zones), placed on the globe. */
+  marks: Omit<GlobeMarkProps, 'selected' | 'touch'>;
+  /** v0.18 the selected aircraft's slip crews' airline legs (as on the flat map). */
+  slipLegs: SlipArc[];
+  /** v0.18 spotter mode: the camera follows this aircraft (a new key flies to it first). */
+  follow?: { key: string; id: string } | null;
   sel?: Ref;
   theme: Theme;
   /** The airline's accent (hub dots), as on the flat map. */
@@ -74,6 +83,18 @@ const R_BORDER = 1.0003;
 const R_ARC = 1.0011;
 const R_AP = 1.0016;
 const R_AC = 1.0024;
+/** v0.18 aircraft shadows, on the ground under the arcs. */
+const R_SHADOW = 1.0013;
+/** v0.18 shadow darkness on the ground and at the top of the highest arc. */
+const SHADOW_A: [number, number] = [0.5, 0.2];
+const SHADOW_STEPS = 5;
+/** v0.18 how far a shadow falls (down and right on screen) at the top of an arc: at most this many css px. */
+const SHADOW_PX = 12;
+/** v0.18 the dashes ahead drift this many screen px a second while the clock runs (map animations on). */
+const FLOW_PX_S = 7;
+/** v0.18 spotter: the camera's distance while it follows (closer than this stays), and the pause after a drag. */
+const FOLLOW_DIST = 1.9;
+const FOLLOW_WAIT_MS = 4000;
 /** Labels, rings and taps only where the ground faces the camera well (not foreshortened at the limb). */
 const LABEL_COS = 0.28;
 /** Airline legs are fetched for this many game minutes at a time, as on the flat map. */
@@ -85,7 +106,7 @@ const AHEAD_DASH: Record<FlightType, string> = { operating: '6 5', positioning: 
 const orbits = new WeakMap<GameState, Orbit>();
 
 /** Frame cost stats for perf checks (console: __bhGlobe); `aim` turns the open globe to a place (checks, screenshots). */
-const stats = { frames: 0, avgMs: 0, maxMs: 0, landMs: 0, reset() { this.frames = 0; this.avgMs = 0; this.maxMs = 0; }, aim: null as null | ((lon: number, lat: number, dist?: number) => void) };
+const stats = { frames: 0, avgMs: 0, maxMs: 0, landMs: 0, reset() { this.frames = 0; this.avgMs = 0; this.maxMs = 0; }, aim: null as null | ((lon: number, lat: number, dist?: number) => void), orbit: null as null | (() => Orbit), fleet: null as null | (() => { id: string; pos: [number, number]; airborne: boolean; progress: number }[]) };
 (globalThis as unknown as { __bhGlobe?: typeof stats }).__bhGlobe = stats;
 
 const cssVar = (name: string) => (typeof document !== 'undefined' ? getComputedStyle(document.documentElement).getPropertyValue(name) : '');
@@ -121,9 +142,12 @@ function readInk(theme: Theme): GlobeInk {
   };
 }
 
-interface AcObj { mesh: Mesh<PlaneGeometry, MeshBasicMaterial>; typeId: string; label: HTMLSpanElement; dim: number }
-interface ArcObj { mesh: Mesh; key: string; mat: ShaderMaterial }
-interface CmObj { mesh: Mesh<PlaneGeometry, MeshBasicMaterial>; arc: ArcObj; cf: CommercialFlight; typeId: string; dim: number; pts: [number, number][] }
+/** v0.18 an aircraft on the globe: its 3D model (and contrail) in one group, its shadow on the ground. */
+interface AcObj { group: Group; model: Mesh<BufferGeometry, MeshLambertMaterial>; trail: Mesh; shadow: Mesh<PlaneGeometry, MeshBasicMaterial>; typeId: string; label: HTMLSpanElement; dim: number }
+interface ArcObj { mesh: Mesh; key: string; mat: ShaderMaterial; pts: [number, number][]; lift: number }
+interface CmObj { ac: AcObj; arc: ArcObj; cf: CommercialFlight; typeId: string; pts: [number, number][]; scale: number }
+/** v0.18 a mark placed by the loop: its element, where it stands, how far it must face the camera to show. */
+interface MarkEl { el: SVGGElement; key: string; at: Vec3; face: number; off: [number, number] }
 
 export default function Globe(props: GlobeProps) {
   const stageRef = useRef<HTMLDivElement>(null);
@@ -132,7 +156,8 @@ export default function Globe(props: GlobeProps) {
   const propsRef = useRef(props);
   propsRef.current = props;
   /** The loop's hooks for the buttons and the props effects. */
-  const api = useRef<{ kick: () => void; zoom: (f: number) => void; home: () => void; propsChanged: () => void } | null>(null);
+  const api = useRef<{ marks: (list: MarkEl[]) => void; kick: () => void; zoom: (f: number) => void; home: () => void; propsChanged: () => void } | null>(null);
+  const marksRef = useRef<SVGSVGElement>(null);
   const [fail, setFail] = useState<Error | null>(null);
   if (fail) throw fail;
 
@@ -207,39 +232,82 @@ export default function Globe(props: GlobeProps) {
     // ---------- what flies ----------
     const quad = new PlaneGeometry(1, 1);
     const acGroup = new Group();
+    const shadeGroup = new Group();
     const arcGroup = new Group();
     const staticArcs = new Group();
-    scene.add(staticArcs, arcGroup, acGroup);
+    scene.add(staticArcs, shadeGroup, arcGroup, acGroup);
     const aps = airportPoints();
     scene.add(aps);
+    // v0.18 the models are lit from just above and left of the camera (they read on the night side too), with a soft fill.
+    const fill = new AmbientLight(0xffffff, 1.35);
+    const keyLight = new DirectionalLight(0xffffff, 2.2);
+    keyLight.position.set(-0.9, 1.4, 0.6);
+    camera.add(keyLight);
+    scene.add(camera, fill);
     const texCache = new Map<string, CanvasTexture>();
-    const matCache = new Map<string, MeshBasicMaterial>();
-    const acMat = (key: string, typeId: string, ink: () => { fill: string; edge: string; eng: string; deck: string }) => {
-      let m = matCache.get(key);
+    const matCache = new Map<string, MeshLambertMaterial | MeshBasicMaterial>();
+    const modelMat = (colour: string) => {
+      const k = `m:${colour}`;
+      let m = matCache.get(k) as MeshLambertMaterial | undefined;
+      if (!m) matCache.set(k, (m = modelMaterial(colour)));
+      return m;
+    };
+    const shadeMat = (typeId: string, step: number) => {
+      const k = `s:${typeId}:${step}`;
+      let m = matCache.get(k) as MeshBasicMaterial | undefined;
       if (!m) {
-        const tex = silTexture(typeId, ink(), maxAniso);
-        texCache.set(key, tex);
-        m = acMaterial(tex);
-        matCache.set(key, m);
+        let tex = texCache.get(`s:${typeId}`);
+        if (!tex) texCache.set(`s:${typeId}`, (tex = shadowTexture(typeId, maxAniso)));
+        const f = step / (SHADOW_STEPS - 1);
+        matCache.set(k, (m = shadowMaterial(tex, SHADOW_A[0] + (SHADOW_A[1] - SHADOW_A[0]) * f)));
       }
       return m;
     };
+    const trailTex = trailTexture();
+    const trailMat = new MeshBasicMaterial({ map: trailTex, transparent: true, depthWrite: false, opacity: 0.55 });
+    /** A new aircraft (ours or an airline's): model, contrail and shadow, in the scene. */
+    const newAc = (typeId: string, colour: string, label: HTMLSpanElement | null): AcObj => {
+      const md = modelOf(typeId);
+      const group = new Group();
+      group.matrixAutoUpdate = false;
+      const model = new Mesh(modelGeometry(typeId), modelMat(colour));
+      model.frustumCulled = false;
+      const trail = new Mesh(quad, trailMat);
+      // Behind the engines, in the wing's plane (metres, the model's frame).
+      trail.scale.set(Math.max(6, md.engX * 2.4), md.L * 1.35, 1);
+      trail.position.set(0, -md.L / 2 - md.L * 0.62, -0.4);
+      trail.renderOrder = 3;
+      trail.frustumCulled = false;
+      trail.visible = false;
+      group.add(model, trail);
+      acGroup.add(group);
+      const shadow = new Mesh(quad, shadeMat(typeId, 0));
+      shadow.matrixAutoUpdate = false;
+      shadow.frustumCulled = false;
+      shadeGroup.add(shadow);
+      return { group, model, trail, shadow, typeId, label: label ?? document.createElement('span'), dim: dimM(typeId) };
+    };
+    const dropAc = (o: AcObj) => { o.group.removeFromParent(); o.shadow.removeFromParent(); o.label.remove(); };
     const acs = new Map<string, AcObj>();
     const ownArcs = new Map<string, ArcObj>();
     const cms = new Map<string, CmObj>();
     let statics: { obj: ArcObj; st: ArcStyle }[] = [];
+    let marks: MarkEl[] = [];
+    const markScreen = new Map<string, { x: number; y: number }>();
 
     const dropArc = (a: ArcObj) => {
       a.mesh.removeFromParent();
       a.mesh.geometry.dispose();
       a.mat.dispose();
     };
-    const newArc = (pts: [number, number][], key: string, parent: Group): ArcObj => {
+    /** An arc along samples [lon, lat]; v0.18 `lifted`: it rises with the sector's length (flights), else it lies on the ground. */
+    const newArc = (pts: [number, number][], key: string, parent: Group, lifted = true): ArcObj => {
       const mat = arcMaterial();
-      const mesh = new Mesh(arcGeometry(pts, R_ARC), mat);
+      const lift = lifted && pts.length > 1 ? arcLift(angleBetween(pts[0], pts[pts.length - 1])) : 0;
+      const mesh = new Mesh(arcGeometry(pts, R_ARC, lift), mat);
       mesh.frustumCulled = false;
       parent.add(mesh);
-      return { mesh, key, mat };
+      return { mesh, key, mat, pts, lift };
     };
 
     // ---------- state ----------
@@ -271,7 +339,14 @@ export default function Globe(props: GlobeProps) {
     const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     let spinTimer = 0;
     /** The optional idle spin: a few seconds untouched, nothing selected, no dialog, no reduced motion. */
-    const spinning = (now: number) => store.settings.globeSpin && !reduced && !gesture && !propsRef.current.sel && !store.modal && now - lastInteract > IDLE_AFTER_MS;
+    const spinning = (now: number) => store.settings.globeSpin && !reduced && !gesture && !propsRef.current.sel && !propsRef.current.follow && !store.modal && now - lastInteract > IDLE_AFTER_MS;
+    /** v0.18 the dashes' drift (screen px), moved on with the game clock; the spotter's aircraft and its fly-in. */
+    let flow = 0;
+    let flowT = NaN;
+    let followed = '';
+    /** v0.18 the camera as last drawn (taps and labels use the same one) and its tilt (deg). */
+    let tiltNow = 0;
+    let cv: CamView = camView(orbit, 0);
 
     const resize = () => {
       // In the page's own css px (labels, taps); Settings › Size zooms the page, so the buffer follows the screen px.
@@ -337,6 +412,8 @@ export default function Globe(props: GlobeProps) {
         orbit = { ...orbit, lon: wrap180(orbit.lon + vel[0] * dt), lat: clampLat(orbit.lat + vel[1] * dt) };
         vel = stepInertia(vel, dt);
         moving = true;
+      } else if (followStep(now, dt)) {
+        moving = true;
       } else if (spinning(now)) {
         orbit = { ...orbit, lon: wrap180(orbit.lon + (IDLE_SPIN_DEG_S * dt) / 1000) };
         moving = true;
@@ -371,10 +448,13 @@ export default function Globe(props: GlobeProps) {
     const draw = (game: GameState, t: number) => {
       const p = propsRef.current;
       orbits.set(p.g, orbit);
-      const cam = camOf(orbit);
+      // v0.18 close up the camera leans back (Map tilt setting; not with reduced motion): the ground runs to a horizon.
+      tiltNow = store.settings.mapTilt && !reduced ? globeTilt(orbit.dist) : 0;
+      cv = camView(orbit, tiltNow);
+      const cam = cv.pos;
       camera.position.set(cam[0], cam[1], cam[2]);
-      camera.up.set(0, 1, 0);
-      camera.lookAt(0, 0, 0);
+      camera.up.set(cv.up[0], cv.up[1], cv.up[2]);
+      camera.lookAt(cv.target[0], cv.target[1], cv.target[2]);
       const wpp = worldPerPx(orbit.dist, h);
       const pxPerM = globePxPerM(orbit.dist, w, h);
       // Theme.
@@ -385,16 +465,16 @@ export default function Globe(props: GlobeProps) {
         inkAtmosphere(atmo.material, ink, p.theme !== 'light');
         aps.material.uniforms.uRing.value.set(...ink.halo);
         // Airline greys and route colours are theme tokens too.
-        for (const [k, m] of matCache) if (k.startsWith('cm:')) { m.dispose(); texCache.get(k)?.dispose(); matCache.delete(k); texCache.delete(k); }
-        for (const c of cms.values()) c.mesh.material = cmMat(c.typeId);
+        const grey = cssVar('--c-mark-848ea2').trim() || '#848ea2';
+        for (const c of cms.values()) c.ac.model.material = modelMat(grey);
         apKey = [];
         staticKey = [];
       }
       earth.material.uniforms.uSun.value.set(...sunVec(t));
-      const pr = renderer.getPixelRatio();
-      aps.material.uniforms.uDpr.value = pr;
-      earth.material.uniforms.uCoastW.value = (COAST_W * pr) / 2;
-      if (borders) styleRibbon(borders.material, ink.border, BORDER_W, w * pr, h * pr, pr, landTex);
+      const dprNow = renderer.getPixelRatio();
+      aps.material.uniforms.uDpr.value = dprNow;
+      earth.material.uniforms.uCoastW.value = (COAST_W * dprNow) / 2;
+      if (borders) styleRibbon(borders.material, ink.border, BORDER_W, w * dprNow, h * dprNow, dprNow, landTex);
       // Airports (rebuilt when the list or the theme changes).
       if (apKey[0] !== p.airports || apKey[1] !== p.accent || apKey[2] !== p.sel?.id) {
         apKey = [p.airports, p.accent, p.sel?.id];
@@ -408,25 +488,48 @@ export default function Globe(props: GlobeProps) {
         }));
         for (const [code, el] of apLabels) if (!p.airports.some((a) => a.code === code)) { el.remove(); apLabels.delete(code); }
       }
-      // Static arcs: the selected aircraft's next legs and the world tours.
-      if (staticKey[0] !== p.nextArcs || staticKey[1] !== p.tours) {
-        staticKey = [p.nextArcs, p.tours];
+      const pr = renderer.getPixelRatio();
+      const av: ArcView = { wpp, bufW: w * pr, bufH: h * pr, pr };
+      // v0.18 the dashes ahead drift towards the destination while the clock runs (Map animations on, no reduced motion).
+      if (store.settings.mapAnimations && !reduced) {
+        if (!Number.isNaN(flowT) && t !== flowT && !store.modal) flow += (FLOW_PX_S * Math.min(120, Math.abs(t - flowT))) / 2;
+      }
+      flowT = t;
+      // Static arcs: the selected aircraft's next legs, the world tours, v0.18 the slip crews' airline legs, the
+      // diversions (alternate to the planned airport, on the ground) and the world-event zones' edges (on the ground).
+      if (staticKey[0] !== p.nextArcs || staticKey[1] !== p.tours || staticKey[2] !== p.slipLegs || staticKey[3] !== p.marks.divs || staticKey[4] !== p.marks.zones || staticKey[5] !== p.sel?.id) {
+        staticKey = [p.nextArcs, p.tours, p.slipLegs, p.marks.divs, p.marks.zones, p.sel?.id];
         for (const s of statics) dropArc(s.obj);
         statics = [];
-        p.tours.forEach((r) => {
-          const pts = gcTrack(r.from, r.to);
-          if (pts.length < 2) return;
-          const c = colourOf(r.color ?? 'var(--map-route)');
-          statics.push({ obj: newArc(pts, r.id, staticArcs), st: { color: [c[0], c[1], c[2]], opacity: 0.75, width: 1.6, before: null, after: r.dashed ? [5, 5] : null, split: -1 } });
-        });
-        p.nextArcs.forEach((l, i) => {
-          const pts = gcTrack(l.from, l.to);
-          if (pts.length < 2) return;
-          const c = colourOf(l.color ?? 'var(--map-route)');
-          statics.push({ obj: newArc(pts, l.id, staticArcs), st: { color: [c[0], c[1], c[2]], opacity: Math.max(0.3, 0.6 - i * 0.08), width: 1.5, before: null, after: l.dashed ? [5, 5] : null, split: -1 } });
-        });
+        const add = (pts: [number, number][], id: string, st: ArcStyle, lifted = true) => { if (pts.length > 1) statics.push({ obj: newArc(pts, id, staticArcs, lifted), st }); };
+        const rgb = (c: RGBA): [number, number, number] => [c[0], c[1], c[2]];
+        p.tours.forEach((r) => add(gcTrack(r.from, r.to), r.id, { color: rgb(colourOf(r.color ?? 'var(--map-route)')), opacity: 0.75, width: 1.6, before: null, after: r.dashed ? [5, 5] : null, split: -1 }));
+        p.nextArcs.forEach((l, i) => add(gcTrack(l.from, l.to), l.id, { color: rgb(colourOf(l.color ?? 'var(--map-route)')), opacity: Math.max(0.3, 0.6 - i * 0.08), width: 1.5, before: null, after: l.dashed ? [5, 5] : null, split: -1 }));
+        const dh = TYPE_STROKE.deadhead;
+        p.slipLegs.forEach((l) => add(gcTrack(l.from, l.to), l.id, { color: rgb(colourOf(dh.color)), opacity: l.dir === 'out' ? 0.5 : 0.95, width: 1.8, before: null, after: dashOf(dh.dash), split: -1 }));
+        const warn = rgb(colourOf('var(--warn)', [0.96, 0.7, 0.25, 1]));
+        p.marks.divs.forEach((m) => add(gcTrack(m.at, m.to0), `dv:${m.id}`, { color: warn, opacity: 0.9, width: 1.2, before: null, after: [2, 4], split: -1 }, false));
+        for (const z of p.marks.zones) {
+          if (z.ring.length < 3) continue;
+          const ring = [...z.ring, z.ring[0]];
+          const pts: [number, number][] = [];
+          // Each edge as a great circle, a sample every degree or so.
+          for (let i = 0; i < ring.length - 1; i++) {
+            const n = Math.max(1, Math.ceil(angleBetween(ring[i], ring[i + 1]) / 1.2));
+            const A = vecOf(...ring[i]);
+            const B = vecOf(...ring[i + 1]);
+            for (let k = 0; k < n; k++) {
+              const f = k / n;
+              pts.push(lonLat(norm([A[0] + (B[0] - A[0]) * f, A[1] + (B[1] - A[1]) * f, A[2] + (B[2] - A[2]) * f])));
+            }
+          }
+          pts.push(ring[ring.length - 1]);
+          const sel = p.sel?.kind === 'event' && p.sel.id === z.eventId;
+          const tone: RGBA = z.style === 'closed' ? [0.91, 0.46, 0.42, 0.75] : z.style === 'warRisk' ? [0.96, 0.7, 0.27, 0.85] : [0.75, 0.78, 0.83, 0.6];
+          add(pts, `zone:${z.eventId}`, { color: sel ? rgb(ink.ring) : rgb(tone), opacity: sel ? 0.85 : tone[3], width: sel ? 1.8 : 1.2, before: null, after: z.style === 'warRisk' ? [6, 4] : null, split: -1 }, false);
+        }
       }
-      for (const s of statics) styleArc(s.obj.mat, s.st, wpp);
+      for (const s of statics) styleArc(s.obj.mat, s.st, av);
 
       // Our aircraft.
       if (typeVersion !== store.version) {
@@ -446,6 +549,10 @@ export default function Globe(props: GlobeProps) {
         const offs = standOffsets(list.map((a) => ({ w: Math.max(dimM(a.typeId) * pxPerM * 1.0, 26), h: dimM(a.typeId) * pxPerM })), 14);
         list.forEach((a, i) => stand.set(a.id, offs[i]));
       }
+      // The camera's screen axes in the world (shadows fall down and right on screen).
+      const crt = cv.right;
+      const cup = cv.up;
+      const anim = store.settings.mapAnimations && !reduced;
       acScreen.clear();
       const boxes: (LabelBox & { el: HTMLSpanElement; x0: number; y0: number })[] = [];
       for (const a of fleetNow) {
@@ -454,48 +561,22 @@ export default function Globe(props: GlobeProps) {
         seen.add(a.id);
         let o = acs.get(a.id);
         if (!o || o.typeId !== a.typeId) {
-          if (o) { o.mesh.removeFromParent(); o.label.remove(); }
-          const mat = acMat(`own:${a.typeId}`, a.typeId, () => inkOf(silColour(a.typeId)));
-          const mesh = new Mesh(quad, mat);
-          mesh.matrixAutoUpdate = false;
-          mesh.frustumCulled = false;
-          acGroup.add(mesh);
+          if (o) dropAc(o);
           const label = document.createElement('span');
           label.className = 'gl-reg';
           labelsEl.appendChild(label);
-          o = { mesh, typeId: a.typeId, label, dim: dimM(a.typeId) };
+          o = newAc(a.typeId, silColour(a.typeId), label);
           acs.set(a.id, o);
         }
         const mark = regMark(ac.reg, game.company.regPrefix);
         if (o.label.textContent !== mark) o.label.textContent = mark;
-        const n = vecOf(a.pos[0], a.pos[1]);
-        let at: Vec3 = n;
-        let fwd: Vec3;
-        if (a.airborne) fwd = headingVec(a.pos, a.ahead);
-        else {
-          const off = stand.get(a.id) ?? [20, 0];
-          const { east, north } = tangentsAt(a.pos);
-          at = [n[0] + (east[0] * off[0] - north[0] * off[1]) * wpp, n[1] + (east[1] * off[0] - north[1] * off[1]) * wpp, n[2] + (east[2] * off[0] - north[2] * off[1]) * wpp];
-          fwd = north;
-        }
-        const nn = new Vector3(...at).normalize();
-        const side = o.dim * pxPerM * QUAD_PER_DIM * wpp;
-        placeQuad(o.mesh, nn, fwd, R_AC, side);
-        const visible = facing(at, cam, 0);
-        o.mesh.visible = visible;
-        const q = facing(at, cam, LABEL_COS) ? project([nn.x * R_AC, nn.y * R_AC, nn.z * R_AC], cam, w, h) : null;
-        const rPx = (o.dim * pxPerM) / 2;
-        if (q) {
-          acScreen.set(a.id, { x: q.x, y: q.y, r: rPx });
-          const fs = touch ? 11 : 10;
-          boxes.push({ id: a.id, x: q.x, y: q.y + rPx + 8, w: mark.length * fs * 0.62 + 4, h: fs + 2, el: o.label, x0: q.x, y0: q.y + rPx + 3 });
-        } else o.label.style.display = 'none';
-        // Its track: flown solid, still to fly dashed.
+        // Its track: flown solid, still to fly dashed; v0.18 lifted off the ground, the aircraft riding it.
+        let arc: ArcObj | undefined;
         if (a.airborne) {
           const f = a.flight;
           const key = f ? `${f.id}|${f.atd ?? f.std + f.delay}|${f.ata ?? f.eta ?? ''}|${f.to}|${f.div?.at ?? ''}` : `show:${a.id}|${a.show!.dep}`;
           seenArcs.add(a.id);
-          let arc = ownArcs.get(a.id);
+          arc = ownArcs.get(a.id);
           if (!arc || arc.key !== key) {
             if (arc) dropArc(arc);
             const pts = f ? legTrack(f) : gcTrack(a.show!.from, a.show!.to);
@@ -506,11 +587,25 @@ export default function Globe(props: GlobeProps) {
           const st = TYPE_STROKE[type];
           const c = colourOf(st.color);
           const sel = selAc === a.id;
-          styleArc(arc.mat, { color: [c[0], c[1], c[2]], opacity: sel ? 1 : type === 'operating' ? 0.6 : 0.75, width: sel ? 2.8 : st.width, before: null, after: dashOf(AHEAD_DASH[type]), split: a.progress }, wpp);
+          styleArc(arc.mat, { color: [c[0], c[1], c[2]], opacity: sel ? 1 : type === 'operating' ? 0.7 : 0.8, width: sel ? 2.8 : st.width, before: null, after: dashOf(AHEAD_DASH[type]), split: a.progress, tail: 0.35, flow: anim ? flow : 0 }, av);
           arc.mesh.renderOrder = sel ? 2 : 1;
         }
+        const q = placeAc(o, a.pos, a.airborne ? a.progress : -1, arc, a.airborne ? undefined : stand.get(a.id) ?? [20, 0], 1, cam, wpp, pxPerM, crt, cup);
+        // Contrails only while high enough (as on the flat map).
+        let tr = false;
+        if (anim && a.airborne && a.flight) {
+          const win = trailWin(a.flight, a.typeId);
+          tr = !!win && t >= win[0] && t < win[1];
+        }
+        o.trail.visible = tr;
+        const rPx = (o.dim * pxPerM) / 2;
+        if (q) {
+          acScreen.set(a.id, { x: q.x, y: q.y, r: rPx });
+          const fs = touch ? 11 : 10;
+          boxes.push({ id: a.id, x: q.x, y: q.y + rPx + 8, w: mark.length * fs * 0.62 + 4, h: fs + 2, el: o.label, x0: q.x, y0: q.y + rPx + 3 });
+        } else o.label.style.display = 'none';
       }
-      for (const [id, o] of acs) if (!seen.has(id)) { o.mesh.removeFromParent(); o.label.remove(); acs.delete(id); }
+      for (const [id, o] of acs) if (!seen.has(id)) { dropAc(o); acs.delete(id); }
       for (const [id, arc] of ownArcs) if (!seenArcs.has(id)) { dropArc(arc); ownArcs.delete(id); }
 
       // Airline legs carrying our crew or a traveller: grey, their path dotted.
@@ -522,6 +617,7 @@ export default function Globe(props: GlobeProps) {
       }
       const up = new Set<string>();
       cmScreen.clear();
+      const grey = cssVar('--c-mark-848ea2').trim() || '#848ea2';
       for (const cf of cmList) {
         if (cf.leg.dep > t || cf.leg.arr <= t) continue;
         const A = AIRPORT_BY_CODE[cf.leg.from];
@@ -531,30 +627,22 @@ export default function Globe(props: GlobeProps) {
         let x = cms.get(cf.id);
         if (!x) {
           const typeId = cf.leg.jet ? 'a320ceo' : airlineType(cf.leg.iata, cf.leg.from, cf.leg.to);
-          const mesh = new Mesh(quad, cmMat(typeId));
-          mesh.matrixAutoUpdate = false;
-          mesh.frustumCulled = false;
-          acGroup.add(mesh);
           const track = gcTrack(cf.leg.from, cf.leg.to);
-          x = { mesh, typeId, cf, pts: track, dim: cf.leg.jet ? 22 : dimM(typeId) * 0.85, arc: newArc(track, cf.id, arcGroup) };
+          // A private jet is drawn as a small airliner (22 m across); an airline's type at 85 % of ours, as on the flat map.
+          const scale = cf.leg.jet ? 22 / dimM(typeId) : 0.85;
+          x = { ac: newAc(typeId, grey, null), typeId, cf, pts: track, scale, arc: newArc(track, cf.id, arcGroup) };
           cms.set(cf.id, x);
         }
-        const pr = commercialProgress(cf, t);
-        const pts = x.pts;
-        const i = Math.min(pts.length - 2, Math.floor(pr * (pts.length - 1)));
-        const pos = interp(pts, pr);
-        const n = new Vector3(...vecOf(...pos)).normalize();
-        placeQuad(x.mesh, n, headingVec(pos, pts[i + 1]), R_AC - 0.0002, x.dim * pxPerM * QUAD_PER_DIM * wpp);
-        const vis = facing(vecOf(...pos), cam, 0);
-        x.mesh.visible = vis;
-        const q = facing(vecOf(...pos), cam, LABEL_COS) ? project(vecOf(pos[0], pos[1], R_AC), cam, w, h) : null;
-        if (q) cmScreen.set(cf.id, { ...q, r: (x.dim * pxPerM) / 2 });
+        const pr0 = commercialProgress(cf, t);
+        const pos = interp(x.pts, pr0);
+        const q = placeAc(x.ac, pos, pr0, x.arc, undefined, x.scale, cam, wpp, pxPerM, crt, cup);
+        if (q) cmScreen.set(cf.id, { ...q, r: (x.ac.dim * x.scale * pxPerM) / 2 });
         const st = TYPE_STROKE.deadhead;
         const c = colourOf(st.color);
         const sel = selCm === cf.id;
-        styleArc(x.arc.mat, { color: [c[0], c[1], c[2]], opacity: sel ? 1 : 0.8, width: sel ? 1.8 : st.width, before: null, after: dashOf(st.dash), split: -1 }, wpp);
+        styleArc(x.arc.mat, { color: [c[0], c[1], c[2]], opacity: sel ? 1 : 0.8, width: sel ? 1.8 : st.width, before: null, after: dashOf(st.dash), split: -1 }, av);
       }
-      for (const [id, x] of cms) if (!up.has(id)) { x.mesh.removeFromParent(); dropArc(x.arc); cms.delete(id); }
+      for (const [id, x] of cms) if (!up.has(id)) { dropAc(x.ac); dropArc(x.arc); cms.delete(id); }
 
       // Labels: the tail marks (thinned, the selected one first) and the airport codes.
       const fs = touch ? 12 : 10.5;
@@ -569,7 +657,7 @@ export default function Globe(props: GlobeProps) {
           if (el) el.style.display = 'none';
           continue;
         }
-        const q = project(v, cam, w, h);
+        const q = projectView(v, cv, w, h);
         if (!q) continue;
         if (!el) {
           el = document.createElement('span');
@@ -589,6 +677,18 @@ export default function Globe(props: GlobeProps) {
         const on = shown.has(bx.id);
         bx.el.style.display = on ? '' : 'none';
         if (on) bx.el.style.transform = `translate(${bx.x0.toFixed(1)}px, ${bx.y0.toFixed(1)}px) translateX(-50%)`;
+      }
+      // v0.18 the marks (pins, weather, events, crew changes, diversions, zone names) where they stand on screen.
+      markScreen.clear();
+      for (const m of marks) {
+        const q = facing(m.at, cam, m.face) ? projectView(m.at, cv, w, h) : null;
+        if (!q) {
+          if (m.el.style.display !== 'none') m.el.style.display = 'none';
+          continue;
+        }
+        if (m.el.style.display) m.el.style.display = '';
+        m.el.setAttribute('transform', `translate(${q.x.toFixed(1)} ${q.y.toFixed(1)})`);
+        markScreen.set(m.key, { x: q.x + m.off[0], y: q.y + m.off[1] });
       }
       // The selected aircraft's (or airline leg's) ring.
       const ss = selAc ? acScreen.get(selAc) : selCm ? cmScreen.get(selCm) : undefined;
@@ -610,23 +710,114 @@ export default function Globe(props: GlobeProps) {
       }
       return ty;
     };
-    const cmMat = (typeId: string) => acMat(`cm:${typeId}`, typeId, () => {
-      const grey = cssVar('--c-mark-848ea2').trim() || '#848ea2';
-      const edge = cssVar('--c-line-d3d9e4').trim() || '#d3d9e4';
-      return { fill: grey, edge, eng: grey, deck: grey };
-    });
     const m4 = new Matrix4();
     const vx = new Vector3();
     const vy = new Vector3();
     /** A quad lying on the sphere at unit normal n, its top towards `fwd`, `side` world units across, at radius r. */
-    const placeQuad = (mesh: Mesh, n: Vector3, fwd: Vec3, r: number, side: number) => {
+    const placeQuad = (mesh: Mesh, n: Vector3, fwd: Vec3, r: number, side: number, shift?: Vec3) => {
       vy.set(fwd[0], fwd[1], fwd[2]);
       vy.addScaledVector(n, -vy.dot(n)).normalize();
       vx.crossVectors(vy, n);
       m4.makeBasis(vx.multiplyScalar(side), vy.multiplyScalar(side), n.clone().multiplyScalar(side));
-      m4.setPosition(n.x * r, n.y * r, n.z * r);
+      m4.setPosition(n.x * r + (shift?.[0] ?? 0), n.y * r + (shift?.[1] ?? 0), n.z * r + (shift?.[2] ?? 0));
       mesh.matrix.copy(m4);
       mesh.matrixWorldNeedsUpdate = true;
+    };
+    /** The point at share f along an arc, at its height (world). */
+    const onArc = (arc: ArcObj, f: number, r: number): Vec3 => {
+      const ff = Math.max(0, Math.min(1, f));
+      return vecOf(...interp(arc.pts, ff), r + liftAt(arc.lift, ff));
+    };
+    /**
+     * v0.18 places an aircraft: airborne (`progress` 0..1) at its arc's height, nose along the arc (it pitches up in the
+     * climb and down on the descent), its shadow on the ground under it, a little down and right on screen as it climbs;
+     * on the ground at its stand (`stand`, screen px east and south of the airport), nose north. Returns where it shows
+     * on screen (null: behind the Earth or near the limb).
+     */
+    const placeAc = (o: AcObj, pos: [number, number], progress: number, arc: ArcObj | undefined, stand: [number, number] | undefined, k: number, cam: Vec3, wpp: number, pxPerM: number, crt: Vec3, cup: Vec3) => {
+      const n0 = vecOf(pos[0], pos[1]);
+      let ground: Vec3 = n0;
+      let P: Vec3;
+      let fwd: Vec3;
+      let up: Vec3;
+      let alt = 0;
+      if (progress >= 0 && arc && arc.pts.length > 1) {
+        alt = liftAt(arc.lift, progress);
+        P = vecOf(pos[0], pos[1], R_AC + alt);
+        const a = onArc(arc, progress - 0.004, R_AC);
+        const b = onArc(arc, progress + 0.004, R_AC);
+        const d = sub(b, a);
+        fwd = Math.hypot(...d) > 1e-9 ? norm(d) : headingVec(pos, arc.pts[arc.pts.length - 1]);
+        const nn = norm(P);
+        // Up: the local vertical, square to the nose.
+        const along = fwd[0] * nn[0] + fwd[1] * nn[1] + fwd[2] * nn[2];
+        up = norm([nn[0] - fwd[0] * along, nn[1] - fwd[1] * along, nn[2] - fwd[2] * along]);
+      } else {
+        const off = stand ?? [20, 0];
+        const { east, north } = tangentsAt(pos);
+        ground = norm([n0[0] + (east[0] * off[0] - north[0] * off[1]) * wpp, n0[1] + (east[1] * off[0] - north[1] * off[1]) * wpp, n0[2] + (east[2] * off[0] - north[2] * off[1]) * wpp]);
+        P = [ground[0] * R_AC, ground[1] * R_AC, ground[2] * R_AC];
+        fwd = norm(sub(north, [ground[0] * (north[0] * ground[0] + north[1] * ground[1] + north[2] * ground[2]), ground[1] * (north[0] * ground[0] + north[1] * ground[1] + north[2] * ground[2]), ground[2] * (north[0] * ground[0] + north[1] * ground[1] + north[2] * ground[2])]));
+        up = ground;
+      }
+      // The model: metres → world units at the map's px per metre (to scale, as the flat map and the shadow).
+      const sc = pxPerM * wpp * k;
+      const right = cross(fwd, up);
+      m4.makeBasis(vx.set(right[0] * sc, right[1] * sc, right[2] * sc), vy.set(fwd[0] * sc, fwd[1] * sc, fwd[2] * sc), new Vector3(up[0] * sc, up[1] * sc, up[2] * sc));
+      m4.setPosition(P[0], P[1], P[2]);
+      o.group.matrix.copy(m4);
+      o.group.matrixWorldNeedsUpdate = true;
+      // The shadow: under it (on its stand, right under), falling down-right on screen as it climbs.
+      const lf = arc && arc.lift > 0 ? Math.min(1, alt / 0.06) : 0;
+      const fall = Math.min(SHADOW_PX, (alt / Math.max(1e-6, wpp)) * 0.35) * wpp;
+      const gN = progress >= 0 ? norm(n0) : ground;
+      const shift: Vec3 = [(crt[0] - cup[0]) * fall * 0.7, (crt[1] - cup[1]) * fall * 0.7, (crt[2] - cup[2]) * fall * 0.7];
+      const step = Math.round(lf * (SHADOW_STEPS - 1));
+      const sm = shadeMat(o.typeId, step);
+      if (o.shadow.material !== sm) o.shadow.material = sm;
+      placeQuad(o.shadow, new Vector3(...gN), fwd, R_SHADOW, o.dim * pxPerM * QUAD_PER_DIM * wpp * k, shift);
+      o.shadow.visible = !occluded(vecOf(...lonLatOf(gN), R_SHADOW), cam);
+      const nn = norm(P);
+      const vis = !occluded(P, cam) && (alt > 0.004 || facing(ground, cam, LABEL_COS));
+      return vis && facing(nn, cam, alt > 0.004 ? -0.2 : LABEL_COS) ? projectView(P, cv, w, h) : null;
+    };
+    const trailWins = new Map<string, { key: string; w: [number, number] | null }>();
+    /** The contrail window of a leg (game minutes), cached by its times. */
+    const trailWin = (f: Flight, typeId: string) => {
+      const k = `${f.atd ?? f.std}|${f.ata ?? f.eta ?? f.sta}|${f.to}`;
+      let e = trailWins.get(f.id);
+      if (!e || e.key !== k) trailWins.set(f.id, (e = { key: k, w: contrailWindow(f, typeId) }));
+      return e.w;
+    };
+    const lonLat = (v: Vec3): [number, number] => [Math.atan2(-v[2], v[0]) * (180 / Math.PI), Math.asin(Math.max(-1, Math.min(1, v[1]))) * (180 / Math.PI)];
+    const lonLatOf = lonLat;
+    /**
+     * v0.18 spotter: the camera eases after the followed aircraft (clear of the panel), after a fly-in to it when a new one
+     * is picked; a drag or pinch by the player pauses it for a few seconds. Reduced motion: it jumps when the aircraft
+     * nears the edge. True while it moved the camera.
+     */
+    const followStep = (now: number, dt: number) => {
+      const fo = propsRef.current.follow;
+      if (!fo) { followed = ''; return false; }
+      if (gesture || now - lastInteract < FOLLOW_WAIT_MS) return false;
+      const a = fleetNow.find((x) => x.id === fo.id) ?? (store.game ? globeFleet(store.game, liveMinute()).find((x) => x.id === fo.id) : undefined);
+      if (!a) return false;
+      const dist = Math.min(orbit.dist, FOLLOW_DIST);
+      const aim = { ...aimAt(a.pos, dist, h, PANEL_W / 2), dist };
+      if (followed !== fo.key) {
+        followed = fo.key;
+        flyTo(aim, 1100);
+        return true;
+      }
+      const off = angleBetween([orbit.lon, orbit.lat], [aim.lon, aim.lat]);
+      if (reduced) {
+        if (off > 8) { orbit = aim; return true; }
+        return false;
+      }
+      if (off < 0.002) return false;
+      const f = 1 - Math.exp(-dt / 600);
+      orbit = { lon: wrap180(orbit.lon + wrap180(aim.lon - orbit.lon) * f), lat: clampLat(orbit.lat + (aim.lat - orbit.lat) * f), dist: orbit.dist + (aim.dist - orbit.dist) * f };
+      return true;
     };
     const interp = (pts: [number, number][], f: number): [number, number] => {
       const x = Math.max(0, Math.min(1, f)) * (pts.length - 1);
@@ -680,7 +871,7 @@ export default function Globe(props: GlobeProps) {
         gesture.moved += Math.hypot(dx, dy);
         gesture.x = p.x;
         gesture.y = p.y;
-        orbit = { ...orbit, lon: wrap180(orbit.lon - (dx * dpp) / Math.max(0.25, Math.cos((orbit.lat * Math.PI) / 180))), lat: clampLat(orbit.lat + dy * dpp) };
+        orbit = { ...orbit, lon: wrap180(orbit.lon - (dx * dpp) / Math.max(0.25, Math.cos((orbit.lat * Math.PI) / 180))), lat: clampLat(orbit.lat + (dy * dpp) / Math.cos(tiltNow * (Math.PI / 180))) };
         const now = performance.now();
         gesture.hist.push({ t: now, lon: orbit.lon, lat: orbit.lat });
         while (gesture.hist.length > 2 && now - gesture.hist[0].t > 90) gesture.hist.shift();
@@ -735,8 +926,23 @@ export default function Globe(props: GlobeProps) {
       const r = finger ? HIT_R.touch : HIT_R.mouse;
       const game = store.game;
       if (!game) return;
-      const cam = camOf(orbit);
-      const items: { x: number; y: number; item: Ref }[] = [];
+      const cam = cv.pos;
+      const items: { x: number; y: number; item: Ref | (() => void) }[] = [];
+      // v0.18 the marks first, as on the flat map: weather (opens what the game has on it), pins, events, crew changes.
+      const mk = propsRef.current.marks;
+      for (const [key, sp] of markScreen) {
+        const [kind, id] = [key.slice(0, key.indexOf(':')), key.slice(key.indexOf(':') + 1)];
+        if (kind === 'wx') {
+          const m = mk.wx.find((x) => x.at === id);
+          if (!m) continue;
+          const tp = m.tap;
+          items.push({ ...sp, item: 'decision' in tp ? () => { if (game.decisions.some((d) => d.id === tp.decision)) store.openModal({ kind: 'decision', decisionId: tp.decision }); } : tp.sel });
+        } else if (kind === 'pin') {
+          const pg = mk.pins.find((x) => x.code === id);
+          if (pg) items.push({ ...sp, item: pg.offers.length === 1 ? { kind: 'offer', id: pg.offers[0].id } : { kind: 'airport', id: pg.code } });
+        } else if (kind === 'ev') items.push({ ...sp, item: { kind: 'event', id } });
+        else if (kind === 'slip') items.push({ ...sp, item: { kind: 'flight', id } });
+      }
       for (const [id, s] of acScreen) items.push({ x: s.x, y: s.y, item: { kind: 'aircraft', id } });
       for (const [id, s] of cmScreen) items.push({ x: s.x, y: s.y, item: { kind: 'flight', id } });
       // Airports are a smaller target than aircraft (they sit under them at a stand).
@@ -745,13 +951,14 @@ export default function Globe(props: GlobeProps) {
         if (!ap) continue;
         const v = vecOf(ap.lon, ap.lat, R_AP);
         if (!facing(v, cam, LABEL_COS)) continue;
-        const q = project(v, cam, w, h);
+        const q = projectView(v, cv, w, h);
         if (q) items.push({ x: q.x, y: q.y, item: { kind: 'airport', id: a.code } });
       }
       const hit = pickNearest(items, x, y, r);
       const now = performance.now();
       if (hit) {
-        store.select(hit);
+        if (typeof hit === 'function') hit();
+        else store.select(hit);
         lastTap = { t: 0, x, y };
         return;
       }
@@ -780,13 +987,14 @@ export default function Globe(props: GlobeProps) {
     renderer.domElement.addEventListener('webglcontextrestored', onRestored);
 
     api.current = {
+      marks: (list: MarkEl[]) => { marks = list; dirty = true; kick(); },
       kick: () => { dirty = true; kick(); },
       zoom: (f: number) => {
         lastInteract = performance.now();
         const to = { ...orbit, dist: clampDist(1 + (orbit.dist - 1) * f) };
         // Zooming in with something selected in view closes in on it (kept clear of the panel), not on the middle.
         const at = selPos(propsRef.current.sel);
-        if (at && f < 1 && facing(vecOf(...at), camOf(orbit), LABEL_COS)) {
+        if (at && f < 1 && facing(vecOf(...at), cv.pos, LABEL_COS)) {
           const k = 1 - (to.dist - 1) / (orbit.dist - 1);
           const aim = aimAt(at, to.dist, h, propsRef.current.panelOpen ? PANEL_W / 2 : 0);
           to.lon = wrap180(orbit.lon + wrap180(aim.lon - orbit.lon) * k);
@@ -828,9 +1036,18 @@ export default function Globe(props: GlobeProps) {
           const A = AIRPORT_BY_CODE[c.cf.leg.to];
           return A ? [A.lon, A.lat] : null;
         }
+        // v0.18 a crew change: its mark at the fuel stop.
+        const m = propsRef.current.marks.slipMarks.find((x) => x.id === s.id);
+        const A = m && AIRPORT_BY_CODE[m.at];
+        return A ? [A.lon, A.lat] : null;
       }
-      return null;
+      // v0.18 an offer: its pin; an event: its pin.
+      const at = s.kind === 'offer' ? store.game?.offers[s.id]?.pin : s.kind === 'event' ? propsRef.current.marks.evPins.find((x) => x.eventId === s.id)?.at : undefined;
+      const A = at ? AIRPORT_BY_CODE[at] : undefined;
+      return A ? [A.lon, A.lat] : null;
     };
+    stats.orbit = () => ({ ...orbit });
+    stats.fleet = () => fleetNow.map((a) => ({ id: a.id, pos: a.pos, airborne: a.airborne, progress: a.progress }));
     stats.aim = (lon, lat, dist) => flyTo({ lon: wrap180(lon), lat: clampLat(lat), dist: clampDist(dist ?? orbit.dist) }, 600);
     selKey = propsRef.current.sel ? `${propsRef.current.sel.kind}:${propsRef.current.sel.id}` : '';
     resize();
@@ -841,6 +1058,8 @@ export default function Globe(props: GlobeProps) {
       unCapture();
       api.current = null;
       stats.aim = null;
+      stats.fleet = null;
+      stats.orbit = null;
       cancelAnimationFrame(raf);
       window.clearTimeout(spinTimer);
       ro.disconnect();
@@ -857,8 +1076,11 @@ export default function Globe(props: GlobeProps) {
       // Every GPU resource goes with the globe.
       for (const s of statics) dropArc(s.obj);
       for (const a of ownArcs.values()) dropArc(a);
-      for (const c of cms.values()) dropArc(c.arc);
-      for (const o of acs.values()) o.label.remove();
+      for (const c of cms.values()) { dropArc(c.arc); dropAc(c.ac); }
+      for (const o of acs.values()) dropAc(o);
+      trailTex.dispose();
+      trailMat.dispose();
+      disposeModels();
       for (const el of apLabels.values()) el.remove();
       for (const m of matCache.values()) m.dispose();
       for (const t of texCache.values()) t.dispose();
@@ -879,11 +1101,28 @@ export default function Globe(props: GlobeProps) {
   }, []);
 
   // Props reach the loop by ref; a change wakes it (and a new selection may turn the globe to it).
-  useEffect(() => { api.current?.propsChanged(); }, [props.sel?.kind, props.sel?.id, props.airports, props.nextArcs, props.tours, props.theme, props.accent, props.panelOpen, props.g]);
+  useEffect(() => { api.current?.propsChanged(); }, [props.sel?.kind, props.sel?.id, props.airports, props.nextArcs, props.tours, props.theme, props.accent, props.panelOpen, props.g, props.marks, props.slipLegs, props.follow?.key]);
+  // v0.18 the marks React drew: the loop places them every frame.
+  useLayoutEffect(() => {
+    const svg = marksRef.current;
+    if (!svg) return;
+    const list: MarkEl[] = [];
+    for (const el of Array.from(svg.querySelectorAll('[data-gm]')) as SVGGElement[]) {
+      const [lon, lat] = (el.dataset.ll ?? '').split(',').map(Number);
+      if (!Number.isFinite(lon) || !Number.isFinite(lat)) { el.style.display = 'none'; continue; }
+      const off = (el.dataset.off ?? '0,0').split(',').map(Number) as [number, number];
+      list.push({ el, key: el.dataset.gm!, at: vecOf(lon, lat, R_AP), face: Number(el.dataset.face ?? LABEL_COS), off });
+    }
+    api.current?.marks(list);
+  });
+  const selId = props.sel && props.sel.kind !== 'aircraft' ? props.sel.id : undefined;
 
   return (
     <div className="globe-view">
       <div className="globe-stage" ref={stageRef} />
+      <svg className="globe-marks" ref={marksRef} aria-hidden>
+        <GlobeMarks {...props.marks} selected={selId} touch={isTouch()} />
+      </svg>
       <div className="globe-labels" ref={labelsRef} aria-hidden>
         <div className="gl-sel" ref={selRingRef} style={{ display: 'none' }} />
       </div>
