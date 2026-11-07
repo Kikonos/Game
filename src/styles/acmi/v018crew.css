@@ -84,3 +84,12 @@
 .rb-foot { gap: 4px 14px; }
 .rb-lock-i { display: inline-block; background: currentColor; -webkit-mask: var(--lock-svg) center / contain no-repeat; mask: var(--lock-svg) center / contain no-repeat;
   --lock-svg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='11' width='18' height='11' rx='2'/%3E%3Cpath d='M7 11V7a5 5 0 0 1 10 0v4'/%3E%3C/svg%3E"); }
+
+/* Phone landscape: the board toolbar in one row that scrolls sideways (a soft edge says there is more), so the grid
+   keeps its height; selects a little narrower. */
+@media (max-height: 499.98px) and (max-width: 900px) {
+  .rb-tools { flex-wrap: nowrap; overflow-x: auto; -webkit-mask-image: linear-gradient(90deg, #000 90%, transparent); mask-image: linear-gradient(90deg, #000 90%, transparent); padding-right: 24px; }
+  .rb-tools .select { max-width: 112px; }
+  .rb-tools .rb-search { width: 96px; flex-basis: 96px; min-width: 88px; }
+  .rb-scope-t { display: none; }
+}
