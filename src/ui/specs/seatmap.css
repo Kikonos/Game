@@ -42,3 +42,5 @@
 .sm-svg .sm-rest.lower { stroke: var(--sm-rest-low); }
 .sm-svg .sm-rest.room { fill: rgba(245, 196, 81, 0.12); stroke-dasharray: none; }
 .sm-svg .sm-deck { font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-anchor: middle; fill: var(--sm-mon-t); text-transform: uppercase; }
+.sm-svg .sm-rest-t { font-size: 7.5px; font-weight: 700; letter-spacing: 0.05em; text-anchor: middle; fill: var(--sm-rest); }
+.sm-svg .sm-rest-t.lower { fill: var(--sm-rest-low); }

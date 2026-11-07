@@ -386,13 +386,18 @@ function build(typeId: string, cab: CabinIn, opts: MapOpts): SeatMapResult {
         const sp = L.rest[who];
         if (!sp || sp.deck !== d.id) continue;
         let y = 0;
+        // A room (pilots' bunks behind the flight deck) sits over the first galley and lavatory block.
+        if (sp.where === 'room') {
+          const first = d.segs[0];
+          rest.push({ y: 2, h: (first?.k === 'mon' ? first.len : sp.len) - 4, where: 'room', who, x: WALL, w: (d.width - 2 * WALL) * 0.3 });
+          continue;
+        }
         if (sp.door > 0) {
           let c = 0;
-          d.segs.forEach((s, i) => { if (s.k === 'door' && ++c === sp.door) y = x.starts[i] + (sp.where === 'room' ? s.len : 0); });
+          d.segs.forEach((s, i) => { if (s.k === 'door' && ++c === sp.door) y = x.starts[i]; });
           if (sp.where === 'overhead' && sp.door > 1) y -= sp.len * 0.6;
         }
-        const room = sp.where === 'room';
-        rest.push({ y, h: sp.len, where: sp.where, who, x: room ? WALL : WALL + 10, w: room ? (d.width - 2 * WALL) * 0.3 : d.width - 2 * WALL - 20 });
+        rest.push({ y, h: sp.len, where: sp.where, who, x: WALL + 10, w: d.width - 2 * WALL - 20 });
       }
     }
     const wing = d.wing ? { le: anchorY(d, x.starts, d.wing[0]), te: anchorY(d, x.starts, d.wing[1]) } : undefined;
@@ -483,6 +488,8 @@ function deckSvg(typeId: string, d: DeckMap, ox: number, withWing: boolean): { s
   // Crew rest compartments under the seats (dashed).
   for (const r of d.rest) {
     parts.push(`<rect class="sm-rest ${r.where}" x="${f1(fx + r.x)}" y="${f1(yC + r.y)}" width="${f1(r.w)}" height="${f1(r.h)}" rx="6"><title>${r.who === 'fc' ? 'Pilots' : 'Cabin crew'} bunks${r.where === 'overhead' ? ' (overhead)' : r.where === 'lower' ? ' (lower deck)' : ''}</title></rect>`);
+    const lbl = r.where === 'room' ? 'PILOTS REST' : `${r.who === 'fc' ? 'PILOTS' : 'CREW'} BUNKS ${r.where === 'overhead' ? 'ABOVE' : 'BELOW'}`;
+    parts.push(`<text class="sm-rest-t ${r.where}" x="${f1(fx + r.x + r.w / 2)}" y="${f1(yC + r.y + (r.where === 'room' ? r.h / 2 + 3 : -3))}">${lbl}</text>`);
   }
   for (const m of d.mons) {
     parts.push(`<rect class="sm-mon ${m.kind}" x="${f1(fx + m.x)}" y="${f1(yC + m.y)}" width="${f1(m.w)}" height="${f1(m.h)}" rx="3"/>`);
