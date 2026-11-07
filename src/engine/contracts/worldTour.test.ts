@@ -429,7 +429,8 @@ describe('v0.12.1 world tours: a stop closed', () => {
   }, 60_000);
 
   it('the wait moves every later leg by the same days: each stop keeps its nights', () => {
-    const { g, legIn } = closed(7)!;
+    // v0.17.2 seed 9 (seed 7's tour now loses its crew before the closed stop: no stop card).
+    const { g, legIn } = closed(9)!;
     const d = g.decisions.find((x) => x.kind === 'tourStop')!;
     const later = Object.values(g.flights).filter((f) => f.contractId === legIn.contractId && f.kind === 'revenue' && f.std >= legIn.std).sort((a, b) => a.std - b.std);
     const gaps = later.slice(1).map((f, i) => f.std - later[i].std);
