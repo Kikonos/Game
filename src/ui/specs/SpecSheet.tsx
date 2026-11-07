@@ -318,13 +318,13 @@ export default function SpecSheet({ target, onClose }: { target: SpecTarget; onC
   const many = cur.kind === 'compare' ? cur.offerIds.map((id) => specData(g, { kind: 'offer', id })).filter((x): x is SpecData => !!x) : [];
   const title = cur.kind === 'compare' ? `Compare ${many.length} offers` : 'Aircraft spec sheet';
   return (
-    <Modal className="sp-modal" size="xwide" title={title} icon={cur.kind === 'compare' ? <Columns3 className="accent" /> : <FileText className="accent" />} onClose={onClose} footer={
+    <Modal className="sp-modal" size="xwide" title={title} icon={cur.kind === 'compare' ? <Columns3 className="accent" /> : <FileText className="accent" />} onClose={onClose} footer={one ? (
       <>
         <span className="grow" />
-        {one && <button className="btn" onClick={() => setOne(null)}>Back to compare</button>}
+        <button className="btn" onClick={() => setOne(null)}>Back to compare</button>
         <button className="btn btn-primary" onClick={onClose}><X /> Close</button>
       </>
-    }>
+    ) : undefined}>
       {cur.kind === 'compare'
         ? (many.length ? <CompareView ds={many} onOpen={setOne} /> : <p className="muted">These offers have gone.</p>)
         : single ? <OneSheet d={single} /> : <p className="muted">This aircraft or offer is no longer there.</p>}
