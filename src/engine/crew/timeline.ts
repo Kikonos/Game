@@ -598,7 +598,9 @@ export function ridesHome(g: GameState, d: Duty, to: string, ticket: TicketPlan,
     // the ride of a later duty that may still come; attached to this one it read as a second duty over the next ones.)
     if (f.std > d.release + rest + CHECKIN() + RIDE_HOME_WAIT) continue;
     const day = f.sta - d.report + early;
-    const straightEmpty = empty && f.std - d.release <= RIDE_EMPTY_WAIT && day <= RIDE_EMPTY_DAY;
+    // (Not after a planned extension: its longer rest after is the extended day's own; sitting up through the night on
+    // top of it is no sensible way home.)
+    const straightEmpty = empty && !d.ext && f.std - d.release <= RIDE_EMPTY_WAIT && day <= RIDE_EMPTY_DAY;
     if (day > 13 * 60 && f.std - CHECKIN() < d.release + rest && !straightEmpty) continue;
     if (rideRoom(g, f) < 1) continue;
     ok.push(f);

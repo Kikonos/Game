@@ -529,6 +529,12 @@ export function createChecker(opts: CheckerOpts = {}) {
             }
             if (a.start >= restEnd + 2 * H) need -= 2 * H;
           }
+        } else if (a.ext && i === 1 && h.t0 <= a.start - 2 * DAY) {
+          // v0.17.2 the extended duty is the first on record (a scenario's first days): the rest before it runs from the
+          // last standby before it (an uncalled one is followed by its own rest), as the engine reads it (extCutAt).
+          let restEnd = h.t0;
+          for (const w of sby) if (w.to <= a.start && w.calledAt === undefined) restEnd = Math.max(restEnd, w.to + (w.kind === 'reserve' ? 0 : Math.max(w.kind === 'airport' ? w.to - w.from : 0, w.at === h.base ? 12 * H : 10 * H)));
+          if (a.start >= restEnd + 2 * H) need -= 2 * H;
         }
         // A standby between them: called for b → rest is needed before the standby only.
         const w = sby.find((s) => s.from >= a.end && s.from < b.start + 1);
