@@ -706,3 +706,4 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
     - contracts-ui: filters and card tags for narrow/wide and short/medium/long/ultra-long haul; no what/why/hurt block in the offer flow; blockers ordered (impossible first, then fixable, then solvable);
     - maps: an infinite east–west flat map; the globe as functional as the flat map, with arcing routes and 3D-looking aircraft.
   - The finish step waits for the v0.17.2 release, then merges, reviews and releases v0.18. After a restart, resume with resumeFromRunId 'wf_e855dc93-de4'.
+- Aircraft spec sheets + seat maps (player request, after a Euro Atlantic 777 CS-TSW spec sheet, saved at /home/user/work/specs/euroatlantic-b777-cs-tsw.pdf): an agent (Opus high) is building them on branch v018-specs (STATE /home/user/work/specs/STATE.txt). It will release v0.18.1 after v0.18 is live, or v0.17.3 if v0.18 never comes.
