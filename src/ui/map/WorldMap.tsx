@@ -1,6 +1,6 @@
 import { geoInterpolate, geoPath, type GeoProjection } from 'd3-geo';
 import { Minus, Plus, Maximize2 } from 'lucide-react';
-import { memo, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, type ReactNode, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
 import { REGIONS } from '../../data/regions';
 import { PLANE_PATH } from '../components/Logo';
@@ -11,6 +11,7 @@ import { MAP_H, MAP_W, basePaths, projection } from './mapData';
 import { type LabelBox, placeLabels } from './mapLogic';
 import { cssRect, toCss } from '../device';
 import { TILT_MAX_DEG, tiltBleed, tiltCss, tiltDeg, untilt } from './depth';
+import { frameRot, frameX, landOffset, lonCentre, nearX, nextFrame } from './wrap';
 
 export interface MapRoute {
   id: string;
@@ -50,6 +51,8 @@ export interface MapLayerCtx {
   redrawGlow: () => void;
   /** v0.12 the part of the map on screen right now (map units: x0, y0, x1, y1); cheap, call per frame. */
   onScreen: () => [number, number, number, number];
+  /** v0.18 the projection's rotation (degrees of longitude; 0 unless the map wraps): layers placed by longitude follow it. */
+  rot: number;
 }
 
 /** v0.12 the `glow` layer's painter: draws on a canvas; `at` gives a map point's canvas px, `px` canvas px per screen px. */
@@ -127,6 +130,11 @@ interface Props {
   extraControls?: ReactNode;
   /** v0.15 a gentle perspective tilt at the closest zoom levels, with a horizon haze (off with reduced motion). */
   tilt?: boolean;
+  /**
+   * v0.18 the map wraps east–west without end: pan on round the world. Every layer is drawn with ctx.proj, turned so
+   * the view's middle is near the projection's middle (wrap.ts); `rotate` is then ignored.
+   */
+  wrap?: boolean;
 }
 
 /** Container geometry: the SVG uses "slice" scaling (s screen px per map unit at zoom 1, offset ox/oy). */
@@ -149,10 +157,10 @@ const MAX_PLANES_TOUCH = 44;
 const HIT_AP = { touch: 26, mouse: 12 };
 const HIT_ROUTE = { touch: 16, mouse: 7 };
 
-const BaseLayers = memo(function BaseLayers({ rotate }: { rotate: number }) {
+const BaseLayers = memo(function BaseLayers({ rotate, id }: { rotate: number; id?: string }) {
   const p = basePaths(rotate);
   return (
-    <g className="map-base">
+    <g className="map-base" id={id}>
       <defs>
         <linearGradient id="land-grad" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0" style={{ stopColor: 'var(--map-land-0)' }} />
@@ -171,8 +179,8 @@ function geoOf(w: number, h: number, left = 0, top = 0): Geo {
   return { w, h, s, ox: (w - MAP_W * s) / 2, oy: (h - MAP_H * s) / 2, left, top };
 }
 
-/** Keeps the map covering the visible part of the viewBox (which "slice" may crop on one axis). */
-function clampView(v: View, geo?: Geo): View {
+/** Keeps the map covering the visible part of the viewBox (which "slice" may crop on one axis); v0.18 `wrap`: x is free. */
+function clampView(v: View, geo?: Geo, wrap = false): View {
   const k = Math.max(1, Math.min(K_MAX, v.k));
   const x0 = geo ? -geo.ox / geo.s : 0;
   const x1 = geo ? (geo.w - geo.ox) / geo.s : MAP_W;
@@ -182,7 +190,7 @@ function clampView(v: View, geo?: Geo): View {
   const minY = y1 - MAP_H * k;
   return {
     k,
-    x: minX > x0 ? (minX + x0) / 2 : Math.min(x0, Math.max(minX, v.x)),
+    x: wrap ? v.x : minX > x0 ? (minX + x0) / 2 : Math.min(x0, Math.max(minX, v.x)),
     y: minY > y0 ? (minY + y0) / 2 : Math.min(y0, Math.max(minY, v.y)),
   };
 }
@@ -194,17 +202,24 @@ function keepIn(lo: number, hi: number, c: number, f: number): [number, number] 
   return [lo, hi];
 }
 
-function fitView(rotate: number, codes: string[], geo: Geo, pad: Pad = [0, 0, 0, 0], centre?: string): View {
+function fitView(rotate: number, codes: string[], geo: Geo, pad: Pad = [0, 0, 0, 0], centre?: string, wrap = false): View {
   const proj = projection(rotate);
-  const pts = codes.map((c) => AIRPORT_BY_CODE[c]).filter(Boolean).map((a) => proj([a.lon, a.lat])!);
-  if (pts.length === 0) return clampView({ k: 1, x: 0, y: 0 }, geo);
+  const aps = codes.map((c) => AIRPORT_BY_CODE[c]).filter(Boolean);
+  let pts = aps.map((a) => proj([a.lon, a.lat])!);
+  if (pts.length === 0) return clampView({ k: 1, x: 0, y: 0 }, geo, wrap);
+  // v0.18 wrapping: the set framed the short way round (an Auckland network is not split across the map's edges).
+  if (wrap) {
+    const c = proj([lonCentre(aps.map((a) => a.lon)), 0])![0];
+    pts = pts.map((p) => [nearX(p[0], c), p[1]]);
+  }
   let x0 = Math.min(...pts.map((p) => p[0]));
   let x1 = Math.max(...pts.map((p) => p[0]));
   let y0 = Math.min(...pts.map((p) => p[1]));
   let y1 = Math.max(...pts.map((p) => p[1]));
   // Keep the centre airport (home base) well inside the frame, not on its edge.
   const cA = centre ? AIRPORT_BY_CODE[centre] : undefined;
-  const cP = cA && proj([cA.lon, cA.lat]);
+  const cP0 = cA && proj([cA.lon, cA.lat]);
+  const cP = cP0 && wrap ? [nearX(cP0[0], (x0 + x1) / 2), cP0[1]] : cP0;
   if (cP) {
     [x0, x1] = keepIn(Math.min(x0, cP[0]), Math.max(x1, cP[0]), cP[0], 0.3);
     [y0, y1] = keepIn(Math.min(y0, cP[1]), Math.max(y1, cP[1]), cP[1], 0.3);
@@ -223,7 +238,7 @@ function fitView(rotate: number, codes: string[], geo: Geo, pad: Pad = [0, 0, 0,
   const cy = (y0 + y1) / 2;
   const tx = MAP_W / 2 + (pad[3] - pad[1]) / 2 / s;
   const ty = MAP_H / 2 + (pad[0] - pad[2]) / 2 / s;
-  return clampView({ k, x: tx - cx * k, y: ty - cy * k }, geo);
+  return clampView({ k, x: tx - cx * k, y: ty - cy * k }, geo, wrap);
 }
 
 const sameView = (a: View, b: View) => a.k === b.k && a.x === b.x && a.y === b.y;
@@ -356,8 +371,16 @@ interface Gesture {
  */
 export function WorldMap({
   rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent: accentIn = 'var(--accent)', selected, onSelect, onSelectRoute, onHover,
-  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, ground, backdrop, glow, onTap, fitFn, fitCentre, focus, memo, follow, extraControls, tilt,
+  tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, ground, backdrop, glow, onTap, fitFn, fitCentre, focus, memo, follow, extraControls, tilt, wrap,
 }: Props) {
+  const wrapOn = !!wrap;
+  const clampV = (v: View, geo?: Geo) => clampView(v, geo, wrapOn);
+  // v0.18 wrapping: the frame the marks are drawn in (wrap.ts). `frame` as rendered; `frameWant` as last asked for;
+  // `offRef` the rendered frame's left edge in world map units (0 without wrapping), set once that render is committed.
+  const [frame, setFrame] = useState(0);
+  const frameWant = useRef(0);
+  const offRef = useRef(0);
+  const landId = `bh-land${useId().replace(/[^\w-]/g, '')}`;
   const touch = useTouch();
   // v0.11 a pale livery colour (white, cream) would vanish on the light map: the theme accent there instead.
   const theme = useTheme();
@@ -370,6 +393,7 @@ export function WorldMap({
   const backWrap = useRef<HTMLDivElement>(null);
   const backG = useRef<SVGGElement>(null);
   const glowWrap = useRef<HTMLDivElement>(null);
+  const groundG = useRef<SVGGElement>(null);
   const glowCv = useRef<HTMLCanvasElement>(null);
   const glowRef = useRef(glow);
   glowRef.current = glow;
@@ -406,8 +430,24 @@ export function WorldMap({
   const tiltNow = useRef(0);
   const [bleed, setBleed] = useState(false);
   const bleedRef = useRef(false);
-  const proj = projection(rotate);
+  const rot = wrapOn ? frameRot(frame) : rotate;
+  const proj = projection(rot);
   const path = useMemo(() => geoPath(proj), [proj]);
+  /** A world-map transform for content drawn `off` map units east (the frame, or the land copy). */
+  const tfAt = (v: View, off: number) => `translate(${v.x + v.k * off} ${v.y}) scale(${v.k})`;
+  /** v0.18 the frame follows the view's middle (a re-render of the marks when it steps on). */
+  const reframe = (v: View) => {
+    if (!wrapOn) return;
+    const g = geoRef.current;
+    const cx = ((g.w / 2 - g.ox) / g.s - v.x) / v.k;
+    const n = nextFrame(frameWant.current, cx);
+    if (n !== frameWant.current) { frameWant.current = n; setFrame(n); }
+  };
+  /** World x (map units) → x in the rendered frame, in [0, MAP_W) when wrapping. */
+  const toFrame = (x: number) => {
+    const l = x - offRef.current;
+    return wrapOn ? ((l % MAP_W) + MAP_W) % MAP_W : l;
+  };
 
   const busy = () => gest.current !== null || anim.current !== 0 || performance.now() < wheelUntil.current;
 
@@ -432,8 +472,10 @@ export function WorldMap({
   const syncLayers = () => {
     const v = live.current;
     layerView.current = v;
-    const tf = `translate(${v.x} ${v.y}) scale(${v.k})`;
-    baseG.current?.setAttribute('transform', tf);
+    // v0.18 the land in its copy nearest the frame (and one either side); the rest in the frame.
+    baseG.current?.setAttribute('transform', tfAt(v, landOffset(offRef.current)));
+    const tf = tfAt(v, offRef.current);
+    groundG.current?.setAttribute('transform', tf);
     backG.current?.setAttribute('transform', tf);
     drawGlow();
     placeLayers(v, false);
@@ -452,8 +494,9 @@ export function WorldMap({
   const apply = (v: View) => {
     live.current = v;
     placeTilt(v.k);
-    worldRef.current?.setAttribute('transform', `translate(${v.x} ${v.y}) scale(${v.k})`);
+    worldRef.current?.setAttribute('transform', tfAt(v, offRef.current));
     placeLayers(v);
+    reframe(v);
     // Markers keep their screen size between commits (no sawtooth while pinching).
     const u = 1 / (geoRef.current.s * v.k);
     if (u !== mkU.current) {
@@ -477,6 +520,13 @@ export function WorldMap({
     if (!busy()) { apply(view); syncLayers(); }
     if (memo && restored.current) memo.view = view;
   }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
+  // v0.18 a new frame is on screen: every transform moves to it at once (before the paint, so nothing jumps).
+  useLayoutEffect(() => {
+    if (!wrapOn) return;
+    offRef.current = frameX(frame);
+    apply(live.current);
+    syncLayers();
+  }, [frame]); // eslint-disable-line react-hooks/exhaustive-deps
   // New geometry (resize) or new layer elements: rewrite the layer transforms.
   useLayoutEffect(() => { syncLayers(); placeTilt(live.current.k, true); }, [box, !!backdrop, !!glow]); // eslint-disable-line react-hooks/exhaustive-deps
   // v0.15 the tilt follows its setting and the system's reduced motion (no tilt then).
@@ -508,7 +558,8 @@ export function WorldMap({
     if (!c) return;
     c.clearRect(0, 0, W, H);
     const lv = layerView.current;
-    paint(c, (p) => [((p[0] * lv.k + lv.x) * g.s + g.ox + M) * dpr, ((p[1] * lv.k + lv.y) * g.s + g.oy + M) * dpr], dpr);
+    const off = offRef.current;
+    paint(c, (p) => [(((p[0] + off) * lv.k + lv.x) * g.s + g.ox + M) * dpr, ((p[1] * lv.k + lv.y) * g.s + g.oy + M) * dpr], dpr);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const backShift = useCallback((dx: number) => {
     backDx.current = dx;
@@ -557,7 +608,7 @@ export function WorldMap({
     const k1 = Math.max(1, Math.min(K_MAX, v0.k * factor));
     const at = (e: number) => {
       const k = v0.k * Math.pow(k1 / v0.k, e);
-      return clampView({ k, x: m[0] - p[0] * k, y: m[1] - p[1] * k }, geo);
+      return clampV({ k, x: m[0] - p[0] * k, y: m[1] - p[1] * k }, geo);
     };
     userMoved.current = true;
     if (animated) run(at, 280);
@@ -571,7 +622,7 @@ export function WorldMap({
       if (Math.hypot(vx, vy) < 0.03) return null;
       const s = geoRef.current.s;
       const v = live.current;
-      return clampView({ k: v.k, x: v.x + (vx * dt) / s, y: v.y + (vy * dt) / s }, geoRef.current);
+      return clampV({ k: v.k, x: v.x + (vx * dt) / s, y: v.y + (vy * dt) / s }, geoRef.current);
     }, 0);
   };
   const center = (): [number, number] => {
@@ -590,7 +641,13 @@ export function WorldMap({
   const fitK = useRef(1);
   const fitTarget = (geo: Geo): View => {
     const codes = fitFnRef.current ? fitFnRef.current() : fit;
-    return codes && codes.length ? fitView(rotate, codes, geo, fitPad, fitCentreRef.current?.()) : clampView({ k: 1, x: 0, y: 0 }, geo);
+    const t = codes && codes.length ? fitView(wrapOn ? 0 : rotate, codes, geo, fitPad, fitCentreRef.current?.(), wrapOn) : clampV({ k: 1, x: 0, y: 0 }, geo);
+    if (!wrapOn || !restored.current) return t;
+    // v0.18 wrapping: the copy of the fit nearest where the map is now (Reset doesn't scroll round the world).
+    const vb = (geo.w / 2 - geo.ox) / geo.s;
+    const now = (vb - live.current.x) / live.current.k;
+    const n = Math.round(((vb - t.x) / t.k - now) / MAP_W);
+    return { ...t, x: t.x + n * MAP_W * t.k };
   };
   const restored = useRef(false);
   /** Size of the last fit: the ResizeObserver's first (same-size) report must not refit over a reveal. */
@@ -606,7 +663,7 @@ export function WorldMap({
     if (!restored.current && memo?.view) {
       restored.current = true;
       userMoved.current = true;
-      const v = clampView(memo.view, geo);
+      const v = clampV(memo.view, geo);
       apply(v);
       syncLayers();
       setView(v);
@@ -639,7 +696,7 @@ export function WorldMap({
       setBox((b) => (b.w === geo.w && b.h === geo.h ? b : geo));
       // Rotation / Split View / panel changes: refit until the player has moved the map.
       if (!userMoved.current) { if (`${geo.w}x${geo.h}` !== fitWH.current) fitRef.current(); }
-      else if (!busy()) { apply(clampView(live.current, geo)); commit(); }
+      else if (!busy()) { apply(clampV(live.current, geo)); commit(); }
     });
     ro.observe(el);
     return () => ro.disconnect();
@@ -692,7 +749,7 @@ export function WorldMap({
     const [vx, vy] = vbOf(cx, cy);
     const v = live.current;
     const unit = v.k * geoRef.current.s; // screen px per map unit
-    const mx = (vx - v.x) / v.k;
+    const mx = toFrame((vx - v.x) / v.k);
     const my = (vy - v.y) / v.k;
     const rA = (finger ? HIT_AP.touch : HIT_AP.mouse) / unit;
     let best: string | undefined;
@@ -733,7 +790,7 @@ export function WorldMap({
     if (onTap) {
       const [vx, vy] = vbOf(cx, cy);
       const v = live.current;
-      if (onTap([(vx - v.x) / v.k, (vy - v.y) / v.k], 1 / (v.k * geoRef.current.s), finger)) return;
+      if (onTap([toFrame((vx - v.x) / v.k), (vy - v.y) / v.k], 1 / (v.k * geoRef.current.s), finger)) return;
     }
     const hit = hitTest(cx, cy, finger);
     if (hit.airport) onSelect?.(hit.airport);
@@ -813,7 +870,7 @@ export function WorldMap({
       // v0.15 the map point under the finger stays under it (un-tilted: exact on the tilted map too).
       const a = vbOf(g.sx, g.sy);
       const b = vbOf(toCss(e.clientX), toCss(e.clientY));
-      apply(clampView({ k: g.start.k, x: g.start.x + b[0] - a[0], y: g.start.y + b[1] - a[1] }, geo));
+      apply(clampV({ k: g.start.k, x: g.start.x + b[0] - a[0], y: g.start.y + b[1] - a[1] }, geo));
       const now = performance.now();
       g.samples.push({ t: now, x: toCss(e.clientX), y: toCss(e.clientY) });
       while (g.samples.length > 2 && now - g.samples[0].t > 100) g.samples.shift();
@@ -830,7 +887,7 @@ export function WorldMap({
       g.mid = mc;
       const m = vbOf(mc[0], mc[1]);
       const k = Math.max(1, Math.min(K_MAX, g.start.k * (d / g.d0)));
-      apply(clampView({ k, x: m[0] - g.anchor[0] * k, y: m[1] - g.anchor[1] * k }, geo));
+      apply(clampV({ k, x: m[0] - g.anchor[0] * k, y: m[1] - g.anchor[1] * k }, geo));
       scheduleCommit();
     }
   };
@@ -939,7 +996,7 @@ export function WorldMap({
       const { v0, m } = gz;
       const p = [(m[0] - v0.x) / v0.k, (m[1] - v0.y) / v0.k];
       const k = Math.max(1, Math.min(K_MAX, v0.k * e.scale));
-      apply(clampView({ k, x: m[0] - p[0] * k, y: m[1] - p[1] * k }, geoRef.current));
+      apply(clampV({ k, x: m[0] - p[0] * k, y: m[1] - p[1] * k }, geoRef.current));
       userMoved.current = true;
       wheelUntil.current = performance.now() + 160;
       scheduleCommit();
@@ -984,7 +1041,8 @@ export function WorldMap({
       const v = live.current;
       const m = 32;
       const [bl, bt, br, bb] = fa.box;
-      const sc = fa.pts.map((p) => [(p[0] * v.k + v.x) * geo.s + geo.ox, (p[1] * v.k + v.y) * geo.s + geo.oy]);
+      const off = offRef.current;
+      const sc = fa.pts.map((p) => [((p[0] + off) * v.k + v.x) * geo.s + geo.ox, (p[1] * v.k + v.y) * geo.s + geo.oy]);
       // Shift that brings [lo, hi] inside [a0, a1]; just the first point's span when the whole set doesn't fit.
       const shift = (i: 0 | 1, lo0: number, hi0: number, a0: number, a1: number) => {
         let lo = Math.min(...sc.map((q) => q[i])) - lo0;
@@ -994,7 +1052,7 @@ export function WorldMap({
       };
       const dx = shift(0, bl, br, pad[3] + m, geo.w - pad[1] - m);
       const dy = shift(1, bt, bb, pad[0] + m, geo.h - pad[2] - m);
-      if (dx || dy) flyTo(clampView({ k: v.k, x: v.x + dx / geo.s, y: v.y + dy / geo.s }, geo), 360);
+      if (dx || dy) flyTo(clampV({ k: v.k, x: v.x + dx / geo.s, y: v.y + dy / geo.s }, geo), 360);
     };
     id = requestAnimationFrame(reveal);
     return () => cancelAnimationFrame(id);
@@ -1016,7 +1074,7 @@ export function WorldMap({
       const geo = geoRef.current;
       const cx = (pad[3] + geo.w - pad[1]) / 2;
       const cy = (pad[0] + geo.h - pad[2]) / 2;
-      return clampView({ k, x: (cx - geo.ox) / geo.s - p[0] * k, y: (cy - geo.oy) / geo.s - p[1] * k }, geo);
+      return clampV({ k, x: (cx - geo.ox) / geo.s - (p[0] + offRef.current) * k, y: (cy - geo.oy) / geo.s - p[1] * k }, geo);
     };
     const step = (now: number) => {
       raf = requestAnimationFrame(step);
@@ -1180,12 +1238,12 @@ export function WorldMap({
     const v = live.current;
     // v0.15 tilted, the far edge shows a little more map.
     const b = tiltBleed(g.w, g.h, tiltNow.current);
-    const x0 = (-(g.ox + b.ex) / g.s - v.x) / v.k;
+    const x0 = (-(g.ox + b.ex) / g.s - v.x) / v.k - offRef.current;
     const y0 = (-(g.oy + b.ey) / g.s - v.y) / v.k;
     return [x0, y0, x0 + (g.w + 2 * b.ex) / g.s / v.k, y0 + (g.h + b.ey) / g.s / v.k];
   }, []);
   const M = marginOf(box);
-  const ctx: MapLayerCtx = { proj, unit, k, px: pxPerUnit, liveK, fitK: fitK.current, backShift, margin: M, redrawGlow: drawGlow, onScreen };
+  const ctx: MapLayerCtx = { proj, unit, k, px: pxPerUnit, liveK, fitK: fitK.current, backShift, margin: M, redrawGlow: drawGlow, onScreen, rot };
   // Oversized layer box (container + margin) and the viewBox that keeps the overlay's "slice" mapping.
   const layerStyle: React.CSSProperties = { position: 'absolute', left: -M, top: -M, width: box.w + 2 * M, height: box.h + 2 * M, transformOrigin: '0 0', willChange: 'transform', pointerEvents: 'none' };
   const layerVB = `${(-M - box.ox) / box.s} ${(-M - box.oy) / box.s} ${(box.w + 2 * M) / box.s} ${(box.h + 2 * M) / box.s}`;
@@ -1210,9 +1268,12 @@ export function WorldMap({
       <div ref={baseWrap} className="map-layer map-layer-base" style={layerStyle}>
         <svg viewBox={layerVB} preserveAspectRatio="none" style={svgFill}>
           <g ref={baseG}>
-            <BaseLayers rotate={rotate} />
-            {ground?.(ctx)}
+            <BaseLayers rotate={wrapOn ? 0 : rotate} id={wrapOn ? landId : undefined} />
+            {/* v0.18 wrapping: a copy of the land either side (the same path; only one on screen but at the seam). */}
+            {wrapOn && <use href={`#${landId}`} x={-MAP_W} />}
+            {wrapOn && <use href={`#${landId}`} x={MAP_W} />}
           </g>
+          <g ref={groundG}>{ground?.(ctx)}</g>
         </svg>
       </div>
       {backdrop && (

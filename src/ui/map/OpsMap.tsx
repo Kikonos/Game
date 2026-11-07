@@ -457,7 +457,8 @@ export function OpsMap() {
         memo={memo}
         follow={follow}
         tilt={store.settings.mapTilt}
-        backdrop={(ctx) => <NightLayer shared={shared} shift={ctx.backShift} theme={theme} />}
+        wrap
+        backdrop={(ctx) => <NightLayer shared={shared} shift={ctx.backShift} theme={theme} rot={ctx.rot} />}
         ground={(ctx) => <ZoneGround zones={zones} proj={ctx.proj} hatch={hatchUnit(ctx.px, ctx.k)} />}
         underlay={(ctx) => {
           refs.current.proj = ctx.proj;

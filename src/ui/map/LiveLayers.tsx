@@ -46,6 +46,8 @@ export interface LiveShared {
   nightDec: number;
   /** Subsolar point the night was placed for (it is then slid by the sun's longitude change). */
   nightSun: [number, number] | null;
+  /** v0.18 the map projection's rotation the night was placed for (the wrapping map turns it). */
+  nightRot: number;
   /** Path groups (underlay): airline legs under ours. */
   pathsCm: SVGGElement | null;
   pathsOwn: SVGGElement | null;
@@ -55,7 +57,7 @@ export interface LiveShared {
   aps: [number, number][];
 }
 
-export const newShared = (): LiveShared => ({ ac: new Map(), cm: new Map(), night: null, nightImgs: [], nightDec: NaN, nightSun: null, pathsCm: null, pathsOwn: null, cmRoot: null, aps: [] });
+export const newShared = (): LiveShared => ({ ac: new Map(), cm: new Map(), night: null, nightImgs: [], nightDec: NaN, nightSun: null, nightRot: 0, pathsCm: null, pathsOwn: null, cmRoot: null, aps: [] });
 
 /** Frame cost stats for perf checks (console: __contrailMap). */
 const stats = { frames: 0, avgMs: 0, maxMs: 0, reset() { this.frames = 0; this.avgMs = 0; this.maxMs = 0; } };
@@ -131,13 +133,18 @@ function rasterNight(shared: LiveShared, dec: number) {
   shared.nightDec = dec;
 }
 
-/** Places the night for game minute t (raster rebuilt only when the declination has drifted); the shift starts at 0. */
-function buildNight(shared: LiveShared, t: number, shift: MapLayerCtx['backShift']) {
+/**
+ * Places the night for game minute t (raster rebuilt only when the declination has drifted); the shift starts at 0.
+ * v0.18 `rot`: the projection's rotation (the wrapping map turns it as it pans).
+ */
+function buildNight(shared: LiveShared, t: number, shift: MapLayerCtx['backShift'], rot = shared.nightRot) {
   if (!shared.night) return;
   const sun = sunPoint(t);
   if (!(Math.abs(sun[1] - shared.nightDec) < NIGHT_DEC_STEP)) rasterNight(shared, sun[1]);
-  shared.night.setAttribute('transform', `translate(${((sun[0] / 360) * MAP_W).toFixed(2)} 0)`);
+  const lon = ((((sun[0] + rot + 180) % 360) + 360) % 360) - 180;
+  shared.night.setAttribute('transform', `translate(${((lon / 360) * MAP_W).toFixed(2)} 0)`);
   shared.nightSun = sun;
+  shared.nightRot = rot;
   shift(0);
 }
 
@@ -145,16 +152,22 @@ function buildNight(shared: LiveShared, t: number, shift: MapLayerCtx['backShift
  * Night side: render it as the WorldMap `backdrop`. v0.12 a soft raster (twilight band, no hard edge) slid sideways
  * as the sun moves; three copies so it covers the world at any shift. Rebuilt when the theme changes.
  */
-export const NightLayer = memo(function NightLayer({ shared, shift, theme }: { shared: LiveShared; shift: MapLayerCtx['backShift']; theme: string }) {
+export const NightLayer = memo(function NightLayer({ shared, shift, theme, rot = 0 }: { shared: LiveShared; shift: MapLayerCtx['backShift']; theme: string; rot?: number }) {
   const ref = useRef<SVGGElement>(null);
+  const rotRef = useRef(rot);
+  rotRef.current = rot;
   useLayoutEffect(() => {
     const g = ref.current;
     shared.night = g;
     shared.nightImgs = g ? (Array.from(g.querySelectorAll('image')) as SVGImageElement[]) : [];
     shared.nightDec = NaN;
-    buildNight(shared, liveMinute(), shift);
+    buildNight(shared, liveMinute(), shift, rotRef.current);
     return () => { shared.night = null; shared.nightSun = null; shared.nightImgs = []; };
   }, [shared, shift, theme]);
+  // v0.18 the wrapping map turned its projection: the night moves with it (no repaint of its raster).
+  useLayoutEffect(() => {
+    if (shared.night && shared.nightRot !== rot) buildNight(shared, liveMinute(), shift, rot);
+  }, [rot]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <g className="ops-night" pointerEvents="none">
       <g ref={ref}>
@@ -573,6 +586,9 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
   /** Bumped by React renders so the loop redraws once even when time stands still. */
   const dirty = useRef(true);
   dirty.current = true;
+  /** v0.18 draws a frame now (the loop's own, unthrottled): a new projection (the wrapping map's frame) is drawn before the paint. */
+  const drawNow = useRef<(() => void) | null>(null);
+  useLayoutEffect(() => { drawNow.current?.(); }, [ctx.proj]);
 
   useEffect(() => {
     const root = ref.current;
@@ -648,14 +664,18 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
     const dropCm = (id: string, c: CmEl) => { c.el.remove(); c.path?.remove(); cms.delete(id); shared.cm.delete(id); };
     const tick = (now: number) => {
       raf = requestAnimationFrame(tick);
-      if (document.visibilityState === 'hidden') return;
+      draw(now, false);
+    };
+    drawNow.current = () => draw(performance.now(), true);
+    const draw = (now: number, force: boolean) => {
+      if (document.visibilityState === 'hidden' && !force) return;
       // 30 fps on touch, but every frame while the zoom moves (glyphs are counter-scaled per frame).
-      if (now - last < minFrame && ctxRef.current.liveK() === lastK) return;
+      if (!force && now - last < minFrame && ctxRef.current.liveK() === lastK) return;
       const dt = last ? Math.min(100, now - last) : 16;
       last = now;
       const game = store.game;
       // Frozen while a modal is open (time is held; blurred backdrops over motion are expensive).
-      if (!game || store.modal) return;
+      if (!game || (store.modal && !force)) return;
       const c = ctxRef.current;
       const t = liveMinute();
       const k = c.liveK();
@@ -690,8 +710,8 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
       lastSun = sun;
       const s0 = shared.nightSun;
       if (shared.night) {
-        if (!s0 || !(Math.abs(sun[1] - shared.nightDec) < NIGHT_DEC_STEP)) buildNight(shared, tn, c.backShift);
-        else if (Math.abs(c.backShift(nightShift(s0, sun))) > c.margin / 2) buildNight(shared, tn, c.backShift);
+        if (!s0 || !(Math.abs(sun[1] - shared.nightDec) < NIGHT_DEC_STEP)) buildNight(shared, tn, c.backShift, c.rot);
+        else if (Math.abs(c.backShift(nightShift(s0, sun))) > c.margin / 2) buildNight(shared, tn, c.backShift, c.rot);
       }
       if (anim !== root.classList.contains('trails')) root.classList.toggle('trails', anim);
       const u = 1 / (c.px * k); // map units per screen px right now
@@ -1113,7 +1133,7 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
       stats.maxMs = Math.max(stats.maxMs, ms);
     };
     raf = requestAnimationFrame(tick);
-    return () => { cancelAnimationFrame(raf); mq?.removeEventListener?.('change', onMq); };
+    return () => { cancelAnimationFrame(raf); drawNow.current = null; mq?.removeEventListener?.('change', onMq); };
   }, [idsKey, shared]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
