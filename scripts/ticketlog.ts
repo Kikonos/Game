@@ -63,8 +63,13 @@ function depAt(g: GameState, base: string, t: Minute): Deployment | undefined {
  * before the period's end, the month's block hours against the 100 h in 28 days and the 900 h year (as a share), or
  * their reason (sick, leaving, replaced). Empty when nothing is found.
  */
-function needOf(g: GameState, f: Flight, until: Minute, dep?: Deployment): string[] {
+function needOf(g: GameState, f: Flight, until: Minute, dep?: Deployment, set?: number): string[] {
   const out: string[] = [];
+  // The set has no more duties there in its period (the chaining gave the rest of the programme to the other sets).
+  if (dep && set !== undefined && !dep.pairingIds.some((pid) => {
+    const q = g.pairings[pid];
+    return !!q?.tour && q.tour.set === set && q.dutyIds.some((id) => { const d = g.duties[id]; return !!d && !d.done && d.report > f.std && d.report < until; });
+  })) out.push(`no more duties for set ${set + 1} there`);
   // The programme flies nothing more there before the period's end (it ended early, or the aircraft moved on).
   if (dep && !Object.values(g.flights).some((x) => x.contractId === dep.contractId && x.kind !== 'deadhead' && x.status !== 'cancelled' && x.std > f.std && x.std < until)) out.push(`no ${dep.base} flights left before ${fmtDay(until)}`);
   for (const id of f.crewIds.length ? f.crewIds : f.riders ?? []) {
@@ -110,7 +115,7 @@ export function classify(g: GameState, f: Flight): TicketRow {
       else {
         row.cls = 'midTourHome';
         row.stint = Math.round((f.std - p.tour.from) / DAY);
-        row.need = needOf(g, f, Math.min(p.tour.to, dep?.end ?? p.tour.to), dep);
+        row.need = needOf(g, f, Math.min(p.tour.to, dep?.end ?? p.tour.to), dep, p.tour.set);
       }
     }
     if (f.charter) row.cls = 'crewJet';
@@ -140,7 +145,7 @@ export function classify(g: GameState, f: Flight): TicketRow {
           row.set = q.tour.set;
           if (row.cls === 'midTourHome') {
             row.stint = Math.round((f.std - q.tour.from) / DAY);
-            row.need = needOf(g, f, Math.min(q.tour.to, dep.end), dep);
+            row.need = needOf(g, f, Math.min(q.tour.to, dep.end), dep, q.tour.set);
           }
         }
       }
