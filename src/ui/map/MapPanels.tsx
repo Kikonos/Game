@@ -498,7 +498,8 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
               const seat = seats.get(m.id) ?? m.role;
               const oh = oohBy.get(m.id);
               return (
-              <div key={m.id} className={`op-crew-row${aboveIds.has(m.id) || m.notice || oh ? ' tagged' : ''}`}>
+              // v0.18 a tap opens the person's sheet.
+              <button type="button" key={m.id} className={`op-crew-row op-crew-tap${aboveIds.has(m.id) || m.notice || oh ? ' tagged' : ''}`} onClick={() => store.openPerson(m.id)}>
                 <span className={`role${seat !== m.role ? ' as' : ''}`} title={seat !== m.role ? `${m.role === 'CPT' ? 'A captain' : m.role} flying in the ${seat} seat` : undefined}>{seatLabel(seat, m.role)}</span>
                 <span className="col op-crew-who">
                   <span className="row gap-4" style={{ minWidth: 0 }}><span className="ellipsis">{crewName(m)}</span><RankMark role={m.role} /></span>
@@ -510,7 +511,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
                     </span>
                   )}
                 </span>
-              </div>
+              </button>
               );
             })}
             {openAbove.map((x) => (
@@ -636,10 +637,10 @@ function AirportPanel({ g, code }: { g: GameState; code: string }) {
         {hotel.length ? (
           <div className={`op-crew${sby.size ? ' one' : ''}`}>
             {hotelList.slice(0, 8).map((m) => (
-              <div key={m.id} className="op-crew-row">
+              <button type="button" key={m.id} className="op-crew-row op-crew-tap" onClick={() => store.openPerson(m.id)}>
                 <span className="role">{m.role}</span><span className="ellipsis">{crewName(m)}</span>
                 {sby.has(m.id) && <span className="op-tag sby" title="Hotel standby: on call here">SBY</span>}
-              </div>
+              </button>
             ))}
             {sby.size > 0 ? <div className="small muted">{hotel.length > 8 ? `+${hotel.length - 8} more · ` : ''}{hotelCount(hotel)} in all</div>
               : hotel.length > 8 && <div className="small muted">+{hotel.length - 8} more</div>}
