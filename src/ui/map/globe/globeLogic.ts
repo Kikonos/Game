@@ -173,6 +173,35 @@ export function gcTrack(from: string, to: string): [number, number][] {
   return out;
 }
 
+/**
+ * v0.18 how high a leg's arc rises at its middle (Earth radii) for a sector of `deg` degrees: a short hop barely
+ * leaves the ground, an ocean crossing rises clear of it (about 0.012 for 1,000 km, 0.05 at 9,000 km, at most 0.06).
+ */
+export function arcLift(deg: number): number {
+  const f = Math.max(0, Math.min(1, deg / 100));
+  return 0.006 + 0.054 * f ** 0.85;
+}
+
+/** v0.18 the arc's height (Earth radii) at share s (0..1) along a leg lifting `lift` at its middle: a full arch. */
+export const liftAt = (lift: number, s: number) => (lift > 0 && s > 0 && s < 1 ? lift * Math.sin(Math.PI * s) ** 0.75 : 0);
+
+/**
+ * v0.18 is world point p hidden behind the Earth from the camera at `cam` (the ray meets the sphere of radius r first)?
+ * A point on the ground on the near side, or lifted clear above the limb, is not.
+ */
+export function occluded(p: Vec3, cam: Vec3, r = 0.998): boolean {
+  const d = sub(p, cam);
+  const L = Math.hypot(d[0], d[1], d[2]);
+  if (L < 1e-9) return false;
+  const u: Vec3 = [d[0] / L, d[1] / L, d[2] / L];
+  const b = dot(cam, u);
+  const c = dot(cam, cam) - r * r;
+  const disc = b * b - c;
+  if (disc <= 0) return false;
+  const t0 = -b - Math.sqrt(disc);
+  return t0 > 0 && t0 < L;
+}
+
 /** Segments for an arc of `deg` degrees: about one per 1.2° (smooth on the sphere), 8 to 128. */
 export const arcSamples = (deg: number) => Math.max(8, Math.min(128, Math.ceil(deg / 1.2)));
 
