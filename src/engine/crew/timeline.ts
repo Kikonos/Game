@@ -569,9 +569,13 @@ export function rideCheckIn(g: GameState, f: Flight, d: Duty): number {
 
 /** v0.12.1 the longest a ride home may leave after the airline ticket it replaces (a night at the hotel at most). */
 export const RIDE_HOME_WAIT = 12 * 60;
+/** v0.17.2 the longest wait at the gate for an empty leg home straight after the duty. */
+export const RIDE_EMPTY_WAIT = 3 * 60;
+/** v0.17.2 the longest day, report to landing home, riding an empty leg home straight on. */
+export const RIDE_EMPTY_DAY = 28 * 60;
 
 /**
- * v0.12.1 our own passenger flights d.restAt → `to` the crew could ride home after duty d instead of `ticket`
+ * v0.12.1 our own passenger flights (v0.17.2 and empty legs) d.restAt → `to` the crew could ride home after duty d instead of `ticket`
  * (planHome's), earliest first: checked in after release, and as planHome reads a ticket: straight on when the day
  * stays within 13 h, else after minimum rest; leaving no later than RIDE_HOME_WAIT after the ticket. At most `n`. Pure.
  */
@@ -583,8 +587,16 @@ export function ridesHome(g: GameState, d: Duty, to: string, ticket: TicketPlan,
   const rest = minRest({ dutyMin: d.release - d.report + early, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(to, from, d.release), extended: !!d.ext });
   const ok: Flight[] = [];
   for (const f of legs) {
-    if (f.status !== 'scheduled' || !revenueRide(f) || f.dutyId === d.id || f.std - rideCheckIn(g, f, d) < d.release || f.std > ticket.std + RIDE_HOME_WAIT) continue;
-    if (f.sta - d.report + early > 13 * 60 && f.std - CHECKIN() < d.release + rest) continue;
+    // v0.17.2 (player's report: the crew who flew TRN–GRU took an airline home the next night while our own empty
+    // GRU–LIS left 48 min after they landed) our empty legs home too, not only passenger flights.
+    const empty = f.kind === 'positioning' || f.kind === 'ferry';
+    if (f.status !== 'scheduled' || (!revenueRide(f) && !empty) || f.dutyId === d.id || f.std - rideCheckIn(g, f, d) < d.release || f.std > ticket.std + RIDE_HOME_WAIT) continue;
+    // Straight on when the day stays within 13 h, else after minimum rest; on an empty leg (the whole cabin to sleep in)
+    // straight on from the gate within RIDE_EMPTY_WAIT, the day to landing home at most RIDE_EMPTY_DAY (positioning after
+    // the last sector is duty, not FDP: ORO.FTL.215; the rest at home after it is at least as long: ORO.FTL.235).
+    const day = f.sta - d.report + early;
+    const straightEmpty = empty && f.std - d.release <= RIDE_EMPTY_WAIT && day <= RIDE_EMPTY_DAY;
+    if (day > 13 * 60 && f.std - CHECKIN() < d.release + rest && !straightEmpty) continue;
     if (rideRoom(g, f) < 1) continue;
     ok.push(f);
   }
@@ -598,7 +610,8 @@ export function ridesHome(g: GameState, d: Duty, to: string, ticket: TicketPlan,
  */
 export function rideHomeFrom(g: GameState, from: string, to: string, std: Minute, ok: (f: Flight) => boolean): Flight | null {
   for (const f of [...(rideLegs(g).get(`${from}>${to}`) ?? [])].sort((a, b) => a.std - b.std || (a.id < b.id ? -1 : 1))) {
-    if (f.status !== 'scheduled' || !revenueRide(f) || f.std < std || f.std > std + RIDE_HOME_WAIT || f.std - CHECKIN() <= g.now || rideRoom(g, f) < 1 || !ok(f)) continue;
+    // (v0.17.2 our empty legs too.)
+    if (f.status !== 'scheduled' || (!revenueRide(f) && f.kind !== 'positioning' && f.kind !== 'ferry') || f.std < std || f.std > std + RIDE_HOME_WAIT || f.std - CHECKIN() <= g.now || rideRoom(g, f) < 1 || !ok(f)) continue;
     return f;
   }
   return null;
