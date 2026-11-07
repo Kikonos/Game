@@ -4,11 +4,11 @@
 // game played on) and acmi-bot.ts --ticketlog=<file> (a seed).
 
 import { writeFileSync } from 'node:fs';
-import { DAY, fmtDateTime, fmtDay, monthKey } from '../src/engine/core/time';
+import { DAY, fmtDateTime, fmtDay, fmtMonth, monthKey } from '../src/engine/core/time';
 import type { Deployment, Duty, Flight, GameState, MonthKey } from '../src/engine/core/types';
 import { setChainSpy } from '../src/engine/crew/duties';
 import { setDropSpy } from '../src/engine/crew/roster';
-import { crewIx } from '../src/engine/crew/timeline';
+import { block28, crewIx, segsOf } from '../src/engine/crew/timeline';
 
 export type TicketClass = 'tourChange' | 'midTourHome' | 'midTourOut' | 'strayDutyTrip' | 'charterTrip' | 'crewJet' | 'other';
 
@@ -31,6 +31,8 @@ export interface TicketRow {
   fate?: 'flown' | 'booked' | 'dropped';
   /** Why crew came off it before it flew (the last reason seen). */
   dropWhy?: string;
+  /** v0.17.2 a mid-tour ticket home: what each crew member had that makes going home before the rotation's end necessary (empty: nothing found). */
+  need?: string[];
 }
 type Minute = number;
 
@@ -53,6 +55,36 @@ function boundaryNear(g: GameState, dep: Deployment, t: Minute): boolean {
 
 function depAt(g: GameState, base: string, t: Minute): Deployment | undefined {
   return Object.values(g.deployments).find((d) => d.base === base && d.start - 3 * DAY <= t && d.end + 3 * DAY >= t);
+}
+
+/**
+ * v0.17.2 the player's rule: crew on a long-term base stay until the rotation ends unless a legal limit or their own
+ * calendar sends them home. For a mid-tour ticket home: each crew member's leave, course, sickness or last day ahead
+ * before the period's end, the month's block hours against the 100 h in 28 days and the 900 h year (as a share), or
+ * their reason (sick, leaving, replaced). Empty when nothing is found.
+ */
+function needOf(g: GameState, f: Flight, until: Minute, dep?: Deployment, set?: number): string[] {
+  const out: string[] = [];
+  // The set has no more duties there in its period (the chaining gave the rest of the programme to the other sets).
+  if (dep && set !== undefined && !dep.pairingIds.some((pid) => {
+    const q = g.pairings[pid];
+    return !!q?.tour && q.tour.set === set && q.dutyIds.some((id) => { const d = g.duties[id]; return !!d && !d.done && d.report > f.std && d.report < until; });
+  })) out.push(`no more duties for set ${set + 1} there`);
+  // The programme flies nothing more there before the period's end (it ended early, or the aircraft moved on).
+  if (dep && !Object.values(g.flights).some((x) => x.contractId === dep.contractId && x.kind !== 'deadhead' && x.status !== 'cancelled' && x.std > f.std && x.std < until)) out.push(`no ${dep.base} flights left before ${fmtDay(until)}`);
+  for (const id of f.crewIds.length ? f.crewIds : f.riders ?? []) {
+    const c = g.crew[id];
+    if (!c) continue;
+    const bl = (c.blocks ?? []).filter((b) => b.to > f.std && b.from < until).map((b) => `${b.why} ${fmtDay(b.from)}`);
+    const b28 = block28(segsOf(g, c), f.std) / 60;
+    const lim: string[] = [];
+    if (b28 >= 85) lim.push(`${Math.round(b28)} h in 28 d`);
+    if (c.blockYear / 60 >= 800) lim.push(`${Math.round(c.blockYear / 60)} h this year`);
+    if (c.status === 'leave' || c.status === 'training') lim.push(c.status);
+    const all = [...bl, ...lim];
+    if (all.length) out.push(`${c.last}: ${all.join(', ')}`);
+  }
+  return out;
 }
 
 export function classify(g: GameState, f: Flight): TicketRow {
@@ -83,6 +115,7 @@ export function classify(g: GameState, f: Flight): TicketRow {
       else {
         row.cls = 'midTourHome';
         row.stint = Math.round((f.std - p.tour.from) / DAY);
+        row.need = needOf(g, f, Math.min(p.tour.to, dep?.end ?? p.tour.to), dep, p.tour.set);
       }
     }
     if (f.charter) row.cls = 'crewJet';
@@ -110,7 +143,10 @@ export function classify(g: GameState, f: Flight): TicketRow {
       for (const id of f.crewIds) {
         for (const q of ix.pairingsOf.get(id) ?? []) if (q.tour && q.deploymentId === dep.id && q.start <= g.now + DAY) {
           row.set = q.tour.set;
-          if (row.cls === 'midTourHome') row.stint = Math.round((f.std - q.tour.from) / DAY);
+          if (row.cls === 'midTourHome') {
+            row.stint = Math.round((f.std - q.tour.from) / DAY);
+            row.need = needOf(g, f, Math.min(q.tour.to, dep.end), dep, q.tour.set);
+          }
         }
       }
     } else row.cls = 'charterTrip';
@@ -198,7 +234,7 @@ export function createTicketLog(startNow?: Minute): TicketLog {
     }
     out.push('| month | people ticketed | tour change | mid-tour home | mid-tour out | stray duty trip | charter trip | crew jet | ticket $ |');
     out.push('|---|---|---|---|---|---|---|---|---|');
-    for (const [k, m] of [...byMonth].sort()) out.push(`| ${k} | ${m.people} | ${m.tourChange} | ${m.midTourHome} | ${m.midTourOut} | ${m.strayDutyTrip} | ${m.charterTrip} | ${m.crewJet} | ${Math.round(m.cost / 1000)}K |`);
+    for (const [k, m] of [...byMonth].sort((a, b) => a[0] - b[0])) out.push(`| ${fmtMonth(k)} | ${m.people} | ${m.tourChange} | ${m.midTourHome} | ${m.midTourOut} | ${m.strayDutyTrip} | ${m.charterTrip} | ${m.crewJet} | ${Math.round(m.cost / 1000)}K |`);
     out.push(`| **all** | ${total.people} | ${total.tourChange} | ${total.midTourHome} | ${total.midTourOut} | ${total.strayDutyTrip} | ${total.charterTrip} | ${total.crewJet} | ${Math.round(total.cost / 1000)}K |`);
     out.push('');
     // Reasons behind mid-tour tickets.
@@ -231,12 +267,16 @@ export function createTicketLog(startNow?: Minute): TicketLog {
     for (const [k, n] of [...dw].sort((a, b) => b[1] - a[1]).slice(0, 14)) out.push(`- ${n} × ${k}`);
     out.push('');
     out.push('Sample mid-tour tickets:');
-    for (const r of rows.filter((x) => x.fate !== 'dropped' && (x.cls === 'midTourHome' || x.cls === 'midTourOut')).slice(0, 40)) out.push(`- ${fmtDateTime(r.std)} ${r.from}–${r.to} ${r.crew.join(', ')} [${r.cls}${r.stint !== undefined ? ` ${r.stint} d` : ''}] ${r.why}`);
+    for (const r of rows.filter((x) => x.fate !== 'dropped' && (x.cls === 'midTourHome' || x.cls === 'midTourOut')).slice(0, 40)) out.push(`- ${fmtDateTime(r.std)} ${r.from}–${r.to} ${r.crew.join(', ')} [${r.cls}${r.stint !== undefined ? ` ${r.stint} d` : ''}] ${r.why}${r.need ? ` · need: ${r.need.length ? r.need.join('; ') : 'NONE FOUND'}` : ''}`);
+    // v0.17.2 mid-tour tickets home with no leave, course, sickness or hours limit behind them (people).
+    const homes = rows.filter((x) => x.fate !== 'dropped' && x.cls === 'midTourHome');
+    const bare = homes.filter((x) => x.need && !x.need.length && !/^Sick|^Replaces|leaves|resign|On leave/i.test(x.why));
+    out.push('', `Mid-tour home: ${homes.reduce((a, r) => a + r.n, 0)} people; with no necessity found ${bare.reduce((a, r) => a + r.n, 0)}.`);
     out.push('');
     // Spend by month from the ledger.
     const st = [...g.finance.history, g.finance.current];
     out.push('Ledger by month (deadhead / crew jet / hotels / per diem):');
-    for (const s of st.slice(-6)) out.push(`- ${s.month}: ${Math.round(-(s.lines.deadhead ?? 0) / 1000)}K / ${Math.round(-(s.lines.crewJet ?? 0) / 1000)}K / ${Math.round(-(s.lines.hotels ?? 0) / 1000)}K / ${Math.round(-(s.lines.perDiem ?? 0) / 1000)}K`);
+    for (const s of st.slice(-6)) out.push(`- ${fmtMonth(s.month)}: ${Math.round(-(s.lines.deadhead ?? 0) / 1000)}K / ${Math.round(-(s.lines.crewJet ?? 0) / 1000)}K / ${Math.round(-(s.lines.hotels ?? 0) / 1000)}K / ${Math.round(-(s.lines.perDiem ?? 0) / 1000)}K`);
     out.push('');
     out.push(`Now ${fmtDay(g.now)}.`);
     return out.join('\n');

@@ -81,7 +81,7 @@ export { C_HUBS, type CHub } from '../../data/mro';
 export { deliveryQuote, deliveryStatus, ferryRoute, ticketPurpose, type DeliveryLeg, type DeliveryQuote, type DeliveryStatus, type FerryBlock } from './delivery';
 // v0.11 ETOPS on ferries and positioning.
 export { approvalName, capText, etopsFixText, etopsLine } from './etops';
-export { chooseLease, earlyReturnQuote, leaseView, returnEarly, returnQuote, type EarlyReturnQuote, type LeaseChoice, type LeaseView, type ReturnQuote } from './leaseReturn';
+export { checkBeforeReturn, chooseLease, earlyReturnQuote, leaseView, returnEarly, returnQuote, type CheckBeforeReturn, type EarlyReturnQuote, type LeaseChoice, type LeaseView, type ReturnCheckWay, type ReturnQuote } from './leaseReturn';
 export { reopenLatePayment, resolveDecision, withdrawHandled } from './events';
 export { cashForecast, daysOverdue, fixedCosts, forecastItems, monthEndBill, monthProfit, newStatement, type ForecastItem, type MonthEndBill } from './finance';
 export { delayFlight, delayOf, schedSta } from './flights';

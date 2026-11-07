@@ -3,7 +3,7 @@
 
 import { askSublease, SchedulePortal } from './OfferPortal';
 import { clashTrips, subleaseGroups } from './offerPortalLogic';
-import { BedDouble, Check, ChevronRight, Handshake, LineChart, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
+import { BedDouble, Check, ChevronRight, CircleSlash, Handshake, LineChart, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
 import { offerPrestigeLines } from '../../engine/contracts/prestige';
 import { ClientStars } from '../components/ClientStars';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
@@ -31,13 +31,16 @@ import { BAL } from '../../engine/core/balance';
 import { extraCabinMax, offerExtra } from '../../engine/crew';
 import { cabinCrewSeats, cabinMinimum } from '../../engine/core/perf';
 import type { CounterView } from '../../engine/contracts';
-import { problemAt } from '../../engine/problems';
-import { ProblemCardView, runAction } from '../components/ProblemCard';
+import { ProblemCardView } from '../components/ProblemCard';
 import { Modal, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { ArchIcon, Chips, Dot, KV } from '../screens/common';
 import { fuelLine } from '../screens/screenLogic';
 import { DepositPicker } from './offer/DepositPicker';
+import { OfferVerdictBox } from './offer/Verdict';
+import { bestByRank, offerVerdict, sortChecks, topBlocker } from '../../engine/contracts/blockers';
+import { shapeOf } from '../../engine/contracts/shape';
+import { ShapeTags } from '../components/ShapeTags';
 import { depositNorm } from '../../engine/finance';
 import { archLabel, counterSteps, expiryLabel, offerCrewLine, pctLabel, reqChips, riskChips, routeSummary, offerDays, v09Chips, type Chip } from '../screens/screenLogic';
 import { analystView } from '../../engine/ops';
@@ -45,6 +48,7 @@ import { HintButton, ScreenHint } from '../components/ScreenHint';
 import { store, useGame } from '../store';
 import { offerLock } from '../../engine/scenario';
 import { LockNote } from '../components/Locked';
+import { SpecsLink } from '../specs/SpecsLink';
 
 const LEVEL_TONE = { ok: 'good', warn: 'warn', no: 'bad' } as const;
 const usd = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
@@ -270,7 +274,8 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal
   const margin = r.estMargin + revenue - r.estRevenue;
   const crew = offerCrewLine(r, g.offers[offerId]?.product.kind === 'dry');
   // An aircraft that can't take the job leads with why (e.g. busy on another contract), not a positioning plan.
-  const block = r.level === 'no' ? r.checks.find((c) => c.level === 'no') : undefined;
+  // v0.18 the most important reason first (contracts/blockers.ts): an approval or the wrong aircraft before busy days.
+  const block = r.level === 'no' ? topBlocker(r) ?? undefined : undefined;
   // v0.7.3 §2.6 item 6: the rest line on every aircraft of a long job (✓ / needs a 4th pilot / needs a refit), and on
   // any job where it is not simply OK.
   const rest = r.checks.find((c) => c.id === 'rest');
@@ -298,7 +303,7 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal
       {portal}
       {on && (
         <div className="sc-feas-checks">
-          {r.checks.filter((c) => !(unflyable && c.level === 'ok' && (c.id === 'runway' || (c.id === 'etops' && c.label === 'No ETOPS needed')))).map((c, i) => (
+          {sortChecks(r.checks, r).filter((c) => !(unflyable && c.level === 'ok' && (c.id === 'runway' || (c.id === 'etops' && c.label === 'No ETOPS needed')))).map((c, i) => (
             <div key={`${c.id}-${i}`} className="sc-check">
               <Dot tone={LEVEL_TONE[c.level]} />
               <span className="grow"><span>{SLIP_RE.test(c.label) ? <Term id="slipCrew">{c.label}</Term> : c.label}</span>{c.detail && <span className="small muted"> · {c.detail}</span>}</span>
@@ -312,6 +317,8 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal
             </div>
           ))}
           {r.techStops.length > 0 && <div className="small muted">Fuel stops: {r.techStops.join(', ')}</div>}
+          {/* v0.18 the aircraft's spec sheet (ui/specs). */}
+          <div className="row"><SpecsLink subject={{ kind: 'aircraft', id: r.aircraftId }} label={`${ac.reg} specs`} /></div>
           <div className="small muted">Revenue {money(revenue)}{lift > 1 ? ` (incl. client-paid extra crew +${money(revenue - r.estRevenue)})` : ''} · costs {money(r.estCost)} · {Math.round(r.estBH)} BH flown{r.estBH - billBH > 0.5 ? ` (incl. ${Math.round(r.estBH - billBH)} BH positioning and empty legs)` : ''}</div>
           {/* Round 4 (§V): the crew check line above already says the shortage; no footer repeats it. */}
         </div>
@@ -427,7 +434,7 @@ function HajjPanel({ o }: { o: ContractOffer }) {
 }
 
 /** Dry lease: ferry out · lease · ferry back (static), the money, their hours on our airframe, and the card. */
-function DryPanel({ g, o }: { g: GameState; o: ContractOffer }) {
+function DryPanel({ g, o, aircraftId }: { g: GameState; o: ContractOffer; aircraftId?: string }) {
   const m = dryMoney(o);
   if (!m || !o.dry) return null;
   const card = problemFor(g, { kind: 'dryLeaseInfo', ref: { kind: 'offer', id: o.id } });
@@ -450,6 +457,7 @@ function DryPanel({ g, o }: { g: GameState; o: ContractOffer }) {
         ...(o.dry.paint ? [['Paint', `In their colours (${o.dry.paint === 'full' ? 'full repaint' : 'decals'}), at their cost`] as [string, string]] : []),
       ]} />
       <div className="small muted">Our pilots fly the delivery and the return ferries (we pay that fuel); no crew from us during the lease.</div>
+      {aircraftId && g.fleet[aircraftId] && <div className="row"><SpecsLink subject={{ kind: 'aircraft', id: aircraftId }} label={`${g.fleet[aircraftId].reg} specs`} /></div>}
       {card && <ProblemCardView card={card} g={g} hideActions />}
     </div>
   );
@@ -508,7 +516,7 @@ const hasPanel = (o: ContractOffer) => o.product.kind === 'dry' || o.archetype =
 
 /** The archetype panel that applies (a mixed cabin can come on top of a Hajj airlift). */
 function ArchPanel({ g, o, aircraftId }: { g: GameState; o: ContractOffer; aircraftId?: string }) {
-  if (o.product.kind === 'dry') return <DryPanel g={g} o={o} />;
+  if (o.product.kind === 'dry') return <DryPanel g={g} o={o} aircraftId={aircraftId} />;
   if (o.archetype === 'worldTour') return <TourPanel g={g} o={o} aircraftId={aircraftId} />;
   if (o.archetype === 'deportation') return <MoralPanel o={o} />;
   const mixed = o.requirements.clientCabin?.n ? <MixedPanel g={g} o={o} /> : null;
@@ -594,7 +602,8 @@ export function OfferModal({ offerId }: { offerId: string }) {
   // (an A330 for an A320-size base, a 737 where it wants the A320 family) is one quiet line under the list instead.
   const shown = reports.filter((r) => !typeMisfit(r));
   const notShown = reports.filter(typeMisfit);
-  const best = shown.find((r) => !blocked(r)) ?? shown[0];
+  // v0.18 none can take it: the one closest to it (busy before needs work before impossible; contracts/blockers.ts).
+  const best = shown.find((r) => !blocked(r)) ?? bestByRank(shown) ?? shown[0];
   const [pick, setPick] = useState<string | null>(null);
   const [step, setStep] = useState(2);
   // v0.8: opened = seen (a rival win is then announced in the Inbox).
@@ -626,12 +635,10 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const scenLock = offerLock(g, o);
   const canCounter = live && !countered && !o.counter && !tenderWon && !!sel && !blocked(sel) && !scenLock;
   const canAccept = live && !countered && !!sel && !blocked(sel) && !mustPaint && !scenLock;
-  // v0.7.1 §13: one plain sentence on what is in the way (crew, aircraft, range, cabin, paint) or a counter about to expire.
-  const fit0 = live ? problemAt(g, { kind: 'offer', id: o.id }) : null;
-  // The moral / dry / Hajj / mixed panel already says the mission line: no second card when it is all the card says.
-  const missionOnly = (c: NonNullable<typeof fit0>) => c.subject.kind === 'offerFit' && c.severity !== 'red' && hasPanel(o) && c.details.length === 1
-    && reports.some((r) => r.checks.some((k) => k.id === 'mission' && c.details[0].startsWith(k.label)));
-  const fit = fit0 && !missionOnly(fit0) ? fit0 : null;
+  // v0.18 the verdict (contracts/blockers.ts): the chosen aircraft's most important reason, the rest folded beneath;
+  // with none of ours the kind the client asked for, the reason on the ones left off.
+  const verdict = live ? offerVerdict(g, shown.length ? shown : reports, sel?.aircraftId ?? null) : null;
+  const busyFix = verdict?.rank === 2 && subleaseGroups(clashTrips(g, verdict.report)).length ? <SubleaseButtons g={g} r={verdict.report} offerId={o.id} long /> : null;
   // v0.7.3 §2.9: what a long job needs ('Longest day 15:40 · needs 3 pilots + bunks, or 4 pilots + business seats').
   const restLine = offerRestLine(g, o.id);
 
@@ -669,7 +676,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           </span>
         )}
         {scenLock && <LockNote why={scenLock} />}
-        <button className="btn btn-primary" onClick={accept} disabled={!canAccept} title={mustPaint ? 'The client requires their livery: counter instead' : scenLock ?? undefined}><Check /> Accept {fmtP(asking * lift)}</button>
+        <button className="btn btn-primary" onClick={accept} disabled={!canAccept} title={mustPaint ? 'The client requires their livery: counter instead' : scenLock ?? (!canAccept && verdict && verdict.rank <= 2 ? verdict.headline : undefined)}>{!canAccept && verdict?.rank === 0 && !scenLock ? <><CircleSlash /> Not possible</> : <><Check /> Accept {fmtP(asking * lift)}</>}</button>
       </div>
     }>
       <ScreenHint id="offer" />
@@ -688,27 +695,18 @@ export function OfferModal({ offerId }: { offerId: string }) {
           <div>
             <b>{cl ? `${flag(cl.country)} ${cl.name}` : 'Client'}</b>
             {o.broker && <span className="chip sc-chip sc-broker">via {o.broker} (5%)</span>}
-            <div className="small muted mono">{routeSummary(o.pattern)}</div>
+            <div className="of-shape-head"><span className="small muted mono">{routeSummary(o.pattern)}</span><ShapeTags s={shapeOf(o)} /></div>
           </div>
+          {/* v0.18 what stands between us and this job, the most important reason first; no four-line card here. */}
+          <OfferVerdictBox g={g} v={verdict} offerId={o.id} busyFix={busyFix} />
           <p className="muted sc-blurb">{blurbOf(o)}</p>
-          <Chips chips={[...v09Chips(o), ...reqChips(o.requirements, o.pattern), ...riskChips(o.risk), ...effectChips(o)]} />
+          <Chips chips={[...v09Chips(o), ...reqChips(o.requirements, o.pattern, { shape: true }), ...riskChips(o.risk), ...effectChips(o)]} />
           <AnalystBlock g={g} offerId={o.id} fmtP={fmtP} steps={steps} lift={lift} onUse={live && !countered && !o.counter && !tenderWon ? setStep : undefined} />
           {live && <CompetitionLine g={g} o={o} />}
           <ArchPanel g={g} o={o} aircraftId={sel?.aircraftId} />
           {sel && !hasPanel(o) && (() => {
             const mission = sel.checks.find((c) => c.id === 'mission');
             return mission ? <div className={`small v8-mission ${LEVEL_TONE[mission.level]}`}><Dot tone={LEVEL_TONE[mission.level]} /><span>{mission.label}{mission.detail ? ` · ${mission.detail}` : ''}</span></div> : null;
-          })()}
-          {fit && (() => {
-            // v0.12 WHAT YOU CAN DO also sub-leases the chosen aircraft's trips in the way (when it is busy).
-            const busy = sel && sel.checks.some((c) => c.id === 'availability' && c.level === 'no');
-            const subs = busy && subleaseGroups(clashTrips(g, sel)).length ? <SubleaseButtons g={g} r={sel} offerId={o.id} long /> : null;
-            const acts = fit.actions.filter((a) => a.id !== 'review');
-            return (
-              <ProblemCardView card={{ ...fit, actions: acts }} g={g} hideActions={fit.actions.every((a) => a.id === 'review')} onAction={(a) => runAction(g, a)}>
-                {subs}
-              </ProblemCardView>
-            );
           })()}
           {o.paint && <PaintTermsCard g={g} o={o} typeId={sel && g.fleet[sel.aircraftId] ? artFor(g.fleet[sel.aircraftId].typeId, g.fleet[sel.aircraftId].variant) : 'a320ceo'} on={paint} onToggle={met ? () => {} : setPaintOn} fmtP={fmtP} />}
           {o.cabin && <CabinTermsCard g={g} o={o} aircraftId={sel?.aircraftId ?? null} on={cabin} onToggle={met ? () => {} : setCabinOn} fmtP={fmtP} />}

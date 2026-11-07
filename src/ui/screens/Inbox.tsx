@@ -48,6 +48,8 @@ export function openMessage(g: GameState, m: Message) {
     store.navigate('contracts', { view: 'tenders' });
     return store.openModal({ kind: 'tender', tenderId: m.ref.id });
   }
+  // v0.18 a message about a person opens their sheet (monthly roster).
+  if (m.ref?.kind === 'crew' && g.crew[m.ref.id]) return store.openPerson(m.ref.id);
   const link = m.ref ? refTarget(g, m.ref) : null;
   if (!link) return;
   if (link.offerId) {

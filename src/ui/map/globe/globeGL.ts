@@ -4,13 +4,14 @@
 // the rest dashed), airport dots and the aircraft silhouettes as textures. Loaded only with the globe (its own chunk).
 
 import {
-  AdditiveBlending, BackSide, BufferAttribute, BufferGeometry, CanvasTexture, ClampToEdgeWrapping, DataTexture, DoubleSide, Float32BufferAttribute, LinearFilter,
+  AdditiveBlending, Color, MeshLambertMaterial, BackSide, BufferAttribute, BufferGeometry, CanvasTexture, ClampToEdgeWrapping, DataTexture, DoubleSide, Float32BufferAttribute, LinearFilter,
   LinearMipmapLinearFilter, Mesh, MeshBasicMaterial, NormalBlending, Points, RedFormat, RepeatWrapping, ShaderMaterial, SphereGeometry, SRGBColorSpace, type Texture,
   UnsignedByteType, Vector2, Vector3, Vector4,
 } from 'three';
 import { silhouette, silSpec } from '../silhouettes';
 import type { Ribbon } from './globeLand';
-import { NIGHT_S, type Vec3, cross, norm, sub, vecOf } from './globeLogic';
+import { liftAt, NIGHT_S, type Vec3, sub, vecOf } from './globeLogic';
+import { modelOf } from './globeModel';
 
 export type RGBA = [number, number, number, number];
 
@@ -325,23 +326,47 @@ export function styleRibbon(m: ShaderMaterial, color: RGBA, widthCss: number, bu
 
 // ---------- flight arcs ----------
 
+/*
+ * v0.18 flight arcs lift off the surface (higher for longer sectors) and are drawn as screen-px ribbons (each point's
+ * two vertices pushed apart across the line on screen, as the borders): a lifted arc seen side-on near the limb keeps
+ * its width. Hidden where the Earth is in front of them (a ray test against the sphere, so an arc rising over the limb
+ * still shows against space). The flown part is solid and brightens towards the aircraft; the part to go is dashed,
+ * the dashes drifting gently towards the destination while the clock runs.
+ */
 const ARC_VS = /* glsl */ `
-attribute vec3 aSide;
+attribute vec3 aPrev;
+attribute vec3 aNext;
 attribute float aSign;
 attribute float aT;
 attribute float aLen;
+uniform vec2 uRes;
 uniform float uHalfW;
 varying float vSign;
 varying float vT;
 varying float vLen;
-varying float vFace;
+varying vec3 vW;
+vec2 scr(vec4 c) { return c.xy / c.w * uRes * 0.5; }
 void main() {
-  vSign = aSign;
+  mat4 pv = projectionMatrix * viewMatrix * modelMatrix;
+  vec4 c = pv * vec4(position, 1.0);
+  vec2 s = scr(c);
+  vec2 d1 = s - scr(pv * vec4(aPrev, 1.0));
+  vec2 d2 = scr(pv * vec4(aNext, 1.0)) - s;
+  float l1 = length(d1);
+  float l2 = length(d2);
+  vec2 t1 = l1 > 1e-4 ? d1 / l1 : (l2 > 1e-4 ? d2 / l2 : vec2(1.0, 0.0));
+  vec2 t2 = l2 > 1e-4 ? d2 / l2 : t1;
+  vec2 t = t1 + t2;
+  t = length(t) > 1e-3 ? normalize(t) : t1;
+  vec2 nrm = vec2(-t.y, t.x);
+  float mitre = 1.0 / max(dot(nrm, vec2(-t1.y, t1.x)), 0.5);
+  float e = max(uHalfW, 0.5) + 1.0;
+  c.xy += nrm * (aSign * e * mitre) / (uRes * 0.5) * c.w;
+  vSign = aSign * e;
   vT = aT;
   vLen = aLen;
-  vec4 w = modelMatrix * vec4(position + aSide * aSign * uHalfW, 1.0);
-  vFace = dot(normalize(position), normalize(cameraPosition - w.xyz));
-  gl_Position = projectionMatrix * viewMatrix * w;
+  vW = (modelMatrix * vec4(position, 1.0)).xyz;
+  gl_Position = c;
 }`;
 
 const ARC_FS = /* glsl */ `
@@ -350,10 +375,13 @@ uniform float uOpacity;
 uniform float uSplit;
 uniform vec2 uDashA;
 uniform vec2 uDashB;
+uniform float uHalfW;
+uniform float uFlow;
+uniform float uTail;
 varying float vSign;
 varying float vT;
 varying float vLen;
-varying float vFace;
+varying vec3 vW;
 float dashed(vec2 d, float len) {
   if (d.x <= 0.0) return 1.0;
   float m = mod(len, d.x + d.y);
@@ -361,32 +389,51 @@ float dashed(vec2 d, float len) {
   return 1.0 - smoothstep(d.x - w, d.x + w, m);
 }
 void main() {
-  if (vFace < 0.0) discard;
-  float on = vT <= uSplit ? dashed(uDashA, vLen) : dashed(uDashB, vLen);
-  float edge = 1.0 - smoothstep(0.55, 1.0, abs(vSign));
-  float a = uOpacity * on * edge * smoothstep(0.0, 0.2, vFace);
+  // Behind the Earth? (the ray from the camera meets the sphere first)
+  vec3 o = cameraPosition;
+  vec3 dv = vW - o;
+  float L = length(dv);
+  vec3 d = dv / L;
+  float b = dot(o, d);
+  float c = dot(o, o) - 0.996;
+  float disc = b * b - c;
+  if (disc > 0.0) {
+    float t0 = -b - sqrt(disc);
+    if (t0 > 0.0 && t0 < L) discard;
+  }
+  bool flown = vT <= uSplit;
+  float on = flown ? dashed(uDashA, vLen) : dashed(uDashB, vLen - uFlow);
+  float hw = max(uHalfW, 0.5);
+  float edge = clamp(hw + 0.5 - abs(vSign), 0.0, 1.0) * min(1.0, uHalfW * 2.0);
+  float tail = flown && uSplit > 0.0 ? mix(uTail, 1.0, smoothstep(0.0, uSplit, vT)) : 1.0;
+  float a = uOpacity * on * edge * tail;
   if (a < 0.004) discard;
   gl_FragColor = vec4(uColor, a);
 }`;
 
-/** Ribbon geometry along [lon, lat] samples at radius r: two vertices per sample (left and right of the track). */
-export function arcGeometry(pts: [number, number][], r: number): BufferGeometry {
+/**
+ * Ribbon geometry along [lon, lat] samples at radius r, lifted `lift` (Earth radii) at its middle (liftAt): two
+ * vertices per sample, with the neighbours either side for the screen-space width.
+ */
+export function arcGeometry(pts: [number, number][], r: number, lift = 0): BufferGeometry {
   const n = pts.length;
-  const P: Vec3[] = pts.map(([lon, lat]) => vecOf(lon, lat, r));
+  const P: Vec3[] = pts.map(([lon, lat], i) => vecOf(lon, lat, r + liftAt(lift, n > 1 ? i / (n - 1) : 0)));
   const pos = new Float32Array(n * 6);
-  const side = new Float32Array(n * 6);
+  const prev = new Float32Array(n * 6);
+  const next = new Float32Array(n * 6);
   const sign = new Float32Array(n * 2);
   const tt = new Float32Array(n * 2);
   const len = new Float32Array(n * 2);
   let L = 0;
   for (let i = 0; i < n; i++) {
     if (i > 0) L += Math.hypot(...sub(P[i], P[i - 1]));
-    const T = norm(sub(P[Math.min(n - 1, i + 1)], P[Math.max(0, i - 1)]));
-    const S = norm(cross(norm(P[i]), T));
+    const A = P[Math.max(0, i - 1)];
+    const B = P[Math.min(n - 1, i + 1)];
     for (let k = 0; k < 2; k++) {
       const j = i * 2 + k;
       pos.set(P[i], j * 3);
-      side.set(S, j * 3);
+      prev.set(A, j * 3);
+      next.set(B, j * 3);
       sign[j] = k ? 1 : -1;
       tt[j] = n > 1 ? i / (n - 1) : 0;
       len[j] = L;
@@ -399,7 +446,8 @@ export function arcGeometry(pts: [number, number][], r: number): BufferGeometry 
   }
   const geo = new BufferGeometry();
   geo.setAttribute('position', new Float32BufferAttribute(pos, 3));
-  geo.setAttribute('aSide', new Float32BufferAttribute(side, 3));
+  geo.setAttribute('aPrev', new Float32BufferAttribute(prev, 3));
+  geo.setAttribute('aNext', new Float32BufferAttribute(next, 3));
   geo.setAttribute('aSign', new Float32BufferAttribute(sign, 1));
   geo.setAttribute('aT', new Float32BufferAttribute(tt, 1));
   geo.setAttribute('aLen', new Float32BufferAttribute(len, 1));
@@ -417,6 +465,10 @@ export interface ArcStyle {
   before: [number, number] | null;
   after: [number, number] | null;
   split: number;
+  /** v0.18 the flown part's opacity at take-off (it brightens to the aircraft); 1: even. */
+  tail?: number;
+  /** v0.18 how far the dashes ahead have drifted (screen px; 0: still). */
+  flow?: number;
 }
 
 export function arcMaterial(): ShaderMaterial {
@@ -424,8 +476,8 @@ export function arcMaterial(): ShaderMaterial {
     vertexShader: ARC_VS,
     fragmentShader: ARC_FS,
     uniforms: {
-      uHalfW: { value: 0.001 }, uColor: { value: new Vector3(1, 1, 1) }, uOpacity: { value: 1 }, uSplit: { value: -1 },
-      uDashA: { value: new Vector2(0, 0) }, uDashB: { value: new Vector2(0, 0) },
+      uHalfW: { value: 1 }, uRes: { value: new Vector2(1, 1) }, uColor: { value: new Vector3(1, 1, 1) }, uOpacity: { value: 1 }, uSplit: { value: -1 },
+      uDashA: { value: new Vector2(0, 0) }, uDashB: { value: new Vector2(0, 0) }, uFlow: { value: 0 }, uTail: { value: 1 },
     },
     transparent: true,
     depthWrite: false,
@@ -433,15 +485,21 @@ export function arcMaterial(): ShaderMaterial {
   });
 }
 
-/** Sets an arc's look for this frame (`wpp`: world units per screen px). */
-export function styleArc(m: ShaderMaterial, st: ArcStyle, wpp: number) {
+/** The view an arc is drawn for this frame: world units per screen px, the drawing buffer (px) and its px per css px. */
+export interface ArcView { wpp: number; bufW: number; bufH: number; pr: number }
+
+/** Sets an arc's look for this frame. */
+export function styleArc(m: ShaderMaterial, st: ArcStyle, v: ArcView) {
   const u = m.uniforms;
-  u.uHalfW.value = (st.width / 2) * wpp * 1.35;
+  u.uHalfW.value = (st.width * v.pr) / 2;
+  (u.uRes.value as Vector2).set(v.bufW, v.bufH);
   (u.uColor.value as Vector3).set(st.color[0], st.color[1], st.color[2]);
   u.uOpacity.value = st.opacity;
   u.uSplit.value = st.split;
-  (u.uDashA.value as Vector2).set(st.before ? st.before[0] * wpp : 0, st.before ? st.before[1] * wpp : 0);
-  (u.uDashB.value as Vector2).set(st.after ? st.after[0] * wpp : 0, st.after ? st.after[1] * wpp : 0);
+  u.uTail.value = st.tail ?? 1;
+  u.uFlow.value = (st.flow ?? 0) * v.wpp;
+  (u.uDashA.value as Vector2).set(st.before ? st.before[0] * v.wpp : 0, st.before ? st.before[1] * v.wpp : 0);
+  (u.uDashB.value as Vector2).set(st.after ? st.after[0] * v.wpp : 0, st.after ? st.after[1] * v.wpp : 0);
 }
 
 // ---------- airports ----------
@@ -551,4 +609,87 @@ export function silTexture(typeId: string, ink: { fill: string; edge: string; en
 
 export function acMaterial(tex: Texture): MeshBasicMaterial {
   return new MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, alphaTest: 0.02 });
+}
+
+// ---------- v0.18 3D aircraft ----------
+
+const geoCache = new Map<string, BufferGeometry>();
+
+/** A type's 3D model as a three.js geometry (metres; x to the right wing, y to the nose, z up), cached. */
+export function modelGeometry(typeId: string): BufferGeometry {
+  let g = geoCache.get(typeId);
+  if (!g) {
+    const m = modelOf(typeId);
+    g = new BufferGeometry();
+    g.setAttribute('position', new Float32BufferAttribute(m.pos, 3));
+    g.setAttribute('normal', new Float32BufferAttribute(m.nrm, 3));
+    g.setAttribute('color', new Float32BufferAttribute(m.col, 3));
+    geoCache.set(typeId, g);
+  }
+  return g;
+}
+
+/** Frees the cached model geometries (the globe closing). */
+export function disposeModels() {
+  for (const g of geoCache.values()) g.dispose();
+  geoCache.clear();
+}
+
+/** A lit material in a livery colour (the model's per-vertex shades tint it: nacelles darker). */
+export function modelMaterial(colour: string): MeshLambertMaterial {
+  return new MeshLambertMaterial({ color: new Color(colour), vertexColors: true, side: DoubleSide });
+}
+
+/**
+ * The soft shadow of a type seen from above (black, blurred), as a texture laid on the ground under the aircraft. Built
+ * with the canvas's own shadow blur (drawn off the canvas, its shadow falls on it), which every browser supports.
+ */
+export function shadowTexture(typeId: string, maxAniso: number): CanvasTexture {
+  const cv = document.createElement('canvas');
+  cv.width = TEX;
+  cv.height = TEX;
+  const c = cv.getContext('2d')!;
+  const sil = silhouette(typeId, TEX_SIL * 0.92);
+  c.translate(TEX / 2 - 1000, TEX / 2);
+  c.shadowColor = 'rgba(0, 0, 0, 1)';
+  c.shadowBlur = 5;
+  c.shadowOffsetX = 1000;
+  c.fillStyle = '#000';
+  c.fill(new Path2D(sil.body));
+  c.fill(new Path2D(sil.engines));
+  const tex = new CanvasTexture(cv);
+  tex.minFilter = LinearMipmapLinearFilter;
+  tex.anisotropy = Math.min(4, maxAniso);
+  return tex;
+}
+
+/** A shadow's material at a darkness (0..1). */
+export function shadowMaterial(tex: Texture, alpha: number): MeshBasicMaterial {
+  return new MeshBasicMaterial({ map: tex, color: 0x000000, transparent: true, opacity: alpha, depthWrite: false });
+}
+
+/** Two soft white streaks fading out behind the engines (a contrail), along the texture's height (the engines at the top). */
+export function trailTexture(): CanvasTexture {
+  const W = 64;
+  const H = 256;
+  const cv = document.createElement('canvas');
+  cv.width = W;
+  cv.height = H;
+  const c = cv.getContext('2d')!;
+  for (const x of [W * 0.3, W * 0.7]) {
+    for (let y = 0; y < H; y++) {
+      const f = y / H;
+      const a = (f < 0.06 ? f / 0.06 : 1) * (1 - f) ** 1.6 * 0.9;
+      const w = 2.2 + f * 5;
+      const g = c.createLinearGradient(x - w, 0, x + w, 0);
+      g.addColorStop(0, 'rgba(255,255,255,0)');
+      g.addColorStop(0.5, `rgba(255,255,255,${a.toFixed(3)})`);
+      g.addColorStop(1, 'rgba(255,255,255,0)');
+      c.fillStyle = g;
+      c.fillRect(x - w, y, w * 2, 1);
+    }
+  }
+  const tex = new CanvasTexture(cv);
+  tex.minFilter = LinearMipmapLinearFilter;
+  return tex;
 }

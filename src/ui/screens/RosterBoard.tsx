@@ -6,7 +6,7 @@
 
 import { BoardingPasses } from '../components/BoardingPass';
 import { RankMark } from '../components/RankMark';
-import { BedDouble, CalendarDays, Check, Lock } from 'lucide-react';
+import { BedDouble, CalendarDays, Check, ChevronDown, Rows3, Rows4 } from 'lucide-react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, HOUR, dayStart, fmtDay, monthKey, toDate } from '../../engine/core/time';
@@ -22,12 +22,40 @@ import { seatLabel } from '../../engine/core/perf';
 import { CAL_KEY_CODE, CAL_KEY_LABEL, calKey, calLayer, calLegend, type CalKey } from './crewLogic';
 import { cssRect, toCss } from '../device';
 import {
-  BACK_DAYS, BOARD_DAYS, blockCands, blockKeys, boardItems, clientItems, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, HEAD_H, itemAt, LEFT_W,
-  monthCell, moraleTone, NO_BOARD_FILTER, ROLE_PLURAL, splitMark, verdictText, visibleRange, weekLabels, type BoardFilter, type BoardItem, type BoardZoom, type RankFilter,
+  BACK_DAYS, BOARD_DAYS, blockCands, blockKeys, boardItems, calmCands, clientItems, groupAt, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, HEAD_H, itemAt, LEFT_W,
+  monthCell, moraleTone, NO_BOARD_FILTER, ROLE_PLURAL, ROW_H_BY, splitMark, verdictText, visibleRange, weekLabels, type BoardDensity, type BoardFilter, type BoardGroupBy, type BoardItem, type BoardZoom, type RankFilter,
 } from './rosterBoardLogic';
 
 const ZOOM_KEY = 'bh.boardZoom';
 const SCOPE_KEY = 'bh.boardScope';
+// v0.18 density, grouping and folded groups (this device only).
+const DENSITY_KEY = 'bh.boardDensity';
+const GROUP_KEY = 'bh.boardGroup';
+const FOLD_KEY = 'bh.boardFold';
+function storedFold(): Set<string> {
+  try {
+    const v = JSON.parse(localStorage.getItem(FOLD_KEY) ?? '[]');
+    return new Set(Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
+  } catch {
+    return new Set();
+  }
+}
+const GROUP_LABEL: Record<BoardGroupBy, string> = { base: 'By base', deployment: 'By deployment', rank: 'By rank' };
+
+/** v0.18 crew id → station of the deployment they are on now (the tour on station of each active deployment). */
+function deploymentsNow(g: GameState): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const d of Object.values(g.deployments ?? {})) {
+    if (d.start > g.now || d.end <= g.now) continue;
+    for (const pid of d.pairingIds) {
+      const p = g.pairings[pid];
+      // The tour on station now (not one already flown home, nor the next set's).
+      if (!p || p.status === 'done' || p.status === 'broken' || p.start > g.now || p.end <= g.now) continue;
+      for (const s of p.slots) if (s.crewId && !out.has(s.crewId)) out.set(s.crewId, d.base);
+    }
+  }
+  return out;
+}
 const LONG_PRESS = 400;
 const TOUCH_SLOP = 8;
 const MOUSE_SLOP = 6;
@@ -84,6 +112,8 @@ interface RowProps {
   checked: boolean;
   /** v0.9 Month zoom: the row's month summary cell ('9 · S11 · F8'), red below 7 days off. */
   sum?: { text: string; low: boolean; line: string };
+  /** v0.18 compact density: one name line. */
+  compact?: boolean;
 }
 
 /** v0.8 a client cabin crew row: grey blocks for their duties, no names, nothing to tap or drag. */
@@ -103,7 +133,7 @@ const ClientLane = memo(function ClientLane({ label, blocks, from, dayW, d0, d1 
   );
 });
 
-const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, checked, sum }: RowProps) {
+const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, checked, sum, compact }: RowProps) {
   const ppm = dayW / DAY;
   const lo = from + d0 * DAY;
   const hi = from + d1 * DAY;
@@ -118,18 +148,20 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
   // Month: a day with a work / standby code shows that code, not the day off's text under it.
   const codeDays = new Set(codes.map((c) => c.day));
   // Week: flight numbers and route in the band above the bars, each with a ≥ 44 px tap / drag area.
-  const labels = month ? [] : weekLabels(row.blocks, from, dayW, measure).filter((l) => l.hx < d1 * dayW && l.hx + l.hw > d0 * dayW);
+  // v0.18 the route only (the flight number is on the tap card).
+  const labels = month ? [] : weekLabels(row.blocks, from, dayW, measure, 10, calmCands).filter((l) => l.hx < d1 * dayW && l.hx + l.hw > d0 * dayW);
   return (
     <div className={`rb-row ${tone ? `dt-${tone}` : ''} ${checked ? 'checked' : ''}`} data-row={row.crewId}>
       <div className="rb-name" data-name={row.crewId}>
         {selecting && <span className={`rb-check ${checked ? 'on' : ''}`} aria-hidden>{checked && <Check />}</span>}
         <span className="col rb-name-txt">
-          <span className="row gap-4"><span className={`sc-role r-${row.role}`}>{row.role}</span><b className="ellipsis">{row.name}</b><RankMark role={row.role} /></span>
-          <span className="row gap-4 tiny muted">
-            <span className={`rb-morale ${moraleTone(row.morale)}`} aria-label={`Morale ${row.morale}`} title={`Morale ${row.morale}`} />
-            <span>{row.base}</span>
-            {row.leaves !== null && <span className="rb-leaves">Leaves {fmtLeave(row.leaves)}</span>}
-          </span>
+          <span className="row gap-6 rb-name-1"><span className={`rb-morale ${moraleTone(row.morale)}`} aria-label={`Morale ${row.morale}`} title={`Morale ${row.morale}`} /><b className="ellipsis">{row.name}</b><RankMark role={row.role} /></span>
+          {!compact && (
+            <span className="row gap-4 tiny muted rb-name-2">
+              <span className="rb-rank">{row.role}</span>
+              {row.leaves !== null ? <span className="rb-leaves">· Leaves {fmtLeave(row.leaves)}</span> : <span>· {row.base}</span>}
+            </span>
+          )}
         </span>
       </div>
       <div className="rb-lane" style={{ width: W }}>
@@ -198,11 +230,28 @@ const Block = memo(function Block({ b, i, crewId, from, ppm, W, month, mute }: {
       data-mv={b.movable ? 1 : undefined}
     >
       {txt && <span className="sc-cal-t"><LabelText text={txt} /></span>}
-      {b.locked && w >= 16 && <Lock className="rb-lock" aria-label="set by you" />}
-      {b.protected && w >= (month ? 26 : 40) && <Lock className="rb-lock rb-prot" aria-label="published day off" />}
+      {/* v0.18 the lock drawn by CSS (one node, not an svg tree: the board mounts many). Month hides the day-off lock. */}
+      {b.locked && w >= 16 && <i className="rb-lock rb-lock-i" role="img" aria-label="set by you" />}
+      {b.protected && !month && w >= 40 && <i className="rb-lock rb-prot rb-lock-i" role="img" aria-label="published day off" />}
     </span>
   );
 });
+
+/** v0.18 a group header: chevron, title, what it holds and the count; a tap folds it. Pinned copy under the day header. */
+function GroupHead({ it, h, selecting, all, sticky }: { it: Extract<BoardItem, { kind: 'group' }>; h: number; selecting: boolean; all: boolean; sticky?: boolean }) {
+  const foldable = it.key !== 'client-crew';
+  return (
+    <div className={`rb-group ${sticky ? 'rb-sticky' : ''} ${it.collapsed ? 'folded' : ''}`} style={{ height: h }} data-fold={foldable ? it.key : undefined} role={foldable ? 'button' : undefined} aria-expanded={foldable ? !it.collapsed : undefined}>
+      <span className="rb-group-l">
+        {foldable && <ChevronDown className="rb-fold" aria-hidden />}
+        <b className="rb-group-t">{it.title ?? it.label}</b>
+        {it.sub && <span className="rb-group-s">{it.sub}</span>}
+        {it.n !== undefined && <span className="rb-group-n num">{it.n}</span>}
+        {selecting && it.ids.length > 0 && !it.collapsed && <button className="btn btn-sm rb-group-all" data-group={it.key}>{all ? 'Clear group' : 'Select all'}</button>}
+      </span>
+    </div>
+  );
+}
 
 /** Today line in the grid, moved every frame from liveMinute() (no React renders). */
 function TodayLine({ from, ppm }: { from: number; ppm: number }) {
@@ -280,6 +329,10 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
   const [f, setF] = useState<BoardFilter>(NO_BOARD_FILTER);
   const [zoom, setZoomS] = useState<BoardZoom>(() => stored(ZOOM_KEY, ['week', 'month'] as const, 'week'));
   const [scope, setScopeS] = useState<MoveScope>(() => stored(SCOPE_KEY, ['duty', 'trip'] as const, 'trip'));
+  const [density, setDensityS] = useState<BoardDensity>(() => stored(DENSITY_KEY, ['compact', 'comfortable'] as const, 'comfortable'));
+  const [groupBy, setGroupByS] = useState<BoardGroupBy>(() => stored(GROUP_KEY, ['base', 'deployment', 'rank'] as const, 'base'));
+  const [fold, setFold] = useState<Set<string>>(storedFold);
+  const [stick, setStick] = useState<string | null>(null);
   const [view, setView] = useState({ w: 900, h: 480 });
   const [range, setRange] = useState<[number, number]>([0, 24]);
   const [days, setDays] = useState<[number, number]>([0, 14]);
@@ -299,15 +352,17 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
   const itemsRef = useRef<{ sig: string; items: BoardItem[] } | null>(null);
   // v0.8 mixed-crew contracts: the client's cabin crew as grey rows after ours.
   const clientRows = useMemo(() => clientCrewRows(g, from, to), [g, from, to, rev, crev, hour]); // eslint-disable-line react-hooks/exhaustive-deps
+  const depOf = useMemo(() => (groupBy === 'deployment' ? deploymentsNow(g) : undefined), [g, groupBy, crev, hour]); // eslint-disable-line react-hooks/exhaustive-deps
   const items = useMemo(() => {
-    const next = [...boardItems(Object.values(g.crew), f, g.company.homeBase), ...clientItems(clientRows, f)];
+    const next = [...boardItems(Object.values(g.crew), f, g.company.homeBase, { by: groupBy, collapsed: fold, depOf }), ...clientItems(clientRows, f)];
     const sig = itemsSig(next);
     if (itemsRef.current?.sig === sig) return itemsRef.current.items;
     itemsRef.current = { sig, items: next };
     return next;
-  }, [g, f, crev, nCrew, hour, clientRows]); // eslint-disable-line react-hooks/exhaustive-deps
-  const groupH = selecting ? 44 : 28;
-  const { tops, total } = useMemo(() => boardLayout(items, groupH), [items, groupH]);
+  }, [g, f, crev, nCrew, hour, clientRows, groupBy, fold, depOf]); // eslint-disable-line react-hooks/exhaustive-deps
+  const groupH = selecting ? 44 : 34;
+  const rowH = ROW_H_BY[density];
+  const { tops, total } = useMemo(() => boardLayout(items, groupH, rowH), [items, groupH, rowH]);
   const [a, b] = range;
   const shown = items.slice(a, Math.min(b, items.length));
   const ids = shown.filter((x): x is Extract<BoardItem, { kind: 'crew' }> => x.kind === 'crew').map((x) => x.id);
@@ -333,8 +388,9 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
   }, [g, from, to, ids.join(), crev, rev, now]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Latest values for the native drag listeners.
-  const live = useRef({ items, tops, total, scope, from, g });
-  live.current = { items, tops, total, scope, from, g };
+  const live = useRef({ items, tops, total, scope, from, g, groupH });
+  live.current = { items, tops, total, scope, from, g, groupH };
+  const stickRef = useRef<HTMLDivElement>(null);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const zoomRef = useRef(zoom);
@@ -346,8 +402,22 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
     const { tops: t, total: tt } = live.current;
     const r = visibleRange(t, tt, el.scrollTop - HEAD_H, el.clientHeight);
     setRange((p) => (p[0] === r[0] && p[1] === r[1] ? p : r));
+    // v0.18 the group of the top row, pinned under the day header once its own header has scrolled away.
+    const top = Math.max(0, el.scrollTop);
+    const gi = itemAt(t, tt, top);
+    const grp = top > 0 && gi >= 0 ? groupAt(live.current.items, gi) : null;
+    const gIx = grp ? live.current.items.indexOf(grp) : -1;
+    const k = grp && t[gIx] < top ? grp.key : null;
+    setStick((p) => (p === k ? p : k));
+    // The next group's header pushes the pinned one up as it arrives.
+    const nx = gIx >= 0 ? live.current.items.findIndex((x, i) => i > gIx && x.kind === 'group') : -1;
+    const push = nx >= 0 ? Math.min(0, t[nx] - top - live.current.groupH) : 0;
+    const tf = push ? `translateY(${push}px)` : '';
+    if (stickRef.current && stickRef.current.style.transform !== tf) stickRef.current.style.transform = tf;
     const dw = dayWidth(zoomRef.current, el.clientWidth);
-    const d = dayWindow(el.scrollLeft, el.clientWidth, dw);
+    // v0.18 fewer re-renders on a sideways scroll: a few more days drawn either side, moved in bigger steps.
+    const wk = zoomRef.current === 'week';
+    const d = dayWindow(el.scrollLeft, el.clientWidth, dw, BOARD_DAYS, wk ? 4 : 3, wk ? 2 : 3);
     setDays((p) => (p[0] === d[0] && p[1] === d[1] ? p : d));
   }, []);
 
@@ -361,7 +431,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
     ro.observe(el);
     return () => ro.disconnect();
   }, [sync]);
-  useLayoutEffect(sync, [sync, items, groupH, dayW]);
+  useLayoutEffect(sync, [sync, items, groupH, dayW, rowH]);
 
   // Today near the left edge on open and on Today (yesterday whole in Week, three days back in Month); a new day
   // width (resize, zoom) keeps the same day at the left edge, so a column is never cut at the name column.
@@ -396,6 +466,22 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
   const setScope = (s: MoveScope) => {
     setScopeS(s);
     remember(SCOPE_KEY, s);
+  };
+  const setDensity = (d: BoardDensity) => {
+    setDensityS(d);
+    remember(DENSITY_KEY, d);
+  };
+  const setGroupBy = (v: BoardGroupBy) => {
+    setGroupByS(v);
+    remember(GROUP_KEY, v);
+    scroller.current?.scrollTo({ top: 0 });
+  };
+  const toggleFold = (key: string) => {
+    const next = new Set(fold);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    setFold(next);
+    remember(FOLD_KEY, JSON.stringify([...next]));
   };
 
   // ---------- drag ----------
@@ -627,6 +713,16 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
   const onClick = (e: React.MouseEvent) => {
     if (performance.now() - clickBlock.current < 450) return;
     const t = e.target as Element;
+    const fd = t.closest('[data-group]') ? null : t.closest<HTMLElement>('[data-fold]');
+    if (fd) {
+      toggleFold(fd.dataset.fold!);
+      // The pinned header folds its group: back to where that group starts.
+      if (fd.classList.contains('rb-sticky')) {
+        const i = items.findIndex((x) => x.kind === 'group' && x.key === fd.dataset.fold);
+        if (i >= 0 && scroller.current) scroller.current.scrollTop = tops[i];
+      }
+      return;
+    }
     const grp = t.closest<HTMLElement>('[data-group]');
     if (grp) {
       const it = items.find((x) => x.kind === 'group' && x.key === grp.dataset.group);
@@ -645,7 +741,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
     if (name) {
       const id = name.dataset.name!;
       if (selecting) onSelect([id], !selected.has(id));
-      else store.navigate('crew', { sel: { kind: 'crew', id }, view: 'people' });
+      else store.openPerson(id);
       return;
     }
     const blk = t.closest<HTMLElement>('[data-c][data-i]');
@@ -670,7 +766,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
 
   const families = useMemo(() => [...new Set(Object.values(g.crew).flatMap((c) => c.ratings))].sort() as RatingFamily[], [g, nCrew, crev]); // eslint-disable-line react-hooks/exhaustive-deps
   const bases = useMemo(() => [...new Set(Object.values(g.crew).map((c) => c.base))].sort(), [g, nCrew]); // eslint-disable-line react-hooks/exhaustive-deps
-  const legend = calLegend([...rows.values()].flatMap((r) => r.blocks)).filter((k) => !(zoom === 'month' && k === 'rest'));
+  const legend = useMemo(() => calLegend([...rows.values()].flatMap((r) => r.blocks)).filter((k) => !(zoom === 'month' && k === 'rest')), [rows, zoom]);
   const month = zoom === 'month';
   const SUM_W = month ? 88 : 0;
   const W = LEFT_W + BOARD_DAYS * dayW + SUM_W;
@@ -680,19 +776,29 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
   const pub = publishedTo(g);
   const pubX = LEFT_W + (pub - from) * ppm;
   const monthT = from + Math.floor((d0 + d1) / 2) * DAY;
+  // v0.18 kept per person while the month, roster and day are the same (a scroll only adds the new rows).
+  const sumCache = useRef<{ key: string; m: Map<string, { text: string; low: boolean; line: string }> }>({ key: '', m: new Map() });
   const sums = useMemo(() => {
     const out = new Map<string, { text: string; low: boolean; line: string }>();
     if (!month) return out;
+    const key = `${monthT}|${crev}|${rev}|${Math.floor(now / DAY)}|${pub}`;
+    if (sumCache.current.key !== key) sumCache.current = { key, m: new Map() };
+    const cache = sumCache.current.m;
     for (const id of ids) {
-      const v = crewMonth(g, id, monthT);
-      const c = monthCell(v);
-      // Red only once the whole month is published (a month still being planned is not short yet).
-      out.set(id, { ...c, low: c.low && monthKey(pub) > v.key, line: v.line });
+      let s = cache.get(id);
+      if (!s) {
+        const v = crewMonth(g, id, monthT);
+        const c = monthCell(v);
+        // Red only once the whole month is published (a month still being planned is not short yet).
+        cache.set(id, (s = { ...c, low: c.low && monthKey(pub) > v.key, line: v.line }));
+      }
+      out.set(id, s);
     }
     return out;
   }, [g, month, monthT, ids.join(), crev, rev, Math.floor(now / DAY)]); // eslint-disable-line react-hooks/exhaustive-deps
   const monthLabel = month ? MON_SHORT.format(toDate(monthT)) : '';
   const today = Math.floor((dayStart(now) - from) / DAY);
+  const stickyGroup = stick ? (items.find((x) => x.kind === 'group' && x.key === stick) as Extract<BoardItem, { kind: 'group' }> | undefined) ?? null : null;
   const nRows = items.filter((x) => x.kind === 'crew').length;
   // v0.7 C2: day header and columns only change with the window (toLocaleDateString was the board's top self cost).
   const head = useMemo(() => Array.from({ length: d1 - d0 }, (_, k) => {
@@ -731,12 +837,16 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
           </select>
         )}
         <input className="input rb-search" value={f.q} placeholder="Name, base" onChange={(e) => setF({ ...f, q: e.target.value })} aria-label="Search crew" />
+        <select className="select rb-groupby" value={groupBy} onChange={(e) => setGroupBy(e.target.value as BoardGroupBy)} aria-label="Group by">
+          {(Object.keys(GROUP_LABEL) as BoardGroupBy[]).map((k) => <option key={k} value={k}>{GROUP_LABEL[k]}</option>)}
+        </select>
         <span className="grow" />
+        <button className="btn btn-icon rb-density" onClick={() => setDensity(density === 'compact' ? 'comfortable' : 'compact')} aria-label={density === 'compact' ? 'Comfortable rows' : 'Compact rows'} title={density === 'compact' ? 'Comfortable rows' : 'Compact rows'}>{density === 'compact' ? <Rows3 /> : <Rows4 />}</button>
         <Seg<BoardZoom> value={zoom} onChange={setZoom} options={[{ value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }]} />
-        <span className="row gap-4 rb-scope"><span className="tiny dim nowrap">Drag moves</span><Seg<MoveScope> value={scope} onChange={setScope} options={[{ value: 'duty', label: 'Duty' }, { value: 'trip', label: 'Trip' }]} /></span>
+        <span className="row gap-4 rb-scope" title="What a drag moves: one duty or the whole trip"><span className="tiny dim nowrap rb-scope-t">Drag moves</span><Seg<MoveScope> value={scope} onChange={setScope} options={[{ value: 'duty', label: 'Duty' }, { value: 'trip', label: 'Trip' }]} /></span>
         <button className="btn rb-today" onClick={goToday} aria-label="Today" title="Today"><CalendarDays /> <span className="rb-today-t">Today</span></button>
       </div>
-      <div className={`rb-scroll ${drag ? 'dragging' : ''} z-${zoom}`} ref={scroller} onScroll={() => { sync(); if (pop) setPop(null); }} onClick={onClick}>
+      <div className={`rb-scroll ${drag ? 'dragging' : ''} z-${zoom} d-${density}`} ref={scroller} onScroll={() => { sync(); if (pop) setPop(null); }} onClick={onClick}>
         <div className="rb-canvas" style={{ width: W }}>
           <div className={`rb-head ${month ? 'with-sum' : ''}`} style={{ width: W }}>
             <div className="rb-corner small muted col">
@@ -751,19 +861,10 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
             {cols}
             {pub > from && pub < to && <span className="rb-pub" style={{ left: pubX }} aria-hidden />}
             <TodayLine from={from} ppm={ppm} />
+            {stickyGroup && <div ref={stickRef} className="rb-stick-wrap" style={{ height: groupH, marginBottom: -groupH }}><GroupHead it={stickyGroup} h={groupH} selecting={selecting} all={selecting && stickyGroup.ids.every((id) => selected.has(id))} sticky /></div>}
             <div style={{ height: tops[a] ?? 0 }} />
             {shown.map((it) => {
-              if (it.kind === 'group') {
-                const all = selecting && it.ids.every((id) => selected.has(id));
-                return (
-                  <div key={it.key} className="rb-group" style={{ height: groupH }}>
-                    <span className="rb-group-l">
-                      <b className="small">{it.label}</b>
-                      {selecting && it.ids.length > 0 && <button className="btn btn-sm rb-group-all" data-group={it.key}>{all ? 'Clear group' : 'Select all'}</button>}
-                    </span>
-                  </div>
-                );
-              }
+              if (it.kind === 'group') return <GroupHead key={it.key} it={it} h={groupH} selecting={selecting} all={selecting && it.ids.every((id) => selected.has(id))} />;
               if (it.kind === 'client') {
                 const cr = clientRows.find((x) => x.key === it.id);
                 return cr ? <ClientLane key={`k-${it.id}`} label={cr.label} blocks={cr.blocks} from={from} dayW={dayW} d0={d0} d1={d1} /> : <div key={`k-${it.id}`} className="rb-row" />;
@@ -771,7 +872,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
               const r = rows.get(it.id);
               if (!r) return <div key={it.id} className="rb-row" />;
               const tone = drag ? (it.id === drag.from ? 'source' : drag.targets[it.id]?.level) : undefined;
-              return <Row key={it.id} row={r} from={from} dayW={dayW} d0={d0} d1={d1} zoom={zoom} tone={tone} selecting={selecting} checked={selected.has(it.id)} sum={sums.get(it.id)} />;
+              return <Row key={it.id} row={r} from={from} dayW={dayW} d0={d0} d1={d1} zoom={zoom} tone={tone} selecting={selecting} checked={selected.has(it.id)} sum={sums.get(it.id)} compact={density === 'compact'} />;
             })}
           </div>
         </div>

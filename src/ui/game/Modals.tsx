@@ -9,7 +9,9 @@ import { TERMINAL, TRACKS } from '../music';
 import { HeadUnlockedModal } from '../modals/HeadUnlockedModal';
 import { CounterReplyModal, DeliveredModal, FollowDeliveryModal } from '../modals/PopModals';
 import { CallModal } from '../modals/CallModal';
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+// v0.18 the person sheet (monthly roster) in its own chunk.
+const PersonSheet = lazy(() => import('../modals/PersonSheet'));
 import { DAY, fmtDate } from '../../engine/core/time';
 import { AUTOSAVE_SLOT, SCENARIO_SLOT, SLOTS, autosaveSlot, deleteSlot, deserialize, listSaves, loadFromSlot, saveToSlot, serialize } from '../../engine/save';
 import { SCENARIO_BY_ID } from '../../engine/scenario';
@@ -383,6 +385,7 @@ export function GlobalModals() {
     case 'hire': return s.game ? <HireModal {...m} /> : null;
     case 'roundUp': return s.game ? <RoundUpModal family={m.family} target={m.target} /> : null;
     case 'train': return s.game ? <TrainModal crewId={m.crewId} /> : null;
+    case 'person': return s.game ? <Suspense fallback={null}><PersonSheet key={m.crewId} crewId={m.crewId} back={m.back} /></Suspense> : null;
     case 'check': return s.game ? <CheckModal aircraftId={m.aircraftId} checkKind={m.checkKind} replace={m.replace} restFit={m.restFit} backToRefit={m.backToRefit} suggest={m.suggest} after={m.after} /> : null;
     case 'sheet': return s.game ? <BlockSheet refs={m.refs} idle={m.idle} /> : null;
     case 'duty': return s.game ? <DutyModal id={m.id} /> : null;

@@ -65,6 +65,13 @@ describe('card actions and banners', () => {
     expect(actionTarget(g, { id: 's', label: 'x', open: { modal: 'subcharter', id: 'nope' } })).toBeNull();
     expect(actionTarget(g, { id: 'd', label: 'x', open: { modal: 'decision', id: 'gone' } })).toEqual({ nav: { tab: 'inbox' } });
   });
+  it('v0.18: a person opens their own sheet (a person who left: the Crew list)', () => {
+    const g = newGame();
+    const id = Object.keys(g.crew)[0];
+    expect(actionTarget(g, { id: 'p', label: 'x', open: { modal: 'crew', id } } as never)).toEqual({ modal: { kind: 'person', crewId: id } });
+    expect(actionTarget(g, { id: 'p', label: 'x', open: { tab: 'crew', sel: { kind: 'crew', id } } } as never)).toEqual({ modal: { kind: 'person', crewId: id } });
+    expect(actionTarget(g, { id: 'p', label: 'x', open: { modal: 'crew', id: 'gone' } } as never)).toEqual({ nav: { tab: 'crew', view: 'people' } });
+  });
   it('v0.7.2: sale, C-check hub and crew rest actions', () => {
     const g = newGame();
     expect(actionTarget(g, { id: 'sell', label: 'Sale…', open: { modal: 'sell', id: 'a1' } })).toEqual({ modal: { kind: 'sell', aircraftId: 'a1' } });

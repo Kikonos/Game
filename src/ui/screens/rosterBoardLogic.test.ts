@@ -3,7 +3,7 @@ import { DAY } from '../../engine/core/time';
 import type { CrewMember, Role } from '../../engine/core/types';
 import type { BoardRow, CalBlock, DropTarget } from '../../engine/crew';
 import {
-  blockCands, blockKeys, boardItems, dutyMark, MARK_SEP, splitMark, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, GROUP_H, itemAt, LEFT_W, matchBoard, moraleTone, NO_BOARD_FILTER,
+  blockCands, blockKeys, boardItems, calmCands, groupAt, ROW_H_BY, dutyMark, MARK_SEP, splitMark, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, GROUP_H, itemAt, LEFT_W, matchBoard, moraleTone, NO_BOARD_FILTER,
   monthCell, ROW_H, verdictText, visibleRange, weekLabels, workCode,
 } from './rosterBoardLogic';
 
@@ -208,5 +208,44 @@ describe('v0.9 §R roster codes', () => {
   it('sums a month: days off · standby · flying, low below 7', () => {
     expect(monthCell({ off: 9, offMin: 7, flying: 8, standby: { home: 8, hotel: 2, airport: 1, reserve: 0 } })).toEqual({ text: '9 · S11 · F8', low: false });
     expect(monthCell({ off: 6, offMin: 7, flying: 8, standby: { home: 0, hotel: 0, airport: 0, reserve: 0 } }).low).toBe(true);
+  });
+});
+
+describe('v0.18 board grouping, folding, density and calm labels', () => {
+  const list = [
+    crew('a', 'CC', 'LIS', ['A320'], 'Zeta'), crew('b', 'CPT', 'LIS', ['A320'], 'Alves'), crew('c', 'CPT', 'HAM', ['A320'], 'Berg'),
+    crew('d', 'FO', 'LIS', ['A320'], 'Cruz'), crew('e', 'CPT', 'LIS', ['A320'], 'Abreu'),
+  ];
+  it('groups by where they work: at base first (home base first), then each deployment, ranks then names inside', () => {
+    const items = boardItems(list, NO_BOARD_FILTER, 'LIS', { by: 'deployment', depOf: new Map([['b', 'SGN'], ['a', 'SGN']]) });
+    const heads = items.filter((x) => x.kind === 'group').map((x) => x.kind === 'group' && [x.title, x.sub, x.n]);
+    expect(heads).toEqual([['LIS', 'At base', 2], ['HAM', 'At base', 1], ['SGN', 'On deployment', 2]]);
+    expect(items.slice(-2).map((x) => x.kind === 'crew' && x.id)).toEqual(['b', 'a']);
+  });
+  it('groups by rank across bases', () => {
+    const items = boardItems(list, NO_BOARD_FILTER, 'LIS', { by: 'rank' });
+    expect(items.filter((x) => x.kind === 'group').map((x) => x.kind === 'group' && x.label)).toEqual(['Captains (3)', 'First officers (1)', 'Cabin crew (1)']);
+    expect(items.slice(1, 4).map((x) => x.kind === 'crew' && x.id)).toEqual(['e', 'b', 'c']);
+  });
+  it('folds a group to its header and changes the signature', () => {
+    const open = boardItems(list, NO_BOARD_FILTER, 'LIS');
+    const key = open[0].kind === 'group' ? open[0].key : '';
+    const folded = boardItems(list, NO_BOARD_FILTER, 'LIS', { collapsed: new Set([key]) });
+    expect(folded[0]).toMatchObject({ kind: 'group', collapsed: true, n: 2, title: 'LIS', sub: 'Captains · A320' });
+    expect(folded[1].kind).toBe('group');
+    expect(folded.length).toBe(open.length - 2);
+    expect(itemsSig(folded)).not.toBe(itemsSig(open));
+  });
+  it('lays rows out at the chosen density and finds the group of any item', () => {
+    const items = boardItems(list, NO_BOARD_FILTER, 'LIS');
+    expect(boardLayout(items, 34, ROW_H_BY.compact).total).toBe(5 * 40 + 4 * 34);
+    expect(groupAt(items, 2)).toBe(items[0]);
+    expect(groupAt(items, 3)).toBe(items[3]);
+  });
+  it('labels a duty with its route, no flight number (the mark kept)', () => {
+    const turn = blk({ flights: [fl('NB1', 'HAM', 'PMI'), fl('NB2', 'PMI', 'HAM')] });
+    expect(calmCands(turn)).toEqual(['HAM–PMI–HAM', 'PMI']);
+    expect(calmCands(blk({ flights: [fl('NB1', 'HAM', 'PMI')], aug: 1 } as Partial<CalBlock>))).toEqual([`HAM–PMI${MARK_SEP}3P`, `PMI${MARK_SEP}3P`, 'HAM–PMI', 'PMI', `${MARK_SEP}3P`]);
+    expect(calmCands(blk({ kind: 'deadhead', flights: [fl('TP1', 'LIS', 'FCO')] }))).toEqual(blockCands(blk({ kind: 'deadhead', flights: [fl('TP1', 'LIS', 'FCO')] })));
   });
 });

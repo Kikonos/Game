@@ -22,9 +22,12 @@ import { ArchIcon, Chips, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
 import { archLabel, COUNTDOWN_MIN, expiryLabel, fuelLine, offerModal, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays, v09Chips } from './screenLogic';
 import { LeadsView, leadsUrgent, salesTabCount } from './contracts/SalesView';
-import { FilterView, HiddenOffersRow } from './contracts/FilterView';
+import { FilterView, HiddenOffersRow, OfferQuickChips } from './contracts/FilterView';
+import { hiddenOffers } from '../../engine/contracts/filter';
 import { clientStars, PRESTIGE_NAME, playerLevel, playerStars, starsLabel } from '../../engine/contracts/prestige';
 import { ClientStars } from '../components/ClientStars';
+import { ShapeTags } from '../components/ShapeTags';
+import { shapeOf } from '../../engine/contracts/shape';
 import { analystView } from '../../engine/ops';
 import { ScreenHint } from '../components/ScreenHint';
 import { clientList } from '../../engine/contracts';
@@ -66,7 +69,7 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
   const cabin = o.cabin ? [{ label: `Their cabin: ${o.cabin.layout === 'two-class' ? 'two-class' : 'all economy'}${o.cabin.required ? ' · required' : ''}`, tone: o.cabin.required ? ('warn' as const) : undefined, tip: `A 48 h reconfiguration before the start; they pay ${o.cabin.clientShare >= 1 ? 'all of it' : 'half'}${o.cabin.revert ? ', and for putting it back' : ''}` }] : [];
   // v0.9 the analyst's score (when hired and on): once per offer and game hour.
   const av = useMemo(() => analystView(g, o.id), [g, o.id, o.status, Math.floor(g.now / 60)]); // eslint-disable-line react-hooks/exhaustive-deps
-  const chips = [...v09Chips(o, av), ...paint, ...cabin, ...reqChips(o.requirements, o.pattern), ...riskChips(o.risk)];
+  const chips = [...v09Chips(o, av), ...paint, ...cabin, ...reqChips(o.requirements, o.pattern, { shape: true }), ...riskChips(o.risk)];
   // v0.16.3 the restructuring label the client prices in.
   if (o.distressPct) chips.unshift({ label: `Restructuring ${Math.round(o.distressPct * 100)} %`, tone: 'warn', tip: 'The client knows the company is in a court-protected restructuring and prices the risk' });
   // v0.7.1 §13: a WHY? dot when the offer can't be flown as it stands or a counter is about to expire.
@@ -93,7 +96,8 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
         {cl && <ClientStars n={clientStars(cl)} size={11} />}
         {o.broker && <span className="chip sc-chip sc-broker">via {o.broker}</span>}
       </div>
-      <div className="sc-offer-route mono ellipsis">{routeSummary(o.pattern)}</div>
+      {/* v0.18 body and haul at a glance, beside the route. */}
+      <div className="sc-offer-route-row"><span className="sc-offer-route mono ellipsis">{routeSummary(o.pattern)}</span><ShapeTags s={shapeOf(o)} compact /></div>
       <div className="small muted">{offerDays(o).map(fmtDay).join(' – ')} · {lead <= 0 ? 'starts now' : `starts in ${lead} d`}</div>
       <div className="row between sc-offer-money">
         <b>{productLine(o.product, o)}</b>
@@ -140,19 +144,26 @@ function Market({ g }: { g: GameState }) {
   const lock = r && r.market !== 'on' ? lockOf(g, 'market') ?? lockOf(g, 'market', { archetype: 'dryLeaseOut' }) : null;
   if (r?.market === 'off') return <LockedPanel title="No new work in this scenario" why={lock ?? ''}>Your signed work is under Active.</LockedPanel>;
   const note = r?.market === 'themed' ? <LockNote className="mb-8" why={`This scenario’s market: ${r.say?.market ?? r.why}.`} /> : null;
+  // v0.18 quick chips (body, haul) whenever there is anything on the market or they are set.
+  const quick = list.length || hiddenOffers(g).length || g.filter?.bodies?.length || g.filter?.hauls?.length ? <OfferQuickChips g={g} /> : null;
   if (!list.length) {
     return (
       <>
         {note}
-        <Empty icon={<InboxIcon />} title="No offers right now">
-          Brokers and clients send work every few days. Idle aircraft attract gap-fit offers.
-        </Empty>
+        {quick}
+        {hiddenOffers(g).length ? (
+          <Empty icon={<InboxIcon />} title="No offers fit your filter">Tap All above, or open the hidden ones below.</Empty>
+        ) : (
+          <Empty icon={<InboxIcon />} title="No offers right now">
+            Brokers and clients send work every few days. Idle aircraft attract gap-fit offers.
+          </Empty>
+        )}
         <HiddenOffersRow g={g} />
       </>
     );
   }
   // v0.16 "N offers hidden by your filter" (ui/screens/contracts/FilterView.tsx).
-  return <>{note}<div className="sc-offer-grid">{list.map((o) => <OfferCard key={o.id} g={g} o={o} windows={windows} />)}</div><HiddenOffersRow g={g} /></>;
+  return <>{note}{quick}<div className="sc-offer-grid">{list.map((o) => <OfferCard key={o.id} g={g} o={o} windows={windows} />)}</div><HiddenOffersRow g={g} /></>;
 }
 
 const STATUS_LABEL: Record<Contract['status'], string> = { signed: 'Signed', active: 'Flying', completed: 'Completed', cancelled: 'Cancelled' };
@@ -228,6 +239,7 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
           <ArchIcon a={c.archetype} />
           <b className="ellipsis">{c.title}</b>
           <span className={`badge ${c.status === 'active' ? 'good' : c.status === 'cancelled' ? 'bad' : ''}`}>{STATUS_LABEL[c.status]}</span>
+          <ShapeTags s={shapeOf(c, (id) => g.fleet[id]?.typeId)} compact className="sc-contract-shape" />
         </div>
         {/* v0.14.1 (merge) a dry lease by its lease dates (fx-money UI-5); other work by the client's local days (fx-comm). */}
         <div className="small muted ellipsis">{cl?.name ?? 'Client'} · <span className="mono">{regs}</span> · {dry ? `${fmtDay(dry.lease[0])} – ${fmtDay(dry.lease[1])}` : offerDays(c).map(fmtDay).join(' – ')} · {productLine(c.product, c)}</div>
@@ -306,7 +318,7 @@ function Missed({ g }: { g: GameState }) {
         <div key={o.id} className="sc-list-row">
           <ArchIcon a={o.archetype} />
           <div className="grow">
-            <div className="ellipsis"><b>{o.title}</b></div>
+            <div className="row gap-8"><b className="ellipsis">{o.title}</b><ShapeTags s={shapeOf(o)} compact /></div>
             <div className="small muted ellipsis">{[g.clients[o.clientId]?.name, routeSummary(o.pattern), offerDays(o).map(fmtDay).join(' – ')].filter(Boolean).join(' · ')}</div>
             {o.lostWhy && <div className="small warn ellipsis">{o.lostTo ?? 'A rival'} {o.lostWhy}</div>}
           </div>

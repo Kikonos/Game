@@ -62,7 +62,7 @@ export function ClassesModal() {
                       return (
                         <div key={id} className="row gap-8 cl-member">
                           <span className={`sc-role r-${c.role}`}>{c.role}</span>
-                          <button className="sc-seat-name ellipsis grow" onClick={() => store.navigate('crew', { sel: { kind: 'crew', id }, view: 'people' })}>{crewName(c)}</button>
+                          <button className="sc-seat-name ellipsis grow" onClick={() => store.openPerson(id)}>{crewName(c)}</button>
                           {k.drop?.[id] && <span className="tiny dim nowrap">drops {k.drop[id]}</span>}
                           <button className="btn btn-ghost btn-icon" onClick={() => cancel(k, id)} aria-label={`Take ${crewName(c)} off ${k.no}`}><UserMinus /></button>
                         </div>

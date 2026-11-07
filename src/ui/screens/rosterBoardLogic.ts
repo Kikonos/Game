@@ -21,6 +21,11 @@ export interface BoardFilter {
 export const NO_BOARD_FILTER: BoardFilter = { base: 'all', rank: 'all', family: 'all', q: '' };
 
 export const ROW_H = 52;
+/** v0.18 density: compact rows (one name line) and comfortable rows. */
+export type BoardDensity = 'compact' | 'comfortable';
+export const ROW_H_BY: Record<BoardDensity, number> = { compact: 40, comfortable: ROW_H };
+/** v0.18 how the board groups its rows. */
+export type BoardGroupBy = 'base' | 'deployment' | 'rank';
 export const GROUP_H = 28;
 export const HEAD_H = 40;
 export const LEFT_W = 176;
@@ -28,7 +33,11 @@ export const LEFT_W = 176;
 export const BACK_DAYS = 7;
 export const BOARD_DAYS = 49;
 
-export type BoardItem = { kind: 'group'; key: string; label: string; ids: string[] } | { kind: 'crew'; id: string; group: string }
+export type BoardItem = {
+  kind: 'group'; key: string; label: string; ids: string[];
+  /** v0.18 the header's parts ('LIS', 'Captains · A320', 37) and whether its rows are folded away. */
+  title?: string; sub?: string; n?: number; collapsed?: boolean;
+} | { kind: 'crew'; id: string; group: string }
   /** v0.8 a mixed-crew contract's client cabin crew: one grey row, no names, not draggable. */
   | { kind: 'client'; id: string; group: string };
 
@@ -47,7 +56,9 @@ export function matchBoard(c: CrewMember, f: BoardFilter): boolean {
  * Rows grouped by base › rank › type (first rating), home base first, then by surname: one header item per group
  * ('LIS · Captains · A320 (10)') followed by its crew.
  */
-export function boardItems(crew: CrewMember[], f: BoardFilter, homeBase: string): BoardItem[] {
+export function boardItems(crew: CrewMember[], f: BoardFilter, homeBase: string, opt: { by?: BoardGroupBy; collapsed?: ReadonlySet<string>; depOf?: ReadonlyMap<string, string> } = {}): BoardItem[] {
+  const by = opt.by ?? 'base';
+  if (by !== 'base') return otherItems(crew, f, homeBase, by, opt.collapsed, opt.depOf);
   const groups = new Map<string, { base: string; role: Role; fam: string; list: CrewMember[] }>();
   for (const c of crew) {
     if (!matchBoard(c, f)) continue;
@@ -63,19 +74,60 @@ export function boardItems(crew: CrewMember[], f: BoardFilter, homeBase: string)
   const out: BoardItem[] = [];
   for (const [key, gr] of sorted) {
     gr.list.sort((a, b) => a.last.localeCompare(b.last) || a.first.localeCompare(b.first));
-    out.push({ kind: 'group', key, label: `${gr.base} · ${ROLE_PLURAL[gr.role]} · ${gr.fam === '—' ? gr.fam : familyLabel(gr.fam as RatingFamily)} (${gr.list.length})`, ids: gr.list.map((c) => c.id) });
-    for (const c of gr.list) out.push({ kind: 'crew', id: c.id, group: key });
+    const sub = `${ROLE_PLURAL[gr.role]} · ${gr.fam === '—' ? gr.fam : familyLabel(gr.fam as RatingFamily)}`;
+    const folded = !!opt.collapsed?.has(key);
+    out.push({ kind: 'group', key, label: `${gr.base} · ${sub} (${gr.list.length})`, title: gr.base, sub, n: gr.list.length, ids: gr.list.map((c) => c.id), ...(folded ? { collapsed: true } : {}) });
+    if (!folded) for (const c of gr.list) out.push({ kind: 'crew', id: c.id, group: key });
+  }
+  return out;
+}
+
+/**
+ * v0.18 rows grouped by where the crew work now (`depOf`: crew id → deployment station; everyone else at their base)
+ * or by rank across bases; each group sorted by rank, then surname.
+ */
+function otherItems(crew: CrewMember[], f: BoardFilter, homeBase: string, by: 'deployment' | 'rank', collapsed?: ReadonlySet<string>, depOf?: ReadonlyMap<string, string>): BoardItem[] {
+  const groups = new Map<string, { title: string; sub: string; order: number; list: CrewMember[] }>();
+  for (const c of crew) {
+    if (!matchBoard(c, f)) continue;
+    let key: string;
+    let title: string;
+    let sub: string;
+    let order: number;
+    if (by === 'rank') {
+      key = `rank|${c.role}`;
+      title = ROLE_PLURAL[c.role];
+      sub = '';
+      order = ROLE_ORDER.indexOf(c.role);
+    } else {
+      const dep = depOf?.get(c.id);
+      key = dep ? `dep|${dep}` : `home|${c.base}`;
+      title = dep ?? c.base;
+      sub = dep ? 'On deployment' : 'At base';
+      order = dep ? 2 : c.base === homeBase ? 0 : 1;
+    }
+    let gr = groups.get(key);
+    if (!gr) groups.set(key, (gr = { title, sub, order, list: [] }));
+    gr.list.push(c);
+  }
+  const out: BoardItem[] = [];
+  const sorted = [...groups.entries()].sort(([, a], [, b]) => a.order - b.order || a.title.localeCompare(b.title));
+  for (const [key, gr] of sorted) {
+    gr.list.sort((a, b) => ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role) || a.last.localeCompare(b.last) || a.first.localeCompare(b.first));
+    const folded = !!collapsed?.has(key);
+    out.push({ kind: 'group', key, label: `${gr.title}${gr.sub ? ` · ${gr.sub}` : ''} (${gr.list.length})`, title: gr.title, sub: gr.sub, n: gr.list.length, ids: gr.list.map((c) => c.id), ...(folded ? { collapsed: true } : {}) });
+    if (!folded) for (const c of gr.list) out.push({ kind: 'crew', id: c.id, group: key });
   }
   return out;
 }
 
 /** Top offset of every item and the total height. */
-export function boardLayout(items: BoardItem[], groupH = GROUP_H): { tops: number[]; total: number } {
+export function boardLayout(items: BoardItem[], groupH = GROUP_H, rowH = ROW_H): { tops: number[]; total: number } {
   const tops: number[] = [];
   let y = 0;
   for (const it of items) {
     tops.push(y);
-    y += it.kind === 'group' ? groupH : ROW_H;
+    y += it.kind === 'group' ? groupH : rowH;
   }
   return { tops, total: y };
 }
@@ -114,9 +166,9 @@ export function dayWidth(zoom: BoardZoom, viewW: number): number {
 }
 
 /** Day columns to draw for a horizontal scroll position, two days of overscan, snapped to 2 days. [from, to). */
-export function dayWindow(scrollLeft: number, viewW: number, dayW: number, nDays = BOARD_DAYS, snap = 2): [number, number] {
-  const a = Math.floor(Math.max(0, scrollLeft) / dayW) - 2;
-  const b = Math.ceil((Math.max(0, scrollLeft) + Math.max(0, viewW - LEFT_W)) / dayW) + 2;
+export function dayWindow(scrollLeft: number, viewW: number, dayW: number, nDays = BOARD_DAYS, snap = 2, overscan = 2): [number, number] {
+  const a = Math.floor(Math.max(0, scrollLeft) / dayW) - overscan;
+  const b = Math.ceil((Math.max(0, scrollLeft) + Math.max(0, viewW - LEFT_W)) / dayW) + overscan;
   const to = Math.min(nDays, Math.ceil(b / snap) * snap);
   return [Math.min(to, Math.max(0, Math.floor(a / snap) * snap)), to];
 }
@@ -142,6 +194,20 @@ export function dutyMark(b: Pick<Blk, 'kind' | 'aug' | 'ext' | 'split'>): string
 }
 
 const route = (b: Blk) => (b.flights?.length ? [b.flights[0].from, ...b.flights.map((f) => f.to)].join('–') : '');
+
+/**
+ * v0.18 calm labels: the route without the flight number ('HAM–PMI–HAM' → 'PMI'), the mark kept; the number is in the
+ * tap card. Travel and status words as before.
+ */
+export function calmCands(b: Blk): string[] {
+  if (calKey(b) !== 'operating') return blockCands(b);
+  const r = route(b);
+  const f = b.flights ?? [];
+  const far = f.length > 1 && f[f.length - 1].to === f[0].from ? f[0].to : f[f.length - 1]?.to ?? '';
+  const base = [r, far].filter(Boolean);
+  const mark = dutyMark(b);
+  return mark ? [...base.map((c) => `${c}${MARK_SEP}${mark}`), ...base, `${MARK_SEP}${mark}`] : base;
+}
 
 /** Week-zoom label candidates, longest first ('NB2341 HAM–PMI–HAM' → 'NB2341 HAM–PMI' → 'HAM–PMI–HAM' → 'PMI'). */
 export function blockCands(b: Blk): string[] {
@@ -245,7 +311,7 @@ export interface WeekLabel {
  * using the free lane after (or before) the block within its day, up to the next block; plus its ≥ HIT px hit area.
  * Labels never overlap and are never truncated (the longest candidate that fits whole).
  */
-export function weekLabels(blocks: (Blk & Pick<CalBlock, 'start' | 'end'>)[], from: number, dayW: number, measure: (s: string) => number = estimateW, pad = 10): WeekLabel[] {
+export function weekLabels(blocks: (Blk & Pick<CalBlock, 'start' | 'end'>)[], from: number, dayW: number, measure: (s: string) => number = estimateW, pad = 10, cands: (b: Blk) => string[] = blockCands): WeekLabel[] {
   const ppm = dayW / DAY;
   const work = [...blocks.entries()].filter(([, b]) => calLayer(b) === 2 && b.kind !== 'rest').sort((a, b) => a[1].start - b[1].start);
   const out: WeekLabel[] = [];
@@ -258,7 +324,7 @@ export function weekLabels(blocks: (Blk & Pick<CalBlock, 'start' | 'end'>)[], fr
     const dayL = Math.floor((b.start - from) / DAY) * dayW;
     const left = Math.max(dayL, cursor);
     const right = Math.min(next, Math.max(dayL + dayW, br));
-    const text = fitText(blockCands(b), right - left, measure, pad);
+    const text = fitText(cands(b), right - left, measure, pad);
     const lw = text ? measure(text) + pad : 0;
     const lx = text ? Math.max(left, Math.min(bl, right - lw)) : bl;
     let hx = text ? Math.min(bl, lx) : bl;
@@ -328,7 +394,16 @@ export function blockKeys(blocks: CalBlock[]): string[] {
 }
 
 /** Board items as one string (same groups, labels and order → same string). */
-export const itemsSig = (items: BoardItem[]) => items.map((x) => (x.kind === 'group' ? `g:${x.key}:${x.label}:${x.ids.join(',')}` : x.kind === 'client' ? `k:${x.id}` : `c:${x.id}`)).join(';');
+export const itemsSig = (items: BoardItem[]) => items.map((x) => (x.kind === 'group' ? `g:${x.key}:${x.label}:${x.collapsed ? 1 : 0}:${x.ids.join(',')}` : x.kind === 'client' ? `k:${x.id}` : `c:${x.id}`)).join(';');
+
+/** v0.18 the group an item belongs to (its own key for a header), for the sticky header over the rows. */
+export function groupAt(items: BoardItem[], i: number): Extract<BoardItem, { kind: 'group' }> | null {
+  for (let k = Math.min(i, items.length - 1); k >= 0; k--) {
+    const it = items[k];
+    if (it.kind === 'group') return it;
+  }
+  return null;
+}
 
 /** v0.8 the 'Client cabin crew' group after our crew: shown with every rank or the cabin ranks, no search. */
 export function clientItems(rows: { key: string; label: string }[], f: Pick<BoardFilter, 'rank' | 'q'>): BoardItem[] {

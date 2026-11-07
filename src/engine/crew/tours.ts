@@ -45,7 +45,8 @@ export function tourHolding(g: GameState, c: CrewMember): Pairing | null {
     const span = tourSpan(g, q);
     if (!dep || !span || c.loc !== dep.base) continue;
     if (span.from > g.now + DAY || span.to <= g.now + 12 * 60) continue;
-    if (c.blocks?.some((b) => b.from < span.to && b.to > g.now)) continue;
+    // (v0.17.2 a leave or course later in the period sends them home only when it is two days off, not weeks ahead.)
+    if (c.blocks?.some((b) => b.from < Math.min(span.to, g.now + 2 * DAY) && b.to > g.now)) continue;
     if (q.dutyIds.some((id) => { const d = g.duties[id]; return !!d && !d.done && d.report > g.now; }) || !tourEndKnown(g, q)) hold = q;
   }
   return hold;

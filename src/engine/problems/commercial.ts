@@ -8,6 +8,7 @@ import type { ContractOffer, GameState, Message } from '../core/types';
 import { counterView } from '../contracts/counter';
 import { type FeasibilityCheck, type FeasibilityReport, quickReports } from '../contracts/feasibility';
 import { jobName } from '../contracts/flavor';
+import { bestByRank, reasonText, sortChecks } from '../contracts/blockers';
 import { mkHurt, type ProblemAction, type ProblemCard } from './types';
 
 const city = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
@@ -57,8 +58,11 @@ function plainCheck(g: GameState, o: ContractOffer, r: FeasibilityReport, c: Fea
       return { why: `${ac.reg}: ${c.label}.${c.detail ? ` ${c.detail}` : ''}`, action: { id: 'planCheck', label: cCheck ? 'Plan C-check' : 'Book A-check', open: { modal: 'check', id: ac.id }, primary: true } };
     }
     case 'approvals':
-    case 'etops':
-      return { why: `${c.label}.`, action: { id: 'ladder', label: 'Ladder', open: { tab: 'company', view: 'ladder' }, primary: true } };
+    case 'etops': {
+      // v0.18 'Needs IOSA registration (we have none): grants take months.'
+      const r0 = reasonText(g, c);
+      return { why: `${r0.charAt(0).toUpperCase()}${r0.slice(1)}${c.id === 'approvals' && /^needs /.test(r0) ? ': grants take months' : ''}.`, action: { id: 'ladder', label: 'Ladder', open: { tab: 'company', view: 'ladder' }, primary: true } };
+    }
     case 'lease':
       return { why: `${c.label}.`, action: { id: 'lease', label: 'Lease…', open: { modal: 'lease', id: ac.id }, primary: true } };
     default:
@@ -66,33 +70,20 @@ function plainCheck(g: GameState, o: ContractOffer, r: FeasibilityReport, c: Fea
   }
 }
 
-const RANK = { ok: 0, warn: 1, no: 2 } as const;
-
-/** v0.12 what no move, sub-lease, hire or check can fix for this aircraft and job (it is the wrong aircraft for it). */
-const HARD = new Set(['seats', 'layout', 'family', 'body', 'range', 'runway', 'etops', 'approvals', 'restSeats', 'rest']);
-const hardNos = (r: FeasibilityReport) => r.checks.filter((c) => c.level === 'no' && HARD.has(c.id)).length;
-
 /**
  * The best report for an offer (quick feasibility per aircraft). v0.12 among aircraft that can't take it, one only busy
  * (its trips can move or be sub-leased) comes before one that can never fit (too few seats), so the card's WHY and
- * its WHAT YOU CAN DO speak of the same aircraft.
+ * its WHAT YOU CAN DO speak of the same aircraft. v0.18 by the blocking tiers (contracts/blockers.ts).
  */
-function bestReport(g: GameState, o: ContractOffer): FeasibilityReport | null {
-  let best: FeasibilityReport | null = null;
-  for (const r of quickReports(g, o.id)) {
-    const better = !best || RANK[r.level] < RANK[best.level]
-      || (r.level === best.level && (hardNos(r) < hardNos(best) || (hardNos(r) === hardNos(best) && r.estMargin > best.estMargin)));
-    if (better) best = r;
-  }
-  return best;
-}
+const bestReport = (g: GameState, o: ContractOffer): FeasibilityReport | null => bestByRank(quickReports(g, o.id));
 
 export function offerFitCard(g: GameState, offerId: string): ProblemCard | null {
   const o = g.offers[offerId];
   if (!o || o.status !== 'open' || o.expires <= g.now) return null;
   const r = bestReport(g, o);
   if (!r || r.level === 'ok') return null;
-  const worst = [...r.checks].sort((a, b) => RANK[b.level] - RANK[a.level])[0];
+  // v0.18 the most important reason first: what can never be fixed in time, then what needs work, then flights in the way.
+  const worst = sortChecks(r.checks, r)[0];
   if (!worst || worst.level === 'ok') return null;
   const { why, action } = plainCheck(g, o, r, worst);
   const job = jobName(clientName(g, o), o.title);
@@ -104,7 +95,7 @@ export function offerFitCard(g: GameState, offerId: string): ProblemCard | null 
     why,
     hurt: mkHurt({ money: o.estValue, what: 'of work' }),
     actions: [action, ...(action.id !== 'review' ? [{ id: 'review', label: 'Review offer', open: { modal: 'offer' as const, id: o.id } }] : [])],
-    details: r.checks.filter((c) => c.level !== 'ok').map((c) => `${c.label}${c.detail ? ` — ${c.detail}` : ''}`),
+    details: sortChecks(r.checks.filter((c) => c.level !== 'ok'), r).map((c) => `${c.label}${c.detail ? ` — ${c.detail}` : ''}`),
     visuals: {}, terms: o.product.kind === 'wet' ? ['acmi', 'wetLease'] : [], by: o.expires,
   };
 }

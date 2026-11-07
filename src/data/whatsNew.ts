@@ -16,6 +16,47 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.18',
+    name: 'Rosters, maps & spec sheets',
+    features: [
+      'Tap anyone to open their own sheet: a month roster in the style of an airline roster app. A trip is one coloured span with the stations; days off at home, standby, rest away, leave, sick and training each have their own icon. Tap a day for its duties: report and release in UTC and local time, block, duty time against the limit, and the rest after. It opens from the people list, the roster board, flight sheets, Crew Control, messages, the map and crew problem cards; Back returns to where you were.',
+      'Under the month: block and duty hours, days off against the required number, block over 28 days (100 h) and 12 months (1000 h), morale and why, fatigue, where they are now and their rest.',
+      'The roster board is calmer and keeps its detail: softer lines, rounded duties, the route on each duty. Group the rows by base, deployment or rank, and tap a group to fold it. Compact rows fit more people on screen.',
+      'Filter offers by aircraft size (narrowbody, widebody) and distance (short-, medium-, long- and ultra-long-haul), in Contracts › Filter or with the chips above the Market. Each card shows a widebody tag and a haul tag; tap the haul tag for the longest leg.',
+      'The offer dialog opens with one plain verdict, the most important reason first: not possible, needs work first, flights in the way, or check before signing. The fix is beside it and the other reasons fold under it. When nothing can make the job possible, the button says Not possible.',
+      'The flat map wraps east–west without end, so the Pacific is no longer cut at the edge.',
+      'The globe now does what the flat map does: offer pins, weather and closures, world events, crew changes, diversions and the Spotter. Routes arc up off the surface, and aircraft are small 3D models that climb, cast a shadow and leave contrails.',
+      'Aircraft spec sheets. Tap Specs on a Fleet card, a Market offer, the lease or buy dialogs, Ask lessors, a deal in progress, or an aircraft in an offer: range, cruise, weights, cargo, engines, fuel, ETOPS, runway, noise, seats by class, crew rest, IFE, power and cabin crew, each with a small icon.',
+      'Range discs from your base, London, New York, Dubai and Singapore show how far it flies with a full cabin.',
+      'Money and terms in one place: rent or price, deposit, reserves, return, the lessor and your rating, the running cost a block hour, and how many of your routes it flies nonstop (runways and ETOPS too).',
+      'A seat map for every type: doors, overwing exits, galleys, lavatories, exit rows and crew bunks, each standard cabin as a tab, this aircraft\'s own marked. The 747 and A380 show both decks side by side. Built after real operators\' layouts (Euro Atlantic\'s own sheets for the 767, 777 and A330).',
+      'Compare up to three Market offers side by side: tick Compare on the cards.',
+    ],
+    improvements: [
+      'The people list uses the full width, in two columns on the iPad.',
+      'Offer problem cards elsewhere also lead with the most important reason.',
+      'Zoomed in close on the globe, the view leans towards the horizon (Map tilt setting; off with reduced motion).',
+      'The spec sheet holds game time while open; Escape or Close returns to the dialog underneath.',
+    ],
+  },
+  {
+    version: 'v0.17.2',
+    name: 'Your reports',
+    features: [
+      'Bug reports now show New, Sent and Fixed. Export sends only the new ones and your save (turn on Include sent to send again). A fixed report says what we did, and goes 7 days after the update, or at once with Delete fixed.',
+      'You can change a lease-end choice until the return check starts: return early, move the date, go back to the lease end, or extend. On the aircraft card, in the lease dialog and in the lessor\'s question.',
+    ],
+    improvements: [
+      'Fewer sick calls you have to deal with: most last 1–3 days, the ones the roster covers come in one quiet line a day, and same-day sick calls away from base are rarer.',
+    ],
+    fixes: [
+      'Crew ride our own empty legs home. The crew who flew TRN–GRU now take our empty GRU–LIS straight from the gate instead of an airline ticket the next night.',
+      'Crew on a long-term base stay for the whole rotation you set under Company (4, 5 or 6 weeks). Leave that falls inside a rotation moves to just after it. Only a real limit, sickness or leave sends someone home early.',
+      'The check dialog says when the aircraft goes back to its lessor, with the year. You can book a C-check that falls due before the return. Near a return it shows the options (book it, fly on, park it, hand it back early) with costs, days lost and what we recommend.',
+      'A C-check due at the lease return is charged by the lessor, as it should be.',
+    ],
+  },
+  {
     version: 'v0.17.1',
     name: 'Bug button',
     features: [

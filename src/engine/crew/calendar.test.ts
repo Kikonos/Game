@@ -52,6 +52,21 @@ describe('crew travelling', () => {
     expect(crewStatusView(g, ids[0]).label).not.toBe('Deadheading');
   });
 
+  it('v0.18 a past day off at home stays at home when a ticket home from a later trip is booked (no JFK days off)', () => {
+    const g = fixtureGame(53);
+    const [id] = addCrew(g, { CC: 1 });
+    const c = g.crew[id];
+    c.loc = c.base;
+    const t0 = g.now;
+    g.now = t0 + 6 * DAY;
+    // A trip next week ends with an airline ticket JFK–LIS.
+    const std = g.now + 4 * DAY;
+    addDeadhead(g, { crewIds: [id], from: 'JFK', to: c.base, std, sta: std + 7 * 60, cost: 0 });
+    const past = crewCalendar(g, id, t0, g.now - DAY).filter((b) => b.kind === 'off' || b.kind === 'rest');
+    expect(past.length).toBeGreaterThan(0);
+    expect(past.filter((b) => b.at === 'JFK')).toEqual([]);
+  });
+
   it('round 4: after an uncalled home standby the pill reads Resting with the rest the gauge and calendar book, not Available', () => {
     const g = fixtureGame(11);
     const [id] = addCrew(g, { CC: 1 });
@@ -159,9 +174,10 @@ describe('crew calendar', () => {
     expect(duties.length).toBe(2);
     expect(duties[0].flights![0].type).toBe('positioning');
     expect(duties[1].flights!.every((f) => f.type === 'operating')).toBe(true);
-    const dh = cc.find((b) => b.kind === 'deadhead')!;
+    // (v0.17.2 home on the trip's own ferry when it leaves in time, else a real airline.)
+    const dh = cc.find((b) => b.kind === 'deadhead' || (b.kind === 'positioning' && /^Riding our/.test(b.detail ?? '')))!;
     expect(dh).toBeTruthy();
-    expect(dh.detail).toMatch(/[A-Z0-9]{2} \d{1,4} ZAG–/);
+    expect(dh.detail).toMatch(dh.kind === 'deadhead' ? /[A-Z0-9]{2} \d{1,4} ZAG–/ : /^Riding our ferry leg [A-Z0-9]+ ZAG–/);
     expect(cc.some((b) => b.kind === 'rest')).toBe(true);
     expect(cc.some((b) => b.kind === 'off')).toBe(true);
     noOverlap(cc);

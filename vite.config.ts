@@ -94,6 +94,8 @@ export default defineConfig({
             return 'vendor';
           }
           if (id.includes('/src/ui/components/aircraft/')) return 'aircraft';
+          // v0.18 the spec sheets' tables (seat maps, type specs) load with the lazy spec sheet, not with the engine.
+          if (id.includes('/src/data/lopa') || id.includes('/src/data/specs')) return undefined;
           if (id.includes('/src/engine/') || id.includes('/src/data/')) return 'engine';
           return undefined;
         },

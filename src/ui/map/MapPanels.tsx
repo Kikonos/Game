@@ -42,6 +42,9 @@ import { contractColor } from '../screens/palette';
 import { tripTitle } from '../../engine/commercial';
 import { type ModalSpec, store } from '../store';
 import { paintLabel } from '../screens/scheduleLogic';
+import { ShapeTags } from '../components/ShapeTags';
+import { shapeOf } from '../../engine/contracts/shape';
+import { topBlocker } from '../../engine/contracts/blockers';
 import { archLabel, capFirst, expiryLabel, hangarWord, offerDays, offerModal } from '../screens/screenLogic';
 import { ALERT_BANNER, ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, deliveryTag, EVENT_KIND_LABEL, EVENT_TONE, hotelCount, leasedOut, mapLivery, OOH_SHORT, oohLine, parseCommercialId, parseSlipId, PURPOSE_LABEL, purposeChain, restChip, restingLine, restSeatNoun, shortIndex, type ShortRow, slipLine, slipSelId, slipWindow, upcomingLegs } from './mapLogic';
 import { MiniMap } from './MiniMap';
@@ -130,7 +133,7 @@ function CrewRows({ crew }: { crew: CrewMember[] }) {
   return (
     <div className="op-crew">
       {crew.map((m) => (
-        <button key={m.id} className="op-crew-row op-crew-link" onClick={() => store.navigate('crew', { sel: { kind: 'crew', id: m.id } })}>
+        <button key={m.id} className="op-crew-row op-crew-link" onClick={() => store.openPerson(m.id)}>
           <span className="role">{m.role}</span><span className="ellipsis">{crewName(m)}</span><RankMark role={m.role} />
         </button>
       ))}
@@ -495,7 +498,8 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
               const seat = seats.get(m.id) ?? m.role;
               const oh = oohBy.get(m.id);
               return (
-              <div key={m.id} className={`op-crew-row${aboveIds.has(m.id) || m.notice || oh ? ' tagged' : ''}`}>
+              // v0.18 a tap opens the person's sheet.
+              <button type="button" key={m.id} className={`op-crew-row op-crew-tap${aboveIds.has(m.id) || m.notice || oh ? ' tagged' : ''}`} onClick={() => store.openPerson(m.id)}>
                 <span className={`role${seat !== m.role ? ' as' : ''}`} title={seat !== m.role ? `${m.role === 'CPT' ? 'A captain' : m.role} flying in the ${seat} seat` : undefined}>{seatLabel(seat, m.role)}</span>
                 <span className="col op-crew-who">
                   <span className="row gap-4" style={{ minWidth: 0 }}><span className="ellipsis">{crewName(m)}</span><RankMark role={m.role} /></span>
@@ -507,7 +511,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
                     </span>
                   )}
                 </span>
-              </div>
+              </button>
               );
             })}
             {openAbove.map((x) => (
@@ -633,10 +637,10 @@ function AirportPanel({ g, code }: { g: GameState; code: string }) {
         {hotel.length ? (
           <div className={`op-crew${sby.size ? ' one' : ''}`}>
             {hotelList.slice(0, 8).map((m) => (
-              <div key={m.id} className="op-crew-row">
+              <button type="button" key={m.id} className="op-crew-row op-crew-tap" onClick={() => store.openPerson(m.id)}>
                 <span className="role">{m.role}</span><span className="ellipsis">{crewName(m)}</span>
                 {sby.has(m.id) && <span className="op-tag sby" title="Hotel standby: on call here">SBY</span>}
-              </div>
+              </button>
             ))}
             {sby.size > 0 ? <div className="small muted">{hotel.length > 8 ? `+${hotel.length - 8} more · ` : ''}{hotelCount(hotel)} in all</div>
               : hotel.length > 8 && <div className="small muted">+{hotel.length - 8} more</div>}
@@ -689,6 +693,7 @@ function OfferPanel({ g, id }: { g: GameState; id: string }) {
         {o.urgency !== 'normal' && <span className={`chip tone-${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
         {o.broker && <span className="chip">via {o.broker}</span>}
         {o.status !== 'open' && <span className="chip">{o.status}</span>}
+        <ShapeTags s={shapeOf(o)} />
       </div>
       <div className="op-kv">
         <div><span>Client</span><b className="ellipsis">{client?.name ?? '—'}</b></div>
@@ -708,7 +713,7 @@ function OfferPanel({ g, id }: { g: GameState; id: string }) {
             <div key={r.aircraftId} className="op-row static">
               <Dot tone={r.level === 'ok' ? 'good' : r.level === 'warn' ? 'warn' : 'bad'} />
               <b className="mono">{ac?.reg ?? r.aircraftId}</b>
-              <span className="small muted ellipsis">{r.level === 'no' ? r.checks.find((c) => c.level === 'no')?.label ?? 'Not feasible' : pos}</span>
+              <span className="small muted ellipsis">{r.level === 'no' ? topBlocker(r)?.label ?? 'Not feasible' : pos}</span>
               <span className={`mono small ${r.estMargin < 0 ? 'bad-t' : ''}`}>{money(r.estMargin)}</span>
             </div>
           );

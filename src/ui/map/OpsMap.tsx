@@ -432,16 +432,20 @@ export function OpsMap() {
     zoom: 7,
   } : null), [spot?.n, spotTarget]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // v0.18 the globe draws the same marks and follows the same aircraft in spotter mode.
+  const globeMarks = useMemo(() => ({ pins, marked, evPins, wx, slipMarks, divs, zones }), [pins, marked, evPins, wx, slipMarks, divs, zones]);
+  const globeFollow = useMemo(() => (spot && spotTarget ? { key: `${spot.n}:${spotTarget}`, id: spotTarget } : null), [spot?.n, spotTarget]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const selAc = sel?.kind === 'aircraft' ? sel.id : undefined;
   const selPin = sel?.kind === 'offer' || sel?.kind === 'airport' ? sel.id : undefined;
 
   return (
     <div className={`ops-map ${panelOpen ? 'panel-open' : ''}`}>
       {globe.on ? (
-        <GlobeHost g={g} airports={airports} nextArcs={nextArcs} tours={tours} sel={sel} theme={theme} accent={g.company.livery.secondary} panelOpen={panelOpen} onFlat={() => globe.show(false)} onFail={globe.fail} />
+        <GlobeHost g={g} airports={airports} nextArcs={nextArcs} tours={tours} marks={globeMarks} slipLegs={slipLegs} follow={globeFollow} sel={sel} theme={theme} accent={g.company.livery.secondary} panelOpen={panelOpen} onFlat={() => globe.show(false)} onFail={globe.fail} />
       ) : (
       <WorldMap
-        extraControls={store.settings.globe && !globe.failed ? <GlobeButton onClick={() => { setSpot(null); globe.show(true); }} /> : undefined}
+        extraControls={store.settings.globe && !globe.failed ? <GlobeButton onClick={() => globe.show(true)} /> : undefined}
         routes={tours}
         airports={airports}
         fitFn={fitFn}
@@ -457,7 +461,8 @@ export function OpsMap() {
         memo={memo}
         follow={follow}
         tilt={store.settings.mapTilt}
-        backdrop={(ctx) => <NightLayer shared={shared} shift={ctx.backShift} theme={theme} />}
+        wrap
+        backdrop={(ctx) => <NightLayer shared={shared} shift={ctx.backShift} theme={theme} rot={ctx.rot} />}
         ground={(ctx) => <ZoneGround zones={zones} proj={ctx.proj} hatch={hatchUnit(ctx.px, ctx.k)} />}
         underlay={(ctx) => {
           refs.current.proj = ctx.proj;
@@ -497,7 +502,7 @@ export function OpsMap() {
       <FleetStrip g={g} sel={sel} panelOpen={panelOpen} />
       {spot && <SpotWatch id={spot.id} onMove={nextSpot} />}
       {spot ? <SpotterPanel g={g} id={spot.id} onNext={nextSpot} onClose={() => setSpot(null)} canNext={spotList(g).length > 1} /> : <MapPanel g={g} sel={sel} />}
-      {!spot && !globe.on && <button className="btn btn-icon ops-spot-btn" onClick={startSpot} aria-label="Spotter: watch the planes" title="Spotter: watch the planes"><Binoculars /></button>}
+      {!spot && <button className="btn btn-icon ops-spot-btn" onClick={startSpot} aria-label="Spotter: watch the planes" title="Spotter: watch the planes"><Binoculars /></button>}
     </div>
   );
 }

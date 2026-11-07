@@ -151,7 +151,8 @@ export function v09Chips(o: Pick<ContractOffer, 'slip' | 'jumbo' | 'requirements
  * Requirement chips: seats, body/families, ETOPS, runway, approvals. v0.8 fix pack: with the pattern, a passenger job
  * reads '166 seats (166 passengers)' (seats = passengers; stretchers the only extra).
  */
-export function reqChips(r: Requirements, pattern?: SchedulePattern): Chip[] {
+/** `shape`: the body and haul tags are shown beside (ui/components/ShapeTags.tsx), so no body or distance chip. */
+export function reqChips(r: Requirements, pattern?: SchedulePattern, opts: { shape?: boolean } = {}): Chip[] {
   // v0.8: a dry lease needs no seats (aircraft only).
   const layouts = r.layouts ?? (r.layout ? [r.layout] : null);
   const pax = pattern ? maxPax(pattern) : 0;
@@ -161,7 +162,7 @@ export function reqChips(r: Requirements, pattern?: SchedulePattern): Chip[] {
   const out: Chip[] = r.minSeats > 0 && !maxSeats
     ? [pax && pattern ? { label: seatNeedText({ pattern, requirements: r }), tip: 'Seats the client needs: one for each passenger' } : { label: r.maxSeats ? `${r.minSeats}–${r.maxSeats} seats` : `${r.minSeats}+ seats`, tip: 'Seats the client needs' }]
     : [];
-  if (r.body) out.push({ label: r.body === 'wide' ? 'Widebody' : 'Narrowbody', tip: `The client wants a ${r.body === 'wide' ? 'widebody' : 'narrowbody'}` });
+  if (r.body && !opts.shape) out.push({ label: r.body === 'wide' ? 'Widebody' : 'Narrowbody', tip: `The client wants a ${r.body === 'wide' ? 'widebody' : 'narrowbody'}` });
   if (r.families?.length && r.families.length <= 2) out.push({ label: r.families.join(' / ') });
   // v0.7: accepted layouts (supersede `layout`) and premium seats.
   if (maxSeats) out.push({ label: `Max seats ${r.minSeats}+`, tone: 'warn', tip: 'All-economy, high-density cabin' });
@@ -171,7 +172,7 @@ export function reqChips(r: Requirements, pattern?: SchedulePattern): Chip[] {
   if (r.minPremium) out.push({ label: `Premium ${r.minPremium}+`, tip: 'Business and premium-economy seats' });
   if (r.etops) out.push({ label: `ETOPS ${r.etops}`, tone: 'warn', tip: 'Needs ETOPS approval and a capable twin' });
   if (r.minRunwayM && r.minRunwayM < 2400) out.push({ label: `Runway ${r.minRunwayM.toLocaleString('en-US')} m`, tone: 'warn', tip: 'Short runway on the programme' });
-  if (r.longestSectorNm >= 3000) out.push({ label: `${r.longestSectorNm.toLocaleString('en-US')} nm`, tip: 'Longest sector' });
+  if (r.longestSectorNm >= 3000 && !opts.shape) out.push({ label: `${r.longestSectorNm.toLocaleString('en-US')} nm`, tip: 'Longest sector' });
   for (const a of r.approvals) out.push({ label: a.toUpperCase(), tone: 'warn', tip: 'Approval needed' });
   if (r.extraCabin) out.push({ label: `+${r.extraCabin} cabin crew` });
   // v0.6: the client pays for extra cabin crew above the minimum when we fly at least n.
