@@ -319,7 +319,8 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
   // logged a second time for the ride (12:00–14:17) because the index named the other set's duty.
   const dutyOf = (cid: string): Duty | undefined => {
     for (const p of ix.pairingsOf.get(cid) ?? []) for (const x of p.dutyIds) { const q = g.duties[x]; if (q && q.deadheadIds.includes(f.id)) return q; }
-    return d;
+    // (v0.17.2 never the duty operating this leg: a rider on our empty leg is not its crew.)
+    return d && !d.flightIds.includes(f.id) ? d : undefined;
   };
   const mergedFor = (q: Duty | undefined): boolean => !!q && ((f.sta <= q.report && q.report - f.sta < rest) || (f.std >= q.release && f.std - q.release < 600));
   if (f.kind !== 'deadhead') for (const id of f.crewIds) if (g.crew[id]) g.crew[id].loc = f.to;
@@ -345,7 +346,14 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     if (f.to === c.base) c.awaySince = null;
     else if (c.awaySince === null) c.awaySince = f.std;
     if (f.to === c.base) noteRotation(c, f.to, f.std, f.ata ?? f.sta);
-    if (!mergedFor(dutyOf(id))) {
+    // v0.17.2 a ride home already inside the duty's log (merged at release: the duty's log runs past its departure) is
+    // never logged a second time, whichever duty lists it now (an empty leg re-planned under a new id after the release
+    // left the ride on no duty: bots logged the crew twice, 'duty starts before the previous one ends').
+    const last = c.log[c.log.length - 1];
+    if (last && last.sectors > 0 && last.start <= (f.atd ?? f.std) && last.end > (f.atd ?? f.std)) {
+      // (A late landing only moves the rest after it: the log keeps the duty as released.)
+      c.restUntil = Math.max(c.restUntil, c.restUntil + Math.max(0, (f.ata ?? f.sta) - last.end));
+    } else if (!mergedFor(dutyOf(id))) {
       const off = f.atd ?? f.std;
       const on = f.ata ?? f.sta;
       // Crew-planning round: checked in as the plan reads the ticket (a private jet 30 min at the FBO, not an airline's
