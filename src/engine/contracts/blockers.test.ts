@@ -70,7 +70,12 @@ describe('v0.18 blocker tiers', () => {
     expect(v.more.map((m) => m.check.id)).toEqual(['availability']);
     const busy = offerVerdict(g, [rep(r.aircraftId, [chk('availability', 'no', 'Busy: BLU101 LIS–FAO 3 Mar')])])!;
     expect(busy.rank).toBe(2);
-    expect(busy.headline).toMatch(/^Flights in the way: busy: BLU101/);
+    expect(busy.headline).toBe(`Flights in the way on ${g.fleet[r.aircraftId].reg}: BLU101 LIS–FAO 3 Mar`);
+    // Booked by a programme with no flights yet: nothing to move, so it needs work.
+    const prog = rep(r.aircraftId, [chk('availability', 'no', 'Busy: Summer base at Faro (1 Jun–30 Sep)')]);
+    prog.conflicts.programmes.push('k1');
+    expect(offerVerdict(g, [prog])!.headline).toMatch(/^Booked for other work on /);
+    expect(offerVerdict(g, [prog])!.rank).toBe(1);
     g.company.pendingApprovals.push({ id: 'iosa', done: g.now + 100 * DAY } as never);
     expect(reasonText(g, chk('approvals', 'no', 'Needs approval: IOSA registration'))).toMatch(/^needs IOSA registration \(filed, due /);
   });

@@ -83,7 +83,7 @@ export function offerFitCard(g: GameState, offerId: string): ProblemCard | null 
   const r = bestReport(g, o);
   if (!r || r.level === 'ok') return null;
   // v0.18 the most important reason first: what can never be fixed in time, then what needs work, then flights in the way.
-  const worst = sortChecks(r.checks)[0];
+  const worst = sortChecks(r.checks, r)[0];
   if (!worst || worst.level === 'ok') return null;
   const { why, action } = plainCheck(g, o, r, worst);
   const job = jobName(clientName(g, o), o.title);
@@ -95,7 +95,7 @@ export function offerFitCard(g: GameState, offerId: string): ProblemCard | null 
     why,
     hurt: mkHurt({ money: o.estValue, what: 'of work' }),
     actions: [action, ...(action.id !== 'review' ? [{ id: 'review', label: 'Review offer', open: { modal: 'offer' as const, id: o.id } }] : [])],
-    details: sortChecks(r.checks.filter((c) => c.level !== 'ok')).map((c) => `${c.label}${c.detail ? ` — ${c.detail}` : ''}`),
+    details: sortChecks(r.checks.filter((c) => c.level !== 'ok'), r).map((c) => `${c.label}${c.detail ? ` — ${c.detail}` : ''}`),
     visuals: {}, terms: o.product.kind === 'wet' ? ['acmi', 'wetLease'] : [], by: o.expires,
   };
 }

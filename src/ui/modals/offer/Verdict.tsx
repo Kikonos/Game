@@ -4,7 +4,7 @@
 
 import { AlertTriangle, CalendarClock, ChevronRight, CircleSlash, Wrench } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { checkRank, type OfferVerdict } from '../../../engine/contracts/blockers';
+import { sortChecks, type OfferVerdict } from '../../../engine/contracts/blockers';
 import { typeOf } from '../../../engine/core/perf';
 import type { GameState } from '../../../engine/core/types';
 import { store } from '../../store';
@@ -13,7 +13,7 @@ const RANK_WORD: Record<number, string> = { 0: 'Not possible', 1: 'Needs work', 
 
 /** The one button that fixes the headline reason, when there is one. */
 function fixButton(g: GameState, v: OfferVerdict, offerId: string): ReactNode {
-  const head = v.report.checks.filter((c) => c.level !== 'ok').sort((a, b) => checkRank(a) - checkRank(b))[0];
+  const head = sortChecks(v.report.checks.filter((c) => c.level !== 'ok'), v.report)[0];
   const ac = g.fleet[v.report.aircraftId];
   if (!head || !ac) return null;
   if (head.action?.kind === 'refit') return <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'refit', aircraftId: ac.id, layout: head.action!.kind === 'refit' ? head.action!.layout : undefined, offerId })}><Wrench /> Plan refit…</button>;

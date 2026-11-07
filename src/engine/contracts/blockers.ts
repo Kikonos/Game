@@ -26,9 +26,12 @@ export const TIER_WORD: Record<BlockTier, string> = { 0: 'Not possible', 1: 'Nee
 /** Lines that only say the aircraft is busy (a consequence of flights in the way). */
 const BUSY_RE = /^(Busy: |Can't be back for |Already leased out|Not planned: the aircraft is busy|Paint not planned: the aircraft is busy|Cabin change not planned: the aircraft is busy)/;
 
-/** The blocking tier of a 'no' check (see the header). Pure. */
-export function blockTier(c: FeasibilityCheck): BlockTier {
-  if (BUSY_RE.test(c.label)) return 2;
+/**
+ * The blocking tier of a 'no' check (see the header). With its report: an aircraft booked by a programme that has no
+ * flights yet (a base season, a dry lease out) has nothing to move or sub-lease, so it needs work (tier 1). Pure.
+ */
+export function blockTier(c: FeasibilityCheck, r?: FeasibilityReport): BlockTier {
+  if (BUSY_RE.test(c.label)) return r && !r.conflicts.flights.length && r.conflicts.programmes.length ? 1 : 2;
   switch (c.id) {
     case 'approvals': case 'etops': case 'body': case 'family': case 'seats': case 'range': case 'runway':
     case 'lease': case 'airspace': case 'mission': case 'warRisk': case 'clientCrew': case 'positioning': case 'crew':
@@ -50,15 +53,15 @@ export function blockTier(c: FeasibilityCheck): BlockTier {
 }
 
 /** The sort rank of any check. Pure. */
-export const checkRank = (c: FeasibilityCheck): CheckRank => (c.level === 'no' ? blockTier(c) : c.level === 'warn' ? 3 : 4);
+export const checkRank = (c: FeasibilityCheck, r?: FeasibilityReport): CheckRank => (c.level === 'no' ? blockTier(c, r) : c.level === 'warn' ? 3 : 4);
 
 /** A report's checks, most important first (stable within a rank: the feasibility order). Pure. */
-export function sortChecks(checks: readonly FeasibilityCheck[]): FeasibilityCheck[] {
-  return checks.map((c, i) => [c, i] as const).sort((a, b) => checkRank(a[0]) - checkRank(b[0]) || a[1] - b[1]).map(([c]) => c);
+export function sortChecks(checks: readonly FeasibilityCheck[], r?: FeasibilityReport): FeasibilityCheck[] {
+  return checks.map((c, i) => [c, i, checkRank(c, r)] as const).sort((a, b) => a[2] - b[2] || a[1] - b[1]).map(([c]) => c);
 }
 
 /** The blocking checks of a report, most important first ([] when it can be taken). Pure. */
-export const blockers = (r: FeasibilityReport): FeasibilityCheck[] => sortChecks(r.checks.filter((c) => c.level === 'no'));
+export const blockers = (r: FeasibilityReport): FeasibilityCheck[] => sortChecks(r.checks.filter((c) => c.level === 'no'), r);
 
 /** The most important reason a report can't be taken (null: it can). Pure. */
 export const topBlocker = (r: FeasibilityReport): FeasibilityCheck | null => blockers(r)[0] ?? null;
@@ -66,7 +69,7 @@ export const topBlocker = (r: FeasibilityReport): FeasibilityCheck | null => blo
 /** The worst tier of a report: 0–2 blocked, 3 only warnings, 4 fine. Pure. */
 export function reportRank(r: FeasibilityReport): CheckRank {
   const top = topBlocker(r);
-  if (top) return blockTier(top);
+  if (top) return blockTier(top, r);
   return r.checks.some((c) => c.level === 'warn') ? 3 : 4;
 }
 
@@ -106,7 +109,8 @@ export function reasonText(g: GameState, c: FeasibilityCheck): string {
       return `needs ${n} (${p ? (p.waiting ? 'filed, waiting for what it needs first' : `filed, due ${fmtDate(p.done)}`) : 'we have none'})`;
     }).join('; ');
   }
-  return lowerFirst(c.label);
+  // 'Busy: Summer base at Faro (1 Jun–30 Sep)': the tier word already says it is in the way.
+  return lowerFirst(c.label.replace(/^Busy: /, ''));
 }
 
 export interface OfferVerdict {
@@ -129,11 +133,15 @@ export function offerVerdict(g: GameState, reports: readonly FeasibilityReport[]
   const r = chosen ?? bestByRank(reports);
   if (!r) return null;
   const rank = reportRank(r);
-  const sorted = sortChecks(r.checks.filter((c) => c.level !== 'ok'));
+  const sorted = sortChecks(r.checks.filter((c) => c.level !== 'ok'), r);
   const head = sorted[0];
   const reg = g.fleet[r.aircraftId]?.reg;
+  // A busy line is about the aircraft: 'Flights in the way on CS-TQA: ...', 'Booked for other work: CS-TQA, ...'.
+  const busy = !!head && BUSY_RE.test(head.label);
+  const word = busy && rank === 1 ? 'Booked for other work' : TIER_WORD[rank as BlockTier];
+  const on = busy && reg && !head.label.includes(reg) ? ` on ${reg}` : '';
   const headline = !head || rank === 4 ? 'Can be flown as it stands'
     : rank === 3 ? `Check before signing: ${lowerFirst(head.label)}`
-    : `${TIER_WORD[rank as BlockTier]}: ${reasonText(g, head)}${rank === 2 && reg && !head.label.includes(reg) ? ` (${reg})` : ''}`;
-  return { rank, report: r, headline, more: sorted.slice(1).map((c) => ({ check: c, rank: checkRank(c) })) };
+    : `${word}${on}: ${reasonText(g, head)}`;
+  return { rank, report: r, headline, more: sorted.slice(1).map((c) => ({ check: c, rank: checkRank(c, r) })) };
 }

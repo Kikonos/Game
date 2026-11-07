@@ -3,7 +3,7 @@
 
 import { askSublease, SchedulePortal } from './OfferPortal';
 import { clashTrips, subleaseGroups } from './offerPortalLogic';
-import { BedDouble, Check, ChevronRight, Handshake, LineChart, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
+import { BedDouble, Check, ChevronRight, CircleSlash, Handshake, LineChart, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
 import { offerPrestigeLines } from '../../engine/contracts/prestige';
 import { ClientStars } from '../components/ClientStars';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
@@ -302,7 +302,7 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal
       {portal}
       {on && (
         <div className="sc-feas-checks">
-          {sortChecks(r.checks).filter((c) => !(unflyable && c.level === 'ok' && (c.id === 'runway' || (c.id === 'etops' && c.label === 'No ETOPS needed')))).map((c, i) => (
+          {sortChecks(r.checks, r).filter((c) => !(unflyable && c.level === 'ok' && (c.id === 'runway' || (c.id === 'etops' && c.label === 'No ETOPS needed')))).map((c, i) => (
             <div key={`${c.id}-${i}`} className="sc-check">
               <Dot tone={LEVEL_TONE[c.level]} />
               <span className="grow"><span>{SLIP_RE.test(c.label) ? <Term id="slipCrew">{c.label}</Term> : c.label}</span>{c.detail && <span className="small muted"> · {c.detail}</span>}</span>
@@ -672,7 +672,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           </span>
         )}
         {scenLock && <LockNote why={scenLock} />}
-        <button className="btn btn-primary" onClick={accept} disabled={!canAccept} title={mustPaint ? 'The client requires their livery: counter instead' : scenLock ?? (!canAccept && verdict && verdict.rank <= 2 ? verdict.headline : undefined)}><Check /> Accept {fmtP(asking * lift)}</button>
+        <button className="btn btn-primary" onClick={accept} disabled={!canAccept} title={mustPaint ? 'The client requires their livery: counter instead' : scenLock ?? (!canAccept && verdict && verdict.rank <= 2 ? verdict.headline : undefined)}>{!canAccept && verdict?.rank === 0 && !scenLock ? <><CircleSlash /> Not possible</> : <><Check /> Accept {fmtP(asking * lift)}</>}</button>
       </div>
     }>
       <ScreenHint id="offer" />
