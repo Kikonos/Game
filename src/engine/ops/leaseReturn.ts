@@ -529,8 +529,8 @@ export function checkBeforeReturn(g: GameState, aircraftId: string, hub?: { tota
   ways.push({
     id: 'fly', title: 'Fly on the tolerance to the return', ok: fly, cost: atReturn, idle: 0,
     lines: fly
-      ? [`Past ${fmtDay(due)} it flies on the ${Math.round(BAL.overdueTolerance * 100)} % tolerance (grounded after ${fmtDay(groundedAt)}) up to the return on ${fmtDay(stop)}. ${lessor} then has the C-check done at the return on our money.`, 'No slack: a late ferry or a long delay grounds it.']
-      : [`The tolerance runs out ${fmtDay(groundedAt)}, before the return on ${fmtDay(stop)}.`],
+      ? [`Past ${fmtDay(due)} it flies on the ${Math.round(BAL.overdueTolerance * 100)} % tolerance (grounded after ${fmtDay(groundedAt)}), up to the return ferry on ${fmtDay(stop)}. ${lessor} then has the C-check done at the return on our money.`, 'No slack: a late ferry or a long delay grounds it.']
+      : [`The tolerance runs out ${fmtDay(groundedAt)}, before the return ferry on ${fmtDay(stop)}.`],
   });
   const idlePark = days(due, stop);
   ways.push({
