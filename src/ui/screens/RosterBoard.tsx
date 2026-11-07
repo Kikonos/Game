@@ -42,14 +42,15 @@ function storedFold(): Set<string> {
 }
 const GROUP_LABEL: Record<BoardGroupBy, string> = { base: 'By base', deployment: 'By deployment', rank: 'By rank' };
 
-/** v0.18 crew id → station of the deployment they are on now (active deployments' tours). */
+/** v0.18 crew id → station of the deployment they are on now (the tour on station of each active deployment). */
 function deploymentsNow(g: GameState): Map<string, string> {
   const out = new Map<string, string>();
   for (const d of Object.values(g.deployments ?? {})) {
     if (d.start > g.now || d.end <= g.now) continue;
     for (const pid of d.pairingIds) {
       const p = g.pairings[pid];
-      if (!p) continue;
+      // The tour on station now (not one already flown home, nor the next set's).
+      if (!p || p.status === 'done' || p.status === 'broken' || p.start > g.now || p.end <= g.now) continue;
       for (const s of p.slots) if (s.crewId && !out.has(s.crewId)) out.set(s.crewId, d.base);
     }
   }

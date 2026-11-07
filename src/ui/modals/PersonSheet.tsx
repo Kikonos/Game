@@ -255,8 +255,8 @@ function Totals({ g, c, data, mk }: { g: GameState; c: CrewMember; data: MonthDa
   );
   return (
     <div className="ps-tots">
-      {tile('Block hours', hm(t.block), t.blockFlown && t.blockFlown < t.block ? `${hm(t.blockFlown)} flown` : t.block ? (t.blockFlown ? 'all flown' : 'planned') : `${t.sectors} sectors`)}
-      {tile('Duty hours', hm(t.duty), `${t.duties} dut${t.duties === 1 ? 'y' : 'ies'} · ${t.sectors} sectors`)}
+      {tile('Block hours', hm(t.block), t.blockFlown && t.blockFlown < t.block ? `${hm(t.blockFlown)} flown` : t.block ? (t.blockFlown ? 'all flown' : 'planned') : 'no flying')}
+      {tile('Duty hours', hm(t.duty), `${t.duties} dut${t.duties === 1 ? 'y' : 'ies'} · ${t.sectors} sector${t.sectors === 1 ? '' : 's'}`)}
       {tile('Days off', `${v.off}`, monthKey(pub) > v.key ? `of ${v.offMin} required` : `of ${v.offMin} · published to ${fmtDay(pub - 1)}`, short ? 'bad' : '')}
       {cur ? tile('Block 28 days', `${Math.round(w.block28d / HOUR)} h`, `of ${LIMITS.block28d / HOUR} h`, limitTone(w.block28d / LIMITS.block28d) === 'good' ? '' : limitTone(w.block28d / LIMITS.block28d)) : tile('Standby', `${v.standby.home + v.standby.hotel + v.standby.airport + v.standby.reserve}`, 'days')}
       {cur ? tile('Block 12 months', `${Math.round(w.block12m / HOUR)} h`, `of ${LIMITS.block12m / HOUR} h`, limitTone(w.block12m / LIMITS.block12m) === 'good' ? '' : limitTone(w.block12m / LIMITS.block12m)) : tile('Leave', `${v.leave}`, 'days')}
