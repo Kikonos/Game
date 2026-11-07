@@ -28,14 +28,16 @@ export const frameFor = (cx: number) => Math.round((cx - MAP_W / 2) / FRAME_STEP
 
 /** v0.18 (perf) how close (map units, 25° of longitude) the view's edge may come to the frame's edge before it steps on. */
 export const FRAME_EDGE_U = (MAP_W * 25) / 360;
+/** The same while a pan or pinch runs (5°): the frame then moves only when it must, and is centred when the gesture ends. */
+export const FRAME_EDGE_BUSY_U = (MAP_W * 5) / 360;
 
 /**
- * Keeps frame `i` while the view (middle `cx`, `viewW` map units wide) stays clear of its edges by FRAME_EDGE_U, or
+ * Keeps frame `i` while the view (middle `cx`, `viewW` map units wide) stays clear of its edges by `edge`, or
  * at least while its middle is within FRAME_SLACK steps of the frame's middle; else the frame nearest the view's
  * middle. Zoomed in, the frame (and the marks' re-render) then moves only after a long pan, not every 10°.
  */
-export function nextFrame(i: number, cx: number, viewW = MAP_W): number {
-  const room = Math.max(FRAME_STEP_U * FRAME_SLACK, (MAP_W - viewW) / 2 - FRAME_EDGE_U);
+export function nextFrame(i: number, cx: number, viewW = MAP_W, edge = FRAME_EDGE_U): number {
+  const room = Math.max(FRAME_STEP_U * FRAME_SLACK, (MAP_W - viewW) / 2 - edge);
   return Math.abs(cx - (frameX(i) + MAP_W / 2)) > room ? frameFor(cx) : i;
 }
 

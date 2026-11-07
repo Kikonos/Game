@@ -11,7 +11,7 @@ import { MAP_H, MAP_W, basePaths, projection } from './mapData';
 import { type LabelBox, placeLabels } from './mapLogic';
 import { cssRect, toCss } from '../device';
 import { TILT_MAX_DEG, tiltBleed, tiltCss, tiltDeg, untilt } from './depth';
-import { frameRot, frameX, landOffset, lonCentre, nearX, nextFrame } from './wrap';
+import { FRAME_EDGE_BUSY_U, FRAME_EDGE_U, frameRot, frameX, landOffset, lonCentre, nearX, nextFrame } from './wrap';
 
 export interface MapRoute {
   id: string;
@@ -394,6 +394,7 @@ export function WorldMap({
   const backG = useRef<SVGGElement>(null);
   const glowWrap = useRef<HTMLDivElement>(null);
   const groundG = useRef<SVGGElement>(null);
+  const landUses = useRef<(SVGUseElement | null)[]>([]);
   const glowCv = useRef<HTMLCanvasElement>(null);
   const glowRef = useRef(glow);
   glowRef.current = glow;
@@ -441,7 +442,8 @@ export function WorldMap({
     const g = geoRef.current;
     const cx = ((g.w / 2 - g.ox) / g.s - v.x) / v.k;
     // v0.18 (perf) the frame stays put while the whole view is well inside it: a re-render only every so often.
-    const n = nextFrame(frameWant.current, cx, g.w / g.s / v.k);
+    // While a gesture or animation runs it moves only when it must (a re-render mid-pan is a dropped frame or two).
+    const n = nextFrame(frameWant.current, cx, g.w / g.s / v.k, busy() ? FRAME_EDGE_BUSY_U : FRAME_EDGE_U);
     if (n !== frameWant.current) { frameWant.current = n; setFrame(n); }
   };
   /** World x (map units) → x in the rendered frame, in [0, MAP_W) when wrapping. */
@@ -474,7 +476,22 @@ export function WorldMap({
     const v = live.current;
     layerView.current = v;
     // v0.18 the land in its copy nearest the frame (and one either side); the rest in the frame.
-    baseG.current?.setAttribute('transform', tfAt(v, landOffset(offRef.current)));
+    const lo = landOffset(offRef.current);
+    baseG.current?.setAttribute('transform', tfAt(v, lo));
+    if (wrapOn) {
+      // The world x the land layer covers (the screen and its margin, a quarter more either side for the tilt).
+      const g = geoRef.current;
+      const M = marginOf(g);
+      const pad = (g.w + 2 * M) * 0.25;
+      const x0 = ((-M - pad - g.ox) / g.s - v.x) / v.k;
+      const x1 = ((g.w + M + pad - g.ox) / g.s - v.x) / v.k;
+      landUses.current.forEach((el, i) => {
+        if (!el) return;
+        const c0 = lo + (i - 1) * MAP_W;
+        const on = c0 < x1 && c0 + MAP_W > x0;
+        if ((el.style.display !== 'none') !== on) el.style.display = on ? '' : 'none';
+      });
+    }
     const tf = tfAt(v, offRef.current);
     groundG.current?.setAttribute('transform', tf);
     backG.current?.setAttribute('transform', tf);
@@ -511,6 +528,8 @@ export function WorldMap({
     commitTimer.current = 0;
     const v = live.current;
     setView((cur) => (sameView(cur, v) ? cur : v));
+    // v0.18 the frame re-centred on the view with this render once the gesture is over.
+    if (!busy()) reframe(v);
     if (!busy()) syncLayers();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   /** Re-renders markers/labels for the new zoom at most every 120 ms while a gesture runs. */
@@ -1269,10 +1288,14 @@ export function WorldMap({
       <div ref={baseWrap} className="map-layer map-layer-base" style={layerStyle}>
         <svg viewBox={layerVB} preserveAspectRatio="none" style={svgFill}>
           <g ref={baseG}>
-            <BaseLayers rotate={wrapOn ? 0 : rotate} id={wrapOn ? landId : undefined} />
-            {/* v0.18 wrapping: a copy of the land either side (the same path; only one on screen but at the seam). */}
-            {wrapOn && <use href={`#${landId}`} x={-MAP_W} />}
-            {wrapOn && <use href={`#${landId}`} x={MAP_W} />}
+            {wrapOn ? (
+              <>
+                {/* v0.18 wrapping: the land drawn once, shown in up to three copies side by side; (perf) only the
+                    copies that reach the view are drawn (syncLayers), usually one, two at the seam. */}
+                <defs><BaseLayers rotate={0} id={landId} /></defs>
+                {[-1, 0, 1].map((c, i) => <use key={c} ref={(el) => { landUses.current[i] = el; }} href={`#${landId}`} x={c * MAP_W} />)}
+              </>
+            ) : <BaseLayers rotate={rotate} />}
           </g>
           <g ref={groundG}>{ground?.(ctx)}</g>
         </svg>
