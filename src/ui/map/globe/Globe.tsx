@@ -30,8 +30,8 @@ import { GlobeMarks, type GlobeMarkProps } from './GlobeMarks';
 import { modelOf } from './globeModel';
 import { borderLines, drawLandField, fieldWidth, landFieldHere, ribbons } from './globeLand';
 import {
-  aimAt, angleBetween, arcLift, camOf, clampDist, clampLat, cross, dashOf, degPerPx, DIST_START, FOV, facing, gcTrack, globeFleet, globePxPerM, headingVec, IDLE_AFTER_MS, IDLE_SPIN_DEG_S, legTrack,
-  lerpOrbit, liftAt, norm, occluded, type Orbit, parseColour, project, stepInertia, sub, sunVec, tangentsAt, vecOf, worldPerPx, wrap180, type GlobeAc, type Vec3,
+  aimAt, angleBetween, arcLift, camView, type CamView, globeTilt, projectView, clampDist, clampLat, cross, dashOf, degPerPx, DIST_START, FOV, facing, gcTrack, globeFleet, globePxPerM, headingVec, IDLE_AFTER_MS, IDLE_SPIN_DEG_S, legTrack,
+  lerpOrbit, liftAt, norm, occluded, type Orbit, parseColour, stepInertia, sub, sunVec, tangentsAt, vecOf, worldPerPx, wrap180, type GlobeAc, type Vec3,
 } from './globeLogic';
 import './globe.css';
 
@@ -106,7 +106,7 @@ const AHEAD_DASH: Record<FlightType, string> = { operating: '6 5', positioning: 
 const orbits = new WeakMap<GameState, Orbit>();
 
 /** Frame cost stats for perf checks (console: __bhGlobe); `aim` turns the open globe to a place (checks, screenshots). */
-const stats = { frames: 0, avgMs: 0, maxMs: 0, landMs: 0, reset() { this.frames = 0; this.avgMs = 0; this.maxMs = 0; }, aim: null as null | ((lon: number, lat: number, dist?: number) => void) };
+const stats = { frames: 0, avgMs: 0, maxMs: 0, landMs: 0, reset() { this.frames = 0; this.avgMs = 0; this.maxMs = 0; }, aim: null as null | ((lon: number, lat: number, dist?: number) => void), orbit: null as null | (() => Orbit), fleet: null as null | (() => { id: string; pos: [number, number]; airborne: boolean; progress: number }[]) };
 (globalThis as unknown as { __bhGlobe?: typeof stats }).__bhGlobe = stats;
 
 const cssVar = (name: string) => (typeof document !== 'undefined' ? getComputedStyle(document.documentElement).getPropertyValue(name) : '');
@@ -344,6 +344,9 @@ export default function Globe(props: GlobeProps) {
     let flow = 0;
     let flowT = NaN;
     let followed = '';
+    /** v0.18 the camera as last drawn (taps and labels use the same one) and its tilt (deg). */
+    let tiltNow = 0;
+    let cv: CamView = camView(orbit, 0);
 
     const resize = () => {
       // In the page's own css px (labels, taps); Settings › Size zooms the page, so the buffer follows the screen px.
@@ -445,10 +448,13 @@ export default function Globe(props: GlobeProps) {
     const draw = (game: GameState, t: number) => {
       const p = propsRef.current;
       orbits.set(p.g, orbit);
-      const cam = camOf(orbit);
+      // v0.18 close up the camera leans back (Map tilt setting; not with reduced motion): the ground runs to a horizon.
+      tiltNow = store.settings.mapTilt && !reduced ? globeTilt(orbit.dist) : 0;
+      cv = camView(orbit, tiltNow);
+      const cam = cv.pos;
       camera.position.set(cam[0], cam[1], cam[2]);
-      camera.up.set(0, 1, 0);
-      camera.lookAt(0, 0, 0);
+      camera.up.set(cv.up[0], cv.up[1], cv.up[2]);
+      camera.lookAt(cv.target[0], cv.target[1], cv.target[2]);
       const wpp = worldPerPx(orbit.dist, h);
       const pxPerM = globePxPerM(orbit.dist, w, h);
       // Theme.
@@ -544,9 +550,8 @@ export default function Globe(props: GlobeProps) {
         list.forEach((a, i) => stand.set(a.id, offs[i]));
       }
       // The camera's screen axes in the world (shadows fall down and right on screen).
-      const cfw = norm([-cam[0], -cam[1], -cam[2]]);
-      const crt = norm(cross(cfw, [0, 1, 0]));
-      const cup = cross(crt, cfw);
+      const crt = cv.right;
+      const cup = cv.up;
       const anim = store.settings.mapAnimations && !reduced;
       acScreen.clear();
       const boxes: (LabelBox & { el: HTMLSpanElement; x0: number; y0: number })[] = [];
@@ -652,7 +657,7 @@ export default function Globe(props: GlobeProps) {
           if (el) el.style.display = 'none';
           continue;
         }
-        const q = project(v, cam, w, h);
+        const q = projectView(v, cv, w, h);
         if (!q) continue;
         if (!el) {
           el = document.createElement('span');
@@ -676,7 +681,7 @@ export default function Globe(props: GlobeProps) {
       // v0.18 the marks (pins, weather, events, crew changes, diversions, zone names) where they stand on screen.
       markScreen.clear();
       for (const m of marks) {
-        const q = facing(m.at, cam, m.face) ? project(m.at, cam, w, h) : null;
+        const q = facing(m.at, cam, m.face) ? projectView(m.at, cv, w, h) : null;
         if (!q) {
           if (m.el.style.display !== 'none') m.el.style.display = 'none';
           continue;
@@ -774,7 +779,7 @@ export default function Globe(props: GlobeProps) {
       o.shadow.visible = !occluded(vecOf(...lonLatOf(gN), R_SHADOW), cam);
       const nn = norm(P);
       const vis = !occluded(P, cam) && (alt > 0.004 || facing(ground, cam, LABEL_COS));
-      return vis && facing(nn, cam, alt > 0.004 ? -0.2 : LABEL_COS) ? project(P, cam, w, h) : null;
+      return vis && facing(nn, cam, alt > 0.004 ? -0.2 : LABEL_COS) ? projectView(P, cv, w, h) : null;
     };
     const trailWins = new Map<string, { key: string; w: [number, number] | null }>();
     /** The contrail window of a leg (game minutes), cached by its times. */
@@ -866,7 +871,7 @@ export default function Globe(props: GlobeProps) {
         gesture.moved += Math.hypot(dx, dy);
         gesture.x = p.x;
         gesture.y = p.y;
-        orbit = { ...orbit, lon: wrap180(orbit.lon - (dx * dpp) / Math.max(0.25, Math.cos((orbit.lat * Math.PI) / 180))), lat: clampLat(orbit.lat + dy * dpp) };
+        orbit = { ...orbit, lon: wrap180(orbit.lon - (dx * dpp) / Math.max(0.25, Math.cos((orbit.lat * Math.PI) / 180))), lat: clampLat(orbit.lat + (dy * dpp) / Math.cos(tiltNow * (Math.PI / 180))) };
         const now = performance.now();
         gesture.hist.push({ t: now, lon: orbit.lon, lat: orbit.lat });
         while (gesture.hist.length > 2 && now - gesture.hist[0].t > 90) gesture.hist.shift();
@@ -921,7 +926,7 @@ export default function Globe(props: GlobeProps) {
       const r = finger ? HIT_R.touch : HIT_R.mouse;
       const game = store.game;
       if (!game) return;
-      const cam = camOf(orbit);
+      const cam = cv.pos;
       const items: { x: number; y: number; item: Ref | (() => void) }[] = [];
       // v0.18 the marks first, as on the flat map: weather (opens what the game has on it), pins, events, crew changes.
       const mk = propsRef.current.marks;
@@ -946,7 +951,7 @@ export default function Globe(props: GlobeProps) {
         if (!ap) continue;
         const v = vecOf(ap.lon, ap.lat, R_AP);
         if (!facing(v, cam, LABEL_COS)) continue;
-        const q = project(v, cam, w, h);
+        const q = projectView(v, cv, w, h);
         if (q) items.push({ x: q.x, y: q.y, item: { kind: 'airport', id: a.code } });
       }
       const hit = pickNearest(items, x, y, r);
@@ -989,7 +994,7 @@ export default function Globe(props: GlobeProps) {
         const to = { ...orbit, dist: clampDist(1 + (orbit.dist - 1) * f) };
         // Zooming in with something selected in view closes in on it (kept clear of the panel), not on the middle.
         const at = selPos(propsRef.current.sel);
-        if (at && f < 1 && facing(vecOf(...at), camOf(orbit), LABEL_COS)) {
+        if (at && f < 1 && facing(vecOf(...at), cv.pos, LABEL_COS)) {
           const k = 1 - (to.dist - 1) / (orbit.dist - 1);
           const aim = aimAt(at, to.dist, h, propsRef.current.panelOpen ? PANEL_W / 2 : 0);
           to.lon = wrap180(orbit.lon + wrap180(aim.lon - orbit.lon) * k);
@@ -1041,6 +1046,8 @@ export default function Globe(props: GlobeProps) {
       const A = at ? AIRPORT_BY_CODE[at] : undefined;
       return A ? [A.lon, A.lat] : null;
     };
+    stats.orbit = () => ({ ...orbit });
+    stats.fleet = () => fleetNow.map((a) => ({ id: a.id, pos: a.pos, airborne: a.airborne, progress: a.progress }));
     stats.aim = (lon, lat, dist) => flyTo({ lon: wrap180(lon), lat: clampLat(lat), dist: clampDist(dist ?? orbit.dist) }, 600);
     selKey = propsRef.current.sel ? `${propsRef.current.sel.kind}:${propsRef.current.sel.id}` : '';
     resize();
@@ -1051,6 +1058,8 @@ export default function Globe(props: GlobeProps) {
       unCapture();
       api.current = null;
       stats.aim = null;
+      stats.fleet = null;
+      stats.orbit = null;
       cancelAnimationFrame(raf);
       window.clearTimeout(spinTimer);
       ro.disconnect();

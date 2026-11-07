@@ -66,6 +66,50 @@ export interface Orbit { lon: number; lat: number; dist: number }
 /** Camera position for an orbit (looking at the Earth's centre). */
 export const camOf = (o: Orbit): Vec3 => vecOf(o.lon, o.lat, o.dist);
 
+/** v0.18 the camera's tilt at the closest zoom (deg from straight down) and the distance it starts at (Earth radii). */
+export const GLOBE_TILT_MAX = 40;
+export const GLOBE_TILT_FROM = 1.9;
+
+/**
+ * v0.18 the camera's tilt (deg) at a distance: none from GLOBE_TILT_FROM out, easing in (smoothstep) to `max` at the
+ * closest zoom, so close up the ground leans away towards a horizon and the aircraft and their arcs show in 3D. Pure.
+ */
+export function globeTilt(dist: number, max = GLOBE_TILT_MAX): number {
+  if (!(dist < GLOBE_TILT_FROM) || max <= 0) return 0;
+  const x = Math.min(1, (GLOBE_TILT_FROM - dist) / (GLOBE_TILT_FROM - DIST_MIN));
+  return max * x * x * (3 - 2 * x);
+}
+
+/** v0.18 where the camera is and its screen axes in the world (right, up; fwd into the screen). */
+export interface CamView { pos: Vec3; fwd: Vec3; right: Vec3; up: Vec3; target: Vec3 }
+
+/**
+ * v0.18 the camera for an orbit and a tilt: it looks at the ground point under the orbit (lon, lat), from (dist − 1)
+ * away, leaning back to the south by `tilt` degrees (north stays up on screen). With no tilt it is camOf looking at the
+ * Earth's centre. Pure.
+ */
+export function camView(o: Orbit, tilt = 0): CamView {
+  const n = vecOf(o.lon, o.lat);
+  const { north } = tangentsAt([o.lon, o.lat]);
+  const a = o.dist - 1;
+  const t = tilt * RAD;
+  const c = Math.cos(t);
+  const s = Math.sin(t);
+  const pos: Vec3 = [n[0] + a * (c * n[0] - s * north[0]), n[1] + a * (c * n[1] - s * north[1]), n[2] + a * (c * n[2] - s * north[2])];
+  const fwd = norm(sub(n, pos));
+  const right = norm(cross(fwd, north));
+  return { pos, fwd, right, up: cross(right, fwd), target: n };
+}
+
+/** v0.18 project for a CamView (any tilt): css px from the top left, null behind the camera. */
+export function projectView(p: Vec3, v: CamView, w: number, h: number, fov = FOV): ScreenPt | null {
+  const d = sub(p, v.pos);
+  const z = dot(d, v.fwd);
+  if (z <= 1e-6) return null;
+  const f = h / 2 / Math.tan((fov / 2) * RAD);
+  return { x: w / 2 + (dot(d, v.right) / z) * f, y: h / 2 - (dot(d, v.up) / z) * f };
+}
+
 /** −180..180. */
 export const wrap180 = (x: number) => ((((x + 180) % 360) + 360) % 360) - 180;
 export const clampLat = (lat: number) => Math.max(-LAT_MAX, Math.min(LAT_MAX, lat));
