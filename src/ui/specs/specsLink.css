@@ -10,3 +10,5 @@
 .mk-cmp-bar { position: sticky; bottom: calc(var(--safe-b) + 8px); z-index: 5; display: flex; align-items: center; gap: 10px; margin: 10px 0 0 var(--bug-inset); padding: 8px 10px; border-radius: 12px;
   background: var(--panel-solid); border: 1px solid var(--border-strong); box-shadow: var(--shadow-sm); }
 .mk-cmp-bar .grow { min-width: 0; }
+.mk17-card .mk17-tools { justify-content: flex-end; margin: -2px 0 -4px; }
+.mk17-card .mk17-tools .btn.spec-link { min-height: 32px; color: var(--text-2); }

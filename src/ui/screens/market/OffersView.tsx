@@ -66,6 +66,11 @@ function OfferCard17({ g, r, sel, picked, onPick }: { g: GameState; r: Row; sel:
       </div>
       <div className="mk17-line num ellipsis"><b>{offerTermsLine(o)}</b></div>
       <div className="mk17-line small muted ellipsis">{offerReadyLine(g.now, o, r.ready, r.home)} · <span className={left <= 2 ? 'warn' : ''}>{left <= 1 ? 'last day' : `open ${left} more days`}</span></div>
+      {/* v0.18.1 the spec sheet and the compare pick. */}
+      <div className="row gap-8 mk17-tools">
+        <SpecsLink subject={{ kind: 'offer', id: o.id }} className="btn-ghost" />
+        <button type="button" className="mk-cmp" aria-pressed={picked} onClick={onPick} aria-label={`Compare ${tName(o.typeId)} ${o.builtYear}`}>{picked ? <Check className="sc-ico-s" /> : <Columns3 className="sc-ico-s" />}Compare</button>
+      </div>
       <div className="row gap-8 mk17-foot">
         <div className="mk-chips grow">
           <GateChip v={r.v} />
@@ -74,9 +79,6 @@ function OfferCard17({ g, r, sel, picked, onPick }: { g: GameState; r: Row; sel:
           {isExoticType(o.typeId) && <span className="chip mk-chip warn" data-tip="A rare type: the dialog says what it takes"><Sparkles className="sc-ico-s" />Rare</span>}
           {r.bunks && <span className="chip mk-chip good"><BedDouble className="sc-ico-s" />Bunks</span>}
         </div>
-        {/* v0.18.1 the spec sheet and the compare pick. */}
-        <SpecsLink subject={{ kind: 'offer', id: o.id }} />
-        <button type="button" className="mk-cmp" aria-pressed={picked} onClick={onPick} aria-label={`Compare ${tName(o.typeId)} ${o.builtYear}`}>{picked ? <Check className="sc-ico-s" /> : <Columns3 className="sc-ico-s" />}Compare</button>
         {gate.ok
           ? <button className="btn btn-primary" onClick={open}>{r.loi ? <><FileSignature /> Sign LOI…</> : <><ShoppingCart /> {o.kind === 'dryLeaseIn' ? 'Lease…' : 'Buy…'}</>}</button>
           : <button className="btn" onClick={() => store.navigate('company', { view: 'ladder' })}><TrendingUp /> See the ladder</button>}
