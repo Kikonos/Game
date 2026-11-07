@@ -1,4 +1,4 @@
-// v0.18.1 the seat map (top-down layout of passenger accommodation, a "LOPA") of a cabin on a type: the deck geometry
+// v0.18 the seat map (top-down layout of passenger accommodation, a "LOPA") of a cabin on a type: the deck geometry
 // of data/lopa.ts filled with the cabin's seats class by class, front to back (business, premium economy, then
 // economy), row by row at each class's pitch. Economy takes the longest pitch that still fits (34 in at most, 36 VIP;
 // 28 in at least, then the dense layout down to 27 in). Every seat of the cabin is drawn: a short last row of a class

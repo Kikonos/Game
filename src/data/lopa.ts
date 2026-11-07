@@ -1,4 +1,4 @@
-// v0.18.1 aircraft spec sheets: the cabin geometry of every type for the seat map (ui/specs/seatMap.ts builds the
+// v0.18 aircraft spec sheets: the cabin geometry of every type for the seat map (ui/specs/seatMap.ts builds the
 // top-down layout of passenger accommodation, the "LOPA", from it and a cabin's seats per class). Lengths in inches
 // from the first cabin item behind the flight deck, nose to tail; widths are the cabin's floor width.
 //

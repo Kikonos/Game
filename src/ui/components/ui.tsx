@@ -75,7 +75,7 @@ export function Modal({
     if (!onClose) return;
     const h = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        // v0.17.1 the bug report form sits above any open dialog: Escape closes the form only. v0.18.1 so does a spec
+        // v0.17.1 the bug report form sits above any open dialog: Escape closes the form only. v0.18 so does a spec
         // sheet (ui/specs/SpecsLink.tsx): only the topmost layer's dialog closes.
         const top = document.querySelector('.bug-layer') ?? document.querySelector('.spec-layer');
         if (top && !top.contains(sheet.current)) return;

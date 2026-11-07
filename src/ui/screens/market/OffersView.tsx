@@ -42,7 +42,7 @@ function sellerLine(o: MarketOfferView['offer']): string {
   return o.exOperator ? `${who} · ex-${o.exOperator}` : who;
 }
 
-/** v0.18.1 up to three offers picked for the side-by-side compare. */
+/** v0.18 up to three offers picked for the side-by-side compare. */
 const CMP_MAX = 3;
 
 function OfferCard17({ g, r, sel, picked, onPick }: { g: GameState; r: Row; sel: boolean; picked: boolean; onPick: () => void }) {
@@ -66,7 +66,7 @@ function OfferCard17({ g, r, sel, picked, onPick }: { g: GameState; r: Row; sel:
       </div>
       <div className="mk17-line num ellipsis"><b>{offerTermsLine(o)}</b></div>
       <div className="mk17-line small muted ellipsis">{offerReadyLine(g.now, o, r.ready, r.home)} · <span className={left <= 2 ? 'warn' : ''}>{left <= 1 ? 'last day' : `open ${left} more days`}</span></div>
-      {/* v0.18.1 the spec sheet and the compare pick. */}
+      {/* v0.18 the spec sheet and the compare pick. */}
       <div className="row gap-8 mk17-tools">
         <SpecsLink subject={{ kind: 'offer', id: o.id }} className="btn-ghost" />
         <button type="button" className="mk-cmp" aria-pressed={picked} onClick={onPick} aria-label={`Compare ${tName(o.typeId)} ${o.builtYear}`}>{picked ? <Check className="sc-ico-s" /> : <Columns3 className="sc-ico-s" />}Compare</button>
@@ -102,7 +102,7 @@ export function OffersView({ g, sel }: { g: GameState; sel?: string | null }) {
     if (sel) document.querySelector(`.mk-card[data-offer="${sel}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [sel]);
   const n = (id: OfferFilter) => rows.filter((r) => offerMatches(r.v.offer, id, r.bunks)).length;
-  // v0.18.1 compare: the picks still on offer, at most three (the oldest pick goes first).
+  // v0.18 compare: the picks still on offer, at most three (the oldest pick goes first).
   const [cmp, setCmp] = useState<string[]>([]);
   const [cmpOpen, setCmpOpen] = useState(false);
   const live = cmp.filter((id) => rows.some((r) => r.v.offer.id === id));

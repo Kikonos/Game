@@ -244,7 +244,7 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
       <div className="row gap-8 fl-actions">
         <button className="btn grow" onClick={() => store.navigate('schedule', { sel: { kind: 'aircraft', id: ac.id } })}><CalendarRange /> Schedule</button>
         <button className="btn grow" onClick={() => store.navigate('map', { sel: { kind: 'aircraft', id: ac.id } })}><Plane /> On map</button>
-        {/* v0.18.1 the aircraft spec sheet (ui/specs). */}
+        {/* v0.18 the aircraft spec sheet (ui/specs). */}
         <SpecsLink subject={{ kind: 'aircraft', id: ac.id }} className="fl-specs" />
         {/* v0.7.2 §6: sell what we own; hand a lease back early (90+ days left). */}
         {o.kind === 'owned' && !ac.sale && ac.status !== 'delivering' && <button className={`btn grow ${fleetLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'sell', aircraftId: ac.id })} {...lockedProps(fleetLock)}><BadgeDollarSign /> Sell…</button>}

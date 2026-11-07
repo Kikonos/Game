@@ -1,4 +1,4 @@
-// v0.18.1 aircraft spec sheets: published figures per type beyond what the game flies with (data/aircraft.ts has
+// v0.18 aircraft spec sheets: published figures per type beyond what the game flies with (data/aircraft.ts has
 // MTOW, span, length and the brochure range; data/acmiTypes.ts the full-payload range, cruise, runway, ETOPS and
 // crew the game uses). Sources: Airbus "Aircraft characteristics – airport and maintenance planning" (A320 rev.
 // 2020+, A321, A330, A340, A350, A380) and Boeing "Airplane characteristics for airport planning" (ACAPS 737, 757,

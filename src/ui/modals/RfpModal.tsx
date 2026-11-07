@@ -83,7 +83,7 @@ export function RfpModal({ typeId: wanted }: { typeId?: string }) {
             <optgroup label="Widebody">{wide.map(opt)}</optgroup>
           </select>
         </label>
-        {/* v0.18.1 the type's spec sheet (ui/specs). */}
+        {/* v0.18 the type's spec sheet (ui/specs). */}
         <div className="rf-row"><span /><SpecsLink subject={{ kind: 'type', typeId: t.id }} label={`${tName(t.id)} specs`} /></div>
         <div className="rf-row">
           <span className="upper dim">Age</span>

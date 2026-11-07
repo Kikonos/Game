@@ -317,7 +317,7 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal
             </div>
           ))}
           {r.techStops.length > 0 && <div className="small muted">Fuel stops: {r.techStops.join(', ')}</div>}
-          {/* v0.18.1 the aircraft's spec sheet (ui/specs). */}
+          {/* v0.18 the aircraft's spec sheet (ui/specs). */}
           <div className="row"><SpecsLink subject={{ kind: 'aircraft', id: r.aircraftId }} label={`${ac.reg} specs`} /></div>
           <div className="small muted">Revenue {money(revenue)}{lift > 1 ? ` (incl. client-paid extra crew +${money(revenue - r.estRevenue)})` : ''} · costs {money(r.estCost)} · {Math.round(r.estBH)} BH flown{r.estBH - billBH > 0.5 ? ` (incl. ${Math.round(r.estBH - billBH)} BH positioning and empty legs)` : ''}</div>
           {/* Round 4 (§V): the crew check line above already says the shortage; no footer repeats it. */}

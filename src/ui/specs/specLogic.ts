@@ -1,4 +1,4 @@
-// v0.18.1 the aircraft spec sheet's content (ui/specs/SpecSheet.tsx draws it): the airframe (ours, an offer, or just
+// v0.18 the aircraft spec sheet's content (ui/specs/SpecSheet.tsx draws it): the airframe (ours, an offer, or just
 // a type), its key figures, the money and terms, and how it fits our network. Reads the game; changes nothing.
 
 import { ACMI_TYPES, artFor, type AcmiType, type CabinPreset } from '../../data/acmiTypes';

@@ -1,4 +1,4 @@
-// v0.18.1 aircraft spec sheets: every type's seat map seats exactly its cabin, the range circles are geodesic, and every
+// v0.18 aircraft spec sheets: every type's seat map seats exactly its cabin, the range circles are geodesic, and every
 // type in the game has its figures.
 import { describe, expect, it } from 'vitest';
 import { ACMI_TYPES_LIST } from '../../data/acmiTypes';

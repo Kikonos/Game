@@ -1,4 +1,4 @@
-// v0.18.1 the aircraft spec sheet (player: "when buying or leasing the information is quite limited"), after an
+// v0.18 the aircraft spec sheet (player: "when buying or leasing the information is quite limited"), after an
 // operator's own spec sheets (Euro Atlantic Airways): who and what it is with its side-view art, the key figures as
 // an icon row, range discs from our base and four world cities, the money and terms, how it fits our network, and a
 // seat map of every standard cabin of the type with this airframe's own highlighted. Also the side-by-side compare

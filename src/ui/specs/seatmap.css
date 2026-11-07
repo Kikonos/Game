@@ -1,4 +1,4 @@
-/* v0.18.1 the seat map (ui/specs/seatMap.ts): an SVG in inches, coloured by class. Both themes. */
+/* v0.18 the seat map (ui/specs/seatMap.ts): an SVG in inches, coloured by class. Both themes. */
 :root, :root[data-theme='dark'] {
   --sm-hull: #162034; --sm-hull-line: rgba(148, 170, 220, 0.42); --sm-floor: #1b2740; --sm-wing: #121b2d; --sm-eng: #26324a;
   --sm-mon: #2a3650; --sm-wc: #2f4a6a; --sm-mon-t: #9aa8c4;

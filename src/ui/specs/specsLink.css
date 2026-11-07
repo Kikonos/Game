@@ -1,4 +1,4 @@
-/* v0.18.1 the Specs link, the compare picks on Market offers, the spec sheet's layer (main bundle; the sheet's own
+/* v0.18 the Specs link, the compare picks on Market offers, the spec sheet's layer (main bundle; the sheet's own
    styles load with its chunk: specs.css). The layer sits above dialogs and below the bug button (z 1500). */
 .spec-layer { position: fixed; inset: 0; z-index: 1400; }
 .spec-layer > .modal-backdrop, .spec-layer .modal-backdrop { z-index: 1400; }

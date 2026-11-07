@@ -1,4 +1,4 @@
-// v0.18.1 "Range from" discs on the spec sheet: the world around a city on an azimuthal equidistant projection (the
+// v0.18 "Range from" discs on the spec sheet: the world around a city on an azimuthal equidistant projection (the
 // distance from the centre true in every direction, so the full-payload range is an exact circle), the land from
 // Natural Earth 1:110m (world-atlas, loaded with the spec sheet's chunk), the range circle drawn geodesically
 // (d3 geoCircle: every point the range away along a great circle). Static SVG strings, cached.

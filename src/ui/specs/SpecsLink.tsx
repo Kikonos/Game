@@ -1,4 +1,4 @@
-// v0.18.1 the small 'Specs' link that opens an aircraft spec sheet (ui/specs/SpecSheet.tsx, its own lazy chunk) from
+// v0.18 the small 'Specs' link that opens an aircraft spec sheet (ui/specs/SpecSheet.tsx, its own lazy chunk) from
 // wherever an aircraft is owned or considered: Fleet cards, Market offers, the letter of intent and acquire dialogs,
 // Ask lessors, the offer dialog's aircraft list. The sheet sits above any dialog (below the bug button), holds game
 // time while open, and Escape or Close puts it away, leaving the dialog under it as it was.

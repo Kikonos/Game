@@ -1,4 +1,4 @@
-/* v0.18.1 the aircraft spec sheet (ui/specs/SpecSheet.tsx), loaded with its chunk. iPad (1180 × 820) and iPhone on
+/* v0.18 the aircraft spec sheet (ui/specs/SpecSheet.tsx), loaded with its chunk. iPad (1180 × 820) and iPhone on
    its side (852 × 393); both themes through the game's tokens. */
 .sp-modal.modal.xwide { width: min(1120px, 100%); }
 .sp-modal .modal-body { display: flex; flex-direction: column; gap: 16px; }
