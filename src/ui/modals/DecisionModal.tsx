@@ -4,14 +4,15 @@
 // v0.7.1: the decision carries its four-line card (crew shortage at the gate, AOG, a change request, a late
 // payment) and a crew-short decision adds 'Open Crew Control' (all nine solutions).
 
-import { AlertTriangle, Users } from 'lucide-react';
-import { fmtDateTime } from '../../engine/core/time';
-import { leaseView, resolveDecision } from '../../engine/ops';
+import { AlertTriangle, Undo2, Users } from 'lucide-react';
+import { fmtDateTime, fmtDayRel } from '../../engine/core/time';
+import { earlyReturnQuote, leaseView, resolveDecision } from '../../engine/ops';
 import { problemAt } from '../../engine/problems';
 import { disruptionCard, isDisruption } from '../../engine/problems/ops';
 import { DiversionMap, divSpec } from '../map/DiversionMap';
 import { decisionBodyTail } from '../components/problemLogic';
 import { Modal } from '../components/ui';
+import { money } from '../format';
 import { ProblemCardView } from '../components/ProblemCard';
 import { ReturnLines } from './LeaseModal';
 import { hurtTone } from './crewControlLogic';
@@ -38,6 +39,7 @@ export function DecisionModal({ decisionId }: { decisionId?: string }) {
   // v0.7: a lease-end decision shows live quotes (rent, return costs) rather than the chips from when it was posted.
   const acId = d.kind === 'leaseEnd' && typeof d.data?.aircraftId === 'string' ? d.data.aircraftId : null;
   const live = acId ? leaseView(g, acId) : null;
+  const earlyQ = acId && live ? earlyReturnQuote(g, acId) : null;
   const chipsOf = (o: (typeof d.options)[number]) => (live?.options.find((x) => x.id === o.id)?.chips ?? o.chips)?.filter((c) => !/^Deposit \$0 back$/.test(c));
   // v0.7.1: the card behind the decision (its flight / aircraft / contract, else the decision itself).
   const flightId = d.kind === 'crewShort' && typeof d.data?.flightId === 'string' ? d.data.flightId : null;
@@ -92,6 +94,13 @@ export function DecisionModal({ decisionId }: { decisionId?: string }) {
         )}
       </div>
       {acId && live && <div className="mt-12"><ReturnLines g={g} aircraftId={acId} /></div>}
+      {/* v0.17.2 handing it back before the lease end is one of the answers too (the lessor's fee, 30 days' notice). */}
+      {acId && live && earlyQ && (earlyQ.ok || earlyQ.blockers.length > 0) && (
+        <div className="row between gap-8 small mt-8">
+          <span className="muted">Or hand it back early, from {fmtDayRel(earlyQ.end, g.now)} · fee {money(earlyQ.fee)}</span>
+          {<button className="btn btn-sm" onClick={() => { if (closable) store.closeModal(); else store.deferDecision(); store.openModal({ kind: 'lease', aircraftId: acId, tab: 'early' }); }}><Undo2 /> Return early…</button>}
+        </div>
+      )}
       <div className="small dim mt-12">
         {fmtDateTime(d.t)} UTC · {def ? `“${def.label}” applies by itself at ${fmtDateTime(d.expires)} UTC (${spanLabel(d.expires - g.now)}).` : ''}
         {!closable && s.settings.autoPause.decision ? ' Time is paused until you decide.' : ''}

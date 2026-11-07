@@ -263,11 +263,13 @@ export function leaseView(g: GameState, aircraftId: string): LeaseView | null {
   const r12 = extendedRent(g, ac, 12);
   const r36 = extendedRent(g, ac, 36);
   const lessor = lessorOf(ac);
+  // v0.17.2 with an early return booked, an extension still runs from the lease's own end (the early return is undone).
+  const fullEnd = ac.returning?.wasEnd ?? own.leaseEnd;
   return {
     lessor, ends: own.leaseEnd, daysLeft: Math.max(0, Math.ceil((own.leaseEnd - g.now) / DAY)), rent: own.rentPerMonth, returnSite: q.site,
     options: [
-      { id: 'extend12', label: 'Extend 12 months', rent: r12, chips: [`${usd(r12)}/month (${pct(r12, own.rentPerMonth)})`, `To ${fmtDate(own.leaseEnd + 12 * MONTH)}`] },
-      { id: 'extend36', label: 'Extend 36 months', rent: r36, chips: [`${usd(r36)}/month (${pct(r36, own.rentPerMonth)})`, `To ${fmtDate(own.leaseEnd + 36 * MONTH)}`] },
+      { id: 'extend12', label: 'Extend 12 months', rent: r12, chips: [`${usd(r12)}/month (${pct(r12, own.rentPerMonth)})`, `To ${fmtDate(fullEnd + 12 * MONTH)}`] },
+      { id: 'extend36', label: 'Extend 36 months', rent: r36, chips: [`${usd(r36)}/month (${pct(r36, own.rentPerMonth)})`, `To ${fmtDate(fullEnd + 36 * MONTH)}`] },
       { id: 'return', label: `Return to ${lessor} at ${siteCity(q.site)}`, cost: q.total, chips: [`≈ ${usd(q.total)} return costs`, `Deposit ${usd(q.deposit)} back`] },
     ],
     returning: ac.returning ?? null, decisionId: openDecision(g, aircraftId)?.id ?? null,

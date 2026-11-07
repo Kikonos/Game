@@ -245,7 +245,8 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
         <button className="btn grow" onClick={() => store.navigate('map', { sel: { kind: 'aircraft', id: ac.id } })}><Plane /> On map</button>
         {/* v0.7.2 §6: sell what we own; hand a lease back early (90+ days left). */}
         {o.kind === 'owned' && !ac.sale && ac.status !== 'delivering' && <button className={`btn grow ${fleetLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'sell', aircraftId: ac.id })} {...lockedProps(fleetLock)}><BadgeDollarSign /> Sell…</button>}
-        {o.kind === 'dryLeaseIn' && !ac.returning && ac.status !== 'delivering' && o.leaseEnd - g.now >= 90 * DAY && <button className={`btn grow ${fleetLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'lease', aircraftId: ac.id, tab: 'early' })} {...lockedProps(fleetLock)}><Undo2 /> Return early…</button>}
+        {/* v0.17.2 also with a return booked (at the lease end or early), until its check starts. */}
+        {o.kind === 'dryLeaseIn' && !returnInWork(g, ac) && ac.status !== 'delivering' && (ac.returning?.wasEnd ?? o.leaseEnd) - g.now >= 90 * DAY && <button className={`btn grow ${fleetLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'lease', aircraftId: ac.id, tab: 'early' })} {...lockedProps(fleetLock)}><Undo2 /> Return early…</button>}
       </div>
       {/* v0.16 borrow against it, sell and lease back (ui/screens/fleet/FinanceButtons.tsx). */}
       <FinanceButtons g={g} ac={ac} />
@@ -256,6 +257,8 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
 }
 
 const station = (code: string) => MRO_STATIONS.find((x) => x.code === code);
+/** v0.17.2 the lease return's check has started (the lease choice can no longer change). */
+const returnInWork = (g: GameState, ac: Aircraft) => !!ac.returning && g.maintenance[ac.returning.maintId]?.status === 'inWork';
 
 /** v0.7: lessor, lease end and return site; within 180 days 'Extend or return…'; a booked return's ferry and check. */
 function LeaseRow({ g, ac }: { g: GameState; ac: Aircraft }) {
@@ -269,7 +272,7 @@ function LeaseRow({ g, ac }: { g: GameState; ac: Aircraft }) {
     <div className="fl-row fl-lease">
       <div className="col grow" style={{ minWidth: 0 }}>
         <span className="small"><span className="upper dim">Lease</span> {lv.lessor} until {fmtDate(lv.ends)} · return at {lv.returnSite}{ret?.cost ? ` · ≈ ${money(ret.cost)}` : ''}</span>
-        {lv.returning && m && <span className="small warn">{f0 ? `Return ferry ${fmtDay(f0.std)} · ` : ''}return check {lv.returning.site} {fmtDay(m.start)}–{fmtDay(m.end)}</span>}
+        {lv.returning && m && <span className="small warn">{lv.returning.wasEnd !== undefined ? `Early return (fee ${money(lv.returning.earlyFee ?? 0)}) · ` : ''}{f0 ? `Return ferry ${fmtDayRel(f0.std, g.now)} · ` : ''}return check {lv.returning.site} {fmtDayRel(m.start, g.now)}–{fmtDayRel(m.end, g.now)}{m.status === 'inWork' ? ' · in work' : ''}</span>}
         {!lv.returning && lv.decisionId && <span className="small warn">The lessor wants an answer: extend or return</span>}
       </div>
       {soon && <button className={`btn btn-sm ${lockOf(g, 'fleet') ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'lease', aircraftId: ac.id })} {...lockedProps(lockOf(g, 'fleet'))}>{lv.returning ? 'Change…' : 'Extend or return…'}</button>}
