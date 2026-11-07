@@ -26,9 +26,17 @@ export const frameRot = (i: number) => wrap180(-i * FRAME_STEP_DEG) || 0;
 /** The frame index whose middle is nearest world x `cx`. */
 export const frameFor = (cx: number) => Math.round((cx - MAP_W / 2) / FRAME_STEP_U);
 
-/** Keeps frame `i` while the view's middle `cx` stays within FRAME_SLACK steps of its middle; else the nearest frame. */
-export function nextFrame(i: number, cx: number): number {
-  return Math.abs(cx - (frameX(i) + MAP_W / 2)) > FRAME_STEP_U * FRAME_SLACK ? frameFor(cx) : i;
+/** v0.18 (perf) how close (map units, 25° of longitude) the view's edge may come to the frame's edge before it steps on. */
+export const FRAME_EDGE_U = (MAP_W * 25) / 360;
+
+/**
+ * Keeps frame `i` while the view (middle `cx`, `viewW` map units wide) stays clear of its edges by FRAME_EDGE_U, or
+ * at least while its middle is within FRAME_SLACK steps of the frame's middle; else the frame nearest the view's
+ * middle. Zoomed in, the frame (and the marks' re-render) then moves only after a long pan, not every 10°.
+ */
+export function nextFrame(i: number, cx: number, viewW = MAP_W): number {
+  const room = Math.max(FRAME_STEP_U * FRAME_SLACK, (MAP_W - viewW) / 2 - FRAME_EDGE_U);
+  return Math.abs(cx - (frameX(i) + MAP_W / 2)) > room ? frameFor(cx) : i;
 }
 
 /** Offset (a whole number of world widths) of the land copy nearest the frame starting at world x `f`. */

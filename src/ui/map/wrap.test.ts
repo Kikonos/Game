@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MAP_W, projection } from './mapData';
-import { FRAME_SLACK, FRAME_STEP_U, frameFor, frameRot, frameX, landOffset, lonCentre, nearX, nextFrame } from './wrap';
+import { FRAME_EDGE_U, FRAME_SLACK, FRAME_STEP_U, frameFor, frameRot, frameX, landOffset, lonCentre, nearX, nextFrame } from './wrap';
 
 const AP: Record<string, [number, number]> = { LIS: [-9.1, 38.8], MNL: [121, 14.5], AKL: [174.8, -37], LAX: [-118.4, 33.9], SYD: [151.2, -33.9], NAN: [177.4, -17.8] };
 
@@ -38,6 +38,26 @@ describe('v0.18 wrapping flat map', () => {
     expect(nextFrame(i, mid - FRAME_STEP_U * FRAME_SLACK * 0.9)).toBe(i);
     expect(nextFrame(i, mid + FRAME_STEP_U * 3)).toBe(i + 3);
     expect(nextFrame(i, mid - FRAME_STEP_U * 2)).toBe(i - 2);
+  });
+
+  it('zoomed in, the frame stays put until the view nears its edge (fewer re-renders), then centres on the view', () => {
+    const i = frameFor(3000);
+    const mid = frameX(i) + MAP_W / 2;
+    const viewW = MAP_W / 6;
+    const room = (MAP_W - viewW) / 2 - FRAME_EDGE_U;
+    expect(room).toBeGreaterThan(FRAME_STEP_U * 5);
+    expect(nextFrame(i, mid + room * 0.98, viewW)).toBe(i);
+    expect(nextFrame(i, mid - room * 0.98, viewW)).toBe(i);
+    const n = nextFrame(i, mid + room * 1.02, viewW);
+    expect(n).toBe(frameFor(mid + room * 1.02));
+    // The view always lies inside the frame it gets.
+    for (const cx of [mid + room * 0.98, mid - room * 0.98, mid + room * 1.5]) {
+      const f = nextFrame(i, cx, viewW);
+      expect(cx - viewW / 2).toBeGreaterThanOrEqual(frameX(f));
+      expect(cx + viewW / 2).toBeLessThanOrEqual(frameX(f) + MAP_W);
+    }
+    // The whole world in view: the old 10° steps.
+    expect(nextFrame(i, mid + FRAME_STEP_U * 3, MAP_W)).toBe(i + 3);
   });
 
   it('the land copy sits within half a world of the frame', () => {

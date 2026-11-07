@@ -435,12 +435,13 @@ export function WorldMap({
   const path = useMemo(() => geoPath(proj), [proj]);
   /** A world-map transform for content drawn `off` map units east (the frame, or the land copy). */
   const tfAt = (v: View, off: number) => `translate(${v.x + v.k * off} ${v.y}) scale(${v.k})`;
-  /** v0.18 the frame follows the view's middle (a re-render of the marks when it steps on). */
+  /** v0.18 the frame follows the view (a re-render of the marks when it steps on, once the view nears its edge). */
   const reframe = (v: View) => {
     if (!wrapOn) return;
     const g = geoRef.current;
     const cx = ((g.w / 2 - g.ox) / g.s - v.x) / v.k;
-    const n = nextFrame(frameWant.current, cx);
+    // v0.18 (perf) the frame stays put while the whole view is well inside it: a re-render only every so often.
+    const n = nextFrame(frameWant.current, cx, g.w / g.s / v.k);
     if (n !== frameWant.current) { frameWant.current = n; setFrame(n); }
   };
   /** World x (map units) → x in the rendered frame, in [0, MAP_W) when wrapping. */
