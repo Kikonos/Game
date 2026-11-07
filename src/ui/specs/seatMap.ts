@@ -430,12 +430,16 @@ function wingShape(typeId: string, d: DeckMap) {
 const MON_LABEL: Record<MonKind, string> = { G: 'G', WC: 'WC', ST: 'Stairs', CR: 'Crew rest', CL: '' };
 
 /** One deck as an SVG group at x offset `ox` (inches); returns its markup and the width it takes. */
+let clipN = 0;
 function deckSvg(typeId: string, d: DeckMap, ox: number, withWing: boolean): { svg: string; w: number; h: number } {
+  const clip = `smc${++clipN}`;
   const hull = 7;
   const W = d.width + 2 * hull;
   const wing = withWing && d.wing ? wingShape(typeId, d) : null;
   const span = wing ? Math.max(W / 2, wing.half) : W / 2;
-  const cx = ox + span;
+  // The drawing shows the wing roots only (as airline seat maps do): the width is the cabin plus 70 % each side.
+  const vis = wing ? Math.min(span, W / 2 + W * 0.7) : W / 2;
+  const cx = ox + vis + 26;
   const x0 = cx - W / 2;
   const top = 10;
   const yC = top + d.nose; // cabin start
@@ -488,6 +492,9 @@ function deckSvg(typeId: string, d: DeckMap, ox: number, withWing: boolean): { s
   for (const y of d.dividers) parts.push(`<line class="sm-div" x1="${f1(fx + 4)}" x2="${f1(fx + d.width - 4)}" y1="${f1(yC + y)}" y2="${f1(yC + y)}"/>`);
   for (const s of d.seats) {
     parts.push(`<rect class="sm-seat ${s.cls}${s.exit ? ' x' : ''}" x="${f1(fx + s.x)}" y="${f1(yC + s.y)}" width="${f1(s.w)}" height="${f1(s.h)}" rx="${s.cls === 'J' ? 4 : 3}"><title>${s.row}${s.letter}</title></rect>`);
+    // The backrest (seats face the nose, up).
+    const bh = Math.min(7, s.h * 0.28);
+    parts.push(`<rect class="sm-back" x="${f1(fx + s.x + 1)}" y="${f1(yC + s.y + s.h - bh)}" width="${f1(s.w - 2)}" height="${f1(bh)}" rx="2"/>`);
   }
   for (const r of d.rows) parts.push(`<text class="sm-row${r.exit ? ' x' : ''}" x="${f1(x0 - 4)}" y="${f1(yC + r.y + 13)}">${r.n}</text>`);
   for (const dm of d.doors) {
@@ -498,7 +505,7 @@ function deckSvg(typeId: string, d: DeckMap, ox: number, withWing: boolean): { s
     parts.push(`<path class="${cls}" d="M${f1(x0 + W + 1)} ${f1(y - a)} L${f1(x0 + W + 1 + a * 1.2)} ${f1(y)} L${f1(x0 + W + 1)} ${f1(y + a)} Z"><title>${dm.ow ? 'Overwing exit' : `Door ${dm.label}R`}</title></path>`);
     if (!dm.ow) parts.push(`<text class="sm-door-t" x="${f1(x0 + W + 16)}" y="${f1(y + 4)}">${dm.label}</text>`);
   }
-  return { svg: parts.join(''), w: span * 2, h: yT + 10 };
+  return { svg: `<g clip-path="url(#${clip})">${parts.join('')}</g><clipPath id="${clip}"><rect x="${f1(cx - vis - 26)}" y="0" width="${f1(2 * vis + 52)}" height="${f1(yT + 12)}"/></clipPath>`, w: vis * 2 + 52, h: yT + 10 };
 }
 
 const svgCache = new Map<SeatMap, string>();
