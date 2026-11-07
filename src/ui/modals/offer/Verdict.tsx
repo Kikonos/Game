@@ -37,7 +37,7 @@ export function OfferVerdictBox({ g, v, offerId, busyFix }: { g: GameState; v: O
   return (
     <div className={`of-verdict t${v.rank}`} role="status">
       <div className="of-verdict-head"><Icon /><b>{v.headline}</b></div>
-      {v.rank === 2 && <div className="small muted">Solvable: tap a red trip under {reg} on the right to move it to another aircraft, or hand it to another operator.</div>}
+      {v.rank === 2 && <div className="small muted">Solvable: move {reg}’s red trips to another aircraft (tap one in its schedule below the aircraft name), or hand them to another operator.</div>}
       {fix && <div className="of-verdict-acts">{fix}</div>}
       {more.length > 0 && (
         <details>

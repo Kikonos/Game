@@ -94,7 +94,8 @@ export function bestByRank(reports: readonly FeasibilityReport[]): FeasibilityRe
 }
 
 const APPROVAL_NAMES = APPROVALS.map((a) => ({ id: a.id, name: a.name }));
-const lowerFirst = (t: string) => (/^[A-Z0-9]{2,}\b/.test(t) || /^[A-Z]{2}-/.test(t) ? t : t.charAt(0).toLowerCase() + t.slice(1));
+/** First letter lowered, unless it starts a code or a name: 'LIS–FAO', 'A320', 'CS-TQA', 'A-check', 'IOSA'. */
+const lowerFirst = (t: string) => (/^[A-Z0-9]{2,}\b/.test(t) || /^[A-Z]{1,2}-/.test(t) ? t : t.charAt(0).toLowerCase() + t.slice(1));
 
 /**
  * One plain reason for the headline: 'needs IOSA registration (we have none)', 'needs ETOPS 180 (filed, due 3 Mar
@@ -110,7 +111,8 @@ export function reasonText(g: GameState, c: FeasibilityCheck): string {
     }).join('; ');
   }
   // 'Busy: Summer base at Faro (1 Jun–30 Sep)': the tier word already says it is in the way.
-  return lowerFirst(c.label.replace(/^Busy: /, ''));
+  if (c.label.startsWith('Busy: ')) return c.label.slice('Busy: '.length);
+  return lowerFirst(c.label);
 }
 
 export interface OfferVerdict {
