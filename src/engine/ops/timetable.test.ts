@@ -99,7 +99,8 @@ describe('the ticket timetable', () => {
     const r = acceptOffer(g, o.id, [leased(g).id]);
     if (!r.ok) throw new Error(r.error);
     run(g, g.contracts[r.data!.contractId].start - DAY);
-    const t = Object.values(g.flights).find((f) => f.kind === 'deadhead' && f.status === 'scheduled' && f.std > g.now + DAY && f.to === 'LIS')!;
+    // (v0.17.2 a ticket either way: crew home may ride our own legs now.)
+    const t = Object.values(g.flights).find((f) => f.kind === 'deadhead' && f.status === 'scheduled' && f.std > g.now + DAY && (f.to === 'LIS' || f.from === 'LIS'))!;
     expect(t).toBeTruthy();
     // As an older build booked it: 25 minutes off the hour, off the timetable.
     retimeFlight(g, t, t.std + 25, t.sta + 25);
@@ -111,7 +112,9 @@ describe('the ticket timetable', () => {
     const h = deserialize(serialize(g));
     const t2 = h.flights[t.id];
     expect(isDeparture(t2.from, t2.to, t2.std)).toBe(true);
-    expect(t2.std).toBeGreaterThanOrEqual(t.std);
+    // (A ticket home moves to a later departure; v0.17.2 a ticket out may move to an earlier one that still connects.)
+    if (t.to === 'LIS') expect(t2.std).toBeGreaterThanOrEqual(t.std);
+    else expect(Math.abs(t2.std - t.std)).toBeLessThanOrEqual(3 * 60);
     expect(h.flights[flown.id].std).toBe(flown.std);
     expect(retimeToTimetable(h)).toBe(0);
   });

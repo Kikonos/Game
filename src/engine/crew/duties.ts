@@ -1277,7 +1277,7 @@ function periodRaw(dep: Deployment, s: number, t: Minute, R: number): { from: Mi
   // The first period runs from the deployment's start to the first change (Rotations round: up to a few days past R).
   // v0.17.2 a set added later (its first change a rotation after the duty it was added for) starts then: its first tour
   // is the rotation long, not from the deployment's start (SGN: sets added in September read 63- and 66-day tours).
-  const from = !process.env.V172_NOPER && a - R > dep.start + TOUR_TAIL ? a - R : dep.start;
+  const from = a - R > dep.start + TOUR_TAIL ? a - R : dep.start;
   if (t < a) return t < from ? null : { from, to: a };
   const k = Math.floor((t - a) / R);
   return { from: a + k * R, to: a + (k + 1) * R };
