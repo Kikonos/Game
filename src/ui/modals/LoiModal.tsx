@@ -25,6 +25,7 @@ import { dayIn, GateChip, offerRest } from '../screens/Market';
 import { lessorLabel, offerReadyLine, sourceBadge, tName } from '../screens/market/marketLogic';
 import { WhatItTakes } from '../screens/market/WhatItTakes';
 import { store, useGame } from '../store';
+import { SpecsLink } from '../specs/SpecsLink';
 
 export function LoiModal({ offerId }: { offerId: string }) {
   const g = useGame();
@@ -88,7 +89,7 @@ export function LoiModal({ offerId }: { offerId: string }) {
           <div className="row gap-8"><b>{t.name}</b><span className={`badge ${badge.tone}`}>{badge.label}</span></div>
           <div className="small muted" data-tip={lessorLabel(o).tip}>{q.lessor} · built {o.builtYear} · {o.cabin.label}{o.exOperator ? ` · ex-${o.exOperator}` : ''}</div>
           <div className="small muted">{offerReadyLine(g.now, o, q.ready, ferry > 0 ? q.ready + ferry : null)}</div>
-          <div className="row gap-8 wrap"><GateChip v={v} /><span className={`chip mk-chip ${v.crew.level === 'ok' ? 'good' : v.crew.level}`}>{v.crew.text}</span></div>
+          <div className="row gap-8 wrap"><GateChip v={v} /><span className={`chip mk-chip ${v.crew.level === 'ok' ? 'good' : v.crew.level}`}>{v.crew.text}</span><SpecsLink subject={{ kind: 'offer', id: o.id }} /></div>
           <RestTwoLiner g={g} rest={offerRest(v)} typeId={o.typeId} />
         </div>
       </div>

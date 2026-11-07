@@ -24,6 +24,7 @@ import { store, useGame } from '../store';
 import { inductionPlan, inductionSteps, usesLoi } from '../../engine/leasing';
 import { LoiModal } from './LoiModal';
 import { WhatItTakes } from '../screens/market/WhatItTakes';
+import { SpecsLink } from '../specs/SpecsLink';
 
 const city = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
 const regName = (g: ReturnType<typeof useGame>) => COUNTRIES[regCountry(g)]?.name ?? 'national';
@@ -125,7 +126,7 @@ export function AcquireModal({ offerId }: { offerId: string }) {
           <div className="small muted">{sellerOf(o)} · {o.where ?? q.site} · built {o.builtYear} · {o.cabin.label}</div>
           {/* v0.10 the airframe's engines (and exit layout where it sets the seat limit) */}
           <div className="small muted">{enginesOf(o.typeId, o.variant)}{variantOf(o.typeId, o.variant)?.maxSeats ? ` · ${variantOf(o.typeId, o.variant)!.label}, up to ${variantOf(o.typeId, o.variant)!.maxSeats} seats` : ''}</div>
-          <div className="row gap-8 wrap"><GateChip v={v} /><span className={`chip mk-chip ${v.crew.level === 'ok' ? 'good' : v.crew.level}`}>{v.crew.text}</span></div>
+          <div className="row gap-8 wrap"><GateChip v={v} /><span className={`chip mk-chip ${v.crew.level === 'ok' ? 'good' : v.crew.level}`}>{v.crew.text}</span><SpecsLink subject={{ kind: 'offer', id: o.id }} /></div>
           <RestTwoLiner g={g} rest={offerRest(v)} typeId={o.typeId} />
         </div>
       </div>

@@ -48,6 +48,7 @@ import { HintButton, ScreenHint } from '../components/ScreenHint';
 import { store, useGame } from '../store';
 import { offerLock } from '../../engine/scenario';
 import { LockNote } from '../components/Locked';
+import { SpecsLink } from '../specs/SpecsLink';
 
 const LEVEL_TONE = { ok: 'good', warn: 'warn', no: 'bad' } as const;
 const usd = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
@@ -316,6 +317,8 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal
             </div>
           ))}
           {r.techStops.length > 0 && <div className="small muted">Fuel stops: {r.techStops.join(', ')}</div>}
+          {/* v0.18.1 the aircraft's spec sheet (ui/specs). */}
+          <div className="row"><SpecsLink subject={{ kind: 'aircraft', id: r.aircraftId }} label={`${ac.reg} specs`} /></div>
           <div className="small muted">Revenue {money(revenue)}{lift > 1 ? ` (incl. client-paid extra crew +${money(revenue - r.estRevenue)})` : ''} · costs {money(r.estCost)} · {Math.round(r.estBH)} BH flown{r.estBH - billBH > 0.5 ? ` (incl. ${Math.round(r.estBH - billBH)} BH positioning and empty legs)` : ''}</div>
           {/* Round 4 (§V): the crew check line above already says the shortage; no footer repeats it. */}
         </div>
@@ -431,7 +434,7 @@ function HajjPanel({ o }: { o: ContractOffer }) {
 }
 
 /** Dry lease: ferry out · lease · ferry back (static), the money, their hours on our airframe, and the card. */
-function DryPanel({ g, o }: { g: GameState; o: ContractOffer }) {
+function DryPanel({ g, o, aircraftId }: { g: GameState; o: ContractOffer; aircraftId?: string }) {
   const m = dryMoney(o);
   if (!m || !o.dry) return null;
   const card = problemFor(g, { kind: 'dryLeaseInfo', ref: { kind: 'offer', id: o.id } });
@@ -454,6 +457,7 @@ function DryPanel({ g, o }: { g: GameState; o: ContractOffer }) {
         ...(o.dry.paint ? [['Paint', `In their colours (${o.dry.paint === 'full' ? 'full repaint' : 'decals'}), at their cost`] as [string, string]] : []),
       ]} />
       <div className="small muted">Our pilots fly the delivery and the return ferries (we pay that fuel); no crew from us during the lease.</div>
+      {aircraftId && g.fleet[aircraftId] && <div className="row"><SpecsLink subject={{ kind: 'aircraft', id: aircraftId }} label={`${g.fleet[aircraftId].reg} specs`} /></div>}
       {card && <ProblemCardView card={card} g={g} hideActions />}
     </div>
   );
@@ -512,7 +516,7 @@ const hasPanel = (o: ContractOffer) => o.product.kind === 'dry' || o.archetype =
 
 /** The archetype panel that applies (a mixed cabin can come on top of a Hajj airlift). */
 function ArchPanel({ g, o, aircraftId }: { g: GameState; o: ContractOffer; aircraftId?: string }) {
-  if (o.product.kind === 'dry') return <DryPanel g={g} o={o} />;
+  if (o.product.kind === 'dry') return <DryPanel g={g} o={o} aircraftId={aircraftId} />;
   if (o.archetype === 'worldTour') return <TourPanel g={g} o={o} aircraftId={aircraftId} />;
   if (o.archetype === 'deportation') return <MoralPanel o={o} />;
   const mixed = o.requirements.clientCabin?.n ? <MixedPanel g={g} o={o} /> : null;

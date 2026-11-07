@@ -4,7 +4,7 @@
 // ferry, the deadheads and the return terms are in the dialog. Filter chips: All · Narrowbody · Widebody · Short-term ·
 // Has bunks. Two columns on the iPad, one on the iPhone.
 
-import { BedDouble, FileSignature, ShoppingCart, Sparkles, TrendingUp } from 'lucide-react';
+import { BedDouble, Check, Columns3, FileSignature, ShoppingCart, Sparkles, TrendingUp, X } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { artFor } from '../../../data/acmiTypes';
 import { MARKET_LIVERY } from '../../../data/livery';
@@ -17,6 +17,7 @@ import { marketView, type MarketOfferView } from '../../../engine/ops';
 import { AircraftArt } from '../../components/AircraftArt';
 import { store } from '../../store';
 import { GateChip } from '../Market';
+import { SpecLayer, SpecsLink } from '../../specs/SpecsLink';
 import { isExoticType, lessorLabel, offerDaysLeft, offerMatches, offerReadyLine, offerTermsLine, sourceBadge, tName, type OfferFilter } from './marketLogic';
 
 interface Row { v: MarketOfferView; loi: boolean; ready: number; home: number | null; bunks: boolean; tight: string | null }
@@ -41,7 +42,10 @@ function sellerLine(o: MarketOfferView['offer']): string {
   return o.exOperator ? `${who} · ex-${o.exOperator}` : who;
 }
 
-function OfferCard17({ g, r, sel }: { g: GameState; r: Row; sel: boolean }) {
+/** v0.18.1 up to three offers picked for the side-by-side compare. */
+const CMP_MAX = 3;
+
+function OfferCard17({ g, r, sel, picked, onPick }: { g: GameState; r: Row; sel: boolean; picked: boolean; onPick: () => void }) {
   const o = r.v.offer;
   const badge = sourceBadge(o);
   const left = offerDaysLeft(g.now, o);
@@ -62,6 +66,11 @@ function OfferCard17({ g, r, sel }: { g: GameState; r: Row; sel: boolean }) {
       </div>
       <div className="mk17-line num ellipsis"><b>{offerTermsLine(o)}</b></div>
       <div className="mk17-line small muted ellipsis">{offerReadyLine(g.now, o, r.ready, r.home)} · <span className={left <= 2 ? 'warn' : ''}>{left <= 1 ? 'last day' : `open ${left} more days`}</span></div>
+      {/* v0.18.1 the spec sheet and the compare pick. */}
+      <div className="row gap-8 mk17-tools">
+        <SpecsLink subject={{ kind: 'offer', id: o.id }} className="btn-ghost" />
+        <button type="button" className="mk-cmp" aria-pressed={picked} onClick={onPick} aria-label={`Compare ${tName(o.typeId)} ${o.builtYear}`}>{picked ? <Check className="sc-ico-s" /> : <Columns3 className="sc-ico-s" />}Compare</button>
+      </div>
       <div className="row gap-8 mk17-foot">
         <div className="mk-chips grow">
           <GateChip v={r.v} />
@@ -93,6 +102,11 @@ export function OffersView({ g, sel }: { g: GameState; sel?: string | null }) {
     if (sel) document.querySelector(`.mk-card[data-offer="${sel}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [sel]);
   const n = (id: OfferFilter) => rows.filter((r) => offerMatches(r.v.offer, id, r.bunks)).length;
+  // v0.18.1 compare: the picks still on offer, at most three (the oldest pick goes first).
+  const [cmp, setCmp] = useState<string[]>([]);
+  const [cmpOpen, setCmpOpen] = useState(false);
+  const live = cmp.filter((id) => rows.some((r) => r.v.offer.id === id));
+  const pick = (id: string) => setCmp((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c.filter((x) => rows.some((r) => r.v.offer.id === x)), id].slice(-CMP_MAX)));
   return (
     <>
       {rows.length > 0 && (
@@ -105,7 +119,7 @@ export function OffersView({ g, sel }: { g: GameState; sel?: string | null }) {
         </div>
       )}
       {list.length ? (
-        <div className="mk-grid">{list.map((r) => <OfferCard17 key={r.v.offer.id} g={g} r={r} sel={sel === r.v.offer.id} />)}</div>
+        <div className="mk-grid">{list.map((r) => <OfferCard17 key={r.v.offer.id} g={g} r={r} sel={sel === r.v.offer.id} picked={live.includes(r.v.offer.id)} onPick={() => pick(r.v.offer.id)} />)}</div>
       ) : rows.length ? (
         <div className="card sc-pad muted small">None of the {rows.length} offer{rows.length === 1 ? '' : 's'} fits this filter. <button className="btn btn-sm" onClick={() => setF('all')}>Show all</button></div>
       ) : (
@@ -114,6 +128,15 @@ export function OffersView({ g, sel }: { g: GameState; sel?: string | null }) {
           {g.leasing && BAL.v017.on && <button className="btn btn-sm btn-primary" onClick={() => store.openModal({ kind: 'rfp' })}><FileSignature /> Ask lessors…</button>}
         </div>
       )}
+      {live.length > 0 && (
+        <div className="mk-cmp-bar" role="region" aria-label="Compare offers">
+          <Columns3 className="sc-ico-s" aria-hidden />
+          <span className="small grow">{live.length === 1 ? 'Pick one or two more offers to compare' : `${live.length} offers picked`}</span>
+          <button className="btn btn-sm btn-ghost" onClick={() => setCmp([])}><X /> Clear</button>
+          <button className="btn btn-sm btn-primary" disabled={live.length < 2} onClick={() => setCmpOpen(true)}><Columns3 /> Compare {live.length}</button>
+        </div>
+      )}
+      {cmpOpen && live.length > 1 && <SpecLayer target={{ kind: 'compare', offerIds: live }} onClose={() => setCmpOpen(false)} />}
     </>
   );
 }

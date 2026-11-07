@@ -16,6 +16,7 @@ import { AircraftArt } from '../../components/AircraftArt';
 import { money } from '../../format';
 import { store } from '../../store';
 import { dealLine, stageChips, tName, transitionLine, type StageChip } from './marketLogic';
+import { SpecsLink } from '../../specs/SpecsLink';
 
 function Stages({ chips }: { chips: StageChip[] }) {
   return (
@@ -57,6 +58,7 @@ function DealRow({ g, d, sel }: { g: GameState; d: LeaseDeal; sel: boolean }) {
           </>}
           {d.stage === 'approved' && <button className="btn btn-sm btn-primary" onClick={() => store.act((gg) => signLease(gg, d.id))} disabled={g.company.cash < due}><FileCheck2 /> Sign ({money(due)})</button>}
           {d.stage === 'committee' && !d.techReps && <button className="btn btn-sm" onClick={() => store.act((gg) => addTechReps(gg, d.id))} data-tip="One more CAMO slot and a faster records review"><UserPlus /> Add tech reps ({money(repsCost(o.typeId))})</button>}
+          <SpecsLink subject={{ kind: 'type', typeId: o.typeId, cabin: o.cabin, variant: o.variant }} />
           <button className="btn btn-sm" onClick={() => store.walkAwayAsk(d.id)}><Undo2 /> Walk away</button>
         </div>
       )}
