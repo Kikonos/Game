@@ -356,7 +356,9 @@ describe('v0.14 world tours: no permit delay', () => {
       run(g, k.start + 60);
       expect(g.messages.some((m) => /^Permit delay/.test(m.title))).toBe(false);
       const flown = Object.values(g.flights).filter((f) => f.contractId === k.id && f.kind === 'revenue').sort((a, b) => a.std - b.std);
-      expect(flown[0].std, `seed ${seed}`).toBe(first);
+      // (v0.17.2 a ground delay on the day — seed 13 draws 51 min of fuelling — is not a permit: the leg was never moved
+      // before it.)
+      expect(flown[0].std - (flown[0].delay ?? 0) === first || (!!flown[0].delayReason && !/permit/i.test(flown[0].delayReason ?? '')), `seed ${seed}`).toBe(true);
       run(g, k.end + 3 * DAY);
       expect(k.legsFlown, `seed ${seed}`).toBe(legsOf(k).length);
     }

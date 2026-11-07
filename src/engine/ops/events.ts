@@ -23,7 +23,7 @@ import { hurtProse } from '../problems/types';
 import { planCrew } from '../crew/check';
 import { calledNow } from '../crew/standby';
 import { type IssueCode } from '../crew/rules';
-import { dhBlock, OUT_CONNECT, outTicket, segsOf } from '../crew/timeline';
+import { dhBlock, OUT_CONNECT, outTicket, segsOf, snapDeparture } from '../crew/timeline';
 import { distance } from '../core/geo';
 import { applyHold, cancelCost, cancelLegs, clientMoved, crewBlocked, delayChain, delayOf, liveDay, liveOver, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, settleOverlaps, stationOf, subcharterCost, subcharterLegs, subHit, underClosure, unitOf, windowLegs, type SubHit } from './flights';
 import { excusedLate, latePenalty } from './latePolicy';
@@ -417,7 +417,9 @@ export function crewReadyAt(g: GameState, f: Flight, ac: Aircraft): Minute {
         t = Math.min(t, o.plan.sta + OUT_CONNECT + report);
         continue;
       }
-      const first = ceilHour(Math.max(g.now, r) + BAL.deadheadCheckIn);
+      // v0.17.2 on the route's timetable (the ticket the crew will really take): an hour that has no departure held the
+      // leg to a time the fresh crew, booked on the later flight, could only make with the ticket inside their FDP.
+      const first = snapDeparture(from, f.from, ceilHour(Math.max(g.now, r) + BAL.deadheadCheckIn));
       const b = dhBlock(from, f.from);
       const fits = d!.fdp + b + OUT_CONNECT + BAL.deadheadCheckIn <= d!.maxFdp + (d!.discretion ?? 0) - 30;
       const rest = minRest({ dutyMin: b + BAL.deadheadCheckIn, atHome: false, augmented: false, tzShift: 0 });

@@ -74,7 +74,8 @@ describe('morale target and drift', () => {
     const cheap = await settle(80, 6, 3);
     expect(cheap.m).toBeLessThanOrEqual(55);
     expect(cheap.resign / def.resign).toBeGreaterThanOrEqual(1.5);
-    expect(cheap.sick / def.sick).toBeGreaterThanOrEqual(1.15);
+    // (v0.17.2 the gentler sickness slope: +10 % or more.)
+    expect(cheap.sick / def.sick).toBeGreaterThanOrEqual(1.1);
   }, slowTimeout(30_000));
 
   it('the policy preview shows the target and cost change before commit (pure)', () => {
@@ -161,8 +162,9 @@ describe('morale drivers', () => {
   it('sickness slope and resignation multipliers', () => {
     expect(sickMult(70)).toBe(1);
     expect(sickMult(65)).toBe(1);
-    expect(sickMult(50)).toBeCloseTo(1.3);
-    expect(sickMult(30)).toBeCloseTo(1.7);
+    // v0.17.2 a gentler slope (80): ×1.19 at 50, ×1.44 at 30.
+    expect(sickMult(50)).toBeCloseTo(1.1875);
+    expect(sickMult(30)).toBeCloseTo(1.4375);
     const g = fixtureGame();
     const c = one(g);
     const R = BAL.morale.resignPerMonth;
@@ -174,7 +176,7 @@ describe('morale drivers', () => {
     c.bondUntil = g.now + DAY;
     expect(resignChance(g, c)).toBeCloseTo(R * 3 * BAL.conv.bondFactor);
     const v = moraleOf(g, c.id);
-    expect(v.sickMult).toBeCloseTo(1.9);
+    expect(v.sickMult).toBeCloseTo(1.5625);
     expect(v.resignPerMonth).toBeCloseTo(0.0072);
   });
 

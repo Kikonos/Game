@@ -594,6 +594,9 @@ export function ridesHome(g: GameState, d: Duty, to: string, ticket: TicketPlan,
     // Straight on when the day stays within 13 h, else after minimum rest; on an empty leg (the whole cabin to sleep in)
     // straight on from the gate within RIDE_EMPTY_WAIT, the day to landing home at most RIDE_EMPTY_DAY (positioning after
     // the last sector is duty, not FDP: ORO.FTL.215; the rest at home after it is at least as long: ORO.FTL.235).
+    // (v0.17.2 and never days after the duty: a tour's ticket home waits at the period's end, but a ride days later is
+    // the ride of a later duty that may still come; attached to this one it read as a second duty over the next ones.)
+    if (f.std > d.release + rest + CHECKIN() + RIDE_HOME_WAIT) continue;
     const day = f.sta - d.report + early;
     const straightEmpty = empty && f.std - d.release <= RIDE_EMPTY_WAIT && day <= RIDE_EMPTY_DAY;
     if (day > 13 * 60 && f.std - CHECKIN() < d.release + rest && !straightEmpty) continue;
