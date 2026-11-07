@@ -11,6 +11,7 @@ import { typeOf } from '../core/perf';
 import type { ActionResult, ClientKind, ContractOffer, GameState, OfferFilter } from '../core/types';
 import { feasibility } from './feasibility';
 import { clientPrestige, clientStars } from './prestige';
+import { shapeOf } from './shape';
 
 const F = BAL.v016.filter;
 
@@ -91,6 +92,12 @@ export function offerHidden(g: GameState, o: ContractOffer): boolean {
     const ms = offerMarkets(g, o);
     if (ms.length && !ms.some((m) => f.markets!.includes(m))) return true;
   }
+  // v0.18 body and haul (contracts/shape.ts): a dry lease out flies nothing of ours, so no haul band hides it.
+  if (f.bodies?.length || f.hauls?.length) {
+    const s = shapeOf(o);
+    if (f.bodies?.length && !f.bodies.includes(s.body)) return true;
+    if (f.hauls?.length && s.haul && !f.hauls.includes(s.haul)) return true;
+  }
   return false;
 }
 
@@ -126,10 +133,18 @@ function tidy(f: OfferFilter): void {
     f.markets = [...new Set(f.markets)];
     if (!f.markets.length) delete f.markets;
   }
+  if (f.bodies) {
+    f.bodies = [...new Set(f.bodies)];
+    if (!f.bodies.length) delete f.bodies;
+  }
+  if (f.hauls) {
+    f.hauls = [...new Set(f.hauls)];
+    if (!f.hauls.length) delete f.hauls;
+  }
 }
 
 /** Whether the filter would hide anything at all (every setting at "any"). Pure. */
-export const filterEmpty = (f: OfferFilter | undefined): boolean => !f || (!f.kindsOff.length && !f.minPrestige && !f.minStars && !f.minRatePerBH && !f.minProfit && !f.families?.length && !f.markets?.length);
+export const filterEmpty = (f: OfferFilter | undefined): boolean => !f || (!f.kindsOff.length && !f.minPrestige && !f.minStars && !f.minRatePerBH && !f.minProfit && !f.families?.length && !f.markets?.length && !f.bodies?.length && !f.hauls?.length);
 
 /** Set (merge) the filter and re-evaluate the open offers. Player action. */
 export function setOfferFilter(g: GameState, patch: Partial<OfferFilter>): ActionResult<{ hidden: number }> {
