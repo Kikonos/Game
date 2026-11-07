@@ -52,6 +52,21 @@ describe('crew travelling', () => {
     expect(crewStatusView(g, ids[0]).label).not.toBe('Deadheading');
   });
 
+  it('v0.18 a past day off at home stays at home when a ticket home from a later trip is booked (no JFK days off)', () => {
+    const g = fixtureGame(53);
+    const [id] = addCrew(g, { CC: 1 });
+    const c = g.crew[id];
+    c.loc = c.base;
+    const t0 = g.now;
+    g.now = t0 + 6 * DAY;
+    // A trip next week ends with an airline ticket JFK–LIS.
+    const std = g.now + 4 * DAY;
+    addDeadhead(g, { crewIds: [id], from: 'JFK', to: c.base, std, sta: std + 7 * 60, cost: 0 });
+    const past = crewCalendar(g, id, t0, g.now - DAY).filter((b) => b.kind === 'off' || b.kind === 'rest');
+    expect(past.length).toBeGreaterThan(0);
+    expect(past.filter((b) => b.at === 'JFK')).toEqual([]);
+  });
+
   it('round 4: after an uncalled home standby the pill reads Resting with the rest the gauge and calendar book, not Available', () => {
     const g = fixtureGame(11);
     const [id] = addCrew(g, { CC: 1 });

@@ -229,7 +229,9 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
         const f = dutyFlights(g, d).find((x) => x.status !== 'cancelled');
         if (f) moves.push({ std: f.std, from: f.from });
       }
-      for (const f of travelOf(g, crewId)) if (f.status !== 'cancelled') moves.push({ std: f.std, from: f.from });
+      // v0.18 like the duties, only travel up to tomorrow: a ticket home from a trip next week (JFK–LIS) does not put
+      // last week's days off at JFK.
+      for (const f of travelOf(g, crewId)) if (f.status !== 'cancelled' && f.std <= g.now + DAY) moves.push({ std: f.std, from: f.from });
       moves.sort((a, b) => a.std - b.std);
     }
     return moves.find((m) => m.std >= t)?.from ?? c.loc;
