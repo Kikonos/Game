@@ -130,7 +130,7 @@ function CrewRows({ crew }: { crew: CrewMember[] }) {
   return (
     <div className="op-crew">
       {crew.map((m) => (
-        <button key={m.id} className="op-crew-row op-crew-link" onClick={() => store.navigate('crew', { sel: { kind: 'crew', id: m.id } })}>
+        <button key={m.id} className="op-crew-row op-crew-link" onClick={() => store.openPerson(m.id)}>
           <span className="role">{m.role}</span><span className="ellipsis">{crewName(m)}</span><RankMark role={m.role} />
         </button>
       ))}

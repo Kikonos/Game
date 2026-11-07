@@ -81,7 +81,7 @@ function Seat({ s, busy, later, onChange, onRemove, onUnlock }: { s: RosterSlotV
           <Dot tone={tone} />
           {s.crewId ? (
             <>
-              <button className="sc-seat-name ellipsis" onClick={() => store.navigate('crew', { sel: { kind: 'crew', id: s.crewId! } })}>{s.name}</button>
+              <button className="sc-seat-name ellipsis" onClick={() => store.openPerson(s.crewId!)}>{s.name}</button>
               {store.game?.crew[s.crewId] && <RankMark role={store.game.crew[s.crewId].role} />}
             </>
           ) : (

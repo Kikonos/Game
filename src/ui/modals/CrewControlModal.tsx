@@ -59,7 +59,7 @@ function OohStrip({ list }: { list: OohInfo[] }) {
     <div className="cc-ooh" role="note">
       <TimerOff className="cc-ooh-ico" aria-hidden />
       <span className="grow col cc-ooh-main">
-        <span className="small"><span className={`sc-role r-${x.role}`}>{x.role}</span> <b>{x.name}</b> {x.limitText}{list.length > 1 ? ` · and ${list.length - 1} other${list.length > 2 ? 's' : ''}` : ''}</span>
+        <span className="small"><span className={`sc-role r-${x.role}`}>{x.role}</span> <button className="ps-link" onClick={() => store.openPerson(x.crewId)}>{x.name}</button> {x.limitText}{list.length > 1 ? ` · and ${list.length - 1} other${list.length > 2 ? 's' : ''}` : ''}</span>
       </span>
       {x.max > 0 && <span className="bar thin bad cc-ooh-bar" aria-hidden><span style={{ width: `${pct}%` }} /></span>}
     </div>
@@ -220,10 +220,10 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
               <div className="upper dim">Can't legally fly it</div>
               {/* v0.9 round 4 (§V): crew the strip already names are not listed again. */}
               {view.illegal.filter((x) => !ooh.some((y) => y.crewId === x.crewId)).map((x) => (
-                <div key={x.crewId} className="cc-illegal">
+                <button key={x.crewId} className="cc-illegal ps-row-link" onClick={() => store.openPerson(x.crewId)} aria-label={`${x.name}: open their roster`}>
                   <span className={`sc-role r-${x.role}`}>{x.role}</span>
                   <ReasonLine reason={x.reason} tone="bad" name={x.name} />
-                </div>
+                </button>
               ))}
             </div>
           )}

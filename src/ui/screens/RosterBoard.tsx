@@ -645,7 +645,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
     if (name) {
       const id = name.dataset.name!;
       if (selecting) onSelect([id], !selected.has(id));
-      else store.navigate('crew', { sel: { kind: 'crew', id }, view: 'people' });
+      else store.openPerson(id);
       return;
     }
     const blk = t.closest<HTMLElement>('[data-c][data-i]');

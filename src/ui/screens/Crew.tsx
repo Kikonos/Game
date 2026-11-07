@@ -1,37 +1,24 @@
-// Crew (B5): staffing strip, filterable list with 28-day duty / block bars, and a detail panel with every
-// limit, morale and fatigue, days off and a 14-day roster; Train / Hire similar. DESIGN.md §6.3.
+// Crew (B5): staffing strip and a filterable list with 28-day duty / block bars. v0.18: a tap on a person opens their
+// own sheet (modals/PersonSheet.tsx: monthly roster, totals, limits, morale; Train / Hire similar). DESIGN.md §6.3.
 
-import { BoardingPasses } from '../components/BoardingPass';
 import { RankMark } from '../components/RankMark';
-import { ArrowDownRight, ArrowRight, ArrowUpRight, Check, CheckSquare, GraduationCap, Layers, LayoutGrid, List, Lock, Search, UserPlus, Users, X } from 'lucide-react';
+import { Check, CheckSquare, GraduationCap, Layers, LayoutGrid, List, Lock, Search, UserPlus, Users, X } from 'lucide-react';
 import { CrewPlanView, DeploymentStrip, PeakHeadsUp, PlanStrip } from './CrewPlan';
-import { ratingLine } from './crewPlanLogic';
-import type { RatingFamily } from '../../data/acmiTypes';
-import { crewSupply, familyNeeds } from '../../engine/crew/sets';
-import { FlightTypeChip } from '../components/FlightType';
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { flag } from '../../data/countries';
+import { useEffect, useMemo, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
-import { DAY, HOUR, dayStart, fmtDate, fmtDay, fmtTime, monthKey, toDate } from '../../engine/core/time';
+import { DAY, HOUR, fmtDay } from '../../engine/core/time';
 import type { CrewMember, CrewStatus, GameState } from '../../engine/core/types';
 import {
-  type CalBlock, classOf, conversionClasses, crewCalendar, crewName, crewRev, crewStatusView, crewTravelNow, type CrewTravelNow, crewWindows, familyLabel, LIMITS,
-  moraleOf, moraleSummary, type CrewWindows,
+  classOf, conversionClasses, crewRev, crewStatusView, crewTravelNow, type CrewTravelNow, crewWindows, familyLabel, LIMITS, moraleSummary, type CrewWindows,
 } from '../../engine/crew';
-import { crewGauges, crewMonth, publishedTo } from '../../engine/crew';
 import { problemAt } from '../../engine/problems';
-import { Gauge } from '../components/Gauge';
-import { restNow } from '../components/problemLogic';
 import { Why } from '../components/Why';
 import { Empty, Seg } from '../components/ui';
 import { RosterBoard } from './RosterBoard';
 import { moraleTone } from './rosterBoardLogic';
-import { money } from '../format';
-import { dutyRoute } from '../modals/DutyModal';
 import { store, useGame } from '../store';
-import { Dot, KV, LimitBar, ScreenHead, useRenderCount } from './common';
-import { CAL_KEY_LABEL, calAt, calId, calKey, calLabel, calLayer, calLegend, pickCal, stripText } from './crewLogic';
-import { baseDay, CREW_STATUS_LABEL, filterCrew, isPilotRole, limitTone, NO_FILTER, ROLE_LABEL, type CrewFilter } from './screenLogic';
+import { Dot, KV, ScreenHead, useRenderCount } from './common';
+import { baseDay, CREW_STATUS_LABEL, filterCrew, isPilotRole, limitTone, NO_FILTER, type CrewFilter } from './screenLogic';
 import { ScreenHint } from '../components/ScreenHint';
 import { hiresLeft, lockOf } from '../../engine/scenario';
 import { LockNote, lockedProps } from '../components/Locked';
@@ -80,185 +67,7 @@ function MiniBar({ label, v, max }: { label: string; v: number; max: number }) {
   );
 }
 
-/** The crew member holds a seat on this pairing that the player set (survives the re-plan). */
-const locked = (g: GameState, pairingId: string, crewId: string) => !!g.pairings[pairingId]?.slots.some((x) => x.crewId === crewId && x.locked);
-
-const isStatus = (b: CalBlock) => b.kind === 'sick' || b.kind === 'joining' || b.kind === 'training' || b.kind === 'leave';
-const when = (t: number) => `${fmtDay(t)} ${fmtTime(t)}`;
-const spanText = (b: CalBlock) => isStatus(b) ? `${fmtDay(b.start)} – ${fmtDay(b.end)}` : (Math.floor(b.start / DAY) === Math.floor(b.end / DAY) ? `${fmtDay(b.start)} ${fmtTime(b.start)}–${fmtTime(b.end)} UTC` : `${when(b.start)} – ${when(b.end)} UTC`);
-/** Whole days for status windows ('until 12 Mar'), clock times for work and travel. */
-const rowTime = (b: CalBlock) => (isStatus(b) ? `${fmtDay(b.start)} – ${fmtDay(b.end)}` : `${fmtDay(b.start)} ${fmtTime(b.start)}`);
-
-/** Tap-for-details card under the strip: what, when (UTC), the engine's detail and, for duties, the legs and crew change. */
-function CalDetail({ g, c, b }: { g: GameState; c: CrewMember; b: CalBlock }) {
-  const key = calKey(b);
-  const [line1, line2] = b.detail.split('\n');
-  const d = b.dutyId ? g.duties[b.dutyId] : undefined;
-  const tk = b.kind === 'deadhead' && b.flightIds?.[0] ? g.flights[b.flightIds[0]] : undefined;
-  const pass = tk && tk.kind === 'deadhead' && !tk.charter ? tk.id : null;
-  return (
-    <div className={`sc-cal-detail k-${key}`}>
-      <div className="row gap-8">
-        <span className={`sc-cal-sw k-${key}`} aria-hidden />
-        <b>{calLabel(b)}</b>
-        {b.legality && b.legality !== 'legal' && <span className={`badge ${b.legality === 'tight' ? 'warn' : 'bad'}`}>{b.legality}</span>}
-        {d && locked(g, d.pairingId, c.id) && <Lock className="sc-ico-s accent" aria-label="set by you" />}
-        <span className="grow" />
-        <span className="small muted nowrap">{spanText(b)}</span>
-      </div>
-      <div className="small muted">{line1}</div>
-      {/* v0.12 an airline ticket reads as its boarding pass(es) */}
-      {pass ? <BoardingPasses g={g} ticketId={pass} crew={c} /> : b.flights && b.flights.length > 0 && (
-        <div className="sc-cal-legs">
-          {b.flights.map((f) => (
-            <span key={f.id} className="sc-cal-leg small">
-              <span className="mono">{f.no}</span>
-              <span className="mono">{f.from}–{f.to}</span>
-              <span className="dim num">{fmtTime(f.std)}–{fmtTime(f.sta)}</span>
-              <FlightTypeChip type={f.type} />
-            </span>
-          ))}
-        </div>
-      )}
-      {line2 && !pass && !(b.kind === 'duty' && b.flights?.length) && <div className="small dim">{line2}</div>}
-      {d && !d.done && <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'duty', id: d.id })}><Users /> Change crew</button>}
-    </div>
-  );
-}
-
-/** v0.9 §R.8: this month's days off against the legal minimum, standby, flying and leave (one line). */
-function MonthLine({ g, c }: { g: GameState; c: CrewMember }) {
-  const v = crewMonth(g, c.id, g.now);
-  const i = v.line.indexOf(': ');
-  return (
-    <div className={`small muted sc-month-line ${v.off < v.offMin && monthKey(publishedTo(g)) > v.key ? 'low' : ''}`}>
-      <b>{v.line.slice(0, i)}:</b> {v.line.slice(i + 2)}
-    </div>
-  );
-}
-
-/** 14 days of everything that blocks the person: duties by flight type, travel, rest, days off, sick / joining / training / leave. */
-function Roster({ g, c }: { g: GameState; c: CrewMember }) {
-  const from = dayStart(g.now);
-  const to = from + 14 * DAY;
-  const rev = flightsRev(g);
-  const crev = crewRev(g);
-  const hour = Math.floor(g.now / HOUR);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  const blocks = useMemo(() => crewCalendar(g, c.id, from, to), [g, c.id, from, rev, crev, hour]);
-  const lane = useRef<HTMLDivElement>(null);
-  const [laneW, setLaneW] = useState(0);
-  useLayoutEffect(() => {
-    const el = lane.current;
-    if (!el) return;
-    setLaneW(el.clientWidth);
-    const ro = new ResizeObserver(() => setLaneW(el.clientWidth));
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-  const [selId, setSel] = useState<string | null>(null);
-  const sel = (selId ? blocks.find((b) => calId(b) === selId) : null) ?? calAt(blocks, g.now);
-  const span = to - from;
-  const ppm = laneW > 0 ? laneW / span : 0;
-  const pct = (t: number) => ((Math.min(to, Math.max(from, t)) - from) / span) * 100;
-  const tap = (e: React.MouseEvent<HTMLDivElement>) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    if (!r.width) return;
-    const b = pickCal(blocks, from + ((e.clientX - r.left) / r.width) * span, r.width / span);
-    if (b) setSel(calId(b));
-  };
-  const items = blocks.filter((b) => calLayer(b) > 0 && b.end > g.now);
-  const legend = calLegend(blocks);
-  const layered = [...blocks].sort((a, b) => calLayer(a) - calLayer(b));
-  return (
-    <div className="sc-roster">
-      <div className="sc-roster-days tiny dim">
-        {Array.from({ length: 14 }, (_, i) => <span key={i}>{toDate(from + i * DAY).getUTCDate()}</span>)}
-      </div>
-      <div className="sc-roster-lane sc-cal-lane" ref={lane} onClick={tap} role="group" aria-label="Next 14 days: tap a block for details">
-        {layered.map((b, i) => {
-          const key = calKey(b);
-          const l = pct(b.start);
-          const w = pct(b.end) - l;
-          if (w <= 0) return null;
-          const px = (w / 100) * laneW;
-          const label = b.kind === 'rest' ? '' : b.kind === 'duty' ? (key === 'ferry' ? 'FERRY' : '') : stripText(b);
-          const id = calId(b);
-          return (
-            <span key={`${id}-${i}`} className={`sc-cal k-${key} l${calLayer(b)} ${b.legality && b.legality !== 'legal' ? b.legality : ''} ${sel && calId(sel) === id ? 'on' : ''}`} style={{ left: `${l.toFixed(3)}%`, width: `${w.toFixed(3)}%` }}>
-              {label && ppm > 0 && px >= 8 * label.length + 10 ? <span className="sc-cal-t">{label}</span> : null}
-            </span>
-          );
-        })}
-        <span className="sc-roster-now" style={{ left: `${pct(g.now).toFixed(3)}%` }} />
-      </div>
-      <MonthLine g={g} c={c} />
-      {legend.length > 0 && (
-        <div className="sc-cal-legend tiny muted">
-          {legend.map((k) => <span key={k} className="row gap-4"><span className={`sc-cal-sw k-${k}`} aria-hidden />{CAL_KEY_LABEL[k]}</span>)}
-        </div>
-      )}
-      {sel ? <CalDetail g={g} c={c} b={sel} /> : <div className="small dim">Tap the strip for details.</div>}
-      <div className="sc-duty-list">
-        {items.slice(0, 8).map((b, i) => {
-          const key = calKey(b);
-          const d = b.dutyId ? g.duties[b.dutyId] : undefined;
-          // v0.9 a standby row reads like the roster: 'SBY E · 05:00–17:00 · LIS · 12 h'.
-          const sby = b.kind === 'standby';
-          const route = d ? dutyRoute(g, d.id) : sby ? `${fmtTime(b.start)}–${fmtTime(b.end)} · ${b.sby === 'hotel' ? 'hotel' : b.at ?? c.base}` : b.flights?.length ? [b.flights[0].from, ...b.flights.map((f) => f.to)].join('–') : b.detail.split('\n')[0];
-          const open = () => (d && !d.done ? store.openModal({ kind: 'duty', id: d.id }) : setSel(calId(b)));
-          return (
-            <button key={`${calId(b)}-${i}`} className={`sc-duty-row small ${sel && calId(sel) === calId(b) ? 'on' : ''}`} onClick={open}>
-              <span className={`sc-cal-sw k-${key}`} aria-hidden />
-              <span className="dim nowrap">{sby ? fmtDay(b.start) : rowTime(b)}</span>
-              <span className="nowrap">{sby ? stripText(b) : calLabel(b)}</span>
-              <span className={`${b.flights?.length ? 'mono' : ''} ellipsis grow dim`}>{route}</span>
-              {d && locked(g, d.pairingId, c.id) && <Lock className="sc-ico-s accent" aria-label="set by you" />}
-              {b.legality && b.legality !== 'legal' && <Dot tone={b.legality === 'tight' ? 'warn' : 'bad'} />}
-              {!isStatus(b) && <span className="num dim nowrap">{Math.round(h(b.end - b.start) * 10) / 10} h</span>}
-            </button>
-          );
-        })}
-        {items.length > 8 && <div className="small dim">… {items.length - 8} more</div>}
-        {!items.length && <div className="small muted">Nothing rostered in the next 14 days.</div>}
-      </div>
-    </div>
-  );
-}
-
-const trendIcon = (v: number) => (v >= 2 ? <ArrowUpRight className="sc-ico-s good" /> : v <= -2 ? <ArrowDownRight className="sc-ico-s bad" /> : <ArrowRight className="sc-ico-s dim" />);
 const signed = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(Math.round(v))}`;
-
-/** v0.6: morale bar with the 14-day trend arrow. */
-function MoraleBar({ g, c }: { g: GameState; c: CrewMember }) {
-  const m = moraleOf(g, c.id);
-  return (
-    <div className="sc-limit">
-      <div className="row between small">
-        <span className="muted">Morale</span>
-        <span className="num row gap-4">{m.value}<span className="dim"> / 100</span>{trendIcon(m.trend14d)}</span>
-      </div>
-      <div className={`bar thin ${moraleTone(m.value)}`}><span style={{ width: `${Math.min(100, m.value)}%` }} /></div>
-    </div>
-  );
-}
-
-/** v0.6: the top 3 morale drivers and the risks they bring. */
-function MoraleWhy({ g, c }: { g: GameState; c: CrewMember }) {
-  const m = moraleOf(g, c.id);
-  const why = m.drivers.filter((d) => Math.round(d.value) !== 0);
-  const resign = Math.round(m.resignPerMonth * 1000) / 10;
-  return (
-    <div className="col gap-4 sc-morale-why">
-      <div className="small muted">{why.length ? <>Why: {why.map((d) => `${d.label} ${signed(d.value)}`).join(' · ')}</> : `Steady near the company target of ${m.target}.`}</div>
-      <div className="row gap-8 wrap">
-        {m.sickMult > 1.05 && <span className={`chip sc-chip ${m.sickMult >= 1.3 ? 'bad' : 'warn'}`}>Sick risk ×{m.sickMult.toFixed(1)}</span>}
-        {!c.notice && resign > 0 && <span className={`chip sc-chip ${resign >= 1.6 ? 'bad' : resign > 0.8 ? 'warn' : ''}`} data-tip="Chance a month that they hand in their notice">Resign risk {resign}%/mo</span>}
-        {c.bondUntil !== undefined && c.bondUntil > g.now && <span className="chip sc-chip" data-tip="Company-paid type rating: resignation is much less likely until then">Bonded to {fmtDate(c.bondUntil)}</span>}
-      </div>
-    </div>
-  );
-}
 
 /** v0.6 header chip: company morale and trend; tap for pilots / cabin, low and leaving counts, the top drivers. */
 function MoraleChip({ g }: { g: GameState }) {
@@ -294,83 +103,6 @@ function MoraleChip({ g }: { g: GameState }) {
         </>
       )}
     </span>
-  );
-}
-
-/** v0.14 the family the crew sets count a person in (their home fleet), memoised per game state and crew revision. */
-const homesMemo = new WeakMap<GameState, { key: string; homes: Map<string, RatingFamily> }>();
-function homeOf(g: GameState, id: string): RatingFamily | undefined {
-  const key = `${g.now}|${crewRev(g)}|${Object.keys(g.fleet).length}`;
-  let m = homesMemo.get(g);
-  if (!m || m.key !== key) homesMemo.set(g, (m = { key, homes: crewSupply(g, familyNeeds(g)).homes }));
-  return m.homes.get(id);
-}
-const fleetTypes = (g: GameState) => [...new Set(Object.values(g.fleet).map((a) => a.typeId))];
-
-function Detail({ g, c }: { g: GameState; c: CrewMember }) {
-  const w = crewWindows(g, c, g.now);
-  // v0.5.2: header status with the right date ('Joins 26 May 2027', 'Sick · back ~12 Mar'), no fake rest.
-  const sv = crewStatusView(g, c.id);
-  // v0.9: this month's days off live in the month line under the 14-day strip (crewMonth), said once.
-  // Not joined yet: no rest, no days off, limits count from the start date.
-  const joining = sv.startLabel === 'Joins';
-  // v0.7.1 §7: the limits as fuel gauges (next duty's day length, rest, 7-day duty, 28-day and year flying).
-  const gauges = joining ? [] : crewGauges(g, c.id).map((s) => restNow(s, g.now));
-  const bar = (label: string, v: number, lim: number) => <LimitBar label={label} value={h(v)} limit={h(lim)} tone={limitTone(v / lim)} />;
-  return (
-    <div className="card sc-crew-detail">
-      <div className="card-body col gap-12">
-        <div className="row gap-12">
-          <span className="sc-flag" aria-hidden>{flag(c.nationality)}</span>
-          <div className="grow" style={{ minWidth: 0 }}>
-            <h3 className="row gap-8 sc-crew-h"><span className="ellipsis">{crewName(c)}</span><RankMark role={c.role} /></h3>
-            {/* v0.14 the home fleet (where the crew sets count them), any other ratings in brackets: 'A320 (also A330)'. */}
-            <div className="small muted">{ROLE_LABEL[c.role]} · {ratingLine(c.ratings, homeOf(g, c.id), fleetTypes(g))} · base {c.base}</div>
-          </div>
-          <span className={`badge ${sv.tone === 'bad' ? 'bad' : sv.tone === 'warn' ? 'warn' : sv.tone === 'good' ? 'good' : ''}`}>{sv.label}</span>
-        </div>
-        {c.notice && (
-          <div className="sc-notice">
-            <span className="grow small"><b>Resigned</b> · last day {fmtDate(c.notice.leaves - 1)}</span>
-            <button className={`btn btn-sm ${lockOf(g, 'hiring') ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'hire', role: c.role, family: c.ratings[0], base: c.base })} {...lockedProps(lockOf(g, 'hiring'))}><UserPlus /> Hire replacement</button>
-          </div>
-        )}
-        {sv.text && <div className={`small sc-crew-status ${sv.tone === 'info' ? 'accent' : sv.tone}`}>{sv.text}</div>}
-        <KV rows={[
-          ['Now at', sv.nowAt || c.loc],
-          ...(joining ? [] : [['Rest until', sv.restUntil ? `${fmtDay(sv.restUntil)} ${fmtTime(sv.restUntil)} UTC` : '—'] as [string, string]]),
-          ['Languages', c.languages.join(', ') || '—'],
-          [sv.startLabel, fmtDate(sv.startDate)],
-          ['Total hours', Math.round(c.totalHours).toLocaleString('en-US')],
-          ['Salary', `${money(c.salary)}/month`],
-        ]} />
-        <div className="grid-2 sc-moods">
-          <MoraleBar g={g} c={c} />
-          <LimitBar label="Fatigue" value={c.fatigue} limit={100} unit="" tone={limitTone(c.fatigue / 100)} />
-        </div>
-        <MoraleWhy g={g} c={c} />
-        <div className="upper dim">Flight time limits{joining ? ` · from ${fmtDate(sv.startDate)}` : ''}</div>
-        <div className="grid-2 sc-limits">
-          {gauges.length ? gauges.map((s) => <Gauge key={s.id} spec={s} />) : (
-            <>
-              {bar('Duty 7 days', w.duty7d, LIMITS.duty7d)}
-              {bar('Duty 28 days', w.duty28d, LIMITS.duty28d)}
-              {bar('Block 28 days', w.block28d, LIMITS.block28d)}
-              {bar('Block this year', w.blockYear, LIMITS.blockYear)}
-            </>
-          )}
-          {gauges.length > 0 && bar('Duty 28 days', w.duty28d, LIMITS.duty28d)}
-        </div>
-        <div className="row between"><span className="upper dim">Next 14 days</span><span className="small dim">tap for details · a duty to change its crew</span></div>
-        <Roster key={c.id} g={g} c={c} />
-        <div className="row gap-8">
-          <button className={`btn grow ${lockOf(g, 'training') ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'train', crewId: c.id })} {...lockedProps(lockOf(g, 'training'))}><GraduationCap /> Train</button>
-          <button className={`btn grow ${lockOf(g, 'hiring') ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'hire', role: c.role, family: c.ratings[0], base: c.base })} {...lockedProps(lockOf(g, 'hiring'))}><UserPlus /> Hire similar</button>
-        </div>
-        {/* v0.15 a scenario's hiring and training rules: the buttons stay, disabled, with the reason. */}
-        <LockNote why={lockOf(g, 'hiring') ?? lockOf(g, 'training')} />
-      </div>
-    </div>
   );
 }
 
@@ -418,9 +150,6 @@ export function CrewScreen() {
   const board = view === 'board';
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const wins = useMemo(() => (board ? new Map<string, ReturnType<typeof crewWindows>>() : new Map(shown.map((c) => [c.id, crewWindows(g, c, g.now)]))), [g, shown, rev, hour, board]);
-  // Resigned crew leave the save on their last day: a stale selection falls back to the first in the list.
-  const selId = store.nav.sel?.kind === 'crew' && g.crew[store.nav.sel.id] ? store.nav.sel.id : list[0]?.id;
-  const sel = selId ? g.crew[selId] : undefined;
   const families = [...new Set(all.flatMap((c) => c.ratings))];
   const classes = conversionClasses(g);
   const running = classes.filter((k) => k.status === 'running').length;
@@ -445,7 +174,8 @@ export function CrewScreen() {
     }
     setPicked(next);
   };
-  const tap = (id: string) => (selecting ? onSelect([id], !picked.has(id)) : store.select({ kind: 'crew', id }));
+  // v0.18 a tap opens the person's own sheet (monthly roster first).
+  const tap = (id: string) => (selecting ? onSelect([id], !picked.has(id)) : store.openPerson(id));
   const allShown = list.length > 0 && list.every((c) => picked.has(c.id));
   // v0.15 a scenario's hiring allowance (none, a few, or open).
   const hireLock = lockOf(g, 'hiring');
@@ -478,7 +208,7 @@ export function CrewScreen() {
       ) : view === 'board' ? (
         <RosterBoard g={g} selecting={selecting} selected={picked} onSelect={onSelect} />
       ) : (
-        <div className="sc-crew-cols">
+        <div className="sc-crew-cols v18-people">
           <div className="col gap-8" style={{ minWidth: 0 }}>
             <div className="sc-filters">
               <Seg<CrewFilter['group']> value={f.group} onChange={(v) => set({ group: v, role: 'all' })} options={[{ value: 'all', label: 'All' }, { value: 'pilots', label: 'Pilots' }, { value: 'cabin', label: 'Cabin' }]} />
@@ -501,13 +231,12 @@ export function CrewScreen() {
                 <button className="btn" onClick={() => onSelect(list.map((c) => c.id), !allShown)}>{allShown ? 'Clear these' : `Select these ${list.length}`}</button>
               )}
             </div>
-            <div className="card sc-crew-list">
-              {shown.map((c) => <CrewRow key={c.id} g={g} c={c} w={wins.get(c.id) ?? crewWindows(g, c, g.now)} on={!selecting && c.id === selId} t={crewTravelNow(g, c)} selecting={selecting} checked={picked.has(c.id)} onTap={() => tap(c.id)} />)}
+            <div className="card sc-crew-list v18-list">
+              {shown.map((c) => <CrewRow key={c.id} g={g} c={c} w={wins.get(c.id) ?? crewWindows(g, c, g.now)} on={false} t={crewTravelNow(g, c)} selecting={selecting} checked={picked.has(c.id)} onTap={() => tap(c.id)} />)}
               {!list.length && <div className="muted small sc-pad">Nobody matches these filters.</div>}
               {list.length > shown.length && <button className="btn btn-ghost sc-more" onClick={() => setMore(true)}>Show all {list.length}</button>}
             </div>
           </div>
-          {sel ? <Detail g={g} c={sel} /> : <div />}
         </div>
       )}
       {selecting && <SelectBar g={g} ids={selected} onClear={() => setPicked(new Set())} onDone={() => { setSelecting(false); setPicked(new Set()); }} />}

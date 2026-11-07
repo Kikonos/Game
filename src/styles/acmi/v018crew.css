@@ -1,0 +1,13 @@
+/* v0.18 crew UI: person links, the People list, the calmer roster board. (The person sheet's own styles load with its chunk: v018person.css.) */
+
+/* links to a person elsewhere (Crew Control) */
+.ps-link { font: inherit; font-weight: 650; color: inherit; background: none; border: none; padding: 0; text-decoration: underline; text-decoration-color: rgba(var(--line-rgb), 0.5); text-underline-offset: 3px; cursor: pointer; }
+.ps-row-link { width: 100%; text-align: left; font: inherit; color: inherit; background: none; border: none; cursor: pointer; border-radius: 8px; }
+.ps-row-link:active { background: var(--panel-hover); }
+
+/* People list: full width, two columns on wide screens (a tap opens the person's sheet). */
+.sc-crew-cols.v18-people { grid-template-columns: minmax(0, 1fr); }
+.v18-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(460px, 1fr)); column-gap: 1px; background: var(--border); }
+.v18-list > * { background: var(--panel-solid); }
+.v18-list > .sc-pad, .v18-list > .sc-more { grid-column: 1 / -1; }
+@media (max-width: 999.98px) { .v18-list { grid-template-columns: minmax(0, 1fr); } }

@@ -195,7 +195,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
           {view && view.slots.some((x) => x.crewId) && (
             <div className="sc-crew-grid">
               {view.slots.filter((x) => x.crewId).map((x) => (
-                <button key={x.crewId} className={`sc-crew-chip ${x.level ?? ''}`} onClick={() => store.navigate('crew', { sel: { kind: 'crew', id: x.crewId! } })}>
+                <button key={x.crewId} className={`sc-crew-chip ${x.level ?? ''}`} onClick={() => store.openPerson(x.crewId!)}>
                   <span className="mono dim">{seatLabel(x.role, g.crew[x.crewId!]?.role ?? x.role)}</span><span className="ellipsis grow">{x.name}</span>
                   {x.locked && <Lock className="sc-ico-s accent" aria-label="set by you" />}
                   {x.level && x.level !== 'legal' && <Dot tone={x.level === 'tight' ? 'warn' : 'bad'} />}

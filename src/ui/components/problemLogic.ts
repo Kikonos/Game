@@ -244,6 +244,8 @@ export type ActionTarget = { modal: ModalSpec } | { nav: { tab: Tab; view?: stri
 /** Where a card's action button goes: a modal spec of ours, or a tab. */
 export function actionTarget(g: GameState, a: ProblemAction): ActionTarget {
   const o = a.open;
+  // v0.18 a person on the Crew tab: their own sheet instead.
+  if ('tab' in o && o.tab === 'crew' && o.sel?.kind === 'crew' && g.crew[o.sel.id]) return { modal: { kind: 'person', crewId: o.sel.id } };
   if ('tab' in o) return { nav: { tab: o.tab, view: o.view, sel: o.sel } };
   const id = o.id;
   switch (o.modal) {
@@ -273,7 +275,8 @@ export function actionTarget(g: GameState, a: ProblemAction): ActionTarget {
     case 'sheet': return { modal: { kind: 'sheet', refs: [{ kind: 'flight', id }, { kind: 'maint', id }] } };
     case 'market': return { nav: { tab: 'fleet', view: 'market', sel: { kind: 'market', id } } };
     case 'aircraft': return { nav: { tab: 'fleet', sel: { kind: 'aircraft', id } } };
-    case 'crew': return { nav: { tab: 'crew', sel: { kind: 'crew', id } } };
+    // v0.18 a person: their own sheet (monthly roster).
+    case 'crew': return g.crew[id] ? { modal: { kind: 'person', crewId: id } } : { nav: { tab: 'crew', view: 'people' } };
     case 'contract': return { nav: { tab: 'contracts', view: 'active', sel: { kind: 'contract', id } } };
     // v0.8 World.
     case 'client': return { modal: { kind: 'client', clientId: id } };

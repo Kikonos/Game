@@ -163,6 +163,8 @@ export type ModalSpec =
   /** v0.7.4 Crew planning round-up: hire the crew that complete `target` sets of a family. */
   | { kind: 'roundUp'; family: RatingFamily; target: number }
   | { kind: 'train'; crewId: string }
+  /** v0.18 a person's own sheet: the monthly roster first, then their totals and essentials; `back` = the dialog it was opened from. */
+  | { kind: 'person'; crewId: string; back?: ModalSpec }
   | { kind: 'check'; aircraftId: string; checkKind?: 'A' | 'C'; replace?: string; /** v0.7.3 tick the crew rest add-on */ restFit?: 'fcrc' | 'overhead'; /** v0.7.3 back to the refit modal's crew rest section */ backToRefit?: boolean; /** v0.7.2.2 from an idle gap: the slot to offer first (A: start and airport; C: windows from `after` at this hub). */ suggest?: { start: number; at: string }; after?: number }
   /** B5: Schedule detail sheet for the blocks near a tap (flights, maintenance) or an idle gap. */
   | { kind: 'sheet'; refs: Ref[]; idle?: { aircraftId: string; from: number; to: number; at: string } }
@@ -1099,6 +1101,17 @@ class GameStore {
     this.nav = { tab, ...extra };
     this.emit();
     document.querySelector('.main')?.scrollTo({ top: 0 });
+  }
+
+  /**
+   * v0.18 a tap on a person, anywhere: their own sheet (monthly roster). Opened over another dialog, Back returns to it.
+   * A person who has left the company: the Crew tab.
+   */
+  openPerson(crewId: string) {
+    if (!this.game?.crew[crewId]) return this.navigate('crew', { view: 'people' });
+    const cur = this.modal;
+    const back = cur && cur.kind !== 'person' && cur.kind !== 'glossary' && cur.kind !== 'confirm' ? cur : cur?.kind === 'person' ? cur.back : undefined;
+    this.openModal({ kind: 'person', crewId, ...(back ? { back } : {}) });
   }
 
   /** Selects an entity on the current screen (map panel etc.). */
