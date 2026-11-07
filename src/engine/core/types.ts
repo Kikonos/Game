@@ -2314,6 +2314,9 @@ export interface OfferFilter {
   /** Only jobs for these rating families / in these markets (data/markets.ts ids). */
   families?: RatingFamily[];
   markets?: string[];
+  /** v0.18 only jobs needing these bodies / of these haul bands (contracts/shape.ts; none = any). */
+  bodies?: ('narrow' | 'wide')[];
+  hauls?: ('short' | 'medium' | 'long' | 'ultra')[];
 }
 
 // ======================================================================

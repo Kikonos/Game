@@ -42,6 +42,9 @@ import { contractColor } from '../screens/palette';
 import { tripTitle } from '../../engine/commercial';
 import { type ModalSpec, store } from '../store';
 import { paintLabel } from '../screens/scheduleLogic';
+import { ShapeTags } from '../components/ShapeTags';
+import { shapeOf } from '../../engine/contracts/shape';
+import { topBlocker } from '../../engine/contracts/blockers';
 import { archLabel, capFirst, expiryLabel, hangarWord, offerDays, offerModal } from '../screens/screenLogic';
 import { ALERT_BANNER, ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, deliveryTag, EVENT_KIND_LABEL, EVENT_TONE, hotelCount, leasedOut, mapLivery, OOH_SHORT, oohLine, parseCommercialId, parseSlipId, PURPOSE_LABEL, purposeChain, restChip, restingLine, restSeatNoun, shortIndex, type ShortRow, slipLine, slipSelId, slipWindow, upcomingLegs } from './mapLogic';
 import { MiniMap } from './MiniMap';
@@ -689,6 +692,7 @@ function OfferPanel({ g, id }: { g: GameState; id: string }) {
         {o.urgency !== 'normal' && <span className={`chip tone-${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
         {o.broker && <span className="chip">via {o.broker}</span>}
         {o.status !== 'open' && <span className="chip">{o.status}</span>}
+        <ShapeTags s={shapeOf(o)} />
       </div>
       <div className="op-kv">
         <div><span>Client</span><b className="ellipsis">{client?.name ?? '—'}</b></div>
@@ -708,7 +712,7 @@ function OfferPanel({ g, id }: { g: GameState; id: string }) {
             <div key={r.aircraftId} className="op-row static">
               <Dot tone={r.level === 'ok' ? 'good' : r.level === 'warn' ? 'warn' : 'bad'} />
               <b className="mono">{ac?.reg ?? r.aircraftId}</b>
-              <span className="small muted ellipsis">{r.level === 'no' ? r.checks.find((c) => c.level === 'no')?.label ?? 'Not feasible' : pos}</span>
+              <span className="small muted ellipsis">{r.level === 'no' ? topBlocker(r)?.label ?? 'Not feasible' : pos}</span>
               <span className={`mono small ${r.estMargin < 0 ? 'bad-t' : ''}`}>{money(r.estMargin)}</span>
             </div>
           );
