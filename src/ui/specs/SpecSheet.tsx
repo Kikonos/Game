@@ -15,7 +15,7 @@ import type { Cabin } from '../../engine/core/types';
 import { AircraftArt } from '../components/AircraftArt';
 import { Modal, Seg } from '../components/ui';
 import { KV } from '../screens/common';
-import { layoutLabel } from '../screens/screenLogic';
+import { capFirst, layoutLabel } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 import { discLandReady, discSvg, loadDiscLand } from './rangeDiscs';
 import { seatMap, seatMapSvg, type SeatMap } from './seatMap';
@@ -73,12 +73,12 @@ function RangeDiscs({ d }: { d: SpecData }) {
           return (
             <figure key={c} className="sp-disc" aria-label={`From ${a.city}: ${Math.round(nm * 1.852).toLocaleString('en-US')} km at full payload`}>
               <div className="sp-disc-svg" dangerouslySetInnerHTML={{ __html: discSvg(a.lat, a.lon, nm, 132) }} />
-              <figcaption><b>{a.city}</b><span>{Math.round((nm * 1.852) / 10).toLocaleString('en-US')}0 km</span></figcaption>
+              <figcaption><b>{a.city}</b><span>{(Math.round((nm * 1.852) / 10) * 10).toLocaleString('en-US')} km</span></figcaption>
             </figure>
           );
         })}
       </div>
-      <div className="tiny dim">Full passenger payload, standard reserves, still air. A short or high runway takes range off (the city's longest runway counts).</div>
+      <div className="tiny dim">Full passenger payload with reserves, still air. A short or high runway takes range off (the city's longest runway counts).</div>
     </section>
   );
 }
@@ -110,7 +110,7 @@ function SeatMapSection({ d }: { d: SpecData }) {
       <div className="row gap-12 wrap sp-map-head">
         <h3 className="sp-h">Seat map</h3>
         <Seg<string> value={tab.key} onChange={setKey} options={tabs.map((t) => ({ value: t.key, label: <span className="row gap-4">{t.own && <span className="sp-own-dot" aria-label="This aircraft" />}{t.label}</span> }))} />
-        <span className="tiny dim grow">{layoutLabel(cab.layout)}{tab.own && d.cabin ? ' · this aircraft' : ''}</span>
+        <span className="tiny dim grow">{capFirst(layoutLabel(cab.layout))}{tab.own && d.cabin ? ' · this aircraft' : ''}</span>
       </div>
       {m.ok ? (
         <div className="sp-map">
@@ -161,7 +161,7 @@ function ClassCards({ d, m, layout }: { d: SpecData; m: SeatMap; layout: string 
               <span className="sp-chip">{ab}</span>
               <span className="sp-chip" title="Seat pitch">{Math.round(pitch)} in pitch</span>
               <span className="sp-chip" title="Seat width">{a.width} in wide</span>
-              <span className="sp-chip">{a.recline === 'flat' ? 'Lie-flat' : `${a.recline} recline`}</span>
+              {a.recline !== 'flat' && <span className="sp-chip">{a.recline} recline</span>}
               <span className="sp-chip">{a.screen ? `${a.screen} in screen` : c === 'Y' && d.t.body === 'wide' ? 'Streamed IFE' : 'No screen'}</span>
               <span className="sp-chip">{a.power === 'ac' ? 'AC + USB' : a.power === 'usb' ? 'USB' : 'No power'}</span>
             </div>
@@ -181,7 +181,7 @@ function Legend({ m, bunks }: { m: SeatMap; bunks: boolean }) {
     <div className="sp-legend small">
       <span><i className="lg door" />Doors: {doors} each side</span>
       {ow > 0 && <span><i className="lg ow" />Overwing exits: {ow} each side</span>}
-      <span><i className="lg exit" />Exit rows</span>
+      {m.decks.some((k) => k.rows.some((r) => r.exit)) && <span><i className="lg exit" />Exit rows</span>}
       <span><i className="lg mon" />Galley <i className="lg wc" />Lavatory</span>
       {m.decks.some((k) => k.rows.some((r) => r.cls === 'R')) && <span><i className="lg rest-seat" />Crew rest seats</span>}
       {bunks && <span><i className="lg rest" />Crew bunks (dashed: overhead or under the floor)</span>}
@@ -316,7 +316,7 @@ export default function SpecSheet({ target, onClose }: { target: SpecTarget; onC
   const cur: SpecTarget = one ?? target;
   const single = cur.kind !== 'compare' ? specData(g, cur) : null;
   const many = cur.kind === 'compare' ? cur.offerIds.map((id) => specData(g, { kind: 'offer', id })).filter((x): x is SpecData => !!x) : [];
-  const title = cur.kind === 'compare' ? `Compare ${many.length} offers` : single ? `Spec sheet · ${single.title}` : 'Spec sheet';
+  const title = cur.kind === 'compare' ? `Compare ${many.length} offers` : 'Aircraft spec sheet';
   return (
     <Modal className="sp-modal" size="xwide" title={title} icon={cur.kind === 'compare' ? <Columns3 className="accent" /> : <FileText className="accent" />} onClose={onClose} footer={
       <>

@@ -2,6 +2,7 @@
    its side (852 × 393); both themes through the game's tokens. */
 .sp-modal.modal.xwide { width: min(1120px, 100%); }
 .sp-modal .modal-body { display: flex; flex-direction: column; gap: 16px; }
+.sp-modal .modal-body > * { flex-shrink: 0; }
 .sp-top { display: grid; grid-template-columns: minmax(260px, 1.25fr) 1fr; gap: 18px; align-items: center; }
 .sp-art { min-width: 0; padding: 8px 4px; border-radius: 16px; background: linear-gradient(180deg, rgba(var(--accent-rgb), 0.08), transparent 75%); }
 .sp-art svg { display: block; width: 100%; height: auto; }
@@ -12,8 +13,8 @@
 .sp-facts span { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); }
 .sp-facts b { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; }
 
-.sp-figs { display: grid; grid-template-columns: repeat(auto-fill, minmax(118px, 1fr)); gap: 1px; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--border); }
-.sp-fig { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; padding: 10px 6px 9px; background: var(--panel-solid); min-width: 0; }
+.sp-figs { display: flex; flex-wrap: wrap; gap: 1px; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--border); }
+.sp-fig { flex: 1 1 112px; display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; padding: 10px 6px 9px; background: var(--panel-solid); min-width: 0; }
 .sp-fig-ico svg { width: 22px; height: 22px; stroke-width: 1.5; color: var(--accent); }
 .sp-fig-l { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); }
 .sp-fig-v { font-size: 14px; font-weight: 650; font-variant-numeric: tabular-nums; line-height: 1.2; overflow-wrap: anywhere; }
@@ -33,7 +34,9 @@
 .sp-disc figcaption span { color: var(--text-2); font-variant-numeric: tabular-nums; }
 .rd-sea { fill: var(--map-ocean-0); }
 .rd-grat { fill: none; stroke: var(--map-grid); stroke-width: 0.6; }
-.rd-land { fill: var(--map-land-0); stroke: var(--map-coast); stroke-width: 0.5; }
+.rd-land { fill: rgba(var(--accent-rgb), 0.05); stroke: none; }
+.rd-land { fill: var(--text-3); fill-opacity: 0.42; }
+:root[data-theme='light'] .rd-land { fill-opacity: 0.3; }
 .rd-range { fill: rgba(var(--accent-rgb), 0.14); stroke: var(--accent); stroke-width: 1.6; }
 .rd-rim { fill: none; stroke: var(--border-strong); stroke-width: 1.2; }
 .rd-city { fill: var(--text); stroke: var(--panel-solid); stroke-width: 1.2; }
@@ -80,7 +83,7 @@
   .sp-cols { grid-template-columns: 1fr; }
   .sp-map { grid-template-columns: minmax(200px, 260px) 1fr; gap: 12px; }
   .sp-map-box { max-height: calc(var(--app-h, 100vh) - 110px); }
-  .sp-figs { grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); }
+  .sp-fig { flex-basis: 100px; }
   .sp-discs { grid-template-columns: repeat(5, minmax(72px, 1fr)); overflow-x: auto; }
   .sp-cmp tbody th { width: 96px; }
 }

@@ -33,8 +33,8 @@ export function rangeRing(lat: number, lon: number, nm: number, step = 4): [numb
   return c.coordinates[0] as [number, number][];
 }
 
-/** How far the disc shows around the city: a third more than the range, at least 40°, at most the whole world. */
-export const discExtentDeg = (nm: number) => Math.min(180, Math.max(40, nmToDeg(nm) * 1.35));
+/** How far the disc shows around the city: 60 % more than the range, at least 55°, at most the whole world. */
+export const discExtentDeg = (nm: number) => Math.min(180, Math.max(55, nmToDeg(nm) * 1.6));
 
 const cache = new Map<string, string>();
 
