@@ -14,6 +14,7 @@ import { Modal, Seg, Toggle } from '../components/ui';
 import { rfpTypes, tName } from '../screens/market/marketLogic';
 import { WhatItTakes } from '../screens/market/WhatItTakes';
 import { store, useGame } from '../store';
+import { SpecsLink } from '../specs/SpecsLink';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const BANDS: { value: AgeBand; label: string; usual: string }[] = [
@@ -82,6 +83,8 @@ export function RfpModal({ typeId: wanted }: { typeId?: string }) {
             <optgroup label="Widebody">{wide.map(opt)}</optgroup>
           </select>
         </label>
+        {/* v0.18.1 the type's spec sheet (ui/specs). */}
+        <div className="rf-row"><span /><SpecsLink subject={{ kind: 'type', typeId: t.id }} label={`${tName(t.id)} specs`} /></div>
         <div className="rf-row">
           <span className="upper dim">Age</span>
           <Seg<AgeBand> value={band} onChange={setBand} options={bands.filter((b) => b.ok).map((b) => ({ value: b.value, label: b.label }))} />

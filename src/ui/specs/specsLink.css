@@ -1,0 +1,12 @@
+/* v0.18.1 the Specs link, the compare picks on Market offers, the spec sheet's layer (main bundle; the sheet's own
+   styles load with its chunk: specs.css). The layer sits above dialogs and below the bug button (z 1500). */
+.spec-layer { position: fixed; inset: 0; z-index: 1400; }
+.spec-layer > .modal-backdrop, .spec-layer .modal-backdrop { z-index: 1400; }
+.spec-wait { width: 28px; height: 28px; border-radius: 50%; border: 3px solid rgba(var(--line-rgb), 0.25); border-top-color: var(--accent); animation: bug-spin 0.8s linear infinite; }
+.btn.spec-link { gap: 4px; }
+.btn.spec-link svg { width: 14px; height: 14px; }
+.mk17-card .mk-cmp { display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 8px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text-2); font-size: 12px; cursor: pointer; }
+.mk17-card .mk-cmp[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); background: rgba(var(--accent-rgb), 0.1); }
+.mk-cmp-bar { position: sticky; bottom: calc(var(--safe-b) + 8px); z-index: 5; display: flex; align-items: center; gap: 10px; margin: 10px 0 0 var(--bug-inset); padding: 8px 10px; border-radius: 12px;
+  background: var(--panel-solid); border: 1px solid var(--border-strong); box-shadow: var(--shadow-sm); }
+.mk-cmp-bar .grow { min-width: 0; }
