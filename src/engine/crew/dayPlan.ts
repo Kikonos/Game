@@ -47,10 +47,44 @@ export const dayLabel = (k: number): string => `${WD[new Date(Date.UTC(2000, 0, 
 const monthOfDay = (k: number): MonthKey => monthKey(k * DAY);
 const firstDayOf = (mk: MonthKey): number => monthStart(mk) / DAY;
 
-/** End of the last published day (the roster the crew see: today + 13). Pure. */
+/** End of the last published day (the roster the crew see: up to the end of the month published last). Pure. */
 export function publishedTo(g: GameState): Minute {
   const home = g.company.homeBase;
-  return g.dayPlan?.publishedTo ?? midnight(home, dayIndex(home, g.now) + R().publishDays);
+  return g.dayPlan?.publishedTo ?? midnight(home, pubEndDay(home, dayIndex(home, g.now)));
+}
+
+/**
+ * v0.18.1 (player's report: "at Emirates the roster comes out on the 15th for the whole next month") the base-local day
+ * after the last day published by day k: on and after the 15th the whole next month, before it this month. Pure.
+ */
+export function pubEndDay(_home: string, k: number): number {
+  const mk = monthOfDay(k);
+  const dom = k - firstDayOf(mk) + 1;
+  return firstDayOf(mk + (dom >= R().publishDay ? 2 : 1));
+}
+
+/** v0.18.1 the date (UTC minute of base-local midnight) day k's month is (or was) published: the 15th of the month before. Pure. */
+export function publishDayOf(g: GameState, k: number): Minute {
+  const home = g.company.homeBase;
+  return midnight(home, firstDayOf(monthOfDay(k) - 1) + R().publishDay - 1);
+}
+
+/** v0.18.1 'the January roster comes out on 15 Dec' (or 'came out') for the base-local day of t. Pure. */
+export function rosterOutLine(g: GameState, t: Minute): string {
+  const k = dayIndex(g.company.homeBase, t);
+  const at = publishDayOf(g, k);
+  return `the ${MONTH[monthOfDay(k) % 12]} roster ${at <= g.now ? 'came' : 'comes'} out on ${fmtDay(at)}`;
+}
+
+/**
+ * v0.18.1 how far ahead the planner works: the days off and the crew of every duty up to the end of the month it
+ * publishes next (from `lead` days before the 15th), never less than 14 days ahead. Pure.
+ */
+export function rosterHorizon(g: GameState): Minute {
+  const home = g.company.homeBase;
+  const k = dayIndex(home, g.now);
+  const end = pubEndDay(home, k + R().publishLead);
+  return Math.max(g.now + BAL.rosterHorizonDays * DAY, midnight(home, end));
 }
 const firstPlanDay = (g: GameState, base: string): number => (g.dayPlan ? dayIndex(base, g.dayPlan.from) : Infinity);
 
@@ -892,7 +926,7 @@ export function planOffDays(g: GameState): void {
   const dp = g.dayPlan;
   if (!dp) return;
   const home = g.company.homeBase;
-  const last = dayIndex(home, g.now + BAL.rosterHorizonDays * DAY);
+  const last = dayIndex(home, rosterHorizon(g) - 1);
   const today = Math.max(dayIndex(home, dp.from), dayIndex(home, g.now));
   let D = Math.max(dayIndex(home, dp.planned ?? dp.from), today);
   const crew = Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1));
@@ -1286,8 +1320,13 @@ export function planStandby(g: GameState): void {
   const home = g.company.homeBase;
   const S = R();
   const today = dayIndex(home, g.now);
-  const lastPub = today + S.publishDays - 1;
+  // v0.18.1 the monthly roster: on the 15th the whole next month (before, the rest of this month).
+  const lastPub = pubEndDay(home, today) - 1;
+  const was = dp.publishedTo;
   dp.publishedTo = Math.max(dp.publishedTo, midnight(home, lastPub + 1));
+  if (dp.publishedTo > was && was > dp.from && monthOfDay(lastPub) > monthOfDay(today)) {
+    pushMessage(g, { tone: 'info', cat: 'crew', title: `${MONTH[monthOfDay(lastPub) % 12]} roster published`, body: `Crew can see their duties, days off and standby to ${fmtDay(midnight(home, lastPub) + 12 * 60)}. Changes from now on are late changes.` });
+  }
   const from = Math.max(today, dayIndex(home, dp.from));
   let facts: Map<number, DayFacts> | null = null;
   const factsOf = (X: number) => (facts ??= dayFactsAll(g, from, lastPub)).get(X)!;

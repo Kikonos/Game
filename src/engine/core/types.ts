@@ -198,6 +198,8 @@ export interface Policies {
    * (paid, the day repaid later); 'ask' only from Crew Control; 'never'. load: ??= 'auto'.
    */
   buyBack?: BuyBackMode;
+  /** v0.18.1 annual leave requests (crew/leave.ts). load: ??= defaults. */
+  leave?: LeavePolicy;
 }
 
 /** v0.12.1 Settings › Buy back days off. */
@@ -1103,6 +1105,56 @@ export interface CrewMember {
   boughtOff?: MonthKey[];
   /** v0.12.1 salary starts on this minute (a joiner's first day); absent = paid the whole month. */
   payFrom?: Minute;
+  /** v0.18.1 duties and journeys flown, with their legs, kept 70 days for the calendar (flights and duties go after a week). */
+  flown?: FlownDuty[];
+  /** v0.18.1 annual leave per calendar year: days entitled (pro rata, carried over included) and days booked (approved). */
+  leaveYears?: Record<number, LeaveYear>;
+  /** v0.18.1 a declined leave request: no new request before this minute. */
+  leaveAskAt?: Minute;
+}
+
+/** v0.18.1 one flown leg: flight number (an airline's 'TP 1342' for a ticket), ends, off and on blocks, type. */
+export type FlownLeg = [no: string, from: string, to: string, dep: Minute, arr: Minute, type: 'operating' | 'positioning' | 'ferry' | 'deadhead'];
+
+/** v0.18.1 a duty (or a journey as a passenger) flown: start and end as logged, and its legs. */
+export interface FlownDuty {
+  s: Minute;
+  e: Minute;
+  legs: FlownLeg[];
+  /** A journey as a passenger (airline ticket or a seat on our own leg), not a duty. */
+  pax?: true;
+}
+
+/** v0.18.1 a calendar year's annual leave. */
+export interface LeaveYear {
+  ent: number;
+  booked: number;
+}
+
+/** v0.18.1 a crew member's leave request (crew/leave.ts). */
+export interface LeaveRequest {
+  id: string;
+  crewId: string;
+  /** Base-local midnight of the first day, and the number of days. */
+  from: Minute;
+  days: number;
+  made: Minute;
+  status: 'pending' | 'approved' | 'declined' | 'withdrawn';
+  decided?: Minute;
+  /** Who decided: the rules (auto) or the player. */
+  by?: 'rules' | 'you';
+  /** Why the rules declined it (or would). */
+  why?: string;
+}
+
+/** v0.18.1 Company › leave policy. */
+export interface LeavePolicy {
+  /** Requests decided by the rules (true), or by the player with the rules deciding what is still open when the roster is published. */
+  auto: boolean;
+  /** Most of a rank (family and role) on leave on any day, as a share. */
+  maxShare: number;
+  /** Months (0–11) with no leave: the peak. */
+  blackout: number[];
 }
 
 export interface CrewSlot {
@@ -1967,6 +2019,8 @@ export interface GameState {
    * from the first midnight 14 days ahead.
    */
   dayPlan?: { from: Minute; publishedTo: Minute; planned?: Minute };
+  /** v0.18.1 annual leave requests, pending and decided (decided ones kept 60 days). load: ??= []. */
+  leaveRequests?: LeaveRequest[];
   goals: GoalState[];
   stats: Stats;
   /** Binary min-heap ordered by (t, seq). */

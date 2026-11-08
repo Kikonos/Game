@@ -15,12 +15,13 @@ import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, set
 import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
 import { extFdp, localMin, minRest, referenceTime, signedTz, tzDeltaH, tzNights, woclMinutes } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
-import { dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, dropStrandedStandby, v09Stats } from './dayPlan';
+import { rosterHorizon, dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, dropStrandedStandby, v09Stats } from './dayPlan';
 import { peakHeadsUp } from './forecast';
 import { AUTHORITY } from '../../data/flavor';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { pushMessage } from '../core/messages';
 import { post } from '../core/ledger';
+import { flownLegs, noteFlown, rebuildFlown } from './flown';
 import { aboard, checkInOf, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, extCutAt, onBlocks, passengers, touchCrew, touchCrewState, typeIdOf } from './timeline';
 import { reportMinutes } from '../core/perf';
 
@@ -79,7 +80,7 @@ export { crewAlertKind, LIMIT_NAME, outOfHours, OOH_TEXT, type CrewAlertKind, ty
 export { bestSlip, slipOfFlight, slipsOfAircraft, type SlipPlan, type SlipView } from './slip';
 // v0.9 roster planning (UPDATE-0.9.md §R.14).
 export {
-  crewMonth, dayIndex, isOff, offBreak, planLeave, planOffDays, planStandby, publishedTo, rosterStats, standbyNow,
+  crewMonth, dayIndex, isOff, offBreak, planLeave, planOffDays, planStandby, publishDayOf, publishedTo, rosterHorizon, rosterOutLine, rosterStats, standbyNow,
   type CrewMonthView, type OffBreak,
 } from './dayPlan';
 export { dutyNeed, restNeedLine, type ChainShape, type DutyNeed } from './duties';
@@ -246,6 +247,8 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
       ...(d.ext ? { ext: true as const, extRest: extCut ? ('split' as const) : ('after' as const) } : {}), ...(seg.early ? { early: true } : {}), ...(seg.late ? { late: true } : {}), ...(seg.night ? { night: true } : {}),
     });
     c.log = c.log.filter((e) => e.end > g.now - 28 * DAY);
+    // v0.18.1 the legs flown, for the calendar once the flights are pruned.
+    noteFlown(g, c, seg.start, seg.end, flownLegs(g, (flown.length ? flown : fl).filter((f) => f.crewIds.includes(c.id) || aboard(f, c.id))));
     if (c.blockYearOf !== y) {
       c.blockYear = 0;
       c.blockYearOf = y;
@@ -362,6 +365,7 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
       const ci = checkInOf(f);
       noteRecovery(c, off - ci, g);
       c.log.push({ start: off - ci, end: on, fdp: 0, block: 0, sectors: 0, augmented: false, disruptive: false });
+      noteFlown(g, c, off - ci, on, flownLegs(g, [f]), true);
       const r = minRest({ dutyMin: on - off + CHECKIN(), atHome: f.to === c.base, augmented: false, tzShift: tzDeltaH(c.base, f.to, on) });
       c.restUntil = Math.max(c.restUntil, on + r);
       if (c.status === 'available') c.status = 'resting';
@@ -611,7 +615,7 @@ const unplaced = new WeakMap<GameState, Set<string>>();
  */
 function rosterNewFlights(g: GameState): void {
   const ix = crewIx(g);
-  const until = g.now + BAL.rosterHorizonDays * DAY;
+  const until = rosterHorizon(g);
   const acs: string[] = [];
   let skip = unplaced.get(g);
   if (!skip) unplaced.set(g, (skip = new Set()));
@@ -720,6 +724,8 @@ export const crewModule: SimModule = {
     // v0.12.1 open duties no longer list rides on legs already gone (a relinked positioning leg removed with crew on it).
     for (const d of Object.values(g.duties)) if (!d.done && d.deadheadIds.some((id) => !g.flights[id])) d.deadheadIds = d.deadheadIds.filter((id) => g.flights[id]);
     repairCutStandby(g);
+    // v0.18.1 the flights of the duties flown in the last week (older saves kept only the log line).
+    rebuildFlown(g);
     // Crew bug round: long standby runs are no longer a morale driver.
     repairStandbyMorale(g);
     // v0.14 seats, tickets and rides still held by crew who have left (a finished tour that grew again kept them).

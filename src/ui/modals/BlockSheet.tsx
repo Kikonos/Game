@@ -4,10 +4,9 @@
 import { ArrowRightLeft, CalendarClock, ChevronLeft, ChevronRight, Clock, FileSignature, Handshake, Lock, Palette, Repeat, Search, Sofa, Trash2, Users, Wrench } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { BAL } from '../../engine/core/balance';
-import { DAY, fmtDateTime, fmtDay, fmtDayRel, fmtDuration, fmtTime } from '../../engine/core/time';
+import { fmtDateTime, fmtDay, fmtDayRel, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { Aircraft, Duty, Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
-import { clientCrewOf, crewAlertKind, crewName, dutyCrew, slipOfFlight, dutyLegality, flightCrewStatus, restOf, restNeedLine, restLegsNote, restPlanForFlight, restSeatsBlocked, restShort, restVerdict, ridersText } from '../../engine/crew';
+import { clientCrewOf, crewAlertKind, crewName, dutyCrew, slipOfFlight, dutyLegality, flightCrewStatus, restOf, restNeedLine, restLegsNote, restPlanForFlight, restSeatsBlocked, restShort, restVerdict, ridersText, rosterHorizon, rosterOutLine } from '../../engine/crew';
 import { seatLabel, typeOf } from '../../engine/core/perf';
 import { cabinOptions, cancelCheck, checkStatus, delayFlight, dryLeaseView, flightCrewAboard, flightType, flightZone, refitSlots } from '../../engine/ops';
 import { ClientCrewRow } from './v08Bits';
@@ -126,7 +125,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
     if (moving) moveRef.current?.scrollIntoView({ block: 'nearest' });
   }, [moving]);
   // Beyond the roster horizon an empty duty is normal, not a problem.
-  const later = cs.level === 'missing' && f.std > g.now + BAL.rosterHorizonDays * DAY && !(view?.slots.some((x) => x.crewId));
+  const later = cs.level === 'missing' && f.std > rosterHorizon(g) && !(view?.slots.some((x) => x.crewId));
   const type = flightType(g, f);
   const aboard = flightCrewAboard(g, f);
   const rows: [ReactNode, ReactNode][] = [
@@ -187,7 +186,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
       {f.aircraftId && f.kind !== 'deadhead' && (
         <div className="col gap-8">
           {later ? (
-            <div className="row gap-8"><Dot tone="off" /><b>Not rostered yet</b><span className="small muted">the auto-roster fills duties {BAL.rosterHorizonDays} days ahead</span></div>
+            <div className="row gap-8"><Dot tone="off" /><b>Not rostered yet</b><span className="small muted">crew are planned with the monthly roster ({rosterOutLine(g, f.std)})</span></div>
           ) : (
             <div className="row gap-8"><Dot tone={LEVEL_TONE[cs.level]} /><b>Crew {cs.level === 'ok' ? 'legal' : cs.level}</b>{cs.missing.length > 0 && <span className="small bad">missing {cs.missing.join(', ')}</span>}</div>
           )}

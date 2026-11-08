@@ -196,7 +196,7 @@ function DutyCard({ g, c, b, rests, hi }: { g: GameState; c: CrewMember; b: CalB
         <span className="k">{travel ? 'Arrives' : 'Release'}</span><span>{fmtDay(b.end)} · {both(b.end, to)}</span>
         {block > 0 && !travel && <><span className="k">Block</span><span className="num">{hm(block)}</span></>}
         {d && <><span className="k">FDP</span><span className="num">{hm(d.fdp)} <span className="dim">of {hm(d.maxFdp + (d.discretion ?? 0))}{d.augment ? ` · ${2 + d.augment} pilots` : ''}</span></span></>}
-        {!fl.length && b.detail && (!d || /^Flown: /.test(b.detail)) && <><span className="k">Flown</span><span>{b.detail.replace(/^Flown: /, '')}</span></>}
+        {!fl.length && b.detail && (!d || /^Flown: /.test(b.detail)) && <><span className="k">Flown</span><span>{b.detail.replace(/^Flown: /, '')}<span className="dim"> · flight numbers were not recorded before v0.18.1</span></span></>}
         {rest && <><span className="k">Rest</span><span className="num">{hm(rest.end - rest.start)} <span className="dim">{rest.at ? `at ${rest.at}` : 'at home'} · until {fmtDay(rest.end)} {fmtTime(rest.end)} UTC</span></span></>}
       </div>
       {d && !d.done && <button className="btn btn-sm ps-change" onClick={() => store.openModal({ kind: 'duty', id: d.id })}><Users /> Change crew</button>}
@@ -235,7 +235,7 @@ function DayDetail({ g, c, data, k }: { g: GameState; c: CrewMember; data: Month
   return (
     <div className="ps-dd">
       {head(DAY_KIND_LABEL[cell.kind], date, cell.kind)}
-      {cell.kind === 'none' ? <div className="small muted">Duties older than 28 days are not kept.</div> : shown.length ? shown.map((b) => (
+      {cell.kind === 'none' ? <div className="small muted">Days older than 28 days are not kept, except the flights flown.</div> : shown.length ? shown.map((b) => (
         <div key={`${b.kind}-${b.start}`} className="small muted">{b.kind === 'standby' || b.kind === 'rest' ? b.detail : b.detail}</div>
       )) : <div className="small muted">Nothing rostered.</div>}
     </div>

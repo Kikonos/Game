@@ -6,12 +6,12 @@
 import { BAL } from '../core/balance';
 import { deadheadFlights, flightsRev } from '../core/entities';
 import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../core/time';
-import type { CrewMember, Duty, Flight, GameState, Legality, Minute, StandbyKind, TrainingKind } from '../core/types';
+import type { CrewMember, Duty, Flight, FlownDuty, GameState, Legality, Minute, StandbyKind, TrainingKind } from '../core/types';
 import { commercialItinerary } from '../ops/commercial';
 import { FLIGHT_TYPE_LABEL, flightType, type FlightType } from '../ops/flightType';
 import { classBlockText } from './conversion';
 import { rosterOf } from './roster';
-import { dayIndex, midnight, offOn } from './dayPlan';
+import { dayIndex, midnight, offOn, publishDayOf, rosterHorizon } from './dayPlan';
 import { offsetAt } from './rules';
 import { crewIx, dutyFlights, revenueRide, segsOf } from './timeline';
 
@@ -130,6 +130,20 @@ function dutyBlock(g: GameState, d: Duty): CalBlock {
   };
 }
 
+/** v0.18.1 a duty or journey flown, from its record (crew/flown.ts). */
+function flownBlock(x: FlownDuty): CalBlock {
+  const flights: CalFlight[] = x.legs.map(([no, from, to, std, sta, type], i) => ({ id: `flown:${x.s}:${i}`, no, from, to, std, sta, type }));
+  const legs = flights.map((f) => `${f.no} ${f.from}–${f.to} ${hhmm(f.std)}–${hhmm(f.sta)} ${FLIGHT_TYPE_LABEL[f.type]}`).join(' · ');
+  const route = [flights[0].from, ...flights.map((f) => f.to)].join('–');
+  if (x.pax) {
+    const air = flights.every((f) => f.type === 'deadhead');
+    return { kind: air ? 'deadhead' : 'positioning', start: x.s, end: x.e, label: air ? 'Deadhead' : 'Positioning', flights, detail: `${route} as a passenger\n${legs}` };
+  }
+  const types = new Set(flights.map((f) => f.type));
+  const label = types.size === 1 && types.has('ferry') ? 'Ferry duty' : types.size === 1 && types.has('positioning') ? 'Positioning duty' : 'Duty';
+  return { kind: 'duty', start: x.s, end: x.e, label, flights, detail: `${route} · report ${hhmm(x.s)}, release ${hhmm(x.e)}\n${legs}` };
+}
+
 /** Tickets on airlines and rides on our own empty legs that carry the crew member. */
 function travelBlocks(g: GameState, c: CrewMember, from: Minute, to: Minute): CalBlock[] {
   const out: CalBlock[] = [];
@@ -172,14 +186,26 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
   if (!c || to <= from) return [];
   const status = statusBlocks(g, c).filter((b) => overlaps(b, { start: from, end: to }));
   const work: CalBlock[] = rosterOf(g, crewId, from, to).map((d) => dutyBlock(g, d));
-  // Past duties no longer in the plan (pruned trips) come from the log.
+  const travel = travelBlocks(g, c, from, to);
+  // v0.18.1 past duties and journeys no longer in the plan (pruned trips and flights) from the record of legs flown.
+  for (const x of c.flown ?? []) {
+    if (x.e <= from || x.s >= to) continue;
+    const b = { start: x.s, end: x.e };
+    if (x.pax ? travel.some((w) => overlaps(w, b)) || work.some((w) => w.kind === 'duty' && overlaps(w, b)) : work.some((w) => w.kind === 'duty' && !!w.flights?.length && overlaps(w, b))) continue;
+    // A duty still on record whose flights were pruned (a long tour's early days) takes the legs from the record.
+    const i = x.pax ? -1 : work.findIndex((w) => w.kind === 'duty' && !w.flights?.length && overlaps(w, b));
+    const fb = flownBlock(x);
+    if (i >= 0) work[i] = { ...fb, dutyId: work[i].dutyId, legality: work[i].legality };
+    else work.push(fb);
+  }
+  // Older saves: past duties flown before the legs were recorded come from the log (sectors and block only).
   for (const e of c.log) {
     if (e.end <= from || e.start >= to || e.sectors === 0) continue;
     const b = { start: e.start, end: e.end };
     if (work.some((w) => overlaps(w, b))) continue;
     work.push({ kind: 'duty', start: e.start, end: e.end, label: 'Duty', detail: `Flown: ${e.sectors} sector${e.sectors > 1 ? 's' : ''}, block ${fmtDuration(e.block, true)}, FDP ${fmtDuration(e.fdp, true)}` });
   }
-  work.push(...travelBlocks(g, c, from, to));
+  work.push(...travel);
   // v0.7.3 standby windows (a planned duty that took one over shows as the duty). v0.9: every kind, station-local times.
   for (const w of c.standby ?? []) {
     const end = w.calledAt ?? w.to;
@@ -263,7 +289,7 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
         });
       } else if (k < pubK) {
         off.push({ kind: 'rest', start, end, label: 'Rest (limits)', at: away ? at : undefined, detail: 'No standby today: rest the duty limits ask for.' });
-      } else off.push({ kind: 'off', start, end, label: 'Free', at: away ? at : undefined, planned: false, detail: 'Not rostered yet (beyond the published roster)' });
+      } else off.push({ kind: 'off', start, end, label: 'Free', at: away ? at : undefined, planned: false, detail: `Roster out on ${fmtDay(publishDayOf(g, k))}: this month is not published yet.` });
       continue;
     }
     const planned = d < horizon;
@@ -427,6 +453,6 @@ function statusView(g: GameState, crewId: string): CrewStatusView {
   if (restUntil === null) for (const s of segsOf(g, c)) if (s.kind !== 'log' && s.rest > 0 && s.end <= now && s.end + s.rest > now) restUntil = Math.max(restUntil ?? 0, s.end + s.rest);
   if (sickSoon) return { ...base, label: 'Sick', tone: 'bad', text: `Off sick from ${fmtDay(sickSoon.from)} · back ~${fmtDay(sickSoon.to)}`, until: sickSoon.to, restUntil };
   if (restUntil) return { ...base, label: 'Resting', tone: 'info', text: `Resting until ${fmtDateTime(restUntil)}${c.loc !== c.base ? ` at ${c.loc}` : ''}`, until: restUntil, restUntil };
-  const next = rosterOf(g, c.id, now, now + BAL.rosterHorizonDays * DAY).find((d) => d.report > now);
+  const next = rosterOf(g, c.id, now, rosterHorizon(g)).find((d) => d.report > now);
   return { ...base, label: 'Available', tone: 'good', text: next ? `Next duty ${fmtDateTime(next.report)}` : `Available at ${c.loc}`, until: null, restUntil: null };
 }

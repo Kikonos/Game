@@ -728,9 +728,9 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
       visuals.gauges = [{ id: 'fdp', label: 'Day length', value: d.fdp, limit: max, unit: 'hm', text: `${hm(d.fdp)} of ${hm(max)}`, tone: 'bad', by: d.report }];
       // v0.9 the discretion term only where it may apply (after report, unforeseen: UPDATE-0.9.md §U.3).
       terms.push('fdp', ...(discretionCheck(g, d.id).ok ? ['discretion' as const] : []));
-    } else why = `${f.no} has no crew plan yet: the roster plans ${BAL.rosterHorizonDays} days ahead; Auto-fix plans it now.`;
+    } else why = `${f.no} has no crew plan yet: crew are planned with the monthly roster; Auto-fix plans it now.`;
   } else if (!d || !p) {
-    why = `${f.no} has no crew plan yet: the roster plans ${BAL.rosterHorizonDays} days ahead; Auto-fix plans it now.`;
+    why = `${f.no} has no crew plan yet: crew are planned with the monthly roster; Auto-fix plans it now.`;
     terms.push('standby');
   } else {
     const role = x.missing[0];

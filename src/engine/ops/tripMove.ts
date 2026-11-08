@@ -18,7 +18,7 @@ import type { ActionResult, Aircraft, Contract, Flight, GameState, Minute, Pairi
 import { brokerCut } from '../contracts/accept';
 import { SHORT_CYCLE_MIN } from '../contracts/billing';
 import { anchorsOf, chainBackward, chainForward, chainsOf, isSoft, SOFT_AFTER, type Anchor } from '../contracts/plan';
-import { crewName, crewRev, dutyNeed, flightCrewStatus, rerosterFrom, restOf, restPlanForFlight, type DutyNeed } from '../crew';
+import { crewName, crewRev, dutyNeed, flightCrewStatus, rerosterFrom, restOf, restPlanForFlight, rosterHorizon, type DutyNeed } from '../crew';
 import { settle } from '../sim';
 import { cabinAt, fullLoadReq, layoutName, layoutsOf } from './cabin';
 import { aircraftGate } from './company';
@@ -736,7 +736,7 @@ function fullQuote(g: GameState, plan: Plan, q: TripMoveQuote): void {
   const short = new Set<Role>();
   let unrostered = 0;
   for (const f of moved) {
-    if (f.std > h.now + BAL.rosterHorizonDays * DAY) {
+    if (f.std > rosterHorizon(h)) {
       unrostered++;
       continue;
     }
@@ -763,7 +763,7 @@ function fullQuote(g: GameState, plan: Plan, q: TripMoveQuote): void {
   // v0.12.1 'Crew: 1 off, none on' (not '1 come off, 0 go on').
   if (q.crewOff.length || q.crewOn.length) notes.push(`Crew: ${q.crewOff.length || 'none'} off, ${q.crewOn.length || 'none'} on.`);
   else if (!was.size && !now.size) notes.push(`Crew: not picked yet; the roster names ${/^[AEIOU8]/i.test(typeWord(tgt.typeId)) ? 'an' : 'a'} ${typeWord(tgt.typeId)} crew nearer the day.`);
-  else if (unrostered === moved.length) notes.push(`Crew: not rostered yet (the roster plans ${BAL.rosterHorizonDays} days ahead); ${typeWord(tgt.typeId)}-rated crew will be picked.`);
+  else if (unrostered === moved.length) notes.push(`Crew: not rostered yet (crew are planned with the monthly roster); ${typeWord(tgt.typeId)}-rated crew will be picked.`);
   else notes.push('Crew: the same crew fly it.');
   q.sourceFree = freeText(h, src, plan.trip.start, plan.trip.end);
   if (q.sourceFree) notes.push(`${q.sourceFree}.`);

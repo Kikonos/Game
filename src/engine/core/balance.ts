@@ -511,6 +511,8 @@ export const BAL = {
      */
     roster: {
       publishDays: 14,
+      /** v0.18.1 the roster for the next month comes out on this day of the month; the planner works it out from `publishLead` days before. */
+      publishDay: 15, publishLead: 3,
       off: { legalMonth: 7, minMonth: 8, targetMonth: 9, maxMonth: 10, yearMin: 96, block: [2, 3] as [number, number], dueAfter: 5, mustAfter: 6, morningFree: 360 },
       leave: { days: 28, quarters: [10, 4, 4, 10] as number[], maxShare: 0.1, afterServiceDays: 90 },
       home: { early: [300, 1020] as [number, number], late: [720, 1440] as [number, number], maxH: 16, minH: 4, readyMin: 90 },

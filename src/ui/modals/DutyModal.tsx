@@ -4,7 +4,7 @@
 // Engine: crew/rosterActions.ts (dutyCrew, dutyCandidates, dutyLegality, assignCrew, unassignCrew, swapCrew, unlockCrew).
 
 import { RankMark } from '../components/RankMark';
-import { clientCrewOf, crewAlertKind, slipOfFlight } from '../../engine/crew';
+import { clientCrewOf, crewAlertKind, rosterHorizon, rosterOutLine, slipOfFlight } from '../../engine/crew';
 import { releaseText } from '../../engine/crew/rosterActions';
 import { ClientCrewRow } from './v08Bits';
 import { ArrowLeftRight, BedDouble, ChevronDown, ChevronLeft, ChevronRight, Lock, LockOpen, Plus, Repeat, UserMinus, Users } from 'lucide-react';
@@ -12,7 +12,7 @@ import { useMemo, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
 import { seatLabel } from '../../engine/core/perf';
 import { BAL } from '../../engine/core/balance';
-import { DAY, fmtDateTime, fmtTime } from '../../engine/core/time';
+import { fmtDateTime, fmtTime } from '../../engine/core/time';
 import type { Duty, GameState, Role } from '../../engine/core/types';
 import {
   assignCrew, crewGauges, crewRev, dutyCandidates, dutyCrew, dutyLegality, dutyOf, fdpWhy, restPlan, restPlanForFlight, restVerdict, rosterOf, setDutyAugment, swapCrew, unassignCrew, unlockCrew,
@@ -322,7 +322,7 @@ export function DutyModal({ id }: { id: string }) {
   // v0.8 mixed crew: the client's cabin crew as grey rows after our seats.
   // (only on duties that carry passengers: a ferry flies pilots only).
   const clientCrew = d.flightIds.some((x) => g.flights[x]?.kind === 'revenue' || g.flights[x]?.kind === 'techstop') ? clientCrewOf(g, d.id) : null;
-  const later = d.report > g.now + BAL.rosterHorizonDays * DAY && v.slots.every((x) => !x.crewId);
+  const later = d.report > rosterHorizon(g) && v.slots.every((x) => !x.crewId);
   // v0.7.1 §4: the same four-line card as the flight sheet and the Inbox, with Crew Control for a shortage.
   const card = first && !later ? problemAt(g, { kind: 'flight', id: first.id }) : null;
   const short = card && (card.subject.kind === 'crewShort' || card.subject.kind === 'crewIllegal' || card.subject.kind === 'ferryUncrewed' || card.subject.kind === 'crewHours');
@@ -377,7 +377,7 @@ export function DutyModal({ id }: { id: string }) {
         {later ? (
           <div className="sc-legal later">
             <div className="row gap-8"><Dot tone="off" /><b>Not rostered yet</b></div>
-            <div className="small muted">The auto-roster fills duties {BAL.rosterHorizonDays} days ahead. You can still pick crew now; your choices are locked in.</div>
+            <div className="small muted">Crew are planned with the monthly roster ({rosterOutLine(g, d.report)}). You can still pick crew now; your choices are locked in.</div>
           </div>
         ) : (
         <div className={`sc-legal ${legal.level}`}>
