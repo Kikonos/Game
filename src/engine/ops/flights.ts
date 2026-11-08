@@ -7,7 +7,7 @@
 import { BAL } from '../core/balance';
 import { cancelFlight, flightsOf, removeFlights, retimeFlight, subcharterFlights, touchFlights, touchStatus, touchTickets } from '../core/entities';
 import { invoice, post } from '../core/ledger';
-import { ROUTE_COST_CATS, routeCancelLoss, routeLegCost } from '../network/costs';
+import { noteRouteSub, ROUTE_COST_CATS, routeCancelLoss, routeLegCost } from '../network/costs';
 import { pushMessage } from '../core/messages';
 import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
@@ -679,6 +679,8 @@ export function pickRival(g: GameState, typeId: string, legs: Flight[] = []): st
 /** Hands revenue legs to a rival (still billed to our client), drops the empty legs; posts the cost. */
 export function subcharterLegs(g: GameState, legs: Flight[], rivalId: string, cost: number, out?: { hit?: SubHit }): number {
   const live = legs.filter((f) => f.status === 'scheduled' && f.purpose !== 'delivery');
+  // v0.19 a scheduled route's sectors: the rival's price counts in the route's own result.
+  if (live.some((f) => f.sched)) noteRouteSub(g, live, cost);
   const rev = live.filter(isRevenue);
   const empty = live.filter((f) => !isRevenue(f));
   // v0.7.2 the client notices (F3): reliability and relation, worse when hand-overs become a habit.

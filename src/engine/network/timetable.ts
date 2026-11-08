@@ -13,7 +13,9 @@ import { schedule } from '../core/queue';
 import { DAY, fmtDay, fmtTime } from '../core/time';
 import type { Contract, Flight, GameState, Minute } from '../core/types';
 import { relinkPositioning } from '../contracts/schedule';
+import { anchorsOf } from '../contracts/plan';
 import { autoRoster } from '../crew/roster';
+import { noteRouteSub } from './costs';
 import { cabinFor, localToUtc, localWeekday, marketOfRoute, rotationTimes, seasonCode, usd } from './model';
 import { bumpRoute } from './reputation';
 import { pushRouteNote } from './notes';
@@ -148,15 +150,14 @@ function flightNoOf(g: GameState, route: Route, out: boolean): string {
   return `${pre}${route.flightNo + (out ? 0 : 1)}`;
 }
 
-/** Is the aircraft free from `a` to `b` (no live flight, no maintenance)? */
+/**
+ * Is the aircraft free from `a` to `b`: no flight, check or base programme (its days not generated yet included),
+ * dry lease or held job in the way (contracts/plan anchorsOf)?
+ */
 export function freeBetween(g: GameState, aircraftId: string, a: Minute, b: Minute, ignore?: Set<string>): boolean {
-  for (const f of liveFlightsOf(g, aircraftId)) {
-    if (ignore?.has(f.id) || f.status === 'cancelled') continue;
-    if (f.std < b && f.sta > a) return false;
-  }
-  for (const mx of Object.values(g.maintenance)) {
-    if (mx.aircraftId !== aircraftId || (mx.status !== 'planned' && mx.status !== 'inWork')) continue;
-    if (mx.start < b && mx.end > a) return false;
+  for (const x of anchorsOf(g, aircraftId)) {
+    if (x.kind === 'start' || (x.kind === 'flight' && ignore?.has(x.id))) continue;
+    if (x.std < b && x.sta > a) return false;
   }
   return true;
 }
@@ -263,6 +264,7 @@ export function subcharterRotation(g: GameState, route: Route, rot: Rotation, ri
   rot.operatedBy = rv;
   rot.status = 'flights';
   post(g, 'subcharter', -cost);
+  noteRouteSub(g, rot.sectors.map((x) => (x.flightId ? g.flights[x.flightId] : undefined)).filter((x): x is Flight => !!x), cost);
   g.network!.stats.subs++;
   const name = g.rivals.find((r) => r.id === rv)?.name ?? 'another operator';
   pushRouteNote(g, route, 'info', `${name} flies ${fmtDay(rot.dep)} for us`, `Sub-chartered for ${usd(cost)}: the passengers keep their tickets, no penalty.`, null);

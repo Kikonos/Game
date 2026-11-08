@@ -99,6 +99,8 @@ export interface SectorLoad {
   accrued?: true;
   /** Cancelled on the day by operations: tickets refunded and passengers compensated once. */
   voided?: true;
+  /** What a rival charged to fly this sector for us (USD; counted in the sector's cost at arrival). */
+  subCost?: number;
 }
 
 export type RotationStatus = 'planned' | 'flights' | 'flown' | 'cancelled';

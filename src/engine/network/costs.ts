@@ -167,3 +167,20 @@ export function routeCancelLoss(g: GameState, f: Flight): number {
   if (!at || at.s.accrued) return 0;
   return Math.round((at.s.sold ?? 0) + routeDisruptionCost(g, f, 'cancel', 0));
 }
+
+/** A rival flies route sectors for us: its price is shared over them by block time (the sectors' cost at arrival). */
+export function noteRouteSub(g: GameState, legs: Flight[], cost: number): void {
+  const route = legs.filter((f) => f.sched);
+  const blk = route.reduce((a, f) => a + Math.max(1, f.block), 0);
+  if (!route.length || !cost) return;
+  // The legs' share of the whole price (non-route legs in the same hand-over keep theirs).
+  const all = legs.reduce((a, f) => a + Math.max(1, f.block), 0);
+  const mine = (cost * blk) / Math.max(1, all);
+  for (const f of route) {
+    const at = sectorOf(g, f);
+    if (at) at.s.subCost = Math.round((at.s.subCost ?? 0) + (mine * Math.max(1, f.block)) / blk);
+  }
+}
+
+/** What a partner reimburses at cost on top of its block-hour fee: fuel, airport charges, handling, catering, navigation. */
+export const passThrough = (c: RouteLegCost): number => c.fuel + c.fees + c.handling + c.catering + c.navCharges;
