@@ -111,7 +111,7 @@ function statusBlocks(g: GameState, c: CrewMember): CalBlock[] {
       if (cls) out.push({ kind: 'training', start: b.from, end: b.to, label: cls.label, detail: cls.detail });
       else out.push({ kind: 'training', start: b.from, end: b.to, label: 'Training', detail: `${trainingWhat(g, c, b.from, b.to)} until ${fmtDate(b.to)}.` });
     } else if (c.notice && b.from >= c.notice.leaves) {
-      out.push({ kind: 'leave', start: b.from, end: b.to, label: 'Left', detail: `Resigned: last day ${fmtDate(c.notice.leaves - 1)}.` });
+      out.push({ kind: 'leave', start: b.from, end: b.to, label: 'Left', detail: `${c.notice.redundant ? 'Made redundant' : 'Resigned'}: last day ${fmtDate(c.notice.leaves - 1)}.` });
     } else {
       out.push({ kind: 'leave', start: b.from, end: b.to, label: 'Leave', detail: b.annual ? `Annual leave until ${fmtDate(b.to - 1)}.` : `On leave until ${fmtDate(b.to)}.` });
     }
