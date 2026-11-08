@@ -283,7 +283,7 @@ describe('v0.12.1 world tours: one crew', () => {
     const revenue = Object.values(g.flights).filter((f) => f.contractId === k.id && f.kind === 'revenue');
     expect(revenue.every((f) => p.dutyIds.includes(f.dutyId ?? ''))).toBe(true);
     const seats = pairingSeats(g, p);
-    expect(seats.filter((s) => s.role === 'CPT' || s.role === 'FO' || s.role === 'CRP').length).toBeGreaterThanOrEqual(3);
+    expect(seats.filter((s) => s.role === 'CPT' || s.role === 'FO').length).toBeGreaterThanOrEqual(3);
     // The client's service crew ride above the legal minimum: a sick one never grounds the tour.
     expect(seats.filter((s) => s.above && (s.role === 'CC' || s.role === 'PUR')).length).toBeGreaterThanOrEqual(o.requirements.extraCabin);
     // One of them a second purser: a sick purser far from home is covered on board.
@@ -325,7 +325,7 @@ describe('v0.12.1 world tours: one crew', () => {
     // The same people all the way round (a sick crew member's stand-in flown in at most once or twice).
     const all = new Set(flown.flatMap((x) => x.crew));
     expect(all.size).toBeLessThanOrEqual(first.length + 2);
-    const pilots = (ids: string[]) => ids.filter((id) => g.crew[id] && ['CPT', 'FO', 'CRP'].includes(g.crew[id].role));
+    const pilots = (ids: string[]) => ids.filter((id) => g.crew[id] && ['CPT', 'FO'].includes(g.crew[id].role));
     for (const x of flown) expect(pilots(x.crew)).toEqual(pilots(first));
     expect(k.status).toBe('completed');
     expect(k.legsFlown).toBe(legs.length);

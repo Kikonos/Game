@@ -45,14 +45,14 @@ describe('extra crew settings', () => {
     expect(crewExtraFor(g, ac, k.id)).toMatchObject({ cabin: 2, paidMin: 2 });
   });
 
-  it('the complement gains optional seats (extra CC, spare pilot as CRP) filled after the required ones', () => {
+  it('the complement gains optional seats (extra CC, spare pilot as an FO) filled after the required ones', () => {
     const g = rostered();
     const ac = acOf(g);
     addCrew(g, { CC: 12, FO: 6 });
     expect(setCrewExtra(g, { aircraftId: ac }, { cabin: 2, pilot: 1 }).ok).toBe(true);
     const p = crewed(g, ac)[0];
     const above = p.slots.filter((s) => s.above);
-    expect(above.map((s) => s.role).sort()).toEqual(['CC', 'CC', 'CRP']);
+    expect(above.map((s) => s.role).sort()).toEqual(['CC', 'CC', 'FO']);
     // Required seats first, the optional ones last.
     const firstAbove = p.slots.findIndex((s) => s.above);
     expect(p.slots.slice(firstAbove).every((s) => s.above)).toBe(true);

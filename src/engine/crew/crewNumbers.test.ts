@@ -96,7 +96,7 @@ describe('crew seats (v0.10)', () => {
   it('crew beyond the crew seats (and pilots beyond the cockpit seats) take passenger seats', () => {
     const roles = complement('a320ceo', 180);
     expect(crewInPaxSeats('a320ceo', roles)).toBe(0);
-    const over = [...roles, 'CC', 'CC', 'CC', 'CRP', 'CRP'] as typeof roles;
+    const over = [...roles, 'CC', 'CC', 'CC', 'FO', 'FO'] as typeof roles;
     // 4 + 3 cabin crew on 6 seats: 1; 4 pilots on 2 + 1 observer seats: 1
     expect(crewInPaxSeats('a320ceo', over)).toBe(2);
     expect(crewInPaxSeats('a35u', complement('a35u', 161, { augment: 2 }))).toBe(0);

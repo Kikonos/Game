@@ -676,7 +676,7 @@ function forecastHire(g: GameState, t: Tally): void {
     act(g, t);
   }
 }
-const isPilotRole = (r: Role) => r === 'CPT' || r === 'FO' || r === 'CRP';
+const isPilotRole = (r: Role) => r === 'CPT' || r === 'FO';
 
 /** v0.7.3 when a widebody family first flies revenue: its first aircraft home and Widebody operations granted. */
 function wideFrom(g: GameState, family: RatingFamily): number {
@@ -788,7 +788,7 @@ function conversions(g: GameState, t: Tally): void {
       // Donors: same role, other families, most spare first. Pilots only from a family that stays fully staffed
       // (they give up the old type); cabin crew keep their old type, so a family lends up to 15% of its need for
       // the 8-day course.
-      const pilot = l.role === 'CPT' || l.role === 'FO' || l.role === 'CRP';
+      const pilot = l.role === 'CPT' || l.role === 'FO';
       const spare = (x: StaffingLine) => (pilot ? x.have - x.need : Math.floor(x.have - 0.85 * x.need));
       const donors = lines.filter((x) => x.role === l.role && x.family !== fam && spare(x) > 0).sort((a, b) => spare(b) - spare(a) || (a.family < b.family ? -1 : 1));
       for (const d of donors) {
@@ -1998,9 +1998,9 @@ function redNote(g: GameState, m: GameState['messages'][number]): void {
   if (f?.aircraftId && g.fleet[f.aircraftId]) {
     const fam = typeOf(g.fleet[f.aircraftId].typeId).family;
     for (const role of new Set(flightCrewStatus(g, f.id, { live: false }).missing)) {
-      const key = `${monthKey(f.std)}|${fam}|${role === 'CRP' ? 'FO' : role}`;
+      const key = `${monthKey(f.std)}|${fam}|${role}`;
       redByMonth.set(key, (redByMonth.get(key) ?? 0) + 1);
-      const dk = `${Math.floor(f.std / DAY)}|${fam}|${role === 'CRP' ? 'FO' : role}`;
+      const dk = `${Math.floor(f.std / DAY)}|${fam}|${role}`;
       redByDay.set(dk, (redByDay.get(dk) ?? 0) + 1);
     }
   }
@@ -2384,7 +2384,7 @@ const maintDays = (k: MonthKey) => {
 const crewCap = (k: MonthKey) =>
   Object.values(g.crew)
     .filter((c) => c.hired < monthStart(k + 1))
-    .reduce((s, c) => s + (c.role === 'CPT' || c.role === 'FO' || c.role === 'CRP' ? BAL.pilotBHMonth : BAL.cabinBHMonth), 0);
+    .reduce((s, c) => s + (c.role === 'CPT' || c.role === 'FO' ? BAL.pilotBHMonth : BAL.cabinBHMonth), 0);
 const goalsBy = (t: number) => g.goals.filter((x) => x.done !== null && x.done < t).length;
 
 const pad = (s: string | number, n: number) => String(s).padStart(n);

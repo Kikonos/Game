@@ -8,16 +8,16 @@ import type { CalBlock } from '../../engine/crew/calendar';
 
 /** What a day tile (or a span) shows. */
 export type DayKind =
-  | 'trip' | 'leave' | 'sick' | 'training' | 'joining'
+  | 'trip' | 'pax' | 'leave' | 'sick' | 'training' | 'joining'
   | 'off' | 'offAway' | 'sby' | 'sbyHotel' | 'asby' | 'res' | 'rest' | 'free' | 'none';
 
 /** The glyph drawn in a tile. */
 export type DayIcon = 'plane' | 'pax' | 'ferry' | 'house' | 'bed' | 'phone' | 'tower' | 'clock' | 'palm' | 'sick' | 'cap' | 'join' | null;
 
-export const SPAN_KINDS: ReadonlySet<DayKind> = new Set(['trip', 'leave', 'sick', 'training', 'joining']);
+export const SPAN_KINDS: ReadonlySet<DayKind> = new Set(['trip', 'pax', 'leave', 'sick', 'training', 'joining']);
 
 export const DAY_KIND_LABEL: Record<DayKind, string> = {
-  trip: 'Flying', leave: 'Annual leave', sick: 'Sick', training: 'Training', joining: 'Joining', off: 'Day off at home', offAway: 'Day off away (hotel)',
+  trip: 'Flying', pax: 'Positioning (passenger)', leave: 'Annual leave', sick: 'Sick', training: 'Training', joining: 'Joining', off: 'Day off at home', offAway: 'Day off away (hotel)',
   sby: 'Home standby', sbyHotel: 'Hotel standby', asby: 'Airport standby', res: 'Reserve', rest: 'Rest', free: 'Roster not out yet', none: 'No record kept',
 };
 
@@ -42,6 +42,8 @@ export interface DayCell {
   badge: 'A' | '+1' | null;
   /** Worst legality of the day's duties. */
   legality: 'tight' | 'illegal' | null;
+  /** v0.18.3 a night of a layover away from base falls on this day (the subtle marker). */
+  layover: boolean;
   /** Blocks touching the day (for the details). */
   blocks: CalBlock[];
 }
@@ -83,6 +85,38 @@ const isPax = (b: Pick<CalBlock, 'kind' | 'flights'>) => b.kind === 'positioning
 const isFerry = (b: Pick<CalBlock, 'kind' | 'flights'>) => b.kind === 'duty' && !!b.flights?.length && b.flights.every((f) => f.type === 'ferry');
 
 const overlap = (a: { start: number; end: number }, s: number, e: number) => a.start < e && a.end > s;
+
+/** v0.18.3 one night-stop away from base: from arrival (release, or a journey's landing) to the next report or check-in. */
+export interface Layover {
+  at: string;
+  from: Minute;
+  to: Minute;
+  /** The work blocks either side (the first ends there, the second starts there). */
+  a: CalBlock;
+  b: CalBlock;
+  /** Hotel standby days inside it (their start minutes). */
+  sby: Minute[];
+}
+
+/**
+ * Every layover away from base among these blocks: between one work block that leaves the person at a station other
+ * than base and the next work block, after a deadhead and across hotel standby or days off there too. Pure.
+ */
+export function layovers(blocks: CalBlock[], base: string): Layover[] {
+  const work = blocks.filter((b) => WORK.has(b.kind)).sort((a, b) => a.start - b.start);
+  const out: Layover[] = [];
+  for (let i = 0; i + 1 < work.length; i++) {
+    const a = work[i];
+    const b = work[i + 1];
+    const at = endAt(a);
+    if (!at || at === base || b.start <= a.end) continue;
+    const from = b.flights?.[0]?.from ?? b.at;
+    if (from && from !== at) continue;
+    const sby = blocks.filter((x) => x.kind === 'standby' && x.sby === 'hotel' && x.start < b.start && x.end > a.end).map((x) => x.start).sort((p, q) => p - q);
+    out.push({ at, from: a.end, to: b.start, a, b, sby });
+  }
+  return out;
+}
 
 export interface GridOpts {
   /** Base-local day index of the 1st of the month. */
@@ -170,7 +204,8 @@ export function monthGrid(blocks: CalBlock[], o: GridOpts): MonthGrid {
     return [k0, k1];
   };
   for (const b of status) if (b.kind === 'sick') { const [a, z] = statusDays(b); claim(`sick:${b.start}`, 'sick', a, z, [b], true); }
-  for (const t of trips) claim(`trip:${t.blocks[0].start}`, 'trip', t.k0, t.k1, t.blocks, false);
+  // v0.18.3 a trip of travel only (a deadhead or a ride as a passenger) is Positioning: its own colour and seat glyph.
+  for (const t of trips) claim(`trip:${t.blocks[0].start}`, t.blocks.every(isPax) ? 'pax' : 'trip', t.k0, t.k1, t.blocks, false);
   for (const b of status) if (b.kind !== 'sick') { const [a, z] = statusDays(b); claim(`${b.kind}:${b.start}`, b.kind as DayKind, a, z, [b], false); }
   // Owners claimed piecemeal can have holes (a trip inside leave): recompute ranges from the days actually held.
   for (const [id, ow] of owners) {
@@ -181,6 +216,7 @@ export function monthGrid(blocks: CalBlock[], o: GridOpts): MonthGrid {
     ow.k1 = z;
   }
 
+  const lays = layovers(blocks, o.base);
   const cells: DayCell[] = [];
   for (let k = first; k <= last; k++) {
     const s = o.midnight(k);
@@ -191,13 +227,14 @@ export function monthGrid(blocks: CalBlock[], o: GridOpts): MonthGrid {
     const cell: DayCell = {
       k, start: s, end: e, date: k - o.k1st + 1, inMonth: k >= o.k1st && k < o.k1st + o.nDays, today: k === todayK, past: k < todayK,
       kind: 'free', owner, icon: null, code: '', badge: null, legality: null, blocks: on,
+      layover: lays.some((l) => l.from < e && l.to > s && l.to - l.from >= 8 * 60),
     };
     if (!cell.inMonth) cell.date = o.dateOf(k);
     if (o.keptFrom !== undefined && k < o.keptFrom && !on.some((b) => b.kind !== 'rest')) {
       cell.kind = 'none';
     } else if (ow) {
       cell.kind = ow.kind;
-      if (ow.kind === 'trip') {
+      if (ow.kind === 'trip' || ow.kind === 'pax') {
         // The icon on the day a duty or journey starts; the last one that day names the station.
         const starts = ow.blocks.filter((b) => o.dayOf(b.start) === k);
         const b = starts[starts.length - 1];
@@ -300,7 +337,7 @@ export function monthTotals(blocks: CalBlock[], a: Minute, b: Minute, now: Minut
       if (x.end <= now) t.blockFlown += m;
     }
   }
-  t.nightsAway = cells.filter((c) => c.inMonth && (c.kind === 'trip' || c.kind === 'offAway' || c.kind === 'sbyHotel') && c.blocks.some((x) => (x.kind === 'rest' || x.kind === 'off' || x.kind === 'standby') && !!x.at && x.end >= c.end - 60)).length;
+  t.nightsAway = cells.filter((c) => c.inMonth && (c.kind === 'trip' || c.kind === 'pax' || c.kind === 'offAway' || c.kind === 'sbyHotel') && c.blocks.some((x) => (x.kind === 'rest' || x.kind === 'off' || x.kind === 'standby') && !!x.at && x.end >= c.end - 60)).length;
   return t;
 }
 

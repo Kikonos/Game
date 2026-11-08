@@ -64,10 +64,10 @@ export type { Reason, ReasonCode };
 export { rootReason };
 
 const CC = () => BAL.crewControl;
-const SLOT_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
+const SLOT_ORDER: Role[] = ['CPT', 'FO', 'PUR', 'CC'];
 /** Player words for a seat: singular, plural. */
 export const ROLE_WORD: Record<Role, [string, string]> = {
-  CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], CRP: ['relief pilot', 'relief pilots'],
+  CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'],
   PUR: ['purser', 'pursers'], CC: ['cabin crew', 'cabin crew'],
 };
 const at = (t: Minute, now: Minute) => (Math.floor(t / DAY) === Math.floor(now / DAY) ? fmtTime(t) : fmtDateTime(t));

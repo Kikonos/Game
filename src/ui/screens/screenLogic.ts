@@ -47,9 +47,9 @@ export const workDays = (c: Pick<Contract, 'pattern' | 'start' | 'end'>): string
   return a === b ? a : `${a} – ${b}`;
 };
 
-export const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
-export const ROLE_LABEL: Record<Role, string> = { CPT: 'Captain', FO: 'First officer', CRP: 'Relief pilot', PUR: 'Purser', CC: 'Cabin crew' };
-export const isPilotRole = (r: Role) => r === 'CPT' || r === 'FO' || r === 'CRP';
+export const ROLES: Role[] = ['CPT', 'FO', 'PUR', 'CC'];
+export const ROLE_LABEL: Record<Role, string> = { CPT: 'Captain', FO: 'First officer', PUR: 'Purser', CC: 'Cabin crew' };
+export const isPilotRole = (r: Role) => r === 'CPT' || r === 'FO';
 
 export const CREW_STATUS_LABEL: Record<CrewStatus, string> = {
   available: 'Available', onDuty: 'On duty', resting: 'Resting', off: 'Day off', leave: 'Leave', sick: 'Sick', training: 'Training', joining: 'Joining',
@@ -217,7 +217,7 @@ export interface CrewFilter {
 
 export const NO_FILTER: CrewFilter = { group: 'all', role: 'all', status: 'all', rating: 'all', q: '' };
 
-const ROLE_RANK: Record<Role, number> = { CPT: 0, FO: 1, CRP: 2, PUR: 3, CC: 4 };
+const ROLE_RANK: Record<Role, number> = { CPT: 0, FO: 1, PUR: 3, CC: 4 };
 
 /** Filters and sorts crew: role, then surname. */
 export function filterCrew(list: CrewMember[], f: CrewFilter): CrewMember[] {

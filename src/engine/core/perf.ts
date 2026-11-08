@@ -490,7 +490,7 @@ export const extraCabinRoom = (typeId: string, seats: number, required = 0): num
 /** v0.10 passenger seats taken by crew on board: cabin crew beyond the jump seats and pilots beyond the cockpit's seats. */
 export function crewInPaxSeats(typeId: string, roles: readonly Role[]): number {
   let pilots = 0, cabin = 0;
-  for (const r of roles) (r === 'CPT' || r === 'FO' || r === 'CRP' ? pilots++ : cabin++);
+  for (const r of roles) (r === 'CPT' || r === 'FO' ? pilots++ : cabin++);
   return Math.max(0, cabin - cabinCrewSeats(typeId)) + Math.max(0, pilots - cockpitSeats(typeId));
 }
 
@@ -506,7 +506,9 @@ export function reportMinutes(typeId: string): { report: number; post: number } 
 export function complement(typeId: string, seats: number, opts: { augment?: 0 | 1 | 2; extraCabin?: number; restCabin?: number } = {}): Role[] {
   const t = typeOf(typeId);
   const augment = opts.augment ?? 0;
-  const cockpit: Role[] = augment === 2 ? ['CPT', 'CPT', 'FO', 'FO'] : augment === 1 ? ['CPT', 'FO', 'CRP'] : ['CPT', 'FO'];
+  // v0.18.3 augmented crews are captains and first officers (no cruise relief rank): 3 pilots = 1 CPT + 2 FO, 4 = 2 + 2.
+  // A captain may sit in any FO seat (canFill), so 2 CPT + 1 FO or 3 CPT + 1 FO fly too.
+  const cockpit: Role[] = augment === 2 ? ['CPT', 'CPT', 'FO', 'FO'] : augment === 1 ? ['CPT', 'FO', 'FO'] : ['CPT', 'FO'];
   const restCabin = augment > 0 ? Math.max(0, Math.round(opts.restCabin ?? 0)) : 0;
   const cabinN = Math.max(cabinMinimum(typeId, seats), 1) + (opts.extraCabin ?? 0) + restCabin;
   // v0.7.2: exactly one purser (the SCCM); a second (deputy, upper deck) only on two-deck types.
@@ -517,13 +519,12 @@ export function complement(typeId: string, seats: number, opts: { augment?: 0 | 
 }
 
 /**
- * Roles that may fill a slot (seniors can fly junior positions). v0.7.2: a captain may sit in an FO or CRP seat
+ * Roles that may fill a slot (seniors can fly junior positions). v0.7.2: a captain may sit in an FO seat
  * (the auto-roster only when no FO is free); never an FO as captain; a purser may work a CC position.
  */
 export function canFill(slot: Role, role: Role): boolean {
   if (slot === role) return true;
   if (slot === 'FO') return role === 'CPT';
-  if (slot === 'CRP') return role === 'FO' || role === 'CPT';
   if (slot === 'CC') return role === 'PUR';
   return false;
 }
@@ -533,4 +534,4 @@ export function seatLabel(slot: Role, role: Role): string {
   return slot === role ? slot : `${role} (as ${slot})`;
 }
 
-export const isPilot = (r: Role) => r === 'CPT' || r === 'FO' || r === 'CRP';
+export const isPilot = (r: Role) => r === 'CPT' || r === 'FO';

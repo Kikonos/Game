@@ -205,7 +205,7 @@ function hasCode(days: Set<number>, a: number, b: number): boolean {
 function LabelText({ text }: { text: string }) {
   const [base, mark] = splitMark(text);
   if (!mark) return <>{text}</>;
-  return <>{base}<span className="rb-mark" aria-label={mark === '+1h' ? 'planned extension' : mark === 'SPLIT' ? 'split duty' : `${mark[0]} pilots, in-flight rest`}>{mark.endsWith('P') && <BedDouble aria-hidden />}{mark}</span></>;
+  return <>{base}<span className="rb-mark" aria-label={mark === '+1h' ? 'planned extension' : mark === 'SPLIT' ? 'split duty' : `${mark[0]} pilots (${mark[0] === '4' ? '2 CPT + 2 FO in pairs A and B' : '1 CPT + 2 FO'}), in-flight rest`}>{mark.endsWith('P') && <BedDouble aria-hidden />}{mark}</span></>;
 }
 
 const Block = memo(function Block({ b, i, crewId, from, ppm, W, month, mute }: { b: BoardBlock; i: number; crewId: string; from: number; ppm: number; W: number; month: boolean; mute?: boolean }) {
@@ -315,7 +315,7 @@ export interface RosterBoardProps {
 
 const RANKS: { value: RankFilter; label: string }[] = [
   { value: 'all', label: 'All ranks' }, { value: 'pilots', label: 'Pilots' }, { value: 'cabin', label: 'Cabin' },
-  ...(['CPT', 'FO', 'CRP', 'PUR', 'CC'] as Role[]).map((r) => ({ value: r as RankFilter, label: `${r} · ${ROLE_PLURAL[r]}` })),
+  ...(['CPT', 'FO', 'PUR', 'CC'] as Role[]).map((r) => ({ value: r as RankFilter, label: `${r} · ${ROLE_PLURAL[r]}` })),
 ];
 
 /** v0.7 C2: memo'd against the Crew screen's hourly renders; the board refreshes from useThrottledNow (≤ 1 Hz running). */
@@ -883,7 +883,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
         <ColourLegend title="Roster board colours" align="left" items={[
           { swatch: <span className="sc-cal-sw k-operating" aria-hidden />, label: 'A duty: flights with passengers (in the contract colour)' },
           { swatch: <span className="sc-cal-sw k-positioning" aria-hidden />, label: 'Positioning or ferry: flying empty' },
-          { swatch: <span className="sc-cal-sw k-deadhead" aria-hidden />, label: 'Deadhead: travelling as a passenger on an airline or a private jet' },
+          { swatch: <span className="sc-cal-sw k-deadhead" aria-hidden />, label: 'Deadhead: positioning as a passenger on an airline or a private jet (Positioning on the person calendar)' },
           { swatch: <span className="sc-cal-sw k-rest" aria-hidden />, label: 'Rest: the time off needed before the next duty' },
           { swatch: <span className="sc-cal-sw k-off" aria-hidden />, label: 'OFF: day off (OFF DUB at the hotel), published 14 days ahead; a lock means a change costs morale' },
           { swatch: <span className="sc-cal-sw k-standby" aria-hidden />, label: 'SBY E / SBY L: home standby, early 05–17 or late 12–24' },
@@ -895,7 +895,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
           { swatch: 'ring-amber', label: 'Amber ring: legal but tight (one delay breaks it)' },
           { swatch: 'ring-red', label: 'Red ring: cannot legally fly as rostered' },
           { swatch: 'idle', label: 'Faint hatch: not rostered yet (the roster for each month comes out on the 15th before)' },
-          { swatch: <span className="rb-mark"><BedDouble aria-hidden />3P</span>, label: '3P / 4P: an augmented crew, resting in turns in flight' },
+          { swatch: <span className="rb-mark"><BedDouble aria-hidden />3P</span>, label: '3P / 4P: an augmented crew (1 CPT + 2 FO, or 2 CPT + 2 FO in pairs A and B), resting in turns in flight' },
           { swatch: <span className="rb-mark">+1h</span>, label: '+1h: a planned extension (at most twice a week each)' },
           { swatch: <span className="rb-mark">SPLIT</span>, label: 'SPLIT: a split duty, a long wait on the ground adds to the day' },
         ]} />

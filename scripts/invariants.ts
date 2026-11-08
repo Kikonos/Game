@@ -107,7 +107,7 @@ export interface CheckerOpts {
   scanDays?: number;
 }
 
-const ROLE_PILOT = new Set<Role>(['CPT', 'FO', 'CRP']);
+const ROLE_PILOT = new Set<Role>(['CPT', 'FO']);
 const DAY_MS = DAY;
 
 /** ORO.FTL.235 minimum rest (independent of crew/rules.ts minRest, written from the brief). */

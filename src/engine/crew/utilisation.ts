@@ -148,14 +148,14 @@ export function crewUtilisation(g: GameState): Utilisation {
   };
 }
 
-const ROLE_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
+const ROLE_ORDER: Role[] = ['CPT', 'FO', 'PUR', 'CC'];
 
 /**
  * The hold on hiring (the crew desk's round-up and its peak hires): crew of this family and rank at work flew under
  * UTIL_TYPICAL.hold28 hours on average in 28 days, with some idle. Returns why (plain), or null to hire. Pure.
  */
 export function hireHold(g: GameState, family: RatingFamily, role: Role, u = crewUtilisation(g)): { why: string; idle: number; avg: number } | null {
-  const xs = u.people.filter((p) => p.family === family && (p.role === role || (role === 'FO' && p.role === 'CRP')) && !p.away);
+  const xs = u.people.filter((p) => p.family === family && p.role === role && !p.away);
   if (xs.length < 4) return null;
   const avg = xs.reduce((s, p) => s + p.d28, 0) / xs.length;
   const idle = xs.filter((p) => p.idle).length;
@@ -164,7 +164,7 @@ export function hireHold(g: GameState, family: RatingFamily, role: Role, u = cre
 }
 
 const ROLE_WORDS: Record<Role, [string, string]> = {
-  CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], CRP: ['relief pilot', 'relief pilots'], PUR: ['purser', 'pursers'], CC: ['cabin crew member', 'cabin crew'],
+  CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], PUR: ['purser', 'pursers'], CC: ['cabin crew member', 'cabin crew'],
 };
 export const roleWords = (role: Role, n: number) => `${n} ${ROLE_WORDS[role][n === 1 ? 0 : 1]}`;
 

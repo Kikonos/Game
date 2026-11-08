@@ -696,7 +696,7 @@ describe('v0.9 crew out of hours, hotel standby and crew changes on the map', ()
   it('counts the hotel by pilots and cabin crew', () => {
     const list = [{ role: 'CPT' }, { role: 'FO' }, { role: 'PUR' }, { role: 'CC' }, { role: 'CC' }] as const;
     expect(hotelCount([...list])).toBe('2 pilots · 3 cabin crew');
-    expect(hotelCount([{ role: 'CRP' }])).toBe('1 pilot');
+    expect(hotelCount([{ role: 'FO' }])).toBe('1 pilot');
   });
 
   it('places crew-change marks down-left of the airport dot, clear of the code, stands, offer pin and event pins', () => {

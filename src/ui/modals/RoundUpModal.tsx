@@ -17,7 +17,7 @@ import { lockOf } from '../../engine/scenario';
 import { LockNote } from '../components/Locked';
 
 const ROLE_ONE: Record<string, [string, string]> = {
-  CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], CRP: ['relief pilot', 'relief pilots'], PUR: ['purser', 'pursers'], CC: ['cabin crew', 'cabin crew'],
+  CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], PUR: ['purser', 'pursers'], CC: ['cabin crew', 'cabin crew'],
 };
 
 export function RoundUpModal({ family, target }: { family: RatingFamily; target: number }) {

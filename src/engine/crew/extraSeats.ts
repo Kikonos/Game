@@ -65,13 +65,13 @@ export interface Seat {
 
 /**
  * Seats of a complement: the legal minimum plus the client's required extra cabin crew (required), then the extra
- * cabin crew (CC) and the spare pilot (CRP) above it (optional). Pure.
+ * cabin crew (CC) and the spare pilot (an FO seat) above it (optional). Pure.
  */
 export function seatsFor(typeId: string, seats: number, x: CrewExtra, req: number, opts: { augment?: 0 | 1 | 2; restCabin?: number; pilotsOnly?: boolean } = {}): Seat[] {
   const roles = complement(typeId, seats, { augment: opts.augment, extraCabin: req, restCabin: opts.restCabin });
   const out: Seat[] = roles.filter((r) => !opts.pilotsOnly || isPilot(r)).map((role) => ({ role, above: false }));
   if (opts.pilotsOnly) return out;
-  if (x.pilot) out.push({ role: 'CRP', above: true });
+  if (x.pilot) out.push({ role: 'FO', above: true });
   for (let i = Math.max(0, x.cabin - req); i > 0; i--) out.push({ role: 'CC', above: true });
   return out;
 }

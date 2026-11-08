@@ -391,7 +391,7 @@ export function GlobalModals() {
     case 'duty': return s.game ? <DutyModal id={m.id} /> : null;
     case 'subcharter': return s.game ? <SubcharterModal key={m.flightIds?.join(',') ?? m.flightId ?? m.contractId} contractId={m.contractId} flightId={m.flightId} rivalId={m.rivalId} flightIds={m.flightIds} back={m.back} /> : null;
     case 'livery': return s.game ? <LiveryModal target={m.target} /> : null;
-    case 'convert': return s.game ? <ConvertModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} onBooked={m.onBooked} /> : null;
+    case 'convert': return s.game ? <ConvertModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} onBooked={m.onBooked} advice={m.advice} /> : null;
     case 'classes': return s.game ? <ClassesModal /> : null;
     case 'acquire': return s.game ? <AcquireModal offerId={m.offerId} /> : null;
     // v0.17 the aircraft market (lane market-ui fills them).

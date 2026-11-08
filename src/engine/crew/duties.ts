@@ -467,7 +467,7 @@ export function splitUnderWay(g: GameState, p: Pairing, d: Duty, force = false, 
 
 // ---------- pairings ----------
 
-const ROLE_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
+const ROLE_ORDER: Role[] = ['CPT', 'FO', 'PUR', 'CC'];
 
 /**
  * Complement for a pairing: the largest augmentation of its duties (the whole set flies every duty), the client's
@@ -566,7 +566,7 @@ export function legalMinimum(g: GameState, p: Pairing): { pilots: number; cabin:
     if (d.augment > 0) restCabin = Math.max(restCabin, d.restExtra ?? 0);
   }
   const seats = dropClientSeats(seatsFor(ac?.typeId ?? 'a320ceo', ac?.cabin.total ?? 180, { cabin: 0, pilot: 0 }, 0, { augment, restCabin }), clientCabinOf(g, p));
-  const pilots = seats.filter((s) => s.role === 'CPT' || s.role === 'FO' || s.role === 'CRP').length;
+  const pilots = seats.filter((s) => s.role === 'CPT' || s.role === 'FO').length;
   return { pilots, cabin: seats.length - pilots };
 }
 
@@ -577,7 +577,7 @@ export function aboveMinimum(g: GameState, p: Pairing): { pilots: number; cabin:
   let cabin = 0;
   for (const s of p.slots) {
     if (!s.crewId || !g.crew[s.crewId]) continue;
-    if (s.role === 'CPT' || s.role === 'FO' || s.role === 'CRP') pilots++;
+    if (s.role === 'CPT' || s.role === 'FO') pilots++;
     else cabin++;
   }
   return { pilots: Math.max(0, pilots - min.pilots), cabin: Math.max(0, cabin - min.cabin) };

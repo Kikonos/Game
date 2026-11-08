@@ -91,7 +91,7 @@ const wide = (ac: Aircraft) => (typeOf(ac.typeId).body === 'wide' ? 1 : 0);
 const hm = (min: number) => fmtDuration(Math.max(0, Math.round(min)));
 /** Passengers on a leg: the booked count, else (ACMI: the client's load) about 85 % of the seats. */
 const paxOf = (g: GameState, f: Flight) => f.pax ?? Math.round((f.aircraftId ? g.fleet[f.aircraftId]?.cabin.total ?? 0 : 0) * 0.85);
-const ROLE_WORD: Record<string, string> = { CPT: 'captain', FO: 'first officer', CRP: 'relief pilot', PUR: 'purser', CC: 'cabin crew member' };
+const ROLE_WORD: Record<string, string> = { CPT: 'captain', FO: 'first officer', PUR: 'purser', CC: 'cabin crew member' };
 const isCharter = (g: GameState, f: Flight) => contractOf(g, f)?.product.kind === 'charter' || !f.contractId;
 
 /** One disruption card open already (the queue: never two at once). */

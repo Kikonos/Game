@@ -1,14 +1,18 @@
 // v0.6 bulk type-rating conversion (UPDATE-0.6.md §F2.3): target type, first start day, the people (removable;
 // skipped with a reason; cabin crew at 3 types choose the rating they give up) on the left; the classes the
 // engine forms (max 20, pilots and cabin apart, staggered), cost and fleet-short warnings on the right.
+// v0.18.3 opened from a Utilisation surplus row (`advice`): proposals on top: the type to convert to and why (short of
+// crew first), and 1–3 plans (classes, the trips handed to others, cost, line-ready day); picking one fills the form
+// below, and Book applies the plan (its re-crewing too).
 
 import { AlertTriangle, Check, GraduationCap, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { ACMI_TYPES_LIST, type RatingFamily } from '../../data/acmiTypes';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, toDate, toLocal } from '../../engine/core/time';
-import type { GameState } from '../../engine/core/types';
-import { ccqKeeps, ccqPartners, conversionEarliest, conversionPlan, courseOf, courseText, crewName, familyLabel, startConversion } from '../../engine/crew';
+import type { GameState, Role } from '../../engine/core/types';
+import { applyConvertOption, ccqKeeps, ccqPartners, conversionEarliest, conversionPlan, convertAdvice, courseOf, courseText, crewName, familyLabel, startConversion, type ConvertOption } from '../../engine/crew';
+import { fmtDay } from '../../engine/core/time';
 import { approvalReqs, ratedPilots } from '../../engine/ops';
 import { Modal } from '../components/ui';
 import { money } from '../format';
@@ -34,14 +38,31 @@ function defaultFamily(g: GameState, ids: string[], list: { family: RatingFamily
   return best;
 }
 
-export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: string[]; family?: RatingFamily; onBooked?: () => void }) {
+/** v0.18.3 a surplus row's proposals: the rank and family, and how many are beyond the flying's need. */
+export interface ConvertAdviceFor { from: RatingFamily; role: Role; n: number }
+
+export function ConvertModal({ crewIds, family: fam0, onBooked, advice }: { crewIds: string[]; family?: RatingFamily; onBooked?: () => void; advice?: ConvertAdviceFor }) {
   const g = useGame();
   const fams = useMemo(() => familyList(g), [g]);
   const earliest = conversionEarliest(g);
-  const [ids, setIds] = useState(() => crewIds.filter((id) => g.crew[id]));
-  const [picked, setFamily] = useState<RatingFamily | null>(() => fam0 ?? defaultFamily(g, crewIds, fams));
+  // v0.18.3 proposals for a surplus row (computed once for the target picked; a dry run on a copy of the game).
+  const [aim, setAim] = useState<RatingFamily | undefined>(undefined);
+  const adv = useMemo(() => (advice ? convertAdvice(g, advice.from, advice.role, advice.n, aim) : null), [g, advice?.from, advice?.role, advice?.n, aim, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
+  const firstOpt = adv?.options[0];
+  const [chosen, setChosen] = useState<string | null>(() => firstOpt?.key ?? null);
+  const opt: ConvertOption | undefined = adv?.options.find((o) => o.key === chosen);
+  const [ids, setIds] = useState(() => (firstOpt ? firstOpt.classes.flatMap((k) => k.crewIds) : crewIds).filter((id) => g.crew[id]));
+  const [picked, setFamily] = useState<RatingFamily | null>(() => (adv?.targets[0]?.family ?? fam0 ?? defaultFamily(g, crewIds, fams)));
   const family = picked ?? fams[0]?.family ?? 'A320';
-  const [start, setStart] = useState(earliest);
+  const [start, setStart] = useState(firstOpt?.classes[0]?.start ?? earliest);
+  const choose = (o: ConvertOption, f: RatingFamily) => {
+    setChosen(o.key);
+    setIds(o.classes.flatMap((k) => k.crewIds));
+    setFamily(f);
+    setStart(o.classes[0].start);
+  };
+  // Any change by hand below leaves the plan: the form books as before.
+  const leave = () => setChosen(null);
   const [drop, setDrop] = useState<Record<string, RatingFamily>>({});
   const live = ids.filter((id) => g.crew[id]);
   const plan = useMemo(() => conversionPlan(g, { crewIds: live, family, start: Math.max(start, earliest), drop }), [g, live.join(), family, start, earliest, drop, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -50,7 +71,7 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
   const [review, setReview] = useState(false);
   const risky = needsConfirm(plan);
   const book = () => {
-    const res = store.act((gg) => startConversion(gg, { crewIds: live, family, start: Math.max(start, earliest), drop }));
+    const res = opt ? store.act((gg) => applyConvertOption(gg, family, opt)) : store.act((gg) => startConversion(gg, { crewIds: live, family, start: Math.max(start, earliest), drop }));
     if (!res.ok) return;
     close();
     onBooked?.();
@@ -112,7 +133,7 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
             {c.ratings.map((f) => <option key={f} value={f}>drops {f}</option>)}
           </select>
         )}
-        <button className="btn btn-ghost btn-icon cv-x" onClick={() => setIds(ids.filter((x) => x !== id))} aria-label={`Remove ${crewName(c)}`}><X /></button>
+        <button className="btn btn-ghost btn-icon cv-x" onClick={() => { leave(); setIds(ids.filter((x) => x !== id)); }} aria-label={`Remove ${crewName(c)}`}><X /></button>
       </span>
     );
   };
@@ -126,9 +147,9 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
           <button className="btn btn-primary" onClick={() => setReview(false)} autoFocus>Go back</button>
         </> : <>
           <button className="btn" onClick={close}>Cancel</button>
-          <span className="grow small muted">{picked && plan.classes.length ? `${live.length - nSkip} of ${live.length} booked${nSkip ? ` · ${nSkip} skipped` : ''} · ${plan.classes.length} class${plan.classes.length === 1 ? '' : 'es'} · ${bd(t0)} – ${bd(t1 - 1)}` : ''}</span>
+          <span className="grow small muted">{opt ? `${opt.classes.flatMap((k) => k.crewIds).length} people · ${opt.classes.length} class${opt.classes.length === 1 ? '' : 'es'} · ${bd(opt.classes[0].start)} – ${bd(opt.ready - 1)}` : picked && plan.classes.length ? `${live.length - nSkip} of ${live.length} booked${nSkip ? ` · ${nSkip} skipped` : ''} · ${plan.classes.length} class${plan.classes.length === 1 ? '' : 'es'} · ${bd(t0)} – ${bd(t1 - 1)}` : ''}</span>
           <LockNote why={lockOf(g, 'training')} />
-          <button className="btn btn-primary" onClick={risky ? () => setReview(true) : book} disabled={!picked || !plan.ok || !!lockOf(g, 'training')}><GraduationCap /> {!picked ? 'Pick a type' : risky ? `Review & book · ${money(plan.cost)}` : `Book conversion · ${money(plan.cost)}`}</button>
+          <button className="btn btn-primary" onClick={risky && !opt ? () => setReview(true) : book} disabled={!picked || (!opt && !plan.ok) || !!lockOf(g, 'training')}><GraduationCap /> {!picked ? 'Pick a type' : opt ? `Book this plan · ${money(opt.fees)}` : risky ? `Review & book · ${money(plan.cost)}` : `Book conversion · ${money(plan.cost)}`}</button>
         </>}
       </>
     }>
@@ -139,12 +160,39 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
           <div className="small muted">Flights in these weeks may go uncrewed.</div>
         </div>
       )}
+      {adv && (
+        <section className="cv-adv" aria-label="Proposed">
+          <div className="upper dim">Proposed for {adv.want} of these {advice!.role === 'CC' ? 'cabin crew' : advice!.role === 'PUR' ? 'pursers' : advice!.role === 'CPT' ? 'captains' : 'first officers'}</div>
+          <div className="cv-adv-targets">
+            {adv.targets.slice(0, 4).map((t) => (
+              <button key={t.family} className={`cv-adv-t ${t.family === (aim ?? adv.targets[0]?.family) ? 'on' : ''} ${t.short ? 'short' : ''}`} onClick={() => { setAim(t.family); setChosen(null); }} aria-pressed={t.family === (aim ?? adv.targets[0]?.family)}>
+                <b>{familyLabel(t.family)}{t.ccq ? ' · CCQ' : ''}</b><span className="small muted">{t.why}</span>
+              </button>
+            ))}
+          </div>
+          {adv.why && <div className="small muted">{adv.why}.</div>}
+          <div className="cv-adv-opts" role="radiogroup" aria-label="Plans">
+            {adv.options.map((o) => {
+              const f = aim ?? adv.targets[0]!.family;
+              const on = chosen === o.key;
+              return (
+                <button key={o.key} role="radio" aria-checked={on} className={`cv-adv-o ${on ? 'on' : ''}`} onClick={() => choose(o, f)}>
+                  <span className="row between gap-8"><b className="small">{o.title}</b><span className={`tiny ${o.late ? 'warn' : 'good'}`}>Line-ready {fmtDay(o.ready)}{o.late ? ', after the need' : ''}</span></span>
+                  <span className="tiny muted">Course {money(o.fees)}{o.recrew ? ` · tickets ${money(o.recrew)}` : ''} · {o.swaps.length ? `${o.swaps.length} trip${o.swaps.length === 1 ? '' : 's'} re-crewed` : o.unresolved ? '' : 'no trips in the way'}{o.unresolved ? `${o.swaps.length ? ' · ' : ''}${o.unresolved} trip${o.unresolved === 1 ? '' : 's'} back to the auto-roster` : ''}{o.handedBH ? ` · ${o.handedBH} h of their flying handed over` : ''}</span>
+                  {o.swaps.length > 0 && <span className="tiny dim cv-adv-sw">{o.swaps.slice(0, 3).map((s) => s.text).join(' · ')}{o.swaps.length > 3 ? ` · and ${o.swaps.length - 3} more` : ''}</span>}
+                </button>
+              );
+            })}
+          </div>
+          <div className="tiny dim">The least busy go first. Classes of up to 8 pilots (simulator pairs) or 20 cabin crew; trips in the way go to crew a dry run of the roster finds legal for them. Pick a plan, or change anything below and book by hand.</div>
+        </section>
+      )}
       <div className="cv-cols">
         <div className="col gap-12" style={{ minWidth: 0 }}>
           <div className="upper dim">Target type</div>
           <div className="cv-chips">
             {fams.map((x) => (
-              <button key={x.family} className={`cv-chip ${x.family === picked ? 'on' : ''} ${x.inFleet ? '' : 'off'}`} onClick={() => setFamily(x.family)} aria-pressed={x.family === picked}>
+              <button key={x.family} className={`cv-chip ${x.family === picked ? 'on' : ''} ${x.inFleet ? '' : 'off'}`} onClick={() => { leave(); setFamily(x.family); }} aria-pressed={x.family === picked}>
                 <b>{familyLabel(x.family)}</b>
                 {!x.inFleet && <span className="tiny dim">no aircraft</span>}
               </button>
@@ -157,7 +205,7 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
               const mon = d.getUTCDay() === 1;
               const on = Math.abs(t - start) < DAY / 2;
               return (
-                <button key={t} className={`cv-day ${mon ? 'mon' : ''} ${on ? 'on' : ''}`} onClick={() => setStart(t)} aria-pressed={on}>
+                <button key={t} className={`cv-day ${mon ? 'mon' : ''} ${on ? 'on' : ''}`} onClick={() => { leave(); setStart(t); }} aria-pressed={on}>
                   <span className="tiny">{d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' })}</span>
                   <b>{d.getUTCDate()}</b>
                   <span className="tiny dim">{d.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })}</span>
@@ -166,7 +214,7 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
             })}
           </div>
           {arriving && fitDay !== null && (
-            <button className={`btn btn-sm cv-fit ${Math.abs(fitDay - start) < DAY / 2 ? 'on' : ''}`} onClick={() => setStart(fitDay)}>
+            <button className={`btn btn-sm cv-fit ${Math.abs(fitDay - start) < DAY / 2 ? 'on' : ''}`} onClick={() => { leave(); setStart(fitDay); }}>
               End near {arriving.reg}’s arrival · {bd(arriving.at)}
             </button>
           )}
@@ -181,8 +229,14 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
           <div className="upper dim">Classes</div>
           {!picked && <div className="small muted">Everyone selected already holds every type in the fleet. Tap a target type to plan the classes.</div>}
           {picked && <>
-          {!plan.classes.length && <div className="small muted">No class: everyone selected is skipped.</div>}
-          <div className="cv-timeline">
+          {opt && <div className="cv-timeline">{opt.classes.map((k, i) => (
+            <div key={i} className="cv-class">
+              <div className="row between small"><b>Class {i + 1}</b><span className="muted">{k.crewIds.length} {k.group === 'pilot' ? `pilot${k.crewIds.length === 1 ? '' : 's'}` : 'cabin crew'} · {bd(k.start)} – {bd(k.end - 1)}</span></div>
+              <div className="tiny dim">{k.crewIds.map((id) => g.crew[id]?.last ?? '').join(', ')}</div>
+            </div>
+          ))}</div>}
+          {!opt && !plan.classes.length && <div className="small muted">No class: everyone selected is skipped.</div>}
+          {!opt && <div className="cv-timeline">
             {plan.classes.map((k) => (
               <div key={k.no} className="cv-class">
                 <div className="row between small">
@@ -197,7 +251,7 @@ export function ConvertModal({ crewIds, family: fam0, onBooked }: { crewIds: str
                 <div className="tiny dim">{k.phases.map((p) => `${p.label} ${bd(p.from)}`).join(' · ')}</div>
               </div>
             ))}
-          </div>
+          </div>}
           <div className="cv-cost">
             {nP > 0 && <div className="row between small"><span className="muted">Pilots {nP} × {money(costP / nP)}</span><b className="num">{money(costP)}</b></div>}
             {nC > 0 && <div className="row between small"><span className="muted">Cabin {nC} × {money(costC / nC)}</span><b className="num">{money(costC)}</b></div>}

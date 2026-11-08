@@ -274,7 +274,12 @@ export function augLimit(rest: AcRest, augment: 1 | 2, long: boolean, typeEarly:
 // ---------- the rest plan ----------
 
 export interface RestLeg { id: string; std: Minute; sta: Minute }
-export type RestSeat = 'CPT' | 'FO' | 'CRP' | 'CPT2' | 'FO2';
+/**
+ * Pilot seats of an augmented crew. v0.18.3 (no cruise relief rank): pair A is CPT + FO (take-off and landing), pair B
+ * CPT2 + FO2 on 4 pilots; on 3 pilots FO2 is the third pilot who relieves each of pair A in turn. A captain may sit in
+ * an FO seat.
+ */
+export type RestSeat = 'CPT' | 'FO' | 'CPT2' | 'FO2';
 export interface RestTurn {
   /** Pilots. */
   seat?: RestSeat;
@@ -392,10 +397,10 @@ function layOut(groups: Group[], at: number[], wins: { a: Minute; b: Minute }[],
   return spare;
 }
 
-/** Pilot rest groups in time order (CS FTL.1.205(c)(1)): relief pilots first (90), the landing pilots last (120). */
+/** Pilot rest groups in time order (CS FTL.1.205(c)(1)): the relieving pilots first (90), the landing pair last (120). */
 function pilotGroups(fc: RestFacility, augment: 1 | 2): Group[] {
   const t = (seat: RestSeat, landing: boolean) => ({ seat, n: 1, crewIds: [] as string[], need: landing ? 120 : 90, where: fc.kind, cls: fc.cls, ...(landing ? { landing: true } : {}) });
-  if (augment === 1) return [{ need: 90, turns: [t('CRP', false)] }, { need: 120, turns: [t('FO', true)] }, { need: 120, turns: [t('CPT', true)] }];
+  if (augment === 1) return [{ need: 90, turns: [t('FO2', false)] }, { need: 120, turns: [t('FO', true)] }, { need: 120, turns: [t('CPT', true)] }];
   if (Math.min(fc.places, augment) >= 2) return [{ need: 90, turns: [t('CPT2', false), t('FO2', false)] }, { need: 120, turns: [t('CPT', true), t('FO', true)] }];
   return [{ need: 90, turns: [t('CPT2', false)] }, { need: 90, turns: [t('FO2', false)] }, { need: 120, turns: [t('FO', true)] }, { need: 120, turns: [t('CPT', true)] }];
 }
@@ -582,18 +587,22 @@ export function cabinOwnReport(p: Pairing, d: Duty): number {
   return cabin.length ? Math.min(...cabin.map((s) => (s.from !== undefined && s.from > d.report ? s.from : d.report))) - d.report : 0;
 }
 
-/** Fills crewIds: pilots by seat (the second CPT/FO are CPT2/FO2), cabin crew in slot order by group. */
-function nameTurns(g: GameState, plan: RestPlan, slots: { role: string; crewId: string | null }[]): void {
+/**
+ * Fills crewIds: pilots by seat (the second CPT/FO slot is CPT2/FO2, by slot position; v0.18.3 the spare pilot seat
+ * above the minimum is never a rest seat), cabin crew in slot order by group.
+ */
+function nameTurns(g: GameState, plan: RestPlan, slots: { role: string; crewId: string | null; above?: boolean }[]): void {
   const bySeat: Partial<Record<RestSeat, string>> = {};
   const seen: Record<string, number> = {};
   const cabin: string[] = [];
   for (const s of slots) {
-    if (!s.crewId || !g.crew[s.crewId]) continue;
     if (s.role === 'PUR' || s.role === 'CC') {
-      cabin.push(s.crewId);
+      if (s.crewId && g.crew[s.crewId]) cabin.push(s.crewId);
       continue;
     }
+    if (s.above) continue;
     const k = (seen[s.role] = (seen[s.role] ?? 0) + 1);
+    if (!s.crewId || !g.crew[s.crewId]) continue;
     const seat = (k > 1 ? `${s.role}2` : s.role) as RestSeat;
     bySeat[seat] ??= s.crewId;
   }
@@ -696,10 +705,117 @@ export function restNow(g: GameState, aircraftId: string, t: Minute): { names: s
   const out: { names: string[]; where: RestKind; until: Minute }[] = [];
   for (const x of [...plan.pilots, ...plan.cabin]) {
     if (x.flightId !== f.id || x.start > t || x.end <= t) continue;
-    const names = x.crewIds.map((id) => g.crew[id]).filter((c) => !!c).map((c) => (x.seat ? `${x.seat === 'CPT' || x.seat === 'CPT2' ? 'Capt.' : x.seat === 'CRP' ? 'CRP' : 'FO'} ${c!.last}` : `${c!.first} ${c!.last}`));
+    const names = x.crewIds.map((id) => g.crew[id]).filter((c) => !!c).map((c) => (x.seat ? `${c!.role === 'CPT' ? 'Capt.' : 'FO'} ${c!.last}` : `${c!.first} ${c!.last}`));
     out.push({ names: names.length ? names : [x.seat ?? `Group ${String.fromCharCode(65 + (x.group ?? 0))} (${x.n})`], where: x.where, until: x.end });
   }
   return out;
+}
+
+// ---------- v0.18.3 pairs at the controls ----------
+
+export type PilotPair = 'A' | 'B' | 'relief';
+/** Which pair a seat belongs to: A = CPT + FO (take-off and landing), B = CPT2 + FO2; on 3 pilots FO2 relieves. */
+export const seatPair = (seat: RestSeat, augment: 1 | 2): PilotPair => (seat === 'CPT' || seat === 'FO' ? 'A' : augment === 2 ? 'B' : 'relief');
+const SEAT_SHORT: Record<RestSeat, string> = { CPT: 'CPT', FO: 'FO', CPT2: 'CPT 2', FO2: 'FO 2' };
+
+export interface PairsView {
+  /** '2 CPT + 2 FO · pairs A/B' / '1 CPT + 2 FO · pair A + relief FO' (by the rank of who is rostered). */
+  line: string;
+  /** 'Pair A: Capt. Silva + FO Reis · Pair B: Capt. Melo + FO Costa' (seats while nobody is rostered). */
+  members: string;
+  /** Per leg with rest, who is at the controls: take-off, the cruise in order (changes only), landing. */
+  legs: { flightId: string; takeoff: string; cruise: { from: Minute; to: Minute; who: string; pair: PilotPair | null }[]; landing: string }[];
+  /** 'Take-off pair A · cruise A, B, A · landing pair A' (one leg) or per leg joined with ' · '. */
+  controls: string;
+}
+
+/** 'Capt. Silva' / 'FO Reis' / 'Capt. Melo (as FO)'; the seat ('CPT 2') while nobody is rostered. Pure. */
+export function seatName(g: GameState, seat: RestSeat, crewId: string | undefined): string {
+  const c = crewId ? g.crew[crewId] : undefined;
+  if (!c) return SEAT_SHORT[seat];
+  const fo = seat === 'FO' || seat === 'FO2';
+  return c.role === 'CPT' ? `Capt. ${c.last}${fo ? ' (as FO)' : ''}` : `FO ${c.last}`;
+}
+
+/** '2 CPT + 2 FO' from the seats and who is in them (a captain in an FO seat counts as a captain). Pure. */
+export function cockpitWords(g: GameState, seats: { seat: RestSeat; crewId?: string }[]): string {
+  let cpt = 0;
+  let fo = 0;
+  for (const x of seats) {
+    const c = x.crewId ? g.crew[x.crewId] : undefined;
+    const r = c ? c.role : x.seat === 'CPT' || x.seat === 'CPT2' ? 'CPT' : 'FO';
+    if (r === 'CPT') cpt++;
+    else fo++;
+  }
+  return `${cpt} CPT + ${fo} FO`;
+}
+
+/**
+ * v0.18.3 the pilots of an augmented plan as pairs: the crew line, who is in each pair, and which pair is at the
+ * controls for each take-off, cruise stretch (between rest turns) and landing. Pure.
+ */
+export function pilotPairs(g: GameState, plan: RestPlan): PairsView {
+  const aug = plan.augment;
+  const seats: RestSeat[] = aug === 2 ? ['CPT', 'FO', 'CPT2', 'FO2'] : ['CPT', 'FO', 'FO2'];
+  const who: Partial<Record<RestSeat, string>> = {};
+  for (const t of plan.pilots) if (t.seat && t.crewIds[0]) who[t.seat] = t.crewIds[0];
+  const name = (s: RestSeat) => seatName(g, s, who[s]);
+  const line = `${cockpitWords(g, seats.map((seat) => ({ seat, crewId: who[seat] })))} · ${aug === 2 ? 'pairs A/B' : `pair A + relief ${who.FO2 && g.crew[who.FO2]?.role === 'CPT' ? 'CPT' : 'FO'}`}`;
+  const members = aug === 2
+    ? `Pair A: ${name('CPT')} + ${name('FO')} · Pair B: ${name('CPT2')} + ${name('FO2')}`
+    : `Pair A: ${name('CPT')} + ${name('FO')} · relief: ${name('FO2')}`;
+  const awake = (resting: Set<RestSeat>): { who: string; pair: PilotPair | null } => {
+    if (!resting.has('CPT') && !resting.has('FO')) return { who: 'A', pair: 'A' };
+    if (aug === 2 && !resting.has('CPT2') && !resting.has('FO2')) return { who: 'B', pair: 'B' };
+    const up = seats.filter((s) => !resting.has(s));
+    return { who: up.map(name).join(' + '), pair: null };
+  };
+  const legs: PairsView['legs'] = [];
+  for (const c of plan.cruise) {
+    const turns = plan.pilots.filter((t) => t.flightId === c.flightId && t.seat);
+    if (!turns.length) continue;
+    const cuts = [...new Set([c.from, c.to, ...turns.flatMap((t) => [t.start, t.end])])].filter((m) => m >= c.from && m <= c.to).sort((a, b) => a - b);
+    const cruise: PairsView['legs'][number]['cruise'] = [];
+    for (let i = 0; i + 1 < cuts.length; i++) {
+      const mid = (cuts[i] + cuts[i + 1]) / 2;
+      const r = new Set(turns.filter((t) => t.start <= mid && t.end > mid).map((t) => t.seat!));
+      const a = awake(r);
+      const last = cruise[cruise.length - 1];
+      if (last && last.who === a.who) last.to = cuts[i + 1];
+      else cruise.push({ from: cuts[i], to: cuts[i + 1], ...a });
+    }
+    legs.push({ flightId: c.flightId, takeoff: 'A', cruise, landing: 'A' });
+  }
+  const one = (l: PairsView['legs'][number]) => `Take-off pair ${l.takeoff} · cruise ${l.cruise.map((x) => x.who).join(', ')} · landing pair ${l.landing}`;
+  const controls = legs.length === 1 ? one(legs[0]) : legs.map((l) => `${g.flights[l.flightId]?.no ?? ''}: ${one(l)}`).join(' · ');
+  return { line, members, legs, controls };
+}
+
+/** v0.18.3 '2 CPT + 2 FO · pairs A/B' for a duty from its pairing's pilot seats (null when not augmented). Pure. */
+export function dutyPilotsLine(g: GameState, d: Duty): string | null {
+  if (!d.augment) return null;
+  const p = g.pairings[d.pairingId];
+  const pil = (p?.slots ?? []).filter((s) => !s.above && (s.role === 'CPT' || s.role === 'FO'));
+  let cpt = 0;
+  let fo = 0;
+  for (const s of pil) {
+    const r = s.crewId && g.crew[s.crewId] ? g.crew[s.crewId].role : s.role;
+    if (r === 'CPT') cpt++;
+    else fo++;
+  }
+  if (!pil.length) {
+    cpt = d.augment === 2 ? 2 : 1;
+    fo = 2;
+  }
+  return `${cpt} CPT + ${fo} FO · ${d.augment === 2 ? 'pairs A/B' : 'pair A + relief'}`;
+}
+
+/** v0.18.3 the pair a pilot flies in on an augmented duty ('A' / 'B' / 'relief'), null when not in a rest seat. Pure. */
+export function pairOfCrew(g: GameState, dutyId: string, crewId: string): PilotPair | null {
+  const d = g.duties[dutyId];
+  const plan = d?.augment ? restPlan(g, dutyId) : null;
+  const t = plan?.pilots.find((x) => x.crewIds.includes(crewId) && x.seat);
+  return t?.seat && plan ? seatPair(t.seat, plan.augment) : null;
 }
 
 /** v0.7.3 the verdict chip: 'Rest plan OK' / 'Tight: 10 min spare' / 'Not possible'. Pure. */
