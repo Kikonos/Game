@@ -632,6 +632,38 @@ export function chipInfo(g: GameState, ac: Aircraft, t: Minute, short?: ShortRow
   return { tone: dep - t < 24 * 60 ? 'good' : 'idle', line: `${next.from}→${next.to} ${when}`, short: soon ? `→${next.to} ${fmtTime(dep)}` : `${next.to} ${fmtDay(dep)}` };
 }
 
+// ---------- v0.18.3 all aircraft (the fleet strip's sheet for large fleets) ----------
+
+export interface FleetGroup { key: 'air' | 'next' | 'ground' | 'away'; title: string; ids: string[] }
+
+/**
+ * The fleet sorted for the All aircraft sheet: flying (soonest landing first), next departure (soonest first), on the
+ * ground (idle, maintenance, AOG; by registration), leased out or delivering (by registration). Empty groups dropped.
+ * Pure.
+ */
+export function fleetGroups(g: GameState, t: Minute): FleetGroup[] {
+  const air: [string, number][] = [];
+  const next: [string, number][] = [];
+  const ground: [string, string][] = [];
+  const away: [string, string][] = [];
+  for (const ac of Object.values(g.fleet)) {
+    const cur = ac.flightId ? g.flights[ac.flightId] : undefined;
+    if (cur) { air.push([ac.id, flightTimes(cur).on]); continue; }
+    if (ac.status === 'leasedOut' || ac.status === 'delivering' || (ac.delivery && ac.delivery.arrived === undefined)) { away.push([ac.id, ac.reg]); continue; }
+    const leg = ac.status === 'aog' || ac.status === 'maintenance' ? undefined : upcomingLegs(g, ac.id, 1)[0];
+    if (leg && leg.std + leg.delay - t < 7 * DAY) next.push([ac.id, leg.std + leg.delay]);
+    else ground.push([ac.id, ac.reg]);
+  }
+  const byNum = (a: [string, number], b: [string, number]) => a[1] - b[1] || (a[0] < b[0] ? -1 : 1);
+  const byReg = (a: [string, string], b: [string, string]) => (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0);
+  return ([
+    { key: 'air', title: 'Flying', ids: air.sort(byNum).map((x) => x[0]) },
+    { key: 'next', title: 'Next departure', ids: next.sort(byNum).map((x) => x[0]) },
+    { key: 'ground', title: 'On the ground', ids: ground.sort(byReg).map((x) => x[0]) },
+    { key: 'away', title: 'Leased out or delivering', ids: away.sort(byReg).map((x) => x[0]) },
+  ] as FleetGroup[]).filter((x) => x.ids.length);
+}
+
 // ---------- v0.7.3 crew rest on the aircraft panel ----------
 
 const REST_WORD: Record<RestKind, string> = { fcrc: 'bunks', ccrc: 'bunks', ldmcr: 'lower-deck module', jSeats: 'business seats', recliners: 'recliners', ySeats: 'economy seats' };

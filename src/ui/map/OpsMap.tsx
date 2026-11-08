@@ -14,9 +14,10 @@
 // v0.12 Visual A: a soft day/night (city lights removed in v0.11.2 at the player's ask), top-down silhouettes per type, flown/to-go lines with contrails,
 // weather and closure marks on airports, and spotter mode (binoculars: follow one airborne aircraft, a view only).
 
-import { ArrowLeftRight, Binoculars, ChevronDown, CloudLightning, ChevronUp, HelpCircle, TimerOff, Users, X } from 'lucide-react';
+import { ArrowLeftRight, Binoculars, ChevronDown, ChevronLeft, ChevronRight, CloudLightning, ChevronUp, HelpCircle, LayoutGrid, TimerOff, Users, X } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
+import { typeOf } from '../../engine/core/perf';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
 import type { GameState, Ref } from '../../engine/core/types';
 import { slipsOfAircraft } from '../../engine/crew';
@@ -29,7 +30,7 @@ import { SIL_COLOURS, silhouette } from './silhouettes';
 import { nextDeparture, SPOT_SECONDS, spotList, spotNext } from './spotter';
 import { wxMarks, type WxMark } from './weather';
 import { MapPanel, TypeKey } from './MapPanels';
-import { ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, parseSlipId, pickNearest, placeEventPins, placeSlipMarks, selectedLegs, shortIndex, slipArcs, slipWindow, tourRoutes, upNextRows } from './mapLogic';
+import { ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, fleetGroups, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, parseSlipId, pickNearest, placeEventPins, placeSlipMarks, selectedLegs, shortIndex, slipArcs, slipWindow, tourRoutes, upNextRows } from './mapLogic';
 import { EventPinsLayer, hatchUnit, ZoneGround, ZoneLabels } from './WorldLayer';
 import { type FocusAt, type MapAirport, type MapLayerCtx, type Pad, type View, WorldMap } from './WorldMap';
 import { HintNote } from '../components/ScreenHint';
@@ -55,28 +56,133 @@ const views = new WeakMap<GameState, { view: View | null }>();
 /** Full chips (172 px) up to this many aircraft (fewer with the panel open), compact ones (112 px) beyond. */
 const FULL_CHIPS = 5;
 
+/**
+ * v0.18.3 the fleet strip: one row of chips that ends before the map's control column (zoom, globe, full screen) and
+ * scrolls sideways (touch with momentum and snap, trackpad, and a mouse wheel turned sideways). Soft fades mark the
+ * hidden ends; '+N' pages to the next chips; past the room, an All aircraft chip opens a sorted sheet (flying, next
+ * departure, on the ground, leased out or delivering). Was: a fixed row whose last chips ran under the controls and
+ * could not be reached.
+ */
 function FleetStrip({ g, sel, panelOpen }: { g: GameState; sel?: Ref; panelOpen: boolean }) {
   const list = Object.values(g.fleet);
+  const row = useRef<HTMLDivElement>(null);
+  const [edge, setEdge] = useState({ over: false, left: false, hidden: 0 });
+  const [all, setAll] = useState(false);
+  const measure = useCallback(() => {
+    const el = row.current;
+    if (!el) return;
+    const over = el.scrollWidth > el.clientWidth + 2;
+    const r = el.getBoundingClientRect();
+    let hidden = 0;
+    for (const c of el.children) if ((c as HTMLElement).getBoundingClientRect().right > r.right + 2) hidden++;
+    setEdge((e) => (e.over === over && e.left === el.scrollLeft > 2 && e.hidden === hidden ? e : { over, left: el.scrollLeft > 2, hidden }));
+  }, []);
+  useEffect(() => {
+    const el = row.current;
+    if (!el) return;
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    // A mouse wheel turned up/down scrolls the row sideways; the map under it never zooms from the strip.
+    const wheel = (e: WheelEvent) => {
+      e.stopPropagation();
+      if (el.scrollWidth <= el.clientWidth) return;
+      if (Math.abs(e.deltaY) > Math.abs(e.deltaX)) el.scrollLeft += e.deltaY * (e.deltaMode === 1 ? 16 : 1);
+      e.preventDefault();
+      if (Math.abs(e.deltaX) >= Math.abs(e.deltaY)) el.scrollLeft += e.deltaX;
+    };
+    el.addEventListener('wheel', wheel, { passive: false });
+    return () => { ro.disconnect(); el.removeEventListener('wheel', wheel); };
+  }, [measure, list.length]);
+  // The selected aircraft's chip scrolls into view (tapped on the map, or from the sheet).
+  useEffect(() => {
+    if (sel?.kind !== 'aircraft') return;
+    // By hand on the row only (scrollIntoView would also nudge the map, an overflow-hidden scroller).
+    const el = row.current;
+    const c = el?.querySelector<HTMLElement>(`[data-ac="${sel.id}"]`);
+    if (!el || !c) return;
+    const a = c.offsetLeft - el.offsetLeft;
+    const pad = 48;
+    if (a - pad < el.scrollLeft) el.scrollTo({ left: Math.max(0, a - pad), behavior: 'smooth' });
+    else if (a + c.offsetWidth + pad > el.scrollLeft + el.clientWidth) el.scrollTo({ left: a + c.offsetWidth + pad - el.clientWidth, behavior: 'smooth' });
+  }, [sel?.kind, sel?.id]);
   if (!list.length) return null;
   // Fixed-width chips: the hourly status text never reflows the strip.
   const compact = list.length > (panelOpen ? FULL_CHIPS - 1 : FULL_CHIPS);
   // v0.7.1: a crew-short flight turns its aircraft's chip amber/red ("CREW SHORT 08:34").
   const short = shortIndex(g).byAircraft;
+  const page = (dir: 1 | -1) => {
+    const el = row.current;
+    if (el) el.scrollBy({ left: dir * Math.max(120, el.clientWidth - 80), behavior: 'smooth' });
+  };
+  const fades = `${edge.left ? ' fade-l' : ''}${edge.over && edge.hidden ? ' fade-r' : ''}`;
   return (
-    <div className={`ops-strip ${compact ? 'compact' : ''}`} role="list" aria-label="Fleet">
-      {list.map((ac) => {
-        const ci = chipInfo(g, ac, g.now, short.get(ac.id));
-        const on = sel?.kind === 'aircraft' && sel.id === ac.id;
-        return (
-          <button key={ac.id} role="listitem" className={`ops-chip ${on ? 'on' : ''}`} title={`${ac.reg} · ${ci.line}`} onClick={() => store.select(on ? undefined : { kind: 'aircraft', id: ac.id })}>
-            <span className={`op-dot ${ci.tone}`} aria-hidden />
-            <span className="ops-chip-t">
-              <b className="mono">{ac.reg}</b>
-              <span className="small muted mono">{compact ? ci.short : ci.line}</span>
-            </span>
-          </button>
-        );
-      })}
+    <div className={`ops-strip ${compact ? 'compact' : ''}`}>
+      {edge.over && (
+        <button className="ops-all-btn" onClick={() => setAll((v) => !v)} aria-expanded={all} aria-label={`All aircraft (${list.length})`} title="All aircraft">
+          <LayoutGrid aria-hidden /><span className="ops-all-n num">{list.length}</span>
+        </button>
+      )}
+      <div className="ops-strip-wrap">
+        <div ref={row} className={`ops-strip-row${fades}`} role="list" aria-label="Fleet" onScroll={measure}>
+          {list.map((ac) => {
+            const ci = chipInfo(g, ac, g.now, short.get(ac.id));
+            const on = sel?.kind === 'aircraft' && sel.id === ac.id;
+            return (
+              <button key={ac.id} data-ac={ac.id} role="listitem" className={`ops-chip ${on ? 'on' : ''}`} title={`${ac.reg} · ${ci.line}`} onClick={() => store.select(on ? undefined : { kind: 'aircraft', id: ac.id })}>
+                <span className={`op-dot ${ci.tone}`} aria-hidden />
+                <span className="ops-chip-t">
+                  <b className="mono">{ac.reg}</b>
+                  <span className="small muted mono">{compact ? ci.short : ci.line}</span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {edge.left && <button className="ops-strip-back" onClick={() => page(-1)} aria-label="Earlier aircraft" title="Earlier aircraft"><ChevronLeft aria-hidden /></button>}
+      </div>
+      {edge.over && edge.hidden > 0 && (
+        <button className="ops-more" onClick={() => page(1)} aria-label={`${edge.hidden} more aircraft`} title="More aircraft"><span className="num">+{edge.hidden}</span><ChevronRight aria-hidden /></button>
+      )}
+      {all && <FleetSheet g={g} sel={sel} onClose={() => setAll(false)} short={short} />}
+    </div>
+  );
+}
+
+/** v0.18.3 All aircraft: the whole fleet in groups, one tap selects (and closes). Esc or a tap elsewhere closes. */
+function FleetSheet({ g, sel, onClose, short }: { g: GameState; sel?: Ref; onClose: () => void; short: ReturnType<typeof shortIndex>['byAircraft'] }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const off = (e: PointerEvent) => { const t = e.target as HTMLElement; if (!ref.current?.contains(t) && !t.closest?.('.ops-all-btn')) onClose(); };
+    const key = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('pointerdown', off, true);
+    document.addEventListener('keydown', key);
+    return () => { document.removeEventListener('pointerdown', off, true); document.removeEventListener('keydown', key); };
+  }, [onClose]);
+  const groups = fleetGroups(g, g.now);
+  return (
+    <div ref={ref} className="ops-all card" role="dialog" aria-label="All aircraft">
+      <div className="row between ops-all-h"><span className="upper dim">All aircraft · {Object.keys(g.fleet).length}</span><button className="btn btn-ghost btn-icon" onClick={onClose} aria-label="Close"><X /></button></div>
+      <div className="ops-all-body">
+        {groups.map((gr) => (
+          <div key={gr.key} className="ops-all-g">
+            <div className="tiny upper dim ops-all-gt">{gr.title} · {gr.ids.length}</div>
+            {gr.ids.map((id) => {
+              const ac = g.fleet[id];
+              const ci = chipInfo(g, ac, g.now, short.get(id));
+              const on = sel?.kind === 'aircraft' && sel.id === id;
+              return (
+                <button key={id} className={`ops-all-row ${on ? 'on' : ''}`} onClick={() => { store.select({ kind: 'aircraft', id }); onClose(); }}>
+                  <span className={`op-dot ${ci.tone}`} aria-hidden />
+                  <b className="mono">{ac.reg}</b>
+                  <span className="tiny dim">{typeOf(ac.typeId).short}</span>
+                  <span className="small muted mono ops-all-l">{ci.line}</span>
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
