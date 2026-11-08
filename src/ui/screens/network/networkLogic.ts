@@ -253,7 +253,7 @@ export function trend(cur: number, prev: number, flat = 0.03): { dir: -1 | 0 | 1
 /** The 12-month result bars (oldest first), with launch spend apart. */
 export function monthBars(r: Pick<Route, 'pnl'>, now: Minute, n = 12): { keys: MonthKey[]; result: number[]; launch: number[] } {
   const keys = monthsBack(now, n);
-  return { keys, result: keys.map((k) => Math.round((r.pnl[k]?.result ?? 0) + (r.pnl[k]?.launch ?? 0))), launch: keys.map((k) => Math.round(r.pnl[k]?.launch ?? 0)) };
+  return { keys, result: keys.map((k) => Math.round(r.pnl[k]?.result ?? 0)), launch: keys.map((k) => Math.round(r.pnl[k]?.launch ?? 0)) };
 }
 
 /** Launch spend so far (all months). */
