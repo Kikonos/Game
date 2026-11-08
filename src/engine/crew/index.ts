@@ -73,7 +73,8 @@ export { crewSeatsBlocked, restClassAt, restSeatsBlocked, sellableSeats } from '
 // v0.7.3 (UPDATE-0.7.3.md §7).
 export {
   augLimit, bunksFor, cabinBand, effectiveRest, fittedRest, hasBunks, isSeatRest, longestDay, migrateRest, restOfAc, restWords, seatRest, ySeatsFor, planRest, restNow, restOf, restPlan, restPlanForFlight, restLegsNote, restShort, restText, restVerdict, restWhere,
-  type LongestDay, type RestLeg, type RestPlan, type RestSeat, type RestTurn,
+  cockpitWords, dutyPilotsLine, pairOfCrew, pilotPairs, seatName, seatPair,
+  type LongestDay, type PairsView, type PilotPair, type RestLeg, type RestPlan, type RestSeat, type RestTurn,
 } from './restPlan';
 export { fdpWhy, setDutyAugment, type FdpWhy } from './explain';
 export { onStandby } from './standby';
