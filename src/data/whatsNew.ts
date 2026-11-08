@@ -16,6 +16,24 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.18.2',
+    name: 'Crew utilisation',
+    features: [
+      'Crew › Utilisation: each person\'s block hours this month, in the last 28 days and over 12 months, next to what ACMI crew typically fly (60–85 h a month in season). It shows idle crew by base, type and rank, pilots and cabin crew per aircraft, and what crew beyond the flying cost a month.',
+      'For crew you do not need: offer unpaid leave (they ask for it, so morale holds), furlough a share (Finance), or make some redundant with notice (90 days for pilots, 60 for cabin crew) and severance. Their colleagues take it badly.',
+    ],
+    improvements: [
+      'Crew numbers follow the flying. An aircraft at home is crewed for the duties and hours it flies (at least 3 sets), not 5 sets whatever it does. A deployment keeps its sets on station plus one in five.',
+      'Once a programme is under way, a deployment that needs fewer sets stands one down at the end of its last tour. Nobody is sent home early.',
+      'A far base keeps one spare captain and purser on station, shared with far bases within 4 hours. Before, every set brought its own.',
+      'The crew desk stops hiring a rank while that rank flies under 40 h in 28 days. A card says why, what it would cost, and how to hire anyway.',
+    ],
+    fixes: [
+      'A crew set sent home after its last duty could fly home on a day off and break the weekly rest (more than 168 h between recovery rests). The ticket home now waits for the rest at the hotel.',
+      'Leave no longer cuts a rotation short. Crew ask for leave right after a tour; a tour seat goes to someone with leave in the period only when nobody else can take it; and leave approved over a tour not yet begun moves that tour to someone else.',
+    ],
+  },
+  {
     version: 'v0.18.1',
     name: 'Leave & monthly rosters',
     features: [
