@@ -54,7 +54,7 @@
   .lv .card { padding: 12px 14px; }
   .lv-req { grid-template-columns: minmax(0, 1fr) auto; row-gap: 6px; }
   .lv-when { grid-column: 1; }
-  .lv-act { grid-column: 2; grid-row: 1 / span 2; align-self: center; flex-direction: column; }
+  .lv-act { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
   .lv-done { grid-template-columns: 84px minmax(0, 1fr) auto; }
   .lv-done > :last-child { display: none; }
 }
@@ -99,4 +99,4 @@
 .fl-actions .fl-specs { width: 100%; }
 .fl-dry .bar { flex: 1 1 auto; }
 .fl-dry-run { display: flex; align-items: center; gap: 10px; }
-.ps-legrow > span { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.ps-legrow > span:not(:last-child) { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
