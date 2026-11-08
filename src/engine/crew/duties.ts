@@ -14,7 +14,7 @@ import {
   splitFdp, tzDeltaH, woclMinutes, worst, type Seg, type TimelineCtx,
 } from './rules';
 import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
-import { farBase, farTourBase, patternSets, reserveRoles } from './farBase';
+import { farBase, farTourBase, patternSets, reserveCarrier, reserveRoles } from './farBase';
 import { bestSlip } from './slip';
 import { dropStandby } from './standby';
 import { aboard, cabinEarly, cabinEarlyOf, crewCount, crewIx, ctxOf, dhBlock, dutyBlock, dutyFlights, dutySegs, onBlocks, planHome, segsOf, touchCrew } from './timeline';
@@ -518,7 +518,9 @@ export function pairingSeats(g: GameState, p: Pairing): Seat[] {
   }
   // v0.12.1 a crew set at a far base carries its reserve (crew/farBase.ts): a spare captain and purser (a cabin crew
   // more on a widebody), the cabin ones only while the crew seats have room for them.
-  if (!empty && farTourBase(g, p)) {
+  // v0.18.2 one reserve per station (or per group of far stations within reach), on its first set's tours.
+  const dep = p.deploymentId ? g.deployments[p.deploymentId] : undefined;
+  if (!empty && farTourBase(g, p) && p.tour?.set === 0 && dep && reserveCarrier(g, dep)) {
     let room = extraCabinRoom(typeId, ac?.cabin.total ?? 180, seats.filter((x) => !isPilot(x.role)).length - Math.max(cabinMinimum(typeId, ac?.cabin.total ?? 180), 1));
     for (const role of reserveRoles(typeId)) {
       if (!isPilot(role) && room-- <= 0) continue;

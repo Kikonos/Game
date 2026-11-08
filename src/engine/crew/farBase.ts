@@ -10,7 +10,8 @@
 import { BAL } from '../core/balance';
 import { blockMinutes, typeOf } from '../core/perf';
 import { ticketBlock } from '../ops/commercial';
-import type { GameState, Minute, Pairing, Role } from '../core/types';
+import { DAY } from '../core/time';
+import type { Deployment, GameState, Minute, Pairing, Role } from '../core/types';
 import { tzDeltaH } from './rules';
 
 /** Ticket hours and time zones from home past which a base is far. */
@@ -43,6 +44,26 @@ export function patternSets(p: { base: string; dests: string[]; waves: number[];
  */
 export function reserveRoles(typeId: string): Role[] {
   return typeOf(typeId).body === 'wide' ? ['CPT', 'PUR', 'CC'] : ['CPT', 'PUR'];
+}
+
+/** v0.18.2 far bases within this many hours by air of each other share one reserve. */
+export const RESERVE_REACH_H = 4;
+
+/**
+ * v0.18.2 shared spares: the reserve is one per far station (on its first set's tours), and far stations within
+ * RESERVE_REACH_H of each other share one (the station that started first carries it; a sick call at the others is
+ * covered by a short ticket). Was a spare captain and purser with every set on station (SGN: five sets, ten spares). Pure.
+ */
+export function reserveCarrier(g: GameState, dep: Deployment): boolean {
+  const home = g.company.homeBase;
+  if (!farBase(home, dep.base, dep.start)) return false;
+  for (const o of Object.values(g.deployments)) {
+    if (o.id === dep.id || o.end <= g.now || o.start > g.now + 60 * DAY || o.end <= dep.start || o.start >= dep.end) continue;
+    if (!farBase(home, o.base, o.start)) continue;
+    if (o.base !== dep.base && ticketBlock(o.base, dep.base) > RESERVE_REACH_H * 60) continue;
+    if (o.start < dep.start || (o.start === dep.start && o.id < dep.id)) return false;
+  }
+  return true;
 }
 
 /** The far base a pairing is a deployment tour of (null for a trip, or a tour at a near base). Pure. */

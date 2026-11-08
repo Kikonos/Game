@@ -14,7 +14,7 @@ import type { ActionResult, CrewExtra, CrewMember, GameState, Minute, Role, SimE
 import { hashUnit } from '../core/util';
 import { classOf, conversionClasses, conversionEarliest, onClassItemDone, ratingsLost, startConversion } from './conversion';
 import { crewExtraFor, rolesWithExtra } from './extraSeats';
-import { farBase, patternSets, reserveRoles } from './farBase';
+import { farBase, patternSets, reserveCarrier, reserveRoles } from './farBase';
 import { crewSupply, familyNeeds } from './sets';
 import { sickMult } from './morale';
 import { crewName, crewPay, makeCrewMember, payFor, salaryFor, wideOfFamilyInFleet } from './generate';
@@ -346,7 +346,8 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
       const sets = dp?.setsOnStation ?? patternSets(k.pattern, ac[0].typeId);
       for (const r of ROLES) if (kPer[r]) kNeed[r] = Math.max(kNeed[r] ?? 0, kPer[r]! * sets);
       // A far base holds its reserve too: once per crew set on station.
-      if (farBase(g.company.homeBase, k.pattern.base, k.start)) for (const r of reserveRoles(ac[0].typeId)) kNeed[r] = (kNeed[r] ?? 0) + sets;
+      // v0.18.2 once per station (shared within reach: farBase.ts reserveCarrier).
+      if (dp ? reserveCarrier(g, dp) : farBase(g.company.homeBase, k.pattern.base, k.start)) for (const r of reserveRoles(ac[0].typeId)) kNeed[r] = (kNeed[r] ?? 0) + 1;
     }
     for (const a of ac) {
       const h = acHeld(a.id);

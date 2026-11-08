@@ -12,7 +12,7 @@ import { dropClientSeats } from './clientCrew';
 import { restOf } from './restPlan';
 import { conversionClasses, ratingsLost } from './conversion';
 import { crewExtraFor, rolesWithExtra } from './extraSeats';
-import { farBase, reserveRoles } from './farBase';
+import { reserveCarrier, reserveRoles } from './farBase';
 import { payFor } from './generate';
 import { hireQuote, type HireRequest } from './hr';
 
@@ -290,7 +290,8 @@ export function familyNeeds(g: GameState) {
   for (const dp of Object.values(g.deployments)) {
     if (dp.end < g.now || dp.start > g.now + WINDOW) continue;
     onStation.set(dp.aircraftId, Math.max(onStation.get(dp.aircraftId) ?? 0, dp.setsOnStation));
-    if (farBase(g.company.homeBase, dp.base, dp.start)) farSets.set(dp.aircraftId, Math.max(farSets.get(dp.aircraftId) ?? 0, dp.setsOnStation));
+    // v0.18.2 one reserve per far station (shared by far stations within reach: farBase.ts reserveCarrier).
+    if (reserveCarrier(g, dp)) farSets.set(dp.aircraftId, 1);
   }
   // v0.11.2 `full`: the need with the client's cabin crew seats as ours (whole sets for the round-up).
   const fams = new Map<RatingFamily, { aircraft: number; sets: number; need: Partial<Record<Role, number>>; full: Partial<Record<Role, number>>; types: Map<string, TypeSet>; aug: boolean; client: number; dry: number }>();
@@ -342,7 +343,7 @@ export function familyNeeds(g: GameState) {
       }
       f.aug = true;
     }
-    // v0.12.1 a far base's reserve: its roles once per set on station.
+    // v0.12.1 a far base's reserve (v0.18.2 once per station, shared within reach).
     for (const r of farSets.has(ac.id) ? reserveRoles(ac.typeId) : []) {
       f.need[r] = (f.need[r] ?? 0) + farSets.get(ac.id)!;
       f.full[r] = (f.full[r] ?? 0) + farSets.get(ac.id)!;
