@@ -164,12 +164,12 @@ h1, h2, h3, h4 { font-family: var(--font-display); margin: 0; letter-spacing: -0
   box-shadow: var(--shadow-sm);
   min-width: 0;
 }
-.card-head { display: flex; align-items: center; gap: 10px; padding: 14px 18px 0; min-height: 44px; }
+.card-head { display: flex; align-items: center; gap: 10px; padding: 14px var(--card-px) 0; min-height: 44px; }
 .card-head h3 { font-size: 14.5px; font-weight: 600; letter-spacing: 0; }
 .card-head .sub { color: var(--text-3); font-size: 12px; }
 .card-head .actions { margin-left: auto; display: flex; gap: 6px; align-items: center; }
 .card-head svg.ico { width: 16px; height: 16px; color: var(--accent); }
-.card-body { padding: 14px 18px 18px; }
+.card-body { padding: 14px var(--card-px) 18px; }
 .card-body.flush { padding: 8px 0 6px; }
 .card.hoverable { transition: border-color 0.15s, transform 0.15s, background 0.15s; cursor: pointer; }
 @media (hover: hover) { .card.hoverable:hover { border-color: var(--border-strong); background: rgba(var(--panel-hi-rgb), 0.8); transform: translateY(-1px); } }

@@ -1,6 +1,6 @@
 /* v0.18.2 Crew › Utilisation (screens/CrewUtil.tsx). */
 .cu { display: flex; flex-direction: column; gap: var(--section-gap); }
-.cu .card { padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.cu .card { padding: var(--card-py) var(--card-px); display: flex; flex-direction: column; gap: 10px; }
 .cu-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--tile-gap); }
 .cu .cu-tile { gap: 3px; padding: 12px 14px; }
 .cu-tile b { font-size: 22px; font-weight: 650; line-height: 1.15; }
