@@ -1,6 +1,9 @@
 // Balance defaults (DESIGN.md §8). USD. Each block is owned by the builder named in its comment;
 // tune values there, keep keys stable (the UI reads some of them).
 
+import { NET_ENGINE_BAL } from '../network/balEngine';
+import { NET_OPS_BAL } from '../network/balOps';
+
 export const BAL = {
   // ---------- start (architect) ----------
   startCash: 3_000_000,
@@ -803,5 +806,16 @@ export const BAL = {
       cost: { narrow: 80_000, wide: 150_000 }, days: { easa: [90, 120], uk: [45, 60], other: [60, 90] } as Record<string, [number, number]>, pilots: { CPT: 2, FO: 2 },
     },
     lc: { fee: 0.0125, grades: { A: 'all', B: 'midEol' } as Record<string, string>, cashDays: 30 }, // lane deals
+  },
+  /**
+   * v0.19 "Scheduled routes" (docs/UPDATE-0.19.md; engine/network). The numbers live in two files, one per lane, so the
+   * lanes never edit the same block: network/balEngine.ts (launch, study, demand, sales, fares, cargo, ancillary, rep, pnl;
+   * lane net-engine) and network/balOps.ts (ops, cost, pax; lane net-ops).
+   */
+  v019: {
+    /** Master switch: false hides the Network area and every route hook returns at once. */
+    on: true as boolean,
+    ...NET_ENGINE_BAL,
+    ...NET_OPS_BAL,
   },
 } as const;
