@@ -160,9 +160,11 @@ export function leaveVerdict(g: GameState, c: CrewMember, from: Minute, days: nu
     const earned = leaveEarned(g, c, y, mk) - bal.booked - bal.pending + own;
     if (daysInYear(c, from, days, y) > earned) return { ok: false, hard: true, why: `Only ${Math.max(0, earned)} days of ${y} leave earned by ${MONTH[mk % 12]}` };
   }
-  // A deployment rotation or work already planned then (crew planning rosters leave round the rotation).
+  // A deployment rotation or work already planned then (crew planning rosters leave round the rotation). v0.18.2 a
+  // rotation not begun yet (more than two days off) gives way: approving takes them off it (movableTours) and the next
+  // tour is planned after the leave; the one under way is never cut.
   for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
-    if (q.status === 'broken' || q.status === 'done') continue;
+    if (q.status === 'broken' || q.status === 'done' || movableTour(g, q)) continue;
     const end = q.tour ? Math.max(q.end, q.tour.to) : q.end;
     const start = q.tour ? Math.min(q.start, q.tour.from) : q.start;
     if (start < midnight(c.base, k + days) && end > midnight(c.base, k)) return { ok: false, hard: true, why: q.tour ? 'On a rotation then' : 'Rostered to fly then' };
@@ -320,7 +322,9 @@ export function askLeave(g: GameState): LeaveRequest[] {
         // A block stays in its year (the next year's days are asked for on their own).
         if (Math.floor(monthOfDay(s + len - 1) / 12) !== Math.floor(m.mk / 12)) continue;
         if (!free(s, len)) continue;
-        const v = wish ? 0 : busyScore(s, len);
+        // v0.18.2 between tours: a block starting in the days after a rotation ends comes first (crew planning releases
+        // leave where it does not cut a rotation, and the next tour is planned after it).
+        const v = wish ? 0 : busyScore(s, len) - (tours.some(([, z]) => s >= z && s < z + 4) ? 1e6 : 0);
         if (v < best) {
           best = v;
           start = s;
@@ -343,6 +347,20 @@ export function askLeave(g: GameState): LeaveRequest[] {
   return made;
 }
 
+/**
+ * v0.18.2 a tour (deployment rotation) the crew member is planned on that has not begun: more than two days before its
+ * start, nothing of it flown. Leave approved over it takes them off it (the seat is crewed again), never a tour under way.
+ */
+function movableTour(g: GameState, q: { tour?: unknown; status: string; start: Minute; dutyIds: string[] }): boolean {
+  return !!q.tour && q.status === 'planned' && q.start > g.now + 2 * DAY && !q.dutyIds.some((id) => g.duties[id]?.done);
+}
+
+/** Hook (roster.ts): takes a crew member off a planned tour and crews its seat again. */
+let offTourHook: (g: GameState, crewId: string, pairingId: string, why: string) => void = () => {};
+export function setOffTourHook(f: typeof offTourHook): void {
+  offTourHook = f;
+}
+
 /** Approves a request: the leave block goes on the roster (its days off and standby give way) and is booked. */
 const statsOf = (g: GameState) => (g.stats.leave ??= { asked: 0, approved: 0, declined: 0, peak: 0, share: 0, byYou: 0, withdrawn: 0 });
 
@@ -359,6 +377,14 @@ function approve(g: GameState, q: LeaveRequest, by: 'rules' | 'you'): void {
   for (const y of new Set([yearOf(midnight(c.base, k) + 720), yearOf(midnight(c.base, k + q.days - 1) + 720)])) leaveYearOf(g, c, y, true).booked += daysInYear(c, q.from, q.days, y);
   removeOff(c, Array.from({ length: q.days }, (_, i) => k + i));
   clearDays(g, c, k, k + q.days);
+  // v0.18.2 a rotation not begun that the leave falls in: they come off it (its next crew is planned without them).
+  const a = midnight(c.base, k);
+  const z = midnight(c.base, k + q.days);
+  for (const p of [...(crewIx(g).pairingsOf.get(c.id) ?? [])]) {
+    const end = p.tour ? Math.max(p.end, p.tour.to) : p.end;
+    const start = p.tour ? Math.min(p.start, p.tour.from) : p.start;
+    if (start < z && end > a && movableTour(g, p)) offTourHook(g, c.id, p.id, `Annual leave from ${fmtDay(a + 720)}`);
+  }
   touchCrewState(g);
 }
 

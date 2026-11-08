@@ -17,6 +17,7 @@ import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './sta
 import { applyBuyBack, buyBackFor, buyBackMode, undoBuyBack, type BuyBack } from './buyBack';
 import { dayIndex, dayLabel, fitStandby, rosterHorizon, midnight, monthFloorIssue, offDaysHit, offMovable, offSwappable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
 import { infoOf } from './outOfHours';
+import { setOffTourHook } from './leave';
 import { confirmAlarm } from './selfCheck';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
@@ -1663,6 +1664,9 @@ export function setReserveOkHook(f: typeof reserveOk): void {
   reserveOk = f;
 }
 
+/** v0.18.2 the score a leave or course inside a tour's period costs a candidate (more than any ticket out). */
+const LEAVE_IN_TOUR = 20_000;
+
 function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, exclude?: Set<string>): void {
   const duties = openDuties(g, p);
   if (!duties.length) return;
@@ -1724,7 +1728,9 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
     // 28-day block (a crew member flying every day while another sits on standby would be noticed).
     let score = -tp - 2 * (block28(segs, first.report) / 60) - 12 * monthDutyDays(segs, first.report);
     if (p.tour && tp) score -= 400;
-    if (later) score -= 300;
+    // v0.18.2 a leave inside the period: last resort only, below anyone flown out for it (was −300, less than a ticket
+    // out: a set's crew already on station took the next period over their leave and went home in the middle of it).
+    if (later) score -= LEAVE_IN_TOUR;
     if (prev.has(c.id)) score += 30;
     if (unpleasant) score -= (70 - c.morale) / 2;
     // v0.7.3 short notice: the day's standby crew are called first (crew control's order; no lost day off).
@@ -2428,6 +2434,16 @@ setDropBuyBackHook((g, slot) => {
 });
 
 // Crewed tours accept a new duty only if every crew member stays legal (0 no, 2 yes, 1 with a day off moved).
+// v0.18.2 leave approved over a planned tour (crew/leave.ts): off it, and its seat crewed again.
+setOffTourHook((g, crewId, pairingId, why) => {
+  const p = g.pairings[pairingId];
+  if (!p || !p.slots.some((s) => s.crewId === crewId)) return;
+  releaseCrew(g, p, crewId, why);
+  fillAll(g, [p], emptyResult(), new Set([crewId]));
+  if (g.pairings[p.id]) recheckPairing(g, p);
+  touchCrew(g);
+});
+
 setCrewOkHook((g, p, d) => {
   const moves: CrewMember[] = [];
   for (const s of p.slots) {
