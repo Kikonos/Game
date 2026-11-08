@@ -82,6 +82,8 @@
 .sc-feas.warn { color: inherit; }
 .sc-feas-head { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; padding: 10px 14px; background: none; border: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .sc-feas-head .right { display: flex; flex-direction: column; align-items: flex-end; }
+/* Why an aircraft can't take the job is read in full: two lines rather than an ellipsis. */
+.sc-feas-head .col > .small.ellipsis { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
 .sc-feas-checks { display: flex; flex-direction: column; gap: 7px; padding: 0 14px 14px 35px; }
 .sc-check { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 9px; font-size: 13px; }
 /* v0.13.1 the text keeps its width; a button that doesn't fit beside it drops to the next line */
