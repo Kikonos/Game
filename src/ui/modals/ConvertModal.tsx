@@ -147,7 +147,7 @@ export function ConvertModal({ crewIds, family: fam0, onBooked, advice }: { crew
           <button className="btn btn-primary" onClick={() => setReview(false)} autoFocus>Go back</button>
         </> : <>
           <button className="btn" onClick={close}>Cancel</button>
-          <span className="grow small muted">{picked && plan.classes.length ? `${live.length - nSkip} of ${live.length} booked${nSkip ? ` · ${nSkip} skipped` : ''} · ${plan.classes.length} class${plan.classes.length === 1 ? '' : 'es'} · ${bd(t0)} – ${bd(t1 - 1)}` : ''}</span>
+          <span className="grow small muted">{opt ? `${opt.classes.flatMap((k) => k.crewIds).length} people · ${opt.classes.length} class${opt.classes.length === 1 ? '' : 'es'} · ${bd(opt.classes[0].start)} – ${bd(opt.ready - 1)}` : picked && plan.classes.length ? `${live.length - nSkip} of ${live.length} booked${nSkip ? ` · ${nSkip} skipped` : ''} · ${plan.classes.length} class${plan.classes.length === 1 ? '' : 'es'} · ${bd(t0)} – ${bd(t1 - 1)}` : ''}</span>
           <LockNote why={lockOf(g, 'training')} />
           <button className="btn btn-primary" onClick={risky && !opt ? () => setReview(true) : book} disabled={!picked || (!opt && !plan.ok) || !!lockOf(g, 'training')}><GraduationCap /> {!picked ? 'Pick a type' : opt ? `Book this plan · ${money(opt.fees)}` : risky ? `Review & book · ${money(plan.cost)}` : `Book conversion · ${money(plan.cost)}`}</button>
         </>}
@@ -178,7 +178,7 @@ export function ConvertModal({ crewIds, family: fam0, onBooked, advice }: { crew
               return (
                 <button key={o.key} role="radio" aria-checked={on} className={`cv-adv-o ${on ? 'on' : ''}`} onClick={() => choose(o, f)}>
                   <span className="row between gap-8"><b className="small">{o.title}</b><span className={`tiny ${o.late ? 'warn' : 'good'}`}>Line-ready {fmtDay(o.ready)}{o.late ? ', after the need' : ''}</span></span>
-                  <span className="tiny muted">Course {money(o.fees)}{o.recrew ? ` · tickets ${money(o.recrew)}` : ''} · {o.swaps.length ? `${o.swaps.length} trip${o.swaps.length === 1 ? '' : 's'} re-crewed` : 'no trips in the way'}{o.unresolved ? ` · ${o.unresolved} to the auto-roster` : ''}{o.handedBH ? ` · ${o.handedBH} h of their flying handed over` : ''}</span>
+                  <span className="tiny muted">Course {money(o.fees)}{o.recrew ? ` · tickets ${money(o.recrew)}` : ''} · {o.swaps.length ? `${o.swaps.length} trip${o.swaps.length === 1 ? '' : 's'} re-crewed` : o.unresolved ? '' : 'no trips in the way'}{o.unresolved ? `${o.swaps.length ? ' · ' : ''}${o.unresolved} trip${o.unresolved === 1 ? '' : 's'} back to the auto-roster` : ''}{o.handedBH ? ` · ${o.handedBH} h of their flying handed over` : ''}</span>
                   {o.swaps.length > 0 && <span className="tiny dim cv-adv-sw">{o.swaps.slice(0, 3).map((s) => s.text).join(' · ')}{o.swaps.length > 3 ? ` · and ${o.swaps.length - 3} more` : ''}</span>}
                 </button>
               );
@@ -235,9 +235,8 @@ export function ConvertModal({ crewIds, family: fam0, onBooked, advice }: { crew
               <div className="tiny dim">{k.crewIds.map((id) => g.crew[id]?.last ?? '').join(', ')}</div>
             </div>
           ))}</div>}
-          {opt && <div className="tiny dim">The plan’s classes (the form below them shows a by-hand booking).</div>}
-          {!plan.classes.length && <div className="small muted">No class: everyone selected is skipped.</div>}
-          <div className="cv-timeline">
+          {!opt && !plan.classes.length && <div className="small muted">No class: everyone selected is skipped.</div>}
+          {!opt && <div className="cv-timeline">
             {plan.classes.map((k) => (
               <div key={k.no} className="cv-class">
                 <div className="row between small">
@@ -252,7 +251,7 @@ export function ConvertModal({ crewIds, family: fam0, onBooked, advice }: { crew
                 <div className="tiny dim">{k.phases.map((p) => `${p.label} ${bd(p.from)}`).join(' · ')}</div>
               </div>
             ))}
-          </div>
+          </div>}
           <div className="cv-cost">
             {nP > 0 && <div className="row between small"><span className="muted">Pilots {nP} × {money(costP / nP)}</span><b className="num">{money(costP)}</b></div>}
             {nC > 0 && <div className="row between small"><span className="muted">Cabin {nC} × {money(costC / nC)}</span><b className="num">{money(costC)}</b></div>}
