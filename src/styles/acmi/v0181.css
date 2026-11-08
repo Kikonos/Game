@@ -58,3 +58,10 @@
   .lv-done { grid-template-columns: 84px minmax(0, 1fr) auto; }
   .lv-done > :last-child { display: none; }
 }
+
+/* ---------- person sheet: the layover between two parts of a trip ---------- */
+.ps-layover { display: flex; align-items: center; gap: 10px; margin: -2px 0; padding: 9px 14px; border-radius: 12px;
+  border: 1px dashed rgba(var(--line-rgb), 0.38); background: rgba(70, 182, 166, 0.08); }
+.ps-layover svg { width: 18px; height: 18px; flex-shrink: 0; color: #46b6a6; }
+.ps-layover b { font-weight: 650; }
+.ps-duty .bp-list { margin-top: 10px; }

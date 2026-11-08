@@ -1147,6 +1147,8 @@ export interface LeaveRequest {
   by?: 'rules' | 'you';
   /** Why the rules declined it (or would). */
   why?: string;
+  /** Dates the crew member wanted whatever the leave calendar showed (a wedding, school holidays). */
+  wish?: true;
 }
 
 /** v0.18.1 Company › leave policy. */

@@ -124,8 +124,8 @@ function groupLoad(g: GameState, k0: number, k1: number, skip?: string): { load:
   return { load, size };
 }
 
-/** Most of group `key` (of `size`) that may be away at once. */
-const capOf = (share: number, size: number) => Math.max(1, Math.floor(share * size + 1e-9));
+/** Most of a group of `size` that may be away at once (the share rounded, at least one). */
+const capOf = (share: number, size: number) => Math.max(1, Math.round(share * size));
 
 /** The rules on a request (or a block being chosen): the roster, the allowance, rotations, the peak months, the share away. */
 export function leaveVerdict(g: GameState, c: CrewMember, from: Minute, days: number, self?: LeaveRequest, ctx?: { load: Map<string, Int16Array>; size: Map<string, number>; k0: number }): LeaveVerdict {
@@ -213,7 +213,7 @@ export function askLeave(g: GameState): LeaveRequest[] {
     const last = firstDayOf(monthOfDay(today) + S.aheadMonths + 1);
     if (first >= last) continue;
     // Months in the window with leave left in their year, weighted by liking.
-    // Most ask for dates the leave calendar shows open (no peak month, room in their rank); one in five asks for the
+    // Most ask for dates the leave calendar shows open (no peak month, room in their rank); about one in twelve asks for the
     // dates they want regardless (a wedding, school holidays): the rules may refuse those.
     const wish = hashUnit(`wish:${c.id}:${today}`) < S.wish;
     const months: { mk: number; w: number; left: number }[] = [];
@@ -238,6 +238,7 @@ export function askLeave(g: GameState): LeaveRequest[] {
       if (s < first || s + len > last) return false;
       for (let k = s; k < s + len; k++) if (busy.work.has(k) || blockedOn(c, k) || tours.some(([a, z]) => k >= a && k < z)) return false;
       if (!wish) {
+        for (let k = s; k < s + len; k++) if (pol.blackout.includes(monthOfDay(k) % 12)) return false;
         const x = seenLoad();
         for (const key of keys) {
           const arr = x.load.get(key);
@@ -268,7 +269,7 @@ export function askLeave(g: GameState): LeaveRequest[] {
         if (free(s, len)) start = s;
       }
       if (start < 0) continue;
-      const q: LeaveRequest = { id: `lv-${c.id}-${today}`, crewId: c.id, from: midnight(c.base, start), days: len, made: g.now, status: 'pending' };
+      const q: LeaveRequest = { id: `lv-${c.id}-${today}`, crewId: c.id, from: midnight(c.base, start), days: len, made: g.now, status: 'pending', ...(wish ? { wish: true as const } : {}) };
       reqs.push(q);
       made.push(q);
       statsOf(g).asked++;

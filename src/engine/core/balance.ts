@@ -525,10 +525,10 @@ export const BAL = {
          * after a refusal, which costs `declined` morale. Up to `carryMax` unused days carry into the next year.
          */
         ent: { default: 28, PT: 30, ES: 30, FR: 35, IT: 30, GB: 35, IE: 30 } as Record<string, number>,
-        minBlock: 5, maxBlock: 14, minLast: 2, wish: 0.2, noticeDays: 21, aheadMonths: 4, askEvery: 15, askLate: 6, lateMonth: 7, cooldown: 10, declined: -2, carryMax: 10,
-        pref: [3, 2, 2, 2, 2, 2, 3, 3, 2, 2, 2, 3] as number[],
-        /** The default Company policy: decided by the rules, at most 12 % of a rank away on any day, no leave in July and August. */
-        policy: { auto: true, maxShare: 0.12, blackout: [6, 7] as number[] },
+        minBlock: 5, maxBlock: 14, minLast: 2, wish: 0.08, noticeDays: 21, aheadMonths: 4, askEvery: 15, askLate: 6, lateMonth: 7, cooldown: 10, declined: -1.5, carryMax: 10,
+        pref: [3, 3, 3, 2, 2, 1, 3, 3, 1, 2, 3, 3] as number[],
+        /** The default Company policy: decided by the rules, at most 15 % of a rank away on any day, no leave in July and August. */
+        policy: { auto: true, maxShare: 0.15, blackout: [6, 7] as number[] },
       },
       home: { early: [300, 1020] as [number, number], late: [720, 1440] as [number, number], maxH: 16, minH: 4, readyMin: 90 },
       hotel: { from: 360, to: 1080, readyMin: 45 },

@@ -152,7 +152,7 @@
 .ps-duty.hi { border-color: color-mix(in srgb, var(--ps-trip) 70%, transparent); box-shadow: inset 3px 0 0 var(--ps-trip); }
 .ps-duty-h { min-width: 0; }
 .ps-legs { display: flex; flex-direction: column; gap: 3px; }
-.ps-leg { display: grid; grid-template-columns: 62px 74px auto 1fr auto; gap: 8px; align-items: center; }
+.ps-legrow { display: grid; grid-template-columns: 62px 74px auto 1fr auto; gap: 8px; align-items: center; }
 .ps-facts { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 14px; }
 .ps-facts .k { color: var(--text-3); }
 .ps-change { align-self: flex-start; }
@@ -196,8 +196,8 @@
   .ps-badge { top: 2px; right: 2px; min-width: 15px; height: 15px; font-size: 9px; padding: 0 3px; }
   .ps-leg { top: 5px; right: 5px; width: 6px; height: 6px; }
   .ps-sub { font-size: 12px; }
-  .ps-leg-row, .ps-leg { grid-template-columns: 54px 64px auto; }
-  .ps-leg > :nth-child(4) { display: none; }
+  .ps-legrow { grid-template-columns: 54px 64px auto; }
+  .ps-legrow > :nth-child(4) { display: none; }
   .ps-tots { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .ps-tot b { font-size: 16px; }
 }

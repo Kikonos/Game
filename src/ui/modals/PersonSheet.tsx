@@ -4,12 +4,12 @@
 // month's totals and the person's essentials. Lazy chunk (Modals.tsx).
 
 import '../../styles/acmi/v018person.css';
-import { ChevronLeft, ChevronRight, GraduationCap, Lock, UserPlus, Users } from 'lucide-react';
-import { useMemo, useState, type ReactNode } from 'react';
+import { BedDouble, ChevronLeft, ChevronRight, GraduationCap, Lock, UserPlus, Users } from 'lucide-react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { flag } from '../../data/countries';
 import type { RatingFamily } from '../../data/acmiTypes';
 import { flightsRev } from '../../engine/core/entities';
-import { DAY, HOUR, fmtDate, fmtDay, fmtDayRange, fmtTime, monthKey, monthStart, toDate } from '../../engine/core/time';
+import { DAY, HOUR, fmtDate, fmtDay, fmtDayAt, fmtDayRange, fmtTime, monthKey, monthStart, toDate } from '../../engine/core/time';
 import type { CrewMember, GameState } from '../../engine/core/types';
 import {
   crewCalendar, crewGauges, crewMonth, crewName, crewRev, crewStatusView, crewWindows, leaveBalance, LIMITS, moraleOf, publishDayOf, publishedTo, type CalBlock,
@@ -17,6 +17,7 @@ import {
 import { crewSupply, familyNeeds } from '../../engine/crew/sets';
 import { dayIndex, midnight } from '../../engine/crew/dayPlan';
 import { lockOf } from '../../engine/scenario';
+import { BoardingPasses } from '../components/BoardingPass';
 import { FlightTypeChip } from '../components/FlightType';
 import { Gauge } from '../components/Gauge';
 import { LockNote, lockedProps } from '../components/Locked';
@@ -157,19 +158,25 @@ function Calendar({ grid, sel, onSel, mk, setMk, bounds, todayWd }: { grid: Mont
 
 // ---------- details ----------
 
-const both = (t: number, at?: string) => (at ? <><b className="num">{fmtTime(t)}</b><span className="dim"> UTC · </span><span className="num">{fmtTime(t, at)}</span><span className="dim"> {at}</span></> : <><b className="num">{fmtTime(t)}</b><span className="dim"> UTC</span></>);
+/** '21:00 JFK · 02:00 UTC': the station's local time first (what the crew live by), UTC after, dimmed. */
+const both = (t: number, at?: string) => (at ? <><b className="num">{fmtTime(t, at)}</b><span className="dim"> {at} · {fmtTime(t)} UTC</span></> : <><b className="num">{fmtTime(t)}</b><span className="dim"> UTC</span></>);
+/** The station's local date of t. */
+const dayAt = (t: number, at?: string) => (at ? fmtDayAt(at, t) : fmtDay(t));
 
-/** One duty or journey: its legs, report / release in UTC and local, block, FDP of the limit, the rest after. */
-function DutyCard({ g, c, b, rests, hi }: { g: GameState; c: CrewMember; b: CalBlock; rests: CalBlock[]; hi: boolean }) {
+/** One duty or journey: its legs, report / release (local, then UTC), block, FDP of the limit, the rest after. */
+function DutyCard({ g, c, b, rests, hi, layover }: { g: GameState; c: CrewMember; b: CalBlock; rests: CalBlock[]; hi: boolean; layover: boolean }) {
   const d = b.dutyId ? g.duties[b.dutyId] : undefined;
   const fl = b.flights ?? [];
   const from = fl[0]?.from;
   const to = fl.length ? fl[fl.length - 1].to : b.at;
   const block = fl.reduce((n, f) => n + Math.max(0, f.sta - f.std), 0);
-  const rest = b.kind === 'duty' ? rests.find((r) => r.start >= b.end - 1 && r.start <= b.end + 6 * HOUR) : undefined;
+  // The rest after a duty, unless a layover band below says it.
+  const rest = b.kind === 'duty' && !layover ? rests.find((r) => r.start >= b.end - 1 && r.start <= b.end + 6 * HOUR) : undefined;
   // A flown duty whose flights are gone keeps only its log line: shown once, in the facts below (not as a route).
   const route = fl.length ? [fl[0].from, ...fl.map((f) => f.to)].join(' – ') : /^Flown: /.test(b.detail) ? '' : b.detail.split('\n')[0];
   const travel = b.kind !== 'duty';
+  // v0.18.1 a ticket still on record: its boarding passes on the day it flies.
+  const ticket = b.kind === 'deadhead' && b.flightIds?.[0] ? g.flights[b.flightIds[0]] : undefined;
   return (
     <div className={`ps-duty ${hi ? 'hi' : ''}`}>
       <div className="row gap-8 ps-duty-h">
@@ -181,25 +188,44 @@ function DutyCard({ g, c, b, rests, hi }: { g: GameState; c: CrewMember; b: CalB
       {fl.length > 0 && (
         <div className="ps-legs">
           {fl.map((f) => (
-            <div key={f.id} className="ps-leg small">
+            <div key={f.id} className="ps-legrow small">
               <span className="mono">{f.no}</span>
               <span className="mono">{f.from}–{f.to}</span>
-              <span className="num">{fmtTime(f.std)}–{fmtTime(f.sta)}<span className="dim"> UTC</span></span>
-              <span className="num dim">{fmtTime(f.std, f.from)}–{fmtTime(f.sta, f.to)} local</span>
+              <span className="num">{fmtTime(f.std, f.from)}–{fmtTime(f.sta, f.to)}<span className="dim"> local</span></span>
+              <span className="num dim">{fmtTime(f.std)}–{fmtTime(f.sta)} UTC</span>
               <FlightTypeChip type={f.type} />
             </div>
           ))}
         </div>
       )}
       <div className="ps-facts small">
-        <span className="k">{travel ? 'Check-in' : 'Report'}</span><span>{fmtDay(b.start)} · {both(b.start, from)}</span>
-        <span className="k">{travel ? 'Arrives' : 'Release'}</span><span>{fmtDay(b.end)} · {both(b.end, to)}</span>
+        <span className="k">{travel ? 'Check-in' : 'Report'}</span><span>{dayAt(b.start, from)} · {both(b.start, from)}</span>
+        {travel && fl.length > 0 && <><span className="k">Departs</span><span>{dayAt(fl[0].std, from)} · {both(fl[0].std, from)}</span></>}
+        <span className="k">{travel ? 'Arrives' : 'Release'}</span><span>{dayAt(b.end, to)} · {both(b.end, to)}</span>
         {block > 0 && !travel && <><span className="k">Block</span><span className="num">{hm(block)}</span></>}
         {d && <><span className="k">FDP</span><span className="num">{hm(d.fdp)} <span className="dim">of {hm(d.maxFdp + (d.discretion ?? 0))}{d.augment ? ` · ${2 + d.augment} pilots` : ''}</span></span></>}
         {!fl.length && b.detail && (!d || /^Flown: /.test(b.detail)) && <><span className="k">Flown</span><span>{b.detail.replace(/^Flown: /, '')}<span className="dim"> · flight numbers were not recorded before v0.18.1</span></span></>}
-        {rest && <><span className="k">Rest</span><span className="num">{hm(rest.end - rest.start)} <span className="dim">{rest.at ? `at ${rest.at}` : 'at home'} · until {fmtDay(rest.end)} {fmtTime(rest.end)} UTC</span></span></>}
+        {rest && <><span className="k">Rest</span><span className="num">{hm(rest.end - rest.start)} <span className="dim">{rest.at ? `at ${rest.at}` : 'at home'} · until {fmtDay(rest.end)} {fmtTime(rest.end)} UTC{rest.restWhy ? ` · ${rest.restWhy}` : ''}</span></span></>}
       </div>
+      {hi && ticket && <BoardingPasses g={g} ticketId={ticket.id} crew={c} />}
       {d && !d.done && <button className="btn btn-sm ps-change" onClick={() => store.openModal({ kind: 'duty', id: d.id })}><Users /> Change crew</button>}
+    </div>
+  );
+}
+
+/**
+ * v0.18.1 (player's report: "is the layover really 14 hours?") between two parts of a trip: the time at the station from
+ * release (or arrival) to the next report or check-in, and the legal minimum rest with its reason.
+ */
+function Layover({ a, b, rests }: { a: CalBlock; b: CalBlock; rests: CalBlock[] }) {
+  const at = endAt(a);
+  const r = rests.find((x) => x.start >= a.end - 1 && x.start <= a.end + 6 * HOUR);
+  const gap = b.start - a.end;
+  if (gap <= 0 || !at) return null;
+  return (
+    <div className="ps-layover small" role="note">
+      <BedDouble aria-hidden />
+      <span className="grow"><b>Layover {at} {hm(gap)}</b>{r?.minRest ? <span className="dim"> · minimum rest {hm(r.minRest)}{r.restWhy ? ` (${r.restWhy})` : ''}</span> : null}</span>
     </div>
   );
 }
@@ -222,7 +248,16 @@ function DayDetail({ g, c, data, k }: { g: GameState; c: CrewMember; data: Month
       <div className="ps-dd">
         {head(days > 1 ? `Trip · ${days} days` : 'Flying', fmtDayRange(midnight(c.base, ow.k0) + 12 * HOUR, midnight(c.base, ow.k1) + 12 * HOUR), 'trip')}
         <div className="small muted">{st.length > 0 && <span className="mono">{st.join(' – ')}</span>}{st.length > 0 && ' · '}{nDuty} dut{nDuty === 1 ? 'y' : 'ies'}{block ? ` · block ${hm(block)}` : ''}</div>
-        {ow.blocks.map((b) => <DutyCard key={`${b.kind}-${b.start}`} g={g} c={c} b={b} rests={rests} hi={dayIndex(c.base, b.start) === k} />)}
+        {ow.blocks.map((b, i) => {
+          const next = ow.blocks[i + 1];
+          const away = !!next && endAt(b) !== c.base;
+          return (
+            <Fragment key={`${b.kind}-${b.start}`}>
+              <DutyCard g={g} c={c} b={b} rests={rests} hi={dayIndex(c.base, b.start) === k} layover={away} />
+              {away && <Layover a={b} b={next} rests={rests} />}
+            </Fragment>
+          );
+        })}
       </div>
     );
   }
