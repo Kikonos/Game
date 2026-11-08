@@ -30,3 +30,8 @@
 @media (max-height: 499.98px) {
   .sc-crew-board > * + * { margin-top: var(--space-2); }
 }
+
+/* Tables on a phone: a little less cell padding, so a five-column table (Finance › Statement) fits without a sideways scroll. */
+@media (max-height: 499.98px) {
+  .table th, .table td { padding: 10px 8px; }
+}

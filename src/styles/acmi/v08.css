@@ -91,6 +91,8 @@
 .v8-standing.t2 > svg:first-child { color: var(--warn); }
 .v8-standing b { font-size: 13.5px; font-weight: 600; }
 .v8-st-text { font-weight: 450; }
+/* The standing and what it means wrap to a second line instead of stopping mid-phrase. */
+.v8-standing b.ellipsis { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.3; }
 .v8-outlook-btn { padding: 0; border: none; background: none; font: inherit; color: inherit; cursor: pointer; flex: 0 1 auto; min-width: 0; }
 .v8-tiles { display: flex; gap: var(--tile-gap); height: 100%; }
 .v8-tiles.big { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
@@ -187,6 +189,20 @@
 @media (max-width: 1100px) {
   .v8-split { grid-template-columns: 380px minmax(0, 1fr); }
   .v8-tile { width: 108px; }
+}
+/* A phone on its side: the list gives the detail pane more room, and the pane's problem card stacks its labels.
+   The head strip scrolls sideways with every tile at its own width (it squeezed the standing to an icon). */
+@media (max-height: 499.98px) {
+  .v8-head-strip { overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; }
+  .v8-head-strip::-webkit-scrollbar { display: none; }
+  .v8-head-strip > * { flex: none; }
+  .v8-head-strip > .v8-standing { width: 250px; }
+  .v8-head-strip .v8-tile { width: auto; min-width: 96px; }
+}
+@media (max-height: 499.98px) and (min-width: 760.02px) {
+  .v8-split { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); gap: var(--section-gap); }
+  .v8-pane .pc-row { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .v8-row .grow > .row { flex-wrap: wrap; row-gap: 2px; }
 }
 @media (max-width: 760px) {
   .v8-split { grid-template-columns: minmax(0, 1fr); }

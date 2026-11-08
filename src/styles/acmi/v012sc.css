@@ -110,10 +110,10 @@
   .ng-head h2 { font-size: 17px; }
   .ng-body { grid-template-columns: minmax(0, 1fr) minmax(220px, 0.7fr); grid-template-rows: minmax(0, 1fr); overflow: hidden; gap: 12px; padding: 10px 16px 0; }
   .ng-panel { min-height: 0; overflow-y: auto; padding: 0 4px 16px 0; overscroll-behavior: contain; }
-  .ng-visual { min-height: 0; overflow-y: auto; padding-bottom: 12px; }
+  .ng-visual { min-height: 0; overflow-y: auto; padding-bottom: 12px; flex-direction: column; }
   .ng-livery { padding: 12px 14px; justify-content: flex-start; height: auto; min-height: min-content; flex: 0 0 auto; }
   .acmi-ng .ng-livery .livery-stage { padding: 8px 4px; }
-  .livery-stage .aircraft-art { height: 90px; }
+  .livery-stage .aircraft-art { height: 90px; max-width: 100%; }
   .ng-summary { padding: 10px 4px 4px; }
   .ng-foot { padding-block: 8px calc(8px + var(--safe-b)); }
 }

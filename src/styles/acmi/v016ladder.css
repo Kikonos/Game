@@ -2,7 +2,7 @@
 
 /* Prestige card: four rungs. */
 .pr-tiers { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.pr-tiers .v8-tier { font-size: 12px; padding: 8px 6px; line-height: 1.2; }
+.pr-tiers .v8-tier { font-size: 12px; padding: 8px; line-height: 1.2; }
 .pr-pill { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid var(--border-strong); color: var(--text-2); white-space: nowrap; }
 .pr-pill .sc-ico-s { width: 12px; height: 12px; }
 
