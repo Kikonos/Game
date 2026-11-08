@@ -752,6 +752,14 @@ async function main() {
     console.log('usage: invariants.ts save <file> [days] | seed <n> [days] [--base=LIS] | scenario <id|all> [days]  [--step=60] [--spy]');
     return;
   }
+  // v0.19 --route=<market>[,<reg>]: a scheduled route launched with the dev hook first (on the biggest aircraft or the reg).
+  const route = flag('route');
+  if (route) {
+    const { devLaunchRoute } = await import('../src/engine/network');
+    const [mk, reg] = route.split(',');
+    const ac = reg ? Object.values(g.fleet).find((a) => a.reg === reg) : Object.values(g.fleet).filter((a) => a.status !== 'leasedOut').sort((a, b) => b.cabin.total - a.cabin.total)[0];
+    console.log(`route ${mk} on ${ac?.reg ?? '?'}: ${devLaunchRoute(g, mk, ac?.id)}`);
+  }
   const step = Number(flag('step') ?? 60);
   const inv = createChecker({ spy: process.argv.includes('--spy') });
   const end = g.now + days * DAY;

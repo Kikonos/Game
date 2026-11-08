@@ -75,12 +75,21 @@ export function rotationOf(g: GameState, f: Flight): { route: Route; rot: Rotati
   return { route, rot, idx: s.idx };
 }
 
-/** The BSP bank guarantee comes back after its year. */
+/** The BSP bank guarantee comes back after its year; BSP pays the agents' ticket money on the 15th and the last day. */
 function releaseBsp(g: GameState): void {
-  const h = g.network?.bspHold;
+  const N = g.network!;
+  const h = N.bspHold;
   if (h && g.now >= h.until) {
-    g.company.cash += h.amount;
-    delete g.network!.bspHold;
+    cashOnly(g, h.amount);
+    delete N.bspHold;
+  }
+  if (N.bspDue) {
+    const d = new Date(Date.UTC(2000, 0, 1) + g.now * 60_000);
+    const last = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+    if (d.getUTCDate() === 15 || d.getUTCDate() === last) {
+      cashOnly(g, N.bspDue);
+      N.bspDue = 0;
+    }
   }
 }
 
