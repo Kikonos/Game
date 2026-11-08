@@ -770,3 +770,7 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
 - v0.19 PLAYER ADDITIONS 3:
   - The market research drives the recommended frequency, days and aircraft size; the player can deviate and sees the consequences.
   - Live passengers by class, load factor, cargo kg and profit estimate on the map aircraft card (flat and globe) for scheduled flights; next-sector bookings against capacity.
+- v0.19 LANES NOTE: docs/UPDATE-0.19.md (2806ad7) covers player additions 1 and 2 but NOT 3. The lanes must implement additions 3 anyway:
+  - the market study recommends frequency, days and aircraft size, and the player can deviate (net-engine + ui);
+  - live passengers by class, load factor, cargo kg and profit estimate on the map aircraft card (flat and globe), plus next-sector bookings against capacity (ui).
+  Add them to the doc as §N additions when building.
