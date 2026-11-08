@@ -788,3 +788,6 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
 - v0.19 workflow STOPPED (2026-11-08). Messaging workflow agents spawned duplicate agents that collided in the same worktrees. Lesson: never SendMessage a workflow agent; communicate through files.
   - Now: subagent a567dc77 = net-engine (owns the skeleton; writes /home/user/work/v019-engine/SKELETON then DONE). Subagent a709f3b6 = net-ops (waits for SKELETON; writes /home/user/work/v019-ops/DONE).
   - Still to start by the parent: the net-ui lane after SKELETON, then merge + balance + review (agent), all after v0.18.3 is on acmi (it is: ea68892). No release without the player's go.
+- 2026-11-08: the player asked for ONE combined release (v0.18.3 + v0.19) and handed the current work to Opus at extra effort.
+  - A coordinator agent (Opus xhigh, STATE /home/user/work/v019coord/STATE.txt) builds the net-ui lane, waits for the engine/ops DONE files, then merges, balances, reviews and releases v0.19 combined.
+  - The engine and ops lanes still run as subagents; communicate only through files.
