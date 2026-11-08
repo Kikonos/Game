@@ -1616,15 +1616,17 @@ export function resizeDeployments(g: GameState): void {
     const want = setsFromDuties(g, dep.base, ds, g.now);
     // More: room for the chaining to add them as the duties come.
     if (want > (dep.sized ?? n0)) dep.sized = Math.min(BAL.maxSetsOnStation, want);
-    if (want >= n0) continue;
-    // Fewer: only when one set fewer takes every duty the sets on station now take (a trial on fresh sets).
+    // Fewer: one set stood down only when two fewer would still take every duty the sets on station now take (a trial on
+    // fresh sets; real crews have leave, sickness and change-overs: one spare set is kept), and never below the
+    // quick sizing plus one.
+    if (want + 1 >= n0 || n0 < 3) continue;
     const trial = (n: number) => {
       const ch = chainer(g, { ...dep, start: dayStart(g.now), anchors: anchorsFor(dayStart(g.now), n, R), pairingIds: [], setEnd: undefined }, () => 2, undefined, true);
       let taken = 0;
       for (const d of ds) if (ch.take(d)) taken++;
       return taken;
     };
-    if (trial(n0 - 1) < trial(n0)) continue;
+    if (trial(n0 - 2) < trial(n0)) continue;
     // Stood down at the end of its last tour planned (none: at once).
     let end = g.now;
     for (const id of dep.pairingIds) {
