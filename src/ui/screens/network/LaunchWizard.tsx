@@ -67,7 +67,7 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
             const block = marketBlock(g, x);
             return (
               <button key={x.id} className={`nw-market ${x.closed ? 'off' : ''}`} disabled={!!block} onClick={() => setMid(x.id)}>
-                <span className="nw-flag" aria-hidden>{flag(x.country)}</span>
+                <span className="nw-flag" aria-hidden>{flag(AIRPORT_BY_CODE[x.to]?.country ?? '')}</span>
                 <span className="col grow nw-market-text">
                   <span className="row gap-8"><b>{x.city}</b><span className="mono tiny muted">{routeCode(x)}</span></span>
                   <span className="tiny muted nw-market-blurb">{block ?? x.blurb}</span>
@@ -104,7 +104,7 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
       </>
     }>
       <div className="col gap-12">
-        <div className="row gap-8 small muted"><span aria-hidden>{flag(m.country)}</span><span>{m.country}</span><span className="mono">{routeCode(m)}</span>{m.via?.length ? <span>fuel stop {m.via.join(', ')}</span> : null}</div>
+        <div className="row gap-8 small muted"><span aria-hidden>{flag(AIRPORT_BY_CODE[m.to]?.country ?? '')}</span><span>{m.country}</span><span className="mono">{routeCode(m)}</span>{m.via?.length ? <span>fuel stop {m.via.join(', ')}</span> : null}</div>
         <p className="small nw-blurb">{m.blurb}</p>
         {block && <div className="small warn">{block}</div>}
         <MarketFacts m={m} />

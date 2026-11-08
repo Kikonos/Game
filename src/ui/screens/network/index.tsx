@@ -4,6 +4,7 @@
 import '../../../styles/acmi/v019.css';
 import { ChevronRight, Globe2, Plane, PlusCircle, Route as RouteIcon } from 'lucide-react';
 import { useMemo } from 'react';
+import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { flag } from '../../../data/countries';
 import { ROUTE_MARKETS, type RouteMarket } from '../../../data/routes';
 import type { GameState } from '../../../engine/core/types';
@@ -63,7 +64,7 @@ function MarketRow({ g, m }: { g: GameState; m: RouteMarket }) {
   const greyed = !!m.closed;
   return (
     <button className={`nw-market ${greyed ? 'off' : ''}`} disabled={greyed || !!block} onClick={() => store.openModal({ kind: 'routeLaunch', marketId: m.id })}>
-      <span className="nw-flag" aria-hidden>{flag(m.country)}</span>
+      <span className="nw-flag" aria-hidden>{flag(AIRPORT_BY_CODE[m.to]?.country ?? '')}</span>
       <span className="col grow nw-market-text">
         <span className="row gap-8"><b className="ellipsis">{m.city}</b><span className="mono tiny muted nowrap">{routeCode(m)}</span></span>
         <span className="tiny muted nw-market-blurb">{block ?? m.blurb}</span>
@@ -99,7 +100,7 @@ export default function NetworkView({ g }: { g: GameState }) {
         </Empty>
       )}
       <div className="row between wrap gap-8 nw-open">
-        <span className="upper dim row gap-6"><Globe2 className="sc-ico-s" /> Markets from {g.company.homeBase === 'OPO' ? 'Porto' : 'Lisbon'}</span>
+        <span className="upper dim row gap-6"><Globe2 className="sc-ico-s" /> Markets from Lisbon and Porto</span>
         <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'routeLaunch' })}><PlusCircle /> Open a new route</button>
       </div>
       <div className="card nw-markets">{markets.map((m) => <MarketRow key={m.id} g={g} m={m} />)}</div>
