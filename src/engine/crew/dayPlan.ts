@@ -9,7 +9,7 @@
 import { BAL } from '../core/balance';
 import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
-import { DAY, daysInMonth, fmtDay, fromUTC, monthKey, monthStart, yearOf } from '../core/time';
+import { DAY, daysInMonth, fmtDay, fromUTC, monthKey, monthStart } from '../core/time';
 import type { CrewMember, Duty, GameState, Minute, MonthKey, StandbyKind, StatsRoster09, StatsV09 } from '../core/types';
 import { hash } from '../core/util';
 import { moraleShock } from './morale';
@@ -20,7 +20,7 @@ import { crewIx, ctxOf, locAt, segsOf, standbySeg, touchCrewState, typeIdOf } fr
 const R = () => BAL.v09.roster;
 
 /** hashUnit with a murmur finaliser: FNV-1a alone clusters on short similar keys ('off:c3', 'off:c4'). */
-function hashUnit(key: string): number {
+export function hashUnit(key: string): number {
   let h = hash(key);
   h ^= h >>> 16;
   h = Math.imul(h, 0x85ebca6b);
@@ -41,11 +41,11 @@ export function midnight(base: string, k: number): Minute {
   return t - offsetAt(base, t - offsetAt(base, t));
 }
 const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTH = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+export const MONTH = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 /** 'Tue 4 Nov' for day k. */
 export const dayLabel = (k: number): string => `${WD[new Date(Date.UTC(2000, 0, 1) + k * DAY * 60_000).getUTCDay()]} ${fmtDay(k * DAY)}`;
-const monthOfDay = (k: number): MonthKey => monthKey(k * DAY);
-const firstDayOf = (mk: MonthKey): number => monthStart(mk) / DAY;
+export const monthOfDay = (k: number): MonthKey => monthKey(k * DAY);
+export const firstDayOf = (mk: MonthKey): number => monthStart(mk) / DAY;
 
 /** End of the last published day (the roster the crew see: up to the end of the month published last). Pure. */
 export function publishedTo(g: GameState): Minute {
@@ -108,7 +108,7 @@ function addOff(c: CrewMember, days: number[]): void {
   c.off = [...s].sort((a, b) => a - b);
 }
 
-function removeOff(c: CrewMember, days: number[]): void {
+export function removeOff(c: CrewMember, days: number[]): void {
   if (!c.off) return;
   const s = new Set(days);
   c.off = c.off.filter((k) => !s.has(k));
@@ -644,7 +644,7 @@ export function buyBackDays(g: GameState, c: CrewMember, base: Seg[], segs: Seg[
 const mergeSorted = (a: Seg[], b: Seg[]): Seg[] => [...a, ...b].sort((x, y) => x.start - y.start);
 
 /** Standby windows not started on days [a, b) (and the morning after) give way to days off. */
-function clearDays(g: GameState, c: CrewMember, a: number, b: number): void {
+export function clearDays(g: GameState, c: CrewMember, a: number, b: number): void {
   if (!c.standby) return;
   const from = midnight(c.base, a);
   const to = midnight(c.base, b) + R().off.morningFree;
@@ -656,7 +656,7 @@ function clearDays(g: GameState, c: CrewMember, a: number, b: number): void {
 
 // ---------- per-crew day facts ----------
 
-interface Busy {
+export interface Busy {
   /** Days a day off can't take (work touching it, or the 06:00 morning after). */
   hit: Set<number>;
   /** Days with duty or travel. */
@@ -665,7 +665,7 @@ interface Busy {
   sby: Set<number>;
 }
 
-function busyDays(c: CrewMember, segs: Seg[], from: number, to: number): Busy {
+export function busyDays(c: CrewMember, segs: Seg[], from: number, to: number): Busy {
   const hit = new Set<number>();
   const work = new Set<number>();
   const sby = new Set<number>();
@@ -704,7 +704,7 @@ function blockOn(c: CrewMember, k: number): BlockWhy | null {
   for (const x of c.blocks) if (x.from < b - 6 * 60 && x.to > a + 6 * 60) return x.why;
   return null;
 }
-const blockedOn = (c: CrewMember, k: number) => blockOn(c, k) !== null;
+export const blockedOn = (c: CrewMember, k: number) => blockOn(c, k) !== null;
 /** Leave, sickness and joining reset the work-day count; training is work. */
 const resets = (w: BlockWhy | null) => w === 'leave' || w === 'sick' || w === 'joining';
 
@@ -758,7 +758,7 @@ export function rosterStats(g: GameState): StatsRoster09 {
 // ---------- annual leave ----------
 
 /** Family-and-role groups a crew member belongs to. */
-const groupsOf = (c: CrewMember): string[] => c.ratings.map((f) => `${f}|${c.role}`);
+export const groupsOf = (c: CrewMember): string[] => c.ratings.map((f) => `${f}|${c.role}`);
 
 /**
  * v0.9 annual leave (§R.3.1): 28 days a year in quarter blocks weighted to the ACMI low season (10/4/4/10), pro rata in
@@ -1630,16 +1630,7 @@ export function dayPlanBefore(g: GameState): void {
   countYesterday(g);
   leaveAfterTours(g);
   for (const c of Object.values(g.crew)) if (c.off?.length && c.off[0] < dayIndex(c.base, g.now) - 40) c.off = c.off.filter((k) => k >= dayIndex(c.base, g.now) - 40);
-  const y = yearOf(g.now);
-  // New hires after 90 days' service; next year's leave from 1 December.
-  const due = Object.values(g.crew).filter((c) => (c.leaveYear ?? 0) < y && g.now - c.hired >= R().leave.afterServiceDays * DAY).map((c) => c.id);
-  if (due.length) planLeave(g, y, due);
-  if (monthKey(g.now) % 12 === 11) {
-    const next = Object.values(g.crew).filter((c) => (c.leaveYear ?? 0) < y + 1 && g.now - c.hired >= R().leave.afterServiceDays * DAY).map((c) => c.id);
-    if (next.length && planLeave(g, y + 1, next) > 1) {
-      pushMessage(g, { tone: 'info', cat: 'crew', title: `Annual leave for ${y + 1} is planned`, body: '28 days each, mostly in winter; at most 1 in 10 of a crew group away at once.' });
-    }
-  }
+  // v0.18.1 annual leave goes by request (crew/leave.ts dailyLeave, run before this by the crew module).
   planOffDays(g);
 }
 
@@ -1777,7 +1768,7 @@ export function dayPlanInit(g: GameState): void {
   const from = midnight(home, dayIndex(home, g.now));
   g.dayPlan = { from, publishedTo: from, planned: from };
   rosterStats(g);
-  planLeave(g, yearOf(g.now), Object.keys(g.crew));
+  // v0.18.1 no leave planned up front: crew ask for it (crew/leave.ts).
   planOffDays(g);
   planStandby(g);
 }
@@ -1795,11 +1786,10 @@ export function dayPlanLoad(g: GameState): void {
   const from = midnight(home, dayIndex(home, g.now + R().publishDays * DAY - 1) + 1);
   g.dayPlan = { from, publishedTo: from, planned: from };
   rosterStats(g);
-  planLeave(g, yearOf(g.now), Object.keys(g.crew).filter((id) => g.now - g.crew[id].hired >= R().leave.afterServiceDays * DAY || g.crew[id].hired <= g.started));
   const k = dayIndex(home, from);
   pushMessage(g, {
     tone: 'info', cat: 'crew', title: 'Roster planning changed',
-    body: `From ${fmtDay(k * DAY)}, days off are planned (8–10 a month, a 2-day block every week, 4 weeks' leave a year) and other free days are standby. The roster published up to ${fmtDay((k - 1) * DAY)} stays as it is.`,
+    body: `From ${fmtDay(k * DAY)}, days off are planned (8–10 a month, a 2-day block every week) and other free days are standby. The roster published up to ${fmtDay((k - 1) * DAY)} stays as it is.`,
   });
 }
 

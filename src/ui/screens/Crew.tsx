@@ -2,14 +2,15 @@
 // own sheet (modals/PersonSheet.tsx: monthly roster, totals, limits, morale; Train / Hire similar). DESIGN.md §6.3.
 
 import { RankMark } from '../components/RankMark';
-import { Check, CheckSquare, GraduationCap, Layers, LayoutGrid, List, Lock, Search, UserPlus, Users, X } from 'lucide-react';
+import { Check, CheckSquare, GraduationCap, Layers, LayoutGrid, List, Lock, Palmtree, Search, UserPlus, Users, X } from 'lucide-react';
 import { CrewPlanView, DeploymentStrip, PeakHeadsUp, PlanStrip } from './CrewPlan';
+import { LeaveView } from './CrewLeave';
 import { useEffect, useMemo, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, HOUR, fmtDay } from '../../engine/core/time';
 import type { CrewMember, CrewStatus, GameState } from '../../engine/core/types';
 import {
-  classOf, conversionClasses, crewRev, crewStatusView, crewTravelNow, type CrewTravelNow, crewWindows, familyLabel, LIMITS, moraleSummary, type CrewWindows,
+  classOf, conversionClasses, crewRev, crewStatusView, crewTravelNow, type CrewTravelNow, crewWindows, familyLabel, leavePolicy, LIMITS, moraleSummary, type CrewWindows,
 } from '../../engine/crew';
 import { problemAt } from '../../engine/problems';
 import { Why } from '../components/Why';
@@ -107,11 +108,11 @@ function MoraleChip({ g }: { g: GameState }) {
 }
 
 const VIEW_KEY = 'bh.crewView';
-type CrewView = 'people' | 'board' | 'plan';
+type CrewView = 'people' | 'board' | 'plan' | 'leave';
 function storedView(): CrewView {
   try {
     const v = localStorage.getItem(VIEW_KEY);
-    return v === 'board' || v === 'plan' ? v : 'people';
+    return v === 'board' || v === 'plan' || v === 'leave' ? v : 'people';
   } catch {
     return 'people';
   }
@@ -142,7 +143,8 @@ export function CrewScreen() {
   const rev = flightsRev(g);
   const hour = Math.floor(g.now / HOUR);
   const all = Object.values(g.crew);
-  const view: CrewView = store.nav.view === 'board' || store.nav.view === 'people' || store.nav.view === 'plan' ? store.nav.view : storedView();
+  const view: CrewView = store.nav.view === 'board' || store.nav.view === 'people' || store.nav.view === 'plan' || store.nav.view === 'leave' ? store.nav.view : storedView();
+  const leaveWaiting = (g.leaveRequests ?? []).filter((q) => q.status === 'pending').length;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const list = useMemo(() => filterCrew(all, f), [g, f, hour, all.length]);
   const shown = more ? list : list.slice(0, PAGE);
@@ -183,7 +185,7 @@ export function CrewScreen() {
   return (
     <div className={`screen sc-crew ${view === 'board' ? 'sc-crew-board' : ''}`}>
       <ScreenHead hint={view === 'board' ? 'crewBoard' : view === 'plan' ? 'crewPlan' : 'crewPeople'} title="Crew" sub={`${all.length} people · ${all.filter((c) => c.status === 'onDuty').length} on duty now`}>
-        <Seg<CrewView> value={view} onChange={setView} options={[{ value: 'people', label: <><List className="sc-ico-s" /> People</> }, { value: 'board', label: <><LayoutGrid className="sc-ico-s" /> Roster board</> }, { value: 'plan', label: <><Layers className="sc-ico-s" /> Planning</> }]} />
+        <Seg<CrewView> value={view} onChange={setView} options={[{ value: 'people', label: <><List className="sc-ico-s" /> People</> }, { value: 'board', label: <><LayoutGrid className="sc-ico-s" /> Roster board</> }, { value: 'plan', label: <><Layers className="sc-ico-s" /> Planning</> }, { value: 'leave', label: <><Palmtree className="sc-ico-s" /> Leave{leaveWaiting > 0 && !leavePolicy(g).auto ? <span className="lv-count">{leaveWaiting}</span> : null}</> }]} />
         <MoraleChip g={g} />
         {classes.length > 0 && (
           <button className="btn" onClick={() => store.openModal({ kind: 'classes' })}>
@@ -203,6 +205,8 @@ export function CrewScreen() {
       {view === 'people' && <DeploymentStrip g={g} />}
       {view === 'plan' ? (
         <CrewPlanView g={g} />
+      ) : view === 'leave' ? (
+        <LeaveView g={g} />
       ) : !all.length ? (
         <Empty icon={<Users />} title="No crew yet">Hire pilots and cabin crew to fly your aircraft.</Empty>
       ) : view === 'board' ? (

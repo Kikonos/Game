@@ -12,7 +12,7 @@ import { flightsRev } from '../../engine/core/entities';
 import { DAY, HOUR, fmtDate, fmtDay, fmtDayRange, fmtTime, monthKey, monthStart, toDate } from '../../engine/core/time';
 import type { CrewMember, GameState } from '../../engine/core/types';
 import {
-  crewCalendar, crewGauges, crewMonth, crewName, crewRev, crewStatusView, crewWindows, LIMITS, moraleOf, publishedTo, type CalBlock,
+  crewCalendar, crewGauges, crewMonth, crewName, crewRev, crewStatusView, crewWindows, leaveBalance, LIMITS, moraleOf, publishDayOf, publishedTo, type CalBlock,
 } from '../../engine/crew';
 import { crewSupply, familyNeeds } from '../../engine/crew/sets';
 import { dayIndex, midnight } from '../../engine/crew/dayPlan';
@@ -258,11 +258,18 @@ function Totals({ g, c, data, mk }: { g: GameState; c: CrewMember; data: MonthDa
     <div className="ps-tots">
       {tile('Block hours', hm(t.block), t.blockFlown && t.blockFlown < t.block ? `${hm(t.blockFlown)} flown` : t.block ? (t.blockFlown ? 'all flown' : 'planned') : 'no flying')}
       {tile('Duty hours', hm(t.duty), `${t.duties} dut${t.duties === 1 ? 'y' : 'ies'} · ${t.sectors} sector${t.sectors === 1 ? '' : 's'}`)}
-      {tile('Days off', `${v.off}`, monthKey(pub) > v.key ? `of ${v.offMin} required` : `of ${v.offMin} · published to ${fmtDay(pub - 1)}`, short ? 'bad' : '')}
+      {tile('Days off', `${v.off}`, monthKey(pub) > v.key ? `of ${v.offMin} required` : `of ${v.offMin} · roster out ${fmtDay(publishDayOf(g, Math.floor(data.a / DAY) + 1))}`, short ? 'bad' : '')}
       {cur ? tile('Block 28 days', `${Math.round(w.block28d / HOUR)} h`, `of ${LIMITS.block28d / HOUR} h`, limitTone(w.block28d / LIMITS.block28d) === 'good' ? '' : limitTone(w.block28d / LIMITS.block28d)) : tile('Standby', `${v.standby.home + v.standby.hotel + v.standby.airport + v.standby.reserve}`, 'days')}
       {cur ? tile('Block 12 months', `${Math.round(w.block12m / HOUR)} h`, `of ${LIMITS.block12m / HOUR} h`, limitTone(w.block12m / LIMITS.block12m) === 'good' ? '' : limitTone(w.block12m / LIMITS.block12m)) : tile('Leave', `${v.leave}`, 'days')}
     </div>
   );
+}
+
+/** v0.18.1 '18 of 30 days left · asked 12–25 Feb'. */
+function leaveLine(g: GameState, c: CrewMember): ReactNode {
+  const b = leaveBalance(g, c);
+  const q = (g.leaveRequests ?? []).find((x) => x.crewId === c.id && x.status === 'pending');
+  return <>{b.left} of {b.ent + b.carried} days left{q && <span className="dim"> · asked {fmtDay(q.from + 720)} for {q.days}</span>}</>;
 }
 
 const signed = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(Math.round(v))}`;
@@ -281,6 +288,8 @@ function Essentials({ g, c }: { g: GameState; c: CrewMember }) {
     ...(joining ? [] : [['Rest until', sv.restUntil ? `${fmtDay(sv.restUntil)} ${fmtTime(sv.restUntil)} UTC` : '—'] as [string, ReactNode]]),
     [sv.startLabel, fmtDate(sv.startDate)],
     ['Total hours', Math.round(c.totalHours).toLocaleString('en-US')],
+    // v0.18.1 the year's leave allowance and a request waiting.
+    ...(joining ? [] : [['Annual leave', leaveLine(g, c)] as [string, ReactNode]]),
     ['Languages', c.languages.join(', ') || '—'],
     ['Salary', `${money(c.salary)}/month`],
   ];

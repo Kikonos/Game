@@ -22,6 +22,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { pushMessage } from '../core/messages';
 import { post } from '../core/ledger';
 import { flownLegs, noteFlown, rebuildFlown } from './flown';
+import { dailyLeave, leaveLoad, leavePolicy } from './leave';
 import { aboard, checkInOf, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, extCutAt, onBlocks, passengers, touchCrew, touchCrewState, typeIdOf } from './timeline';
 import { reportMinutes } from '../core/perf';
 
@@ -83,6 +84,7 @@ export {
   crewMonth, dayIndex, isOff, offBreak, planLeave, planOffDays, planStandby, publishDayOf, publishedTo, rosterHorizon, rosterOutLine, rosterStats, standbyNow,
   type CrewMonthView, type OffBreak,
 } from './dayPlan';
+export { answerLeave, decideBy, leaveBalance, leaveDaysFor, leavePolicy, leaveVerdict, setLeavePolicy, type LeaveBalance, type LeaveVerdict } from './leave';
 export { dutyNeed, restNeedLine, type ChainShape, type DutyNeed } from './duties';
 export {
   EXT_TABLE, extFdp, disruptiveKinds, FTL_TYPE, STANDBY, standbyAwakeOk, standbyCut, TZ_NIGHTS, tzNights, WOCL, cabinFdpCap,
@@ -585,6 +587,8 @@ function daily(g: GameState) {
   dailySickness(g);
   dailyMorale(g);
   // v0.9 roster planning (UPDATE-0.9.md §R): annual leave and days off up to the horizon before the roster run.
+  // v0.18.1 leave requests decided and made (crew/leave.ts), before the days off are planned.
+  dailyLeave(g);
   dayPlanBefore(g);
   // Keep the published roster horizon filled (auto-roster policy), then bring home anyone left without work away.
   if (g.company.policies.autoRoster) {
@@ -697,7 +701,9 @@ export const crewModule: SimModule = {
     g.stats.crewFixes ??= {};
     g.company.policies.buyBack ??= 'auto';
     for (const c of Object.values(g.crew)) c.twoDays ??= { 0: monthKey(g.now) };
-    // v0.9 roster planning from the first day (leave, days off and standby for the published 14 days).
+    // v0.9 roster planning from the first day (days off and standby for the published days); v0.18.1 leave by request.
+    g.leaveRequests = [];
+    leavePolicy(g);
     dayPlanInit(g);
     queueAlert(g);
   },
@@ -720,6 +726,8 @@ export const crewModule: SimModule = {
     touchCrew(g);
     // v0.9 old saves keep their published roster; the v0.9 planner takes over from the first unpublished day.
     dayPlanLoad(g);
+    // v0.18.1 annual leave by request: older saves keep their planned leave, booked against the allowance.
+    leaveLoad(g);
     repairMissedTickets(g);
     // v0.12.1 open duties no longer list rides on legs already gone (a relinked positioning leg removed with crew on it).
     for (const d of Object.values(g.duties)) if (!d.done && d.deadheadIds.some((id) => !g.flights[id])) d.deadheadIds = d.deadheadIds.filter((id) => g.flights[id]);

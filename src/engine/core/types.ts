@@ -1022,7 +1022,9 @@ export interface DutyLogEntry {
 /** v0.6: morale drivers (crew card "why"). */
 export type MoraleDriver = 'policy' | 'hotel' | 'tour' | 'offAway' | 'workload' | 'lateChange' | 'discretion' | 'mission' | 'extraCrew' | 'career' | 'pay' | 'recognition'
   /** v0.9 long standby runs; days off in the month (and a published day off taken). */
-  | 'standby' | 'daysOff';
+  | 'standby' | 'daysOff'
+  /** v0.18.1 a leave request declined. */
+  | 'leave';
 
 /** v0.9 standby kinds (UPDATE-0.9.md §R.3): home (SBY), hotel at a station away from base, airport (ASBY), reserve (RES). */
 export type StandbyKind = 'home' | 'hotel' | 'airport' | 'reserve';
@@ -1716,6 +1718,8 @@ export interface SimEvent {
 // ======================================================================
 
 export interface Stats {
+  /** v0.18.1 annual leave requests: made, approved, declined (by the peak-month rule, by the share away, by the player), withdrawn. */
+  leave?: { asked: number; approved: number; declined: number; peak: number; share: number; byYou: number; withdrawn: number };
   /** v0.12.1 approvals at departure: when each job ('<contract>|<aircraft>') last got the 'approvalLate' decision; revenue legs stopped at the gate. */
   gateAsked?: Record<string, Minute>;
   gateStopped?: number;
