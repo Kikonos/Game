@@ -12,7 +12,7 @@ import { DAY, fmtDay, fmtTime, monthKey } from '../core/time';
 import type { CabinLayout } from '../../data/acmiTypes';
 import type { Client, GameState, LedgerCat, Minute } from '../core/types';
 import { costTotal, passThrough, routeMonthCosts, sectorCost } from './costs';
-import { baseFare, cabinFor, chainOf, departureDemand, freqPerWeek, localToUtc, MARKET_BY_ID, marketOfRoute, serviceHours, slotX, usd, weeklyMarket, type Dir } from './model';
+import { baseFare, cabinFor, chainOf, seasonCode, departureDemand, freqPerWeek, localToUtc, MARKET_BY_ID, marketOfRoute, serviceHours, slotX, usd, weeklyMarket, type Dir } from './model';
 import { pushRouteNote } from './notes';
 import { acmiNetBH, aircraftCostBH, crewCostBH } from './pnl';
 import { payloadMax } from './sales';
@@ -664,7 +664,7 @@ export function stepLaunch(g: GameState, r: Route): void {
       r.series = [planSeries(p, r.firstFlight - 12 * 60, r.series[0]?.id ?? `${r.id}s1`)];
     }
     r.status = 'onSale';
-    r.slots = { held: 0, flown: 0, season: '' };
+    r.slots = { held: 0, flown: 0, season: seasonCode(r.firstFlight ?? g.now).code };
     fileRotations(g, r);
     r.slots.held = r.rotations.filter((x) => x.dep < (r.firstFlight ?? g.now) + 210 * DAY).length;
     startStage(g, r, 'marketing');
@@ -773,7 +773,7 @@ export function devLaunchRoute(g: GameState, marketId: string, aircraftId?: stri
   r.firstFlight = firstFromDate(m, p, g.now + 3 * DAY);
   r.series = [planSeries(p, r.firstFlight - 12 * 60, `${r.id}s1`)];
   if (ac) r.series[0].tail = ac.id;
-  r.slots = { held: 0, flown: 0, season: '' };
+  r.slots = { held: 0, flown: 0, season: seasonCode(r.firstFlight).code };
   g.network!.distribution ??= g.now;
   fileRotations(g, r);
   r.slots.held = r.rotations.length;
