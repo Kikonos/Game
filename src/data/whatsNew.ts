@@ -16,6 +16,21 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.19',
+    name: 'Scheduled routes',
+    features: [
+      'Contracts › Network: fly your own scheduled routes, as Euro Atlantic did to Bissau, São Tomé and Dili. They run in the background beside your ACMI work and earn a modest margin, best with an aircraft that would otherwise stand idle.',
+      'Opening a route takes months: a market study, the business case, permits, slots, brand or partner, ticket sales, a launch campaign, airport contracts and crew briefings, then the first flight. Each step costs money and time, and some go wrong.',
+      'The study recommends the days, times and aircraft size. Change them and the business case shows what it does to the numbers.',
+      'Passengers by class, load factor, cargo (live animals too) and the money of every flight: on the flight sheet, the route page and the map.',
+      'Any timetable: weekly, twice a week, monthly, your days and times. Move one flight or a whole series, or hold a route flight on the Schedule and drag it: the whole rotation moves.',
+      'When an ACMI job wants the aircraft, choose for each flight: another aircraft (business passengers who lose their seat are refunded), a sub-charter (no penalty), or move or cancel it (a small cost).',
+    ],
+    improvements: [
+      'Finance shows the ticket cash taken for flights not flown yet.',
+    ],
+  },
+  {
     version: 'v0.18.3',
     name: 'Pilot pairs',
     features: [
