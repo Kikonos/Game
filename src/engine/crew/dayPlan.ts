@@ -9,7 +9,7 @@
 import { BAL } from '../core/balance';
 import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
-import { DAY, daysInMonth, fmtDay, fromUTC, monthKey, monthStart, yearOf } from '../core/time';
+import { DAY, daysInMonth, fmtDay, fromUTC, monthKey, monthStart } from '../core/time';
 import type { CrewMember, Duty, GameState, Minute, MonthKey, StandbyKind, StatsRoster09, StatsV09 } from '../core/types';
 import { hash } from '../core/util';
 import { moraleShock } from './morale';
@@ -20,7 +20,7 @@ import { crewIx, ctxOf, locAt, segsOf, standbySeg, touchCrewState, typeIdOf } fr
 const R = () => BAL.v09.roster;
 
 /** hashUnit with a murmur finaliser: FNV-1a alone clusters on short similar keys ('off:c3', 'off:c4'). */
-function hashUnit(key: string): number {
+export function hashUnit(key: string): number {
   let h = hash(key);
   h ^= h >>> 16;
   h = Math.imul(h, 0x85ebca6b);
@@ -41,16 +41,52 @@ export function midnight(base: string, k: number): Minute {
   return t - offsetAt(base, t - offsetAt(base, t));
 }
 const WD = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTH = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+export const MONTH = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 /** 'Tue 4 Nov' for day k. */
 export const dayLabel = (k: number): string => `${WD[new Date(Date.UTC(2000, 0, 1) + k * DAY * 60_000).getUTCDay()]} ${fmtDay(k * DAY)}`;
-const monthOfDay = (k: number): MonthKey => monthKey(k * DAY);
-const firstDayOf = (mk: MonthKey): number => monthStart(mk) / DAY;
+export const monthOfDay = (k: number): MonthKey => monthKey(k * DAY);
+export const firstDayOf = (mk: MonthKey): number => monthStart(mk) / DAY;
 
-/** End of the last published day (the roster the crew see: today + 13). Pure. */
+/** End of the last published day (the roster the crew see: up to the end of the month published last). Pure. */
 export function publishedTo(g: GameState): Minute {
   const home = g.company.homeBase;
-  return g.dayPlan?.publishedTo ?? midnight(home, dayIndex(home, g.now) + R().publishDays);
+  return g.dayPlan?.publishedTo ?? midnight(home, pubEndDay(home, dayIndex(home, g.now)));
+}
+
+/**
+ * v0.18.1 (player's report: "at Emirates the roster comes out on the 15th for the whole next month") the base-local day
+ * after the last day published by day k: on and after the 15th the whole next month, before it this month. Pure.
+ */
+export function pubEndDay(_home: string, k: number): number {
+  if (!R().monthly) return k + R().publishDays;
+  const mk = monthOfDay(k);
+  const dom = k - firstDayOf(mk) + 1;
+  return firstDayOf(mk + (dom >= R().publishDay ? 2 : 1));
+}
+
+/** v0.18.1 the day (its local midday, UTC minutes) day k's month is (or was) published: the 15th of the month before. Pure. */
+export function publishDayOf(g: GameState, k: number): Minute {
+  const home = g.company.homeBase;
+  return midnight(home, firstDayOf(monthOfDay(k) - 1) + R().publishDay - 1) + 12 * 60;
+}
+
+/** v0.18.1 'the January roster comes out on 15 Dec' (or 'came out') for the base-local day of t. Pure. */
+export function rosterOutLine(g: GameState, t: Minute): string {
+  const k = dayIndex(g.company.homeBase, t);
+  const at = publishDayOf(g, k);
+  return `the ${MONTH[monthOfDay(k) % 12]} roster ${at - 12 * 60 <= g.now ? 'came' : 'comes'} out on ${fmtDay(at)}`;
+}
+
+/**
+ * v0.18.1 how far ahead the planner works: the days off and the crew of every duty up to the end of the month it
+ * publishes next (from `lead` days before the 15th), never less than 14 days ahead. Pure.
+ */
+export function rosterHorizon(g: GameState): Minute {
+  const home = g.company.homeBase;
+  if (!R().monthly) return g.now + BAL.rosterHorizonDays * DAY;
+  const k = dayIndex(home, g.now);
+  const end = pubEndDay(home, k + R().publishLead);
+  return Math.max(g.now + BAL.rosterHorizonDays * DAY, midnight(home, end));
 }
 const firstPlanDay = (g: GameState, base: string): number => (g.dayPlan ? dayIndex(base, g.dayPlan.from) : Infinity);
 
@@ -74,7 +110,7 @@ function addOff(c: CrewMember, days: number[]): void {
   c.off = [...s].sort((a, b) => a - b);
 }
 
-function removeOff(c: CrewMember, days: number[]): void {
+export function removeOff(c: CrewMember, days: number[]): void {
   if (!c.off) return;
   const s = new Set(days);
   c.off = c.off.filter((k) => !s.has(k));
@@ -610,7 +646,7 @@ export function buyBackDays(g: GameState, c: CrewMember, base: Seg[], segs: Seg[
 const mergeSorted = (a: Seg[], b: Seg[]): Seg[] => [...a, ...b].sort((x, y) => x.start - y.start);
 
 /** Standby windows not started on days [a, b) (and the morning after) give way to days off. */
-function clearDays(g: GameState, c: CrewMember, a: number, b: number): void {
+export function clearDays(g: GameState, c: CrewMember, a: number, b: number): void {
   if (!c.standby) return;
   const from = midnight(c.base, a);
   const to = midnight(c.base, b) + R().off.morningFree;
@@ -622,7 +658,7 @@ function clearDays(g: GameState, c: CrewMember, a: number, b: number): void {
 
 // ---------- per-crew day facts ----------
 
-interface Busy {
+export interface Busy {
   /** Days a day off can't take (work touching it, or the 06:00 morning after). */
   hit: Set<number>;
   /** Days with duty or travel. */
@@ -631,7 +667,7 @@ interface Busy {
   sby: Set<number>;
 }
 
-function busyDays(c: CrewMember, segs: Seg[], from: number, to: number): Busy {
+export function busyDays(c: CrewMember, segs: Seg[], from: number, to: number): Busy {
   const hit = new Set<number>();
   const work = new Set<number>();
   const sby = new Set<number>();
@@ -670,7 +706,7 @@ function blockOn(c: CrewMember, k: number): BlockWhy | null {
   for (const x of c.blocks) if (x.from < b - 6 * 60 && x.to > a + 6 * 60) return x.why;
   return null;
 }
-const blockedOn = (c: CrewMember, k: number) => blockOn(c, k) !== null;
+export const blockedOn = (c: CrewMember, k: number) => blockOn(c, k) !== null;
 /** Leave, sickness and joining reset the work-day count; training is work. */
 const resets = (w: BlockWhy | null) => w === 'leave' || w === 'sick' || w === 'joining';
 
@@ -724,133 +760,9 @@ export function rosterStats(g: GameState): StatsRoster09 {
 // ---------- annual leave ----------
 
 /** Family-and-role groups a crew member belongs to. */
-const groupsOf = (c: CrewMember): string[] => c.ratings.map((f) => `${f}|${c.role}`);
+export const groupsOf = (c: CrewMember): string[] => c.ratings.map((f) => `${f}|${c.role}`);
 
-/**
- * v0.9 annual leave (§R.3.1): 28 days a year in quarter blocks weighted to the ACMI low season (10/4/4/10), pro rata in
- * a partial year, never inside the published roster. Each block starts where its family-and-role group has the fewest
- * on leave and the family the fewest departures, at most max(1, ⌈10 %⌉) of the group away on any day; days that do not
- * fit carry to the next quarter. Ties by hashUnit(crew id + year + quarter). Leave never moves by itself.
- */
-export function planLeave(g: GameState, year: number, crewIds?: string[]): number {
-  const L = R().leave;
-  const home = g.company.homeBase;
-  // Never inside the published roster (at a new game: the first 14 days it is about to publish).
-  const pub = Math.max(dayIndex(home, publishedTo(g)), dayIndex(home, g.now) + R().publishDays);
-  const y0 = fromUTC(year, 1, 1) / DAY;
-  const y1 = fromUTC(year + 1, 1, 1) / DAY;
-  if (pub >= y1) return 0;
-  const all = Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1));
-  // On leave per group and day, and group sizes.
-  const size = new Map<string, number>();
-  const load = new Map<string, Int16Array>();
-  const loadOf = (key: string) => load.get(key) ?? load.set(key, new Int16Array(y1 - y0 + 1)).get(key)!;
-  for (const c of all) {
-    if (c.notice) continue;
-    for (const key of groupsOf(c)) size.set(key, (size.get(key) ?? 0) + 1);
-    for (const b of c.blocks ?? []) {
-      if (b.why !== 'leave') continue;
-      for (const key of groupsOf(c)) {
-        const arr = loadOf(key);
-        for (let k = Math.max(y0, dayIndex(c.base, b.from)); k < Math.min(y1, dayIndex(c.base, b.to - 1) + 1); k++) arr[k - y0]++;
-      }
-    }
-  }
-  // Departures per family and day (the signed work the leave should avoid).
-  const reports = new Map<string, Int16Array>();
-  for (const f of Object.values(g.flights)) {
-    if (f.kind === 'deadhead' || f.status !== 'scheduled' || !f.aircraftId) continue;
-    const k = dayIndex(home, f.std);
-    if (k < y0 || k >= y1) continue;
-    const ac = g.fleet[f.aircraftId];
-    if (!ac) continue;
-    const fam = typeOf(ac.typeId).family;
-    const arr = reports.get(fam) ?? reports.set(fam, new Int16Array(y1 - y0 + 1)).get(fam)!;
-    arr[k - y0]++;
-  }
-  const want = new Set(crewIds ?? all.map((c) => c.id));
-  let planned = 0;
-  for (const c of all) {
-    if (!want.has(c.id) || c.notice || (c.leaveYear ?? 0) >= year) continue;
-    const joins = c.status === 'joining' ? dayIndex(c.base, c.blocks?.find((b) => b.why === 'joining')?.to ?? c.hired) + 1 : 0;
-    const first = Math.max(pub, y0, joins);
-    if (first >= y1) {
-      c.leaveYear = year;
-      continue;
-    }
-    const segs = segsOf(g, c);
-    const busy = busyDays(c, segs, first, y1);
-    // Round 5: a deployment tour keeps its crew at the station from its first duty to its last, so leave never lands
-    // between two of its duties (the daily re-check would split the tour and re-crew its later part).
-    // Rotations round: the whole rotation period (the duties known are not the last), so leave never starts inside a tour.
-    for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
-      if (!q.tour || q.status === 'broken') continue;
-      const dep = q.deploymentId ? g.deployments[q.deploymentId] : undefined;
-      const to = Math.max(q.end, Math.min(q.tour.to, dep?.end ?? q.tour.to));
-      if (to <= g.now) continue;
-      for (let k = Math.max(first, dayIndex(c.base, Math.min(q.start, q.tour.from))); k <= Math.min(y1 - 1, dayIndex(c.base, to - 1)); k++) busy.work.add(k);
-    }
-    const caps = groupsOf(c).map((key) => ({ arr: loadOf(key), cap: Math.max(1, Math.ceil(L.maxShare * (size.get(key) ?? 1))) }));
-    const rep = c.ratings.map((f) => reports.get(f));
-    const fits = (s: number, len: number): number => {
-      // Score: group load and departures; Infinity over the cap, on work already planned or another block.
-      let score = 0;
-      for (let k = s; k < s + len; k++) {
-        if (busy.work.has(k) || blockedOn(c, k)) return Infinity;
-        for (const { arr, cap } of caps) {
-          if (arr[k - y0] + 1 > cap) return Infinity;
-          score += arr[k - y0] * 10;
-        }
-        for (const r of rep) score += r ? r[k - y0] : 0;
-      }
-      return score;
-    };
-    const place = (lo: number, hi: number, len: number, q: number): boolean => {
-      let best = Infinity;
-      const ties: number[] = [];
-      for (let s = lo; s + len <= hi; s++) {
-        const v = fits(s, len);
-        if (v < best) {
-          best = v;
-          ties.length = 0;
-        }
-        if (v === best && v < Infinity) ties.push(s);
-      }
-      if (!ties.length) return false;
-      const s = ties[Math.floor(hashUnit(`${c.id}${year}${q}`) * ties.length)];
-      (c.blocks ??= []).push({ from: midnight(c.base, s), to: midnight(c.base, s + len), why: 'leave', annual: true });
-      for (const { arr } of caps) for (let k = s; k < s + len; k++) arr[k - y0]++;
-      removeOff(c, Array.from({ length: len }, (_, i) => s + i));
-      clearDays(g, c, s, s + len);
-      return true;
-    };
-    // Quarter blocks (shorter when the group is full, the rest carried on), then what is left anywhere in the year.
-    let carry = 0;
-    let total = 0;
-    for (let q = 0; q < 4; q++) {
-      const q0 = fromUTC(year, q * 3 + 1, 1) / DAY;
-      const q1 = fromUTC(year + (q === 3 ? 1 : 0), q === 3 ? 1 : q * 3 + 4, 1) / DAY;
-      const lo = Math.max(q0, first);
-      const target = Math.round((L.quarters[q] * Math.max(0, q1 - lo)) / (q1 - q0)) + carry;
-      carry = target;
-      if (target < 3) continue;
-      let days = target;
-      while (days >= 3 && !place(lo, q1, days, q)) days--;
-      if (days < 3) continue;
-      total += days;
-      carry = target - days;
-    }
-    for (let n = carry; n >= 3; n--) {
-      if (!place(first, y1, n, 4)) continue;
-      total += n;
-      break;
-    }
-    if (total) planned++;
-    c.leaveYear = year;
-  }
-  if (planned) touchCrewState(g);
-  return planned;
-}
+// v0.18.1 annual leave is asked for and approved by request (crew/leave.ts); the v0.9 planner of quarter blocks is gone.
 
 // ---------- days off ----------
 
@@ -892,7 +804,7 @@ export function planOffDays(g: GameState): void {
   const dp = g.dayPlan;
   if (!dp) return;
   const home = g.company.homeBase;
-  const last = dayIndex(home, g.now + BAL.rosterHorizonDays * DAY);
+  const last = dayIndex(home, rosterHorizon(g) - 1);
   const today = Math.max(dayIndex(home, dp.from), dayIndex(home, g.now));
   let D = Math.max(dayIndex(home, dp.planned ?? dp.from), today);
   const crew = Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1));
@@ -1286,8 +1198,13 @@ export function planStandby(g: GameState): void {
   const home = g.company.homeBase;
   const S = R();
   const today = dayIndex(home, g.now);
-  const lastPub = today + S.publishDays - 1;
+  // v0.18.1 the monthly roster: on the 15th the whole next month (before, the rest of this month).
+  const lastPub = pubEndDay(home, today) - 1;
+  const was = dp.publishedTo;
   dp.publishedTo = Math.max(dp.publishedTo, midnight(home, lastPub + 1));
+  if (dp.publishedTo > was && was > dp.from && monthOfDay(lastPub) > monthOfDay(today)) {
+    pushMessage(g, { tone: 'info', cat: 'crew', title: `${MONTH[monthOfDay(lastPub) % 12]} roster published`, body: `Crew can see their duties, days off and standby to ${fmtDay(midnight(home, lastPub) + 12 * 60)}. Changes from now on are late changes.` });
+  }
   const from = Math.max(today, dayIndex(home, dp.from));
   let facts: Map<number, DayFacts> | null = null;
   const factsOf = (X: number) => (facts ??= dayFactsAll(g, from, lastPub)).get(X)!;
@@ -1591,16 +1508,7 @@ export function dayPlanBefore(g: GameState): void {
   countYesterday(g);
   leaveAfterTours(g);
   for (const c of Object.values(g.crew)) if (c.off?.length && c.off[0] < dayIndex(c.base, g.now) - 40) c.off = c.off.filter((k) => k >= dayIndex(c.base, g.now) - 40);
-  const y = yearOf(g.now);
-  // New hires after 90 days' service; next year's leave from 1 December.
-  const due = Object.values(g.crew).filter((c) => (c.leaveYear ?? 0) < y && g.now - c.hired >= R().leave.afterServiceDays * DAY).map((c) => c.id);
-  if (due.length) planLeave(g, y, due);
-  if (monthKey(g.now) % 12 === 11) {
-    const next = Object.values(g.crew).filter((c) => (c.leaveYear ?? 0) < y + 1 && g.now - c.hired >= R().leave.afterServiceDays * DAY).map((c) => c.id);
-    if (next.length && planLeave(g, y + 1, next) > 1) {
-      pushMessage(g, { tone: 'info', cat: 'crew', title: `Annual leave for ${y + 1} is planned`, body: '28 days each, mostly in winter; at most 1 in 10 of a crew group away at once.' });
-    }
-  }
+  // v0.18.1 annual leave goes by request (crew/leave.ts dailyLeave, run before this by the crew module).
   planOffDays(g);
 }
 
@@ -1738,7 +1646,7 @@ export function dayPlanInit(g: GameState): void {
   const from = midnight(home, dayIndex(home, g.now));
   g.dayPlan = { from, publishedTo: from, planned: from };
   rosterStats(g);
-  planLeave(g, yearOf(g.now), Object.keys(g.crew));
+  // v0.18.1 no leave planned up front: crew ask for it (crew/leave.ts).
   planOffDays(g);
   planStandby(g);
 }
@@ -1750,17 +1658,22 @@ export function dayPlanInit(g: GameState): void {
 export function dayPlanLoad(g: GameState): void {
   if (g.dayPlan) {
     rosterStats(g);
+    // v0.18.1 a save from before the monthly roster: the month it should show is published now (days off first).
+    const home = g.company.homeBase;
+    if (g.dayPlan.publishedTo < midnight(home, pubEndDay(home, dayIndex(home, g.now)))) {
+      planOffDays(g);
+      planStandby(g);
+    }
     return;
   }
   const home = g.company.homeBase;
   const from = midnight(home, dayIndex(home, g.now + R().publishDays * DAY - 1) + 1);
   g.dayPlan = { from, publishedTo: from, planned: from };
   rosterStats(g);
-  planLeave(g, yearOf(g.now), Object.keys(g.crew).filter((id) => g.now - g.crew[id].hired >= R().leave.afterServiceDays * DAY || g.crew[id].hired <= g.started));
   const k = dayIndex(home, from);
   pushMessage(g, {
     tone: 'info', cat: 'crew', title: 'Roster planning changed',
-    body: `From ${fmtDay(k * DAY)}, days off are planned (8–10 a month, a 2-day block every week, 4 weeks' leave a year) and other free days are standby. The roster published up to ${fmtDay((k - 1) * DAY)} stays as it is.`,
+    body: `From ${fmtDay(k * DAY)}, days off are planned (8–10 a month, a 2-day block every week) and other free days are standby. The roster published up to ${fmtDay((k - 1) * DAY)} stays as it is.`,
   });
 }
 

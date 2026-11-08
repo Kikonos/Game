@@ -23,6 +23,10 @@ import { TPL_BY_ID } from '../../data/worldEvents';
 import { startEvent } from '../ops/world';
 import { breathe } from '../../test/breathe';
 import { slowTimeout } from '../../test/perf';
+import { rollingRoster } from '../../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 const ARCHETYPES: Archetype[] = ['seasonBase', 'aogCover', 'adhoc', 'sports', 'repatriation', 'tourSeries', 'troopRotation', 'vip'];
 

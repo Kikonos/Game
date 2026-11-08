@@ -1,6 +1,6 @@
 // Player actions on offers and contracts, and the contract lifecycle (B1). DESIGN.md §5.1.9.
 
-import { v09Stats } from '../crew/dayPlan';
+import { rosterHorizon, v09Stats } from '../crew/dayPlan';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { nextId, removeFlights } from '../core/entities';
@@ -582,7 +582,7 @@ export function contractProgress(g: GameState, contractId: string): ContractProg
   if (!c) return out;
   let next: { id: string; std: Minute } | null = null;
   let problem: { id: string; std: Minute } | null = null;
-  const horizon = g.now + BAL.rosterHorizonDays * DAY;
+  const horizon = rosterHorizon(g);
   for (const f of Object.values(g.flights)) {
     if (f.contractId !== c.id || f.status === 'cancelled') continue;
     // Legs flown are counted on the contract (done flights are pruned a week after landing).

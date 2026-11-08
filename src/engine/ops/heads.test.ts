@@ -28,6 +28,10 @@ import { onContractEnd } from '../contracts/accept';
 import { applyDecisionOption, reopenLatePayment } from './events';
 import { nextId } from '../core/entities';
 import { dailyFinance } from './finance';
+import { rollingRoster } from '../../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 /** Unlocked and hired (the senior candidate, or a given skill). */
 function hire(g: GameState, id: HeadId, skill?: number): void {

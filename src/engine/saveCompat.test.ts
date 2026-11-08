@@ -12,6 +12,10 @@ import { typeOf } from './core/perf';
 import { problems } from './ops';
 import { deserialize, serialize } from './save';
 import { bad, fixture, playTo } from './fixtures/compatKit';
+import { rollingRoster } from '../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 const raw = () => fixture('v052');
 const v06 = () => fixture('v06');

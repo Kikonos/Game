@@ -9,6 +9,10 @@ import { createGame } from './newGame';
 import { resolveDecision } from './ops';
 import { advanceTo } from './sim';
 import { breathe } from '../test/breathe';
+import { rollingRoster } from '../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 function play(g: GameState): void {
   for (const d of [...g.decisions]) resolveDecision(g, d.id, d.defaultOption);

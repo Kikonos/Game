@@ -16,6 +16,10 @@ import { segsOf, touchCrewState } from '../crew/timeline';
 import { problems } from '../problems';
 import { delayFlight } from './flights';
 import { turnOf } from './util';
+import { rollingRoster } from '../../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 describe('§Y.1 in-flight rest re-checked at departure', () => {
   it('a long delay after report breaks the rest plan: held at the gate, crew out of hours, never departs with it', () => {

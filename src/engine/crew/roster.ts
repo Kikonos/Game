@@ -15,7 +15,7 @@ import { deletePairing, dropGoneCrew, dutyLegality, noteCrewOkWhy, unboardGone, 
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './standby';
 import { applyBuyBack, buyBackFor, buyBackMode, undoBuyBack, type BuyBack } from './buyBack';
-import { dayIndex, dayLabel, fitStandby, midnight, monthFloorIssue, offDaysHit, offMovable, offSwappable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
+import { dayIndex, dayLabel, fitStandby, rosterHorizon, midnight, monthFloorIssue, offDaysHit, offMovable, offSwappable, takeOffDays, takesPublishedOff, v09Stats as v09StatsOf } from './dayPlan';
 import { infoOf } from './outOfHours';
 import { confirmAlarm } from './selfCheck';
 import { lateChange, moraleShock, nextReport } from './morale';
@@ -2014,7 +2014,7 @@ function splitTourGap(g: GameState, ctx: Ctx, p: Pairing, exclude?: Set<string>)
   const inP = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
   const end = open[open.length - 1].release;
   const pool = ctx.crew.filter((c) => !inP.has(c.id) && !exclude?.has(c.id) && c.ratings.includes(family) && roles.some((r) => canFill(r, c.role)));
-  const horizon = g.now + BAL.rosterHorizonDays * DAY;
+  const horizon = rosterHorizon(g);
   for (let k = 1; k < open.length; k++) {
     const d = open[k];
     if (d.report > horizon) return null;
@@ -2039,7 +2039,7 @@ function splitTourGap(g: GameState, ctx: Ctx, p: Pairing, exclude?: Set<string>)
 export function autoRoster(g: GameState, opts: { from?: Minute; to?: Minute; aircraftIds?: string[] } = {}): RosterResult {
   const res = emptyResult();
   const from = Math.max(opts.from ?? g.now, g.now);
-  const to = opts.to ?? g.now + BAL.rosterHorizonDays * DAY;
+  const to = opts.to ?? rosterHorizon(g);
   const acs = opts.aircraftIds ?? Object.keys(g.fleet);
   for (const id of acs) planAircraft(g, id, from);
   const sel = new Set(acs);
@@ -2054,7 +2054,7 @@ export function autoRoster(g: GameState, opts: { from?: Minute; to?: Minute; air
 
 // ---------- change sync ----------
 
-const inHorizon = (g: GameState, t: Minute) => t < g.now + BAL.rosterHorizonDays * DAY;
+const inHorizon = (g: GameState, t: Minute) => t < rosterHorizon(g);
 
 /**
  * Cheap re-sync after another module changed an aircraft's flights from t (retime, cancel, removal, reassign,

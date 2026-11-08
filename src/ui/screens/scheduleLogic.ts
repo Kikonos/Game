@@ -5,7 +5,7 @@ import { BAL } from '../../engine/core/balance';
 import { flightsOf } from '../../engine/core/entities';
 import { DAY, HOUR, dayStart, fmtDay, fmtTime } from '../../engine/core/time';
 import type { Flight, GameState, MaintenanceEvent, Minute, Ref } from '../../engine/core/types';
-import { crewRev, dutyLegality, flightCrewStatus } from '../../engine/crew';
+import { crewRev, dutyLegality, flightCrewStatus, rosterHorizon } from '../../engine/crew';
 import { flightType, type FlightType } from '../../engine/ops/flightType';
 import { dryLeaseView } from '../../engine/ops/dryLease';
 import { tourSight } from '../../engine/contracts/missions';
@@ -197,7 +197,7 @@ function crewFlag(g: GameState, f: Flight, horizon: Minute): GanttBlock['crew'] 
 
 /** Flights, maintenance, sub-chartered legs and idle gaps of one aircraft overlapping [from, to). */
 export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Minute, opts: { pills?: boolean; until?: Minute } = {}): GanttBlock[] {
-  const horizon = g.now + BAL.rosterHorizonDays * DAY;
+  const horizon = rosterHorizon(g);
   const out: GanttBlock[] = [];
   const busy: [Minute, Minute, string][] = [];
   const flights = flightsOf(g, aircraftId).filter(live);

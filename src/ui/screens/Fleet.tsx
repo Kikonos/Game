@@ -18,7 +18,7 @@ import { mapLivery } from '../map/mapLogic';
 import { AircraftArt } from '../components/AircraftArt';
 import { Why } from '../components/Why';
 import { restRows } from '../components/RestLines';
-import { Empty, Seg, Stepper, Toggle } from '../components/ui';
+import { Bar, Empty, Seg, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { spanLabel } from './screenLogic';
 import { store, useGame } from '../store';
@@ -150,10 +150,17 @@ function DryLeaseRow({ g, acId }: { g: GameState; acId: string }) {
   const v = dryLeaseOf(g, acId);
   if (!v) return null;
   const when = v.phase === 'signed' || v.phase === 'delivering' ? `delivery ${fmtDay(v.out[0])}, back ${fmtDayRel(v.lease[1], g.now)}` : `until ${fmtDayRel(v.lease[1], g.now)} · ${v.fhSoFar.toLocaleString('en-US')} FH flown by them`;
+  // v0.18.1 (player's report: the leased-out card looked empty) how far the lease has run, and what it brings in.
+  const run = Math.max(0, Math.min(1, (g.now - v.lease[0]) / Math.max(1, v.lease[1] - v.lease[0])));
+  const on = v.phase === 'leased' || v.phase === 'returning';
   return (
-    <button className="fl-row small v8-fleet-lease" onClick={() => store.openModal({ kind: 'sheet', refs: [{ kind: 'contract', id: v.contractId }] })}>
+    <button className="fl-row small v8-fleet-lease fl-dry" onClick={() => store.openModal({ kind: 'sheet', refs: [{ kind: 'contract', id: v.contractId }] })}>
       <span className="upper dim">Dry lease</span>
-      <span className="col grow" style={{ minWidth: 0 }}><span>to {v.lessee} · {when}</span><span className="dim">{v.cCheck}</span></span>
+      <span className="col grow gap-4" style={{ minWidth: 0 }}>
+        <span>to {v.lessee} · {when}</span>
+        {on && <span className="fl-dry-run"><Bar value={run} size="thin" /><span className="tiny dim nowrap">{fmtDay(v.lease[0])} – {fmtDay(v.lease[1])}</span></span>}
+        <span className="dim">{money(v.rent)}/month to us{v.reservesPerFH ? ` + ${money(v.reservesPerFH)}/FH reserves` : ''} · {v.cCheck}</span>
+      </span>
     </button>
   );
 }
@@ -241,18 +248,23 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
       {ac.sale && (
         <div className="fl-row small fl-sale"><span className="upper dim">Sold</span><span className="grow">to {ac.sale.buyer} for {money(ac.sale.price)} · handover {fmtDay(ac.sale.closes)}</span><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'sell', aircraftId: ac.id })}>Sale…</button></div>
       )}
-      <div className="row gap-8 fl-actions">
-        <button className="btn grow" onClick={() => store.navigate('schedule', { sel: { kind: 'aircraft', id: ac.id } })}><CalendarRange /> Schedule</button>
-        <button className="btn grow" onClick={() => store.navigate('map', { sel: { kind: 'aircraft', id: ac.id } })}><Plane /> On map</button>
+      {/* v0.18.1 (player's report: "Return early barely fits the box") where to look in one even row; what to do with the
+          aircraft (sell, hand back early, borrow against it, sell and lease back) in a second one. */}
+      <div className="fl-actions fl-nav">
+        <button className="btn" onClick={() => store.navigate('schedule', { sel: { kind: 'aircraft', id: ac.id } })}><CalendarRange /> Schedule</button>
+        <button className="btn" onClick={() => store.navigate('map', { sel: { kind: 'aircraft', id: ac.id } })}><Plane /> On map</button>
         {/* v0.18 the aircraft spec sheet (ui/specs). */}
         <SpecsLink subject={{ kind: 'aircraft', id: ac.id }} className="fl-specs" />
-        {/* v0.7.2 §6: sell what we own; hand a lease back early (90+ days left). */}
-        {o.kind === 'owned' && !ac.sale && ac.status !== 'delivering' && <button className={`btn grow ${fleetLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'sell', aircraftId: ac.id })} {...lockedProps(fleetLock)}><BadgeDollarSign /> Sell…</button>}
-        {/* v0.17.2 also with a return booked (at the lease end or early), until its check starts. */}
-        {o.kind === 'dryLeaseIn' && !returnInWork(g, ac) && ac.status !== 'delivering' && (ac.returning?.wasEnd ?? o.leaseEnd) - g.now >= 90 * DAY && <button className={`btn grow ${fleetLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'lease', aircraftId: ac.id, tab: 'early' })} {...lockedProps(fleetLock)}><Undo2 /> Return early…</button>}
       </div>
-      {/* v0.16 borrow against it, sell and lease back (ui/screens/fleet/FinanceButtons.tsx). */}
-      <FinanceButtons g={g} ac={ac} />
+      {/* v0.16 borrow against it, sell and lease back (ui/screens/fleet/FinanceButtons.tsx), with the sale or early return. */}
+      <FinanceButtons g={g} ac={ac} lead={
+        // v0.7.2 §6: sell what we own; hand a lease back early (90+ days left). v0.17.2 also with a return booked, until its check starts.
+        o.kind === 'owned' && !ac.sale && ac.status !== 'delivering'
+          ? <button className={`btn ${fleetLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'sell', aircraftId: ac.id })} {...lockedProps(fleetLock)}><BadgeDollarSign /> Sell…</button>
+          : o.kind === 'dryLeaseIn' && !returnInWork(g, ac) && ac.status !== 'delivering' && (ac.returning?.wasEnd ?? o.leaseEnd) - g.now >= 90 * DAY
+            ? <button className={`btn ${fleetLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'lease', aircraftId: ac.id, tab: 'early' })} {...lockedProps(fleetLock)}><Undo2 /> Return early…</button>
+            : null
+      } />
       {/* v0.15 a scenario's fixed fleet: the buttons stay, disabled, with the reason. */}
       <LockNote why={fleetLock} className="mt-8" />
     </div>

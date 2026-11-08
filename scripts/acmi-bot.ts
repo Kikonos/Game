@@ -2840,6 +2840,9 @@ console.log(
       `roster: days off/crew-month ${avg.toFixed(1)} (min 7, <7: ${r.monthsLow} of ${r.months}) · leave ${(r.leaveDays / Math.max(1, months.length)).toFixed(1)} · standby ${pct(sby, all)}% of days (home ${pct(r.sbyHome, all)} · hotel ${pct(r.sbyHotel, all)} · airport ${pct(r.asby, all)} · reserve ${pct(r.res, all)}) · ` +
         `standby share of free days ${pct(sby, free)}% · call-outs ${r.callOuts} (crew fixes ${fixes}) · max recovery gap ${r.maxRecGapH} h · offBroken ${r.offBroken} · moved ${r.offMoved ?? 0} · swapped ${r.offSwaps ?? 0} · bought back ${r.offBought ?? 0} (${Math.round((r.offBoughtPaid ?? 0) / 1000)}k) · crew-days home/hotel/airport/reserve ${r.sbyHome}/${r.sbyHotel}/${r.asby}/${r.res} · years <96: ${r.yearsLow ?? 0} of ${r.years ?? 0}`,
     );
+    // v0.18.1 annual leave by request.
+    const lv = g.stats.leave;
+    if (lv) console.log(`leave requests: asked ${lv.asked} · approved ${lv.approved} · declined ${lv.declined} (peak ${lv.peak}, share ${lv.share}, by you ${lv.byYou}) · withdrawn ${lv.withdrawn} · leave days a crew-year ${((12 * r.leaveDays) / Math.max(1, months.length)).toFixed(1)}`);
     // v0.9 fix: how evenly flying is shared (last closed month, per family and role, crew on the books all month).
     const lastMk = monthKey(g.now) - 1;
     const mid = fromUTC(Math.floor(lastMk / 12), (lastMk % 12) + 1, 15);

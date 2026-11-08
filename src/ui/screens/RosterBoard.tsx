@@ -761,7 +761,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
     const as = slot && cm && slot.role !== cm.role ? `\nSeat: ${seatLabel(slot.role, cm.role)}` : '';
     const tk = b.kind === 'deadhead' && b.flightIds?.[0] ? g.flights[b.flightIds[0]] : undefined;
     const pass = tk && cm && tk.kind === 'deadhead' && !tk.charter ? { ticketId: tk.id, crewId: cm.id } : undefined;
-    setPop({ x: toCss(e.clientX), y: toCss(e.clientY), key: k, pass, title: b.kind === 'training' || b.kind === 'leave' || b.kind === 'rest' ? b.label : b.label === 'Free' ? 'Not rostered yet' : CAL_KEY_LABEL[k], detail: b.detail + as });
+    setPop({ x: toCss(e.clientX), y: toCss(e.clientY), key: k, pass, title: b.kind === 'training' || b.kind === 'leave' || b.kind === 'rest' ? b.label : b.label === 'Free' ? 'Roster not out yet' : CAL_KEY_LABEL[k], detail: b.detail + as });
   };
 
   const families = useMemo(() => [...new Set(Object.values(g.crew).flatMap((c) => c.ratings))].sort() as RatingFamily[], [g, nCrew, crev]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -894,7 +894,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
           { swatch: <span className="rb-pub-sw" aria-hidden />, label: 'Thin line: end of the published roster' },
           { swatch: 'ring-amber', label: 'Amber ring: legal but tight (one delay breaks it)' },
           { swatch: 'ring-red', label: 'Red ring: cannot legally fly as rostered' },
-          { swatch: 'idle', label: 'Faint hatch: not rostered yet (beyond 14 days)' },
+          { swatch: 'idle', label: 'Faint hatch: not rostered yet (the roster for each month comes out on the 15th before)' },
           { swatch: <span className="rb-mark"><BedDouble aria-hidden />3P</span>, label: '3P / 4P: an augmented crew, resting in turns in flight' },
           { swatch: <span className="rb-mark">+1h</span>, label: '+1h: a planned extension (at most twice a week each)' },
           { swatch: <span className="rb-mark">SPLIT</span>, label: 'SPLIT: a split duty, a long wait on the ground adds to the day' },

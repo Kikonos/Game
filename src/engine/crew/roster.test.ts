@@ -15,6 +15,10 @@ import { recheckSoon } from './roster';
 import { TOUR_TAIL } from './duties';
 import { canFill, seatLabel } from '../core/perf';
 import { perfBudgetFactor, slowTimeout } from '../../test/perf';
+import { rollingRoster } from '../../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 const scheduled = (g: GameState) => Object.values(g.flights).filter((f) => f.aircraftId && f.status === 'scheduled');
 const crewedDuties = (g: GameState): Duty[] => Object.values(g.duties).filter((d) => g.pairings[d.pairingId]?.slots.some((s) => s.crewId));

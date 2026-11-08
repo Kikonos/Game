@@ -1,0 +1,102 @@
+/* v0.18.1 Crew › Leave (screens/CrewLeave.tsx), the trip's layover line, the Ladder spacing and the fleet card actions. */
+
+/* ---------- Crew › Leave ---------- */
+.lv { display: grid; grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); gap: 16px; align-items: start; }
+.lv-main, .lv-side { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.lv .card { padding: 16px 18px; display: flex; flex-direction: column; gap: 12px; }
+.lv-head { display: flex; align-items: center; gap: 10px; }
+.lv-head h3 { font-size: 15px; font-weight: 600; }
+.lv-head .sub { margin-left: auto; }
+.lv-head .sc-ico { width: 18px; height: 18px; color: var(--accent); }
+.lv-count { margin-left: 6px; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: var(--bg, #0b1220); font-size: 11px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; }
+
+.lv-rules { display: flex; flex-direction: column; gap: 12px; }
+.lv-rule { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.lv-k { font-size: 13px; color: var(--text-2); }
+.lv-mchips { display: grid; grid-template-columns: repeat(12, 26px); gap: 4px; }
+.lv-mchip { height: 30px; border-radius: 8px; border: 1px solid rgba(var(--line-rgb), 0.3); background: transparent; color: var(--text-2); font-size: 12px; font-weight: 600; cursor: pointer; padding: 0; }
+.lv-mchip.on { background: rgba(var(--warn-rgb, 240, 166, 64), 0.18); border-color: rgba(var(--warn-rgb, 240, 166, 64), 0.6); color: var(--warn); }
+
+.lv-req { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(0, 1.4fr) auto; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid rgba(var(--line-rgb), 0.16); }
+.lv-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left; background: none; border: 0; color: inherit; padding: 0; cursor: pointer; }
+.lv-when { display: flex; flex-direction: column; gap: 2px; }
+.lv-verdict { line-height: 1.3; }
+.lv-verdict.good { color: var(--good); }
+.lv-verdict.warn { color: var(--warn); }
+.lv-verdict.bad { color: var(--bad); }
+.lv-act { display: flex; gap: 8px; }
+.lv-act .btn { white-space: nowrap; }
+.lv-empty { padding: 4px 0 2px; }
+.lv-decided summary { cursor: pointer; padding: 6px 0; }
+.lv-done-list { display: flex; flex-direction: column; }
+.lv-done { display: grid; grid-template-columns: 90px minmax(0, 1fr) auto minmax(0, 1.2fr); gap: 10px; align-items: center; padding: 7px 0; border-top: 1px solid rgba(var(--line-rgb), 0.12); }
+.lv-done .badge { justify-self: start; }
+
+.lv-table { display: flex; flex-direction: column; }
+.lv-tr { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1.3fr) 54px 44px; gap: 10px; align-items: center; padding: 7px 0; border-top: 1px solid rgba(var(--line-rgb), 0.12); }
+.lv-th { border-top: 0; padding-top: 0; }
+.lv-tr .num { text-align: right; }
+.lv-use { display: grid; grid-template-columns: minmax(0, 1fr) 34px; gap: 6px; align-items: center; }
+.lv-use .tiny { text-align: right; }
+.lv-sub { margin-top: 4px; }
+.lv-heat { display: grid; grid-template-columns: minmax(0, 1.3fr) repeat(6, minmax(0, 1fr)); gap: 4px; align-items: center; }
+.lv-hm { text-align: center; }
+.lv-cell { height: 26px; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 11px; color: var(--text-2);
+  background: rgba(155, 126, 232, calc(0.08 + var(--v, 0) * 0.5)); }
+.lv-cell.over { outline: 1.5px solid var(--warn); outline-offset: -1.5px; color: var(--text); }
+
+@media (max-width: 1000px) {
+  .lv { grid-template-columns: minmax(0, 1fr); }
+}
+/* the iPhone on its side: requests stack (who and when over the verdict and the buttons) */
+@media (max-height: 499.98px) {
+  .lv { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  .lv .card { padding: 12px 14px; }
+  .lv-req { grid-template-columns: minmax(0, 1fr) auto; row-gap: 6px; }
+  .lv-when { grid-column: 1; }
+  .lv-act { grid-column: 2; grid-row: 1 / span 2; align-self: center; }
+  .lv-done { grid-template-columns: 84px minmax(0, 1fr) auto; }
+  .lv-done > :last-child { display: none; }
+}
+
+/* ---------- person sheet: the layover between two parts of a trip ---------- */
+.ps-layover { display: flex; align-items: center; gap: 10px; margin: -2px 0; padding: 9px 14px; border-radius: 12px;
+  border: 1px dashed rgba(var(--line-rgb), 0.38); background: rgba(70, 182, 166, 0.08); }
+.ps-layover svg { width: 18px; height: 18px; flex-shrink: 0; color: #46b6a6; }
+.ps-layover b { font-weight: 650; }
+.ps-duty .bp-list { margin-top: 10px; }
+
+/* ---------- Company › the Ladder: room between the rungs, three calm parts per card ---------- */
+.ld-grid { column-gap: 30px; row-gap: 0; }
+.ld-rung { gap: 14px; }
+.ld-head { min-height: 46px; gap: 3px; padding: 0 2px; }
+.ld-head b { line-height: 1.25; }
+.ld-node { gap: 10px; min-height: 0; padding: 14px 14px 12px; border-radius: 14px; }
+.ld-top { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; width: 100%; }
+.ld-name { font-size: 14.5px; font-weight: 620; line-height: 1.25; }
+.ld-need { display: flex; flex-direction: column; gap: 6px; width: 100%; padding-top: 10px; border-top: 1px solid rgba(var(--line-rgb), 0.16); }
+.ld-need .ld-req { line-height: 1.35; color: var(--text-2); }
+.ld-need .ld-req.muted { color: var(--text-3); }
+.ld-need .bar { width: 100%; }
+.ld-foot { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: auto; }
+.ld-types { gap: 5px; margin-top: 0; }
+.ld-type { font-size: 11.5px; padding: 2px 7px; }
+.ld-lines path { stroke-width: 1.4; }
+@media (max-width: 1099.98px), (max-height: 499.98px) {
+  .ld-grid { grid-template-columns: repeat(5, minmax(184px, 1fr)); column-gap: 26px; padding-bottom: 6px; scroll-snap-type: x proximity; }
+  .ld-rung { scroll-snap-align: start; }
+}
+
+/* ---------- Fleet › aircraft card: two even rows of actions; cards keep their own height ---------- */
+/* Two columns that fill down (no card stretched to its neighbour's height, no hole beside a short one). */
+@media (min-width: 1100px) and (min-height: 500px) {
+  .sc-ac-grid { display: block; column-count: 2; column-gap: 14px; }
+  .sc-ac-grid > .sc-ac { break-inside: avoid; margin-bottom: 14px; }
+}
+.fl-actions.fl-nav, .fl-actions.fl-money { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fl-actions.fl-money { margin-top: 0; }
+.fl-actions.fl-nav .btn, .fl-actions.fl-money .btn { width: 100%; min-width: 0; justify-content: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 10px; padding-right: 10px; }
+.fl-actions .fl-specs { width: 100%; }
+.fl-dry .bar { flex: 1 1 auto; }
+.fl-dry-run { display: flex; align-items: center; gap: 10px; }
+.ps-legrow > span:not(:last-child) { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }

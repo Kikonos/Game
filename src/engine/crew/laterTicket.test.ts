@@ -15,6 +15,10 @@ import { openDuties, planCrew } from './check';
 import { placeCrew, recheckPairing } from './roster';
 import { rootReason } from './reasons';
 import { segsOf, touchCrew } from './timeline';
+import { rollingRoster } from '../../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 const contractOf = (r: ReturnType<typeof acceptOffer>) => (r.ok ? r.data!.contractId : '');
 

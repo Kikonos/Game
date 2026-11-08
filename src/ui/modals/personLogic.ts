@@ -18,7 +18,7 @@ export const SPAN_KINDS: ReadonlySet<DayKind> = new Set(['trip', 'leave', 'sick'
 
 export const DAY_KIND_LABEL: Record<DayKind, string> = {
   trip: 'Flying', leave: 'Annual leave', sick: 'Sick', training: 'Training', joining: 'Joining', off: 'Day off at home', offAway: 'Day off away (hotel)',
-  sby: 'Home standby', sbyHotel: 'Hotel standby', asby: 'Airport standby', res: 'Reserve', rest: 'Rest', free: 'Not rostered yet', none: 'No record kept',
+  sby: 'Home standby', sbyHotel: 'Hotel standby', asby: 'Airport standby', res: 'Reserve', rest: 'Rest', free: 'Roster not out yet', none: 'No record kept',
 };
 
 export interface DayCell {

@@ -12,6 +12,10 @@ import { deserialize, serialize } from './save';
 import { advanceTo } from './sim';
 import { bad, fixture, playTo } from './fixtures/compatKit';
 import { breathe } from '../test/breathe';
+import { rollingRoster } from '../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 // v0.7.3 (UPDATE-0.7.3.md §2.1, §9): a real v0.7.2 save (made by the v0.7.2 code: bot seed 3 --wide, 240 days, plus
 // three A330-300s with rest seats / nothing / bunks and an augmented LIS–GRU duty each two days out) loads with the
