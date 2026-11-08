@@ -742,3 +742,6 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
   - a Convert button on Utilisation surplus rows, proposing smart dates and as few classes as possible through re-crewed duties;
   - person calendar: positioning in its own colour, layover length on every night-stop, the truncated deadhead row.
   Screenshots in /home/user/work/v0183/.
+- v0.19 "Scheduled routes" workflow wf_3f1b4897-9f4 (Opus, high). Script /root/.claude/projects/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/workflows/scripts/v019-scheduled-routes-wf_3f1b4897-9f4.js.
+  - Steps: research → design + skeleton (docs/UPDATE-0.19.md) → lanes engine / ops / ui → merge after /home/user/work/v0183/READY → balance → review → /home/user/work/v019/READY.
+  - NO release without the player's go. After a restart: resumeFromRunId wf_3f1b4897-9f4.
