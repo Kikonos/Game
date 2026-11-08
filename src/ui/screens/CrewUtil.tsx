@@ -8,11 +8,12 @@ import type { RatingFamily } from '../../data/acmiTypes';
 import type { GameState, Role } from '../../engine/core/types';
 import { fmtDay } from '../../engine/core/time';
 import {
-  crewRev, crewUtilisation, makeRedundant, offerUnpaidLeave, redundancyQuote, REDUNDANCY, roleWords, unpaidQuote, UNPAID, UTIL_TYPICAL, type UtilSurplus,
+  convertWhyNot, crewRev, crewUtilisation, makeRedundant, offerUnpaidLeave, redundancyQuote, REDUNDANCY, roleWords, unpaidQuote, UNPAID, UTIL_TYPICAL, type UtilSurplus,
 } from '../../engine/crew';
 import { Seg, Stepper } from '../components/ui';
 import { RankMark } from '../components/RankMark';
 import { store } from '../store';
+import { lockOf } from '../../engine/scenario';
 
 const ROLE_PLURAL: Record<Role, string> = { CPT: 'Captains', FO: 'First officers', PUR: 'Pursers', CC: 'Cabin crew' };
 const k = (v: number) => (v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(2)}M` : `$${Math.round(v / 1000)}K`);
@@ -35,6 +36,8 @@ function SurplusRow({ g, s }: { g: GameState; s: UtilSurplus }) {
           <button className={`btn btn-sm ${act === 'unpaid' ? 'btn-on' : ''}`} onClick={() => setAct(act === 'unpaid' ? 'none' : 'unpaid')} aria-pressed={act === 'unpaid'}>Unpaid leave</button>
           <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'distress', id: 'furlough' })}>Furlough</button>
           <button className={`btn btn-sm ${act === 'redundant' ? 'btn-on' : ''}`} onClick={() => setAct(act === 'redundant' ? 'none' : 'redundant')} aria-pressed={act === 'redundant'}>Redundancy</button>
+          {/* v0.18.3 convert them to a type that needs crew (the conversion dialog with proposals). */}
+          <button className="btn btn-sm" disabled={!!convertWhyNot(g, fam, s.role) || !!lockOf(g, 'training')} title={convertWhyNot(g, fam, s.role) ?? lockOf(g, 'training') ?? 'Train them on a type that needs crew'} onClick={() => store.openModal({ kind: 'convert', crewIds: [], advice: { from: fam, role: s.role, n: s.n } })}>Convert</button>
         </span>
       </div>
       {uq && (

@@ -80,3 +80,20 @@
   .ops-all { max-height: calc(var(--app-h, 100vh) - 90px); }
   .ops-more, .ops-all-btn { min-height: 44px; min-width: 44px; }
 }
+
+/* ---- Convert proposals (modals/ConvertModal.tsx, opened from Crew › Utilisation › Convert) ---- */
+.cv-adv { display: flex; flex-direction: column; gap: 8px; padding-bottom: 14px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+.cv-adv-targets { display: flex; flex-wrap: wrap; gap: 6px; }
+.cv-adv-t, .cv-adv-o {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-height: 44px; padding: 7px 12px; text-align: left;
+  border-radius: 12px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text); min-width: 0;
+}
+.cv-adv-t { flex: 1 1 220px; }
+.cv-adv-t.short b::after { content: ''; display: inline-block; width: 7px; height: 7px; margin-left: 6px; border-radius: 50%; background: var(--warn); vertical-align: middle; }
+.cv-adv-t.on, .cv-adv-o.on { border-color: var(--accent); background: rgba(var(--accent-rgb), 0.08); }
+.cv-adv-opts { display: flex; flex-direction: column; gap: 6px; }
+.cv-adv-o { width: 100%; }
+.cv-adv-o > .row { width: 100%; flex-wrap: wrap; }
+.cv-adv-sw { line-height: 1.35; }
+@media (hover: hover) { .cv-adv-t:hover, .cv-adv-o:hover { background: var(--panel-hover); } }
+.touch .cv-adv-t:active, .touch .cv-adv-o:active { background: var(--panel-hover); }

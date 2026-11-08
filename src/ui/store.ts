@@ -176,7 +176,7 @@ export type ModalSpec =
   /** v0.5.1 livery editor: the company livery or one aircraft's (Company · All white · Custom). */
   | { kind: 'livery'; target: 'company' | { aircraftId: string } }
   /** v0.6: bulk type-rating conversion for the selected crew; the classes list (cancel per class / member). */
-  | { kind: 'convert'; crewIds: string[]; family?: RatingFamily; onBooked?: () => void }
+  | { kind: 'convert'; crewIds: string[]; family?: RatingFamily; onBooked?: () => void; advice?: { from: RatingFamily; role: Role; n: number } }
   | { kind: 'classes' }
   /** v0.7: sign a market offer; cabin refit; lease extend/return; an approval on the ladder; the ladder-step celebration. */
   | { kind: 'acquire'; offerId: string }
