@@ -1,6 +1,6 @@
 // Player actions on offers and contracts, and the contract lifecycle (B1). DESIGN.md §5.1.9.
 
-import { clearForJob } from '../network/conflicts';
+import { netHooks } from '../core/netHooks';
 import type { RouteChoice } from '../network/types';
 import { rosterHorizon, v09Stats } from '../crew/dayPlan';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -138,7 +138,7 @@ export function acceptOffer(g: GameState, offerId: string, aircraftIds: string[]
     for (const id of ids) {
       const prog = programmeOf(o, g.fleet[id].typeId, ids.indexOf(id));
       if (!prog.trips.length) continue;
-      const err = clearForJob(g, id, prog.trips[0].std - 2 * DAY, prog.trips[prog.trips.length - 1].sta + 2 * DAY, opts.routeChoices ?? {});
+      const err = netHooks.clearForJob ? netHooks.clearForJob(g, id, prog.trips[0].std - 2 * DAY, prog.trips[prog.trips.length - 1].sta + 2 * DAY, opts.routeChoices ?? {}) : null;
       if (err) return { ok: false, error: `${g.fleet[id].reg}: ${err}` };
     }
   }

@@ -30,7 +30,7 @@ import { productValue, tourBizPct, tripTickets } from './pricing';
 import { v08Lines } from './missionChecks';
 import { dryFeasibility } from '../ops/dryLease';
 import { closedAirport, closedUntil } from '../ops/world';
-import { routeConflicts } from '../network/conflicts';
+import { netHooks } from '../core/netHooks';
 import { checkAirportOk } from '../ops/maintenance';
 import { emptyDay } from './schedule';
 import { curfewOk } from '../core/curfew';
@@ -168,7 +168,7 @@ function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme)
   const day = emptyDay(g, ac.id);
   // v0.19 our own scheduled rotations in the job's window are choices, not blockers (§H.2): signing swaps,
   // sub-charters, moves or cancels them, so the job is planned as if they were not there.
-  const routeRots = new Set(prog.trips.length ? routeConflicts(g, ac.id, prog.trips[0].std - 2 * DAY, prog.trips[prog.trips.length - 1].sta + 2 * DAY).map((c) => c.rotId) : []);
+  const routeRots = new Set(prog.trips.length && g.network && netHooks.conflicts ? netHooks.conflicts(g, ac.id, prog.trips[0].std - 2 * DAY, prog.trips[prog.trips.length - 1].sta + 2 * DAY).map((c) => c.rotId) : []);
   const anchors = anchorsOf(g, ac.id).filter((a) => !(a.kind === 'flight' && routeRots.size && routeRots.has(g.flights[a.id]?.sched?.rotId ?? '')));
   const conflicts: Anchor[] = [];
   for (const a of anchors) {
