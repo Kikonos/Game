@@ -7,7 +7,7 @@
 import { BAL } from '../core/balance';
 import { cancelFlight, flightsOf, removeFlights, retimeFlight, subcharterFlights, touchFlights, touchStatus, touchTickets } from '../core/entities';
 import { invoice, post } from '../core/ledger';
-import { ROUTE_COST_CATS, routeLegCost } from '../network/costs';
+import { ROUTE_COST_CATS, routeCancelLoss, routeLegCost } from '../network/costs';
 import { pushMessage } from '../core/messages';
 import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
@@ -564,6 +564,11 @@ export function windowLegs(g: GameState, ac: Aircraft, at: string, readyAt: Minu
 export function cancelCost(g: GameState, legs: Flight[]): number {
   let s = 0;
   for (const f of legs) {
+    // v0.19 a route sector cancelled on the day: refunds and EU261 (network/costs.ts), not a contract penalty.
+    if (f.sched) {
+      s += routeCancelLoss(g, f);
+      continue;
+    }
     const c = contractOf(g, f);
     if (c && isRevenue(f)) s += c.penalties.perCancelledLeg;
   }
@@ -591,7 +596,8 @@ export function cancelLegs(g: GameState, legs: Flight[], reason: string, repPerL
     cancelForceMajeure(g, live, `Cancelled: ${fmCause.title}`);
     return 0;
   }
-  const pen = agreed ? 0 : cancelCost(g, live);
+  // v0.19 route sectors pay their passengers in the network module (refunds, EU261), not here.
+  const pen = agreed ? 0 : cancelCost(g, live.filter((f) => !f.sched));
   if (!agreed) noteLostLegs(g, live);
   let rev = 0;
   const empty: string[] = [];
@@ -623,6 +629,12 @@ export function subcharterCost(g: GameState, legs: Flight[], factor: number): nu
     if (!isRevenue(f)) continue;
     const c = contractOf(g, f);
     const bh = f.block / 60;
+    // v0.19 our own route sector: the rival's wet rate and the fuel it now pays.
+    if (f.sched) {
+      const t = typeOf(f.aircraftId && g.fleet[f.aircraftId] ? g.fleet[f.aircraftId].typeId : 'b763');
+      s += (t.rateBH * 1.15 + t.fuelTBH * g.market.fuelPrice) * bh * factor;
+      continue;
+    }
     if (c?.product.kind === 'wet') s += c.product.ratePerBH * bh * factor;
     else if (c?.product.kind === 'charter') s += (c.product.price * f.block * factor) / Math.max(f.block, c.planRevMin ?? f.block * 4);
     else s += typeOf(f.aircraftId && g.fleet[f.aircraftId] ? g.fleet[f.aircraftId].typeId : 'a320ceo').rateBH * bh * factor;
