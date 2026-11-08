@@ -115,7 +115,6 @@ export function convertTargets(g: GameState, from: RatingFamily, role: Role): Co
   const booked = (f: RatingFamily) => conversionClasses(g).filter((k) => k.family === f).reduce((n, k) => n + k.crewIds.filter((id) => g.crew[id]?.role === role).length, 0);
   const gaps = peakForecast(g).gaps.filter((x) => x.role === role);
   const out: ConvertTarget[] = [];
-  const pilot = isPilot(role);
   // A sample person of the rank for the course type (CCQ keeps the old rating).
   const sample = { ratings: [from] } as Pick<CrewMember, 'ratings'>;
   for (const f of families()) {
