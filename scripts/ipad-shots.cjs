@@ -563,8 +563,8 @@ async function touchDrag(page, p, end) {
 const convertIds = (page) => page.evaluate(() => {
   const g = window.__contrail.game;
   const crew = Object.values(g.crew).filter((c) => !c.notice && c.status !== 'joining' && c.status !== 'training');
-  const pil = crew.filter((c) => ['CPT', 'FO', 'CRP'].includes(c.role)).slice(0, 12);
-  const cab = crew.filter((c) => !['CPT', 'FO', 'CRP'].includes(c.role)).slice(0, 21);
+  const pil = crew.filter((c) => ['CPT', 'FO'].includes(c.role)).slice(0, 12);
+  const cab = crew.filter((c) => !['CPT', 'FO'].includes(c.role)).slice(0, 21);
   return [...pil, ...cab].map((c) => c.id);
 });
 

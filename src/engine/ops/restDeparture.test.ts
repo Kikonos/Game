@@ -212,7 +212,7 @@ describe('§Y.1 re-checked with the actual off-block time (round 4)', () => {
     expect(call.available, call.why).toBe(true);
     expect(call.preview.changes.filter((c) => /comes off \(out of hours\)/.test(c))).toHaveLength(cabinN);
     expect(call.preview.after.level).toBe('ok');
-    const pilots = p.slots.filter((s) => s.role === 'CPT' || s.role === 'FO' || s.role === 'CRP').map((s) => s.crewId);
+    const pilots = p.slots.filter((s) => s.role === 'CPT' || s.role === 'FO').map((s) => s.crewId);
     const r = applyCrewFix(g, fid, 'callIn');
     expect(r.ok, r.ok ? '' : r.error).toBe(true);
     // The replaced seats start a fresh day now (their own report); the pilots keep theirs; the marks are gone.

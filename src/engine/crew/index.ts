@@ -64,9 +64,9 @@ export {
   type ApplyOpts, type CrewControlView, type CrewSolution, type FixOption, type FixPreview, type JetQuote, type Reason, type ReasonCode, type SeatNeed,
 } from './control';
 import { closureTicketsOnLoad, escalateShortages } from './control';
-import { migrateRanks } from './migrate';
+import { migrateRanks, migrateRelief } from './migrate';
 import { payBuyBack } from './buyBack';
-export { migrateRanks } from './migrate';
+export { migrateRanks, migrateRelief } from './migrate';
 // v0.7.2 (UPDATE-0.7.2.md §12).
 export { crewAway, type CrewAway } from './away';
 export { crewSeatsBlocked, restClassAt, restSeatsBlocked, sellableSeats } from './crewRest';
@@ -270,7 +270,7 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
     noteRotation(c, seg.at || d.restAt, seg.start, seg.end);
     c.fatigue = Math.min(100, c.fatigue + Math.round(d.fdp / 60));
     if (d.restAt === c.base) c.awaySince = null;
-    if (c.role === 'CPT' && (s.role === 'FO' || s.role === 'CRP')) captainAsFo(g, c, d.report);
+    if (c.role === 'CPT' && s.role === 'FO') captainAsFo(g, c, d.report);
   }
   d.done = true;
   // v0.7.3 ORO.FTL.205(f)(5): discretion over 1 h is reported to the authority within 28 days (one message).
@@ -716,6 +716,8 @@ export const crewModule: SimModule = {
   load(g) {
     // v0.7.2: CSD/SCC → PUR before anything reads roles.
     migrateRanks(g);
+    // v0.18.3: cruise relief pilots → first officers (augmented crews are captains and first officers in pairs).
+    migrateRelief(g);
     g.classes ??= {};
     // v0.12.1 pilots who lost the A320 on an A330 conversion before the CCQ get it back (both kept now).
     restoreCcqRatings(g);

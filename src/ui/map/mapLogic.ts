@@ -645,7 +645,7 @@ export function restChip(r: AcRest): string | null {
 }
 
 const WHERE: Record<RestKind, string> = { fcrc: 'bunk', ccrc: 'bunk', ldmcr: 'lower deck', jSeats: 'business seat', recliners: 'recliner', ySeats: 'economy seat' };
-const PILOT_NAME = /^(Capt\.|FO|CRP)\b/;
+const PILOT_NAME = /^(Capt\.|FO)\b/;
 
 /**
  * The one calm airborne line from `restNow` rows: 'Resting: Capt. Silva (bunk) until 14:20 UTC'; several rows

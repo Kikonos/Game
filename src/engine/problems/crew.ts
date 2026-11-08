@@ -141,7 +141,7 @@ export function captainAsFoCard(g: GameState, flightId: string): ProblemCard | n
   const d = f?.dutyId ? g.duties[f.dutyId] : undefined;
   const p = d ? g.pairings[d.pairingId] : undefined;
   if (!f || !d || !p || d.done) return null;
-  const slot = p.slots.find((s) => s.crewId && (s.role === 'FO' || s.role === 'CRP') && g.crew[s.crewId]?.role === 'CPT');
+  const slot = p.slots.find((s) => s.crewId && s.role === 'FO' && g.crew[s.crewId]?.role === 'CPT');
   const c = slot ? g.crew[slot.crewId!] : undefined;
   if (!c) return null;
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
@@ -230,7 +230,7 @@ function bunkAircraft(g: GameState, acId: string): string | null {
 }
 
 /** A trip's cost of one more crew member (a day's pay, per diem and a hotel night), est. */
-const extraCrewCost = (g: GameState, role: 'CRP' | 'CC', days: number) =>
+const extraCrewCost = (g: GameState, role: 'FO' | 'CC', days: number) =>
   Math.round(((BAL.salary[role]?.[1] ?? 3_000) / 21) * days + (BAL.perDiem[role] ?? 60) * days + (BAL.hotelPerNight[g.company.policies.hotelTier] ?? 140) * Math.max(1, days - 1));
 
 /** A duty flies with 4 pilots only because the aircraft's rest is seats, not bunks (3 pilots in bunks would do). Pure. */
@@ -249,7 +249,7 @@ export function restFacilityCard(g: GameState, flightId: string): ProblemCard | 
   const plan = restPlan(g, d.id);
   const blocked = plan ? Math.max(0, ...Object.values(plan.blocked)) : 0;
   const days = Math.max(1, Math.ceil((d.release - d.report) / 1440) + 1);
-  const cost = extraCrewCost(g, 'CRP', days);
+  const cost = extraCrewCost(g, 'FO', days);
   const what = `${f.no} ${x.route} needs a 4th pilot.`;
   return {
     subject: { kind: 'restFacility', ref: { kind: 'flight', id: f.id } }, severity: 'amber',

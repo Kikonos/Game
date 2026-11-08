@@ -104,7 +104,7 @@ const wideFamily = (f: RatingFamily) => ACMI_TYPES_LIST.some((t) => t.family ===
 /** The most days a hire of this role and family takes to join today (the quote's jitter at its top). Pure. */
 export function hireLeadDays(g: GameState, family: RatingFamily, role: Role): number {
   if (!isPilot(role)) return Math.ceil(BAL.v072.cabinHire.days * 1.2);
-  const base = ((wideFamily(family) ? BAL.hireDaysWide : BAL.hireDays)[role === 'CRP' ? 'FO' : role] ?? 45);
+  const base = ((wideFamily(family) ? BAL.hireDaysWide : BAL.hireDays)[role] ?? 45);
   const left = ratedMarket(g, family, role)?.left ?? 1;
   return Math.ceil(base * (left > 0 ? 1 : BAL.ratedPool.daysMult) * 1.2);
 }
@@ -114,7 +114,7 @@ export const warnDays = (g: GameState, family: RatingFamily, role: Role): number
   Math.max(PEAK.minLeadDays, hireLeadDays(g, family, role) + PEAK.spareDays);
 
 type RoleDays = Record<Role, number>;
-const zero = (): RoleDays => ({ CPT: 0, FO: 0, CRP: 0, PUR: 0, CC: 0 });
+const zero = (): RoleDays => ({ CPT: 0, FO: 0, PUR: 0, CC: 0 });
 
 /** Days of [a, b) inside [from, to). */
 const overlapDays = (a: Minute, b: Minute, from: Minute, to: Minute) => Math.max(0, Math.min(b, to) - Math.max(a, from)) / DAY;
@@ -157,7 +157,7 @@ function crewFor(g: GameState, ac: Aircraft, w: Work): RoleDays {
   const x = crewExtraFor(g, ac.id, k?.id ?? null);
   let seats = seatsFor(ac.typeId, ac.cabin.total, x, Math.min(k?.requirements.extraCabin ?? 0, x.cabin), { augment: w.augment, pilotsOnly });
   if (!pilotsOnly) seats = dropClientSeats(seats, k?.requirements.clientCabin);
-  for (const s of seats) out[s.role === 'CRP' ? 'FO' : s.role]++;
+  for (const s of seats) out[s.role]++;
   return out;
 }
 
@@ -268,7 +268,7 @@ export function crewDays(g: GameState, from: Minute, to: Minute): Map<RatingFami
     // On notice: counted where they fly until their last day, once (the first type they hold in the fleet). v0.11.2
     // fix: everyone counted once, as staffing() (pilots on two types were counted in both families).
     const fams = c.notice ? c.ratings.filter((f) => fleet.has(f)).slice(0, 1) : homeOf.get(c.id) ?? [];
-    const role: Role = c.role === 'CRP' ? 'FO' : c.role;
+    const role: Role = c.role;
     const joins = c.status === 'joining' ? c.hired : -Infinity;
     for (const f of fams) if (fleet.has(f)) famOf(f)[role] += supplyDays(g, c, f, from, to, joins);
     const k = onto.get(c.id);
@@ -352,8 +352,8 @@ function forecastNow(g: GameState): PeakForecast {
 
 // ---------- words ----------
 
-const ROLE_ONE: Record<Role, string> = { CPT: 'captain', FO: 'first officer', CRP: 'relief pilot', PUR: 'purser', CC: 'cabin crew' };
-const ROLE_MANY: Record<Role, string> = { CPT: 'captains', FO: 'first officers', CRP: 'relief pilots', PUR: 'pursers', CC: 'cabin crew' };
+const ROLE_ONE: Record<Role, string> = { CPT: 'captain', FO: 'first officer', PUR: 'purser', CC: 'cabin crew' };
+const ROLE_MANY: Record<Role, string> = { CPT: 'captains', FO: 'first officers', PUR: 'pursers', CC: 'cabin crew' };
 export const roleCount = (n: number, r: Role) => `${n} ${n === 1 ? ROLE_ONE[r] : ROLE_MANY[r]}`;
 
 /** '3 cabin crew (about 1 set)' / '1 captain'. */

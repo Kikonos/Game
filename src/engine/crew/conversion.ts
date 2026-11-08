@@ -170,7 +170,7 @@ function after(c: CrewMember, family: RatingFamily, course: Course, drop: Rating
   return [...kept, family];
 }
 
-const ROLE_PL: Record<Role, string> = { CPT: 'captains', FO: 'first officers', CRP: 'relief pilots', PUR: 'pursers', CC: 'cabin crew' };
+const ROLE_PL: Record<Role, string> = { CPT: 'captains', FO: 'first officers', PUR: 'pursers', CC: 'cabin crew' };
 
 /** Splits a pool into ceil(n/max) balanced classes, dealt round-robin from the given order. */
 function deal<T>(xs: T[], max: number): T[][] {
@@ -185,7 +185,7 @@ function ordered(g: GameState, ids: string[], group: Group): string[] {
   const by = (r: Role[]) => ids.filter((id) => r.includes(g.crew[id].role));
   if (group === 'cabin') return [...by(['PUR']), ...by(['CC'])];
   const cpt = by(['CPT']);
-  const fo = by(['FO', 'CRP']);
+  const fo = by(['FO']);
   const out: string[] = [];
   for (let i = 0; i < Math.max(cpt.length, fo.length); i++) {
     if (i < cpt.length) out.push(cpt[i]);

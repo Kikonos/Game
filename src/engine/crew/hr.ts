@@ -33,8 +33,8 @@ export interface HireRequest {
   families?: RatingFamily[];
 }
 
-const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
-const ROLE_NAME: Record<Role, string> = { CPT: 'captain', FO: 'first officer', CRP: 'relief pilot', PUR: 'purser', CC: 'cabin crew' };
+const ROLES: Role[] = ['CPT', 'FO', 'PUR', 'CC'];
+const ROLE_NAME: Record<Role, string> = { CPT: 'captain', FO: 'first officer', PUR: 'purser', CC: 'cabin crew' };
 
 export interface RatedMarket {
   /** Rated pilots of this family and rank on the market every 30 days, and how many are left now. */
@@ -45,7 +45,7 @@ export interface RatedMarket {
 }
 
 const wideFamily = (f: RatingFamily) => ACMI_TYPES_LIST.some((t) => t.family === f && t.body === 'wide');
-const poolKey = (family: RatingFamily, role: Role) => `${family}:${role === 'CRP' ? 'FO' : role}`;
+const poolKey = (family: RatingFamily, role: Role) => `${family}:${role}`;
 
 /** The market for type-rated pilots (null for cabin crew: plentiful). Pure. */
 export function ratedMarket(g: GameState, family: RatingFamily, role: Role): RatedMarket | null {
@@ -279,7 +279,7 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
   const x = extra ?? { cabin: g.company.policies.extraCabin, pilot: 0 };
   // v0.12.1 with the relief pilots of augmented work (was two pilots a set whatever the days: an augmented 747 base
   // at Jeddah read 'Crew OK' on half its captains).
-  const per = withRelief(countRoles(rolesWithExtra(typeId, seats, x).map((r) => (r === 'CRP' ? 'FO' : r))), augment);
+  const per = withRelief(countRoles(rolesWithExtra(typeId, seats, x)), augment);
   const need = sizing(per, programmeBH / Math.max(1, days / 30.44));
   // v0.9 round 4 §W: a crew change at a fuel stop puts a second crew in the air at once: one whole set more per slip.
   if (extraSets > 0) for (const r of ROLES) if (per[r]) need[r] = (need[r] ?? 0) + per[r]! * extraSets;
@@ -337,7 +337,7 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
       bhMonth = blk / 60 / Math.max(1, (k.end - k.start) / DAY / 30.44);
     }
     const kx = crewExtraFor(g, ac[0].id, k.id);
-    const kPer = withRelief(countRoles(rolesWithExtra(ac[0].typeId, ac[0].cabin.total, kx, k.requirements.extraCabin).map((r) => (r === 'CRP' ? 'FO' : r))), contractAug(g, memo).get(k.id) ?? 0);
+    const kPer = withRelief(countRoles(rolesWithExtra(ac[0].typeId, ac[0].cabin.total, kx, k.requirements.extraCabin)), contractAug(g, memo).get(k.id) ?? 0);
     const kNeed = sizing(kPer, bhMonth);
     if (k.pattern.kind === 'base') {
       // v0.12.1 a base holds at least the sets it stations (duties.ts: sized on its programme; its pattern until the
@@ -369,7 +369,7 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
   const minAvail: Partial<Record<Role, number>> = {};
   let firstShort: Minute | null = null;
   for (let d = 0; d < days; d++) {
-    // Spill seniors down: FO → CRP, PUR → CC (captains never spill into FO seats: hire FOs).
+    // Spill seniors down: PUR → CC (captains never spill into FO seats: hire FOs).
     const left: Record<Role, number> = Object.fromEntries(ROLES.map((r) => [r, supply[r][d] - held[r][d]])) as Record<Role, number>;
     const spill = (fromR: Role, toR: Role) => {
       const surplus = left[fromR] - (need[fromR] ?? 0);
@@ -379,7 +379,6 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
         left[toR] += m;
       }
     };
-    spill('FO', 'CRP');
     spill('PUR', 'CC');
     for (const r of ROLES) {
       const n = need[r];
@@ -450,7 +449,7 @@ export function staffingAssign(g: GameState): { lines: StaffingLine[]; homeOf: M
     for (const r of ROLES) {
       const v = Math.ceil((f.need[r] ?? 0) - 1e-9);
       if (!v) continue;
-      const role: Role = r === 'CRP' ? 'FO' : r;
+      const role: Role = r;
       need[role] = (need[role] ?? 0) + v;
     }
     fams.set(family, need);
@@ -470,7 +469,7 @@ export function staffingAssign(g: GameState): { lines: StaffingLine[]; homeOf: M
   }
   const off = new Map<string, { leaving: number; converting: number }>();
   for (const c of Object.values(g.crew)) {
-    const role: Role = c.role === 'CRP' ? 'FO' : c.role;
+    const role: Role = c.role;
     for (const f of c.ratings) {
       const key = `${f}:${role}`;
       const x = off.get(key) ?? { leaving: 0, converting: 0 };
@@ -480,12 +479,7 @@ export function staffingAssign(g: GameState): { lines: StaffingLine[]; homeOf: M
       off.set(key, x);
     }
   }
-  const sup = (f: RatingFamily, r: Role) => {
-    const x = cells.get(`${f}:${r}`) ?? { have: 0, shared: 0 };
-    if (r !== 'FO') return x;
-    const y = cells.get(`${f}:CRP`) ?? { have: 0, shared: 0 };
-    return { have: x.have + y.have, shared: x.shared + y.shared };
-  };
+  const sup = (f: RatingFamily, r: Role) => cells.get(`${f}:${r}`) ?? { have: 0, shared: 0 };
   const out: StaffingLine[] = [];
   for (const [family, need] of fams) {
     for (const r of ROLES) {

@@ -45,7 +45,7 @@ function agree(g: GameState) {
       if (l) expect(l.have, `${p.family} ${r}`).toBe(have(r));
     }
     const fo = staffing(g).find((x) => x.family === p.family && x.role === 'FO');
-    if (fo) expect(fo.have, `${p.family} FO`).toBe(have('FO') + have('CRP'));
+    if (fo) expect(fo.have, `${p.family} FO`).toBe(have('FO'));
   }
 }
 
@@ -93,13 +93,13 @@ describe('sets review: 777 + 787 with pilots on both (common type rating)', () =
   });
 });
 
-describe('sets review: relief pilots on the books (augmented 777)', () => {
-  it('Hire view counts the relief pilots in the first officers line, whose need holds their seats (was "FO 5 of 8")', () => {
+describe('sets review: third pilots on the books (augmented 777)', () => {
+  it('v0.18.3 the third pilot of a 3-pilot day is a first officer: Planning and Hire count one FO line (was "FO 5 of 8")', () => {
     const g = fleetOf('b772');
     augmented(g, Object.keys(g.fleet)[0], 1);
-    addCrew(g, { CPT: 5, FO: 5, CRP: 3, PUR: 5, CC: 35 }, 'B777');
+    addCrew(g, { CPT: 5, FO: 8, PUR: 5, CC: 35 }, 'B777');
     expect(plan(g, 'B777')).toMatchObject({ setsComplete: 5, verdict: 'Complete' });
-    expect(row(g, 'B777', 'CRP')).toMatchObject({ have: 3, need: 3, balance: 0 });
+    expect(row(g, 'B777', 'FO')).toMatchObject({ have: 8, need: 8, balance: 0 });
     expect(line(g, 'B777', 'FO')).toMatchObject({ have: 8, need: 8 });
     agree(g);
   });
@@ -271,7 +271,7 @@ describe('v0.12.1 relief pilots of a base signed ahead', () => {
     if (!g.company.approvals.includes('augmented')) g.company.approvals.push('augmented');
     const pilots = () => {
       const n = familyNeeds(g).get('B747')!.need;
-      return (n.CPT ?? 0) + (n.FO ?? 0) + (n.CRP ?? 0);
+      return (n.CPT ?? 0) + (n.FO ?? 0);
     };
     const before = pilots();
     const start = g.now + 40 * DAY;

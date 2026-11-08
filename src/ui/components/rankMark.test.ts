@@ -4,7 +4,7 @@ import { RANK_BAR, RANK_STRIPES, stripeXs, wingFeathers } from './RankMark';
 
 describe('rank marks', () => {
   it('gives captains four stripes, first officers three, cabin crew none', () => {
-    expect(RANK_STRIPES).toMatchObject({ CPT: 4, FO: 3, CRP: 2, PUR: 0, CC: 0 });
+    expect(RANK_STRIPES).toMatchObject({ CPT: 4, FO: 3, PUR: 0, CC: 0 });
     expect(stripeXs(4)).toHaveLength(4);
     for (const x of stripeXs(4)) expect(x).toBeGreaterThan(8);
   });

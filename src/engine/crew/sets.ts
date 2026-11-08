@@ -16,7 +16,7 @@ import { farBase, patternSets, reserveCarrier, reserveRoles } from './farBase';
 import { payFor } from './generate';
 import { hireQuote, type HireRequest } from './hr';
 
-export const SET_ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
+export const SET_ROLES: Role[] = ['CPT', 'FO', 'PUR', 'CC'];
 
 /**
  * v0.9 the Planning view's one line on why 5 sets per aircraft still holds with v0.9 rostering (UPDATE-0.9.md §R.7):
@@ -350,11 +350,12 @@ export function familyNeeds(g: GameState) {
       if (per[r]) f.full[r] = (f.full[r] ?? 0) + per[r]! * sets;
       f.client += (theirs[r] ?? 0) * sets;
     }
-    // Long days flown with 3 or 4 pilots: relief pilots (or a second captain and first officer) for that share of the sets.
+    // Long days flown with 3 or 4 pilots: a third pilot (a first officer) or a second captain and first officer for
+    // that share of the sets (v0.18.3: augmented crews are captains and first officers flying in pairs).
     const a = augOf(g, ac.id);
     if (a.level) {
       const extra = Math.ceil(sets * a.share - 1e-9);
-      const roles: Role[] = a.level === 1 ? ['CRP'] : ['CPT', 'FO'];
+      const roles: Role[] = a.level === 1 ? ['FO'] : ['CPT', 'FO'];
       for (const r of roles) {
         f.need[r] = (f.need[r] ?? 0) + extra;
         f.full[r] = (f.full[r] ?? 0) + extra;
@@ -385,8 +386,8 @@ export function familyNeeds(g: GameState) {
  */
 export interface Backup { family: RatingFamily; label: string; cabin: number; pilots: number; spill?: true }
 
-/** Senior roles that fill a junior role's seats in the sets (first officers relief pilot seats, pursers cabin crew seats). */
-const SENIOR: Partial<Record<Role, Role>> = { CRP: 'FO', CC: 'PUR' };
+/** Senior roles that fill a junior role's seats in the sets (pursers cabin crew seats; captains are not planned as FO). */
+const SENIOR: Partial<Record<Role, Role>> = { CC: 'PUR' };
 
 /** The family each person is counted in (crew/hr.ts staffing() and the peak forecast use the same). */
 export type CrewHomes = Map<string, RatingFamily>;
@@ -498,8 +499,8 @@ export function leftover(perSet: Partial<Record<Role, number>>, have: Partial<Re
   const left = {} as Record<Role, number>;
   const moved: Partial<Record<Role, number>> = {};
   for (const r of SET_ROLES) left[r] = (have[r] ?? 0) - want(r);
-  // FO → relief pilot, purser → cabin crew.
-  for (const [from, to] of [['FO', 'CRP'], ['PUR', 'CC']] as const) {
+  // Purser → cabin crew.
+  for (const [from, to] of [['PUR', 'CC']] as const) {
     if (left[to] < 0 && left[from] > 0) {
       const m = Math.min(left[from], -left[to]);
       left[from] -= m;
@@ -561,7 +562,7 @@ export function crewPlan(g: GameState): FamilyPlan[] {
       // v0.11.2 fix: a junior role whose seats spare seniors fill is not short for them (was: 'short 2' cabin crew on a
       // complete card with 2 spare pursers).
       const inSeats = moved[r] ?? 0;
-      const lent = r === 'FO' ? moved.CRP ?? 0 : r === 'PUR' ? moved.CC ?? 0 : 0;
+      const lent = r === 'PUR' ? moved.CC ?? 0 : 0;
       roles.push({ role: r, perSet: perSet[r] ?? 0, need, have: x.have, joining: x.joining, away: x.away, shared: x.shared, balance: short ? -short : x.have + inSeats - need, covered: inSeats || lent, perSetAll: perAll[r] ?? perSet[r] ?? 0 });
     }
     // The role that runs out first (the fewest whole sets with the seniors filling its seats). v0.11.2 fix: was each

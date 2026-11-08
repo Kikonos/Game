@@ -14,7 +14,7 @@ import { Seg, Stepper } from '../components/ui';
 import { RankMark } from '../components/RankMark';
 import { store } from '../store';
 
-const ROLE_PLURAL: Record<Role, string> = { CPT: 'Captains', FO: 'First officers', CRP: 'Relief pilots', PUR: 'Pursers', CC: 'Cabin crew' };
+const ROLE_PLURAL: Record<Role, string> = { CPT: 'Captains', FO: 'First officers', PUR: 'Pursers', CC: 'Cabin crew' };
 const k = (v: number) => (v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(2)}M` : `$${Math.round(v / 1000)}K`);
 const h = (v: number) => `${Math.round(v)} h`;
 
@@ -65,7 +65,7 @@ export function UtilisationView({ g }: { g: GameState }) {
   const u = useMemo(() => crewUtilisation(g), [g, rev, day, Object.keys(g.crew).length]);
   const [all, setAll] = useState(false);
   const [who, setWho] = useState<'pilots' | 'cabin'>('pilots');
-  const pilot = (r: Role) => r === 'CPT' || r === 'FO' || r === 'CRP';
+  const pilot = (r: Role) => r === 'CPT' || r === 'FO';
   const people = u.people.filter((p) => g.crew[p.id]?.status !== 'joining' && (who === 'pilots' ? pilot(p.role) : !pilot(p.role))).sort((a, b) => a.d28 - b.d28 || a.name.localeCompare(b.name));
   const shown = all ? people : people.slice(0, 12);
   const groups = u.groups.filter((x) => x.idle > 0 || x.n >= 3);

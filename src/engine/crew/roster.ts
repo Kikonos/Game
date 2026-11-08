@@ -39,7 +39,7 @@ export interface RosterResult {
 
 export const emptyResult = (): RosterResult => ({ assigned: 0, uncovered: [], deadheads: 0, cost: 0 });
 
-const SLOT_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
+const SLOT_ORDER: Role[] = ['CPT', 'FO', 'PUR', 'CC'];
 
 /** On wet leases the client buys crew tickets and hotels (RESEARCH §2.2). */
 export function clientPaysCrewTravel(g: GameState, p: Pairing | undefined): boolean {
@@ -1630,7 +1630,7 @@ function previousCrew(g: GameState, p: Pairing): Set<string> {
 }
 
 /** v0.7.2 a captain in an FO or relief-pilot seat (the auto-roster's last resort). */
-const asFo = (slot: Role, role: Role) => role === 'CPT' && (slot === 'FO' || slot === 'CRP');
+const asFo = (slot: Role, role: Role) => role === 'CPT' && slot === 'FO';
 
 /** Fills a pairing's empty slots with the best-scoring legal crew (DESIGN §5.3 steps 1–4, 6). */
 /**
@@ -1739,7 +1739,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   }
   pool.sort((a, b) => b.score - a.score || a.rank - b.rank);
   // Per slot, candidates in score order: the same-role stream merged lazily with the overqualified one (−50).
-  // v0.7.2: captains for an FO/CRP seat form a third stream, used only once the other two are exhausted.
+  // v0.7.2: captains for an FO seat form a third stream, used only once the other two are exhausted.
   // A crew member's plan does not depend on the slot, so one refused is not re-planned for the next slot.
   const refused = new Set<string>();
   const skip = (x: (typeof pool)[number]) => inP.has(x.c.id) || refused.has(x.c.id);

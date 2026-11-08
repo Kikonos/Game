@@ -19,7 +19,7 @@ import { planSentence, setsWhyLines } from './crewPlanLogic';
 import { lockOf } from '../../engine/scenario';
 import { LockNote } from '../components/Locked';
 
-const ROLE_WORD: Record<string, string> = { CPT: 'Captains', FO: 'First officers', CRP: 'Relief pilots', PUR: 'Pursers', CC: 'Cabin crew' };
+const ROLE_WORD: Record<string, string> = { CPT: 'Captains', FO: 'First officers', PUR: 'Pursers', CC: 'Cabin crew' };
 
 /**
  * Crew types held with no aircraft of them flying (converted ahead, or left over): idle but paid. `leased`: every
@@ -129,8 +129,7 @@ function FamilyCard({ p, lock }: { p: FamilyPlan; lock?: string | null }) {
 /** v0.11.2 seniors in junior seats: 'with 2 PUR' on the cabin crew row, '2 in CC seats' on the pursers' row. */
 function coverWords(r: { role: string; covered: number }): string {
   if (r.role === 'CC') return ` with ${r.covered} PUR`;
-  if (r.role === 'CRP') return ` with ${r.covered} FO`;
-  return ` ${r.covered} in ${r.role === 'PUR' ? 'CC' : 'CRP'} seats`;
+  return ` ${r.covered} in CC seats`;
 }
 
 /** '3 cabin crew' / '2 pilots and 3 cabin crew'. */

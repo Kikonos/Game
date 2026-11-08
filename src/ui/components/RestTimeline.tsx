@@ -10,7 +10,7 @@ import type { GameState } from '../../engine/core/types';
 import { restWhere, type RestPlan, type RestTurn } from '../../engine/crew';
 
 const hm = (m: number) => `${Math.floor(Math.max(0, m) / 60)}:${String(Math.round(Math.max(0, m) % 60)).padStart(2, '0')}`;
-const SEAT_WORD: Record<string, string> = { CPT: 'CPT', FO: 'FO', CRP: 'CRP', CPT2: 'CPT 2', FO2: 'FO 2' };
+const SEAT_WORD: Record<string, string> = { CPT: 'CPT', FO: 'FO', CPT2: 'CPT 2', FO2: 'FO 2' };
 
 export interface RestLegBar { id: string; no: string; from: string; to: string; std: number; sta: number; x0: number; x1: number; c0: number; c1: number; /** Crew bug round: nobody rests on this leg. */ noRest: boolean }
 export interface RestRow {

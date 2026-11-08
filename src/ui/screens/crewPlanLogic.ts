@@ -17,7 +17,7 @@ export function fleetShort(f: RatingFamily, typeIds: string[] = []): string {
 }
 
 const ROLE_WORDS: Record<Role, [string, string]> = {
-  CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], CRP: ['relief pilot', 'relief pilots'], PUR: ['purser', 'pursers'], CC: ['cabin crew', 'cabin crew'],
+  CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], PUR: ['purser', 'pursers'], CC: ['cabin crew', 'cabin crew'],
 };
 /** '6 cabin crew', '1 captain', '2 first officers'. */
 export const roleCount = (role: Role, n: number) => `${n} ${ROLE_WORDS[role][n === 1 ? 0 : 1]}`;

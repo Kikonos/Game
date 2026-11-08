@@ -171,7 +171,7 @@ function Picker({ g, v, pick, setPick, back }: { g: GameState; v: DutyCrewView; 
           <Candidate key={c.crewId} c={c} seat={pick.role} confirm={confirm === c.crewId} swapWith={!!holder && c.codes.includes('overlap') && !!overlapDuty(g, v, c.crewId)} onTap={() => tap(c)} />
         ))}
       </div>
-      {/* v0.7.2 §2: captains for an FO/CRP seat in their own group, after the FOs (pay stays; morale dips past twice a month). */}
+      {/* v0.7.2 §2: captains for an FO seat in their own group, after the FOs (pay stays; morale dips past twice a month). */}
       {shown.some((c) => c.asFo) && (
         <div className="col">
           <div className="upper dim sc-asfo-head"><Term id="asFo">Captain flying as {pick.role}</Term> <span className="tiny muted">same pay · morale dips past twice a month</span></div>

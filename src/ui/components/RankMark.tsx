@@ -10,7 +10,7 @@ import type { Role } from '../../engine/core/types';
 import { ROLE_LABEL } from '../screens/screenLogic';
 
 /** Gold stripes on a pilot's epaulette (0 for cabin crew). */
-export const RANK_STRIPES: Record<Role, number> = { CPT: 4, FO: 3, CRP: 2, PUR: 0, CC: 0 };
+export const RANK_STRIPES: Record<Role, number> = { CPT: 4, FO: 3, PUR: 0, CC: 0 };
 
 /** v0.14 every stripe and feather is one bar of this weight (viewBox units, 1 = 1 px at the default size). */
 export const RANK_BAR = 1.8;

@@ -155,7 +155,7 @@ describe('performance and fit', () => {
   it('builds crew complements', () => {
     expect(cabinMinimum('a320ceo', 180)).toBe(4);
     expect(complement('a320ceo', 180)).toEqual(['CPT', 'FO', 'PUR', 'CC', 'CC', 'CC']);
-    expect(complement('b763', 267, { augment: 1, extraCabin: 1 })).toEqual(['CPT', 'FO', 'CRP', 'PUR', 'CC', 'CC', 'CC', 'CC', 'CC', 'CC']);
+    expect(complement('b763', 267, { augment: 1, extraCabin: 1 })).toEqual(['CPT', 'FO', 'FO', 'PUR', 'CC', 'CC', 'CC', 'CC', 'CC', 'CC']);
     expect(complement('a35u', 161).slice(0, 3)).toEqual(['CPT', 'FO', 'PUR']);
     expect(complement('a388', 471).filter((r) => r === 'PUR')).toEqual(['PUR', 'PUR']);
     expect(complement('a35u', 161, { augment: 2 }).slice(0, 4)).toEqual(['CPT', 'CPT', 'FO', 'FO']);

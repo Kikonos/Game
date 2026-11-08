@@ -57,19 +57,19 @@ export const BAL = {
    * widebody (below a widebody FO, above a narrowbody one). B757/767 pilots keep widebody pay while a 767 is in the fleet.
    */
   salary: {
-    CPT: [9_400, 13_000], FO: [5_300, 7_500], CRP: [4_300, 5_500], PUR: [2_700, 2_700], CC: [2_000, 2_000],
+    CPT: [9_400, 13_000], FO: [5_300, 7_500], PUR: [2_700, 2_700], CC: [2_000, 2_000],
   } as Record<string, [number, number]>,
   /** Employer on-costs on salaries (RESEARCH §5.5: +10–35%; v0.5.1 mid-range, was 0.2). */
   onCosts: 0.25,
   /** Per diem per day away by role (USD; RESEARCH §5.3: CPT €100, FO €70, cabin €50), scaled by policies.perDiemPct. */
-  perDiem: { CPT: 108, FO: 76, CRP: 76, PUR: 60, CC: 54 } as Record<string, number>,
+  perDiem: { CPT: 108, FO: 76, PUR: 60, CC: 54 } as Record<string, number>,
   hotelPerNight: { 3: 90, 4: 140, 5: 230 } as Record<number, number>,
   /** Positioning ticket by distance: < 1,500 km, < 4,000 km, beyond. */
   deadheadTicket: [250, 600, 1_300],
   /** Days from order to joining (rated crew), and cost per hire. v0.7.2: cabin crew join in about a week. */
-  hireDays: { CPT: 60, FO: 45, CRP: 45, PUR: 7, CC: 7 } as Record<string, number>,
+  hireDays: { CPT: 60, FO: 45, PUR: 7, CC: 7 } as Record<string, number>,
   /** Rated widebody crew come off the market faster (long-haul operators shedding staff), days. */
-  hireDaysWide: { CPT: 40, FO: 35, CRP: 35, PUR: 7, CC: 7 } as Record<string, number>,
+  hireDaysWide: { CPT: 40, FO: 35, PUR: 7, CC: 7 } as Record<string, number>,
   hireCost: { pilot: 9_000, cabin: 2_000 },
   /**
    * v0.6 rated pilots on the market per family every 30 days (RESEARCH §5.4: rated captains are scarce). Hires beyond
