@@ -142,7 +142,8 @@ function onArr(g: GameState, ev: SimEvent): void {
 function settleNetwork(g: GameState): void {
   if (!g.network) return;
   for (const r of Object.values(g.network.routes)) {
-    if (r.status !== 'onSale' && r.status !== 'operating') continue;
+    // A closed or suspended route can still have a rotation half flown (its return still to come).
+    if (r.status === 'study' || r.status === 'case' || r.status === 'launching') continue;
     for (const rot of r.rotations) {
       if (rot.status !== 'flights') continue;
       const id = rot.sectors[0].flightId;

@@ -402,6 +402,8 @@ export function quoteCancelRotation(g: GameState, rotId: string): CancelQuote {
   const { rot } = at;
   if (rot.status !== 'planned' && rot.status !== 'flights') return { ok: false, why: 'It has flown or been cancelled.', cost: 0, refunds: 0, pax: 0 };
   if (rot.sectors.some((s) => s.flightId && g.flights[s.flightId]?.status === 'enroute')) return { ok: false, why: 'It is in the air.', cost: 0, refunds: 0, pax: 0 };
+  // Half flown: the aircraft and its passengers are away; the rest flies home as planned.
+  if (rot.sectors.some((s) => s.accrued || (s.flightId && g.flights[s.flightId]?.status === 'done'))) return { ok: false, why: 'Its first flight has left: the rest flies as planned.', cost: 0, refunds: 0, pax: 0 };
   const pax = bookedOf(rot);
   const band = noticeBand(g, rot.dep);
   const P = BAL.v019.pax.change;
