@@ -735,7 +735,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   const farSets = far ? patternSets(far, t.id) : 0;
   const farRes = far ? reserveRoles(t.id) : [];
   const farNeed: Partial<Record<Role, number>> = {};
-  for (const r of farRes) farNeed[r] = (farNeed[r] ?? 0) + farSets;
+  // v0.18.2 one reserve for the station (was one with each set).
+  for (const r of farRes) farNeed[r] = (farNeed[r] ?? 0) + 1;
   rep.crew = flyable && !(opts.quick && rep.level === 'no') ? crewAvailability(g, t.family, t.id, winFrom, Math.max(winFrom + DAY, winTo), progBH, xc, rn.extraSets, farNeed, rn.need?.mode === 'aug2' ? 2 : rn.need?.mode === 'aug1' ? 1 : 0) : empty;
   const shorts = Object.entries(rep.crew.byRole).filter(([, r]) => r && r.short > 0) as [string, { short: number }][];
   const reach = flyable ? crewReach(g, o, t.id, fits[0]) : null;
@@ -748,11 +749,11 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   } else if (!rep.crew.setsNeeded && !Object.keys(rep.crew.byRole).length) { if (flyable) add('crew', 'warn', 'Crew capacity not checked yet'); }
   else add('crew', 'ok', `Needs ${rep.crew.setsNeeded} crew set${rep.crew.setsNeeded === 1 ? '' : 's'}, ${rep.crew.setsAvailable >= rep.crew.setsNeeded ? `${rep.crew.setsAvailable} free` : 'enough free in each role'}`);
   if (far) {
-    const n = farSets * farRes.length;
+    const n = farRes.length;
     const far12 = dhBlock(far.base, home) > 12 * 60;
     rep.checks.push({
       id: 'farBase', level: 'ok', label: `Far base: ${n} reserve crew stationed at ${far.base}`,
-      detail: `${far12 ? `Over 12 h from ${home} by air` : `${Math.round(tzDeltaH(home, far.base, o.start))} time zones from ${home}`}: a sick crew member can't be replaced from home in a day. Each of about ${farSets} crews on station brings a spare captain and purser${farRes.length > 2 ? ' and one more cabin crew' : ''}, and they rotate together. Their pay, hotels and per diem are ours.`,
+      detail: `${far12 ? `Over 12 h from ${home} by air` : `${Math.round(tzDeltaH(home, far.base, o.start))} time zones from ${home}`}: a sick crew member can't be replaced from home in a day. A spare captain and purser${farRes.length > 2 ? ' and one more cabin crew' : ''} stay on station for its ${farSets} crews and rotate with the first. Their pay, hotels and per diem are ours.`,
     });
   }
   if (rn.line) {
@@ -799,8 +800,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
       // home at each rotation (far bases fly out on long-haul fares).
       const days = Math.max(1, Math.ceil((o.end - o.start) / DAY));
       const tours = Math.max(1, Math.ceil(days / (g.company.policies.rotationWeeks * 7)));
-      for (const r of farRes) cost += farSets * reserveDayCost(g, r, t.body === 'wide') * days;
-      cost += farSets * (crewN + farRes.length) * 2 * tours * ticketPrice(home, far.base);
+      for (const r of farRes) cost += reserveDayCost(g, r, t.body === 'wide') * days;
+      cost += (farSets * crewN + farRes.length) * 2 * tours * ticketPrice(home, far.base);
     }
   } else {
     for (const f of fits) {

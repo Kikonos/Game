@@ -189,16 +189,19 @@ describe('crew sets with v0.8 work', () => {
     expect(cc).toMatchObject({ n: 3, of: 4, leads: false });
     const share = (Math.min(k.end, g.now + 60 * DAY) - Math.max(k.start, g.now)) / (60 * DAY);
     const p = a320(g);
+    // v0.18.2 the aircraft on the base keeps its sets on station plus one in five (sk), the other 5 at home.
+    const S = p.setsNeeded;
+    const sk = S - 5;
+    expect(sk).toBeGreaterThanOrEqual(2);
     // 3 of the aircraft's 3 cabin crew seats are theirs while it runs; pilots and our purser stay ours.
-    expect(p.roles.find((r) => r.role === 'CC')!.need).toBe(Math.ceil(30 - 3 * 5 * share - 1e-9));
-    expect(p.roles.find((r) => r.role === 'PUR')!.need).toBe(10);
-    expect(p.roles.find((r) => r.role === 'CPT')!.need).toBe(10);
-    expect(p.clientCabin).toBe(Math.round(3 * 5 * share));
-    expect(p.setsNeeded).toBe(10);
+    expect(p.roles.find((r) => r.role === 'CC')!.need).toBe(Math.ceil(3 * S - 3 * sk * share - 1e-9));
+    expect(p.roles.find((r) => r.role === 'PUR')!.need).toBe(S);
+    expect(p.roles.find((r) => r.role === 'CPT')!.need).toBe(S);
+    expect(p.clientCabin).toBe(Math.round(3 * sk * share));
     // their senior leading: the purser seat is theirs too
     k.requirements.clientCabin = { ...cc, n: 4, leads: true };
     const q = a320(g);
-    expect(q.roles.find((r) => r.role === 'PUR')!.need).toBe(Math.ceil(10 - 5 * share - 1e-9));
+    expect(q.roles.find((r) => r.role === 'PUR')!.need).toBe(Math.ceil(S - sk * share - 1e-9));
     // after the contract: full sets again
     run(g, k.end + DAY);
     expect(a320(g).roles.find((r) => r.role === 'CC')!.need).toBe(30);

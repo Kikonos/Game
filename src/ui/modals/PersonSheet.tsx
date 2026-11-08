@@ -332,7 +332,7 @@ function Essentials({ g, c }: { g: GameState; c: CrewMember }) {
     <div className="ps-ess">
       {c.notice && (
         <div className="sc-notice">
-          <span className="grow small"><b>Resigned</b> · last day {fmtDate(c.notice.leaves - 1)}</span>
+          <span className="grow small"><b>{c.notice.redundant ? 'Made redundant' : 'Resigned'}</b> · last day {fmtDate(c.notice.leaves - 1)}</span>
           <button className={`btn btn-sm ${hireLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'hire', role: c.role, family: c.ratings[0], base: c.base })} {...lockedProps(hireLock)}><UserPlus /> Hire replacement</button>
         </div>
       )}

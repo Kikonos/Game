@@ -1,6 +1,7 @@
 // v0.12.1 far bases (crew/farBase.ts): sized on the programme, a reserve with every crew set, priced honestly.
 
 import { describe, expect, it } from 'vitest';
+import { familyNeeds } from './sets';
 import { addFlight } from '../core/entities';
 import { blockMinutes } from '../core/perf';
 import { DAY } from '../core/time';
@@ -76,7 +77,8 @@ describe('v0.12.1 far bases', () => {
     const dep = depOf(g, k);
     expect(dep.work).toBe(true);
     expect(dep.sized!).toBeGreaterThanOrEqual(sized);
-    expect(dep.setsOnStation).toBeGreaterThanOrEqual(4);
+    // v0.18.2 two waves a day (the 19:00 one is dropped for HAM's night ban): 3 sets on station (was 4).
+    expect(dep.setsOnStation).toBeGreaterThanOrEqual(3);
     // None of its duties flown as trips from Lisbon; and a near base's tours carry no reserve.
     const trips = Object.values(g.pairings).filter((p) => p.contractId === k.id && !p.deploymentId && p.dutyIds.some((id) => g.duties[id]?.flightIds.some((f) => g.flights[f].kind === 'revenue')));
     expect(trips).toEqual([]);
@@ -121,15 +123,20 @@ describe('v0.12.1 far bases', () => {
     expect(patternSets({ ...p, waves: [360, 750], targetBH: 300 }, 'a320ceo')).toBe(4);
   });
 
-  it('every crew set at a far base carries its reserve: a spare captain and purser above the minimum', () => {
+  it('a far base keeps one reserve: a spare captain and purser above the minimum on its first set (v0.18.2: was every set)', () => {
     const g = fixtureGame();
     const { k, later } = signedAhead(g, 'DAC', 'CCU', [6 * 60, 12 * 60 + 30]);
     later();
     const tours = depOf(g, k).pairingIds.map((id) => g.pairings[id]).filter((p) => p.dutyIds.some((id) => g.duties[id]?.flightIds.some((f) => g.flights[f].kind === 'revenue')));
     expect(tours.length).toBeGreaterThan(0);
+    expect(tours.some((p) => p.tour?.set === 0)).toBe(true);
     for (const p of tours) {
       expect(farTourBase(g, p)).toBe('DAC');
       const res = p.slots.filter((s) => s.reserve);
+      if (p.tour?.set !== 0) {
+        expect(res).toEqual([]);
+        continue;
+      }
       expect(res.map((s) => s.role).sort()).toEqual(['CPT', 'PUR']);
       expect(res.every((s) => s.above)).toBe(true);
       expect(pairingSeats(g, p).filter((s) => s.reserve).length).toBe(2);
@@ -146,6 +153,18 @@ describe('v0.12.1 far bases', () => {
     const g = fixtureGame();
     const { k, later } = signedAhead(g, 'DAC', 'CCU', [6 * 60, 12 * 60 + 30]);
     later();
+    // v0.18.2 (fewer sets on station: the startup crew now have a captain and purser to spare) a family one captain and
+    // one purser short of its need, the reserve included: two idle ones on leave.
+    const need = familyNeeds(g).get('A320')!.need;
+    for (const role of ['CPT', 'PUR'] as const) {
+      const busy = new Set(Object.values(g.pairings).flatMap((p) => p.slots.map((s) => s.crewId)));
+      const all = Object.values(g.crew).filter((c) => c.role === role);
+      const idle = all.filter((c) => !busy.has(c.id));
+      for (const c of idle.slice(0, Math.max(0, all.length - Math.ceil(need[role]! - 1e-9) + 1))) {
+        c.status = 'leave';
+        c.blocks = [...(c.blocks ?? []), { from: g.now - DAY, to: g.now + 40 * DAY, why: 'leave' }];
+      }
+    }
     autoRoster(g, { to: g.now + 14 * DAY });
     const tours = depOf(g, k).pairingIds.map((id) => g.pairings[id]).filter((p) => p.slots.some((s) => s.reserve));
     // The startup crew cover the sets but not the reserve on top: required seats crewed, the reserve waits for hires.
@@ -154,6 +173,10 @@ describe('v0.12.1 far bases', () => {
     for (const p of started) expect(p.slots.filter((s) => !s.above && !s.crewId)).toEqual([]);
     expect(started.flatMap((p) => p.slots.filter((s) => s.reserve && s.crewId))).toEqual([]);
     // Hired: the reserve is crewed too, and flies with its set.
+    for (const c of Object.values(g.crew)) if (c.status === 'leave') {
+      c.status = 'available';
+      c.blocks = [];
+    }
     addCrew(g, { CPT: 12, FO: 6, PUR: 12, CC: 12 });
     autoRoster(g, { to: g.now + 14 * DAY });
     const filled = started.filter((p) => g.pairings[p.id]).flatMap((p) => g.pairings[p.id].slots.filter((s) => s.reserve && s.crewId));

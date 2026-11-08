@@ -202,6 +202,8 @@ describe('the crew desk uses the same forecast', () => {
     unlockHead(g, 'crewDesk');
     expect(hireHead(g, 'crewDesk', 2).ok).toBe(true);
     g.company.cash = 10_000_000;
+    // (v0.18.2 crew who fly: a rank sitting idle holds the round-up, crew/utilisation.ts hireHold.)
+    for (const c of Object.values(g.crew)) c.log = [{ start: g.now - 5 * DAY, end: g.now - 5 * DAY + 600, fdp: 600, block: 60 * 60, sectors: 4, augmented: false, disruptive: false }];
     // Short of sets as well: the sets round-up comes first (one hire proposal per family at a time).
     monthlyHeads(g);
     const sets = g.heads!.crewDesk.proposals.find((x) => x.kind === 'hire');

@@ -971,6 +971,8 @@ export type ProblemKind =
   | 'boardTarget' | 'restructuring'
   /** Peak-staffing round: a busy month ahead short of crew (crew/forecast.ts). */
   | 'crewPeak'
+  /** v0.18.2 the crew desk holds hiring while crew sit idle (crew/utilisation.ts). */
+  | 'crewHold'
   /** v0.12.1 a leg that needs an approval we won't hold by its departure (ops/approvalGate.ts). */
   | 'approvalLate'
   /** v0.14 a client crisis: a strike, an administration, an engine grounding (commercial/crises.ts). */
@@ -1068,7 +1070,7 @@ export interface CrewMember {
   /** B2: calendar year that blockYear counts. */
   blockYearOf?: number;
   /** v0.6: resigned; keeps flying until `leaves` (then removed from g.crew). */
-  notice?: { given: Minute; leaves: Minute };
+  notice?: { given: Minute; leaves: Minute; /** v0.18.2 let go (redundancy), not resigned. */ redundant?: true };
   /** v0.6: decayed 30-day morale contributions by driver (UI "why"). */
   moraleWhy?: Partial<Record<MoraleDriver, number>>;
   /** v0.6: company-paid pilot conversion bond (resignation × bondFactor until then). */
@@ -1291,6 +1293,8 @@ export interface Deployment {
   sized?: number;
   /** v0.12.1 sized on the programme's own duties (absent: on its positioning alone, or an older save: sized again when they come). */
   work?: true;
+  /** v0.18.2 a set stood down (fewer needed): no tour of set s from this minute (its last tour's end). */
+  setEnd?: Record<number, Minute>;
 }
 
 export interface HireOrder {
@@ -1733,6 +1737,8 @@ export interface Stats {
   awayTold?: Record<string, Minute>;
   /** Peak-staffing round: busy-month gaps already told in the Inbox ('<month key>|<family>|<role>'; past months pruned). */
   peakWarned?: string[];
+  /** v0.18.2 hiring holds told (`month|family`). */
+  holdWarned?: string[];
   /** Lifetime billable block minutes and revenue legs. */
   blockMin: number;
   legs: number;

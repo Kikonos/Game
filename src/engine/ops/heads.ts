@@ -13,7 +13,9 @@ import { isolatePauses, requestPause } from '../core/pause';
 import { blockMinutes, etopsCap, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, next, range, weightedPick, type RngHolder } from '../core/rng';
-import { DAY, fmtDay, fmtDuration, fmtTime, fmtDayRange } from '../core/time';
+import { DAY, fmtDay, fmtDuration, fmtTime, fmtDayRange, monthKey } from '../core/time';
+import type { RatingFamily } from '../../data/acmiTypes';
+import { hurtProse } from '../problems/types';
 import type {
   ActionResult, Aircraft, AlertRule, Contract, Decision, Flight, GameState, Head, HeadCandidate, HeadId, HeadLogLine, HeadProposal, HeadRules, MessageCat, Minute, Ref,
 } from '../core/types';
@@ -34,6 +36,7 @@ import { peakForecast, peakGroups, peakLine } from '../crew/forecast';
 import { hireCrew, hireQuote } from '../crew/hr';
 import { restOf } from '../crew/restPlan';
 import { crewPlan, roundTargets, roundUpQuote } from '../crew/sets';
+import { crewHoldCard, crewUtilisation, heldHires } from '../crew/utilisation';
 import { bestSlip } from '../crew/slip';
 import { cardMeta, checkCard, checkClashCard } from '../problems';
 import { achievementProgress, setHeadUnlockHook } from './achievements';
@@ -798,10 +801,16 @@ function fleetPlanner(g: GameState): void {
 function crewDeskHires(g: GameState): void {
   const h = active(g, 'crewDesk');
   if (!h) return;
+  // v0.18.2 no hires for a rank whose crew sit idle (crew/utilisation.ts hireHold): the four-line card says why, once a month.
+  const u = crewUtilisation(g);
   for (const p of crewPlan(g)) {
     if (p.setsComplete >= p.setsNeeded) continue;
     const target = roundTargets(p).complete ?? p.setsNeeded;
-    const q = roundUpQuote(g, p, target);
+    const q0 = roundUpQuote(g, p, target);
+    const held = new Set(heldHires(g, p.family, u).map((x) => x.role));
+    const q = { ...q0, lines: q0.lines.filter((l) => !held.has(l.req.role)) };
+    q.cost = q.lines.reduce((s, l) => s + l.cost, 0);
+    if (held.size) holdNote(g, p.family);
     if (!q.lines.length) continue;
     const who = q.lines.map((l) => `${l.req.count} ${l.req.role}`).join(', ');
     if (rulesOf(h).autoHire) {
@@ -822,6 +831,7 @@ function crewDeskHires(g: GameState): void {
   }
   // Peak-staffing round: the busy months ahead, from the same forecast as the Crew screen's heads-up (sets first: the
   // forecast counts the hires just made, so only what is still short is proposed).
+  // (Not held: the forecast counts the crew-days the busy month needs against the crew there, idle ones included.)
   for (const xs of peakGroups(peakForecast(g))) {
     const x0 = xs[0];
     const who = xs.map((x) => `${x.short} ${x.role}`).join(', ');
@@ -841,6 +851,18 @@ function crewDeskHires(g: GameState): void {
     const cost = reqs.reduce((sum, r) => sum + hireQuote(g, r).cost, 0);
     propose(g, h, { kind: 'hire', text: `Hire ${who} for ${x0.monthName} (${x0.label})`, cost, data }, H().proposalH);
   }
+}
+
+/** v0.18.2 the hiring hold's card in the Inbox, once a month per family. */
+function holdNote(g: GameState, family: RatingFamily): void {
+  const key = `${monthKey(g.now)}|${family}`;
+  const told = (g.stats.holdWarned ??= []).filter((k) => Number(k.split('|')[0]) >= monthKey(g.now));
+  g.stats.holdWarned = told;
+  if (told.includes(key)) return;
+  const card = crewHoldCard(g, `hold:${family}`);
+  if (!card) return;
+  told.push(key);
+  pushMessage(g, { tone: 'info', cat: 'crew', cue: null, title: card.what, body: `${card.why} ${hurtProse(card)}.`, ref: card.subject.ref, problem: card.subject });
 }
 
 // ---------- hourly work (crew desk, watch desk) ----------

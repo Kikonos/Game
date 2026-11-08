@@ -73,7 +73,8 @@ export function crewSickCard(g: GameState, crewId: string): ProblemCard | null {
 /** A crew member on notice with trips rostered past their leaving date (the roster re-crews them). */
 export function crewResignedCard(g: GameState, crewId: string): ProblemCard | null {
   const c = g.crew[crewId];
-  if (!c?.notice) return null;
+  // v0.18.2 let go on purpose (redundancy): no card asking to hire a replacement.
+  if (!c?.notice || c.notice.redundant) return null;
   const leaves = c.notice.leaves;
   const days = Math.max(0, Math.ceil((leaves - g.now) / DAY));
   return {

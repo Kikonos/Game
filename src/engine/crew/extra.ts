@@ -9,18 +9,18 @@ import type { ActionResult, CrewExtra, GameState } from '../core/types';
 import { refreshPairing } from './duties';
 import { crewExtraFor, paidMinOf } from './extraSeats';
 import { payFor } from './generate';
-import { setsForStation } from './sets';
+import { homeFlying, setsForHome, setsForStation } from './sets';
 import { autoRoster, releaseCrew, setFlightsCrew } from './roster';
 import { crewIx, touchCrew } from './timeline';
 
-/** Crew sets an aircraft is staffed for (staffing: 5, more on a deployment now or within 60 days). */
+/** Crew sets an aircraft is staffed for (staffing: by its flying at home, its sets on station plus one in five on a deployment). */
 function setsOf(g: GameState, aircraftId: string): number {
   let onStation = 0;
   for (const dp of Object.values(g.deployments)) {
     if (dp.aircraftId !== aircraftId || dp.end < g.now || dp.start > g.now + 60 * DAY) continue;
     onStation = Math.max(onStation, dp.setsOnStation);
   }
-  return setsForStation(onStation);
+  return onStation ? setsForStation(onStation) : setsForHome(homeFlying(g).get(aircraftId));
 }
 
 /** Nights the aircraft's crews spend away from base in 28 days: the last 28 days flown, else the next 28 planned. */
