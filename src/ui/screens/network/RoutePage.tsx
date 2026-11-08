@@ -4,7 +4,7 @@
 import { ArrowRightLeft, BarChart3, CalendarClock, CircleSlash, Fuel, Handshake, Megaphone, Pencil, Plane, Plus, Ticket, TrendingUp, Utensils } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { ROUTE_STATIONS } from '../../../data/routes';
-import { DAY, fmtDay, fmtDayRel, fmtMonth, fmtTime } from '../../../engine/core/time';
+import { fmtDay, fmtDayRel, fmtMonth, fmtTime } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
 import type { FareLevel, MarketingLevel, Rotation, Route } from '../../../engine/network/types';
 import { BarChart } from '../../components/charts';
@@ -181,7 +181,7 @@ const MKT_WORD: Record<MarketingLevel, string> = { low: 'Low', normal: 'Normal',
 
 function SalesTab({ g, r }: { g: GameState; r: Route }) {
   const m = marketOf(r);
-  const act = (f: (gg: GameState) => string | null, ok: string) => store.act((gg) => { const w = f(gg); return w ? { ok: false, message: w } : { ok: true, message: ok }; }, { toastOk: false });
+  const act = (f: (gg: GameState) => string | null, ok: string) => store.act((gg) => { const w = f(gg); return w ? { ok: false, error: w } : { ok: true, msg: ok }; }, { toastOk: false });
   const block = net.saleBlock(g, r.id);
   const saleOn = r.fares.saleUntil && r.fares.saleUntil > g.now;
   const next = upcoming(r, g.now).slice(0, 10);
@@ -210,7 +210,7 @@ function CostsTab({ g, r }: { g: GameState; r: Route }) {
   const q = lastQuarters(r, g.now);
   const last = history(r).find((x) => x.status === 'flown');
   const stations = [...new Set([m?.from, ...(m?.via ?? []), m?.to, ...(m?.viaBack ?? [])].filter((x): x is string => !!x))];
-  const act = (on: boolean) => store.act((gg) => { const w = net.setTanker(gg, r.id, on); return w ? { ok: false, message: w } : { ok: true, message: on ? 'Tankering on' : 'Tankering off' }; }, { toastOk: false });
+  const act = (on: boolean) => store.act((gg) => { const w = net.setTanker(gg, r.id, on); return w ? { ok: false, error: w } : { ok: true, msg: on ? 'Tankering on' : 'Tankering off' }; }, { toastOk: false });
   const rows: [string, number][] = [
     ['Tickets', q.cur.tickets], ['Cargo and mail', q.cur.cargo], ['Bags, seats and onboard', q.cur.ancillary],
     ['Direct costs', -q.cur.direct], ['Aircraft and crew time', -q.cur.acTime],

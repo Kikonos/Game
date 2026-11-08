@@ -56,7 +56,7 @@ export function RotationMoveModal({ rotId, delta: d0, back }: { rotId: string; d
   const pax = rot.sectors.reduce((a, s) => a + s.bookedJ + s.bookedY, 0);
   const days = Math.max(0, Math.round((rot.dep - g.now) / DAY));
   const go = () => {
-    const r = store.act((gg) => (net.move(gg, rotId, delta) ? { ok: true, message: `${routeName(route)} ${fmtDay(rot.dep)}: moved ${shiftWords(delta)}` } : { ok: false, message: q?.why ?? 'Could not move it' }));
+    const r = store.act((gg) => (net.move(gg, rotId, delta) ? { ok: true, msg: `${routeName(route)} ${fmtDay(rot.dep)}: moved ${shiftWords(delta)}` } : { ok: false, error: q?.why ?? 'Could not move it' }));
     if (r.ok) close();
   };
   return (

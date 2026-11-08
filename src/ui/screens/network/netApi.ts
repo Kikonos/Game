@@ -107,7 +107,7 @@ const has = (name: string) => typeof N[name] === 'function';
 export const net = {
   has,
   /** Starts the study (changes the game). */
-  startStudy: (g: GameState, marketId: string, depth: StudyDepth, model?: RouteModel) => NET.startStudy(g, marketId, depth, ...(model ? [model] as [] : [])) as { routeId?: string; why?: string },
+  startStudy: (g: GameState, marketId: string, depth: StudyDepth, model?: RouteModel): { routeId?: string; why?: string } => (NET.startStudy as (g: GameState, m: string, d: StudyDepth, model?: RouteModel) => { routeId?: string; why?: string })(g, marketId, depth, model),
   recommend: (g: GameState, routeId: string): Recommendation | null => call<Recommendation | null>('recommendation', null, g, routeId),
   businessCase: (g: GameState, routeId: string, draft: CaseDraft): BusinessCase | null => call<BusinessCase | null>('businessCase', null, g, routeId, draft),
   defaultDraft: (g: GameState, routeId: string): CaseDraft | null => call<CaseDraft | null>('caseDraft', null, g, routeId),

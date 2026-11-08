@@ -45,10 +45,10 @@ export function TimetableEditor({ g, r, series, onDone }: { g: GameState; r: Rou
   const save = () => {
     const res = store.act((gg) => {
       const why = net.setSeries(gg, r.id, s);
-      return why ? { ok: false, message: why } : { ok: true, message: `Timetable saved: ${seriesWords(s)}` };
+      return why ? { ok: false, error: why } : { ok: true, msg: `Timetable saved: ${seriesWords(s)}` };
     });
     if (res.ok) onDone();
-    else setErr(res.message ?? 'The timetable could not be saved.');
+    else setErr(res.error);
   };
   return (
     <div className="nw-tt">

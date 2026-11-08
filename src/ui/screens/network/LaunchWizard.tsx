@@ -86,7 +86,7 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
   const go = () => {
     const r = store.act((gg) => {
       const res = net.startStudy(gg, m.id, depth, mdl);
-      return res.routeId ? { ok: true, message: `Study started: ${m.city}` } : { ok: false, message: res.why ?? 'Could not start the study.' };
+      return res.routeId ? { ok: true, msg: `Study started: ${m.city}` } : { ok: false, error: res.why ?? 'Could not start the study.' };
     });
     if (r.ok) {
       const id = Object.values(store.game?.network?.routes ?? {}).find((x) => x.marketId === m.id && x.status !== 'closed')?.id;
@@ -259,7 +259,7 @@ function CaseCard({ g, r }: { g: GameState; r: Route }) {
   const decide = (d: 'go' | 'shelve') => {
     const res = store.act((gg) => {
       const why = net.decide(gg, r.id, d, draft ?? undefined);
-      return why ? { ok: false, message: why } : { ok: true, message: d === 'go' ? `${routeName(r)}: launch under way` : `${routeName(r)}: shelved` };
+      return why ? { ok: false, error: why } : { ok: true, msg: d === 'go' ? `${routeName(r)}: launch under way` : `${routeName(r)}: shelved` };
     });
     if (res.ok && d === 'shelve') store.closeModal();
   };
@@ -302,7 +302,7 @@ function RouteLaunch({ g, routeId }: { g: GameState; routeId: string }) {
     body: 'Money spent stays spent; the permits and slots lapse. You can start again later with a new study.',
     onConfirm: () => store.act((gg) => {
       const why = net.stopLaunch(gg, r.id);
-      return why ? { ok: false, message: why } : { ok: true, message: `${routeName(r)}: launch stopped` };
+      return why ? { ok: false, error: why } : { ok: true, msg: `${routeName(r)}: launch stopped` };
     }),
   });
   const live = r.status === 'onSale' || r.status === 'operating';
@@ -333,8 +333,8 @@ function RouteLaunch({ g, routeId }: { g: GameState; routeId: string }) {
             <div className="nw-decide">
               <b>Slots: {slotWait.setback ?? 'an answer is waiting'}</b>
               <div className="row gap-8 mt-8">
-                <button className="btn btn-primary" onClick={() => store.act((gg) => { const w = net.answerSlot(gg, r.id, true); return w ? { ok: false, message: w } : { ok: true, message: 'Slot accepted' }; })}><Check /> Accept</button>
-                <button className="btn" onClick={() => store.act((gg) => { const w = net.answerSlot(gg, r.id, false); return w ? { ok: false, message: w } : { ok: true, message: 'Asked again' }; })}>Ask again</button>
+                <button className="btn btn-primary" onClick={() => store.act((gg) => { const w = net.answerSlot(gg, r.id, true); return w ? { ok: false, error: w } : { ok: true, msg: 'Slot accepted' }; })}><Check /> Accept</button>
+                <button className="btn" onClick={() => store.act((gg) => { const w = net.answerSlot(gg, r.id, false); return w ? { ok: false, error: w } : { ok: true, msg: 'Asked again' }; })}>Ask again</button>
               </div>
             </div>
           )}
