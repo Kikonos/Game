@@ -6,7 +6,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { fmtDateTime, fmtDay, fmtDayRel, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { Aircraft, Duty, Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
-import { clientCrewOf, crewAlertKind, crewName, dutyCrew, slipOfFlight, dutyLegality, flightCrewStatus, restOf, restNeedLine, restLegsNote, restPlanForFlight, restSeatsBlocked, restShort, restVerdict, ridersText, rosterHorizon, rosterOutLine } from '../../engine/crew';
+import { clientCrewOf, crewAlertKind, crewName, dutyCrew, dutyPilotsLine, slipOfFlight, dutyLegality, flightCrewStatus, restOf, restNeedLine, restLegsNote, restPlanForFlight, restSeatsBlocked, restShort, restVerdict, ridersText, rosterHorizon, rosterOutLine } from '../../engine/crew';
 import { seatLabel, typeOf } from '../../engine/core/perf';
 import { cabinOptions, cancelCheck, checkStatus, delayFlight, dryLeaseView, flightCrewAboard, flightType, flightZone, refitSlots } from '../../engine/ops';
 import { ClientCrewRow } from './v08Bits';
@@ -65,7 +65,7 @@ function RestSection({ g, f, ac, d, legal }: { g: GameState; f: Flight; ac: Airc
         <span className={`badge ${v.tone}`}>{v.text}</span>
       </div>
       <div className="small rt-facts">
-        <span><b>{pilots} pilots</b> <span className="muted">· rest in {restShort(rest.fc)} · <Term id="landingPilots">landing pilots</Term> 2 h in a row, the others 90 min</span></span>
+        <span><b>{pilots} pilots</b> <span className="muted">· {(d && dutyPilotsLine(g, d)) ?? (plan.augment === 2 ? '2 CPT + 2 FO · pairs A/B' : '1 CPT + 2 FO · pair A + relief')} · rest in {restShort(rest.fc)} · <Term id="landingPilots">landing pilots</Term> 2 h in a row, the others 90 min</span></span>
         <span><b>Cabin crew</b> <span className="muted">· {restShort(rest.cc)}{plan.cabinNeed !== null ? ` · ${hm(plan.cabinNeed)} each (a ${hm(plan.cabinFdp)} day${plan.band ? `, band ${plan.band}` : ''})` : ''} · half stay in the cabin</span></span>
       </div>
       {!plan.ok && plan.why && <div className={`small ${at ? 'muted' : 'bad'}`}>{plan.why}.</div>}
@@ -153,7 +153,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   if (zone) rows.push(['World event', <button className={`chip sc-chip ${zone.effect === 'held' ? 'bad' : 'warn'}`} onClick={() => store.openModal({ kind: 'worldEvent', eventId: zone.eventId })}>{zone.text}</button>]);
   if (f.warRisk) rows.push(['War-risk cover', `${money(f.warRisk)} for this landing`]);
   if (f.purpose === 'lease' && c?.dry) rows.push(['Dry lease', `${c.dry.outIds.includes(f.id) ? 'Delivery' : 'Return'} ferry · ${g.clients[c.clientId]?.name ?? 'lessee'} at ${c.dry.site}`]);
-  if (d) rows.push(['Duty', `Day length ${hm(d.fdp)} of ${hm(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sector${d.sectors === 1 ? '' : 's'}${d.augment ? ` · ${2 + d.augment} pilots` : ''}${d.ext ? ' · planned extension' : ''}${d.split ? ' · split duty' : ''}${d.discretion ? ` · commander's discretion +${hm(d.discretion)}` : ''}`]);
+  if (d) rows.push(['Duty', `Day length ${hm(d.fdp)} of ${hm(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sector${d.sectors === 1 ? '' : 's'}${d.augment ? ` · ${2 + d.augment} pilots (${dutyPilotsLine(g, d)})` : ''}${d.ext ? ' · planned extension' : ''}${d.split ? ' · split duty' : ''}${d.discretion ? ` · commander's discretion +${hm(d.discretion)}` : ''}`]);
   const live = f.status === 'scheduled' && !!f.aircraftId;
   const canSub = live && !!c && (f.kind === 'revenue' || f.kind === 'techstop');
   // v0.12 the trip's sub-lease (another operator flies it for us), or why it can't be handed over.

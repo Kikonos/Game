@@ -755,7 +755,7 @@ export function tourCrew(g: GameState, offerId: string, aircraftId: string): { p
     if (a && n.plan?.ok) relief = Math.max(relief, n.plan.extraCabin);
   }
   const roles = complement(ac.typeId, ac.cabin.total, { augment: aug, extraCabin: o.requirements.extraCabin, restCabin: relief });
-  return { pilots: Math.max(3, roles.filter((r) => r === 'CPT' || r === 'FO' || r === 'CRP').length), cabin: roles.filter((r) => r === 'PUR' || r === 'CC').length, extra: o.requirements.extraCabin };
+  return { pilots: Math.max(3, roles.filter((r) => r === 'CPT' || r === 'FO').length), cabin: roles.filter((r) => r === 'PUR' || r === 'CC').length, extra: o.requirements.extraCabin };
 }
 
 /**

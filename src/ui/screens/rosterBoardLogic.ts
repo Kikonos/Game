@@ -41,8 +41,8 @@ export type BoardItem = {
   /** v0.8 a mixed-crew contract's client cabin crew: one grey row, no names, not draggable. */
   | { kind: 'client'; id: string; group: string };
 
-const ROLE_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
-export const ROLE_PLURAL: Record<Role, string> = { CPT: 'Captains', FO: 'First officers', CRP: 'Relief pilots', PUR: 'Pursers', CC: 'Cabin crew' };
+const ROLE_ORDER: Role[] = ['CPT', 'FO', 'PUR', 'CC'];
+export const ROLE_PLURAL: Record<Role, string> = { CPT: 'Captains', FO: 'First officers', PUR: 'Pursers', CC: 'Cabin crew' };
 
 export function matchBoard(c: CrewMember, f: BoardFilter): boolean {
   if (f.base !== 'all' && c.base !== f.base) return false;

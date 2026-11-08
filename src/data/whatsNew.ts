@@ -16,6 +16,23 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.18.3',
+    name: 'Pilot pairs',
+    features: [
+      'Long flights now carry extra captains and first officers, as at Emirates, Euro Atlantic or Hi Fly: 3 pilots are a captain and 2 first officers, 4 are 2 captains and 2 first officers in pairs A and B. A captain may sit as first officer.',
+      'The in-flight rest plan shows the pairs and who is at the controls for take-off, each part of the cruise and the landing.',
+      'Crew › Utilisation › Convert: train spare crew on a type that needs them. It suggests the type and why, who goes (the least busy first), and dates. Trips in the way go to other crew. You see the cost and the day they are ready.',
+    ],
+    improvements: [
+      'The aircraft strip on the map stops before the map buttons and scrolls sideways (finger, trackpad or mouse wheel). +N shows the rest; with many aircraft, All aircraft lists them by what they are doing.',
+      'Crew calendar: travel as a passenger has its own colour and a seat icon (Positioning, not Flying). Every night away from base shows its layover, also after a deadhead and over hotel standby days.',
+    ],
+    fixes: [
+      'Cruise relief pilots are now first officers, with the same ratings and hire date and a first officer\'s pay.',
+      'Flight times on a deadhead row are no longer cut off.',
+    ],
+  },
+  {
     version: 'v0.18.2',
     name: 'Crew utilisation',
     features: [

@@ -57,8 +57,8 @@ export function makeCrewMember(g: GameState, role: Role, family: RatingFamily, b
   const country = AIRPORT_BY_CODE[base]?.country ?? 'GB';
   const nat = weightedPick(g, CREW_MIX[country] ?? DEFAULT_MIX, (x) => x[1])![0];
   const kit = NAMES[nat] ?? NAMES.GB;
-  const female = chance(g, role === 'CPT' || role === 'FO' || role === 'CRP' ? 0.18 : 0.72);
-  const pilot = role === 'CPT' || role === 'FO' || role === 'CRP';
+  const female = chance(g, role === 'CPT' || role === 'FO' ? 0.18 : 0.72);
+  const pilot = role === 'CPT' || role === 'FO';
   const totalHours = role === 'CPT' ? int(g, 6_000, 15_000) : role === 'FO' ? int(g, 1_500, 5_500) : pilot ? int(g, 800, 2_500) : int(g, 500, 9_000);
   const [m0, m1] = BAL.startMorale;
   const firsts = female ? kit.f : kit.m;

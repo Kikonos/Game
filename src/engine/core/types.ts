@@ -1002,9 +1002,9 @@ export interface ProblemRef { kind: ProblemKind; ref: Ref }
 // Crew (B2)
 // ======================================================================
 
-/** CPT captain · FO first officer · CRP cruise-relief pilot · PUR purser (the senior cabin crew member, SCCM) · CC cabin crew.
+/** CPT captain · FO first officer · PUR purser (the senior cabin crew member, SCCM) · CC cabin crew.
  *  v0.7.2: CSD and SCC merged into PUR (migrated in the crew module's load). */
-export type Role = 'CPT' | 'FO' | 'CRP' | 'PUR' | 'CC';
+export type Role = 'CPT' | 'FO' | 'PUR' | 'CC';
 
 export type CrewStatus = 'available' | 'onDuty' | 'resting' | 'off' | 'leave' | 'sick' | 'training' | 'joining';
 
@@ -1090,7 +1090,7 @@ export interface CrewMember {
   moraleHist?: number[];
   /** v0.6: last late-notice roster change hit (at most one a day). */
   lateAt?: Minute;
-  /** v0.7.2 reports flown in an FO/CRP seat as a captain (30 days). */
+  /** v0.7.2 reports flown in an FO seat as a captain (30 days). */
   asFoAt?: Minute[];
   /** v0.7.2 block minutes per month, last 12 (1,000 h / 12 months). */
   blockMonths?: Record<MonthKey, number>;

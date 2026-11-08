@@ -253,7 +253,7 @@ describe('augmentation', () => {
     const f = { no: 'AW1', aircraftId: ac.id, contractId: null, kind: 'revenue' as const, from: 'LIS', to: 'GRU', std, sta: std + 12 * 60 + 30 };
     return { g, ac, f };
   };
-  it('a 12 h sector is augmented (CRP slot) with the approval and illegal without', () => {
+  it('a 12 h sector is augmented (a second FO slot) with the approval and illegal without', () => {
     for (const approved of [true, false]) {
       const { g, ac, f } = longHaul(approved);
       addFlight(g, f);
@@ -262,14 +262,14 @@ describe('augmentation', () => {
       if (approved) {
         expect(d.augment).toBe(1);
         expect(d.legality).not.toBe('illegal');
-        expect(p.slots.map((s) => s.role)).toContain('CRP');
+        expect(p.slots.filter((s) => s.role === 'FO').length).toBe(2);
         const res = autoRoster(g, { aircraftIds: [ac.id] });
         expect(res.uncovered).toEqual([]);
         expect(flightCrewStatus(g, d.flightIds[0]).level).toMatch(/ok|tight/);
       } else {
         expect(d.augment).toBe(0);
         expect(d.legality).toBe('illegal');
-        expect(p.slots.map((s) => s.role)).not.toContain('CRP');
+        expect(p.slots.filter((s) => s.role === 'FO').length).toBe(1);
         expect(flightCrewStatus(g, d.flightIds[0]).level).toBe('illegal');
       }
     }

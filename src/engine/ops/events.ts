@@ -291,7 +291,7 @@ function resolveAog(g: GameState, d: Decision, opt: string): ActionResult {
 
 // ---------- crew short ----------
 
-const SLOT_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
+const SLOT_ORDER: Role[] = ['CPT', 'FO', 'PUR', 'CC'];
 const UNFIT: CrewStatus[] = ['sick', 'leave', 'training', 'joining'];
 /** Legality issues a later departure can cure (the rest are the person's, not the hour's). */
 const TIME_CURES: IssueCode[] = ['rest', 'location', 'fdp'];

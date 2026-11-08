@@ -50,7 +50,7 @@ export const OOH_TEXT: Record<OohLimit, string> = {
 /** Rules whose limit name is only a category: the card says the rule in its own words. */
 const OWN_WORDS = new Set<IssueCode>(['standby', 'ext7d', 'lateEarly', 'tzRest']);
 
-const ROLE_WORD: Record<Role, string> = { CPT: 'captain', FO: 'first officer', CRP: 'relief pilot', PUR: 'purser', CC: 'cabin crew' };
+const ROLE_WORD: Record<Role, string> = { CPT: 'captain', FO: 'first officer', PUR: 'purser', CC: 'cabin crew' };
 export const roleWord = (r: Role): string => ROLE_WORD[r];
 
 /** 'Duty 28d 191:20 > 190:00' → [value, max] in minutes (the first two h:mm in the text). */

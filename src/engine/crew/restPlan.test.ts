@@ -40,11 +40,11 @@ const legs = (n: number, block: number, turn = 60): RestLeg[] => {
 const bunks: AcRest = { fc: FCRC, cc: LDMCR };
 
 describe('pilots (CS FTL.1.205(c)(1))', () => {
-  it('one 12 h sector, 3 pilots, bunks: CRP then FO then CPT, landing pilots last with 2 h, all inside the cruise', () => {
+  it('one 12 h sector, 3 pilots, bunks: the relief FO (FO2) then FO then CPT, landing pilots last with 2 h, all inside the cruise', () => {
     const L = legs(1, 12 * H);
     const p = planRest(L, bunks, 1, 14 * H, 6);
     expect(p.ok).toBe(true);
-    expect(p.pilots.map((t) => t.seat)).toEqual(['CRP', 'FO', 'CPT']);
+    expect(p.pilots.map((t) => t.seat)).toEqual(['FO2', 'FO', 'CPT']);
     expect(p.pilots.map((t) => !!t.landing)).toEqual([false, true, true]);
     for (const t of p.pilots) {
       expect(t.end - t.start).toBeGreaterThanOrEqual(t.need);
@@ -195,13 +195,13 @@ describe('the plan of a rostered duty', () => {
     expect(p.pilots.every((t) => t.crewIds.length === 1)).toBe(true);
     expect(p.cabin.reduce((n, t) => n + t.crewIds.length, 0)).toBe(p.cabin.reduce((n, t) => n + t.n, 0));
     expect(restPlan(g, d.id, { augment: 2 })!.augment).toBe(2);
-    // airborne in the CRP's turn
+    // airborne in the relief FO's turn
     ac.flightId = f.id;
     f.status = 'enroute';
     f.atd = f.std;
     const t = p.pilots[0];
     const now = restNow(g, ac.id, t.start + 10);
-    expect(now.some((x) => x.where === 'fcrc' && x.until === t.end && x.names[0].startsWith('CRP'))).toBe(true);
+    expect(now.some((x) => x.where === 'fcrc' && x.until === t.end && /^(FO|Capt\.) /.test(x.names[0]))).toBe(true);
   });
 });
 

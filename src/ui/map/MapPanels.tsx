@@ -51,7 +51,7 @@ import { MiniMap } from './MiniMap';
 import { eventIcon } from './WorldLayer';
 import { safe } from './safe';
 
-const ROLE_ORDER = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
+const ROLE_ORDER = ['CPT', 'FO', 'PUR', 'CC'];
 const LEVEL_TONE = { ok: 'good', tight: 'warn', missing: 'bad', illegal: 'bad' } as const;
 const LEVEL_TEXT = { ok: 'Legal', tight: 'Tight', missing: 'Uncrewed', illegal: 'Illegal' } as const;
 
@@ -68,7 +68,7 @@ export function openProblem(g: GameState, ref: Ref): boolean {
 }
 
 /** Missing seats in player words ('1 captain and 2 cabin crew'): roles counted in seat order. */
-const SEAT_ORDER = ['CPT', 'FO', 'CRP', 'PUR', 'CC'] as const;
+const SEAT_ORDER = ['CPT', 'FO', 'PUR', 'CC'] as const;
 const groupSeats = (roles: CrewMember['role'][]) => SEAT_ORDER.flatMap((role) => {
   const n = roles.filter((r) => r === role).length;
   return n ? [{ role, n }] : [];

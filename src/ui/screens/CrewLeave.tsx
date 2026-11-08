@@ -13,8 +13,8 @@ import { store } from '../store';
 
 const MON = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 const MONTH = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
-const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
-const ROLE_PLURAL: Record<Role, string> = { CPT: 'Captains', FO: 'First officers', CRP: 'Cruise relief', PUR: 'Pursers', CC: 'Cabin crew' };
+const ROLES: Role[] = ['CPT', 'FO', 'PUR', 'CC'];
+const ROLE_PLURAL: Record<Role, string> = { CPT: 'Captains', FO: 'First officers', PUR: 'Pursers', CC: 'Cabin crew' };
 
 const dayRange = (from: number, days: number) => `${fmtDay(from + 720)} – ${fmtDay(from + (days - 1) * DAY + 720)}`;
 

@@ -245,7 +245,7 @@ export function repairStandbyMorale(g: GameState): void {
 /** Notice period for a resignation (pilots 60 days, cabin 30). */
 const noticeDays = (r: Role) => (isPilot(r) ? M().noticeDays.pilot : M().noticeDays.cabin);
 
-const ROLE_NAME: Record<Role, string> = { CPT: 'captains', FO: 'first officers', CRP: 'relief pilots', PUR: 'pursers', CC: 'cabin crew' };
+const ROLE_NAME: Record<Role, string> = { CPT: 'captains', FO: 'first officers', PUR: 'pursers', CC: 'cabin crew' };
 
 let resignHook: ((g: GameState, c: CrewMember) => void) | null = null;
 let leaveHook: ((g: GameState, c: CrewMember) => void) | null = null;
