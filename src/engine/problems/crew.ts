@@ -135,7 +135,7 @@ export function crewProblems(g: GameState): ProblemCard[] {
 
 // ---------- v0.7.2 ----------
 
-/** A captain rostered in a first officer's (or relief pilot's) seat on the flight's duty (the soonest one). Pure. */
+/** A captain rostered in a first officer's seat on the flight's duty (the soonest one). Pure. */
 export function captainAsFoCard(g: GameState, flightId: string): ProblemCard | null {
   const f = g.flights[flightId];
   const d = f?.dutyId ? g.duties[f.dutyId] : undefined;

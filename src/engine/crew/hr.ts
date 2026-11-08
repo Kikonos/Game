@@ -249,7 +249,7 @@ function homesOf(g: GameState, memo: ReturnType<typeof memoOf>): { of: Map<strin
 
 /**
  * v0.12.1 relief pilots in a set (as staffing counts them: a pairing's seats are its most demanding duty's): augment 1
- * adds a relief pilot (sized as a first officer), 2 a second captain and first officer. Mutates and returns `per`.
+ * adds a first officer, 2 a second captain and first officer. Mutates and returns `per`.
  */
 function withRelief(per: Partial<Record<Role, number>>, augment: number): Partial<Record<Role, number>> {
   if (augment >= 1) per.FO = (per.FO ?? 0) + 1;
@@ -423,8 +423,8 @@ export interface StaffingLine {
  * Staffing vs need for the Crew screen, the hire screen and the bot. v0.8 fix pack: the need is the Planning view's
  * (sets.ts familyNeeds, one source of truth): BAL.crewSetsPerAircraft complements per aircraft of the family (more for
  * an aircraft on a deployment), the extra crew its long work asks for and relief pilots for augmented days; without
- * the seats a client's own cabin crew fly (mixed crew) and without aircraft away on a dry lease. Relief pilots count
- * as first officers here (a first officer fills a relief seat).
+ * the seats a client's own cabin crew fly (mixed crew) and without aircraft away on a dry lease. v0.18.3 the third
+ * pilot is a first officer (no cruise relief rank).
  */
 export function staffing(g: GameState): StaffingLine[] {
   return staffingAssign(g).lines;

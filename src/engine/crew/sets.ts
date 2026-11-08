@@ -120,11 +120,11 @@ export interface SetRole {
   away: number;
   /** Of `have`: cabin crew (or pilots) who also hold another fleet type, counted here once. */
   shared: number;
-  /** have − need after seniors fill junior seats (FO → relief pilot, purser → cabin crew): < 0 short, > 0 over. */
+  /** have − need after seniors fill junior seats (purser → cabin crew): < 0 short, > 0 over. */
   balance: number;
   /**
-   * v0.11.2 seats of this role in the sets needed that spare seniors fill (pursers in cabin crew seats, first officers
-   * in relief pilot seats; counted in `balance`); on the senior role, how many of its spare fill them.
+   * v0.11.2 seats of this role in the sets needed that spare seniors fill (pursers in cabin crew seats; counted in
+   * `balance`); on the senior role, how many of its spare fill them.
    */
   covered: number;
   /** v0.11.2 crew in one set with the client's own cabin crew seats as ours (whole sets for the round-up). */
@@ -152,7 +152,7 @@ export interface FamilyPlan {
   setsComplete: number;
   /** The role that decides the complete sets (null with no need). */
   limiting: Role | null;
-  /** Relief pilots in the set because the fleet flies long (augmented) days. */
+  /** Extra pilots in the set (a third FO, or a second CPT + FO) because the fleet flies long (augmented) days. */
   augmented: boolean;
   /** v0.8 cabin crew places in the sets needed that clients' own cabin crew fly (mixed-crew contracts; not ours to staff). */
   clientCabin: number;
@@ -401,7 +401,7 @@ export type CrewHomes = Map<string, RatingFamily>;
  * saves without multi-type crew count exactly as before. Also returns, per family, who is counted there while also
  * holding another fleet type (`backups`: the flexibility, never counted twice).
  * v0.11.2 fixes: a family's need for a role counts the spare seniors who fill its seats (pursers beyond their own
- * need fly cabin crew seats, first officers relief pilot seats), so a multi-type cabin crew member is not kept home
+ * need fly cabin crew seats), so a multi-type cabin crew member is not kept home
  * for a seat a spare purser already fills; the seniors are placed first (roles in set order, then oldest first).
  * `homes`: the family each person is counted in (Hire view, peak forecast and offer checks count crew the same way).
  */
@@ -485,7 +485,7 @@ export function crewSupply(g: GameState, fams: Map<RatingFamily, { need: Partial
   return { cells: out, backups, homes };
 }
 
-/** Can `have` crew per role fill `t` sets of `perSet` (first officers fill relief pilot seats, pursers cabin crew seats)? */
+/** Can `have` crew per role fill `t` sets of `perSet` (pursers fill cabin crew seats)? */
 export function setsFit(perSet: Partial<Record<Role, number>>, have: Partial<Record<Role, number>>, t: number): boolean {
   return missingFor(perSet, have, t).every((m) => m.count === 0);
 }
@@ -609,8 +609,8 @@ export function crewPlan(g: GameState): FamilyPlan[] {
 export function roundTargets(p: FamilyPlan): { complete: number | null; next: number | null; spare: number } {
   const complete = p.setsComplete < p.setsNeeded ? p.setsNeeded : null;
   const held = Math.max(p.setsNeeded, p.setsComplete);
-  // v0.11.2 fix: what is left after the held sets, with spare pursers in cabin crew seats (first officers in relief
-  // seats) and whole sets (a client's own cabin crew seats counted as ours). Was each role on its own against the
+  // v0.11.2 fix: what is left after the held sets, with spare pursers in cabin crew seats and whole sets
+  // (a client's own cabin crew seats counted as ours). Was each role on its own against the
   // set without the client's seats: 2 spare pursers covering 2 cabin crew seats offered 'Round up to 12 sets' on a
   // complete A320 family, and a mixed-crew contract 'Round up to 14 sets' with 10 needed and complete.
   const per: Partial<Record<Role, number>> = {};

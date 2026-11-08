@@ -895,7 +895,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
           { swatch: 'ring-amber', label: 'Amber ring: legal but tight (one delay breaks it)' },
           { swatch: 'ring-red', label: 'Red ring: cannot legally fly as rostered' },
           { swatch: 'idle', label: 'Faint hatch: not rostered yet (the roster for each month comes out on the 15th before)' },
-          { swatch: <span className="rb-mark"><BedDouble aria-hidden />3P</span>, label: '3P / 4P: an augmented crew, resting in turns in flight' },
+          { swatch: <span className="rb-mark"><BedDouble aria-hidden />3P</span>, label: '3P / 4P: an augmented crew (1 CPT + 2 FO, or 2 CPT + 2 FO in pairs A and B), resting in turns in flight' },
           { swatch: <span className="rb-mark">+1h</span>, label: '+1h: a planned extension (at most twice a week each)' },
           { swatch: <span className="rb-mark">SPLIT</span>, label: 'SPLIT: a split duty, a long wait on the ground adds to the day' },
         ]} />

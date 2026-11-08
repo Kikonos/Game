@@ -72,7 +72,7 @@ function FamilyCard({ p, lock }: { p: FamilyPlan; lock?: string | null }) {
       </div>
       <div className={`small cp-verdict ${short ? 'warn' : 'good'}`}>{p.verdict}</div>
       <div className="tiny muted">
-        <Term id="crewSet">One set</Term>: {p.types.map((x) => `${p.types.length > 1 ? `${x.short} ` : ''}${setWords(x.set)}`).join(' · ')}{p.augmented ? ' · plus relief pilots for the long days flown with 3 or 4 pilots' : ''}
+        <Term id="crewSet">One set</Term>: {p.types.map((x) => `${p.types.length > 1 ? `${x.short} ` : ''}${setWords(x.set)}`).join(' · ')}{p.augmented ? ' · plus a third pilot (FO) or a second CPT + FO for the long days flown with 3 or 4 pilots' : ''}
       </div>
       <table className="cp-table">
         <thead>

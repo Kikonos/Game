@@ -1629,7 +1629,7 @@ function previousCrew(g: GameState, p: Pairing): Set<string> {
   return new Set(best ? best.slots.filter((s) => s.crewId).map((s) => s.crewId!) : []);
 }
 
-/** v0.7.2 a captain in an FO or relief-pilot seat (the auto-roster's last resort). */
+/** v0.7.2 a captain in an FO seat, augmented pairs' too (the auto-roster's last resort). */
 const asFo = (slot: Role, role: Role) => role === 'CPT' && slot === 'FO';
 
 /** Fills a pairing's empty slots with the best-scoring legal crew (DESIGN §5.3 steps 1–4, 6). */

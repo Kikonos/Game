@@ -1,4 +1,4 @@
-// v0.12 Visual B: rank stripes as worn (captain 4, first officer 3, relief pilot 2); cabin crew wear wings.
+// v0.12 Visual B: rank stripes as worn (captain 4, first officer 3); cabin crew wear wings.
 import { describe, expect, it } from 'vitest';
 import { RANK_BAR, RANK_STRIPES, stripeXs, wingFeathers } from './RankMark';
 

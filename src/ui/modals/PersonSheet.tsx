@@ -12,7 +12,7 @@ import { flightsRev } from '../../engine/core/entities';
 import { DAY, HOUR, fmtDate, fmtDay, fmtDayAt, fmtDayRange, fmtTime, monthKey, monthStart, toDate } from '../../engine/core/time';
 import type { CrewMember, GameState } from '../../engine/core/types';
 import {
-  crewCalendar, crewGauges, crewMonth, crewName, crewRev, crewStatusView, crewWindows, leaveBalance, LIMITS, moraleOf, publishDayOf, publishedTo, type CalBlock,
+  crewCalendar, crewGauges, crewMonth, crewName, crewRev, pairOfCrew, crewStatusView, crewWindows, leaveBalance, LIMITS, moraleOf, publishDayOf, publishedTo, type CalBlock,
 } from '../../engine/crew';
 import { crewSupply, familyNeeds } from '../../engine/crew/sets';
 import { dayIndex, midnight } from '../../engine/crew/dayPlan';
@@ -203,7 +203,7 @@ function DutyCard({ g, c, b, rests, hi, layover }: { g: GameState; c: CrewMember
         {travel && fl.length > 0 && <><span className="k">Departs</span><span>{dayAt(fl[0].std, from)} · {both(fl[0].std, from)}</span></>}
         <span className="k">{travel ? 'Arrives' : 'Release'}</span><span>{dayAt(b.end, to)} · {both(b.end, to)}</span>
         {block > 0 && !travel && <><span className="k">Block</span><span className="num">{hm(block)}</span></>}
-        {d && <><span className="k">FDP</span><span className="num">{hm(d.fdp)} <span className="dim">of {hm(d.maxFdp + (d.discretion ?? 0))}{d.augment ? ` · ${2 + d.augment} pilots` : ''}</span></span></>}
+        {d && <><span className="k">FDP</span><span className="num">{hm(d.fdp)} <span className="dim">of {hm(d.maxFdp + (d.discretion ?? 0))}{d.augment ? ` · ${2 + d.augment} pilots${pairWords(pairOfCrew(g, d.id, c.id))}` : ''}</span></span></>}
         {!fl.length && b.detail && (!d || /^Flown: /.test(b.detail)) && <><span className="k">Flown</span><span>{b.detail.replace(/^Flown: /, '')}<span className="dim"> · flight numbers were not recorded before v0.18.1</span></span></>}
         {rest && <><span className="k">Rest</span><span className="num">{hm(rest.end - rest.start)} <span className="dim">{rest.at ? `at ${rest.at}` : 'at home'} · until {fmtDay(rest.end)} {fmtTime(rest.end)} UTC{rest.restWhy ? ` · ${rest.restWhy}` : ''}</span></span></>}
       </div>
@@ -373,6 +373,9 @@ function Legend({ grid }: { grid: MonthGrid }) {
   return <div className="ps-legend tiny muted">{items.map((k) => <span key={k} className="row gap-4"><span className={`ps-sw k-${k}`} aria-hidden />{DAY_KIND_LABEL[k]}</span>)}</div>;
 }
 
+
+/** v0.18.3 ', pair B' / ', relief pilot' for a pilot on an augmented duty; '' otherwise. */
+const pairWords = (p: 'A' | 'B' | 'relief' | null): string => (p === 'relief' ? ', relief pilot' : p ? `, pair ${p}` : '');
 export default function PersonSheet({ crewId, back }: { crewId: string; back?: ModalSpec }) {
   const g = useGame();
   const c = g.crew[crewId];

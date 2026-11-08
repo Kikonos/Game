@@ -53,8 +53,8 @@ export const BAL = {
    * captains earn about €9,000–10,500 basic a month and first officers €4,500–6,000 (the same survey), so an ACMI
    * widebody captain earns about €11,500–12,500 and a first officer €6,500–7,000 (+20–30 % on the market's narrowbody
    * pay). Our narrowbody scale sits at the low end of the market, so the widebody scale is set against the market:
-   * CPT 12,000 → 13,000 (about €11,300), FO 7,000 → 7,500, a cruise relief pilot (second officer) 4,300 → 5,500 on a
-   * widebody (below a widebody FO, above a narrowbody one). B757/767 pilots keep widebody pay while a 767 is in the fleet.
+   * CPT 12,000 → 13,000 (about €11,300), FO 7,000 → 7,500 on a widebody (v0.18.3: no cruise relief rank; augmented
+   * crews are captains and first officers, paid as such). B757/767 pilots keep widebody pay while a 767 is in the fleet.
    */
   salary: {
     CPT: [9_400, 13_000], FO: [5_300, 7_500], PUR: [2_700, 2_700], CC: [2_000, 2_000],

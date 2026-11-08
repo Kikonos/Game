@@ -31,7 +31,7 @@ import { ratedMarket, staffingAssign } from './hr';
 import { awayOnDryLease, familyName, familyNeeds } from './sets';
 import { crewRev, dhBlock } from './timeline';
 
-/** The roles the forecast counts: relief pilots are first officers here (as staffing()). */
+/** The roles the forecast counts (v0.18.3: the third pilot of an augmented crew is a first officer). */
 export const PEAK_ROLES: Role[] = ['CPT', 'FO', 'PUR', 'CC'];
 
 export const PEAK = {

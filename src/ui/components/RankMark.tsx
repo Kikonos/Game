@@ -1,5 +1,5 @@
 // v0.12 Visual B: rank marks beside crew names, as worn on the uniform. Pilots: a shoulder epaulette with gold stripes
-// (captain 4, first officer 3, relief pilot 2: the second officer's two). Cabin crew: wings — gold with a crest for the
+// (captain 4, first officer 3). Cabin crew: wings — gold with a crest for the
 // purser (the cabin manager), silver for cabin crew. Small and static (one tiny SVG, no state).
 // v0.14 a more modern cut: one stroke weight (RANK_BAR) for every stripe and feather, round caps, flat muted gold and
 // silver; the epaulette a slim navy board with a soft point at the collar, its stripes floating inside it; the wings

@@ -4,7 +4,7 @@
 // Engine: crew/rosterActions.ts (dutyCrew, dutyCandidates, dutyLegality, assignCrew, unassignCrew, swapCrew, unlockCrew).
 
 import { RankMark } from '../components/RankMark';
-import { clientCrewOf, crewAlertKind, rosterHorizon, rosterOutLine, slipOfFlight } from '../../engine/crew';
+import { clientCrewOf, crewAlertKind, dutyPilotsLine, rosterHorizon, rosterOutLine, slipOfFlight } from '../../engine/crew';
 import { releaseText } from '../../engine/crew/rosterActions';
 import { ClientCrewRow } from './v08Bits';
 import { ArrowLeftRight, BedDouble, ChevronDown, ChevronLeft, ChevronRight, Lock, LockOpen, Plus, Repeat, UserMinus, Users } from 'lucide-react';
@@ -239,7 +239,7 @@ function DayLength({ g, dutyId, ac }: { g: GameState; dutyId: string; ac?: strin
       <span className="small muted row gap-8 wrap">
         <span><Term id="fdp">Day length</Term> <b className="num">{hm(d.fdp)}</b> of <b className="num">{hm(d.discretion ? d.maxFdp : limit)}</b>{d.discretion ? <> + {hm(d.discretion)} <Term id="discretion">discretion</Term></> : null}</span>
         {why && <button className="dm-why-btn" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? 'Hide why' : `Why ${hm(limit)}?`}</button>}
-        <span>· {d.sectors} sector{d.sectors === 1 ? '' : 's'} · {2 + d.augment} pilots{d.ext ? ' · planned extension' : ''}{d.split ? ' · split duty' : ''}{ac ? ` · ${ac}` : ''}</span>
+        <span>· {d.sectors} sector{d.sectors === 1 ? '' : 's'} · {2 + d.augment} pilots{d.augment ? ` (${dutyPilotsLine(g, d)})` : ''}{d.ext ? ' · planned extension' : ''}{d.split ? ' · split duty' : ''}{ac ? ` · ${ac}` : ''}</span>
       </span>
       {open && why && (
         <div className="dm-why small">
