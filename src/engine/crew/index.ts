@@ -51,6 +51,11 @@ export {
   cancelConversion, ccqKeeps, ccqPartner, ccqPartners, classOf, conversionClasses, conversionEarliest, conversionPlan, courseOf, courseText, familyLabel, ratingsLost, refundShare, startConversion,
   type ConversionClassPlan, type ConversionPlan, type ConversionRequest,
 } from './conversion';
+// v0.18.3 Convert surplus crew (Crew › Utilisation).
+export {
+  applyConvertOption, CONVERT, convertAdvice, convertCandidates, convertOptions, convertTargets, convertWhyNot,
+  type ConvertAdvice, type ConvertClass, type ConvertOption, type ConvertSwap, type ConvertTarget,
+} from './convertAdvice';
 export {
   MORALE_LABEL, moraleOf, moraleShock, moraleSummary, moraleTarget, onContractDoneMorale, policyPreview, resignChance, resignNow, sickMult,
   type MoraleDriverView, type MoraleSummary, type MoraleView,

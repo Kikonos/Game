@@ -212,6 +212,19 @@ function cabinSlot(t: Minute, len: number, busy: [Minute, Minute][]): Minute {
   return cands[cands.length - 1];
 }
 
+/**
+ * v0.18.3 the day a class would really start when asked for `t` (Convert proposals): base-local midnight, at least
+ * conversionEarliest, pilot classes pilotStaggerDays apart from booked ones and from `extra` starts, at most
+ * cabinParallel cabin classes at a time. The same rules as conversionPlan. Pure.
+ */
+export function classStartFor(g: GameState, group: Group, t: Minute, len: number, extra: Minute[] = []): Minute {
+  const booked = conversionClasses(g);
+  const start = localDay(g, Math.max(conversionEarliest(g), t) + 6 * 60);
+  if (group === 'pilot') return localDay(g, pilotSlot(start, [...booked.filter((k) => k.group === 'pilot').map((k) => k.start), ...extra]) + 6 * 60);
+  const busy: [Minute, Minute][] = [...booked.filter((k) => k.group === 'cabin').map((k) => [k.start, k.end] as [Minute, Minute]), ...extra.map((e) => [e, e + len] as [Minute, Minute])];
+  return localDay(g, cabinSlot(start, len, busy) + 6 * 60);
+}
+
 /** Why a crew member can't join (null: eligible). */
 function skipWhy(g: GameState, c: CrewMember | undefined, family: RatingFamily, start: Minute): string | null {
   if (!c) return 'Not found';
