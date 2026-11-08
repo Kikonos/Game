@@ -16,19 +16,18 @@ rollingRoster();
 describe('v0.18.2 crew sized by the flying', () => {
   it('a deployment keeps its sets on station plus one in five (no longer at least 5); an aircraft at home by its duties and hours', () => {
     expect([2, 3, 4, 5].map(setsForStation)).toEqual([3, 4, 5, 6]);
-    expect(setsForHome(undefined)).toBe(3);
-    // Two duties a day (61 a month): 5 sets, as the old rule; one a day: 3.
-    expect(setsForHome({ duties: 61, bh: 230 })).toBe(5);
-    expect(setsForHome({ duties: 30.4, bh: 120 })).toBe(3);
+    // At home at least 5 (charters at short notice); more when the duties or the hours need them.
+    expect(setsForHome(undefined)).toBe(5);
+    expect(setsForHome({ duties: 30.4, bh: 120 })).toBe(5);
+    expect(setsForHome({ duties: 80, bh: 300 })).toBe(7);
     // Long days: the hours decide (420 BH a month at 85 a person, plus one in five).
     expect(setsForHome({ duties: 30, bh: 420 })).toBe(6);
   });
 
-  it('a quiet fleet at home needs fewer crew than five sets an aircraft', () => {
+  it('a fleet at home keeps five sets an aircraft', () => {
     const g = fixtureGame();
     const p = crewPlan(g)[0];
-    expect(p.setsNeeded).toBeLessThan(5 * p.aircraft);
-    expect(p.setsNeeded).toBeGreaterThanOrEqual(3 * p.aircraft);
+    expect(p.setsNeeded).toBe(5 * p.aircraft);
   });
 });
 

@@ -36,8 +36,11 @@ export const SIZING = {
   homeDutiesMonth: 15,
   /** Block hours a person flies in a month at most when sizing (100 h in 28 days is the legal limit). */
   bhMonth: 85,
-  /** Sets an aircraft keeps whatever it flies (a quiet month, an aircraft on its way). */
-  homeMin: 3,
+  /**
+   * Sets an aircraft at home keeps whatever it flies: its charters come at a few days' notice (bots 1–2 with 3 or 4:
+   * twice the red alarms and sub-charters). More when its duties or hours need them.
+   */
+  homeMin: 5,
 };
 
 /**

@@ -23,7 +23,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'For crew you do not need: offer unpaid leave (they ask for it, so morale holds), furlough a share (Finance), or make some redundant with notice (90 days for pilots, 60 for cabin crew) and severance. Their colleagues take it badly.',
     ],
     improvements: [
-      'Crew numbers follow the flying. An aircraft at home is crewed for the duties and hours it flies (at least 3 sets), not 5 sets whatever it does. A deployment keeps its sets on station plus one in five.',
+      'Crew numbers follow the flying. A deployment keeps its sets on station plus one in five (it used to keep at least 5 sets per aircraft). An aircraft at home keeps 5 sets for short-notice charters, and more when it flies more.',
       'Once a programme is under way, a deployment that needs fewer sets stands one down at the end of its last tour. Nobody is sent home early.',
       'A far base keeps one spare captain and purser on station, shared with far bases within 4 hours. Before, every set brought its own.',
       'The crew desk stops hiring a rank while that rank flies under 40 h in 28 days. A card says why, what it would cost, and how to hire anyway.',
