@@ -12,7 +12,7 @@ import { dropClientSeats } from './clientCrew';
 import { restOf } from './restPlan';
 import { conversionClasses, ratingsLost } from './conversion';
 import { crewExtraFor, rolesWithExtra } from './extraSeats';
-import { reserveCarrier, reserveRoles } from './farBase';
+import { farBase, patternSets, reserveCarrier, reserveRoles } from './farBase';
 import { payFor } from './generate';
 import { hireQuote, type HireRequest } from './hr';
 
@@ -218,6 +218,8 @@ function augOf(g: GameState, aircraftId: string): { share: number; level: 0 | 1 
 
 /** The planning window: signed work over the next 60 days shapes each aircraft's crew. */
 const WINDOW = 60 * DAY;
+/** v0.18.2 a base signed this far ahead holds its crew already (hires join in 30–60 days). */
+const AHEAD = 90 * DAY;
 
 /** v0.12.1 the relief pilots a base programme's longest days need on an aircraft (0–2), memoised per game. */
 const baseAugMemo = new WeakMap<GameState, Map<string, 0 | 1 | 2>>();
@@ -292,6 +294,19 @@ export function familyNeeds(g: GameState) {
     onStation.set(dp.aircraftId, Math.max(onStation.get(dp.aircraftId) ?? 0, dp.setsOnStation));
     // v0.18.2 one reserve per far station (shared by far stations within reach: farBase.ts reserveCarrier).
     if (reserveCarrier(g, dp)) farSets.set(dp.aircraftId, 1);
+  }
+  // v0.18.2 a base signed ahead whose deployment is not made yet (its duties come 28 days ahead) counts its sets on
+  // station from its pattern (farBase.ts patternSets), so its crew are hired in time (rated crew take 30–60 days to
+  // join). Bot seed 2: counted as an aircraft at home until then, it was hired for a month late and lost 60 legs.
+  for (const k of Object.values(g.contracts)) {
+    if ((k.status !== 'signed' && k.status !== 'active') || k.pattern.kind !== 'base' || k.end <= g.now || k.start > g.now + AHEAD) continue;
+    for (const id of k.aircraftIds) {
+      if (Object.values(g.deployments).some((dp) => dp.contractId === k.id && dp.aircraftId === id)) continue;
+      const ac = g.fleet[id];
+      if (!ac) continue;
+      onStation.set(id, Math.max(onStation.get(id) ?? 0, patternSets(k.pattern, ac.typeId)));
+      if (farBase(g.company.homeBase, k.pattern.base, k.start)) farSets.set(id, 1);
+    }
   }
   // v0.11.2 `full`: the need with the client's cabin crew seats as ours (whole sets for the round-up).
   const fams = new Map<RatingFamily, { aircraft: number; sets: number; need: Partial<Record<Role, number>>; full: Partial<Record<Role, number>>; types: Map<string, TypeSet>; aug: boolean; client: number; dry: number }>();

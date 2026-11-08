@@ -73,10 +73,10 @@ export function UtilisationView({ g }: { g: GameState }) {
   return (
     <div className="cu">
       <section className="cu-tiles">
-        <div className="card cu-tile"><span className="tiny upper dim">Pilots · 28 days</span><b className={`num ${lowP ? 'warn' : ''}`}>{h(u.avg28.pilots)}</b><span className="tiny muted">a person{u.avg12.pilots ? ` · ${h(u.avg12.pilots)} in 12 months` : ''}</span></div>
-        <div className="card cu-tile"><span className="tiny upper dim">Cabin crew · 28 days</span><b className={`num ${u.avg28.cabin < UTIL_TYPICAL.monthLo ? 'warn' : ''}`}>{h(u.avg28.cabin)}</b><span className="tiny muted">a person{u.avg12.cabin ? ` · ${h(u.avg12.cabin)} in 12 months` : ''}</span></div>
+        <div className="card cu-tile"><span className="tiny upper dim">Pilots · 28 d</span><b className={`num ${lowP ? 'warn' : ''}`}>{h(u.avg28.pilots)}</b><span className="tiny muted">each{u.avg12.pilots ? ` · ${h(u.avg12.pilots)} a year` : ''}</span></div>
+        <div className="card cu-tile"><span className="tiny upper dim">Cabin · 28 d</span><b className={`num ${u.avg28.cabin < UTIL_TYPICAL.monthLo ? 'warn' : ''}`}>{h(u.avg28.cabin)}</b><span className="tiny muted">each{u.avg12.cabin ? ` · ${h(u.avg12.cabin)} a year` : ''}</span></div>
         <div className="card cu-tile"><span className="tiny upper dim">Per aircraft</span><b className="num">{u.perAircraft.pilots.toFixed(1)} <span className="cu-unit">pilots</span></b><span className="tiny muted">{u.perAircraft.cabin.toFixed(1)} cabin crew · {u.aircraft} aircraft</span></div>
-        <div className="card cu-tile"><span className="tiny upper dim">Beyond the flying</span><b className={`num ${u.surplusCost ? 'warn' : 'good'}`}>{u.surplusCost ? k(u.surplusCost) : 'None'}</b><span className="tiny muted">{u.surplusCost ? `a month · ${u.surplus.reduce((s, x) => s + x.n, 0)} people` : 'crew match the sets needed'}</span></div>
+        <div className="card cu-tile"><span className="tiny upper dim">Surplus</span><b className={`num ${u.surplusCost ? 'warn' : 'good'}`}>{u.surplusCost ? k(u.surplusCost) : 'None'}</b><span className="tiny muted">{u.surplusCost ? `a month · ${u.surplus.reduce((s, x) => s + x.n, 0)} people` : 'crew match the sets needed'}</span></div>
       </section>
       <p className="small muted cu-typical"><Gauge className="sc-ico-s" aria-hidden /> ACMI crew typically fly {UTIL_TYPICAL.monthLo}–{UTIL_TYPICAL.monthHi} h a month in season ({UTIL_TYPICAL.yearLo}–{UTIL_TYPICAL.yearHi} a year; the law allows 100 h in 28 days), with about 10–12 pilots per narrowbody. Fewer hours in winter are normal; idle all year is not. The crew desk holds hiring for a rank while it flies under {UTIL_TYPICAL.hold28} h in 28 days.</p>
       <div className="cu-cols">
