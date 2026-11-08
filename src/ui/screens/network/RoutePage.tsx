@@ -146,7 +146,14 @@ function TimetableTab({ g, r }: { g: GameState; r: Route }) {
             </div>
           )
         ))}
-        {slots && <div className={`small ${slots.held && slots.flown / Math.max(1, slots.held) < 0.8 ? 'warn' : 'muted'}`}>Slots {slots.season}: {slots.flown} of {slots.held} flown{slots.held ? ` (${Math.round((slots.flown / slots.held) * 100)} %)` : ''}{slots.held && slots.flown / slots.held < 0.8 ? ': at risk' : ''}</div>}
+        {slots && (() => {
+          // §D.5 the 80 % rule, on the dates gone by so far (a sub-charter counts as flown, a cancellation does not).
+          const past = r.rotations.filter((x) => x.dep < g.now && (x.status === 'flown' || x.status === 'cancelled'));
+          const flown = past.filter((x) => x.status === 'flown').length;
+          if (!past.length) return <div className="small muted">Slots: held for the season; fly at least 80 % of them to keep them.</div>;
+          const share = flown / past.length;
+          return <div className={`small ${share < 0.8 ? 'warn' : 'muted'}`}>Slots: {flown} of {past.length} flown so far ({Math.round(share * 100)} %){share < 0.8 ? ': at risk (80 % keeps them)' : ''}</div>;
+        })()}
       </div>
       <div className="col gap-6">
         <span className="upper dim">Rotations</span>
