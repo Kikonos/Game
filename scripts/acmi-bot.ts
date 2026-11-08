@@ -108,6 +108,7 @@ import { createScenario, METRICS, SCENARIO_BY_ID, fmtValue, reliability, scenari
 import { fleetWords } from '../src/engine/newGame';
 import { bidQuote, bookTrip, com, fairsAhead, homeMarket, placeBid, travellers } from '../src/engine/commercial';
 import { botFinance } from './bot/finance';
+import { botNetwork, botNetworkReport } from './bot/network';
 import { botSales } from './bot/sales';
 import { botLadder, botLadderReport } from './bot/ladder';
 import { botFarRouteReport, botFarRouteTally, farRouteOk } from './bot/clients';
@@ -659,6 +660,8 @@ function hire(g: GameState, t: Tally): void {
  * the month starts is hired once (they still help its later weeks). Never with less than $500K of cash.
  */
 const FORECAST_HIRE = process.argv.includes('--forecast-hire');
+/** v0.19 --routes: scheduled routes on idle widebodies (--routes=dil adds Dili). */
+const ROUTES = process.argv.some((a) => a === '--routes' || a.startsWith('--routes='));
 const fcActed = new Set<string>();
 let fcHired = 0;
 const fcHiredBy = new Map<string, number>();
@@ -1488,6 +1491,8 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     if (botLadder(g)) act(g, t);
     // v0.16 the far routes offered and signed (scripts/bot/clients.ts; a tally only, no action).
     botFarRouteTally(g);
+    // v0.19 --routes: scheduled routes on idle widebodies (scripts/bot/network.ts).
+    if (ROUTES && botNetwork(g)) act(g, t);
     policies(g, t);
     rehire(g, t);
     extraCrew(g, t);
@@ -2565,6 +2570,7 @@ console.log(botMarketReport(g));
 tourReport(g);
 // v0.16 far routes offered and signed (scripts/bot/clients.ts).
 console.log(botFarRouteReport());
+if (ROUTES || Object.keys(g.network?.routes ?? {}).length) console.log(botNetworkReport(g));
 {
   // v0.7.1 Crew Control: ladder stages, fixes by kind, jets and their share of revenue (soft targets, §16).
   const fixes = [...tally.crewFixes].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || 'none';
