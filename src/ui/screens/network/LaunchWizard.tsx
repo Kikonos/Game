@@ -2,7 +2,7 @@
 // stages in game time with one decision at a time (the business case: go, change the plan, or shelve). It can be
 // closed and reopened; the stages run while it is shut.
 
-import { ArrowLeft, BarChart3, Building2, CalendarClock, Check, ChevronRight, Flag as FlagIcon, Plane, Play, Rocket, Square, Users } from 'lucide-react';
+import { ArrowLeft, BarChart3, Building2, CalendarClock, Check, ChevronRight, Flag as FlagIcon, Plane, Play, Rocket, Users, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { flag } from '../../../data/countries';
@@ -313,7 +313,7 @@ function RouteLaunch({ g, routeId }: { g: GameState; routeId: string }) {
   return (
     <Modal title={routeName(r)} icon={<Rocket className="accent" />} onClose={close} size="xwide" className="nw-modal nw-launch" footer={
       <>
-        {!live && r.status !== 'closed' && net.has('stopLaunch') && <button className="btn btn-ghost btn-danger" onClick={stop}><Square /> Stop</button>}
+        {!live && r.status !== 'closed' && net.has('stopLaunch') && <button className="btn btn-ghost btn-danger" onClick={stop}><X /> Stop the launch</button>}
         <span className="grow" />
         {live && <button className="btn" onClick={() => store.openModal({ kind: 'route', routeId: r.id })}><Plane /> Route page</button>}
         <button className="btn btn-primary" onClick={close}>Close</button>
@@ -343,13 +343,21 @@ function RouteLaunch({ g, routeId }: { g: GameState; routeId: string }) {
             </div>
           )}
           {r.status === 'launching' && !waitingCase && !slotWait && (
-            <div className="nw-wait">
-              <Building2 className="accent" />
-              <div>
-                <b>{r.stages.filter((s) => s.state === 'running' || s.state === 'delayed').map((s) => STAGE_LABEL[s.id]).join(' · ') || 'Getting ready'}</b>
-                <div className="small muted">Stages run in game time; setbacks arrive as cards in the Inbox. {r.series[0] ? `Timetable: ${seriesWords(r.series[0])}, ${hhmm(r.series[0].out)} local.` : ''}</div>
+            <>
+              <div className="nw-wait">
+                <Building2 className="accent" />
+                <div>
+                  <b>Now: {r.stages.filter((s) => s.state === 'running' || s.state === 'delayed').map((s) => STAGE_LABEL[s.id]).join(' · ') || 'getting ready'}</b>
+                  <div className="small muted">Stages run in game time; setbacks arrive in the Inbox.</div>
+                </div>
               </div>
-            </div>
+              <div className="nw-facts">
+                <div><span>First flight</span><b>{r.firstFlight ? fmtDayRel(r.firstFlight, g.now) : 'to be set'}</b></div>
+                <div><span>Spent so far</span><b className="num">{money(r.stages.reduce((a, s) => a + s.cost, 0))}</b></div>
+                <div><span>Timetable</span><b>{r.series[0] ? `${seriesWords(r.series[0])}, ${hhmm(r.series[0].out)} local` : '—'}</b></div>
+                <div><span>Still to come</span><b>{r.stages.filter((s) => s.state === 'todo').map((s) => STAGE_LABEL[s.id].toLowerCase()).join(', ') || 'nothing'}</b></div>
+              </div>
+            </>
           )}
           {live && (
             <div className="nw-wait">
