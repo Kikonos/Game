@@ -210,6 +210,8 @@ export function onSectorArr(g: GameState, f: Flight, rot: Rotation, idx: number)
     const p = sectorPax(s);
     cost = route.model === 'partner' ? 0 : Math.round(BAL.v019.cost.gds * BAL.v019.cost.agencyShare * (p.j + p.y) + (s.sold ?? 0) * (BAL.v019.cost.cardFee + BAL.v019.cost.commission));
     if (cost) post(g, 'distribution', -cost);
+    // The rival's price (booked as a sub-charter cost when it was handed over) belongs to the route's result.
+    cost += s.subCost ?? 0;
   }
   // On time: within 15 minutes of the schedule (ops keeps schedStd).
   const sched = (f.schedStd ?? f.std) + f.block;

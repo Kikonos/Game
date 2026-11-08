@@ -14,6 +14,7 @@ import { DAY, fmtDay, fmtTime } from '../core/time';
 import type { Contract, Flight, GameState, Minute } from '../core/types';
 import { relinkPositioning } from '../contracts/schedule';
 import { autoRoster } from '../crew/roster';
+import { noteRouteSub } from './costs';
 import { cabinFor, localToUtc, localWeekday, marketOfRoute, rotationTimes, seasonCode, usd } from './model';
 import { bumpRoute } from './reputation';
 import { pushRouteNote } from './notes';
@@ -263,6 +264,7 @@ export function subcharterRotation(g: GameState, route: Route, rot: Rotation, ri
   rot.operatedBy = rv;
   rot.status = 'flights';
   post(g, 'subcharter', -cost);
+  noteRouteSub(g, rot.sectors.map((x) => (x.flightId ? g.flights[x.flightId] : undefined)).filter((x): x is Flight => !!x), cost);
   g.network!.stats.subs++;
   const name = g.rivals.find((r) => r.id === rv)?.name ?? 'another operator';
   pushRouteNote(g, route, 'info', `${name} flies ${fmtDay(rot.dep)} for us`, `Sub-chartered for ${usd(cost)}: the passengers keep their tickets, no penalty.`, null);

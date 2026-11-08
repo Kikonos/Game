@@ -12,7 +12,7 @@ import type { GameState, Minute } from '../core/types';
 import { relinkPositioning } from '../contracts/schedule';
 import { autoRoster } from '../crew/roster';
 import { moveTrip, quoteTripMove } from '../ops/tripMove';
-import { costTotal, routeLegCost } from './costs';
+import { costTotal, noteRouteSub, routeLegCost } from './costs';
 import { marketOfRoute, usd } from './model';
 import { dirSectors, expectedPax, fareFor, fareOf } from './sales';
 import { candidates, cancelRotation, findRotation, moveRotation, quoteCancelRotation, quoteMoveRotation, rotationSchedule, subCost, subRival } from './timetable';
@@ -186,6 +186,7 @@ export function resolveRotation(g: GameState, rotId: string, choice: RouteChoice
     const times = rotationSchedule(g, route, rot);
     const cost = subCost(g, s.typeId, times.reduce((a, x) => a + (x.sta - x.std), 0), rot.dep);
     const ids = live(g, rot).map((f) => f!.id);
+    noteRouteSub(g, live(g, rot).map((f) => f!), cost);
     subcharterFlights(g, ids, rv);
     post(g, 'subcharter', -cost);
     rot.operatedBy = rv;
