@@ -65,3 +65,37 @@
 .ps-layover svg { width: 18px; height: 18px; flex-shrink: 0; color: #46b6a6; }
 .ps-layover b { font-weight: 650; }
 .ps-duty .bp-list { margin-top: 10px; }
+
+/* ---------- Company › the Ladder: room between the rungs, three calm parts per card ---------- */
+.ld-grid { column-gap: 30px; row-gap: 0; }
+.ld-rung { gap: 14px; }
+.ld-head { min-height: 46px; gap: 3px; padding: 0 2px; }
+.ld-head b { line-height: 1.25; }
+.ld-node { gap: 10px; min-height: 0; padding: 14px 14px 12px; border-radius: 14px; }
+.ld-top { display: flex; flex-direction: column; align-items: flex-start; gap: 7px; width: 100%; }
+.ld-name { font-size: 14.5px; font-weight: 620; line-height: 1.25; }
+.ld-need { display: flex; flex-direction: column; gap: 6px; width: 100%; padding-top: 10px; border-top: 1px solid rgba(var(--line-rgb), 0.16); }
+.ld-need .ld-req { line-height: 1.35; color: var(--text-2); }
+.ld-need .ld-req.muted { color: var(--text-3); }
+.ld-need .bar { width: 100%; }
+.ld-foot { display: flex; flex-direction: column; gap: 8px; width: 100%; margin-top: auto; }
+.ld-types { gap: 5px; margin-top: 0; }
+.ld-type { font-size: 11.5px; padding: 2px 7px; }
+.ld-lines path { stroke-width: 1.4; }
+@media (max-width: 1099.98px), (max-height: 499.98px) {
+  .ld-grid { grid-template-columns: repeat(5, minmax(184px, 1fr)); column-gap: 26px; padding-bottom: 6px; scroll-snap-type: x proximity; }
+  .ld-rung { scroll-snap-align: start; }
+}
+
+/* ---------- Fleet › aircraft card: two even rows of actions; cards keep their own height ---------- */
+/* Two columns that fill down (no card stretched to its neighbour's height, no hole beside a short one). */
+@media (min-width: 1100px) and (min-height: 500px) {
+  .sc-ac-grid { display: block; column-count: 2; column-gap: 14px; }
+  .sc-ac-grid > .sc-ac { break-inside: avoid; margin-bottom: 14px; }
+}
+.fl-actions.fl-nav, .fl-actions.fl-money { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.fl-actions.fl-money { margin-top: 0; }
+.fl-actions.fl-nav .btn, .fl-actions.fl-money .btn { width: 100%; min-width: 0; justify-content: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 10px; padding-right: 10px; }
+.fl-actions .fl-specs { width: 100%; }
+.fl-dry .bar { flex: 1 1 auto; }
+.fl-dry-run { display: flex; align-items: center; gap: 10px; }

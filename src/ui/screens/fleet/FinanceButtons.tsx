@@ -3,18 +3,21 @@
 
 import { BadgeDollarSign, Repeat } from 'lucide-react';
 import { fmtDay } from '../../../engine/core/time';
+import type { ReactNode } from 'react';
 import type { Aircraft, GameState } from '../../../engine/core/types';
 import { loanOn, pct1 } from '../../../engine/finance';
 import { money } from '../../format';
 import { store } from '../../store';
 
-export function FinanceButtons({ g, ac }: { g: GameState; ac: Aircraft }) {
+/** v0.18.1 `lead`: the card's own sale or early-return button, first in the same even row. */
+export function FinanceButtons({ g, ac, lead }: { g: GameState; ac: Aircraft; lead?: ReactNode }) {
   const o = ac.ownership;
+  const only = lead ? <div className="fl-actions fl-money">{lead}</div> : null;
   if (o.kind === 'dryLeaseIn') {
-    if (!o.leaseback) return null;
-    return <div className="fl-row small"><span className="upper dim nowrap">Leased back</span><span className="muted">Sold to {o.lessor} and leased back: {money(o.rentPerMonth)} a month, back by {fmtDay(o.leaseEnd)}</span></div>;
+    if (!o.leaseback) return only;
+    return <>{only}<div className="fl-row small"><span className="upper dim nowrap">Leased back</span><span className="muted">Sold to {o.lessor} and leased back: {money(o.rentPerMonth)} a month, back by {fmtDay(o.leaseEnd)}</span></div></>;
   }
-  if (ac.status === 'delivering' || ac.status === 'stored' || ac.status === 'leasedOut') return null;
+  if (ac.status === 'delivering' || ac.status === 'stored' || ac.status === 'leasedOut') return only;
   const loan = loanOn(g, ac.id);
   return (
     <>
@@ -25,12 +28,13 @@ export function FinanceButtons({ g, ac }: { g: GameState; ac: Aircraft }) {
           <button className="btn btn-sm" onClick={() => store.navigate('finance')}>Finance</button>
         </div>
       )}
-      {!ac.sale && (
-        <div className="row gap-8 fl-actions mt-8">
-          {!loan && <button className="btn grow" onClick={() => store.openModal({ kind: 'financing', what: 'loan', id: ac.id })}><BadgeDollarSign /> Borrow against it…</button>}
-          <button className="btn grow" onClick={() => store.openModal({ kind: 'financing', what: 'leaseback', id: ac.id })}><Repeat /> Sell and lease back…</button>
+      {!ac.sale ? (
+        <div className="fl-actions fl-money">
+          {lead}
+          {!loan && <button className="btn" title="Borrow against it" onClick={() => store.openModal({ kind: 'financing', what: 'loan', id: ac.id })}><BadgeDollarSign /> Borrow…</button>}
+          <button className="btn" title="Sell and lease back" onClick={() => store.openModal({ kind: 'financing', what: 'leaseback', id: ac.id })}><Repeat /> Leaseback…</button>
         </div>
-      )}
+      ) : only}
     </>
   );
 }

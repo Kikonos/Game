@@ -55,21 +55,44 @@ export function firstUnmet(n: LadderNode): string | null {
   return `${label} · ${/^[\d$]/.test(r.have) ? `${r.have} now` : r.have}`;
 }
 
+/**
+ * v0.18.1 how far the first unmet requirement is, when it counts something ('ETOPS 180 held 180 days', have '40 days'):
+ * 0–1, else null. Pure.
+ */
+export function unmetProgress(n: LadderNode): number | null {
+  if (n.state === 'held' || n.state === 'pending') return null;
+  const r = n.reqs.find((x) => !x.ok);
+  const need = r ? Number(/held (\d+) days$/.exec(r.label)?.[1] ?? r.need?.replace(/[^\d.]/g, '') ?? NaN) : NaN;
+  const have = r?.have ? Number(r.have.replace(/[^\d.]/g, '')) : NaN;
+  return Number.isFinite(need) && Number.isFinite(have) && need > 0 ? Math.max(0, Math.min(1, have / need)) : null;
+}
+
 function NodeCard({ g, n, held }: { g: GameState; n: LadderNode; held: ReadonlySet<ApprovalId> }) {
   const st = nodeStatus(n, held);
   const unmet = firstUnmet(n);
   // v0.12.1 signed jobs that can't fly until it is granted (a stuck or late application).
   const risk = n.state === 'held' ? null : atRiskLine(g, n.id);
   const types = shortOf(n.unlocksTypes);
+  const prog = n.state === 'pending' && n.pending ? n.pending.progress : unmetProgress(n);
+  // v0.18.1 (player's report: "each box and its limits are clumped together") the card in three calm parts: what it is
+  // and where it stands; what it still needs, with a gauge where that is a count; what it costs and opens.
   return (
     <button className={`ld-node s-${n.state}`} data-node={n.id} onClick={() => store.openModal({ kind: 'approval', id: n.id })}>
-      <b className="ld-name">{n.name}</b>
-      <span className={`badge ${st.tone}`}>{n.state === 'held' ? <BadgeCheck /> : st.locked ? <Lock /> : null}{st.label}</span>
-      {n.state === 'pending' && n.pending && <Bar value={n.pending.progress} size="thin" />}
-      {unmet && <span className={`tiny ld-req ${st.locked ? 'muted' : ''}`}>{unmet}</span>}
-      {risk && <span className="tiny bad">{risk}</span>}
-      {n.state !== 'held' && <span className="tiny dim">{money(n.cost)}{n.grantCost ? ` + ${money(n.grantCost)}` : ''} · {n.days} days</span>}
-      {types.length > 0 && <span className="ld-types">{types.slice(0, 4).map((t) => <span key={t} className="ld-type">{t}</span>)}</span>}
+      <span className="ld-top">
+        <b className="ld-name">{n.name}</b>
+        <span className={`badge ${st.tone}`}>{n.state === 'held' ? <BadgeCheck /> : st.locked ? <Lock /> : null}{st.label}</span>
+      </span>
+      {(unmet || prog !== null || risk) && (
+        <span className="ld-need">
+          {unmet && <span className={`small ld-req ${st.locked ? 'muted' : ''}`}>{unmet}</span>}
+          {prog !== null && <Bar value={prog} size="thin" tone={n.state === 'pending' ? undefined : 'warn'} />}
+          {risk && <span className="tiny bad">{risk}</span>}
+        </span>
+      )}
+      <span className="ld-foot">
+        {n.state !== 'held' && <span className="tiny dim ld-cost">{money(n.cost)}{n.grantCost ? ` + ${money(n.grantCost)}` : ''} · {n.days} days</span>}
+        {types.length > 0 && <span className="ld-types">{types.slice(0, 4).map((t) => <span key={t} className="ld-type">{t}</span>)}</span>}
+      </span>
     </button>
   );
 }
@@ -145,10 +168,12 @@ export function LadderCard({ g }: { g: GameState }) {
               <div className="ld-head"><span className="upper dim">{k}</span><b className="small">{rest.join(' · ')}</b></div>
               {r.index === 0 ? (
                 <div className="ld-node s-held ld-start" data-node="rung0">
-                  <b className="ld-name">Narrowbody charter & ACMI</b>
-                  <span className="badge good"><Award /> Since {fmtDate(g.company.aocAt ?? g.started)}</span>
-                  <span className="tiny dim">Our AOC as it started</span>
-                  <span className="ld-types">{shortOf(RUNG0_TYPES).slice(0, 5).map((t) => <span key={t} className="ld-type">{t}</span>)}</span>
+                  <span className="ld-top">
+                    <b className="ld-name">Narrowbody charter & ACMI</b>
+                    <span className="badge good"><Award /> Since {fmtDate(g.company.aocAt ?? g.started)}</span>
+                  </span>
+                  <span className="ld-need"><span className="small muted">Our AOC as it started</span></span>
+                  <span className="ld-foot"><span className="ld-types">{shortOf(RUNG0_TYPES).slice(0, 5).map((t) => <span key={t} className="ld-type">{t}</span>)}</span></span>
                 </div>
               ) : r.nodes.map((n) => <NodeCard key={n.id} g={g} n={n} held={heldIds} />)}
             </div>

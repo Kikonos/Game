@@ -64,17 +64,17 @@ export function pubEndDay(_home: string, k: number): number {
   return firstDayOf(mk + (dom >= R().publishDay ? 2 : 1));
 }
 
-/** v0.18.1 the date (UTC minute of base-local midnight) day k's month is (or was) published: the 15th of the month before. Pure. */
+/** v0.18.1 the day (its local midday, UTC minutes) day k's month is (or was) published: the 15th of the month before. Pure. */
 export function publishDayOf(g: GameState, k: number): Minute {
   const home = g.company.homeBase;
-  return midnight(home, firstDayOf(monthOfDay(k) - 1) + R().publishDay - 1);
+  return midnight(home, firstDayOf(monthOfDay(k) - 1) + R().publishDay - 1) + 12 * 60;
 }
 
 /** v0.18.1 'the January roster comes out on 15 Dec' (or 'came out') for the base-local day of t. Pure. */
 export function rosterOutLine(g: GameState, t: Minute): string {
   const k = dayIndex(g.company.homeBase, t);
   const at = publishDayOf(g, k);
-  return `the ${MONTH[monthOfDay(k) % 12]} roster ${at <= g.now ? 'came' : 'comes'} out on ${fmtDay(at)}`;
+  return `the ${MONTH[monthOfDay(k) % 12]} roster ${at - 12 * 60 <= g.now ? 'came' : 'comes'} out on ${fmtDay(at)}`;
 }
 
 /**
