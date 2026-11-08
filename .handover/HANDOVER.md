@@ -760,3 +760,10 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
     10. crew route training and familiarisation where needed;
     11. inaugural flight.
     Each stage has a cost, a duration and possible setbacks (e.g. a permit delayed, a rival launches). Nothing is instant.
+- v0.19 PLAYER ADDITIONS 2 (2026-11-08), also MUST:
+  - Real frequencies: LIS–OXB and LIS–TMS were weekly; LIS–(DXB)–DIL was monthly. Default schedules match that.
+  - Full player control of frequency (any pattern, e.g. weekly, twice weekly, monthly), exact days, times, and moving single flights or a whole series earlier or later.
+  - Drag-to-move on the Schedule/roster board like maintenance checks. Dragging one sector moves the whole trip: the following sectors (return leg, fuel-stop leg) follow, keeping turn times and legality.
+  - Moving or cancelling our own flights costs only a SMALL penalty (the player will do it a lot): a small rebooking cost and a small satisfaction or demand dent, scaling with how close to departure.
+  - Sub-chartering our own flights has NO penalty (only the sub-charter cost; no satisfaction hit).
+  - Per-sector passenger counts by class, load factor, cargo kg, and revenue/cost/profit per sector and per route, with trends, so the player can see at a glance whether flights do well. Show these on the flight sheet, the route page and the Network list.
