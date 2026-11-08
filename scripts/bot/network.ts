@@ -21,11 +21,11 @@ function idleWide(g: GameState, exclude: Set<string>): string | null {
   const day = Math.floor(g.now / DAY);
   for (const ac of Object.values(g.fleet).sort((a, b) => (a.id < b.id ? -1 : 1))) {
     if (exclude.has(ac.id) || typeOf(ac.typeId)?.body !== 'wide' || ac.status === 'leasedOut' || ac.status === 'delivering' || ac.sale) continue;
-    if (ac.at !== g.company.homeBase && ac.status !== 'flying') continue;
+    // Idle: no flying on 25 of the last 60 days, and under half of the next 60 days booked.
     const flew = new Set((ac.bhDays ?? []).filter(([d, m]) => d > day - 60 && m > 0).map(([d]) => d));
-    if (60 - flew.size < 30) continue;
-    const busy = liveFlightsOf(g, ac.id).some((f) => f.std < g.now + 60 * DAY && f.status !== 'cancelled' && f.kind !== 'positioning');
-    if (busy) continue;
+    if (60 - flew.size < 25) continue;
+    const busyDays = new Set(liveFlightsOf(g, ac.id).filter((f) => f.std < g.now + 60 * DAY && f.status !== 'cancelled').map((f) => Math.floor(f.std / DAY)));
+    if (busyDays.size > 30) continue;
     return ac.id;
   }
   return null;
