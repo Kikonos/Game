@@ -156,6 +156,20 @@ describe('v0.19 moves, cancels and conflicts', () => {
     expect(rot.sectors.every((s) => !s.flightId)).toBe(true);
   });
 
+  it('a rotation half flown cannot be cancelled (the aircraft and its passengers are away)', () => {
+    const g = newGame(15);
+    const id = devLaunchRoute(g, 'LIS-OXB', biggest(g).id);
+    const r = g.network!.routes[id];
+    run(g, 1);
+    const rot = r.rotations.find((x) => x.status === 'flights')!;
+    expect(quoteCancelRotation(g, rot.id).ok).toBe(true);
+    rot.sectors[0].accrued = true;
+    const q = quoteCancelRotation(g, rot.id);
+    expect(q.ok).toBe(false);
+    expect(q.why).toMatch(/flies as planned/);
+    expect(cancelRotation(g, rot.id)).toBe(false);
+  });
+
   it('business class lost at departure: refunds, a J dent and a note', () => {
     const g = newGame(16);
     const ac = biggest(g);
