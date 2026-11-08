@@ -1274,6 +1274,9 @@ const RUN_DAYS = 4;
 function periodRaw(dep: Deployment, s: number, t: Minute, R: number): { from: Minute; to: Minute } | null {
   const a = dep.anchors?.[s];
   if (a === undefined) return null;
+  // v0.18.2 a set being stood down (resizeDeployments) has no period from its last tour's end.
+  const until = dep.setEnd?.[s];
+  if (until !== undefined && t >= until) return null;
   // The first period runs from the deployment's start to the first change (Rotations round: up to a few days past R).
   // v0.17.2 a set added later (its first change a rotation after the duty it was added for) starts then: its first tour
   // is the rotation long, not from the deployment's start (SGN: sets added in September read 63- and 66-day tours).
@@ -1512,31 +1515,116 @@ export function setRetickHook(f: (g: GameState, p: Pairing) => void): void {
   retickHook = f;
 }
 
-/** Sets on station for a deployment's duties: max(peak duties/day × 8/6, BH per 28 days / 85), +1 while chaining can't cover the days. */
-function sizeSets(g: GameState, dep: Deployment, duties: Duty[], start: Minute, R: number): number {
+/**
+ * v0.18.2 sets on station a deployment's duties need, before the chaining trial: the busiest day's duties, the month's
+ * duties at UTIL.setDutiesMonth a set (a set on station flies about 18 duty days a month: 8–9 days off, the 21-in-28
+ * work-day floor, hotel standby the rest), and the month's block hours at 85 a person. Was the busiest day × 8/6 (two
+ * waves a day on any one day: 3 sets), so a programme of 0.75 duties a day had 3 sets on station, each flying 5–8
+ * duties a month (player's save: pilots at 25 BH a month). Pure.
+ */
+export function setsFromDuties(g: GameState, base: string, duties: Duty[], start: Minute): number {
+  if (!duties.length) return 1;
   const perDay = new Map<number, number>();
   let bh = 0;
-  for (const d of duties) {
-    const k = Math.floor((d.report + offsetAt(dep.base, d.report)) / DAY);
-    perDay.set(k, (perDay.get(k) ?? 0) + 1);
-    if (d.report < start + 28 * DAY) bh += dutyBlock(g, d);
-  }
+  let n = 0;
   const span = Math.min(28, Math.max(14, (duties[duties.length - 1].release - start) / DAY));
+  for (const d of duties) {
+    const k = Math.floor((d.report + offsetAt(base, d.report)) / DAY);
+    perDay.set(k, (perDay.get(k) ?? 0) + 1);
+    if (d.report < start + span * DAY) {
+      bh += dutyBlock(g, d);
+      n++;
+    }
+  }
   const peak = Math.max(...perDay.values());
-  const sets = Math.max(1, Math.ceil((peak * 8) / 6), Math.ceil((bh / 60) * (28 / span) / BAL.cabinBHMonth));
+  const month = 30.44 / span;
+  return Math.max(1, peak, Math.ceil((n * month) / UTIL.setDutiesMonth - 1e-9), Math.ceil(((bh / 60) * month) / BAL.cabinBHMonth - 1e-9));
+}
+
+/** v0.18.2 crew utilisation sizing (sets on station). */
+export const UTIL = {
+  /** Duties a set on station flies in a month at most when sizing. */
+  setDutiesMonth: 18,
+  /** One set more is kept only for at least this share of the duties (else the strays fly as trips from base). */
+  moreShare: 0.05,
+};
+
+/** Sets on station for a deployment's duties (setsFromDuties), +1 while chaining can't cover enough of the days. */
+function sizeSets(g: GameState, dep: Deployment, duties: Duty[], start: Minute, R: number): number {
+  const sets = setsFromDuties(g, dep.base, duties, start);
   // v0.9 fix: more sets only while they take more duties (a duty no set can take, a stray one far out, sized a
   // HAM base at 10 sets on station and the fleet at 17 crews a seat); the strays fly as trips.
+  // v0.18.2 and only for a real share of them: one set more (five people on station for five weeks) for a duty or two
+  // is a set idle (two strays fly as trips from base).
+  const more = Math.max(2, Math.ceil(duties.length * UTIL.moreShare));
   let best = { sets, taken: -1 };
   for (let n = sets; n <= BAL.maxSetsOnStation; n++) {
     const trial: Deployment = { ...dep, start, anchors: anchorsFor(start, n, R), pairingIds: [] };
     const ch = chainer(g, trial, () => 2, undefined, true);
     let taken = 0;
     for (const d of duties) if (ch.take(d)) taken++;
-    if (taken > best.taken) best = { sets: n, taken };
+    if (best.taken < 0 || taken >= best.taken + more) best = { sets: n, taken };
     // One more set may still help (anchors stagger differently); two in a row that do not, never.
     if (taken === duties.length || n >= best.sets + 2) break;
   }
   return best.sets;
+}
+
+/**
+ * v0.18.2 (daily) every deployment under way is sized again on the programme ahead (the next 28 days' duties): fewer sets
+ * on station when fewer take every duty the sets now take (the last set is stood down at the end of its last planned
+ * tour: no one is sent home early, no tour is cut), and room for more when the programme grew (chainDeployment adds
+ * them as duties come). The crew plan then counts the sets really needed (sets.ts familyNeeds). Was: sized once before
+ * the programme began and never smaller (player's save: 4–5 sets for 0.75–1.6 duties a day).
+ */
+export function resizeDeployments(g: GameState): void {
+  const R = rotation(g);
+  for (const dep of Object.values(g.deployments)) {
+    const n0 = dep.anchors?.length ?? 0;
+    if (!dep.anchors || n0 < 2 || dep.start > g.now || dep.end < g.now + 21 * DAY) continue;
+    // A set already being stood down: once its last tour is over, its anchor goes.
+    const last = n0 - 1;
+    const cut = dep.setEnd?.[last];
+    if (cut !== undefined) {
+      if (cut <= g.now && !dep.pairingIds.some((id) => { const p = g.pairings[id]; return !!p?.tour && p.tour.set === last && p.status !== 'done' && p.status !== 'broken'; })) {
+        dep.anchors.pop();
+        delete dep.setEnd![last];
+        if (!Object.keys(dep.setEnd!).length) delete dep.setEnd;
+        dep.setsOnStation = dep.anchors.length;
+      }
+      continue;
+    }
+    const ds: Duty[] = [];
+    for (const p of Object.values(g.pairings)) {
+      if (p.aircraftId !== dep.aircraftId || (p.deploymentId !== dep.id && p.contractId !== dep.contractId)) continue;
+      for (const id of p.dutyIds) {
+        const d = g.duties[id];
+        if (d && !d.done && d.report > g.now && d.report < g.now + 28 * DAY && !emptyDuty(g, d)) ds.push(d);
+      }
+    }
+    if (ds.length < 7) continue;
+    ds.sort((a, b) => a.report - b.report || (a.id < b.id ? -1 : 1));
+    const want = setsFromDuties(g, dep.base, ds, g.now);
+    // More: room for the chaining to add them as the duties come.
+    if (want > (dep.sized ?? n0)) dep.sized = Math.min(BAL.maxSetsOnStation, want);
+    if (want >= n0) continue;
+    // Fewer: only when one set fewer takes every duty the sets on station now take (a trial on fresh sets).
+    const trial = (n: number) => {
+      const ch = chainer(g, { ...dep, start: dayStart(g.now), anchors: anchorsFor(dayStart(g.now), n, R), pairingIds: [], setEnd: undefined }, () => 2, undefined, true);
+      let taken = 0;
+      for (const d of ds) if (ch.take(d)) taken++;
+      return taken;
+    };
+    if (trial(n0 - 1) < trial(n0)) continue;
+    // Stood down at the end of its last tour planned (none: at once).
+    let end = g.now;
+    for (const id of dep.pairingIds) {
+      const p = g.pairings[id];
+      if (p?.tour && p.tour.set === last && p.status !== 'done' && p.status !== 'broken') end = Math.max(end, p.tour.to);
+    }
+    (dep.setEnd ??= {})[last] = end;
+    dep.sized = Math.min(dep.sized ?? n0, n0 - 1);
+  }
 }
 
 /**

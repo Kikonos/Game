@@ -1291,6 +1291,8 @@ export interface Deployment {
   sized?: number;
   /** v0.12.1 sized on the programme's own duties (absent: on its positioning alone, or an older save: sized again when they come). */
   work?: true;
+  /** v0.18.2 a set stood down (fewer needed): no tour of set s from this minute (its last tour's end). */
+  setEnd?: Record<number, Minute>;
 }
 
 export interface HireOrder {

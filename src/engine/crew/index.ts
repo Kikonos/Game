@@ -8,7 +8,7 @@ import { DAY, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, SimEvent } from '../core/types';
 import { cancelConversion, classOf, dailyClasses, restoreCcqRatings } from './conversion';
 import { dailyCrewCosts, monthlySalaries } from './costs';
-import { afterDiversion, deletePairing, dutyLegality as dutyLevel, pairingSeats, planAircraft, refreshPairing, syncDuty } from './duties';
+import { afterDiversion, deletePairing, resizeDeployments, dutyLegality as dutyLevel, pairingSeats, planAircraft, refreshPairing, syncDuty } from './duties';
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, repairStandbyMorale, setResignHooks } from './morale';
@@ -589,6 +589,8 @@ function daily(g: GameState) {
   // v0.9 roster planning (UPDATE-0.9.md §R): annual leave and days off up to the horizon before the roster run.
   // v0.18.1 leave requests decided and made (crew/leave.ts), before the days off are planned.
   dailyLeave(g);
+  // v0.18.2 deployments sized again on the programme ahead (fewer sets on station when fewer fly it all).
+  resizeDeployments(g);
   dayPlanBefore(g);
   // Keep the published roster horizon filled (auto-roster policy), then bring home anyone left without work away.
   if (g.company.policies.autoRoster) {

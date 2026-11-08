@@ -27,12 +27,81 @@ export const SETS_WHY = '5 sets per aircraft: each person has 8–10 days off a 
 
 /** v0.9 fix: the Planning view's line for a fleet with a detached aircraft (replaces 'its sets on station plus 2 at base'). */
 export const SETS_DETACHED = 'A detached aircraft needs its sets on station plus one in five for leave and change-overs.';
+
+/** v0.18.2 crew sizing by the flying (the player: "all crew have very little flying hours"). */
+export const SIZING = {
+  /** Leave, sickness, courses and tour change-overs on top of the sets that fly (one in five). */
+  reserve: 1.2,
+  /** Duties a set at home flies in a month (the rest: days off, home standby, leave). */
+  homeDutiesMonth: 15,
+  /** Block hours a person flies in a month at most when sizing (100 h in 28 days is the legal limit). */
+  bhMonth: 85,
+  /** Sets an aircraft keeps whatever it flies (a quiet month, an aircraft on its way). */
+  homeMin: 3,
+};
+
 /**
  * v0.9 fix: crew sets an aircraft on a deployment needs: its sets on station (their days off are taken at the hotel,
- * inside the tour) plus a fifth for leave, sickness and the change-overs (the same 1.20 as the home rule), never fewer
- * than the home base's 5. Was on-station + 2 (7 for a 5-set detachment). Pure.
+ * inside the tour) plus a fifth for leave, sickness and the change-overs (the same 1.20 as the home rule). v0.18.2 no
+ * longer at least the home base's 5 (3 sets on station kept 5: two sets idle at home). Pure.
  */
-export const setsForStation = (onStation: number): number => Math.max(BAL.crewSetsPerAircraft, Math.ceil(onStation * 1.2 - 1e-9));
+export const setsForStation = (onStation: number): number => Math.max(1, Math.ceil(onStation * SIZING.reserve - 1e-9));
+
+/**
+ * v0.18.2 the flying each aircraft does away from a deployment, in duties and block hours a month: the larger of the
+ * last 28 days flown, the next 28 days planned (duties) and days 28–60 ahead (signed legs, a day with a departure as a
+ * duty). Pure.
+ */
+export function homeFlying(g: GameState): Map<string, { duties: number; bh: number }> {
+  const past = new Map<string, [number, number]>();
+  const next = new Map<string, [number, number]>();
+  const far = new Map<string, Set<number>>();
+  const farBh = new Map<string, number>();
+  const add = (m: Map<string, [number, number]>, id: string, n: number, bh: number) => {
+    const x = m.get(id) ?? [0, 0];
+    x[0] += n;
+    x[1] += bh;
+    m.set(id, x);
+  };
+  const h = 28 * DAY;
+  for (const p of Object.values(g.pairings)) {
+    if (!p.aircraftId || p.deploymentId) continue;
+    for (const id of p.dutyIds) {
+      const d = g.duties[id];
+      if (!d || d.report < g.now - h || d.report >= g.now + h || !d.sectors) continue;
+      let bh = 0;
+      for (const fid of d.flightIds) bh += g.flights[fid]?.block ?? 0;
+      add(d.report < g.now ? past : next, p.aircraftId, 1, bh / 60);
+    }
+  }
+  for (const f of Object.values(g.flights)) {
+    if (!f.aircraftId || f.kind === 'deadhead' || f.status === 'cancelled' || f.std < g.now + h || f.std >= g.now + WINDOW) continue;
+    const k = f.contractId ? g.contracts[f.contractId] : undefined;
+    if (k?.pattern.kind === 'base') continue;
+    const days = far.get(f.aircraftId) ?? new Set<number>();
+    days.add(Math.floor(f.std / DAY));
+    far.set(f.aircraftId, days);
+    farBh.set(f.aircraftId, (farBh.get(f.aircraftId) ?? 0) + f.block / 60);
+  }
+  const out = new Map<string, { duties: number; bh: number }>();
+  const month = 30.44 / 28;
+  const farMonth = 30.44 / ((WINDOW - h) / DAY);
+  for (const id of new Set([...past.keys(), ...next.keys(), ...far.keys()])) {
+    const a = past.get(id) ?? [0, 0];
+    const b = next.get(id) ?? [0, 0];
+    out.set(id, {
+      duties: Math.max(a[0], b[0]) * month || (far.get(id)?.size ?? 0) * farMonth,
+      bh: Math.max(a[1] * month, b[1] * month, (farBh.get(id) ?? 0) * farMonth),
+    });
+  }
+  return out;
+}
+
+/** v0.18.2 sets an aircraft based at home needs for its flying (was 5 whatever it flew): at least SIZING.homeMin. Pure. */
+export function setsForHome(fly: { duties: number; bh: number } | undefined): number {
+  if (!fly) return SIZING.homeMin;
+  return Math.max(SIZING.homeMin, Math.ceil((fly.duties * SIZING.reserve) / SIZING.homeDutiesMonth - 1e-9), Math.ceil((fly.bh * SIZING.reserve) / SIZING.bhMonth - 1e-9));
+}
 
 export interface SetRole {
   role: Role;
@@ -231,6 +300,7 @@ export function familyNeeds(g: GameState) {
     return x;
   };
   const dryAway: Aircraft[] = [];
+  let fly: Map<string, { duties: number; bh: number }> | undefined;
   for (const ac of Object.values(g.fleet)) {
     // v0.8 away on a dry lease: the lessee's crews fly it (no sets while it is away).
     if (awayOnDryLease(g, ac)) {
@@ -238,7 +308,9 @@ export function familyNeeds(g: GameState) {
       continue;
     }
     const t = typeOf(ac.typeId);
-    const sets = setsForStation(onStation.get(ac.id) ?? 0);
+    // v0.18.2 by its flying: a deployment's sets on station plus one in five, else the duties and hours it flies at home.
+    const st = onStation.get(ac.id);
+    const sets = st ? setsForStation(st) : setsForHome((fly ??= homeFlying(g)).get(ac.id));
     // The most extra crew its long work over the next 60 days asks for (as the staffing model).
     let x = crewExtraFor(g, ac.id, null);
     for (const k of Object.values(g.contracts)) {
