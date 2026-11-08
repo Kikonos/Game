@@ -362,7 +362,7 @@ function searchPlan(g: GameState, r: Route, x: number): { plan: RoutePlan; resul
       const pr = project(g, r, plan, g.now + 120 * DAY, x);
       if (!best || pr.result > best.result) {
         const why = [
-          `${Math.round(weeklyMarket(g, m, g.now, 'out') + weeklyMarket(g, m, g.now, 'back'))} travellers a week on the market; the study puts our share at about ${Math.round(pr.lfOff * 100)}–${Math.round(pr.lfPeak * 100)} % full off-peak to peak.`,
+          `${Math.round(weeklyMarket(g, m, g.now, 'out') + weeklyMarket(g, m, g.now, 'back'))} travellers a week on the market; our flights would be about ${Math.round(pr.lfOff * 100)} % full off-peak and ${Math.round(pr.lfPeak * 100)} % at peak.`,
           gk === 'narrow' ? 'A narrowbody fits the off-peak months; at peak it turns people away.' : gk === 'big' ? 'A big widebody carries the peaks and the cargo.' : 'A mid-size widebody matches the peaks and carries the belly cargo.',
           pat.monthly ? 'A thin market: monthly flights fill.' : `${freqPerWeek(pat) <= 1 ? 'Weekly' : `${freqPerWeek(pat)} a week`} keeps the loads up.`,
         ];
