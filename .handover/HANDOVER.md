@@ -774,3 +774,14 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
   - the market study recommends frequency, days and aircraft size, and the player can deviate (net-engine + ui);
   - live passengers by class, load factor, cargo kg and profit estimate on the map aircraft card (flat and globe), plus next-sector bookings against capacity (ui).
   Add them to the doc as §N additions when building.
+- v0.19 ADDITIONS 3: concrete spec for the lanes (net-engine + net-ui). Use it.
+  (a) The market study recommends a timetable: { freq, day(s), local departure time, gauge narrow/mid-wide/big-wide, types, model, why } plus demand ranges for each of the 12 months.
+      - Found by searching freq 1–3/wk (DIL every 2–4 weeks) × day × time × gauge for the best fully costed profit at mid demand.
+      - The business case shows live what a deviation costs. Examples: 2/wk takes off-peak LF from 72% to 49%; Tuesday is −9% demand; all-economy 309Y loses most of the government segment (about −14% revenue at peak); an A321 spills about 30% at peak.
+  (b) Map live numbers: engine call sectorLive(g, flightId) → { pax J/Y, seats, LF, cargoKg, aviKg, revenue, cost, profit, next: { flightNo, std, booked J/Y, seats, lfForecast, vsCurve } }.
+      - net-engine provides the call; net-ui shows it on the aircraft card and panel of the flat map (MapPanels/OpsMap) and on the globe.
+  (c) Details from the design draft:
+      - partner fee 10% of tickets, with a 50% cargo share;
+      - no northbound cargo from Bissau (no EU ACC3 cargo security);
+      - DIL–DXB is out of range off DIL's 1,850 m runway, so the return stops at KUL;
+      - BSP ticket cash arrives on the 15th and the last day of the month, held as unearned until flown.
