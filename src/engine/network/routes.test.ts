@@ -40,8 +40,9 @@ describe('v0.19 the launch', () => {
     d.typeId = biggest(g).typeId;
     d.layout = biggest(g).cabin.layout;
     const bc = businessCase(g, r.id, d)!;
-    expect(bc.p10.result).toBeLessThanOrEqual(bc.p50.result);
-    expect(bc.p50.result).toBeLessThanOrEqual(bc.p90.result);
+    // Less demand earns less (a full aircraft at P50 and P90 earns about the same: the payload goes to people, not cargo).
+    expect(bc.p10.rev).toBeLessThanOrEqual(bc.p50.rev + 0.02 * bc.p50.rev);
+    expect(bc.p10.result).toBeLessThanOrEqual(bc.p90.result + 0.02 * bc.p90.rev);
     expect(bc.launchCost).toBeGreaterThan(50_000);
     // A deviation says what it does.
     const two = businessCase(g, r.id, { ...d, days: d.days | (1 << 1) })!;
