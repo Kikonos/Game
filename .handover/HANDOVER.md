@@ -785,3 +785,6 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
       - no northbound cargo from Bissau (no EU ACC3 cargo security);
       - DIL–DXB is out of range off DIL's 1,850 m runway, so the return stops at KUL;
       - BSP ticket cash arrives on the 15th and the last day of the month, held as unearned until flown.
+- v0.19 workflow STOPPED (2026-11-08). Messaging workflow agents spawned duplicate agents that collided in the same worktrees. Lesson: never SendMessage a workflow agent; communicate through files.
+  - Now: subagent a567dc77 = net-engine (owns the skeleton; writes /home/user/work/v019-engine/SKELETON then DONE). Subagent a709f3b6 = net-ops (waits for SKELETON; writes /home/user/work/v019-ops/DONE).
+  - Still to start by the parent: the net-ui lane after SKELETON, then merge + balance + review (agent), all after v0.18.3 is on acmi (it is: ea68892). No release without the player's go.
