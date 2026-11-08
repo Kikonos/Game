@@ -1175,7 +1175,7 @@ export interface CrewSlot {
   /** v0.12.1 a far base's reserve seat (crew/farBase.ts; with `above`): the set's spare on station. */
   reserve?: true;
   /** v0.9 crew out of hours: who was taken off this seat for a legal limit, which, by how much (min) and when; cleared on a legal refill. */
-  ooh?: { crewId: string; limit: OohLimit; over: number; at: Minute };
+  ooh?: { crewId: string; limit: OohLimit; over: number; at: Minute; /** Bug 1108b: an in-flight rest mark ('inflightRest') names the duty whose plan failed (crew/restMarks.ts). */ dutyId?: string };
   /** v0.9 round 4 (§Y.1): a replacement who joined after the duty reported: their own report (a fresh day). Cleared with the seat. */
   from?: Minute;
   /** Rotations round: who left this seat and why (the replacement's ticket says whom they replace). Cleared on refill. */

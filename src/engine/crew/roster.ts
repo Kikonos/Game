@@ -19,6 +19,7 @@ import { dayIndex, dayLabel, fitStandby, rosterHorizon, midnight, monthFloorIssu
 import { infoOf } from './outOfHours';
 import { setOffTourHook } from './leave';
 import { confirmAlarm } from './selfCheck';
+import { restMarked } from './restMarks';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
@@ -2920,7 +2921,8 @@ export function flightCrewStatus(g: GameState, flightId: string, opts?: { live?:
   if (missing.length) return { level: 'missing', missing };
   // v0.9 round 4 (§Y.1): a rest plan that failed at the gate (cabin seats marked, crew still aboard) blocks the departure
   // like an illegal duty, so the ladder, the problems list, the strip, the pause badge and the map all see it.
-  if (!d.done && d.report <= g.now && p.slots.some((s) => s.crewId && s.ooh?.limit === 'inflightRest')) return { level: 'illegal', missing };
+  // Bug 1108b: only a mark about this duty (its own plan failed at its gate), never one left from an earlier duty of a tour.
+  if (!d.done && d.report <= g.now && restMarked(p, d)) return { level: 'illegal', missing };
   if (p.legality === 'illegal') {
     // A crew member who can't fly a later duty of the trip only warns on the earlier ones (the roster takes them
     // off from that duty); another duty's FDP is that duty's problem. Old saves without the mark: whole trip.

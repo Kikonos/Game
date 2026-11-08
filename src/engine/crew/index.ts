@@ -1,5 +1,6 @@
 // B2 — Crew & HR. Public API for the UI and other modules.
 
+import { dropStaleRestMarks } from './restMarks';
 import { BAL } from '../core/balance';
 import { flightsOf, flightsRev, takeFlightChanges, touchTickets } from '../core/entities';
 import type { SimModule } from '../core/module';
@@ -279,6 +280,8 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
     if (c.role === 'CPT' && s.role === 'FO') captainAsFo(g, c, d.report);
   }
   d.done = true;
+  // Bug 1108b: an in-flight rest mark about this duty ends with it (it never speaks for the set's next duty).
+  dropStaleRestMarks(g, p);
   // v0.7.3 ORO.FTL.205(f)(5): discretion over 1 h is reported to the authority within 28 days (one message).
   const over = d.fdp - (d.ext && d.basicFdp ? d.basicFdp : d.maxFdp);
   if (d.discretion && over > 60) {
@@ -750,6 +753,8 @@ export const crewModule: SimModule = {
     rebuildFlown(g);
     // Crew bug round: long standby runs are no longer a morale driver.
     repairStandbyMorale(g);
+    // Bug 1108b: in-flight rest marks left from an earlier duty of a tour (they raised an alarm at every later report).
+    dropStaleRestMarks(g);
     // v0.14 seats, tickets and rides still held by crew who have left (a finished tour that grew again kept them).
     repairGoneCrew(g);
     repairDiverted(g);

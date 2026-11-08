@@ -337,6 +337,16 @@ export function checkAlarm(g: GameState, kind: AlarmKind, flightId: string, hook
       const c = h.crew[n.crewId];
       if (!c || seen.has(`${c.id}|${n.code}`)) continue;
       seen.add(`${c.id}|${n.code}`);
+      // Bug 1108b: 'cannot rest in this cruise' is judged on its own too: a duty not augmented needs no in-flight rest at
+      // all (its day is within the basic limit), and an augmented one whose rest fits at the gate is fine.
+      if (n.code === 'inflightRest') {
+        const fit = d.augment > 0 ? inflightFits(h, d, p, Math.max(f.std + (f.delay ?? 0), h.now)) : null;
+        if (!fit || fit.fits) {
+          claimsRefuted++;
+          refuted.push(`claimed ${CODE_WORDS.inflightRest}, read on its own: ${fit ? `in-flight rest on ${f.no}: ${fit.line}` : `${f.no} is not an augmented day (day ${hm(d.fdp)} of ${hm(d.maxFdp)}): no in-flight rest needed`}`);
+          continue;
+        }
+      }
       const r = judgePerson(h, c, d, p);
       if (refutes(r, n.code) === true) {
         claimsRefuted++;

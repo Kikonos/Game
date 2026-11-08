@@ -58,6 +58,7 @@ import { crewAlertKind, LIMIT_NAME, outOfHours, type CrewAlertKind } from './out
 import { confirmAlarm, setAlarmHooks, type CheckHooks } from './selfCheck';
 import { syncDuty } from './duties';
 import { restPlan } from './restPlan';
+import { restMarked, restMarkLive } from './restMarks';
 import { lockOf } from '../scenario/rules';
 
 export type { Reason, ReasonCode };
@@ -223,7 +224,7 @@ function offWhy(g: GameState, crewId: string, f: Flight, issue?: { code: string 
 
 function heldOoh(g: GameState, f: Flight, d: Duty | undefined, p: Pairing | undefined, cs: FlightCrewStatus): Ctx['replace'] {
   if (!d || !p || d.done) return [];
-  const rest = p.slots.some((s) => s.crewId && s.ooh?.limit === 'inflightRest');
+  const rest = restMarked(p, d);
   if (cs.level !== 'illegal' && !rest) return [];
   const out: Ctx['replace'] = [];
   const seen = new Set<string>();
@@ -234,7 +235,7 @@ function heldOoh(g: GameState, f: Flight, d: Duty | undefined, p: Pairing | unde
     out.push({ role: s.role, crewId, why: offWhy(g, crewId, f, issue), ...(issue ? { code: issue.code } : {}) });
   };
   if (cs.level === 'illegal') for (const b of crewIssuesFor(g, d)) add(b.crewId, b.issue);
-  for (const s of p.slots) if (s.crewId && s.ooh?.limit === 'inflightRest') add(s.crewId);
+  for (const s of p.slots) if (restMarkLive(d, s)) add(s.crewId!);
   // Round 4: the duty itself over its limit after a hold (a clock no re-roster shortens): every seat may go to a
   // fresh crew whose own day, from their check-in for the held departure, still fits (else fullWhy says why not).
   if (dutyOver(g, f, d) && !freshOver(g, f, d, p)) for (const s of p.slots) if (s.crewId && !s.above) add(s.crewId);
@@ -1373,7 +1374,7 @@ function restStillFails(h: GameState, dutyId: string): string | null {
   const plan = restPlan(h, d.id, at !== undefined ? { at } : {});
   if (plan?.ok === false) {
     const p = h.pairings[d.pairingId];
-    const old = p ? p.slots.filter((s) => s.crewId && s.ooh?.limit === 'inflightRest' && s.from === undefined).length : 0;
+    const old = p ? p.slots.filter((s) => restMarkLive(d, s) && s.from === undefined).length : 0;
     return old ? `${old} of the cabin crew keep the old day: the rest plan only works with a whole fresh cabin crew` : 'Even with fresh crew the in-flight rest plan does not work after this delay: delay for rest or swap';
   }
   if (f) clearRestMarks(h, f);
