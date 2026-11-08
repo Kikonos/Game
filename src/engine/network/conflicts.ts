@@ -12,9 +12,9 @@ import type { GameState, Minute } from '../core/types';
 import { relinkPositioning } from '../contracts/schedule';
 import { autoRoster } from '../crew/roster';
 import { moveTrip, quoteTripMove } from '../ops/tripMove';
-import { costTotal, routeLegCost, sectorPax } from './costs';
+import { costTotal, routeLegCost } from './costs';
 import { marketOfRoute, usd } from './model';
-import { fareFor } from './sales';
+import { dirSectors, expectedPax, fareFor, fareOf } from './sales';
 import { candidates, cancelRotation, findRotation, moveRotation, quoteCancelRotation, quoteMoveRotation, rotationSchedule, subCost, subRival } from './timetable';
 import type { RouteChoice, Rotation, Route } from './types';
 import { BAL } from '../core/balance';
@@ -72,14 +72,22 @@ function flyingCost(g: GameState, rot: Rotation): number {
   return Math.round(c);
 }
 
-/** The rotation's revenue still to come (tickets held, cargo and extras at the catalogue's rates). */
-function revenueOf(_g: GameState, route: Route, rot: Rotation): number {
+/** The rotation's revenue at stake: the tickets it should sell by departure (not only those sold so far), cargo, extras. */
+function revenueOf(g: GameState, route: Route, rot: Rotation): number {
   const m = marketOfRoute(route);
   let r = 0;
-  for (const s of rot.sectors) r += s.sold ?? 0;
-  const pax = sectorPax(rot.sectors[0]);
-  r += (pax.j + pax.y) * (m?.ancillary ?? 20) * 2;
-  r += ((m?.cargo.south ?? 0) * 2 + (m?.cargo.north ?? 0) * 1.4);
+  for (const dir of ['out', 'back'] as const) {
+    const idx = dirSectors(route, rot, dir);
+    if (!idx.length) continue;
+    const s0 = rot.sectors[idx[0]];
+    const e = expectedPax(g, route, rot, dir);
+    const j = Math.max(s0.bookedJ, Math.min(s0.capJ, e.j));
+    const y = Math.max(s0.bookedY, Math.min(s0.capY, e.y));
+    const sold = idx.reduce((a, i) => a + (rot.sectors[i].sold ?? 0), 0);
+    const fares = route.model === 'partner' ? 0 : j * fareOf(route, rot, dir, 'J', 'classic') + y * fareOf(route, rot, dir, 'Y', 'classic');
+    r += Math.max(sold, fares) + (j + y) * (m?.ancillary ?? 20);
+  }
+  r += (m?.cargo.south ?? 0) * 2 + (m?.cargo.north ?? 0) * 1.4;
   return Math.round(r);
 }
 
