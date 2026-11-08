@@ -883,7 +883,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
         <ColourLegend title="Roster board colours" align="left" items={[
           { swatch: <span className="sc-cal-sw k-operating" aria-hidden />, label: 'A duty: flights with passengers (in the contract colour)' },
           { swatch: <span className="sc-cal-sw k-positioning" aria-hidden />, label: 'Positioning or ferry: flying empty' },
-          { swatch: <span className="sc-cal-sw k-deadhead" aria-hidden />, label: 'Deadhead: travelling as a passenger on an airline or a private jet' },
+          { swatch: <span className="sc-cal-sw k-deadhead" aria-hidden />, label: 'Deadhead: positioning as a passenger on an airline or a private jet (Positioning on the person calendar)' },
           { swatch: <span className="sc-cal-sw k-rest" aria-hidden />, label: 'Rest: the time off needed before the next duty' },
           { swatch: <span className="sc-cal-sw k-off" aria-hidden />, label: 'OFF: day off (OFF DUB at the hotel), published 14 days ahead; a lock means a change costs morale' },
           { swatch: <span className="sc-cal-sw k-standby" aria-hidden />, label: 'SBY E / SBY L: home standby, early 05–17 or late 12–24' },

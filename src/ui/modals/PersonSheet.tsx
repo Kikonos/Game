@@ -31,7 +31,7 @@ import { ratingLine } from '../screens/crewPlanLogic';
 import { moraleTone } from '../screens/rosterBoardLogic';
 import { limitTone, ROLE_LABEL } from '../screens/screenLogic';
 import { store, useGame, type ModalSpec } from '../store';
-import { DAY_KIND_LABEL, endAt, hm, stationOf, monthGrid, monthTotals, type DayCell, type DayIcon, type DayKind, type MonthGrid } from './personLogic';
+import { DAY_KIND_LABEL, endAt, hm, layovers, stationOf, monthGrid, monthTotals, type DayCell, type DayIcon, type DayKind, type Layover as LayoverT, type MonthGrid } from './personLogic';
 
 const WD = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MONTH = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
@@ -44,8 +44,8 @@ function Glyph({ icon }: { icon: DayIcon }) {
   const svg = (children: ReactNode, cls = '') => <svg className={`ps-ico ${cls}`} viewBox="0 0 24 24" aria-hidden>{children}</svg>;
   switch (icon) {
     case 'plane': return svg(<path d={PLANE} />);
-    // Riding as a passenger: the plane with a faint one behind it.
-    case 'pax': return svg(<><path d={PLANE} transform="translate(-2.6 2.4) scale(0.92)" className="ghost" /><path d={PLANE} transform="translate(1.6 -1) scale(0.92)" /></>, 'pax');
+    // v0.18.3 riding as a passenger (positioning, deadhead): a cabin seat.
+    case 'pax': return svg(<path d="M7.2 3.2c.9 0 1.6.6 1.8 1.5l1.3 7.8h6.4c1.1 0 2 .9 2 2v.6c0 .6-.4 1-1 1h-2.4l1.9 3.7c.3.5.1 1.1-.4 1.4-.5.2-1.1 0-1.4-.5l-2.3-4.6H8.8c-1 0-1.8-.7-2-1.7L5.4 5.4c-.2-1.1.6-2.2 1.8-2.2zM4 13c.6 0 1 .4 1 1v6c0 .6-.4 1-1 1s-1-.4-1-1v-6c0-.6.4-1 1-1z" />, 'pax');
     case 'ferry': return svg(<path d={PLANE} className="hollow" />, 'ferry');
     case 'house': return svg(<path d="M12 3.2 2.6 11.1c-.5.5-.2 1.3.5 1.3H5v7.4c0 .7.5 1.2 1.2 1.2H10v-5.4h4V21h3.8c.7 0 1.2-.5 1.2-1.2v-7.4h1.9c.7 0 1-.8.5-1.3L12 3.2z" />);
     case 'bed': return svg(<path d="M3 6.5c.6 0 1 .4 1 1V13h7V9.6c0-.6.4-1 1-1h6.2A2.8 2.8 0 0 1 21 11.4V19c0 .6-.4 1-1 1s-1-.4-1-1v-2H4v2c0 .6-.4 1-1 1s-1-.4-1-1V7.5c0-.6.4-1 1-1zm4.5 1.7a2.2 2.2 0 1 1 0 4.4 2.2 2.2 0 0 1 0-4.4z" />);
@@ -132,7 +132,7 @@ function Calendar({ grid, sel, onSel, mk, setMk, bounds, todayWd }: { grid: Mont
                 const c = it.cell;
                 return (
                   <button key={c.k} data-k={c.k} role="gridcell" style={{ gridColumn: it.col + 1 }} aria-label={`${c.date}: ${DAY_KIND_LABEL[c.kind]}${c.code ? ` ${c.code}` : ''}`}
-                    className={`ps-day k-${c.kind} ${c.inMonth ? '' : 'out'} ${c.past ? 'past' : ''} ${c.today ? 'today' : ''} ${sel === c.k ? 'on' : ''}`}>
+                    className={`ps-day k-${c.kind} ${c.inMonth ? '' : 'out'} ${c.past ? 'past' : ''} ${c.today ? 'today' : ''} ${sel === c.k ? 'on' : ''} ${c.layover ? 'lay' : ''}`}>
                     <DayInner cell={c} />
                   </button>
                 );
@@ -142,7 +142,7 @@ function Calendar({ grid, sel, onSel, mk, setMk, bounds, todayWd }: { grid: Mont
                 <div key={`${it.owner}-${it.col}`} className={`ps-span k-${it.kind} ${it.contL ? 'cl' : ''} ${it.contR ? 'cr' : ''} ${on ? 'on' : ''} ${it.cells.every((c) => !c.inMonth) ? 'out' : ''}`} style={{ gridColumn: `${it.col + 1} / span ${it.len}` }}>
                   {it.cells.map((c) => (
                     <button key={c.k} data-k={c.k} role="gridcell" aria-label={`${c.date}: ${DAY_KIND_LABEL[c.kind]}${c.code ? ` ${c.code}` : ''}`}
-                      className={`ps-sd ${c.inMonth ? '' : 'out'} ${c.past ? 'past' : ''} ${c.today ? 'today' : ''} ${sel === c.k ? 'on' : ''}`}>
+                      className={`ps-sd ${c.inMonth ? '' : 'out'} ${c.past ? 'past' : ''} ${c.today ? 'today' : ''} ${sel === c.k ? 'on' : ''} ${c.layover ? 'lay' : ''}`}>
                       <DayInner cell={c} />
                     </button>
                   ))}
@@ -213,19 +213,24 @@ function DutyCard({ g, c, b, rests, hi, layover }: { g: GameState; c: CrewMember
   );
 }
 
+/** '2 d 13 h' / '14:20'. */
+const dur = (m: number) => (m >= DAY ? `${Math.floor(m / DAY)} d ${Math.round((m % DAY) / HOUR)} h` : hm(m));
+
 /**
- * v0.18.1 (player's report: "is the layover really 14 hours?") between two parts of a trip: the time at the station from
- * release (or arrival) to the next report or check-in, and the legal minimum rest with its reason.
+ * v0.18.1 (player's report: "is the layover really 14 hours?") a night-stop away from base: the time at the station
+ * from release (or a journey's landing) to the next report or check-in, in the station's local time, with the legal
+ * minimum rest and its reason. v0.18.3 every one, after a deadhead and across hotel standby days too:
+ * 'Layover JFK 21 Nov 18:25 – 23 Nov 07:20 · 1 d 13 h (hotel standby 22 Nov)'.
  */
-function Layover({ a, b, rests }: { a: CalBlock; b: CalBlock; rests: CalBlock[] }) {
-  const at = endAt(a);
-  const r = rests.find((x) => x.start >= a.end - 1 && x.start <= a.end + 6 * HOUR);
-  const gap = b.start - a.end;
-  if (gap <= 0 || !at) return null;
+function Layover({ l, rests }: { l: LayoverT; rests: CalBlock[] }) {
+  const r = rests.find((x) => x.start >= l.from - 1 && x.start <= l.from + 6 * HOUR);
+  const gap = l.to - l.from;
+  if (gap <= 0) return null;
+  const when = `${fmtDayAt(l.at, l.from)} ${fmtTime(l.from, l.at)} – ${fmtDayAt(l.at, l.to)} ${fmtTime(l.to, l.at)}`;
   return (
     <div className="ps-layover small" role="note">
       <BedDouble aria-hidden />
-      <span className="grow"><b>Layover {at} {hm(gap)}</b>{r?.minRest ? <span className="dim"> · minimum rest {hm(r.minRest)}{r.restWhy ? ` (${r.restWhy})` : ''}</span> : null}</span>
+      <span className="grow"><b>Layover {l.at}</b> <span className="num">{when}</span> · <b className="num">{dur(gap)}</b>{l.sby.length ? <span> (hotel standby {l.sby.map((t) => fmtDayAt(l.at, t)).join(', ')})</span> : null}{r?.minRest ? <span className="dim"> · minimum rest {hm(r.minRest)}{r.restWhy ? ` (${r.restWhy})` : ''}</span> : null}</span>
     </div>
   );
 }
@@ -235,10 +240,16 @@ function DayDetail({ g, c, data, k }: { g: GameState; c: CrewMember; data: Month
   if (!cell) return null;
   const ow = cell.owner ? data.grid.owners.get(cell.owner) : undefined;
   const rests = data.blocks.filter((b) => b.kind === 'rest');
+  // v0.18.3 night-stops away from base touching this day that are not between two parts of the same trip (those show
+  // inside it): after a deadhead, across hotel standby or a day off there.
+  const lays = layovers(data.blocks, c.base);
+  const owned = (l: LayoverT) => !!ow && ow.blocks.includes(l.a) && ow.blocks.includes(l.b);
+  const dayLays = lays.filter((l) => l.from < cell.end && l.to > cell.start && !owned(l));
+  const outside = dayLays.map((l) => <Layover key={`l${l.from}`} l={l} rests={rests} />);
   const head = (title: string, when: string, kind: DayKind) => (
     <div className="row gap-8 ps-dd-h"><span className={`ps-sw k-${kind}`} aria-hidden /><b>{title}</b><span className="grow" /><span className="small muted nowrap">{when}</span></div>
   );
-  if (ow && ow.kind === 'trip') {
+  if (ow && (ow.kind === 'trip' || ow.kind === 'pax')) {
     // 'LIS – SGN · 4 duties · block 16:52': where the trip starts, each duty's far station, the total block.
     const st = [ow.blocks[0].flights?.[0]?.from ?? '', ...ow.blocks.map((b) => (b.kind === 'duty' ? stationOf(b) : endAt(b)) ?? '')].filter((x, i, a) => x && x !== a[i - 1]);
     const days = ow.k1 - ow.k0 + 1;
@@ -246,15 +257,19 @@ function DayDetail({ g, c, data, k }: { g: GameState; c: CrewMember; data: Month
     const block = ow.blocks.reduce((n, b) => n + (b.kind === 'duty' ? (b.flights ?? []).reduce((m, f) => m + Math.max(0, f.sta - f.std), 0) : 0), 0);
     return (
       <div className="ps-dd">
-        {head(days > 1 ? `Trip · ${days} days` : 'Flying', fmtDayRange(midnight(c.base, ow.k0) + 12 * HOUR, midnight(c.base, ow.k1) + 12 * HOUR), 'trip')}
-        <div className="small muted">{st.length > 0 && <span className="mono">{st.join(' – ')}</span>}{st.length > 0 && ' · '}{nDuty} dut{nDuty === 1 ? 'y' : 'ies'}{block ? ` · block ${hm(block)}` : ''}</div>
+        {head(ow.kind === 'pax' ? (days > 1 ? `Positioning · ${days} days` : 'Positioning') : days > 1 ? `Trip · ${days} days` : 'Flying', fmtDayRange(midnight(c.base, ow.k0) + 12 * HOUR, midnight(c.base, ow.k1) + 12 * HOUR), ow.kind)}
+        <div className="small muted">{st.length > 0 && <span className="mono">{st.join(' – ')}</span>}{st.length > 0 && ' · '}{nDuty ? `${nDuty} dut${nDuty === 1 ? 'y' : 'ies'}` : 'as a passenger'}{block ? ` · block ${hm(block)}` : ''}</div>
+        {dayLays.filter((x) => !ow.blocks.includes(x.a)).map((x) => <Layover key={`b${x.from}`} l={x} rests={rests} />)}
         {ow.blocks.map((b, i) => {
           const next = ow.blocks[i + 1];
-          const away = !!next && endAt(b) !== c.base;
+          const l = next ? lays.find((x) => x.a === b && x.b === next) : undefined;
+          // After the trip's last part: a layover that runs on past it (a deadhead out, then hotel standby).
+          const after = !next ? dayLays.find((x) => x.a === b) : undefined;
           return (
             <Fragment key={`${b.kind}-${b.start}`}>
-              <DutyCard g={g} c={c} b={b} rests={rests} hi={dayIndex(c.base, b.start) === k} layover={away} />
-              {away && <Layover a={b} b={next} rests={rests} />}
+              <DutyCard g={g} c={c} b={b} rests={rests} hi={dayIndex(c.base, b.start) === k} layover={!!l || !!after} />
+              {l && <Layover l={l} rests={rests} />}
+              {after && <Layover l={after} rests={rests} />}
             </Fragment>
           );
         })}
@@ -264,7 +279,7 @@ function DayDetail({ g, c, data, k }: { g: GameState; c: CrewMember; data: Month
   const date = fmtDate(cell.start + 12 * HOUR, true);
   if (ow) {
     const b = ow.blocks[0];
-    return <div className="ps-dd">{head(DAY_KIND_LABEL[ow.kind], `${fmtDay(b.start)} – ${fmtDay(b.end - 1)}`, ow.kind)}<div className="small muted">{b.detail}</div></div>;
+    return <div className="ps-dd">{head(DAY_KIND_LABEL[ow.kind], `${fmtDay(b.start)} – ${fmtDay(b.end - 1)}`, ow.kind)}<div className="small muted">{b.detail}</div>{outside}</div>;
   }
   const shown = cell.blocks.filter((b) => b.kind !== 'rest' || cell.kind === 'rest');
   return (
@@ -273,6 +288,7 @@ function DayDetail({ g, c, data, k }: { g: GameState; c: CrewMember; data: Month
       {cell.kind === 'none' ? <div className="small muted">Days older than 28 days are not kept, except the flights flown.</div> : shown.length ? shown.map((b) => (
         <div key={`${b.kind}-${b.start}`} className="small muted">{b.kind === 'standby' || b.kind === 'rest' ? b.detail : b.detail}</div>
       )) : <div className="small muted">Nothing rostered.</div>}
+      {outside}
     </div>
   );
 }
@@ -367,7 +383,7 @@ function Essentials({ g, c }: { g: GameState; c: CrewMember }) {
 /** The legend under the calendar: only the kinds this month shows. */
 function Legend({ grid }: { grid: MonthGrid }) {
   const have = new Set(grid.cells.filter((c) => c.inMonth).map((c) => c.kind));
-  const order: DayKind[] = ['trip', 'off', 'offAway', 'sby', 'sbyHotel', 'asby', 'res', 'leave', 'sick', 'training', 'joining'];
+  const order: DayKind[] = ['trip', 'pax', 'off', 'offAway', 'sby', 'sbyHotel', 'asby', 'res', 'leave', 'sick', 'training', 'joining'];
   const items = order.filter((k) => have.has(k));
   if (!items.length) return null;
   return <div className="ps-legend tiny muted">{items.map((k) => <span key={k} className="row gap-4"><span className={`ps-sw k-${k}`} aria-hidden />{DAY_KIND_LABEL[k]}</span>)}</div>;

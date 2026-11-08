@@ -97,3 +97,26 @@
 .cv-adv-sw { line-height: 1.35; }
 @media (hover: hover) { .cv-adv-t:hover, .cv-adv-o:hover { background: var(--panel-hover); } }
 .touch .cv-adv-t:active, .touch .cv-adv-o:active { background: var(--panel-hover); }
+
+/* ---- person calendar (modals/PersonSheet.tsx): positioning / deadhead as its own kind, layover marks, leg rows ---- */
+/* Travelling as a passenger: the roster board's deadhead look (grey, dotted), a seat glyph, dark ink. */
+.ps-span.k-pax {
+  background: rgba(var(--c-bg-154-165-187-rgb), 0.2); color: var(--text); box-shadow: inset 0 0 0 1.5px var(--ft-deadhead, #9aa5bb);
+}
+.ps-span.k-pax .ps-n { color: var(--text-2); }
+.ps-span.k-pax .ps-sd .ps-code { color: var(--text); }
+.ps-span.k-pax .ps-ico { color: var(--text-2); }
+.ps-span.k-pax .ps-sd.on { box-shadow: inset 0 0 0 2px var(--text); background: rgba(var(--ink-rgb), 0.06); }
+.ps-sw.k-pax { background: rgba(var(--c-bg-154-165-187-rgb), 0.25); border: 1.5px dotted var(--ft-deadhead, #9aa5bb); }
+/* A layover night away from base: a short teal bar at the foot of the day (the layover band's colour). */
+.ps-day.lay::after, .ps-sd.lay::after {
+  content: ''; position: absolute; left: 30%; right: 30%; bottom: 3px; height: 3px; border-radius: 2px; background: #46b6a6; opacity: 0.85; pointer-events: none;
+}
+.ps-layover { flex-wrap: wrap; }
+.ps-layover .grow { min-width: 0; line-height: 1.4; }
+/* Leg rows: number, route and type chip on the first line; local and UTC times wrap under them when there is no room. */
+.ps-legs .ps-legrow { display: flex; flex-wrap: wrap; align-items: center; column-gap: 10px; row-gap: 2px; }
+.ps-legs .ps-legrow > span { white-space: nowrap; overflow: visible; text-overflow: clip; min-width: auto; }
+.ps-legs .ps-legrow > :nth-child(1) { min-width: 56px; }
+.ps-legs .ps-legrow > :nth-child(4) { display: inline; }
+.ps-legs .ps-legrow > :last-child { margin-left: auto; }
