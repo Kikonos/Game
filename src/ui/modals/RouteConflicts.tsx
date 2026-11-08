@@ -86,3 +86,24 @@ export function RouteConflicts({ g, aircraftId, from, to, value, onChange, earns
     </div>
   );
 }
+
+/** The call's short version: what the default (cheapest) choices do; the offer dialog (Details) has the chooser. */
+export function RouteConflictsLine({ g, aircraftId, from, to }: { g: GameState; aircraftId: string; from: Minute; to: Minute }) {
+  const rows = useMemo(() => conflictRows(g, aircraftId, from, to), [g.network?.rev, aircraftId, from, to]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!rows.length) return null;
+  const by = new Map<RouteChoice, number>();
+  let total = 0;
+  for (const r of rows) {
+    if (!r.best) continue;
+    by.set(r.best, (by.get(r.best) ?? 0) + 1);
+    total += r.quotes.find((q) => q.choice === r.best)?.net ?? 0;
+  }
+  const what = [...by].map(([c, n]) => `${n} ${CHOICE_WORD[c].toLowerCase()}`).join(', ');
+  const stuck = rows.some((r) => !r.best);
+  return (
+    <div className={`small nw-conf-line ${stuck ? 'bad' : 'warn'}`}>
+      <RouteIcon className="sc-ico-s" />
+      <span>{rows.length === 1 ? '1 of your scheduled rotations' : `${rows.length} of your scheduled rotations`} on this aircraft: {stuck ? "one can't be handled" : `${what} (${total ? moneyDelta(total) : 'no cost'})`}. Details to choose.</span>
+    </div>
+  );
+}
