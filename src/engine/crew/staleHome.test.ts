@@ -10,6 +10,10 @@ import { planCrew } from './check';
 import { buildDuties } from './duties';
 import { addCrew, fixtureGame } from './fixtures';
 import { segsOf, touchCrew } from './timeline';
+import { rollingRoster } from '../../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 describe('v0.14.1 a stale ticket home from the departure', () => {
   it('is dropped by a trip that ends elsewhere: no location break, no recovery break', () => {

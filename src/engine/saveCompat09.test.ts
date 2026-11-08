@@ -8,6 +8,10 @@ import { deserialize, serialize } from './save';
 import { bad, fixture, playTo } from './fixtures/compatKit';
 import { headsView } from './ops/heads';
 import { achievementsView } from './ops/achievements';
+import { rollingRoster } from '../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 describe('v0.9 load: heads, achievements, roster planning, stats (UPDATE-0.9.md §10)', () => {
   for (const name of ['v052', 'v06', 'v07', 'v071', 'v072', 'v073', 'v08']) {

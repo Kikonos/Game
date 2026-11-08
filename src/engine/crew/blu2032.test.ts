@@ -18,6 +18,10 @@ import { buildDuties, restNeedLine, syncDuty } from './duties';
 import { addCrew, fixtureGame } from './fixtures';
 import { discretionCheck, flightCrewStatus } from './roster';
 import { autoRoster } from '.';
+import { rollingRoster } from '../../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 const H = 60;
 

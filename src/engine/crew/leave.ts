@@ -10,7 +10,7 @@
 
 import { BAL } from '../core/balance';
 import { pushMessage } from '../core/messages';
-import { DAY, fmtDay, fromUTC, yearOf } from '../core/time';
+import { DAY, fmtDay, fromUTC, monthKey as monthKeyOf, yearOf } from '../core/time';
 import type { ActionResult, CrewMember, GameState, LeavePolicy, LeaveRequest, LeaveYear, Minute } from '../core/types';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import {
@@ -84,6 +84,24 @@ export function leaveBalance(g: GameState, c: CrewMember, y = yearOf(g.now)): Le
   return { year: y, ent: r.ent, carried, booked: r.booked, pending, left: Math.max(0, r.ent + carried - r.booked - pending) };
 }
 
+/**
+ * Days of year y's allowance earned by the end of month mk plus `advance` months (leave builds up month by month, as
+ * at most airlines: 2.5 days a month on 30; a block may borrow two months ahead), carried days included. Pure.
+ */
+export function leaveEarned(g: GameState, c: CrewMember, y: number, mk: number): number {
+  const r = leaveYearOf(g, c, y);
+  const start = Math.max(y * 12, monthKeyOf(Math.max(c.hired, g.company.aocAt ?? g.started)));
+  const n = y * 12 + 12 - start;
+  const m = Math.min(12, mk - start + 1 + L().advance);
+  return (n > 0 ? Math.min(r.ent, Math.round((r.ent * Math.max(0, m)) / n)) : r.ent) + leaveCarry(g, c, y);
+}
+
+/** Days of year y's leave still free to ask for in month mk: earned by then, less booked and asked for. */
+export function leaveLeftAt(g: GameState, c: CrewMember, y: number, mk: number): number {
+  const b = leaveBalance(g, c, y);
+  return Math.max(0, Math.min(b.left, leaveEarned(g, c, y, mk) - b.booked - b.pending));
+}
+
 /** Days of the block [from, from + days) falling in calendar year y (base-local days). */
 function daysInYear(c: CrewMember, from: Minute, days: number, y: number): number {
   const k = dayIndex(c.base, from);
@@ -137,6 +155,9 @@ export function leaveVerdict(g: GameState, c: CrewMember, from: Minute, days: nu
     const bal = leaveBalance(g, c, y);
     const own = self && self.status === 'pending' ? daysInYear(c, self.from, self.days, y) : 0;
     if (daysInYear(c, from, days, y) > bal.left + own) return { ok: false, hard: true, why: `Only ${bal.left + own} days of ${y} leave left` };
+    const mk = monthOfDay(Math.max(k, yearStartK(y)));
+    const earned = leaveEarned(g, c, y, mk) - bal.booked - bal.pending + own;
+    if (daysInYear(c, from, days, y) > earned) return { ok: false, hard: true, why: `Only ${Math.max(0, earned)} days of ${y} leave earned by ${MONTH[mk % 12]}` };
   }
   // A deployment rotation or work already planned then (crew planning rosters leave round the rotation).
   for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
@@ -220,8 +241,12 @@ export function askLeave(g: GameState): LeaveRequest[] {
     for (let mk = monthOfDay(first); firstDayOf(mk) < last; mk++) {
       if (!wish && pol.blackout.includes(mk % 12)) continue;
       const y = Math.floor(mk / 12);
-      const left = leaveBalance(g, c, y).left;
-      if (left >= S.minLast) months.push({ mk, w: S.pref[mk % 12] * (1 + left / 15), left });
+      const left = leaveLeftAt(g, c, y, mk);
+      // A block of the length they like (7–14 days: what is earned builds up first); from October whatever is left of
+      // 5 days or more, and in the year's last two months its last few days.
+      const all = leaveBalance(g, c, y).left;
+      const like = 7 + Math.floor(hashUnit(`blk:${c.id}:${y}`) * 8);
+      if (left >= Math.min(like, all) || (left >= S.minBlock && mk % 12 >= 9) || (left >= S.minLast && left >= all && mk % 12 >= 10)) months.push({ mk, w: S.pref[mk % 12] * (1 + left / 15), left });
     }
     if (!months.length) continue;
     const segs = segsOf(g, c);

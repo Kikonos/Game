@@ -18,6 +18,10 @@ import { buildDuties } from './duties';
 import { addCrew, fixtureContract, fixtureGame } from './fixtures';
 import { autoRoster, releaseCrew, setFlightsCrew } from './roster';
 import { dhBlock, OUT_CONNECT, outTicket, segsOf, touchCrew } from './timeline';
+import { rollingRoster } from '../../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 /** One out-and-back from `dep` (aircraft parked there) two days out at 17:00 UTC; crew at base (LIS). */
 function trip(dep: string, dest: string, hhmm = 17 * 60, seed = 5): { g: GameState; d: Duty; p: Pairing; crew: string[]; flightId: string; acId: string } {

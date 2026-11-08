@@ -12,6 +12,10 @@ import { addCrew, fixtureGame, seasonBase } from './fixtures';
 import { autoRoster, crewCalendar, dropTargets, dutyLegality, flightCrewStatus, moveDuty, rerosterFrom, rosterBoard, rosterOf } from '.';
 import { touchCrew } from './timeline';
 import { perfBudgetFactor } from '../../test/perf';
+import { rollingRoster } from '../../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 function rostered(seed = 5): GameState {
   const g = fixtureGame(seed);

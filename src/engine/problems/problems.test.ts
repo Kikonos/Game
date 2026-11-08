@@ -4,7 +4,6 @@
 
 import { describe, expect, it } from 'vitest';
 import { generateOffer } from '../contracts';
-import { BAL } from '../core/balance';
 import { addFlight } from '../core/entities';
 import { blockMinutes } from '../core/perf';
 import { DAY } from '../core/time';
@@ -20,6 +19,10 @@ import { advanceTo } from '../sim';
 import { hurtBadges, mkHurt, postProblem, problemAt, problemFor, problems } from '.';
 import { cardUnderStrip } from './crew';
 import { hurtProse, type ProblemCard } from './types';
+import { rollingRoster } from '../../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 function game(): GameState {
   const g = fixtureGame(9);
@@ -60,7 +63,7 @@ describe('crew WHY (v0.7.1 fixes 4 and 16)', () => {
     // No duty yet: the card says so instead of 'nobody is free'.
     const none = crewShortCard(g, f1.id)!;
     expect(none).not.toBeNull();
-    expect(none.why).toBe(`AW816 has no crew plan yet: the roster plans ${BAL.rosterHorizonDays} days ahead; Auto-fix plans it now.`);
+    expect(none.why).toBe('AW816 has no crew plan yet: crew are planned with the monthly roster; Auto-fix plans it now.');
     const v = crewControl(g, f1.id)!;
     const auto = v.solutions.find((x) => x.id === 'autoFix')!;
     expect(auto.available).toBe(true);

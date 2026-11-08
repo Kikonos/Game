@@ -5,6 +5,10 @@ import { DAY } from './core/time';
 import type { GameState } from './core/types';
 import { deserialize, serialize } from './save';
 import { bad, fixture, playTo } from './fixtures/compatKit';
+import { rollingRoster } from '../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 describe('v0.8 load: relations, rivals, market cycle, world (UPDATE-0.8.md §10)', () => {
   const v073 = () => fixture('v073');
@@ -32,7 +36,7 @@ describe('v0.8 load: relations, rivals, market cycle, world (UPDATE-0.8.md §10)
     // A client the old game worked for is at least Known; nothing announced on load.
     expect(Object.values(g.clients).some((c) => c.level === 'known' || c.level === 'trusted' || c.level === 'partner')).toBe(true);
     // (v0.9: one note that roster planning changed; one each for achievements and heads already earned.)
-    const v09Note = (t: string) => t === 'Roster planning changed' || /achievements already earned$|^A department head is available|department heads are available$/.test(t);
+    const v09Note = (t: string) => t === 'Roster planning changed' || t === 'Annual leave now goes by request' || / roster published$/.test(t) || /achievements already earned$|^A department head is available|department heads are available$/.test(t);
     expect(g.messages.filter((m) => !v09Note(m.title)).length).toBe(Math.min(msgs0, 300));
     // 60 days: no illegal duty flown, nothing non-finite.
     const ill0 = g.stats.illegalFlown ?? 0;

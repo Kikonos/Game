@@ -14,6 +14,10 @@ import type { GameState, Pairing } from '../core/types';
 import { leaveAfterTours, publishedTo } from './dayPlan';
 import { TOUR_STAGGER, TOUR_TAIL } from './duties';
 import { tourHolding } from './tours';
+import { rollingRoster } from '../../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 function base(weeks: 4 | 5 | 6, days = 120, seed = 21): { g: GameState; k: string } {
   const g = newGame(seed);

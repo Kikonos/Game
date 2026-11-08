@@ -19,6 +19,10 @@ import { evalSegs, EXT_REST, extRestCut, minRest, mkSeg, type Seg, type Timeline
 import { aboard, cabinEarly, dhBlock, OUT_REST_BUFFER, outTicket, segsOf, touchCrew } from './timeline';
 import { autoRoster, crewControl, dutyCandidates } from '.';
 import { advanceTo } from '../sim';
+import { rollingRoster } from '../../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 const H = 60;
 

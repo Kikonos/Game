@@ -12,6 +12,10 @@ import { BAL } from '../core/balance';
 import { DAY } from '../core/time';
 import type { Duty, Flight, GameState, Pairing } from '../core/types';
 import { outStillFits, touchCrew } from './timeline';
+import { rollingRoster } from '../../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 const CI = BAL.deadheadCheckIn;
 const sameDay = (d: Duty, t: Flight) => Math.floor((d.report - 60 - t.block) / 60) * 60;

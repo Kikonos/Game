@@ -10,6 +10,10 @@ import { evalSegs } from './rules';
 import { fixtureGame, seasonBase } from './fixtures';
 import { autoRoster, staffing } from '.';
 import { setsForStation } from './sets';
+import { rollingRoster } from '../../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 const duty = (start: number, end: number): Seg => ({
   kind: 'duty', start, end, fdp: end - start, maxFdp: 13 * 60, block: end - start - 60, sectors: 2, aug: false, disruptive: false, rest: 12 * 60, at: 'LIS', fresh: true,

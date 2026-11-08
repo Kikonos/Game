@@ -81,7 +81,7 @@ export { crewAlertKind, LIMIT_NAME, outOfHours, OOH_TEXT, type CrewAlertKind, ty
 export { bestSlip, slipOfFlight, slipsOfAircraft, type SlipPlan, type SlipView } from './slip';
 // v0.9 roster planning (UPDATE-0.9.md §R.14).
 export {
-  crewMonth, dayIndex, isOff, offBreak, planLeave, planOffDays, planStandby, publishDayOf, publishedTo, rosterHorizon, rosterOutLine, rosterStats, standbyNow,
+  crewMonth, dayIndex, isOff, offBreak, planOffDays, planStandby, publishDayOf, publishedTo, rosterHorizon, rosterOutLine, rosterStats, standbyNow,
   type CrewMonthView, type OffBreak,
 } from './dayPlan';
 export { answerLeave, decideBy, leaveBalance, leaveDaysFor, leavePolicy, leaveVerdict, setLeavePolicy, type LeaveBalance, type LeaveVerdict } from './leave';

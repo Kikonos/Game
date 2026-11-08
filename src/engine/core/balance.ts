@@ -513,6 +513,8 @@ export const BAL = {
       publishDays: 14,
       /** v0.18.1 the roster for the next month comes out on this day of the month; the planner works it out from `publishLead` days before. */
       publishDay: 15, publishLead: 3,
+      /** v0.18.1 false: the rolling roster of before (publishDays ahead, crewed 14 days ahead); tests built on it set it. */
+      monthly: true,
       off: { legalMonth: 7, minMonth: 8, targetMonth: 9, maxMonth: 10, yearMin: 96, block: [2, 3] as [number, number], dueAfter: 5, mustAfter: 6, morningFree: 360 },
       leave: {
         days: 28, quarters: [10, 4, 4, 10] as number[], maxShare: 0.1, afterServiceDays: 90,
@@ -522,13 +524,14 @@ export const BAL = {
          * in the year of joining. Blocks of `minBlock`–`maxBlock` days (a last remainder may be shorter, down to `minLast`),
          * asked for `noticeDays`+ ahead and up to `aheadMonths` months out, about every `askEvery` days a person (every
          * `askLate` from `lateMonth`), months chosen by `pref` (crew like the summer and Christmas too), `cooldown` days
-         * after a refusal, which costs `declined` morale. Up to `carryMax` unused days carry into the next year.
+         * after a refusal, which costs `declined` morale. Up to `carryMax` unused days carry into the next year. Leave builds
+         * up month by month: a block may use what is earned by its month plus `advance` months.
          */
         ent: { default: 28, PT: 30, ES: 30, FR: 35, IT: 30, GB: 35, IE: 30 } as Record<string, number>,
-        minBlock: 5, maxBlock: 14, minLast: 2, wish: 0.08, noticeDays: 21, aheadMonths: 4, askEvery: 15, askLate: 6, lateMonth: 7, cooldown: 10, declined: -1.5, carryMax: 10,
-        pref: [3, 3, 3, 2, 2, 1, 3, 3, 1, 2, 3, 3] as number[],
-        /** The default Company policy: decided by the rules, at most 15 % of a rank away on any day, no leave in July and August. */
-        policy: { auto: true, maxShare: 0.15, blackout: [6, 7] as number[] },
+        minBlock: 5, maxBlock: 14, minLast: 2, wish: 0.06, noticeDays: 21, aheadMonths: 4, askEvery: 15, askLate: 6, lateMonth: 7, cooldown: 10, declined: -1, carryMax: 10, advance: 2,
+        pref: [2, 2, 2, 2, 2, 1, 3, 3, 1, 2, 2, 3] as number[],
+        /** The default Company policy: decided by the rules, at most 12 % of a rank away on any day, no leave in July and August. */
+        policy: { auto: true, maxShare: 0.12, blackout: [6, 7] as number[] },
       },
       home: { early: [300, 1020] as [number, number], late: [720, 1440] as [number, number], maxH: 16, minH: 4, readyMin: 90 },
       hotel: { from: 360, to: 1080, readyMin: 45 },

@@ -11,6 +11,10 @@ import { openDuties } from './check';
 import { addCrew, fixtureGame } from './fixtures';
 import { autoRoster, rerosterFrom } from './roster';
 import { touchCrew } from './timeline';
+import { rollingRoster } from '../../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 describe('v0.14.1 a stale ticket after a reported duty', () => {
   it('keeps the crew at the gate and re-tickets them from where the duty ends', () => {

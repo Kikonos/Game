@@ -13,12 +13,16 @@ import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
 import { fixture } from '../fixtures/compatKit';
 import { addCrew, fixtureGame, seasonBase } from './fixtures';
-import { autoRoster, crewControl, crewWindows, dayIndex, dropTargets, moveDuty, offBreak, planLeave, publishedTo } from '.';
+import { autoRoster, crewControl, crewWindows, dayIndex, dropTargets, moveDuty, offBreak, publishedTo } from '.';
 import { crewMonth, dayFloorIssue, dayPlanAfter, dayPlanMonth, eveFloorIssue, midnight, monthFloorIssue, offDaysHit, offOn, offRunOver, offSwappable, takeOffDays, yearPaceMin } from './dayPlan';
 import { crewCalendar } from './calendar';
 import { evalSegs, localMin, minRest, nightsIn, offsetAt, standbyCut, standbyView, STANDBY, type Seg } from './rules';
 import { reserveContact, standbyFor } from './standby';
 import { ctxOf, segsOf, standbySeg } from './timeline';
+import { rollingRoster } from '../../test/rolling';
+
+// v0.18.1 built on the rolling 14-day roster (see src/test/rolling.ts).
+rollingRoster();
 
 const H = 60;
 
@@ -52,7 +56,8 @@ describe('§R.13 1–2: legal minimums; unassigned days are standby, not off', (
     expect(r.monthsLow).toBe(0);
     for (const c of Object.values(g.crew)) {
       for (const [mk, n] of Object.entries(c.offMonths ?? {})) {
-        expect(n, `${c.id} month ${mk}`).toBeGreaterThanOrEqual(7);
+        // v0.18.1 a month with leave in it needs its 7 pro rata (legalFor; leave blocks run up to 14 days now).
+        expect(n, `${c.id} month ${mk}`).toBeGreaterThanOrEqual((c.freeMonths?.[+mk] ?? 0) > 0 ? Math.ceil((7 * (31 - c.freeMonths![+mk])) / 31) : 7);
         // (the first month of a crew member, or of the company, can run long: the planner starts them staggered)
         if (+mk > monthKey(Math.max(g.started, c.hired))) expect(n, `${c.id} month ${mk}`).toBeLessThanOrEqual(12);
       }
@@ -184,42 +189,7 @@ describe('§R.13 4–6: standby in the limits, call-outs, rest after standby', (
   });
 });
 
-describe('§R.13 7: annual leave', () => {
-  it('28 days a year, weighted to Q1 and Q4, ≤ 10 % of a group at once, never in the published roster', () => {
-    const g = fixtureGame(13);
-    const y = new Date(Date.UTC(2000, 0, 1) + g.now * 60_000).getUTCFullYear() + 1;
-    for (const c of Object.values(g.crew)) c.blocks = c.blocks?.filter((b) => !b.annual);
-    planLeave(g, y);
-    const y0 = Date.UTC(y, 0, 1);
-    const byQ = [0, 0, 0, 0];
-    const perDay = new Map<string, number>();
-    let total = 0;
-    for (const c of Object.values(g.crew)) {
-      const blocks = (c.blocks ?? []).filter((b) => b.annual && new Date(Date.UTC(2000, 0, 1) + b.from * 60_000).getUTCFullYear() === y);
-      const days = blocks.reduce((n, b) => n + Math.round((b.to - b.from) / DAY), 0);
-      expect(days, c.id).toBeGreaterThanOrEqual(24);
-      expect(days, c.id).toBeLessThanOrEqual(28);
-      total += days;
-      for (const b of blocks) {
-        const q = Math.floor(new Date(Date.UTC(2000, 0, 1) + (b.from + 12 * H) * 60_000).getUTCMonth() / 3);
-        byQ[q] += Math.round((b.to - b.from) / DAY);
-        for (let k = dayIndex(c.base, b.from + H); k <= dayIndex(c.base, b.to - H); k++) for (const f of c.ratings) perDay.set(`${f}|${c.role}|${k}`, (perDay.get(`${f}|${c.role}|${k}`) ?? 0) + 1);
-      }
-    }
-    expect(byQ[0] + byQ[3]).toBeGreaterThan(byQ[1] + byQ[2]);
-    const size = new Map<string, number>();
-    for (const c of Object.values(g.crew)) for (const f of c.ratings) size.set(`${f}|${c.role}`, (size.get(`${f}|${c.role}`) ?? 0) + 1);
-    for (const [k, n] of perDay) {
-      const grp = k.split('|').slice(0, 2).join('|');
-      expect(n, k).toBeLessThanOrEqual(Math.max(1, Math.ceil(0.1 * size.get(grp)!)));
-    }
-    expect(total).toBeGreaterThan(0);
-    void y0;
-    // This year's leave (planned at the start) never sits inside the first published 14 days.
-    const g2 = fixtureGame(14);
-    for (const c of Object.values(g2.crew)) for (const b of c.blocks ?? []) if (b.annual) expect(b.from).toBeGreaterThanOrEqual(publishedTo(g2) - DAY);
-  });
-});
+// §R.13 7 annual leave: v0.18.1 by request (crew/leave.test.ts).
 
 describe('§R.13 8: protected days off', () => {
   it('a board move onto a published day off asks first, costs morale −6 and moves the day off; the roster never takes one', () => {
@@ -325,7 +295,8 @@ describe('v0.9 round 3: stagger, the day-off swap, airport standby', () => {
       for (let k = t0 - 30; k < t0 + 14; k++) share.push(cs.filter((c) => offOn(c, k)).length / cs.length);
       share.sort((a, b) => a - b);
       expect(share[share.length - 1], role).toBeLessThan(0.5);
-      expect(share[Math.floor(0.9 * (share.length - 1))], role).toBeLessThanOrEqual(0.31);
+      // (v0.18.1 0.33: a group with someone on two weeks' leave has the others' days off a little closer together)
+      expect(share[Math.floor(0.9 * (share.length - 1))], role).toBeLessThanOrEqual(0.33);
     }
   }, 120_000);
 

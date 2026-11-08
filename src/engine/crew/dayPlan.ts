@@ -58,6 +58,7 @@ export function publishedTo(g: GameState): Minute {
  * after the last day published by day k: on and after the 15th the whole next month, before it this month. Pure.
  */
 export function pubEndDay(_home: string, k: number): number {
+  if (!R().monthly) return k + R().publishDays;
   const mk = monthOfDay(k);
   const dom = k - firstDayOf(mk) + 1;
   return firstDayOf(mk + (dom >= R().publishDay ? 2 : 1));
@@ -82,6 +83,7 @@ export function rosterOutLine(g: GameState, t: Minute): string {
  */
 export function rosterHorizon(g: GameState): Minute {
   const home = g.company.homeBase;
+  if (!R().monthly) return g.now + BAL.rosterHorizonDays * DAY;
   const k = dayIndex(home, g.now);
   const end = pubEndDay(home, k + R().publishLead);
   return Math.max(g.now + BAL.rosterHorizonDays * DAY, midnight(home, end));
@@ -760,131 +762,7 @@ export function rosterStats(g: GameState): StatsRoster09 {
 /** Family-and-role groups a crew member belongs to. */
 export const groupsOf = (c: CrewMember): string[] => c.ratings.map((f) => `${f}|${c.role}`);
 
-/**
- * v0.9 annual leave (§R.3.1): 28 days a year in quarter blocks weighted to the ACMI low season (10/4/4/10), pro rata in
- * a partial year, never inside the published roster. Each block starts where its family-and-role group has the fewest
- * on leave and the family the fewest departures, at most max(1, ⌈10 %⌉) of the group away on any day; days that do not
- * fit carry to the next quarter. Ties by hashUnit(crew id + year + quarter). Leave never moves by itself.
- */
-export function planLeave(g: GameState, year: number, crewIds?: string[]): number {
-  const L = R().leave;
-  const home = g.company.homeBase;
-  // Never inside the published roster (at a new game: the first 14 days it is about to publish).
-  const pub = Math.max(dayIndex(home, publishedTo(g)), dayIndex(home, g.now) + R().publishDays);
-  const y0 = fromUTC(year, 1, 1) / DAY;
-  const y1 = fromUTC(year + 1, 1, 1) / DAY;
-  if (pub >= y1) return 0;
-  const all = Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1));
-  // On leave per group and day, and group sizes.
-  const size = new Map<string, number>();
-  const load = new Map<string, Int16Array>();
-  const loadOf = (key: string) => load.get(key) ?? load.set(key, new Int16Array(y1 - y0 + 1)).get(key)!;
-  for (const c of all) {
-    if (c.notice) continue;
-    for (const key of groupsOf(c)) size.set(key, (size.get(key) ?? 0) + 1);
-    for (const b of c.blocks ?? []) {
-      if (b.why !== 'leave') continue;
-      for (const key of groupsOf(c)) {
-        const arr = loadOf(key);
-        for (let k = Math.max(y0, dayIndex(c.base, b.from)); k < Math.min(y1, dayIndex(c.base, b.to - 1) + 1); k++) arr[k - y0]++;
-      }
-    }
-  }
-  // Departures per family and day (the signed work the leave should avoid).
-  const reports = new Map<string, Int16Array>();
-  for (const f of Object.values(g.flights)) {
-    if (f.kind === 'deadhead' || f.status !== 'scheduled' || !f.aircraftId) continue;
-    const k = dayIndex(home, f.std);
-    if (k < y0 || k >= y1) continue;
-    const ac = g.fleet[f.aircraftId];
-    if (!ac) continue;
-    const fam = typeOf(ac.typeId).family;
-    const arr = reports.get(fam) ?? reports.set(fam, new Int16Array(y1 - y0 + 1)).get(fam)!;
-    arr[k - y0]++;
-  }
-  const want = new Set(crewIds ?? all.map((c) => c.id));
-  let planned = 0;
-  for (const c of all) {
-    if (!want.has(c.id) || c.notice || (c.leaveYear ?? 0) >= year) continue;
-    const joins = c.status === 'joining' ? dayIndex(c.base, c.blocks?.find((b) => b.why === 'joining')?.to ?? c.hired) + 1 : 0;
-    const first = Math.max(pub, y0, joins);
-    if (first >= y1) {
-      c.leaveYear = year;
-      continue;
-    }
-    const segs = segsOf(g, c);
-    const busy = busyDays(c, segs, first, y1);
-    // Round 5: a deployment tour keeps its crew at the station from its first duty to its last, so leave never lands
-    // between two of its duties (the daily re-check would split the tour and re-crew its later part).
-    // Rotations round: the whole rotation period (the duties known are not the last), so leave never starts inside a tour.
-    for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
-      if (!q.tour || q.status === 'broken') continue;
-      const dep = q.deploymentId ? g.deployments[q.deploymentId] : undefined;
-      const to = Math.max(q.end, Math.min(q.tour.to, dep?.end ?? q.tour.to));
-      if (to <= g.now) continue;
-      for (let k = Math.max(first, dayIndex(c.base, Math.min(q.start, q.tour.from))); k <= Math.min(y1 - 1, dayIndex(c.base, to - 1)); k++) busy.work.add(k);
-    }
-    const caps = groupsOf(c).map((key) => ({ arr: loadOf(key), cap: Math.max(1, Math.ceil(L.maxShare * (size.get(key) ?? 1))) }));
-    const rep = c.ratings.map((f) => reports.get(f));
-    const fits = (s: number, len: number): number => {
-      // Score: group load and departures; Infinity over the cap, on work already planned or another block.
-      let score = 0;
-      for (let k = s; k < s + len; k++) {
-        if (busy.work.has(k) || blockedOn(c, k)) return Infinity;
-        for (const { arr, cap } of caps) {
-          if (arr[k - y0] + 1 > cap) return Infinity;
-          score += arr[k - y0] * 10;
-        }
-        for (const r of rep) score += r ? r[k - y0] : 0;
-      }
-      return score;
-    };
-    const place = (lo: number, hi: number, len: number, q: number): boolean => {
-      let best = Infinity;
-      const ties: number[] = [];
-      for (let s = lo; s + len <= hi; s++) {
-        const v = fits(s, len);
-        if (v < best) {
-          best = v;
-          ties.length = 0;
-        }
-        if (v === best && v < Infinity) ties.push(s);
-      }
-      if (!ties.length) return false;
-      const s = ties[Math.floor(hashUnit(`${c.id}${year}${q}`) * ties.length)];
-      (c.blocks ??= []).push({ from: midnight(c.base, s), to: midnight(c.base, s + len), why: 'leave', annual: true });
-      for (const { arr } of caps) for (let k = s; k < s + len; k++) arr[k - y0]++;
-      removeOff(c, Array.from({ length: len }, (_, i) => s + i));
-      clearDays(g, c, s, s + len);
-      return true;
-    };
-    // Quarter blocks (shorter when the group is full, the rest carried on), then what is left anywhere in the year.
-    let carry = 0;
-    let total = 0;
-    for (let q = 0; q < 4; q++) {
-      const q0 = fromUTC(year, q * 3 + 1, 1) / DAY;
-      const q1 = fromUTC(year + (q === 3 ? 1 : 0), q === 3 ? 1 : q * 3 + 4, 1) / DAY;
-      const lo = Math.max(q0, first);
-      const target = Math.round((L.quarters[q] * Math.max(0, q1 - lo)) / (q1 - q0)) + carry;
-      carry = target;
-      if (target < 3) continue;
-      let days = target;
-      while (days >= 3 && !place(lo, q1, days, q)) days--;
-      if (days < 3) continue;
-      total += days;
-      carry = target - days;
-    }
-    for (let n = carry; n >= 3; n--) {
-      if (!place(first, y1, n, 4)) continue;
-      total += n;
-      break;
-    }
-    if (total) planned++;
-    c.leaveYear = year;
-  }
-  if (planned) touchCrewState(g);
-  return planned;
-}
+// v0.18.1 annual leave is asked for and approved by request (crew/leave.ts); the v0.9 planner of quarter blocks is gone.
 
 // ---------- days off ----------
 
