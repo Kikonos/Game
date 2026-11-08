@@ -4,7 +4,7 @@
 import { BAL } from '../core/balance';
 import { post } from '../core/ledger';
 import type { SimModule } from '../core/module';
-import { DAY } from '../core/time';
+import { DAY, fmtDay } from '../core/time';
 import type { Flight, GameState, LedgerCat, SimEvent } from '../core/types';
 import { routeDisruptionCost, routeMonthCosts } from './costs';
 import { cashOnly } from '../core/ledger';
@@ -18,6 +18,8 @@ import { dailySales } from './sales';
 import { materialise } from './timetable';
 import type { NetworkState, Route, Rotation, SectorLoad } from './types';
 import { netHooks } from '../core/netHooks';
+import { marketOfRoute, usd } from './model';
+import { pushRouteNote } from './notes';
 import { clearForJob, routeConflicts } from './conflicts';
 
 netHooks.conflicts = routeConflicts;
@@ -92,6 +94,7 @@ export function dailyNetwork(g: GameState): void {
     stepLaunch(g, r);
     dailySales(g, r);
     materialise(g, r);
+    strandedRotations(g, r);
     fadeReputation(g, r);
     if (r.status === 'operating') stepAwareness(r);
     if (r.dents?.length) r.dents = r.dents.filter((d) => d.until > g.now);
@@ -156,6 +159,41 @@ function settleNetwork(g: GameState): void {
       // Every sector either cancelled or landed: the rotation is over.
       if (rot.sectors.some((s) => s.voided) && rot.sectors.every((s) => s.voided || s.cost !== undefined)) rot.status = rot.sectors.every((s) => s.voided) ? 'cancelled' : 'flown';
     }
+  }
+}
+
+/**
+ * A rotation whose day passed without flights (no aircraft and no rival to fly it, or its flights removed): the
+ * passengers are refunded and compensated as for a cancellation on the day.
+ */
+function strandedRotations(g: GameState, r: Route): void {
+  for (const rot of r.rotations) {
+    if ((rot.status !== 'planned' && rot.status !== 'flights') || rot.dep > g.now - 6 * 60) continue;
+    if (rot.sectors.some((s) => s.flightId && g.flights[s.flightId] && g.flights[s.flightId].status !== 'cancelled')) continue;
+    let comp = 0;
+    let refund = 0;
+    for (const s of rot.sectors) {
+      if (s.accrued || s.voided) continue;
+      s.voided = true;
+      const pax = Math.max(s.bookedJ + s.bookedY, 0);
+      const band = marketOfRoute(r)?.eu261 === 'long' ? 2 : 1;
+      const c = pax * (BAL.v019.pax.eu261[band] + BAL.v019.pax.meals);
+      comp += c;
+      s.cost = Math.round(c);
+      if (s.sold) {
+        refund += s.sold;
+        s.sold = 0;
+      }
+    }
+    if (refund) {
+      cashOnly(g, -Math.round(refund));
+      r.unearned = Math.max(0, Math.round(r.unearned - refund));
+    }
+    if (comp) post(g, 'paxComp', -Math.round(comp));
+    pnlOf(r, g.now).direct += Math.round(comp);
+    rot.status = 'cancelled';
+    bumpRoute(g, r.id, BAL.v019.rep.cancelDay, 'Cancelled on the day');
+    pushRouteNote(g, r, 'bad', `${r.marketId.replace('-', '–')} ${fmtDay(rot.dep)} did not fly`, `No aircraft and no operator could fly it. Passengers refunded and compensated (${usd(refund + comp)}).`, `stranded:${rot.id}`);
   }
 }
 

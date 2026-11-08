@@ -141,7 +141,8 @@ export const NET_ENGINE_BAL = {
     /** AVI: heated bulk hold only, at most this much on a widebody (narrowbody half). */
     aviMax: 1_200,
     /** Passenger + bags (kg) and structural payload (kg) by body when the type has no figure. */
-    paxKg: 95, payload: { narrow: 20_000, wide: 40_000 },
+    /** Passenger + bags (kg): VFR travellers fly with two full bags (the allowance is the selling point). */
+    paxKg: 108, payload: { narrow: 20_000, wide: 40_000 },
     /** Structural payload (kg) by type where known [E]. */
     payloadType: { b763: 40_000, b752: 25_000, a332: 45_000, a333: 48_000, a343: 46_000, a321neo: 22_000, a321ceo: 21_000, a320ceo: 18_000, a320neo: 19_000, b738: 19_000, b739: 20_000, b772: 55_000, b77w: 65_000 } as Record<string, number>,
     /** Range: a sector at the range limit keeps this share of payload. Runway: (available ÷ needed)^exp. */
