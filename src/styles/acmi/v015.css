@@ -24,6 +24,12 @@
 /* Map tilt: the stage (land, night, lights, overlay) leans back about its bottom edge at the closest zoom levels
    (WorldMap; the transform is written per frame with the zoom). The haze softens the far edge into a horizon. */
 .map-stage { position: absolute; inset: 0; transform-origin: 50% 100%; }
+/* v0.19 (perf) the map's layers move by transforms alone while panning and zooming (WorldMap, landTiles): the land's
+   raster tiles and its world fallback, the backdrop's world layer (night) and the marks overlay are each composited;
+   every bitmap in them is a layer of its own, so a pan or a pinch never paints them again. */
+.map-land { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
+.map-land .land-base, .map-land .land-set, .map-world { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; will-change: transform; pointer-events: none; }
+.map-land canvas, .map-world canvas { position: absolute; display: block; will-change: transform; }
 .map-haze {
   position: absolute; left: 0; right: 0; top: 0; height: 30%; pointer-events: none; opacity: 0;
   background: linear-gradient(180deg, rgba(var(--map-haze-rgb), 0.94) 0%, rgba(var(--map-haze-rgb), 0.6) 22%, rgba(var(--map-haze-rgb), 0.18) 62%, rgba(var(--map-haze-rgb), 0) 100%);
