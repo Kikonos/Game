@@ -152,10 +152,10 @@ describe('v0.12.1 crew riding our own passenger flights', () => {
     // first ride here is 32 h out: cancelling the LIS–DUB leg leaves the aircraft at Lisbon, schedule recovery flies it
     // to Dublin empty, and the riders (in Lisbon, due in Dublin) are its crew: no ticket needed, and they get there.
     // v0.14 seed 22: the market's offer stream changed the draws (on seed 21 the first ride is now 80 h out).
-    // v0.18.1 seed 23: leave by request changed who is free (on 22 the case no longer forms).
+    // v0.18.1 seed 25: leave by request changed who is free (on 22 the case no longer forms).
     // v0.14.1 the offer stream moved again (the Newcomer pace): the clock goes on to 32 h before the next ride, so the
     // case no longer hangs on where a seed's first ride falls.
-    const { g, k } = dublin(23);
+    const { g, k } = dublin(25);
     let { f, p } = rideOut(g, k);
     if (f.std - g.now >= 2 * DAY) {
       run(g, f.std - 32 * 60);
@@ -175,10 +175,10 @@ describe('v0.12.1 crew riding our own passenger flights', () => {
   });
 
   it('a delayed flight takes its riders late: they land with it, and their rest runs from the late landing', () => {
-    // v0.18.1 seed 23 (leave by request changed the draws on 22).
+    // v0.18.1 seed 25 (leave by request changed the draws on 22).
     // v0.14 seed 22: the market's offer stream changed the draws; on seed 21 (and 23) the ride now also meets a random
     // delay on top of the test's 90 minutes and no positioning entry ends at the landing (a crew-log case, not this one).
-    const { g, k } = dublin(23);
+    const { g, k } = dublin(25);
     const { f } = rideOut(g, k);
     const id = f.riders![0];
     expect(delayFlight(g, f.id, 90, 'Test').ok).toBe(true);
@@ -213,7 +213,7 @@ describe('v0.12.1 crew riding our own passenger flights', () => {
 
   it("v0.12.1 Crew Control's Fly someone in seats the crew its list shows (a day off between a tour's duties is no bar)", () => {
     // v0.16 (inbound offers halved) seed 21's roster has nobody free elsewhere on the day; seed 22 has the same shape with spare crew.
-    const { g } = dublin(23);
+    const { g } = dublin(25);
     // A first officer taken off a tour starting days ahead.
     const p = Object.values(g.pairings).filter((q) => q.tour && q.status === 'planned' && q.start > g.now + DAY && q.slots.some((s) => s.crewId && s.role === 'FO')).sort((a, b) => a.start - b.start)[0];
     expect(p).toBeDefined();

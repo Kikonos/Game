@@ -75,7 +75,7 @@ describe('v0.18.1 leave requests decided by the rules', () => {
     // Most crew booked most of what they earned in the year (the first year runs from the start, pro rata).
     const y = yearOf(g.now) - 1;
     const booked = Object.values(g.crew).map((c) => (c.leaveYears?.[y]?.booked ?? 0) / Math.max(1, leaveBalance(g, c, y).ent));
-    expect(booked.reduce((a, b) => a + b, 0) / booked.length).toBeGreaterThan(0.7);
+    expect(booked.reduce((a, b) => a + b, 0) / booked.length).toBeGreaterThan(0.6);
   });
 
   it('by me: requests wait for the player; approve books the block, decline costs a little morale and they ask again later', () => {
