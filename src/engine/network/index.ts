@@ -17,6 +17,11 @@ import { onSectorArr, onSectorDep, pnlOf } from './revenue';
 import { dailySales } from './sales';
 import { materialise } from './timetable';
 import type { NetworkState, Route, Rotation, SectorLoad } from './types';
+import { netHooks } from '../core/netHooks';
+import { clearForJob, routeConflicts } from './conflicts';
+
+netHooks.conflicts = routeConflicts;
+netHooks.clearForJob = clearForJob;
 
 export { netSide, netRoll } from './side';
 export * from './model';
