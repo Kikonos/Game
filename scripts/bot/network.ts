@@ -113,7 +113,8 @@ export function botNetworkReport(g: GameState): string {
     const afterRev = sum((p) => p.rev, after);
     const afterRes = sum((p) => p.result, after);
     const first3 = flown.slice(0, 3);
-    const f3 = sum((p) => p.rev, first3) ? sum((p) => p.result, first3) / sum((p) => p.rev, first3) : 0;
+    // The launch months carry the launch spend (study, permits, campaign, stations).
+    const f3 = sum((p) => p.rev, first3) ? (sum((p) => p.result, first3) - launch) / sum((p) => p.rev, first3) : 0;
     const perMonth = after.length ? afterRes / after.length : 0;
     const payback = perMonth > 0 ? launch / perMonth : Infinity;
     const firstDep = rots.find((x) => x.status === 'flown')?.dep;
@@ -122,7 +123,7 @@ export function botNetworkReport(g: GameState): string {
     const rotContrib = flown.length ? (rev - direct) / Math.max(1, rots.filter((x) => x.status === 'flown').length) : 0;
     const M = (name: string, ok: boolean, v: string) => out.push(`  balance ${name}: ${v} ${ok ? 'ok' : 'NO'}`);
     if (r.marketId === 'LIS-OXB' && after.length >= 3) M('OXB margin after ramp 2–8 %', afterRev > 0 && afterRes / afterRev >= 0.02 && afterRes / afterRev <= 0.08, afterRev ? pct(afterRes / afterRev) : '-');
-    if (flown.length >= 3) M('first 3 months −20…+2 %', f3 >= -0.2 && f3 <= 0.02, pct(f3));
+    if (flown.length >= 3) M('first 3 months with launch spend −20…+2 %', f3 >= -0.2 && f3 <= 0.02, pct(f3));
     if (bh) M('contribution/BH ≤ ACMI net/BH', contribBH <= acmi, `${Math.round(contribBH)} vs ${acmi}`);
     if (rots.some((x) => x.status === 'flown')) M('rotation contribution $35–70k', rotContrib >= 35_000 && rotContrib <= 70_000, k(rotContrib));
     if (r.model !== 'partner' && launch) M('launch spend $250–400k', launch >= 250_000 && launch <= 400_000, k(launch));
