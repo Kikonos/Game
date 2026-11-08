@@ -223,9 +223,15 @@
 .sc-fin-cols { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .sc-recv { cursor: pointer; }
 .sc-recv.late { box-shadow: inset 3px 0 0 var(--warn); }
+/* The client's name wraps to a second line rather than cut; amount and due date sit left of the Sell button. */
+.sc-recv .grow > .row > b.ellipsis { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: anywhere; line-height: 1.3; }
+.sc-recv > .right:has(> .fin-sell) { display: grid; grid-auto-flow: column; grid-template-rows: auto auto; column-gap: var(--space-3); align-items: center; justify-items: end; }
+.sc-recv > .right > .fin-sell { grid-row: 1 / span 2; }
+/* A progress bar in a list row's line fills it (Other approvals: IOSA in progress). */
+.sc-list-row .row > .bar { flex: 1 1 auto; min-width: 48px; }
 
 /* ---------- Company ---------- */
-.sc-company-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; align-items: start; }
+.sc-company-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--section-gap); align-items: start; }
 .sc-rep { display: flex; flex-direction: column; gap: 6px; }
 .sc-goal { display: flex; flex-direction: column; gap: 5px; }
 .sc-policy { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 0; min-height: 52px; border-bottom: 1px solid rgba(var(--line-rgb), 0.07); }

@@ -75,13 +75,13 @@
   display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 10px 16px; text-align: left; font: inherit; color: var(--text-2);
   cursor: pointer; width: 100%;
 }
-.v8-tiers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
-.v8-tier { text-align: center; padding: 7px 4px; font-size: 13px; border-radius: 8px; color: var(--text-3); background: var(--panel-2); border: 1px solid var(--border); }
+.v8-tiers { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-2); }
+.v8-tier { text-align: center; padding: 8px 6px; font-size: 13px; border-radius: 8px; color: var(--text-3); background: var(--panel-2); border: 1px solid var(--border); }
 .v8-tier.past { color: var(--text-2); }
 .v8-tier.on { color: var(--text); font-weight: 650; border-color: var(--accent); background: rgba(var(--accent-rgb), 0.1); }
 
 /* ---------- Contracts head: standing strip + outlook tiles ---------- */
-.v8-head-strip { display: flex; gap: 10px; margin: -4px 0 14px; align-items: stretch; min-width: 0; }
+.v8-head-strip { display: flex; gap: var(--tile-gap); align-items: stretch; min-width: 0; }
 .v8-standing {
   display: flex; align-items: center; gap: 10px; min-height: 52px; padding: 6px 12px; flex: 1 1 0; min-width: 0; text-align: left;
   font: inherit; color: inherit; background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; cursor: pointer;
@@ -92,7 +92,7 @@
 .v8-standing b { font-size: 13.5px; font-weight: 600; }
 .v8-st-text { font-weight: 450; }
 .v8-outlook-btn { padding: 0; border: none; background: none; font: inherit; color: inherit; cursor: pointer; flex: 0 1 auto; min-width: 0; }
-.v8-tiles { display: flex; gap: 6px; height: 100%; }
+.v8-tiles { display: flex; gap: var(--tile-gap); height: 100%; }
 .v8-tiles.big { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); }
 .v8-tile {
   display: flex; flex-direction: column; justify-content: center; gap: 1px; min-height: 52px; padding: 5px 10px; min-width: 0; text-align: left;

@@ -22,7 +22,9 @@
 
 /* ---------- the list ---------- */
 .sc-list-screen .sc-total { display: inline-flex; align-items: center; gap: 6px; font-weight: 600; white-space: nowrap; }
-.sc-list {
+/* Scoped (it used to be a bare .sc-list and turned every list row into a padded tile: receivables, approvals, missed
+   offers). The Scenarios list and the Inbox keep the tile grid. */
+:is(.sc-list-screen, .sc-inbox) .sc-list {
   min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
   display: grid; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 14px; align-content: start; padding: 20px 28px 24px;
 }
@@ -86,7 +88,7 @@
   .ng-setup { min-height: 52px; padding: 6px 10px; }
   .ng-setup .ellipsis { white-space: normal; overflow: visible; text-overflow: clip; }
   .ng-setup-top { align-items: flex-start; }
-  .sc-list { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; padding: 12px 16px 16px; }
+  :is(.sc-list-screen, .sc-inbox) .sc-list { grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 10px; padding: 12px 16px 16px; }
   .sc-card { padding: 10px 12px; gap: 6px; }
   .sc-list-screen .ng-head h2 { font-size: 17px; }
   .sc-numbers { grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 10px 0 6px; }
