@@ -18,7 +18,7 @@ import { crewName } from './generate';
 import { moraleShock } from './morale';
 import { removeCrew } from './roster';
 import { crewPlan, crewSupply, familyName, familyNeeds } from './sets';
-import { touchCrew } from './timeline';
+import { crewIx, touchCrew } from './timeline';
 
 /** What ACMI crew typically fly (block hours): a month in season, a year; idle below `idle28` in 28 days. */
 export const UTIL_TYPICAL = { monthLo: 60, monthHi: 85, yearLo: 700, yearHi: 850, idle28: 15, hold28: 40 };
@@ -43,6 +43,8 @@ export interface UtilPerson {
   idle: boolean;
   /** Not at work now (joining, sick, on leave, in training, on notice). */
   away: boolean;
+  /** At work with no trip or tour on the roster in the next 28 days (standby aside). */
+  free: boolean;
 }
 
 export interface UtilGroup {
@@ -88,6 +90,8 @@ export function crewUtilisation(g: GameState): Utilisation {
   const { homes } = crewSupply(g, fn);
   const mk = monthKey(g.now);
   const people: UtilPerson[] = [];
+  const ix = crewIx(g);
+  const ahead = g.now + 28 * DAY;
   for (const c of Object.values(g.crew)) {
     const away = c.status === 'joining' || c.status === 'sick' || c.status === 'leave' || c.status === 'training' || !!c.notice;
     const d28 = blockOf(c, g.now - 28 * DAY);
@@ -95,6 +99,7 @@ export function crewUtilisation(g: GameState): Utilisation {
     people.push({
       id: c.id, name: crewName(c), role: c.role, family: homes.get(c.id) ?? c.ratings[0], base: c.base,
       month: (c.blockMonths?.[mk] ?? 0) / 60, d28, y12, away,
+      free: !away && !(ix.pairingsOf.get(c.id) ?? []).some((p) => p.status !== 'done' && p.status !== 'broken' && p.start < ahead && (p.tour ? Math.max(p.end, p.tour.to) : p.end) > g.now),
       idle: !away && g.now - c.hired >= 28 * DAY && d28 < UTIL_TYPICAL.idle28,
     });
   }
@@ -112,13 +117,17 @@ export function crewUtilisation(g: GameState): Utilisation {
   }
   const groups = [...gm.values()].map(({ sum, at, ...x }) => ({ ...x, avg28: at ? sum / at : 0 }));
   groups.sort((a, b) => a.base.localeCompare(b.base) || a.label.localeCompare(b.label) || ROLE_ORDER.indexOf(a.role) - ROLE_ORDER.indexOf(b.role));
+  // Beyond the sets the flying needs (Planning's balance), and no more than those with nothing on the roster for 28 days:
+  // a person rostered on a tour is not spare whatever the count says.
   const surplus: UtilSurplus[] = [];
   for (const p of crewPlan(g)) {
     for (const r of p.roles) {
       if (r.balance <= 0) continue;
+      const n = Math.min(r.balance, people.filter((x) => x.free && x.family === p.family && x.role === r.role).length);
+      if (n <= 0) continue;
       const pay = Object.values(g.crew).filter((c) => c.role === r.role && homes.get(c.id) === p.family);
       const avg = pay.length ? pay.reduce((s, c) => s + c.salary, 0) / pay.length : 0;
-      surplus.push({ family: p.family, label: p.label, role: r.role, n: r.balance, cost: Math.round(r.balance * avg * (1 + BAL.onCosts)) });
+      surplus.push({ family: p.family, label: p.label, role: r.role, n, cost: Math.round(n * avg * (1 + BAL.onCosts)) });
     }
   }
   let aircraft = 0;
@@ -159,10 +168,10 @@ const ROLE_WORDS: Record<Role, [string, string]> = {
 };
 export const roleWords = (role: Role, n: number) => `${n} ${ROLE_WORDS[role][n === 1 ? 0 : 1]}`;
 
-/** Crew of a family and rank who could go first: at work, not on notice, the least flown in 28 days first (then the newest). */
+/** Crew of a family and rank who could go first: nothing on the roster for 28 days, the least flown in 28 days first (then the newest). */
 function candidates(g: GameState, family: RatingFamily, role: Role, u: Utilisation): CrewMember[] {
   return u.people
-    .filter((p) => p.family === family && p.role === role && !p.away)
+    .filter((p) => p.family === family && p.role === role && p.free)
     .sort((a, b) => a.d28 - b.d28 || (g.crew[b.id].hired - g.crew[a.id].hired) || (a.id < b.id ? -1 : 1))
     .map((p) => g.crew[p.id]);
 }

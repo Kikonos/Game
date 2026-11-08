@@ -518,9 +518,10 @@ export function pairingSeats(g: GameState, p: Pairing): Seat[] {
   }
   // v0.12.1 a crew set at a far base carries its reserve (crew/farBase.ts): a spare captain and purser (a cabin crew
   // more on a widebody), the cabin ones only while the crew seats have room for them.
-  // v0.18.2 one reserve per station (or per group of far stations within reach), on its first set's tours.
+  // v0.18.2 one reserve per station (or per group of far stations within reach), on its first set's tours. A tour that
+  // already carries a reserve keeps it to its end (an older save's reserve is not taken off mid-tour, away from home).
   const dep = p.deploymentId ? g.deployments[p.deploymentId] : undefined;
-  if (!empty && farTourBase(g, p) && p.tour?.set === 0 && dep && reserveCarrier(g, dep)) {
+  if (!empty && farTourBase(g, p) && ((p.tour?.set === 0 && dep && reserveCarrier(g, dep)) || p.slots?.some((s) => s.reserve && s.crewId))) {
     let room = extraCabinRoom(typeId, ac?.cabin.total ?? 180, seats.filter((x) => !isPilot(x.role)).length - Math.max(cabinMinimum(typeId, ac?.cabin.total ?? 180), 1));
     for (const role of reserveRoles(typeId)) {
       if (!isPilot(role) && room-- <= 0) continue;

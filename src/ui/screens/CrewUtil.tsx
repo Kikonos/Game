@@ -83,7 +83,7 @@ export function UtilisationView({ g }: { g: GameState }) {
         <section className="card cu-card">
           <div className="lv-head"><h3>More crew than the flying needs</h3></div>
           {u.surplus.length ? u.surplus.map((s) => <SurplusRow key={`${s.family}:${s.role}`} g={g} s={s} />) : <p className="small muted">None: every family has the crew its sets need and no more.</p>}
-          <p className="tiny dim">Counted against the crew sets the flying needs (Planning). Nobody leaves without your say: unpaid leave is asked for, furlough is the company-wide cut (Finance), redundancy comes with notice and severance.</p>
+          <p className="tiny dim">Counted against the crew sets the flying needs (Planning), and only those with nothing on the roster for four weeks. Nobody leaves without your say: unpaid leave is asked for, furlough is the company-wide cut (Finance), redundancy comes with notice and severance.</p>
         </section>
         <section className="card cu-card">
           <div className="lv-head"><h3>Idle crew</h3><span className="sub small muted">under {UTIL_TYPICAL.idle28} h in 28 days</span></div>
