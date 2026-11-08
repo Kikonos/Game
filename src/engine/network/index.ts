@@ -50,7 +50,6 @@ export function loadNetwork(g: GameState): void {
     r.rotations ??= [];
     r.pnl ??= {};
     r.contractIds ??= [];
-    r.dents ??= [];
   }
 }
 

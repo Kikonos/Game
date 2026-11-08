@@ -74,7 +74,8 @@ export function acmiCompare(g: GameState, routeId: string): string | null {
   const per = Math.round(contrib / bh);
   const acmi = acmiNetBH(g, typeId);
   const name = typeOf(typeId)?.short ?? typeId;
-  return `Last 3 months: $${per.toLocaleString('en-US')} a block hour after direct costs. A ${name} on ACMI earns about $${acmi.toLocaleString('en-US')} (rate less maintenance).`;
+  const usd = (v: number) => `${v < 0 ? '−' : ''}$${Math.abs(v).toLocaleString('en-US')}`;
+  return `Last 3 months: ${usd(per)} a block hour after direct costs. A ${name} on ACMI earns about ${usd(acmi)} (rate less maintenance).`;
 }
 
 /** UPDATE-0.19 additions 3 (b): the live numbers of a route flight and the next sector's bookings. */
