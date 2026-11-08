@@ -9,18 +9,26 @@ import { typeOf } from '../../src/engine/core/perf';
 import { DAY, fmtDate, monthKey } from '../../src/engine/core/time';
 import type { GameState } from '../../src/engine/core/types';
 import { liveFlightsOf } from '../../src/engine/core/entities';
-import { acmiNetBH, answerSlot, businessCase, caseDraft, decideCase, startStudy } from '../../src/engine/network';
+import { acmiNetBH, answerSlot, businessCase, caseDraft, chainOf, decideCase, MARKET_BY_ID, startStudy } from '../../src/engine/network';
+import { distanceNm } from '../../src/engine/core/geo';
+import { maxSectorNm } from '../../src/engine/core/perf';
 import type { Route } from '../../src/engine/network/types';
 
 const DIL = process.argv.includes('--routes=dil');
 const k = (v: number) => `${Math.round(v / 1000)}k`;
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
 
-/** Idle widebodies at home: ≥ 30 of the last 60 days without flying, nothing in the next 60 days. */
-function idleWide(g: GameState, exclude: Set<string>): string | null {
+/**
+ * An idle aircraft for a route (a widebody first, else a narrowbody of 150+ seats that reaches the market): no flying on
+ * 25 of the last 60 days, and under half of the next 60 days booked.
+ */
+function idleWide(g: GameState, exclude: Set<string>, marketId = 'LIS-OXB'): string | null {
   const day = Math.floor(g.now / DAY);
-  for (const ac of Object.values(g.fleet).sort((a, b) => (a.id < b.id ? -1 : 1))) {
-    if (exclude.has(ac.id) || typeOf(ac.typeId)?.body !== 'wide' || ac.status === 'leasedOut' || ac.status === 'delivering' || ac.sale) continue;
+  const m = MARKET_BY_ID[marketId];
+  const reach = (typeId: string) => !!m && [...chainOf(m, 'out'), ...chainOf(m, 'back').slice(1)].every((x, i, a) => i === 0 || distanceNm(a[i - 1], x) <= maxSectorNm(typeId, a[i - 1], x));
+  const list = Object.values(g.fleet).filter((ac) => ac.cabin.total >= 150 && reach(ac.typeId)).sort((a, b) => (typeOf(b.typeId)?.body === 'wide' ? 1 : 0) - (typeOf(a.typeId)?.body === 'wide' ? 1 : 0) || (a.id < b.id ? -1 : 1));
+  for (const ac of list) {
+    if (exclude.has(ac.id) || ac.status === 'leasedOut' || ac.status === 'delivering' || ac.sale) continue;
     // Idle: no flying on 25 of the last 60 days, and under half of the next 60 days booked.
     const flew = new Set((ac.bhDays ?? []).filter(([d, m]) => d > day - 60 && m > 0).map(([d]) => d));
     if (60 - flew.size < 25) continue;
@@ -43,7 +51,7 @@ export function botNetwork(g: GameState): boolean {
   for (const r of routes) {
     if (r.status === 'case') {
       const d = caseDraft(g, r.id);
-      const ac = idleWide(g, used);
+      const ac = idleWide(g, used, r.marketId);
       if (d && ac) {
         d.typeId = g.fleet[ac].typeId;
         d.layout = g.fleet[ac].cabin.layout;
@@ -71,7 +79,7 @@ export function botNetwork(g: GameState): boolean {
     return r ? Object.values(r.pnl).filter((p) => p.sectors && p.result > 0).length : 0;
   };
   const next = !has('LIS-OXB') ? 'LIS-OXB' : !has('LIS-TMS') && goodMonths('LIS-OXB') >= 3 ? 'LIS-TMS' : DIL && !has('LIS-DIL') ? 'LIS-DIL' : null;
-  if (next && g.company.homeBase === 'LIS' && !routes.some((r) => r.status === 'study' || r.status === 'case') && idleWide(g, used)) {
+  if (next && g.company.homeBase === 'LIS' && !routes.some((r) => r.status === 'study' || r.status === 'case') && idleWide(g, used, next)) {
     const res = startStudy(g, next, 'full');
     if (res.routeId) did = true;
   }
