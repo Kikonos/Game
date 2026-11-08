@@ -745,3 +745,18 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
 - v0.19 "Scheduled routes" workflow wf_3f1b4897-9f4 (Opus, high). Script /root/.claude/projects/-home-user-Game/a5d5d912-4f57-50de-a5cc-db854aad1b29/workflows/scripts/v019-scheduled-routes-wf_3f1b4897-9f4.js.
   - Steps: research → design + skeleton (docs/UPDATE-0.19.md) → lanes engine / ops / ui → merge after /home/user/work/v0183/READY → balance → review → /home/user/work/v019/READY.
   - NO release without the player's go. After a restart: resumeFromRunId wf_3f1b4897-9f4.
+- v0.19 PLAYER ADDITIONS (2026-11-08) — the design and lanes MUST include these:
+  - Cargo and extras are real income on these routes. Belly cargo by route; e.g. Euro Atlantic carried day-old baby chicks (live animals: AVI/live cargo with IATA LAR handling, temperature and ventilation) to São Tomé on EVERY flight. Also mail, perishables, NGO/government supplies, excess baggage (big on diaspora routes), seat selection, extra bags, onboard sales. Cargo has its own demand, rates per kg, handling and payload limits that trade against passengers and fuel (the Dili fuel stop).
+  - Launching a route must be a carefully planned, LENGTHY process that takes real game time and decisions, staged in the launch wizard:
+    1. market research (weeks, paid);
+    2. business case;
+    3. traffic rights and permits, and foreign operator permits (months);
+    4. slots;
+    5. brand, and partner or code-share choice;
+    6. distribution setup: GDS, BSP, website;
+    7. schedule filing and on-sale 6–11 months ahead;
+    8. marketing campaign;
+    9. ground handling, catering and fuel contracts at each station;
+    10. crew route training and familiarisation where needed;
+    11. inaugural flight.
+    Each stage has a cost, a duration and possible setbacks (e.g. a permit delayed, a rival launches). Nothing is instant.
