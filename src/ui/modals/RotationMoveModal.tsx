@@ -53,7 +53,7 @@ export function RotationMoveModal({ rotId, delta: d0, back }: { rotId: string; d
   const q = useMemo(() => (delta ? net.quoteMove(g, rotId, delta) : null), [g.network?.rev, rotId, delta]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!at) return <Modal title="Move" onClose={close}><p className="muted">This rotation is no longer planned.</p></Modal>;
   const { route, rot } = at;
-  const pax = rot.sectors.reduce((a, s) => a + s.bookedJ + s.bookedY, 0);
+  const pax = q?.pax ?? Math.max(0, ...rot.sectors.map((s) => s.bookedJ + s.bookedY));
   const days = Math.max(0, Math.round((rot.dep - g.now) / DAY));
   const go = () => {
     const r = store.act((gg) => (net.move(gg, rotId, delta) ? { ok: true, msg: `${routeName(route)} ${fmtDay(rot.dep)}: moved ${shiftWords(delta)}` } : { ok: false, error: q?.why ?? 'Could not move it' }));
@@ -78,7 +78,7 @@ export function RotationMoveModal({ rotId, delta: d0, back }: { rotId: string; d
         {q && q.ok && (
           <div className="mm-usage good">
             <b>{q.cost > 0 ? `About ${money(q.cost)} for ${int(pax)} booked passenger${pax === 1 ? '' : 's'}` : pax ? 'No cost: plenty of notice' : 'No one booked yet: no cost'}</b>
-            <span className="small">{days >= 14 ? 'With 14 days or more of notice a move costs little.' : `${days} days' notice: rebooking costs more close to the day.`}{q.repDelta ? ` Route reputation ${q.repDelta}.` : ''}</span>
+            <span className="small">{days >= 14 ? 'With 14 days or more of notice a move costs little.' : `${days} days' notice: rebooking costs more close to the day.`}{q.repDelta ? ` The route's reputation drops ${Math.abs(q.repDelta)} point${Math.abs(q.repDelta) === 1 ? '' : 's'}.` : ''}</span>
           </div>
         )}
         {q && q.ok && (q.notes?.length || q.knock?.length) ? <ul className="tm-notes small">{[...(q.notes ?? []), ...(q.knock ?? [])].map((n) => <li key={n}>{n}</li>)}</ul> : null}
