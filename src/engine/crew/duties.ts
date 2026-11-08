@@ -1518,11 +1518,9 @@ export function setRetickHook(f: (g: GameState, p: Pairing) => void): void {
 }
 
 /**
- * v0.18.2 sets on station a deployment's duties need, before the chaining trial: the busiest day's duties, the month's
- * duties at UTIL.setDutiesMonth a set (a set on station flies about 18 duty days a month: 8–9 days off, the 21-in-28
- * work-day floor, hotel standby the rest), and the month's block hours at 85 a person. Was the busiest day × 8/6 (two
- * waves a day on any one day: 3 sets), so a programme of 0.75 duties a day had 3 sets on station, each flying 5–8
- * duties a month (player's save: pilots at 25 BH a month). Pure.
+ * v0.18.2 the fewest sets on station a deployment's duties could need (the re-sizing's first guess, before its chaining
+ * trial): the busiest day's duties, the month's duties at UTIL.setDutiesMonth a set (8–9 days off, the 21-in-28
+ * work-day floor, hotel standby the rest), and the month's block hours at 85 a person. Pure.
  */
 export function setsFromDuties(g: GameState, base: string, duties: Duty[], start: Minute): number {
   if (!duties.length) return 1;
@@ -1543,8 +1541,19 @@ export function setsFromDuties(g: GameState, base: string, duties: Duty[], start
   return Math.max(1, peak, Math.ceil((n * month) / UTIL.setDutiesMonth - 1e-9), Math.ceil(((bh / 60) * month) / BAL.cabinBHMonth - 1e-9));
 }
 
-// TEMP experiment
-function oldStart(g: GameState, dep: Deployment, duties: Duty[], start: Minute): number {
+/** v0.18.2 crew utilisation sizing (sets on station). */
+export const UTIL = {
+  /** Duties a set on station flies in a month at most (the re-sizing's first guess, resizeDeployments). */
+  setDutiesMonth: 18,
+};
+
+/**
+ * Sets on station for a deployment's duties at its start: max(peak duties/day × 8/6, BH per 28 days / 85), +1 while
+ * chaining can't cover the days. (v0.18.2 tried sizing from setsFromDuties here: bots 1–2 lost a third of their
+ * coverage, the stray duties flown as trips from base; the start stays generous and resizeDeployments takes the
+ * spare sets off once the programme shows them.)
+ */
+function sizeSets(g: GameState, dep: Deployment, duties: Duty[], start: Minute, R: number): number {
   const perDay = new Map<number, number>();
   let bh = 0;
   for (const d of duties) {
@@ -1554,32 +1563,16 @@ function oldStart(g: GameState, dep: Deployment, duties: Duty[], start: Minute):
   }
   const span = Math.min(28, Math.max(14, (duties[duties.length - 1].release - start) / DAY));
   const peak = Math.max(...perDay.values());
-  return Math.max(1, Math.ceil((peak * 8) / 6), Math.ceil((bh / 60) * (28 / span) / BAL.cabinBHMonth));
-}
-
-/** v0.18.2 crew utilisation sizing (sets on station). */
-export const UTIL = {
-  /** Duties a set on station flies in a month at most when sizing. */
-  setDutiesMonth: 18,
-  /** One set more is kept only for at least this share of the duties (else the strays fly as trips from base). */
-  moreShare: 0.05,
-};
-
-/** Sets on station for a deployment's duties (setsFromDuties), +1 while chaining can't cover enough of the days. */
-function sizeSets(g: GameState, dep: Deployment, duties: Duty[], start: Minute, R: number): number {
-  const sets = process.env.V182_OLDSIZE ? oldStart(g, dep, duties, start) : setsFromDuties(g, dep.base, duties, start);
+  const sets = Math.max(1, Math.ceil((peak * 8) / 6), Math.ceil((bh / 60) * (28 / span) / BAL.cabinBHMonth));
   // v0.9 fix: more sets only while they take more duties (a duty no set can take, a stray one far out, sized a
   // HAM base at 10 sets on station and the fleet at 17 crews a seat); the strays fly as trips.
-  // v0.18.2 and only for a real share of them: one set more (five people on station for five weeks) for a duty or two
-  // is a set idle (two strays fly as trips from base).
-  const more = process.env.V182_OLDSIZE ? 1 : Math.max(2, Math.ceil(duties.length * UTIL.moreShare));
   let best = { sets, taken: -1 };
   for (let n = sets; n <= BAL.maxSetsOnStation; n++) {
     const trial: Deployment = { ...dep, start, anchors: anchorsFor(start, n, R), pairingIds: [] };
     const ch = chainer(g, trial, () => 2, undefined, true);
     let taken = 0;
     for (const d of duties) if (ch.take(d)) taken++;
-    if (best.taken < 0 || taken >= best.taken + more) best = { sets: n, taken };
+    if (taken > best.taken) best = { sets: n, taken };
     // One more set may still help (anchors stagger differently); two in a row that do not, never.
     if (taken === duties.length || n >= best.sets + 2) break;
   }
@@ -1594,7 +1587,6 @@ function sizeSets(g: GameState, dep: Deployment, duties: Duty[], start: Minute, 
  * the programme began and never smaller (player's save: 4–5 sets for 0.75–1.6 duties a day).
  */
 export function resizeDeployments(g: GameState): void {
-  if (process.env.V182_NORESIZE) return;
   const R = rotation(g);
   for (const dep of Object.values(g.deployments)) {
     const n0 = dep.anchors?.length ?? 0;
