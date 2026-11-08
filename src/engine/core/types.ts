@@ -971,6 +971,8 @@ export type ProblemKind =
   | 'boardTarget' | 'restructuring'
   /** Peak-staffing round: a busy month ahead short of crew (crew/forecast.ts). */
   | 'crewPeak'
+  /** v0.18.2 the crew desk holds hiring while crew sit idle (crew/utilisation.ts). */
+  | 'crewHold'
   /** v0.12.1 a leg that needs an approval we won't hold by its departure (ops/approvalGate.ts). */
   | 'approvalLate'
   /** v0.14 a client crisis: a strike, an administration, an engine grounding (commercial/crises.ts). */
@@ -1735,6 +1737,8 @@ export interface Stats {
   awayTold?: Record<string, Minute>;
   /** Peak-staffing round: busy-month gaps already told in the Inbox ('<month key>|<family>|<role>'; past months pruned). */
   peakWarned?: string[];
+  /** v0.18.2 hiring holds told (`month|family`). */
+  holdWarned?: string[];
   /** Lifetime billable block minutes and revenue legs. */
   blockMin: number;
   legs: number;

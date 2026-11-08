@@ -9,6 +9,7 @@ import type { Cue } from '../core/cues';
 import type { GameState, Message, MessageCat, ProblemKind, ProblemRef, Ref } from '../core/types';
 import { crewRev } from '../crew/timeline';
 import { crewPeakCard } from '../crew/forecast';
+import { crewHoldCard } from '../crew/utilisation';
 import { cabinRestCard, captainAsFoCard, crewFlightCard, crewHoursCard, crewProblems, crewResignedCard, crewSickCard, restCards, restFacilityCard, restSeatsCard, restTooShortCard } from './crew';
 import { changeRequestCard, commercialProblems, contractCancelledCard, counterExpiryCard, offerFitCard, penaltyCard } from './commercial';
 import { awayIdleCard, awayIdleSince, deliveryWaitCard, ferryUncrewedCard, noFerryCard, fleetProblems, leaseReturnCard, refitMissedCard, saleCard } from './fleet';
@@ -117,6 +118,7 @@ function problemForRaw(g: GameState, subject: ProblemRef): ProblemCard | null {
     case 'auditFinding': return auditFindingCard(g, id);
     // Peak-staffing round
     case 'crewPeak': return crewPeakCard(g, id);
+    case 'crewHold': return crewHoldCard(g, id);
     // v0.12.1
     case 'approvalLate': return approvalLateCard(g, id);
     // v0.14
@@ -195,7 +197,7 @@ function problemAtRaw(g: GameState, ref: Ref): ProblemCard | null {
       return crewFlightCard(g, ref.id, f?.purpose ? 'ferryUncrewed' : 'crewShort') ?? approvalLateCard(g, ref.id) ?? crewFlightCard(g, ref.id, 'crewTight');
     }
     case 'aircraft': return aogCard(g, ref.id) ?? checkCard(g, ref.id) ?? noSlotCard(g, ref.id) ?? deliveryWaitCard(g, ref.id) ?? awayIdleCard(g, ref.id) ?? leaseReturnCard(g, ref.id);
-    case 'crew': return ref.id.startsWith('peak:') ? crewPeakCard(g, ref.id) : crewSickCard(g, ref.id) ?? crewResignedCard(g, ref.id);
+    case 'crew': return ref.id.startsWith('peak:') ? crewPeakCard(g, ref.id) : ref.id.startsWith('hold:') ? crewHoldCard(g, ref.id) : crewSickCard(g, ref.id) ?? crewResignedCard(g, ref.id);
     case 'maint': return checkClashCard(g, ref.id) ?? refitMissedCard(g, ref.id);
     case 'offer': return counterExpiryCard(g, ref.id) ?? offerFitCard(g, ref.id) ?? lostToRivalCard(g, ref.id);
     case 'client': return clientUnhappyCard(g, ref.id);

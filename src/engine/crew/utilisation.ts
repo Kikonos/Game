@@ -13,6 +13,7 @@ import { isPilot } from '../core/perf';
 import { DAY, fmtDate, monthKey } from '../core/time';
 import type { ActionResult, CrewMember, GameState, Role } from '../core/types';
 import { hashUnit } from '../core/util';
+import { mkHurt, type ProblemAction, type ProblemCard } from '../problems/types';
 import { crewName } from './generate';
 import { moraleShock } from './morale';
 import { removeCrew } from './roster';
@@ -250,4 +251,49 @@ export function makeRedundant(g: GameState, family: RatingFamily, role: Role, n:
 let redundantHook: (g: GameState, c: CrewMember) => void = () => {};
 export function setRedundantHook(f: typeof redundantHook): void {
   redundantHook = f;
+}
+
+/** v0.18.2 the hires of a family the crew desk holds (its round-up), per rank: count, and why. Pure. */
+export function heldHires(g: GameState, family: RatingFamily, u = crewUtilisation(g)): { role: Role; n: number; why: string; idle: number }[] {
+  const p = crewPlan(g).find((x) => x.family === family);
+  if (!p) return [];
+  const out: { role: Role; n: number; why: string; idle: number }[] = [];
+  for (const r of p.roles) {
+    if (r.balance >= 0) continue;
+    const hold = hireHold(g, family, r.role, u);
+    if (hold) out.push({ role: r.role, n: -r.balance, why: hold.why, idle: hold.idle });
+  }
+  return out;
+}
+
+/**
+ * v0.18.2 the four-line card when the crew desk holds hiring (id 'hold:<family>'): what is held, why (the hours the rank
+ * flew), what it would cost, and what to do (see who is idle, or hire anyway). Null once nothing is held.
+ */
+export function crewHoldCard(g: GameState, id: string): ProblemCard | null {
+  const m = /^hold:(.+)$/.exec(id);
+  if (!m) return null;
+  const family = m[1] as RatingFamily;
+  const xs = heldHires(g, family);
+  if (!xs.length) return null;
+  const label = familyName(family);
+  const what = `Hiring held for the ${label}: ${xs.map((x) => roleWords(x.role, x.n)).join(', ')}`;
+  let pay = 0;
+  for (const x of xs) {
+    const ps = Object.values(g.crew).filter((c) => c.role === x.role && c.ratings.includes(family));
+    pay += x.n * (ps.length ? ps.reduce((t, c) => t + c.salary, 0) / ps.length : 0) * (1 + BAL.onCosts);
+  }
+  const actions: ProblemAction[] = [
+    { id: 'util', label: 'See who is idle', open: { tab: 'crew', view: 'use' }, primary: true },
+    { id: 'hire', label: `Hire ${roleWords(xs[0].role, xs[0].n)} anyway`, open: { modal: 'hire' as const, id: `${xs[0].role}:${family}:${xs[0].n}` } },
+  ];
+  return {
+    subject: { kind: 'crewHold', ref: { kind: 'crew', id } }, severity: 'amber',
+    title: what, what,
+    why: `${xs[0].why}: the sets are short on paper, but the crew you have are not flying enough to need more.`,
+    hurt: { ...mkHurt({}), badges: [], level: 'none', text: `Not now: the hires would add about $${Math.round(pay / 1000)}K a month in pay while crew sit idle` },
+    actions,
+    details: [...xs.map((x) => `${x.why}.`), `The crew desk hires again once a rank flies ${UTIL_TYPICAL.hold28} h or more on average in 28 days, or fewer than two are idle.`],
+    visuals: {}, terms: [],
+  };
 }
