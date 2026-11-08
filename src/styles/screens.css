@@ -110,7 +110,7 @@
 @media (hover: hover) { .swatch:hover { transform: scale(1.1); } }
 .swatch.on { border-color: var(--text); box-shadow: 0 0 0 3px rgba(var(--accent-rgb),0.4); }
 .swatch-input { width: 36px; height: 32px; border: 1px dashed var(--border-strong); border-radius: 9px; background: transparent; padding: 2px; cursor: pointer; }
-.ng-livery { flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 14px; justify-content: center; }
+.ng-livery { flex: 1; padding: 20px; display: flex; flex-direction: column; gap: 14px; justify-content: center; justify-content: safe center; }
 .livery-stage .aircraft-art { height: min(32vh, 260px); filter: drop-shadow(0 18px 24px rgba(var(--shade-rgb), calc(0.55 * var(--shade-k)))); }
 .ng-livery .grid-2 .aircraft-art { height: 120px; }
 .diff-card { text-align: left; padding: 12px 14px; display: flex; flex-direction: column; gap: 4px; }

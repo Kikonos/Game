@@ -1,0 +1,37 @@
+/* ==========================================================================
+   Layout primitives, loaded last (main.tsx) so they hold over the per-version files.
+   Tokens: app.css :root (--space-1..6, --section-gap, --tile-gap, --card-px/py, --r-sm/--r/--r-lg).
+   ========================================================================== */
+
+/* Phones on their side: a little less air between sections, the same everywhere. */
+@media (max-height: 499.98px), (max-width: 699.98px) {
+  :root { --section-gap: 14px; }
+}
+
+/* Spacing utilities win over a component's own `margin: 0` (an explicit mt-8 in the markup used to be cancelled). */
+.mt-4 { margin-top: var(--space-1); }
+.mt-8 { margin-top: var(--space-2); }
+.mt-12 { margin-top: var(--space-3); }
+.mt-16 { margin-top: var(--space-4); }
+.mt-24 { margin-top: var(--space-6); }
+.mb-8 { margin-bottom: var(--space-2); }
+.mb-12 { margin-bottom: var(--space-3); }
+.mb-16 { margin-bottom: var(--space-4); }
+
+/* Every screen is a vertical stack: the head, hints, strips, cards and column grids sit --section-gap apart whatever
+   margins each one brought, so cards never touch (Company: Types on our AOC, Safety & audit, the columns). */
+.screen > * { margin-bottom: 0; }
+.screen > * + * { margin-top: var(--section-gap); }
+
+/* A small caption over its box (Tenders: Open requests, Results) keeps a clear 8 px from it. */
+.col.gap-4 > .upper:first-child + .card { margin-top: var(--space-1); }
+
+/* Full-height boards on a phone keep their rows tight: the board needs the height. */
+@media (max-height: 499.98px) {
+  .sc-crew-board > * + * { margin-top: var(--space-2); }
+}
+
+/* Tables on a phone: a little less cell padding, so a five-column table (Finance › Statement) fits without a sideways scroll. */
+@media (max-height: 499.98px) {
+  .table th, .table td { padding: 10px 8px; }
+}

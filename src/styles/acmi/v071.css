@@ -234,6 +234,8 @@ button.pc-now { width: 100%; min-height: 48px; text-align: left; font: inherit; 
 .sc-explain svg { width: 18px; height: 18px; }
 .sc-explain-t { font-size: 12px; line-height: 1; margin-top: 2px; }
 .sc-msg-card { padding: 0 16px 14px; }
+/* Inbox tiles (the list is a grid of tiles there): each message a quiet card of its own, not a tinted block over a hairline. */
+.sc-inbox .sc-list .sc-msg-wrap, .sc-inbox .sc-list .sc-msg-wrap:last-child { border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; background: var(--panel-2); }
 
 /* ---------- flight sheet / duty modal / decision ---------- */
 .sc-seat-gauges { padding: 0 0 6px 48px; }

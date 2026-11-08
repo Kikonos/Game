@@ -372,7 +372,7 @@ function HeadStrip({ g }: { g: GameState }) {
       <button className={`v8-standing t${st.tier}`} onClick={() => store.navigate('company', { view: 'overview' })} aria-label={`Standing: ${st.name}`}>
         <Medal className="sc-ico-s" />
         <span className="col" style={{ minWidth: 0 }}>
-          <b className="ellipsis">{st.name} · <span className="muted v8-st-text">{st.text.toLowerCase()}</span></b>
+          <b className="ellipsis">{st.name}<span className="muted v8-st-text"> · {st.text.toLowerCase()}</span></b>
           {st.next && <span className="small dim ellipsis">{st.next}</span>}
         </span>
         <ChevronRight className="sc-ico-s dim" />

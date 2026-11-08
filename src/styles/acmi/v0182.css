@@ -1,7 +1,7 @@
 /* v0.18.2 Crew › Utilisation (screens/CrewUtil.tsx). */
-.cu { display: flex; flex-direction: column; gap: 14px; }
-.cu .card { padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
-.cu-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.cu { display: flex; flex-direction: column; gap: var(--section-gap); }
+.cu .card { padding: var(--card-py) var(--card-px); display: flex; flex-direction: column; gap: 10px; }
+.cu-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--tile-gap); }
 .cu .cu-tile { gap: 3px; padding: 12px 14px; }
 .cu-tile b { font-size: 22px; font-weight: 650; line-height: 1.15; }
 .cu-tile b.warn { color: var(--warn); }
@@ -9,7 +9,7 @@
 .cu-unit { font-size: 13px; font-weight: 500; color: var(--text-2); }
 .cu-typical { display: flex; gap: 8px; align-items: flex-start; line-height: 1.4; margin: -2px 2px 0; }
 .cu-typical svg { flex-shrink: 0; margin-top: 2px; }
-.cu-cols { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.cu-cols { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: var(--section-gap); align-items: start; }
 .cu-sur { display: flex; flex-direction: column; gap: 8px; padding: 10px 0; border-top: 1px solid rgba(var(--line-rgb), 0.16); }
 .cu-sur-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; }
 .cu-sur-who { min-width: 0; flex-wrap: wrap; }
@@ -33,9 +33,8 @@
 }
 /* the iPhone on its side */
 @media (max-height: 499.98px) {
-  .cu { gap: 10px; }
   .cu .card { padding: 12px 14px; }
-  .cu-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .cu-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .cu .cu-tile { padding: 9px 10px; }
   .cu-tile b { font-size: 18px; }
   .cu-cols { grid-template-columns: minmax(0, 1fr); }
