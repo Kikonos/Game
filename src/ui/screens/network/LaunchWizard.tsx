@@ -237,6 +237,10 @@ function DraftEditor({ g, m, d, set }: { g: GameState; m: RouteMarket | undefine
         </select>
       </div>
       <div className="nw-draft-row">
+        <span className="small muted">Cabin</span>
+        <Seg<string> value={d.layout === 'all-economy' ? 'y' : 'jy'} onChange={(v) => set({ ...d, layout: v === 'y' ? 'all-economy' : 'two-class' })} options={[{ value: 'jy', label: 'Business + economy' }, { value: 'y', label: 'All economy' }]} />
+      </div>
+      <div className="nw-draft-row">
         <span className="small muted">Fares</span>
         <Seg<FareLevel> value={d.fares} onChange={(v) => set({ ...d, fares: v })} options={(['low', 'market', 'high'] as FareLevel[]).map((v) => ({ value: v, label: FARE_WORD[v] }))} />
       </div>

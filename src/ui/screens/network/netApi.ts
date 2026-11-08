@@ -2,6 +2,7 @@
 // the lanes' APIs plug in here. Every call is pure unless it says it changes the game (those run inside store.act).
 
 import * as NET from '../../../engine/network';
+import type { CabinLayout } from '../../../data/acmiTypes';
 import type { GameState, Minute } from '../../../engine/core/types';
 import type { FareLevel, MarketingLevel, Route, RouteChoice, RouteModel, RouteSeries, StudyDepth } from '../../../engine/network/types';
 
@@ -33,7 +34,7 @@ export interface CaseDraft {
   back: number;
   nights: number;
   typeId: string;
-  layoutId?: string;
+  layout?: CabinLayout;
   fares: FareLevel;
   marketing: MarketingLevel;
 }
