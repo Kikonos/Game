@@ -791,3 +791,4 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
 - 2026-11-08: the player asked for ONE combined release (v0.18.3 + v0.19) and handed the current work to Opus at extra effort.
   - A coordinator agent (Opus xhigh, STATE /home/user/work/v019coord/STATE.txt) builds the net-ui lane, waits for the engine/ops DONE files, then merges, balances, reviews and releases v0.19 combined.
   - The engine and ops lanes still run as subagents; communicate only through files.
+- Map panning stutter (player video, iCloud link not openable here): agent mapperf (Opus xhigh, STATE /home/user/work/mapperf/STATE.txt) is profiling and fixing it. It fast-forwards acmi when done (/home/user/work/mapperf/DONE) without releasing. The v0.19 combined release MUST include it: coordinator, merge origin/acmi at your merge step.
