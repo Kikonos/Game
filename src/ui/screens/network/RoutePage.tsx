@@ -13,6 +13,7 @@ import { int, money, moneyDelta, pct } from '../../format';
 import { store, useGame } from '../../store';
 import { StatusChip, TrendArrow } from './bits';
 import { net } from './netApi';
+import { sectorCost, type RouteLegCost } from '../../../engine/network/costs';
 import {
   cargoLine, chainOf, depWords, history, kg, lastQuarters, lfTone, marketOf, modelLabel, monthBars, ratios, repWord, rotationLoad, rotationResult,
   routeCode, routeName, sectorLoad, seatsLine, seriesAircraft, seriesWords, hhmm, trend, upcoming, launchSpend,
@@ -205,6 +206,33 @@ function SalesTab({ g, r }: { g: GameState; r: Route }) {
   );
 }
 
+const LINE_WORD: [keyof RouteLegCost, string][] = [
+  ['fuel', 'Fuel'], ['fees', 'Airport and passenger charges'], ['handling', 'Ground handling'], ['catering', 'Catering'], ['paxServices', 'Passenger services'],
+  ['navCharges', 'Navigation'], ['distribution', 'Distribution (booking systems, agents, cards)'], ['maint', 'Maintenance'],
+];
+
+/** §G one sector's cost lines at the last rotation's loads (or the seats half full before one has flown). */
+function SectorLines({ g, r }: { g: GameState; r: Route }) {
+  const m = marketOf(r);
+  const s = r.series[0];
+  const last = history(r).find((x) => x.status === 'flown') ?? upcoming(r, g.now)[0];
+  if (!m || !s || !last) return null;
+  const sec = last.sectors[0];
+  const ac = last.aircraftId ? g.fleet[last.aircraftId] ?? null : null;
+  const pax = sec.flownY !== undefined ? { j: sec.flownJ ?? 0, y: sec.flownY ?? 0 } : { j: Math.round(sec.capJ / 2), y: Math.round(sec.capY / 2) };
+  const c = sectorCost(g, r, sec.from, sec.to, ac?.typeId ?? s.typeId, ac, { ...pax, cargoKg: sec.cargoKg, sold: sec.sold ?? 0 });
+  const total = LINE_WORD.reduce((a, [k]) => a + c[k], 0);
+  return (
+    <div className="col gap-6">
+      <span className="upper dim">One sector · {sec.from}–{sec.to} · {pax.j + pax.y} passengers</span>
+      <div className="nw-pl">
+        {LINE_WORD.map(([k, w]) => <div key={k} className="nw-pl-row"><span className="small">{w}</span><span className="num small muted">{money(c[k])}</span></div>)}
+        <div className="nw-pl-row total"><b className="small">Total</b><b className="num">{money(total)}</b></div>
+      </div>
+    </div>
+  );
+}
+
 function CostsTab({ g, r }: { g: GameState; r: Route }) {
   const m = marketOf(r);
   const q = lastQuarters(r, g.now);
@@ -238,6 +266,7 @@ function CostsTab({ g, r }: { g: GameState; r: Route }) {
           ))}
         </div>
       )}
+      <SectorLines g={g} r={r} />
       <div className="col gap-6">
         <span className="upper dim">Stations</span>
         {stations.map((code) => {
