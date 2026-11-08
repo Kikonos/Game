@@ -196,6 +196,26 @@ export function createChecker(opts: CheckerOpts = {}) {
     firstT ??= g.now;
     lastT = g.now;
     if (opts.spy) spy(g);
+    // ---- v0.19 scheduled routes: money held for unflown sectors, the rotation's chain and turns, loads within seats ----
+    for (const r of Object.values(g.network?.routes ?? {})) {
+      if (r.unearned < 0) err('route-unearned', g.now, `${r.marketId}: unearned ticket cash below zero (${r.unearned})`);
+      let held = 0;
+      for (const rot of r.rotations) {
+        for (const s of rot.sectors) if (!s.accrued && !s.voided) held += s.sold ?? 0;
+        if (rot.status !== 'flights') continue;
+        const fl = rot.sectors.map((s) => (s.flightId ? g.flights[s.flightId] : undefined));
+        for (let i = 0; i < fl.length; i++) {
+          const f = fl[i];
+          const sec = rot.sectors[i];
+          if (sec.flownY !== undefined && sec.flownY + (sec.flownJ ?? 0) > sec.capJ + sec.capY + 1) err('route-load', g.now, `${r.marketId} ${rot.id}: ${sec.from}-${sec.to} flew ${sec.flownY + (sec.flownJ ?? 0)} on ${sec.capJ + sec.capY} seats`);
+          if (!f || f.status === 'cancelled') continue;
+          if (f.from !== sec.from || f.to !== sec.to) err('route-chain', g.now, `${r.marketId} ${rot.id}: flight ${f.no} ${f.from}-${f.to} on sector ${sec.from}-${sec.to}`);
+          const prev = fl[i - 1];
+          if (prev && prev.status !== 'cancelled' && f.aircraftId && prev.aircraftId === f.aircraftId && f.status === 'scheduled' && prev.status === 'scheduled' && f.std < prev.sta + 30) err('route-turn', g.now, `${r.marketId} ${rot.id}: ${f.no} leaves ${f.std - prev.sta} min after ${prev.no} lands`);
+        }
+      }
+      if (Math.abs(held - r.unearned) > 50 + r.rotations.length * 2) err('route-held', g.now, `${r.marketId}: unearned ${Math.round(r.unearned)} but sectors hold ${Math.round(held)}`);
+    }
     for (const ac of Object.values(g.fleet)) {
       regOf.set(ac.id, ac.reg);
       typeOfAc.set(ac.id, ac.typeId);
