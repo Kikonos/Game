@@ -793,3 +793,5 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
   - The engine and ops lanes still run as subagents; communicate only through files.
 - Map panning stutter (player video, iCloud link not openable here): agent mapperf (Opus xhigh, STATE /home/user/work/mapperf/STATE.txt) is profiling and fixing it. It fast-forwards acmi when done (/home/user/work/mapperf/DONE) without releasing. The v0.19 combined release MUST include it: coordinator, merge origin/acmi at your merge step.
 - UI spacing/polish pass (player: cards packed tight on Company and elsewhere): agent uipolish (Opus xhigh, STATE /home/user/work/uipolish/STATE.txt). It fast-forwards acmi when done (/home/user/work/uipolish/DONE) without releasing; it must ship in the v0.19 combined release.
+- 2026-11-08 bug export #2 (/home/user/work/bugs1108b, 4 reports: leave at MNL, days-off morale shown at 8 of 7, two captains on VN6000, CP7040 cabin-rest alarm + Crew Control overflow): agent bugs1108b (Opus xhigh) writes DONE, no release.
+  The coordinator was told to wait for mapperf, uipolish and bugs1108b DONE before the ONE combined release (v0.18.3 + v0.19 + all three).
