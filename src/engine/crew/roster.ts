@@ -770,12 +770,22 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void
   }
   // v0.9 fix: a ticket home landing past the 168 h since the last recovery rest (positioning is duty) waits for that
   // recovery at the hotel first (36 h with 2 local nights, 60 h after 4 disruptive duties: ORO.FTL.235(d)).
-  const recOk = (t: Minute) => t + blk <= recoveryAnchor(ctx, segs, t - ci) + LIMITS.recoveryEvery;
-  const afterRecovery = (from: Minute): Minute => {
-    for (let t = from; t < from + 4 * DAY; t += 60) if (recoveryAnchor(ctx, segs, t - ci) >= t - ci) return t;
-    return from;
+  // v0.18.2 fix: judged without the standby still to come (as rebookLooseTickets: it gives way, fitStandby re-fits it
+  // after the ticket). Was: the tour's hotel standby after its days off cut every free stretch short of the 60 h a
+  // disruptive week needs, no recovery was found within 4 days and the ticket kept its illegal hour (bot seed 2: a
+  // Düsseldorf set flown home on its day off, 176 h since the last recovery rest). None found: nothing is booked
+  // (they wait at the hotel; the daily run tries again), never a ticket past the 168 h.
+  const rsegs = segs.filter((x) => !(x.kind === 'sby' && x.start > g.now));
+  const recOk = (t: Minute) => t + blk <= recoveryAnchor(ctx, rsegs, t - ci) + LIMITS.recoveryEvery;
+  const afterRecovery = (from: Minute): Minute | null => {
+    for (let t = from; t < from + 6 * DAY; t += 60) if (recoveryAnchor(ctx, rsegs, t - ci) >= t - ci) return t;
+    return null;
   };
-  if (!recOk(std)) std = afterRecovery(std);
+  if (!recOk(std)) {
+    const t = afterRecovery(std);
+    if (t === null) return;
+    std = t;
+  }
   // v0.12.1 only a seat that exists (no closed airport, no landing in a night curfew).
   // v0.12.1 (review) none at all: nothing bought, they wait at the hotel (the daily run tries again).
   let seat = slotAfter(g, c.loc, c.base, std, blk);
@@ -784,7 +794,8 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void
   // 168 h, and past it the recovery is taken at the hotel first (bot seed 1: Pablo López's ticket home was checked
   // for 01:00 and booked for the 04:00 seat, landing 170:25 after his last recovery rest).
   if (seat !== std && !recOk(seat)) {
-    seat = slotAfter(g, c.loc, c.base, afterRecovery(seat), blk);
+    const t = afterRecovery(seat);
+    seat = t === null ? null : slotAfter(g, c.loc, c.base, t, blk);
     if (seat === null) return;
   }
   std = seat;
@@ -798,7 +809,7 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void
     // (Never later than the ticket into a leave, a course or the last day.)
     if (f.sta > std + blk && c.blocks?.some((b) => b.from >= g.now && b.from < f.sta)) return false;
     if (!evalSegs(ctx, [...segs.filter((x) => x.start < t - ci), posSeg({ from: c.loc, to: c.base, std: t, sta: f.sta }, c, true)]).every((i) => i.level !== 'illegal' || (i.code !== 'duty7d' && i.code !== 'duty14d' && i.code !== 'duty28d'))) return false;
-    return f.sta <= recoveryAnchor(ctx, segs, t - ci) + LIMITS.recoveryEvery;
+    return f.sta <= recoveryAnchor(ctx, rsegs, t - ci) + LIMITS.recoveryEvery;
   });
   if (ride) {
     // v0.14.1 (merge) never twice on one ride (a second entry read as 'never boarded' on landing: bot seed 2, Bruno
