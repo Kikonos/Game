@@ -1780,6 +1780,12 @@ export function dayPlanInit(g: GameState): void {
 export function dayPlanLoad(g: GameState): void {
   if (g.dayPlan) {
     rosterStats(g);
+    // v0.18.1 a save from before the monthly roster: the month it should show is published now (days off first).
+    const home = g.company.homeBase;
+    if (g.dayPlan.publishedTo < midnight(home, pubEndDay(home, dayIndex(home, g.now)))) {
+      planOffDays(g);
+      planStandby(g);
+    }
     return;
   }
   const home = g.company.homeBase;

@@ -198,7 +198,7 @@ export function CrewScreen() {
         <button className={`btn btn-primary ${hireLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'hire' })} {...lockedProps(hireLock)}>{hireLock ? <Lock className="lock-ico" /> : <UserPlus />} Hire{hiresLeft(g) ? ` (${hiresLeft(g)} left)` : ''}</button>
       </ScreenHead>
       {hireLock && view === 'people' && <LockNote why={hireLock} className="mb-8" />}
-      <ScreenHint id={view === 'board' ? 'crewBoard' : view === 'plan' ? 'crewPlan' : 'crewPeople'} />
+      {view !== 'leave' && <ScreenHint id={view === 'board' ? 'crewBoard' : view === 'plan' ? 'crewPlan' : 'crewPeople'} />}
       {/* v0.7.4 one calm line per type family (sets complete of needed); the detail lives in Planning. */}
       {view === 'people' && <PlanStrip g={g} onOpen={() => setView('plan')} />}
       {view === 'people' && <PeakHeadsUp g={g} />}

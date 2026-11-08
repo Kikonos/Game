@@ -198,6 +198,12 @@ export function askLeave(g: GameState): LeaveRequest[] {
   const late = monthOfDay(today) % 12 >= S.lateMonth;
   const open = new Set(reqs.filter((q) => q.status === 'pending').map((q) => q.crewId));
   const made: LeaveRequest[] = [];
+  const pol = leavePolicy(g);
+  // What crew can see when they ask: how many of their rank are away each day (leave approved, or asked for today).
+  const g0 = today + S.noticeDays - 7;
+  const g1 = firstDayOf(monthOfDay(today) + S.aheadMonths + 1) + 7;
+  let seen: ReturnType<typeof groupLoad> | null = null;
+  const seenLoad = () => (seen ??= groupLoad(g, g0, g1));
   const all = Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1));
   for (const c of all) {
     if (c.notice || c.status === 'joining' || open.has(c.id) || (c.leaveAskAt ?? 0) > g.now) continue;
@@ -207,8 +213,12 @@ export function askLeave(g: GameState): LeaveRequest[] {
     const last = firstDayOf(monthOfDay(today) + S.aheadMonths + 1);
     if (first >= last) continue;
     // Months in the window with leave left in their year, weighted by liking.
+    // Most ask for dates the leave calendar shows open (no peak month, room in their rank); one in five asks for the
+    // dates they want regardless (a wedding, school holidays): the rules may refuse those.
+    const wish = hashUnit(`wish:${c.id}:${today}`) < S.wish;
     const months: { mk: number; w: number; left: number }[] = [];
     for (let mk = monthOfDay(first); firstDayOf(mk) < last; mk++) {
+      if (!wish && pol.blackout.includes(mk % 12)) continue;
       const y = Math.floor(mk / 12);
       const left = leaveBalance(g, c, y).left;
       if (left >= S.minLast) months.push({ mk, w: S.pref[mk % 12] * (1 + left / 15), left });
@@ -223,9 +233,18 @@ export function askLeave(g: GameState): LeaveRequest[] {
       const z = q.tour ? Math.max(q.end, q.tour.to) : q.end;
       if (z > g.now) tours.push([dayIndex(c.base, a) - 1, dayIndex(c.base, z - 1) + 2]);
     }
+    const keys = groupsOf(c);
     const free = (s: number, len: number) => {
       if (s < first || s + len > last) return false;
       for (let k = s; k < s + len; k++) if (busy.work.has(k) || blockedOn(c, k) || tours.some(([a, z]) => k >= a && k < z)) return false;
+      if (!wish) {
+        const x = seenLoad();
+        for (const key of keys) {
+          const arr = x.load.get(key);
+          const cap = capOf(pol.maxShare, x.size.get(key) ?? 1);
+          for (let k = s; k < s + len; k++) if (k < g1 && (arr?.[k - g0] ?? 0) + 1 > cap) return false;
+        }
+      }
       return true;
     };
     // Pick a month by weight, then the first free start from a liked day in it; next months by weight if none fits.
@@ -253,6 +272,12 @@ export function askLeave(g: GameState): LeaveRequest[] {
       reqs.push(q);
       made.push(q);
       statsOf(g).asked++;
+      // The next crew member asking today sees these days taken.
+      const x = seenLoad();
+      for (const key of keys) {
+        const arr = x.load.get(key) ?? x.load.set(key, new Int16Array(g1 - g0)).get(key)!;
+        for (let k = start; k < start + len && k < g1; k++) if (k >= g0) arr[k - g0]++;
+      }
       break;
     }
   }

@@ -147,9 +147,6 @@ export function LeaveView({ g }: { g: GameState }) {
             </details>
           )}
         </section>
-      </div>
-      <div className="lv-side">
-        <Policy g={g} />
         <section className="card lv-allow">
           <div className="lv-head"><h3>Allowance {sum.year}</h3></div>
           <div className="lv-table" role="table">
@@ -173,6 +170,9 @@ export function LeaveView({ g }: { g: GameState }) {
             ])}
           </div>
         </section>
+      </div>
+      <div className="lv-side">
+        <Policy g={g} />
       </div>
     </div>
   );
