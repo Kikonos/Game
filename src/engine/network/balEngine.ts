@@ -116,11 +116,21 @@ export const NET_ENGINE_BAL = {
 
   /** §E.4 fares: the player's level and the tour operator's margin; partner terms (§A). */
   fares: {
+    /** The balance lever on every market's fares (the catalogue's are the published ones; ours sell under them). */
+    scale: 0.57 as number,
+    /**
+     * Realised yield against the catalogue's published fares, per market (balance step; absent = 1). Tuned on the
+     * business-case projection with a 767-300ER: OXB own brand ~5 % after aircraft and crew time, DIL open sale ~0 %,
+     * RAI a hard market (TAP daily), LAD high fares but kwanza risk, the Brazil routes full.
+     */
+    marketX: { 'LIS-DIL': 1.75, 'LIS-RAI': 1.05, 'LIS-BVC': 1.2, 'LIS-LAD': 0.7, 'LIS-MPM': 1.15, 'LIS-REC': 0.92, 'LIS-FOR': 0.93, 'OPO-RAI': 1.12, 'OPO-OXB': 1.05 } as Record<string, number>,
+    /** The business case's average economy bucket (the mix of Saver, Classic and Flex sold). */
+    caseBucket: 0.8,
     level: { low: -0.12, market: 0, high: 0.12 } as Record<string, number>,
     /** Demand at each level against Market (fare elasticity around −1.1 on these routes). */
     levelDemand: { low: 1.14, market: 1.0, high: 0.87 } as Record<string, number>,
     tourMargin: 0.08,
-    partner: { feeOfRate: 0.62, shareAbove: 0.70, share: 0.5, cargoShare: 0.5 },
+    partner: { feeOfRate: 0.8, shareAbove: 0.70, share: 0.5, cargoShare: 0.5 },
   },
 
   /** §F revenue: cargo, ancillaries, payload. */

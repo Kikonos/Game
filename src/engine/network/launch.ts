@@ -11,7 +11,7 @@ import { chance, gaussian, int } from '../core/rng';
 import { DAY, fmtDay, fmtTime, monthKey } from '../core/time';
 import type { CabinLayout } from '../../data/acmiTypes';
 import type { Client, GameState, LedgerCat, Minute } from '../core/types';
-import { costTotal, routeMonthCosts, sectorCost } from './costs';
+import { costTotal, passThrough, routeMonthCosts, sectorCost } from './costs';
 import { baseFare, cabinFor, chainOf, departureDemand, freqPerWeek, localToUtc, MARKET_BY_ID, marketOfRoute, serviceHours, slotX, usd, weeklyMarket, type Dir } from './model';
 import { pushRouteNote } from './notes';
 import { acmiNetBH, aircraftCostBH, crewCostBH } from './pnl';
@@ -188,11 +188,14 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
       const y = Math.min(Math.max(0, capT - j), cab.y, yWant + Math.max(0, jWant - cab.j) * BAL.v019.demand.jToY);
       spill += Math.max(0, jWant + yWant - j - y) * deps;
       const month = new Date(Date.UTC(2000, 0, 1) + at * 60_000).getUTCMonth();
-      const fareY = baseFareOf(m, 'Y', month, dir, p.fares) * (r.model === 'tour' ? 1 - BAL.v019.sales.anchors.share * BAL.v019.sales.anchors.fareCut : 0.92);
+      const fareY = baseFareOf(m, 'Y', month, dir, p.fares) * (r.model === 'tour' ? 1 - BAL.v019.sales.anchors.share * BAL.v019.sales.anchors.fareCut : BAL.v019.fares.caseBucket);
       const fareJ = baseFareOf(m, 'J', month, dir, p.fares);
       const tickets = r.model === 'partner' ? 0 : j * fareJ + y * fareY;
       const blk = dir === 'out' ? blockOut : blockBack;
-      const fee = r.model === 'partner' ? (r.partnerFeeBH ?? (t?.rateBH ?? 5_000) * BAL.v019.fares.partner.feeOfRate) * (blk / 60) : 0;
+      const c0 = chainOf(m, dir);
+      let pass = 0;
+      if (r.model === 'partner') for (let k2 = 1; k2 < c0.length; k2++) pass += passThrough(sectorCost(g, r, c0[k2 - 1], c0[k2], p.typeId, null, { j: 0, y: 0, cargoKg: 0, sold: 0 }));
+      const fee = r.model === 'partner' ? (r.partnerFeeBH ?? (t?.rateBH ?? 5_000) * BAL.v019.fares.partner.feeOfRate) * (blk / 60) + pass : 0;
       const cargoKg = Math.min(dir === 'out' ? m.cargo.south + (m.cargo.mail ?? 0) + (m.cargo.ngo ?? 0) + (m.cargo.avi ?? 0) : routeStation(m.to).euCargo ? m.cargo.north + (m.cargo.perish ?? 0) : 0, Math.max(0, payloadMax(p.typeId, m.from, m.to) - (j + y) * BAL.v019.cargo.paxKg));
       const cargo = cargoKg * (dir === 'out' ? 2.1 : 1.6) * (r.model === 'partner' ? BAL.v019.fares.partner.cargoShare : 1);
       const anc = r.model === 'partner' ? 0 : (j + y) * m.ancillary;
@@ -328,8 +331,10 @@ function searchPlan(g: GameState, r: Route, x: number): { plan: RoutePlan; resul
   const S = BAL.v019.study;
   const thin = m.timetable.pattern === 'monthly' || m.odPerYear < 15_000;
   const pats: { days: number; every: number; monthly?: { nth: number; weekday: number } }[] = [];
+  // A partner sets its own frequency (it carries the load risk): its usual timetable.
   const bestDays = [...S.dayX.map((v, i) => [v, i] as [number, number])].sort((a, b) => b[0] - a[0]).map((z) => z[1]);
-  if (thin) {
+  if (r.model === 'partner') pats.push(m.timetable.pattern === 'monthly' ? { days: 1 << m.timetable.day, every: 1, monthly: { nth: 1, weekday: m.timetable.day } } : { days: 1 << m.timetable.day, every: 1 });
+  else if (thin) {
     pats.push({ days: 1 << m.timetable.day, every: 1, monthly: { nth: 1, weekday: m.timetable.day } });
     for (const e of S.thinEvery) pats.push({ days: 1 << m.timetable.day, every: e });
   } else {

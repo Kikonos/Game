@@ -9,7 +9,7 @@ import { accrue, invoice, post } from '../core/ledger';
 import { typeOf } from '../core/perf';
 import { DAY, monthKey } from '../core/time';
 import type { Flight, GameState } from '../core/types';
-import { costTotal, routeDisruptionCost, routeLegCost, sectorPax } from './costs';
+import { costTotal, passThrough, routeDisruptionCost, routeLegCost, sectorPax } from './costs';
 import { marketOfRoute, routeStation, type Dir } from './model';
 import { pushRouteNote } from './notes';
 import { bumpRoute } from './reputation';
@@ -78,7 +78,10 @@ function partnerFee(g: GameState, route: Route, s: SectorLoad, f: Flight): numbe
   const typeId = f.aircraftId ? g.fleet[f.aircraftId]?.typeId ?? '' : route.series[0]?.typeId ?? '';
   const t = typeOf(typeId);
   const feeBH = route.partnerFeeBH ?? Math.round((t?.rateBH ?? 5_000) * P.feeOfRate);
-  const base = feeBH * (f.block / 60);
+  // The fee a block hour, plus the flying costs we pay and the partner reimburses at cost (a charter's terms).
+  const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
+  const pass = ac ? passThrough(routeLegCost(g, f, ac)) : 0;
+  const base = feeBH * (f.block / 60) + pass;
   const cap = s.capJ + s.capY;
   const pax = (s.flownJ ?? 0) + (s.flownY ?? 0);
   const above = Math.max(0, pax - Math.ceil(cap * P.shareAbove));

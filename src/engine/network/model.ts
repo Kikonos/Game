@@ -102,7 +102,7 @@ export function baseFare(m: RouteMarket, cls: 'J' | 'Y', month: number, dir: Dir
   const max = Math.max(...s);
   const x = max > min ? (seasonX(m, month, dir) - min) / (max - min) : 0.5;
   const f = lo + (hi - lo) * Math.max(0, Math.min(1, x));
-  return Math.round(f * (1 + (BAL.v019.fares.level[level] ?? 0)));
+  return Math.round(f * (BAL.v019.fares.scale ?? 1) * (BAL.v019.fares.marketX[m.id] ?? 1) * (1 + (BAL.v019.fares.level[level] ?? 0)));
 }
 
 /** Share of a market's travellers who want business class. */
