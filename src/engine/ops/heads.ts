@@ -36,7 +36,7 @@ import { peakForecast, peakGroups, peakLine } from '../crew/forecast';
 import { hireCrew, hireQuote } from '../crew/hr';
 import { restOf } from '../crew/restPlan';
 import { crewPlan, roundTargets, roundUpQuote } from '../crew/sets';
-import { crewHoldCard, crewUtilisation, heldHires, hireHold } from '../crew/utilisation';
+import { crewHoldCard, crewUtilisation, heldHires } from '../crew/utilisation';
 import { bestSlip } from '../crew/slip';
 import { cardMeta, checkCard, checkClashCard } from '../problems';
 import { achievementProgress, setHeadUnlockHook } from './achievements';
@@ -831,10 +831,8 @@ function crewDeskHires(g: GameState): void {
   }
   // Peak-staffing round: the busy months ahead, from the same forecast as the Crew screen's heads-up (sets first: the
   // forecast counts the hires just made, so only what is still short is proposed).
-  for (const xs0 of peakGroups(peakForecast(g))) {
-    // v0.18.2 a rank sitting idle now is not hired for a busy month either (the forecast counts its crew-days).
-    const xs = xs0.filter((x) => !hireHold(g, x.family, x.role, u));
-    if (!xs.length) continue;
+  // (Not held: the forecast counts the crew-days the busy month needs against the crew there, idle ones included.)
+  for (const xs of peakGroups(peakForecast(g))) {
     const x0 = xs[0];
     const who = xs.map((x) => `${x.short} ${x.role}`).join(', ');
     const reqs = xs.map((x) => ({ role: x.role, family: x.family, base: g.company.homeBase, count: x.short, ...(x.role === 'PUR' || x.role === 'CC' ? { families: [x.family] } : {}) }));
