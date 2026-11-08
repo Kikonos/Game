@@ -193,7 +193,7 @@ function SalesTab({ g, r }: { g: GameState; r: Route }) {
         <div className="nw-setgrid">
           <div className="nw-set"><div><b className="small"><Ticket className="sc-ico-s" /> Fares</b><div className="tiny muted">Cheaper fills more seats; dearer earns more a seat</div></div><Seg<FareLevel> value={r.fares.level} onChange={(v) => act((gg) => net.setFares(gg, r.id, v), 'Fares set')} options={(['low', 'market', 'high'] as FareLevel[]).map((v) => ({ value: v, label: FARE_WORD[v] }))} /></div>
           <div className="nw-set"><div><b className="small"><Megaphone className="sc-ico-s" /> Marketing</b><div className="tiny muted">Keeps people aware of the flight ({money([3_000, 8_000, 15_000][['low', 'normal', 'high'].indexOf(r.marketing)])} a month)</div></div><Seg<MarketingLevel> value={r.marketing} onChange={(v) => act((gg) => net.setMarketing(gg, r.id, v), 'Marketing set')} options={(['low', 'normal', 'high'] as MarketingLevel[]).map((v) => ({ value: v, label: MKT_WORD[v] }))} /></div>
-          <div className="nw-set"><div><b className="small">Overbook 3 %</b><div className="tiny muted">Sells a few seats over for no-shows; anyone left over is paid EU261 and rebooked</div></div><Toggle on={!!r.fares.overbook} onChange={(v) => act((gg) => net.setOverbook(gg, r.id, v), v ? 'Overbooking on' : 'Overbooking off')} label="Overbook 3 %" /></div>
+          <div className="nw-set"><div><b className="small">Overbook 3 %</b><div className="tiny muted">Sells a few more seats than the cabin holds, for no-shows; anyone left behind is compensated and rebooked</div></div><Toggle on={!!r.fares.overbook} onChange={(v) => act((gg) => net.setOverbook(gg, r.id, v), v ? 'Overbooking on' : 'Overbooking off')} label="Overbook 3 %" /></div>
           <div className="nw-set"><div><b className="small">Run a sale</b><div className="tiny muted">{saleOn ? `On until ${fmtDay(r.fares.saleUntil!)}` : block ?? 'Saver fares −25 % for 10 days, $5K of advertising; at most once a month'}</div></div><button className="btn btn-sm" disabled={!!saleOn || !!block} onClick={() => act((gg) => net.runSale(gg, r.id), 'Sale on')}>Start the sale</button></div>
         </div>
       )}
@@ -233,7 +233,7 @@ function CostsTab({ g, r }: { g: GameState; r: Route }) {
           {last.sectors.map((s, i) => (
             <div key={i} className="nw-pl-row">
               <span className="small"><span className="mono">{s.from}–{s.to}</span> <span className="tiny muted">{seatsLine(sectorLoad(s))}{s.cargoKg ? ` · ${cargoLine(s)}` : ''}</span></span>
-              <span className={`num small nowrap ${(s.rev ?? 0) - (s.cost ?? 0) >= 0 ? 'good' : 'bad'}`}>{money(s.rev ?? 0)} − {money(s.cost ?? 0)}</span>
+              <span className="num small nowrap"><span className="muted">{money(s.rev ?? 0)} in · {money(s.cost ?? 0)} out · </span><b className={(s.rev ?? 0) - (s.cost ?? 0) >= 0 ? 'good' : 'bad'}>{moneyDelta((s.rev ?? 0) - (s.cost ?? 0))}</b></span>
             </div>
           ))}
         </div>
