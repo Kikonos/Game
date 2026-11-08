@@ -11,6 +11,7 @@ import { dailyCrewCosts, monthlySalaries } from './costs';
 import { afterDiversion, deletePairing, resizeDeployments, dutyLegality as dutyLevel, pairingSeats, planAircraft, refreshPairing, syncDuty } from './duties';
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
+import { setRedundantHook } from './utilisation';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, repairStandbyMorale, setResignHooks } from './morale';
 import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
 import { extFdp, localMin, minRest, referenceTime, signedTz, tzDeltaH, tzNights, woclMinutes } from './rules';
@@ -659,12 +660,15 @@ function monthly(g: GameState): void {
 
 // v0.6 resignations: work past the leave date goes back to the roster (a planned class seat is given up); on the
 // day they leave, every trip from then is re-crewed and the record goes (callers tolerate missing crew ids).
+const onNotice = (g: GameState, c: CrewMember) => {
+  const k = classOf(g, c.id);
+  if (k && k.status === 'planned') cancelConversion(g, k.id, c.id);
+  removeCrew(g, c.id, c.notice!.leaves, c.notice!.leaves + 3650 * DAY);
+};
+// v0.18.2 redundancy (crew/utilisation.ts) the same way.
+setRedundantHook(onNotice);
 setResignHooks(
-  (g, c) => {
-    const k = classOf(g, c.id);
-    if (k && k.status === 'planned') cancelConversion(g, k.id, c.id);
-    removeCrew(g, c.id, c.notice!.leaves, c.notice!.leaves + 3650 * DAY);
-  },
+  onNotice,
   (g, c) => {
     // v0.14 off every seat, ticket and ride still to come (removeCrew alone passed finished tours that grew again).
     releaseLeaver(g, c.id);
@@ -786,3 +790,5 @@ export const crewModule: SimModule = {
 export { clientCrewOf, clientCrewRows, mixedCrewFlavour, mixedCrewText } from './clientCrew';
 // v0.7.4 crew planning by type family (crew sets) and the round-up hire.
 export { awayOnDryLease, completeSets, crewPlan, familyName, missingFor, roundTargets, roundUpQuote, roundUpRoles, SET_ROLES, SETS_DETACHED, SETS_WHY, setsForStation, setWords, type FamilyPlan, type RoundUpLine, type SetRole, type TypeSet } from './sets';
+
+export { crewUtilisation, hireHold, makeRedundant, offerUnpaidLeave, redundancyQuote, REDUNDANCY, roleWords, severanceMonths, unpaidQuote, UNPAID, UTIL_TYPICAL, type RedundancyQuote, type UnpaidQuote, type UtilGroup, type UtilPerson, type UtilSurplus, type Utilisation } from './utilisation';

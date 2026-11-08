@@ -1,0 +1,42 @@
+/* v0.18.2 Crew › Utilisation (screens/CrewUtil.tsx). */
+.cu { display: flex; flex-direction: column; gap: 14px; }
+.cu .card { padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+.cu-tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.cu .cu-tile { gap: 3px; padding: 12px 14px; }
+.cu-tile b { font-size: 22px; font-weight: 650; line-height: 1.15; }
+.cu-tile b.warn { color: var(--warn); }
+.cu-tile b.good { color: var(--good); }
+.cu-unit { font-size: 13px; font-weight: 500; color: var(--text-2); }
+.cu-typical { display: flex; gap: 8px; align-items: flex-start; line-height: 1.4; margin: -2px 2px 0; }
+.cu-typical svg { flex-shrink: 0; margin-top: 2px; }
+.cu-cols { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr); gap: 14px; align-items: start; }
+.cu-sur { display: flex; flex-direction: column; gap: 8px; padding: 10px 0; border-top: 1px solid rgba(var(--line-rgb), 0.16); }
+.cu-sur-line { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; align-items: center; }
+.cu-sur-who { min-width: 0; flex-wrap: wrap; }
+.cu-sur-cost { text-align: right; white-space: nowrap; }
+.cu-sur-act { grid-column: 1 / -1; display: flex; gap: 8px; flex-wrap: wrap; }
+.cu-sur-act .btn { white-space: nowrap; }
+.cu-quote { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; background: rgba(var(--line-rgb), 0.06); }
+.cu-quote p { line-height: 1.4; margin: 0; }
+.cu-q-ctl { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.cu-table { display: flex; flex-direction: column; }
+.cu-tr { display: grid; grid-template-columns: minmax(0, 1fr) 54px 60px 44px; gap: 10px; align-items: center; padding: 7px 0; border-top: 1px solid rgba(var(--line-rgb), 0.12); }
+.cu-tr .num, .cu-pr .num { text-align: right; }
+.cu-tr .warn, .cu-pr .warn { color: var(--warn); }
+.cu-pr { display: grid; grid-template-columns: minmax(0, 1fr) 54px 54px 60px; gap: 10px; align-items: center; padding: 8px 0; border: 0; border-top: 1px solid rgba(var(--line-rgb), 0.12);
+  background: none; color: inherit; text-align: left; font: inherit; cursor: pointer; width: 100%; }
+.cu-pr.lv-th { cursor: default; border-top: 0; padding-top: 0; }
+.cu-name { min-width: 0; }
+@media (max-width: 1000px) {
+  .cu-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cu-cols { grid-template-columns: minmax(0, 1fr); }
+}
+/* the iPhone on its side */
+@media (max-height: 499.98px) {
+  .cu { gap: 10px; }
+  .cu .card { padding: 12px 14px; }
+  .cu-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
+  .cu .cu-tile { padding: 9px 10px; }
+  .cu-tile b { font-size: 18px; }
+  .cu-cols { grid-template-columns: minmax(0, 1fr); }
+}

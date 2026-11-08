@@ -2,9 +2,10 @@
 // own sheet (modals/PersonSheet.tsx: monthly roster, totals, limits, morale; Train / Hire similar). DESIGN.md §6.3.
 
 import { RankMark } from '../components/RankMark';
-import { Check, CheckSquare, GraduationCap, Layers, LayoutGrid, List, Lock, Palmtree, Search, UserPlus, Users, X } from 'lucide-react';
+import { Check, CheckSquare, Gauge, GraduationCap, Layers, LayoutGrid, List, Lock, Palmtree, Search, UserPlus, Users, X } from 'lucide-react';
 import { CrewPlanView, DeploymentStrip, PeakHeadsUp, PlanStrip } from './CrewPlan';
 import { LeaveView } from './CrewLeave';
+import { UtilisationView } from './CrewUtil';
 import { useEffect, useMemo, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, HOUR, fmtDay } from '../../engine/core/time';
@@ -108,11 +109,11 @@ function MoraleChip({ g }: { g: GameState }) {
 }
 
 const VIEW_KEY = 'bh.crewView';
-type CrewView = 'people' | 'board' | 'plan' | 'leave';
+type CrewView = 'people' | 'board' | 'plan' | 'leave' | 'use';
 function storedView(): CrewView {
   try {
     const v = localStorage.getItem(VIEW_KEY);
-    return v === 'board' || v === 'plan' || v === 'leave' ? v : 'people';
+    return v === 'board' || v === 'plan' || v === 'leave' || v === 'use' ? v : 'people';
   } catch {
     return 'people';
   }
@@ -143,7 +144,7 @@ export function CrewScreen() {
   const rev = flightsRev(g);
   const hour = Math.floor(g.now / HOUR);
   const all = Object.values(g.crew);
-  const view: CrewView = store.nav.view === 'board' || store.nav.view === 'people' || store.nav.view === 'plan' || store.nav.view === 'leave' ? store.nav.view : storedView();
+  const view: CrewView = store.nav.view === 'board' || store.nav.view === 'people' || store.nav.view === 'plan' || store.nav.view === 'leave' || store.nav.view === 'use' ? store.nav.view : storedView();
   const leaveWaiting = (g.leaveRequests ?? []).filter((q) => q.status === 'pending').length;
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const list = useMemo(() => filterCrew(all, f), [g, f, hour, all.length]);
@@ -185,7 +186,7 @@ export function CrewScreen() {
   return (
     <div className={`screen sc-crew ${view === 'board' ? 'sc-crew-board' : ''}`}>
       <ScreenHead hint={view === 'board' ? 'crewBoard' : view === 'plan' ? 'crewPlan' : 'crewPeople'} title="Crew" sub={`${all.length} people · ${all.filter((c) => c.status === 'onDuty').length} on duty now`}>
-        <Seg<CrewView> value={view} onChange={setView} options={[{ value: 'people', label: <><List className="sc-ico-s" /> People</> }, { value: 'board', label: <><LayoutGrid className="sc-ico-s" /> Roster board</> }, { value: 'plan', label: <><Layers className="sc-ico-s" /> Planning</> }, { value: 'leave', label: <><Palmtree className="sc-ico-s" /> Leave{leaveWaiting > 0 && !leavePolicy(g).auto ? <span className="lv-count">{leaveWaiting}</span> : null}</> }]} />
+        <Seg<CrewView> value={view} onChange={setView} options={[{ value: 'people', label: <><List className="sc-ico-s" /> People</> }, { value: 'board', label: <><LayoutGrid className="sc-ico-s" /> Roster board</> }, { value: 'plan', label: <><Layers className="sc-ico-s" /> Planning</> }, { value: 'leave', label: <><Palmtree className="sc-ico-s" /> Leave{leaveWaiting > 0 && !leavePolicy(g).auto ? <span className="lv-count">{leaveWaiting}</span> : null}</> }, { value: 'use', label: <><Gauge className="sc-ico-s" /> Utilisation</> }]} />
         <MoraleChip g={g} />
         {classes.length > 0 && (
           <button className="btn" onClick={() => store.openModal({ kind: 'classes' })}>
@@ -198,7 +199,7 @@ export function CrewScreen() {
         <button className={`btn btn-primary ${hireLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'hire' })} {...lockedProps(hireLock)}>{hireLock ? <Lock className="lock-ico" /> : <UserPlus />} Hire{hiresLeft(g) ? ` (${hiresLeft(g)} left)` : ''}</button>
       </ScreenHead>
       {hireLock && view === 'people' && <LockNote why={hireLock} className="mb-8" />}
-      {view !== 'leave' && <ScreenHint id={view === 'board' ? 'crewBoard' : view === 'plan' ? 'crewPlan' : 'crewPeople'} />}
+      {view !== 'leave' && view !== 'use' && <ScreenHint id={view === 'board' ? 'crewBoard' : view === 'plan' ? 'crewPlan' : 'crewPeople'} />}
       {/* v0.7.4 one calm line per type family (sets complete of needed); the detail lives in Planning. */}
       {view === 'people' && <PlanStrip g={g} onOpen={() => setView('plan')} />}
       {view === 'people' && <PeakHeadsUp g={g} />}
@@ -207,6 +208,8 @@ export function CrewScreen() {
         <CrewPlanView g={g} />
       ) : view === 'leave' ? (
         <LeaveView g={g} />
+      ) : view === 'use' ? (
+        <UtilisationView g={g} />
       ) : !all.length ? (
         <Empty icon={<Users />} title="No crew yet">Hire pilots and cabin crew to fly your aircraft.</Empty>
       ) : view === 'board' ? (

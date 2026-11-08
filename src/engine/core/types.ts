@@ -1068,7 +1068,7 @@ export interface CrewMember {
   /** B2: calendar year that blockYear counts. */
   blockYearOf?: number;
   /** v0.6: resigned; keeps flying until `leaves` (then removed from g.crew). */
-  notice?: { given: Minute; leaves: Minute };
+  notice?: { given: Minute; leaves: Minute; /** v0.18.2 let go (redundancy), not resigned. */ redundant?: true };
   /** v0.6: decayed 30-day morale contributions by driver (UI "why"). */
   moraleWhy?: Partial<Record<MoraleDriver, number>>;
   /** v0.6: company-paid pilot conversion bond (resignation × bondFactor until then). */

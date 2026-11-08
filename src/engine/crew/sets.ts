@@ -311,7 +311,7 @@ export function familyNeeds(g: GameState) {
     const t = typeOf(ac.typeId);
     // v0.18.2 by its flying: a deployment's sets on station plus one in five, else the duties and hours it flies at home.
     const st = onStation.get(ac.id);
-    const sets = st ? setsForStation(st) : setsForHome((fly ??= homeFlying(g)).get(ac.id));
+    const sets = process.env.V182_OLDNEED ? Math.max(5, Math.ceil((st ?? 0) * 1.2 - 1e-9)) : st ? setsForStation(st) : setsForHome((fly ??= homeFlying(g)).get(ac.id));
     // The most extra crew its long work over the next 60 days asks for (as the staffing model).
     let x = crewExtraFor(g, ac.id, null);
     for (const k of Object.values(g.contracts)) {
