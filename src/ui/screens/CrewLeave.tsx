@@ -93,15 +93,14 @@ function RequestRow({ g, q, c }: { g: GameState; q: LeaveRequest; c: CrewMember 
     <div className="lv-req">
       <button className="lv-who" onClick={() => store.openPerson(c.id)}>
         <span className="row gap-6"><b className="ellipsis">{crewName(c)}</b><RankMark role={c.role} /></span>
-        <span className="tiny muted ellipsis">{c.ratings.join(' · ')} · {b.left} of {b.ent + b.carried} days left after</span>
+        <span className="tiny muted ellipsis">{c.ratings.join(' · ')} · {b.left} of {b.ent + b.carried} left after</span>
       </button>
       <div className="lv-when">
-        <b className="num">{dayRange(q.from, q.days)}</b>
-        <span className="tiny muted">{q.days} days{!leavePolicy(g).auto && by > g.now ? ` · answer by ${fmtDay(by)}` : ''}</span>
+        <span className="row gap-6"><b className="num nowrap">{dayRange(q.from, q.days)}</b><span className="tiny muted nowrap">{q.days} days</span></span>
+        <span className={`lv-verdict tiny ${v.ok ? 'good' : v.hard ? 'bad' : 'warn'}`}>{v.ok ? 'Within the rules' : v.why}{!leavePolicy(g).auto && by > g.now ? <span className="muted"> · answer by {fmtDay(by)}</span> : null}</span>
       </div>
-      <span className={`lv-verdict small ${v.ok ? 'good' : v.hard ? 'bad' : 'warn'}`}>{v.ok ? 'Within the rules' : v.why}</span>
       <div className="lv-act">
-        <button className="btn btn-sm" onClick={() => store.act((gg) => answerLeave(gg, q.id, false))} aria-label="Decline"><X /> Decline</button>
+        <button className="btn btn-sm btn-ghost" onClick={() => store.act((gg) => answerLeave(gg, q.id, false))} aria-label="Decline"><X /> Decline</button>
         <button className="btn btn-sm btn-primary" disabled={v.hard} onClick={() => store.act((gg) => answerLeave(gg, q.id, true))} aria-label="Approve"><Check /> Approve</button>
       </div>
     </div>

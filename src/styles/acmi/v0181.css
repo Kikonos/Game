@@ -17,7 +17,7 @@
 .lv-mchip { height: 30px; border-radius: 8px; border: 1px solid rgba(var(--line-rgb), 0.3); background: transparent; color: var(--text-2); font-size: 12px; font-weight: 600; cursor: pointer; padding: 0; }
 .lv-mchip.on { background: rgba(var(--warn-rgb, 240, 166, 64), 0.18); border-color: rgba(var(--warn-rgb, 240, 166, 64), 0.6); color: var(--warn); }
 
-.lv-req { display: grid; grid-template-columns: minmax(150px, 1.2fr) minmax(120px, 0.9fr) minmax(0, 1.3fr) auto; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid rgba(var(--line-rgb), 0.16); }
+.lv-req { display: grid; grid-template-columns: minmax(140px, 1fr) minmax(0, 1.4fr) auto; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid rgba(var(--line-rgb), 0.16); }
 .lv-who { display: flex; flex-direction: column; gap: 2px; min-width: 0; text-align: left; background: none; border: 0; color: inherit; padding: 0; cursor: pointer; }
 .lv-when { display: flex; flex-direction: column; gap: 2px; }
 .lv-verdict { line-height: 1.3; }
@@ -53,8 +53,8 @@
   .lv { grid-template-columns: minmax(0, 1fr); gap: 12px; }
   .lv .card { padding: 12px 14px; }
   .lv-req { grid-template-columns: minmax(0, 1fr) auto; row-gap: 6px; }
-  .lv-verdict { grid-column: 1; }
-  .lv-act { grid-column: 2; grid-row: 2; }
+  .lv-when { grid-column: 1; }
+  .lv-act { grid-column: 2; grid-row: 1 / span 2; align-self: center; flex-direction: column; }
   .lv-done { grid-template-columns: 84px minmax(0, 1fr) auto; }
   .lv-done > :last-child { display: none; }
 }
@@ -99,3 +99,4 @@
 .fl-actions .fl-specs { width: 100%; }
 .fl-dry .bar { flex: 1 1 auto; }
 .fl-dry-run { display: flex; align-items: center; gap: 10px; }
+.ps-legrow > span { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }

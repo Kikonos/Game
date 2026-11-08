@@ -45,7 +45,7 @@ describe('v0.18.1 leave requests decided by the rules', () => {
   it('a year of requests: blocks of 2–14 days, never in July or August, never over the share away, never over the allowance', () => {
     const g = fixtureGame(13);
     const pol = leavePolicy(g);
-    expect(pol).toEqual({ auto: true, maxShare: 0.12, blackout: [6, 7] });
+    expect(pol).toEqual({ auto: true, maxShare: 0.1, blackout: [6, 7] });
     leaveDays(g, 330);
     const st = g.stats.leave!;
     expect(st.asked).toBeGreaterThan(Object.keys(g.crew).length);
@@ -70,7 +70,7 @@ describe('v0.18.1 leave requests decided by the rules', () => {
     }
     for (const [k, n] of away) {
       const grp = k.split('|').slice(0, 2).join('|');
-      expect(n, k).toBeLessThanOrEqual(Math.max(1, Math.round(0.12 * size.get(grp)!)));
+      expect(n, k).toBeLessThanOrEqual(Math.max(1, Math.round(0.1 * size.get(grp)!)));
     }
     // Most crew booked most of what they earned in the year (the first year runs from the start, pro rata).
     const y = yearOf(g.now) - 1;

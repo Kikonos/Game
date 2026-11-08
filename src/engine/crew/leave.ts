@@ -10,6 +10,7 @@
 
 import { BAL } from '../core/balance';
 import { pushMessage } from '../core/messages';
+import { typeOf } from '../core/perf';
 import { DAY, fmtDay, fromUTC, monthKey as monthKeyOf, yearOf } from '../core/time';
 import type { ActionResult, CrewMember, GameState, LeavePolicy, LeaveRequest, LeaveYear, Minute } from '../core/types';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -224,6 +225,22 @@ export function askLeave(g: GameState): LeaveRequest[] {
   const g0 = today + S.noticeDays - 7;
   const g1 = firstDayOf(monthOfDay(today) + S.aheadMonths + 1) + 7;
   let seen: ReturnType<typeof groupLoad> | null = null;
+  // Departures per type family and day over the window (our signed flying).
+  let depMap: Map<string, Int16Array> | null = null;
+  const deps = () => {
+    if (depMap) return depMap;
+    depMap = new Map();
+    for (const f of Object.values(g.flights)) {
+      if (f.kind === 'deadhead' || f.status !== 'scheduled' || !f.aircraftId) continue;
+      const k = dayIndex(home, f.std);
+      if (k < g0 || k >= g1) continue;
+      const ac = g.fleet[f.aircraftId];
+      if (!ac) continue;
+      const fam = typeOf(ac.typeId).family;
+      (depMap.get(fam) ?? depMap.set(fam, new Int16Array(g1 - g0)).get(fam)!)[k - g0]++;
+    }
+    return depMap;
+  };
   const seenLoad = () => (seen ??= groupLoad(g, g0, g1));
   const all = Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1));
   for (const c of all) {
@@ -259,6 +276,14 @@ export function askLeave(g: GameState): LeaveRequest[] {
       if (z > g.now) tours.push([dayIndex(c.base, a) - 1, dayIndex(c.base, z - 1) + 2]);
     }
     const keys = groupsOf(c);
+    const busyScore = (s: number, len: number) => {
+      let n = 0;
+      for (const f of c.ratings) {
+        const arr = deps().get(f);
+        if (arr) for (let k = s; k < s + len; k++) n += k >= g0 && k < g1 ? arr[k - g0] : 0;
+      }
+      return n;
+    };
     const free = (s: number, len: number) => {
       if (s < first || s + len > last) return false;
       for (let k = s; k < s + len; k++) if (busy.work.has(k) || blockedOn(c, k) || tours.some(([a, z]) => k >= a && k < z)) return false;
@@ -286,12 +311,20 @@ export function askLeave(g: GameState): LeaveRequest[] {
       const m1 = firstDayOf(m.mk + 1);
       const span = Math.max(1, m1 - m0);
       const off0 = Math.floor(hashUnit(`day:${c.id}:${today}`) * span);
+      // The leave calendar offers the quietest free dates of the month for their type (fewest departures; as crew
+      // planning releases leave where the flying programme allows); a wish takes the first free dates it likes.
       let start = -1;
-      for (let i = 0; i < span && start < 0; i++) {
+      let best = Infinity;
+      for (let i = 0; i < span && (start < 0 || !wish); i++) {
         const s = m0 + ((off0 + i) % span);
         // A block stays in its year (the next year's days are asked for on their own).
         if (Math.floor(monthOfDay(s + len - 1) / 12) !== Math.floor(m.mk / 12)) continue;
-        if (free(s, len)) start = s;
+        if (!free(s, len)) continue;
+        const v = wish ? 0 : busyScore(s, len);
+        if (v < best) {
+          best = v;
+          start = s;
+        }
       }
       if (start < 0) continue;
       const q: LeaveRequest = { id: `lv-${c.id}-${today}`, crewId: c.id, from: midnight(c.base, start), days: len, made: g.now, status: 'pending', ...(wish ? { wish: true as const } : {}) };
