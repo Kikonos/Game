@@ -414,6 +414,8 @@ export function underClosure<T>(g: GameState, f: Flight, fn: () => T, e: WorldEv
 export function applyHold(g: GameState, plan: HoldPlan, reason: string, moveReason?: string, cancelReason = reason, subAc?: Aircraft): number {
   const fm = fmCause;
   if (subAc && !fm && subcharterInstead(g, subAc, plan.cancels, `${reason}: the aircraft can't make these on time.`, false)) plan.cancels = [];
+  // v0.19 our own scheduled sectors: a rival flies them rather than refunding and compensating the passengers.
+  if (!fm) plan.cancels = routeSubInstead(g, plan.cancels, `${reason}: the aircraft can't make these on time.`);
   const rev = plan.cancels.filter((f) => f.status === 'scheduled' && isRevenue(f));
   const pen = cancelLegs(g, plan.cancels, cancelReason, 0);
   if (rev.length) {
@@ -1249,9 +1251,31 @@ export function subcharterInstead(g: GameState, ac: Aircraft, legs: Flight[], wh
   return true;
 }
 
+/**
+ * v0.19 route sectors about to be dropped by operations: sub-chartered when a rival can fly them for less than the
+ * refunds and EU261 (almost always). Returns the legs still to cancel (the others, and route sectors no rival takes).
+ */
+function routeSubInstead(g: GameState, legs: Flight[], why: string): Flight[] {
+  const route = legs.filter((x) => x.sched && x.status === 'scheduled' && x.aircraftId && isRevenue(x));
+  if (!route.length) return legs;
+  const ac = g.fleet[route[0].aircraftId!];
+  if (!ac) return legs;
+  // The whole rotation's remaining sectors go together (the passengers' way home included).
+  const rot = route[0].sched!.rotId;
+  const all = flightsOf(g, ac.id).filter((x) => x.sched?.rotId === rot && x.status === 'scheduled');
+  if (!subcharterInstead(g, ac, all, why, false)) return legs;
+  const gone = new Set(all.map((x) => x.id));
+  return legs.filter((x) => !gone.has(x.id));
+}
+
 /** Cancels the unit `f` starts (empty legs go back to contracts) with one message; the rest is re-rostered. */
 function dropUnit(g: GameState, ac: Aircraft, f: Flight, reason: string, why: string, cat: MessageCat): void {
-  const legs = unitOf(g, ac, f);
+  // v0.19 our own scheduled sectors go to a rival instead (no refunds, no EU261).
+  const legs = fmCause ? unitOf(g, ac, f) : routeSubInstead(g, unitOf(g, ac, f), why);
+  if (!legs.length) {
+    rerosterFrom(g, ac.id, g.now);
+    return;
+  }
   const rev = legs.filter(isRevenue);
   const fm = fmCause;
   const pen = cancelLegs(g, legs, reason, 0);
