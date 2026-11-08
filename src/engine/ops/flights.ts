@@ -7,6 +7,7 @@
 import { BAL } from '../core/balance';
 import { cancelFlight, flightsOf, removeFlights, retimeFlight, subcharterFlights, touchFlights, touchStatus, touchTickets } from '../core/entities';
 import { invoice, post } from '../core/ledger';
+import { ROUTE_COST_CATS, routeLegCost } from '../network/costs';
 import { pushMessage } from '../core/messages';
 import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
@@ -723,7 +724,9 @@ const inWindow = (g: GameState, ts: Minute[] | undefined) => {
  * 90 days (each leg counts for the next); at most capPerClient per client in capDays (splitting or bundling a hand-over
  * costs the same); relation −relationPerLeg a leg (at most relationCap per client). Pure.
  */
-export function subHit(g: GameState, rev: Flight[]): SubHit {
+export function subHit(g: GameState, rev0: Flight[]): SubHit {
+  // v0.19 our own scheduled flights handed to a rival: no penalty (the player's rule), only the price.
+  const rev = rev0.filter((f) => !f.sched);
   const S = BAL.v072.sub;
   let n90 = inWindow(g, g.stats.subLog);
   const sub = new Map<string, number>();
@@ -1503,6 +1506,12 @@ export function paysFuel(g: GameState, f: Flight): boolean {
  * passes the flown one; a forecast the planned f.block).
  */
 export function legCostEstimate(g: GameState, f: Flight, ac: Aircraft, blockMin = f.block): { maint: number; reserves: number; fuel: number; fees: number } {
+  // v0.19 a scheduled-route sector costs by its stations and passengers (network/costs.ts); the route lines (handling,
+  // catering, passenger services, navigation, distribution) ride in `fees` here and are posted on their own lines.
+  if (f.sched) {
+    const rc = routeLegCost(g, f, ac, blockMin);
+    return { maint: rc.maint, reserves: rc.reserves, fuel: rc.fuel, fees: rc.fees + rc.handling + rc.catering + rc.paxServices + rc.navCharges + rc.distribution };
+  }
   const bh = blockMin / 60;
   const fh = Math.max(0, blockMin - 20) / 60;
   const t = typeOf(ac.typeId);
@@ -1570,7 +1579,12 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
     if (fc && fc.product.kind === 'charter' && fc.product.fuelAtCost && isRevenue(f)) {
       invoice(g, { clientId: fc.clientId, contractId: fc.id, desc: `Fuel re-billed: ${f.no}`, amount: Math.round(cost.fuel), cat: 'otherRevenue', dueDays: fc.payment.basis === 'arrears' ? fc.payment.dueDays : 7 });
     }
-    post(g, 'airportFees', -cost.fees);
+    if (f.sched) {
+      // v0.19 the route lines on their own (network/costs.ts).
+      const rc = routeLegCost(g, f, ac, block);
+      post(g, 'airportFees', -Math.round(rc.fees));
+      for (const [k, cat] of ROUTE_COST_CATS) post(g, cat, -Math.round(rc[k]));
+    } else post(g, 'airportFees', -cost.fees);
   }
   g.finance.current.bh = Math.round((g.finance.current.bh + bh) * 100) / 100;
   // v0.12.1 one cabin crew short (ORO.CC.205(c)) covers the sector in hand only: the seat is required again for the

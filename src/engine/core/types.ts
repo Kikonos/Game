@@ -1417,7 +1417,9 @@ export interface Ref {
     /** v0.16.3 the debt plan on Finance (deferrals, the investor's board, the restructuring). */
     | 'debt'
     /** v0.17 a request to lessors or airlines; a lease deal in progress (Fleet › Market). */
-    | 'rfp' | 'deal';
+    | 'rfp' | 'deal'
+    /** v0.19 a scheduled route (Contracts › Network: its page). */
+    | 'route';
   id: string;
 }
 
@@ -1435,7 +1437,9 @@ export interface Message {
     /** v0.9 the red crew-out-of-hours stage; an achievement; a department head's note. */
     | 'crewHours' | 'achievement' | 'head'
     /** v0.12 a scenario's own note (goals, script). */
-    | 'scenario';
+    | 'scenario'
+    /** v0.19 a scheduled route's note (launch stages, sales, passengers). */
+    | 'network';
   /** v0.7.1 the problem this message is about, and its severity when posted (a snapshot for the badge once the problem is gone). */
   problem?: ProblemRef;
   hurt?: { money: number; pax: number; delayMin: number; level: 'none' | 'low' | 'high' };
