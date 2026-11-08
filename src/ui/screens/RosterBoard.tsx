@@ -205,7 +205,7 @@ function hasCode(days: Set<number>, a: number, b: number): boolean {
 function LabelText({ text }: { text: string }) {
   const [base, mark] = splitMark(text);
   if (!mark) return <>{text}</>;
-  return <>{base}<span className="rb-mark" aria-label={mark === '+1h' ? 'planned extension' : mark === 'SPLIT' ? 'split duty' : `${mark[0]} pilots, in-flight rest`}>{mark.endsWith('P') && <BedDouble aria-hidden />}{mark}</span></>;
+  return <>{base}<span className="rb-mark" aria-label={mark === '+1h' ? 'planned extension' : mark === 'SPLIT' ? 'split duty' : `${mark[0]} pilots (${mark[0] === '4' ? '2 CPT + 2 FO in pairs A and B' : '1 CPT + 2 FO'}), in-flight rest`}>{mark.endsWith('P') && <BedDouble aria-hidden />}{mark}</span></>;
 }
 
 const Block = memo(function Block({ b, i, crewId, from, ppm, W, month, mute }: { b: BoardBlock; i: number; crewId: string; from: number; ppm: number; W: number; month: boolean; mute?: boolean }) {
