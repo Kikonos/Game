@@ -1025,8 +1025,10 @@ export interface DutyLogEntry {
 export type MoraleDriver = 'policy' | 'hotel' | 'tour' | 'offAway' | 'workload' | 'lateChange' | 'discretion' | 'mission' | 'extraCrew' | 'career' | 'pay' | 'recognition'
   /** v0.9 long standby runs; days off in the month (and a published day off taken). */
   | 'standby' | 'daysOff'
-  /** v0.18.1 a leave request declined. */
-  | 'leave';
+  /** v0.18.1 a leave request declined; bug 1108b also the lift after annual leave. */
+  | 'leave'
+  /** Bug 1108b a published day off moved or taken (was counted under 'daysOff'). */
+  | 'offMoved';
 
 /** v0.9 standby kinds (UPDATE-0.9.md §R.3): home (SBY), hotel at a station away from base, airport (ASBY), reserve (RES). */
 export type StandbyKind = 'home' | 'hotel' | 'airport' | 'reserve';
@@ -1115,6 +1117,8 @@ export interface CrewMember {
   leaveYears?: Record<number, LeaveYear>;
   /** v0.18.1 a declined leave request: no new request before this minute. */
   leaveAskAt?: Minute;
+  /** Bug 1108b the end of the last annual leave whose morale lift was given (crew/morale.ts: rested for a few months). */
+  leaveBack?: Minute;
 }
 
 /** v0.18.1 one flown leg: flight number (an airline's 'TP 1342' for a ticket), ends, off and on blocks, type. */

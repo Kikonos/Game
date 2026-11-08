@@ -238,7 +238,8 @@ describe('§R.13 8: protected days off', () => {
     expect(yes.ok).toBe(true);
     expect(offOn(c, k)).toBe(false);
     expect(c.morale).toBeLessThan(m0);
-    expect(c.moraleWhy?.daysOff).toBeLessThanOrEqual(-6);
+    // (Bug 1108b: its own driver, 'Day off moved'; 'Days off' is the month's count.)
+    expect(c.moraleWhy?.offMoved).toBeLessThanOrEqual(-6);
     // The day off moved, in the same month when a free unpublished day was left.
     const offs1 = (c.off ?? []).filter((x) => monthKey(x * DAY) === monthKey(k * DAY)).length;
     expect(offs1).toBeGreaterThanOrEqual(offs0 - 1);

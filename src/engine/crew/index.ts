@@ -13,7 +13,7 @@ import { afterDiversion, deletePairing, resizeDeployments, dutyLegality as dutyL
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { setRedundantHook } from './utilisation';
-import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, repairStandbyMorale, setResignHooks } from './morale';
+import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, repairDaysOffMorale, repairStandbyMorale, setResignHooks } from './morale';
 import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
 import { extFdp, localMin, minRest, referenceTime, signedTz, tzDeltaH, tzNights, woclMinutes } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
@@ -753,6 +753,8 @@ export const crewModule: SimModule = {
     rebuildFlown(g);
     // Crew bug round: long standby runs are no longer a morale driver.
     repairStandbyMorale(g);
+    // Bug 1108b: no 'days off away' driver; 'Days off' only for a month below the legal minimum ('Day off moved' apart).
+    repairDaysOffMorale(g);
     // Bug 1108b: in-flight rest marks left from an earlier duty of a tour (they raised an alarm at every later report).
     dropStaleRestMarks(g);
     // v0.14 seats, tickets and rides still held by crew who have left (a finished tour that grew again kept them).

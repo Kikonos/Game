@@ -174,7 +174,7 @@ function PolicyForm({ g }: { g: GameState }) {
       {row('Per diems', '100% is the market rate', <Stepper value={p.perDiemPct} min={80} max={150} step={10} onChange={(v) => set({ perDiemPct: v })} format={(v) => `${v}%`} />, effect(g, { perDiemPct: 100 }, { perDiemPct: 110 }, 'At 110%', () => null))}
       {row('Rotation', 'Weeks away before crews rotate home', <Seg<number> value={p.rotationWeeks} onChange={(v) => set({ rotationWeeks: v as Policies['rotationWeeks'] })} options={[4, 5, 6].map((v) => ({ value: v, label: `${v} wk` }))} />, effect(g, { rotationWeeks: 5 }, { rotationWeeks: 4 }, 'At 4 weeks', () => null))}
       <div className="set-row sc-policy sc-policy-sum">
-        <div><b>Crew morale target {market.targetNow}</b><div className="tiny dim">{market.target !== market.targetNow ? `${market.target} at market policies · ` : ''}Crew drift toward it; hotels, days off away and long tours move them day to day</div></div>
+        <div><b>Crew morale target {market.targetNow}</b><div className="tiny dim">{market.target !== market.targetNow ? `${market.target} at market policies · ` : ''}Crew drift toward it; hotels, long tours and time back from leave move them day to day</div></div>
         <span className="num muted small nowrap">{Object.keys(g.crew).length ? `now ${moraleSummary(g).avg}` : ''}</span>
       </div>
     </div>

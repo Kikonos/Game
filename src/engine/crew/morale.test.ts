@@ -59,7 +59,7 @@ describe('morale target and drift', () => {
     expect(await settle(120, 4, 5)).toBeGreaterThan(def + 3);
   }, slowTimeout(30_000));
 
-  it('stingy policies settle at 55 or below with at least 1.5× the resignation odds and +20% sick calls', async () => {
+  it('stingy policies settle at 57 or below (9+ under the defaults) with at least 1.5× the resignation odds and +20% sick calls', async () => {
     const settle = async (perDiemPct: number, rotationWeeks: 4 | 5 | 6, hotelTier: 3 | 4 | 5) => {
       const g = fixtureGame(12);
       g.company.cash = 50_000_000;
@@ -72,7 +72,9 @@ describe('morale target and drift', () => {
     };
     const def = await settle(100, 5, 4);
     const cheap = await settle(80, 6, 3);
-    expect(cheap.m).toBeLessThanOrEqual(55);
+    // (Bug 1108b: a day off at the hotel no longer weighs on morale: 56.6 against 67.3 for the defaults; was 55 or below.)
+    expect(cheap.m).toBeLessThanOrEqual(57);
+    expect(def.m - cheap.m).toBeGreaterThanOrEqual(9);
     expect(cheap.resign / def.resign).toBeGreaterThanOrEqual(1.5);
     // (v0.17.2 the gentler sickness slope: +10 % or more.)
     expect(cheap.sick / def.sick).toBeGreaterThanOrEqual(1.1);
@@ -90,7 +92,7 @@ describe('morale target and drift', () => {
 });
 
 describe('morale drivers', () => {
-  it('daily drivers: hotel, long tour, days off away, workload', () => {
+  it('daily drivers: hotel, long tour, workload (bug 1108b: a day off away is no driver)', () => {
     const g = fixtureGame();
     g.company.policies.hotelTier = 3;
     const c = one(g);
@@ -100,7 +102,8 @@ describe('morale drivers', () => {
     const busy = g.crew[w.id];
     for (let i = 0; i < 16; i++) busy.log.push({ start: g.now - (i + 2) * DAY, end: g.now - (i + 2) * DAY + 10 * 60, fdp: 600, block: 400, sectors: 2, augmented: false, disruptive: false });
     dailyMorale(g);
-    expect(c.moraleWhy).toMatchObject({ hotel: BAL.morale.hotelDay[3], tour: -0.15, offAway: BAL.morale.offAway });
+    expect(c.moraleWhy).toMatchObject({ hotel: BAL.morale.hotelDay[3], tour: -0.15 });
+    expect(c.moraleWhy?.offAway).toBeUndefined();
     expect(busy.moraleWhy?.workload).toBe(BAL.morale.heavy);
     // Past 42 days away the tour weighs double; 5★ hotels lift.
     c.awaySince = g.now - 45 * DAY;
