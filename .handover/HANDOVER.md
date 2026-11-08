@@ -721,3 +721,13 @@ coast DONE acmi ad60678 (8192 land texture via worker + bicubic, coast from text
   5. cramped limits boxes;
   6. the Return early button.
   STATE in /home/user/work/v0181/STATE.txt. The agent releases it when green.
+- QUEUED v0.18.2 "Crew utilisation" (player question 2026-11-08). On bugs1108 current (20 Nov 2028):
+  - 397 crew for ~7 active aircraft: 23 pilots and 43 cabin crew per aircraft, about twice the real ACMI norm of 10–12 pilots per narrowbody.
+  - Last 30 days: pilots ~25 BH/month on average, cabin crew ~17 (33 CC with zero). Real ACMI crew fly 60–85 BH/month in season, ~700–850 a year.
+  - Fleet: ~1,000–1,400 BH/month (~170–200 per aircraft) in season, ~49 per aircraft in the last 30 days (winter, aircraft delivering).
+  - 5 deployments with 4–5 sets on station each; 26 crew still joining.
+  Plan:
+  - size sets on station by the deployment's real flying (target ~75 BH a month per pilot);
+  - share spares across deployments;
+  - stop auto-hiring while utilisation is low;
+  - add a Crew utilisation panel: BH per person against typical, idle crew, and furlough or release suggestions.
