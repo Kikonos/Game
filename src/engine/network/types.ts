@@ -244,6 +244,8 @@ export interface NetworkState {
   distribution?: Minute;
   /** The BSP bank guarantee held in cash. */
   bspHold?: { amount: number; until: Minute };
+  /** Ticket money sold through travel agents, paid to us by BSP on the 15th and the last day of the month (USD). */
+  bspDue?: number;
   stats: NetworkStats;
   /** UI cache key. */
   rev?: number;

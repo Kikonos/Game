@@ -211,7 +211,10 @@ export function dailySales(g: GameState, route: Route): void {
         if (cash) x.sold = Math.round((x.sold ?? 0) + (cash * blocks[k]) / tot);
       });
       if (cash) {
-        cashOnly(g, Math.round(cash));
+        // Direct sales (website, cards) pay at once; agents' sales come through BSP twice a month (UPDATE-0.19 add. 3 c).
+        const bsp = Math.round(cash * BAL.v019.sales.bspShare);
+        cashOnly(g, Math.round(cash) - bsp);
+        g.network!.bspDue = (g.network!.bspDue ?? 0) + bsp;
         route.unearned = Math.round(route.unearned + cash);
       }
     }
