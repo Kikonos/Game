@@ -28,13 +28,13 @@ function SectorTimes({ g, rotId, delta }: { g: GameState; rotId: string; delta: 
   const at = rotationOfId(g, rotId);
   if (!at) return null;
   return (
-    <div className="tm-legs">
+    <div className="nw-mv-legs">
       {at.rot.sectors.map((s, i) => {
         const f = s.flightId ? g.flights[s.flightId] : undefined;
         const std = (f ? f.std : i === 0 ? at.rot.dep : undefined);
         return (
-          <div key={i} className="tm-leg">
-            <b className="mono">{f?.no ?? ''} {s.from} → {s.to}</b>
+          <div key={i} className="nw-mv-leg">
+            <b className="mono small nowrap">{f?.no ? `${f.no} ` : ''}{s.from}–{s.to}</b>
             {std !== undefined ? (
               <span className="num small">{fmtDay(std + delta)} {fmtTime(std + delta)} UTC · {fmtTime(std + delta, s.from)} {s.from}{delta ? <span className="dim"> (was {fmtTime(std)})</span> : null}</span>
             ) : <span className="small muted">follows the sector before</span>}

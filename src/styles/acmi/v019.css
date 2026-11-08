@@ -116,8 +116,9 @@
 .nw-acmi svg { flex-shrink: 0; margin-top: 2px; }
 .nw-rot { display: flex; flex-direction: column; gap: 6px; padding: 8px 0; border-top: 1px solid rgba(var(--line-rgb), 0.1); }
 .nw-rot-head { display: flex; gap: 10px; align-items: baseline; min-width: 0; flex-wrap: wrap; }
-.nw-secs { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 4px 16px; }
-.nw-sec { display: grid; grid-template-columns: 62px minmax(40px, 1fr) auto auto; gap: 8px; align-items: center; min-width: 0; }
+.nw-secs { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 4px 20px; }
+.nw-sec { display: grid; grid-template-columns: 64px minmax(40px, 90px) auto minmax(0, 1fr); gap: 8px; align-items: center; min-width: 0; }
+.nw-sec > .tiny:last-child { text-align: left; }
 .nw-flown { display: flex; flex-direction: column; }
 .nw-flown-row { display: grid; grid-template-columns: 56px 110px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 6px 0; border-top: 1px solid rgba(var(--line-rgb), 0.1); }
 .nw-flown-row.cancelled { opacity: 0.6; }
@@ -137,6 +138,8 @@
 .nw-station { display: flex; gap: 12px; align-items: baseline; padding: 6px 0; border-top: 1px solid rgba(var(--line-rgb), 0.08); }
 .nw-station svg { vertical-align: -2px; }
 .nw-move-ctl { align-items: center; }
+.nw-mv-legs { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border-radius: 12px; background: rgba(var(--line-rgb), 0.06); }
+.nw-mv-leg { display: grid; grid-template-columns: minmax(110px, auto) minmax(0, 1fr); gap: 4px 14px; align-items: baseline; padding: 4px 0; }
 
 @media (max-width: 1000px) {
   .nw-launch-grid { grid-template-columns: minmax(0, 1fr); }
@@ -155,8 +158,9 @@
   .nw-depths { grid-template-columns: minmax(0, 1fr); }
   .nw-facts { grid-template-columns: minmax(0, 1fr); }
   .nw-launch-grid { grid-template-columns: minmax(0, 1fr); gap: 14px; }
-  .nw-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+  .nw-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
   .nw-kpi { padding: 8px 10px; }
+  .nw-launch-now { order: -1; }
   .nw-kpi b { font-size: 16px; }
   .nw-flown-row { grid-template-columns: 52px minmax(0, 1fr) auto; }
   .nw-flown-row > .mono { display: none; }

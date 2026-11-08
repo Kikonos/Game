@@ -11,7 +11,7 @@ export type NetworkModalSpec = Extract<ModalSpec, { kind: 'route' | 'routeLaunch
 
 export default function NetworkModals({ m }: { m: NetworkModalSpec }) {
   switch (m.kind) {
-    case 'route': return <RoutePage key={m.routeId} routeId={m.routeId} tab={m.tab} />;
+    case 'route': return <RoutePage key={`${m.routeId}:${m.tab ?? ''}`} routeId={m.routeId} tab={m.tab} />;
     case 'routeLaunch': return <LaunchWizard key={`${m.routeId ?? ''}:${m.marketId ?? ''}`} routeId={m.routeId} marketId={m.marketId} />;
     case 'rotationMove': return <RotationMoveModal key={`${m.rotId}@${m.delta}`} rotId={m.rotId} delta={m.delta} back={m.back} />;
   }
