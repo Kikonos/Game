@@ -174,7 +174,7 @@ export function CrewPlanView({ g }: { g: GameState }) {
     <div className="cp-view">
       <PeakHeadsUp g={g} />
       <div className="small muted cp-intro">
-        {SETS_WHY}{plans.some((p) => p.setsPerAircraft > BAL.crewSetsPerAircraft) ? ` ${SETS_DETACHED}` : ''} The role you have fewest of decides how many sets are complete.
+        {SETS_WHY}{plans.some((p) => p.setsPerAircraft !== BAL.crewSetsPerAircraft) || Object.values(g.deployments).some((d) => d.end > g.now) ? ` ${SETS_DETACHED}` : ''} The role you have fewest of decides how many sets are complete.
       </div>
       {!plans.length && <div className="small muted">No aircraft in the fleet yet.</div>}
       <div className="cp-grid">
