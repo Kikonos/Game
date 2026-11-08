@@ -19,6 +19,12 @@ export const FIXED_REPORTS: Record<string, FixedReport> = {
   bmw5r4e4p6hpq: { version: 'v0.17.2', what: 'crew ride our own empty legs home (straight on from the gate, or after their rest) instead of an airline ticket.' },
   bmw5r8e3ggrqs: { version: 'v0.17.2', what: 'crew stay on a long-term base for the whole rotation you set; leave is moved after it, and only a real limit or reason sends them home early.' },
   bmw6lnjpzbdkk: { version: 'v0.17.2', what: 'the check dialog says when the aircraft goes back (with the year), lets you book a C-check due before that, and near a return weighs the ways with costs and a recommendation.' },
+  bmw7ok0qk9kju: { version: 'v0.18.1', what: 'the 14 h rest is the EASA minimum after crossing 4+ time zones; the trip now shows the layover and why, check-in, departure and arrival in local time, and the boarding passes on a deadhead day.' },
+  bmw7oluxn4np: { version: 'v0.18.1', what: 'leave comes from a yearly allowance (30 days in Portugal), asked for in blocks of one to two weeks and approved by your rules or by you in Crew › Leave.' },
+  bmw7oqp9afm2l: { version: 'v0.18.1', what: 'the roster comes out on the 15th for the whole next month; until then the month reads "Roster out on 15 …".' },
+  bmw7ov4ikfs1o: { version: 'v0.18.1', what: 'flown duties keep their flights and numbers on the calendar; older ones show their sectors and block.' },
+  bmw7p4brbit4x: { version: 'v0.18.1', what: 'the Ladder cards have room, three calm parts and a gauge for what they still need.' },
+  bmw7p747salao: { version: 'v0.18.1', what: 'Return early and the other aircraft actions sit in two even rows; no empty space beside a leased-out aircraft.' },
 };
 
 /** 'v0.17.2' → [0, 17, 2]. Pure. */

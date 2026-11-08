@@ -16,6 +16,27 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.18.1',
+    name: 'Leave & monthly rosters',
+    features: [
+      'Annual leave works as at an airline: each crew member has a yearly allowance (30 days at a Portuguese base, 4 weeks elsewhere), earned month by month, and asks for it in blocks of one to two weeks, a few months ahead.',
+      'Crew › Leave: the requests waiting, your leave policy and each rank\'s allowance. The rules decide (most of a rank away at once, no leave in July and August), or choose By me to approve or decline yourself. A refusal costs a little morale.',
+      'The roster comes out on the 15th for the whole next month. Until then the next month reads "Roster out on 15 Dec". Changes after that are late changes, as before.',
+      'Tap a trip: between its duties you see the layover (time at the station, and the minimum rest with its reason). A deadhead day shows its boarding passes.',
+    ],
+    improvements: [
+      'Report, check-in, departure and arrival show the station\'s local time first, then UTC.',
+      'The Ladder has room to breathe: each approval shows where it stands, what it still needs (with a gauge) and what it opens.',
+      'Fleet cards: Schedule, On map and Specs in one row; Sell, Return early, Borrow and Leaseback in another. Cards no longer leave empty space beside a shorter one, and a leased-out aircraft shows how far its lease has run.',
+    ],
+    fixes: [
+      'Past duties keep their flights and flight numbers on the calendar. Duties flown before this version show their sectors and block hours.',
+      'The 14-hour rest after a flight across 4 or more time zones is the EASA minimum; the sheet now says why, and shows the real layover next to it.',
+      'A deadhead shows check-in, departure and arrival; "five hours before" was the time difference between New York and UTC.',
+      'Each duty on a day\'s card lists its flights again.',
+    ],
+  },
+  {
     version: 'v0.18',
     name: 'Rosters, maps & spec sheets',
     features: [

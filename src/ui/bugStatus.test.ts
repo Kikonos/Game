@@ -16,6 +16,9 @@ describe('v0.17.2 bug report status', () => {
   it('the player\'s eight reports are listed as fixed, with the version and a line', () => {
     for (const id of ['bmw43m7ejicd6', 'bmw441ihle8id', 'bmw44a4117o4o', 'bmw44mdbp2mte', 'bmw44wenpden7']) expect(FIXED_REPORTS[id].version).toBe('v0.16.4');
     for (const id of ['bmw5r4e4p6hpq', 'bmw5r8e3ggrqs', 'bmw6lnjpzbdkk']) expect(FIXED_REPORTS[id].version).toBe('v0.17.2');
+    // v0.18.1 the six reports of 8 Nov.
+    for (const id of ['bmw7ok0qk9kju', 'bmw7oluxn4np', 'bmw7oqp9afm2l', 'bmw7ov4ikfs1o', 'bmw7p4brbit4x', 'bmw7p747salao']) expect(FIXED_REPORTS[id].version).toBe('v0.18.1');
+    expect(fixedIn('bmw7oluxn4np', 'v0.18')).toBeNull();
     expect(versionAtMost('v0.16.4', 'v0.17')).toBe(true);
     expect(versionAtMost('v0.17.2', 'v0.17.1')).toBe(false);
     expect(versionAtMost('v0.17', 'v0.17.0')).toBe(true);
