@@ -221,7 +221,11 @@ export type ModalSpec =
   | { kind: 'tender'; tenderId: string }
   | { kind: 'followDelivery'; aircraftId: string }
   /** v0.15 the welcome card of a new game (once, at the start; never on a load). */
-  | { kind: 'welcome' };
+  | { kind: 'welcome' }
+  /** v0.19 scheduled routes (ui/screens/network, a lazy chunk): the route page, the launch wizard, moving a rotation. */
+  | { kind: 'route'; routeId: string; tab?: 'overview' | 'timetable' | 'sales' | 'costs' }
+  | { kind: 'routeLaunch'; routeId?: string; marketId?: string }
+  | { kind: 'rotationMove'; rotId: string; delta: number; back?: ModalSpec };
 
 export interface Toast {
   id: number;

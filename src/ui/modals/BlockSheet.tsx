@@ -15,6 +15,7 @@ import { problemAt } from '../../engine/problems';
 import { tripOf, tripTargets } from '../../engine/ops/tripMove';
 import { subleaseTrip } from '../../engine/ops/sublease';
 import { usdSigned } from './TripMoveModal';
+import { SectorBlock } from '../screens/network/live';
 import { FlightTypeChip } from '../components/FlightType';
 import { ProblemCardView } from '../components/ProblemCard';
 import { restSeatWord } from '../components/RestLines';
@@ -182,6 +183,8 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
         return sv ? <div className="small v9-slip"><Repeat className="sc-ico-s accent" /><span><Term id="slipCrew">{sv.text}</Term></span></div> : null;
       })()}
       <KV rows={rows} />
+      {/* v0.19 a scheduled-route flight: passengers by class, cargo and the sector's money; move or cancel its rotation. */}
+      {f.sched && <SectorBlock g={g} f={f} />}
       {ac && f.kind !== 'deadhead' && f.status !== 'cancelled' && <RestSection g={g} f={f} ac={ac} d={d} legal={cs.level !== 'illegal'} />}
       {f.aircraftId && f.kind !== 'deadhead' && (
         <div className="col gap-8">

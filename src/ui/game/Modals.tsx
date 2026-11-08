@@ -12,6 +12,8 @@ import { CallModal } from '../modals/CallModal';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 // v0.18 the person sheet (monthly roster) in its own chunk.
 const PersonSheet = lazy(() => import('../modals/PersonSheet'));
+// v0.19 the Network dialogs (route page, launch wizard, rotation move) in their own chunk.
+const NetworkModals = lazy(() => import('../screens/network/modals'));
 import { DAY, fmtDate } from '../../engine/core/time';
 import { AUTOSAVE_SLOT, SCENARIO_SLOT, SLOTS, autosaveSlot, deleteSlot, deserialize, listSaves, loadFromSlot, saveToSlot, serialize } from '../../engine/save';
 import { SCENARIO_BY_ID } from '../../engine/scenario';
@@ -423,5 +425,6 @@ export function GlobalModals() {
     case 'delivered': return s.game ? <DeliveredModal aircraftId={m.aircraftId} /> : null;
     case 'followDelivery': return s.game ? <FollowDeliveryModal aircraftId={m.aircraftId} /> : null;
     case 'welcome': return s.game ? <WelcomeModal /> : null;
+    case 'route': case 'routeLaunch': case 'rotationMove': return s.game ? <Suspense fallback={null}><NetworkModals m={m} /></Suspense> : null;
   }
 }

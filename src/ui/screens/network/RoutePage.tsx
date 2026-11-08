@@ -15,9 +15,10 @@ import { StatusChip, TrendArrow } from './bits';
 import { net } from './netApi';
 import {
   cargoLine, chainOf, depWords, history, kg, lastQuarters, lfTone, marketOf, modelLabel, monthBars, ratios, repWord, rotationLoad, rotationResult,
-  routeCode, routeName, sectorLoad, seatsLine, seriesWords, hhmm, trend, upcoming, launchSpend,
+  routeCode, routeName, sectorLoad, seatsLine, seriesAircraft, seriesWords, hhmm, trend, upcoming, launchSpend,
 } from './networkLogic';
 import { TimetableEditor } from './TimetableEditor';
+import { confirmCancelRotation } from './live';
 
 type Tab = 'overview' | 'timetable' | 'sales' | 'costs';
 
@@ -123,17 +124,6 @@ function rotActions(g: GameState, r: Route, rot: Rotation) {
   };
 }
 
-export function confirmCancelRotation(g: GameState, r: Route, rot: Rotation) {
-  const q = net.quoteCancel(g, rot.id);
-  const pax = rot.sectors.reduce((a, s) => a + s.bookedJ + s.bookedY, 0);
-  const days = Math.max(0, Math.round((rot.dep - g.now) / DAY));
-  store.openModal({
-    kind: 'confirm', danger: true, title: `Cancel ${routeCode(marketOf(r))} on ${fmtDay(rot.dep)}?`, confirm: 'Cancel the rotation',
-    body: `${pax ? `${int(pax)} booked passengers are refunded or rebooked` : 'No one is booked yet'}${q ? `; it costs about ${money(q.cost)}` : ''}${days < 14 ? ` (${days} days' notice: more than with 14 days or more)` : ''}. A cancelled flight counts against the slot rule.`,
-    onConfirm: () => store.act((gg) => (net.cancel(gg, rot.id) ? { ok: true, message: 'Rotation cancelled' } : { ok: false, message: 'Could not cancel it' })),
-  });
-}
-
 function TimetableTab({ g, r }: { g: GameState; r: Route }) {
   const m = marketOf(r);
   const [edit, setEdit] = useState<string | 'new' | null>(null);
@@ -149,7 +139,7 @@ function TimetableTab({ g, r }: { g: GameState; r: Route }) {
             <div key={s.id} className="nw-series">
               <div className="col grow">
                 <b className="small">{seriesWords(s)} · {hhmm(s.out)} local{s.nights ? `, ${s.nights} night${s.nights > 1 ? 's' : ''}` : ', same day'}</b>
-                <span className="tiny muted">{(() => { try { return s.layout?.label ?? s.typeId; } catch { return s.typeId; } })()} · {fmtDayRel(s.from, g.now)} – {fmtDayRel(s.to, g.now)}{s.tail ? ` · ${g.fleet[s.tail]?.reg ?? s.tail}` : ''}</span>
+                <span className="tiny muted">{seriesAircraft(g, s)} · {fmtDayRel(s.from, g.now)} – {fmtDayRel(s.to, g.now)}{s.tail ? ` · ${g.fleet[s.tail]?.reg ?? s.tail}` : ''}</span>
               </div>
               <button className="btn btn-sm" onClick={() => setEdit(s.id)} aria-label="Change this series"><Pencil /> Change</button>
             </div>
@@ -283,7 +273,7 @@ export function RoutePage({ routeId, tab: tab0 }: { routeId: string; tab?: Tab }
     <Modal title={<span className="row gap-8 nw-title"><span className="ellipsis">{routeName(r)}</span><StatusChip r={r} /></span>} icon={<Plane className="accent" />} onClose={close} size="xwide" className="nw-modal nw-route">
       <div className="col gap-12">
         <div className="small muted nw-route-sub">
-          <span className="mono">{routeCode(m)}</span> · {modelLabel(g, r)}{s0 ? ` · ${(() => { try { return s0.layout?.label ?? s0.typeId; } catch { return s0.typeId; } })()}` : ''}
+          <span className="mono">{routeCode(m)}</span> · {modelLabel(g, r)}{s0 ? ` · ${seriesAircraft(g, s0)}` : ''}
           {r.firstFlight && r.firstFlight > g.now ? ` · first flight ${fmtDayRel(r.firstFlight, g.now)} ${fmtTime(r.firstFlight)} UTC` : ''}
         </div>
         <Seg<Tab> value={tab} onChange={setTab} options={[

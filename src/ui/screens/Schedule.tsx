@@ -25,6 +25,7 @@ import { quoteTripMove, tripOf, type TripMoveQuote, type TripView } from '../../
 import { checkMaintMove, maintWord, movableMaint, type MaintMoveCheck } from '../../engine/ops/maintMove';
 import { ScreenHint } from '../components/ScreenHint';
 import { cssRect, toCss } from '../device';
+import { dragLine, routeOfFlight } from './network/live';
 
 const ZOOMS: ZoomDays[] = [3, 7, 28];
 const STATUS_TONE: Record<Aircraft['status'], 'good' | 'warn' | 'bad' | 'info' | 'off'> = {
@@ -56,8 +57,9 @@ let dragEndedAt = 0;
 
 interface TripDrag {
   phase: 'press' | 'drag';
-  /** v0.7.2.2 'maint': a booked check or refit dragged along its own row (sideways only). */
-  mode: 'trip' | 'maint';
+  /** v0.7.2.2 'maint': a booked check or refit dragged along its own row (sideways only). v0.19 'route': a route
+   * flight: along its own row the whole rotation moves in time; onto another aircraft it is a trip move. */
+  mode: 'trip' | 'maint' | 'route';
   touch: boolean;
   x0: number;
   y0: number;
@@ -81,6 +83,12 @@ interface TripDrag {
   /** Edge auto-scroll while dragging a booking: −1 / 0 / +1 and its timer. */
   edge?: number;
   edgeTimer?: number;
+  /** v0.19 route drag: the rotation, its span on the board, the pointer's start time, the shift and its quotes. */
+  rotId?: string;
+  span?: [number, number];
+  t0?: number;
+  delta?: number;
+  lines?: Map<number, { text: string; ok: boolean }>;
 }
 
 /** v0.12.1 blocks overlapping in time share the row in lanes (top and height in px of the 56 px row). */
@@ -104,7 +112,7 @@ function Block({ b, from, ppm, win0, place }: { b: GanttBlock; from: number; ppm
   return (
     <div
       data-k={b.key}
-      className={`gb gb-${b.kind}${b.ftype && b.ftype !== 'operating' ? ` ${b.ftype}` : ''}${b.paint ? ` gb-paint${paintInk(b.paint) !== '#ffffff' ? ' ink-dark' : ''}` : ''}${b.done ? ' done' : ''}${b.crew ? ` crew-${b.crew}` : ''}${b.alert ? ' crew-short' : ''}`}
+      className={`gb gb-${b.kind}${b.ftype && b.ftype !== 'operating' ? ` ${b.ftype}` : ''}${b.paint ? ` gb-paint${paintInk(b.paint) !== '#ffffff' ? ' ink-dark' : ''}` : ''}${b.done ? ' done' : ''}${b.crew ? ` crew-${b.crew}` : ''}${b.alert ? ' crew-short' : ''}${b.sched ? ' gb-sched' : ''}`}
       style={{ transform: `translateX(${x.toFixed(1)}px)`, width: w, ['--kc' as string]: k, ['--pc' as string]: b.paint, ...(b.paint ? { ['--pc-ink' as string]: paintInk(b.paint) } : {}), ...(lanes > 1 ? laneBox(place!.lane, lanes) : {}) }}
     >
       {bt.lines.length === 2
@@ -403,8 +411,66 @@ export function ScheduleScreen() {
       const sr = sc.getBoundingClientRect();
       d.edge = d.x < sr.left + 44 ? -1 : d.x > sr.right - 44 ? 1 : 0;
     };
+    // v0.19 a route flight held: over its own row the rotation slides in time (15-min steps, live quote); over
+    // another aircraft it is the usual trip move.
+    const placeRoute = (d: TripDrag) => {
+      const gh = d.ghost;
+      const row = d.row;
+      const { g: gg, from: f0, ppm: p } = liveRef.current;
+      if (!gh || !row || !d.span || !d.rotId) return;
+      const hit = document.elementFromPoint(d.x, d.y)?.closest<HTMLElement>('[data-ac]');
+      const over = hit && el.contains(hit) ? hit.dataset.ac ?? null : null;
+      if (over && over !== d.sourceId) {
+        gh.style.display = 'none';
+        d.delta = 0;
+        setHover(d, over);
+        const b = d.bubble;
+        if (!b) return;
+        const q = d.quotes.get(over);
+        b.textContent = q?.ok ? `${gg.fleet[over]?.reg ?? ''}: release to see the money` : q?.reasons[0] ?? '';
+        b.className = `tm-bubble ${q?.ok ? 'ok' : 'no'}`;
+        const bw = b.offsetWidth || 240;
+        b.style.left = `${Math.round(Math.min(Math.max(toCss(d.x), bw / 2 + 8), toCss(window.innerWidth) - bw / 2 - 8))}px`;
+        b.style.top = `${Math.round(Math.min(toCss(d.y) + 30, toCss(window.innerHeight) - (b.offsetHeight || 34) - 6))}px`;
+        return;
+      }
+      setHover(d, null);
+      const rr = cssRect(row);
+      const t = f0 + (toCss(d.x) - rr.left) / p;
+      const delta = Math.round((t - (d.t0 ?? t)) / 15) * 15;
+      const sr0 = cssRect(sc);
+      const x0 = rr.left + (d.span[0] + delta - f0) * p;
+      const x1 = Math.max(x0 + 3, rr.left + (d.span[1] + delta - f0) * p);
+      const l = Math.max(sr0.left, x0);
+      const r = Math.min(sr0.right, x1);
+      gh.style.display = r - l > 1 ? '' : 'none';
+      gh.style.transform = `translate(${l.toFixed(1)}px, ${(rr.top + 8).toFixed(1)}px)`;
+      gh.style.width = `${Math.max(0, r - l).toFixed(1)}px`;
+      if (delta !== d.delta) {
+        d.delta = delta;
+        let line = d.lines!.get(delta);
+        if (!line) d.lines!.set(delta, (line = dragLine(gg, d.rotId, delta)));
+        const tone = !delta ? '' : line.ok ? 'ok' : 'no';
+        gh.className = `mm-ghost nw-ghost ${tone}`;
+        const b = d.bubble;
+        if (b) {
+          b.replaceChildren(Object.assign(document.createElement('b'), { textContent: delta ? `Rotation ${delta > 0 ? '+' : '−'}${Math.floor(Math.abs(delta) / 60)}:${String(Math.abs(delta) % 60).padStart(2, '0')}` : 'Move the whole rotation' }), Object.assign(document.createElement('span'), { textContent: line.text }));
+          b.className = `tm-bubble mm-bubble ${tone}`;
+        }
+      }
+      const b = d.bubble;
+      if (b) {
+        const bw = b.offsetWidth || 260;
+        b.style.left = `${Math.round(Math.min(Math.max(toCss(d.x), bw / 2 + 8), toCss(window.innerWidth) - bw / 2 - 8))}px`;
+        const above = rr.top - (b.offsetHeight || 48) - 10;
+        b.style.top = `${Math.round(above > 70 ? above : Math.min(rr.bottom + 10, toCss(window.innerHeight) - (b.offsetHeight || 48) - 6))}px`;
+      }
+      const sr = sc.getBoundingClientRect();
+      d.edge = d.x < sr.left + 44 ? -1 : d.x > sr.right - 44 ? 1 : 0;
+    };
     const place = (d: TripDrag) => {
       if (d.mode === 'maint') return placeMaint(d);
+      if (d.mode === 'route') return placeRoute(d);
       const gh = d.ghost;
       if (gh) gh.style.transform = `translate(${Math.round(toCss(d.x) - gh.offsetWidth / 2)}px, ${Math.round(toCss(d.y) - 58)}px)`;
       const hit = document.elementFromPoint(d.x, d.y)?.closest<HTMLElement>('[data-ac]');
@@ -451,8 +517,47 @@ export function ScheduleScreen() {
       }, 30);
       placeMaint(d);
     };
+    const pickupRoute = (d: TripDrag) => {
+      const gg = liveRef.current.g;
+      const f = gg.flights[d.flightId];
+      const at = routeOfFlight(gg, f);
+      const row = rows(d.sourceId).find((r) => r.classList.contains('gantt-row'));
+      if (!f || !at || !row) {
+        dragRef.current = null;
+        dragEndedAt = performance.now();
+        return;
+      }
+      const legs = at.rot.sectors.map((x) => (x.flightId ? gg.flights[x.flightId] : undefined)).filter((x): x is NonNullable<typeof x> => !!x);
+      d.phase = 'drag';
+      d.row = row;
+      d.rotId = at.rot.id;
+      d.span = [Math.min(...legs.map((x) => x.std)), Math.max(...legs.map((x) => x.sta))];
+      d.lines = new Map();
+      d.delta = undefined;
+      const rr = cssRect(row);
+      d.t0 = liveRef.current.from + (toCss(d.x) - rr.left) / liveRef.current.ppm;
+      d.trip = tripOf(gg, d.flightId);
+      store.holdTime = true;
+      el.classList.add('tm-drag', 'mm-drag');
+      for (const x of legs) for (const b of el.querySelectorAll<HTMLElement>(`.gb[data-k="${CSS.escape(x.id)}"]`)) b.classList.add('gb-picked', 'mm-from');
+      for (const r of rows(d.sourceId)) r.classList.add('tm-src');
+      const ghost = document.createElement('div');
+      ghost.className = 'mm-ghost nw-ghost';
+      const bubble = document.createElement('div');
+      bubble.className = 'tm-bubble mm-bubble';
+      document.body.append(ghost, bubble);
+      d.ghost = ghost;
+      d.bubble = bubble;
+      d.edgeTimer = window.setInterval(() => {
+        if (!d.edge || dragRef.current !== d || d.hover) return;
+        sc.scrollLeft += d.edge * 10;
+        placeRoute(d);
+      }, 30);
+      placeRoute(d);
+    };
     const pickup = (d: TripDrag) => {
       if (d.mode === 'maint') return pickupMaint(d);
+      if (d.mode === 'route') return pickupRoute(d);
       const gg = liveRef.current.g;
       const trip = tripOf(gg, d.flightId);
       if (!trip.ok) {
@@ -492,6 +597,20 @@ export function ScheduleScreen() {
       d.bubble?.remove();
       el.classList.remove('tm-drag', 'mm-drag');
       for (const x of el.querySelectorAll('.gb-picked')) x.classList.remove('gb-picked', 'mm-from');
+      if (d.mode === 'route') {
+        for (const x of el.querySelectorAll('.tm-src, .tm-hover')) x.classList.remove('tm-src', 'tm-hover', 'tm-ok', 'tm-no');
+        if (!drop) return;
+        if (d.hover && d.hover !== d.sourceId) {
+          store.openModal({ kind: 'tripMove', flightId: d.flightId, targetId: d.hover });
+          return;
+        }
+        if (d.rotId && d.delta) {
+          const line = d.lines?.get(d.delta);
+          if (line?.ok) store.openModal({ kind: 'rotationMove', rotId: d.rotId, delta: d.delta });
+          else store.toast('warn', "Can't move the rotation there", line?.text);
+        }
+        return;
+      }
       if (d.mode === 'maint') {
         for (const x of el.querySelectorAll('.tm-src')) x.classList.remove('tm-src');
         const m = d.maintId ? liveRef.current.g.maintenance[d.maintId] : undefined;
@@ -515,6 +634,9 @@ export function ScheduleScreen() {
       if (mid) return { phase: 'press', mode: 'maint', touch, x0: x, y0: y, x, y, flightId: '', sourceId: acId, timer: 0, hover: null, quotes: new Map(), maintId: mid, grab: t - gg.maintenance[mid].start };
       const id = pressFlight(gg, blocks, t, p);
       if (!id) return null;
+      // v0.19 a route flight that has not left: the rotation moves along the row (or to another aircraft).
+      const rf = gg.flights[id];
+      if (rf?.sched && rf.status === 'scheduled') return { phase: 'press', mode: 'route', touch, x0: x, y0: y, x, y, flightId: id, sourceId: acId, timer: 0, hover: null, quotes: new Map() };
       return { phase: 'press', mode: 'trip', touch, x0: x, y0: y, x, y, flightId: id, sourceId: acId, timer: 0, hover: null, quotes: new Map() };
     };
     const arm = (d: TripDrag) => {
@@ -625,7 +747,7 @@ export function ScheduleScreen() {
   const ticks = axisTicks(win[0], win[1], zoom, ppm);
   return (
     <div className="screen sc-schedule">
-      <ScreenHead title="Schedule" sub={<>Times in UTC · {base} local is {offLabel} · tap a flight for details · hold and drag it to move the trip, or a check or refit to move it along its row · pinch to zoom</>}>
+      <ScreenHead title="Schedule" sub={<>Times in UTC · {base} local is {offLabel} · tap a flight for details · hold and drag it to move the trip, a route flight along its row to move its rotation, or a check or refit along its row · pinch to zoom</>}>
         <button className="btn" onClick={() => scrollTo(g.now)}><Crosshair /> Today</button>
         <Seg<ZoomDays> value={zoom} onChange={setZoom} options={ZOOMS.map((z) => ({ value: z, label: `${z} days` }))} />
         <ColourLegend title="Schedule colours" hint="schedule" items={[

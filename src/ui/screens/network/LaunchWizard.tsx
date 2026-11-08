@@ -90,7 +90,8 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
     });
     if (r.ok) {
       const id = Object.values(store.game?.network?.routes ?? {}).find((x) => x.marketId === m.id && x.status !== 'closed')?.id;
-      store.openModal(id ? { kind: 'routeLaunch', routeId: id } : { kind: 'contractsNetwork' });
+      if (id) store.openModal({ kind: 'routeLaunch', routeId: id });
+      else store.closeModal();
     }
   };
   return (

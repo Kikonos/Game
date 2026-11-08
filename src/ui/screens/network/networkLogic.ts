@@ -3,6 +3,7 @@
 
 import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { ROUTE_MARKETS, type RouteMarket } from '../../../data/routes';
+import { typeOf } from '../../../engine/core/perf';
 import { DAY, fmtDay, fmtTime, localMinuteOfDay, monthKey, toDate } from '../../../engine/core/time';
 import type { GameState, Minute, MonthKey } from '../../../engine/core/types';
 import type { LaunchStageId, Rotation, Route, RoutePnl, RouteSeries, SectorLoad } from '../../../engine/network/types';
@@ -323,3 +324,25 @@ export function rotationResult(rot: Rotation): number | null {
 
 /** The route contracts don't count among ACMI contracts (counts, filters, the Active list's main rows). */
 export const isRouteContract = (c: { archetype: string; sched?: unknown }): boolean => c.archetype === 'scheduled' || !!c.sched;
+
+export const LAYOUT_WORD: Record<string, string> = { 'all-economy': 'all economy', 'two-class': 'business and economy', 'three-class': 'three classes', vip: 'VIP' };
+
+/** '767-300ER · business and economy' for a series (its pinned aircraft's cabin when pinned). */
+export function seriesAircraft(g: GameState, s: Pick<RouteSeries, 'typeId' | 'layout' | 'tail'>): string {
+  const ac = s.tail ? g.fleet[s.tail] : undefined;
+  let name = s.typeId;
+  try {
+    name = typeOf(s.typeId).name;
+  } catch {
+    /* unknown type id: the id */
+  }
+  return ac ? `${name} ${ac.cabin.label}` : `${name} · ${LAYOUT_WORD[s.layout] ?? s.layout}`;
+}
+
+/** IATA season code 'S27' / 'W27' → 'summer 2027' / 'winter 2027–28'. */
+export function seasonWord(code: string): string {
+  const m = /^([SW])(\d{2})$/.exec(code);
+  if (!m) return code;
+  const y = 2000 + Number(m[2]);
+  return m[1] === 'S' ? `summer ${y}` : `winter ${y}–${String(y + 1).slice(2)}`;
+}
