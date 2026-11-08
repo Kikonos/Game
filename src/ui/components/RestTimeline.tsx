@@ -78,7 +78,7 @@ export function restLayout(g: GameState, plan: RestPlan): { legs: RestLegBar[]; 
       const parts = [{ from: std, to: c.from, who: l.takeoff, pair: 'A' as PilotPair | null }, ...l.cruise, { from: c.to, to: sta, who: l.landing, pair: 'A' as PilotPair | null }];
       for (const [k, b] of parts.entries()) {
         const last = blocks[blocks.length - 1];
-        if (last && last.who === b.who && Math.abs(last.x1 - x(b.from)) < 0.01) last.x1 = x(b.to);
+        if (last && last.who === b.who && (last.key.startsWith(`${l.flightId}-`) || Math.abs(last.x1 - x(b.from)) < 0.01)) last.x1 = Math.max(last.x1, x(b.to));
         else blocks.push({ key: `${l.flightId}-${k}`, who: b.who, pair: b.pair, x0: x(b.from), x1: x(b.to) });
       }
     }
