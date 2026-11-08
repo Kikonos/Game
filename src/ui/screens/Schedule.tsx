@@ -756,6 +756,7 @@ export function ScheduleScreen() {
           { swatch: 'corner', label: 'Red corner: the crew cannot legally fly it · amber corner: no crew yet' },
           { swatch: <span className="cs-banner red" style={{ height: 18, fontSize: 11 }}>CREW SHORT</span>, label: 'A crew shortage the warning ladder has flagged (tap the block → Crew Control)' },
           { swatch: <span className="gl-sw gl-sub" />, label: 'Outlined: a leg of our contract flown by another airline (sub-chartered)' },
+          { swatch: <span className="gl-sw gl-op gl-sched" />, label: 'Small ring: one of our scheduled route flights (hold it and drag along the row: the whole rotation moves)' },
           { swatch: 'maint', label: 'Hatched grey: a check, repair or paint shop' },
           { swatch: 'idle', label: 'Dashed outline: idle 12 h or more (rent still runs)' },
           { swatch: 'grey', label: 'Faded: already flown' },

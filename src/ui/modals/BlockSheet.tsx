@@ -222,7 +222,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
         <div className="row wrap gap-8 sc-sheet-actions">
           <Stepper value={hold} min={0} max={8} onChange={setHold} format={(v) => (v ? `+${v * 30} min` : 'Hold')} />
           <button className="btn" onClick={doHold} disabled={!hold}><Clock /> Delay</button>
-          {canSub && <button className="btn" onClick={() => store.openModal({ kind: 'subcharter', contractId: c!.id, flightId: f.id, ...(sub?.ok ? { flightIds: sub.flightIds } : {}) })} title="Another operator flies it for us; the client still pays us (a sub-charter)"><Handshake /> Sub-lease</button>}
+          {canSub && <button className="btn" onClick={() => store.openModal({ kind: 'subcharter', contractId: c!.id, flightId: f.id, ...(sub?.ok ? { flightIds: sub.flightIds } : {}) })} title={f.sched ? 'Another operator flies it under our flight number; passengers keep their tickets, no penalty' : 'Another operator flies it for us; the client still pays us (a sub-charter)'}><Handshake /> {f.sched ? 'Sub-charter' : 'Sub-lease'}</button>}
           {trip && <button className={`btn ${moving ? 'active' : ''}`} onClick={() => setMoving(!moving)} disabled={!trip.ok} title={trip.ok ? `Move ${trip.label} to another aircraft` : trip.reason}><ArrowRightLeft /> Move trip to…</button>}
         </div>
       )}
