@@ -60,6 +60,28 @@ const clampIdx = (i: number, n: number) => Math.max(0, Math.min(n - 1, i));
 /** Which x labels to draw: every `every`-th, plus the last one when it has room. */
 const showLabel = (i: number, n: number, every: number) => i % every === 0 || (i === n - 1 && (n - 1) % every >= Math.ceil(every * 0.6));
 
+/** Which x labels to draw: every `every`-th one, never two that touch. A long last label ('Nov ’28 so far', kept to the
+ *  right edge) used to run into the one before it; now the earlier label gives way. */
+export function fitLabels(labels: string[], xs: number[], fs: number, width: number, every: number): boolean[] {
+  const n = labels.length;
+  const span = (i: number): [number, number] => {
+    const { x, textAnchor } = xLabel(xs[i], labels[i], fs, width);
+    const w = labels[i].length * fs * 0.56;
+    return textAnchor === 'start' ? [x, x + w] : textAnchor === 'end' ? [x - w, x] : [x - w / 2, x + w / 2];
+  };
+  const kept: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (!showLabel(i, n, every)) continue;
+    const left = span(i)[0];
+    while (kept.length && span(kept[kept.length - 1])[1] + 6 > left && i === n - 1 && kept.length > 1) kept.pop();
+    if (kept.length && span(kept[kept.length - 1])[1] + 6 > left) continue;
+    kept.push(i);
+  }
+  const out = labels.map(() => false);
+  for (const i of kept) out[i] = true;
+  return out;
+}
+
 /** Keeps an x label inside the plot: anchored to an edge when centring it would clip. */
 function xLabel(cx: number, label: string, fs: number, width: number): { x: number; textAnchor: 'start' | 'middle' | 'end' } {
   const half = (label.length * fs * 0.56) / 2;
@@ -129,8 +151,8 @@ export function LineChart({
               <text x={padL - 8} y={y(t) + 4} textAnchor="end" fontSize={fs} fill="var(--text-3)" className="num">{format(t)}</text>
             </g>
           ))}
-          {labels.map((l, i) => showLabel(i, n, labelEvery) && (
-            <text key={i} {...xLabel(x(i), l, fs, width)} y={height - 6} fontSize={fs} fill="var(--text-3)">{l}</text>
+          {fitLabels(labels, labels.map((_, i) => x(i)), fs, width, labelEvery).map((on, i) => on && (
+            <text key={i} {...xLabel(x(i), labels[i], fs, width)} y={height - 6} fontSize={fs} fill="var(--text-3)">{labels[i]}</text>
           ))}
           {series.map((s) => {
             const pts = s.values.map((v, i) => `${x(i)},${y(v)}`).join(' ');
@@ -223,8 +245,8 @@ export function BarChart({
               : `M ${cx - bw / 2} ${y0} L ${cx - bw / 2} ${top + hh - r} Q ${cx - bw / 2} ${top + hh} ${cx - bw / 2 + r} ${top + hh} L ${cx + bw / 2 - r} ${top + hh} Q ${cx + bw / 2} ${top + hh} ${cx + bw / 2} ${top + hh - r} L ${cx + bw / 2} ${y0} Z`;
             return <path key={i} d={d} fill={v >= 0 ? pos : neg} opacity={hover === null || hover === i ? 1 : 0.55} />;
           })}
-          {labels.map((l, i) => showLabel(i, n, labelEvery) && (
-            <text key={i} {...xLabel(padL + slot * i + slot / 2, l, fs, width)} y={height - 6} fontSize={fs} fill="var(--text-3)">{l}</text>
+          {fitLabels(labels, labels.map((_, i) => padL + slot * i + slot / 2), fs, width, labelEvery).map((on, i) => on && (
+            <text key={i} {...xLabel(padL + slot * i + slot / 2, labels[i], fs, width)} y={height - 6} fontSize={fs} fill="var(--text-3)">{labels[i]}</text>
           ))}
           <rect x={padL} y={padT} width={w} height={h} fill="transparent" {...handlers} />
         </svg>
@@ -285,17 +307,17 @@ export function PairBars({
               <text x={padL - 8} y={y(t) + 4} textAnchor="end" fontSize={fs} fill="var(--text-3)">{format(t)}</text>
             </g>
           ))}
-          {labels.map((l, i) => {
+          {(() => { const shown = fitLabels(labels, labels.map((_, i) => padL + slot * i + slot / 2), fs, width, labelEvery); return labels.map((l, i) => {
             const cx = padL + slot * i + slot / 2;
             const dim = hover !== null && hover !== i;
             return (
               <g key={i}>
                 {bar(cx - bw / 2 - 1, a.values[i] ?? 0, a.color, 'a', dim)}
                 {bar(cx + bw / 2 + 1, b.values[i] ?? 0, b.color, 'b', dim)}
-                {showLabel(i, n, labelEvery) && <text {...xLabel(cx, l, fs, width)} y={height - 6} fontSize={fs} fill="var(--text-3)">{l}</text>}
+                {shown[i] && <text {...xLabel(cx, l, fs, width)} y={height - 6} fontSize={fs} fill="var(--text-3)">{l}</text>}
               </g>
             );
-          })}
+          }); })()}
           <rect x={padL} y={padT} width={w} height={h} fill="transparent" {...handlers} />
         </svg>
       )}

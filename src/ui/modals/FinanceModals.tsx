@@ -289,7 +289,7 @@ export function DistressModal({ id }: { id: DistressId }) {
   };
   return (
     <Modal title={o.title} icon={<LifeBuoy className="accent" />} onClose={close} footer={<>
-      <span className="grow small muted ellipsis">{o.consequence}</span>
+      <span className="grow small muted">{o.consequence}</span>
       <button className="btn" onClick={close}>Cancel</button>
       <button className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`} disabled={!!why} onClick={go}><LifeBuoy /> {o.title}</button>
     </>}>

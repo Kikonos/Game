@@ -29,9 +29,11 @@
 .ops-safety .ops-find.l1, .ops-safety .ops-find.overdue { border-left-color: var(--bad); }
 .ops-safety .ops-find.done { border-left-color: var(--good); opacity: 0.8; }
 .ops-safety .ops-susp { border: 1px solid rgba(var(--bad-rgb), 0.5); background: rgba(var(--bad-rgb), 0.08); color: var(--text); border-radius: 10px; padding: 10px 12px; margin-bottom: 8px; }
-.ops-safety .ops-list { max-height: 220px; overflow: auto; }
-.ops-safety .ops-gauges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
-.ops-safety .ops-gauge { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 8px 10px; }
+/* At most six rows: no inner scroll that cut a row in half above the Disruptions line. */
+.ops-safety .ops-list { margin-top: var(--space-1); }
+.ops-safety .ops-list + .small { margin-top: var(--space-2); padding-top: var(--space-3); border-top: 1px solid var(--border); }
+.ops-safety .ops-gauges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: var(--tile-gap); }
+.ops-safety .ops-gauge { background: var(--panel-2); border: 1px solid var(--border); border-radius: var(--r); padding: 10px 12px; }
 .ops-safety .ops-gauge b { display: block; font: 700 18px var(--font-mono); }
 .ops-safety .ops-gauge.bad b { color: var(--bad); }
 .ops-safety .ops-gauge.warn b { color: var(--warn); }

@@ -33,4 +33,4 @@
   .fin-bank .fb-body { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
   .fin-bank .fb-block:first-child { grid-column: 1 / -1; }
 }
-.sc-recv .fin-sell { margin-top: 4px; min-height: 32px; padding: 0 10px; }
+.sc-recv .fin-sell { min-height: 32px; padding: 0 10px; }
