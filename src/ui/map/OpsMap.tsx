@@ -30,6 +30,7 @@ import { SIL_COLOURS, silhouette } from './silhouettes';
 import { nextDeparture, SPOT_SECONDS, spotList, spotNext } from './spotter';
 import { wxMarks, type WxMark } from './weather';
 import { MapPanel, TypeKey } from './MapPanels';
+import { RouteLinesLayer, routeSectors } from '../screens/network/live';
 import { ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, fleetGroups, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, parseSlipId, pickNearest, placeEventPins, placeSlipMarks, selectedLegs, shortIndex, slipArcs, slipWindow, tourRoutes, upNextRows } from './mapLogic';
 import { EventPinsLayer, hatchUnit, ZoneGround, ZoneLabels } from './WorldLayer';
 import { type FocusAt, type MapAirport, type MapLayerCtx, type Pad, type View, WorldMap } from './WorldMap';
@@ -366,6 +367,9 @@ export function OpsMap() {
   const pins = useMemo(() => offerPins(g), [g, hour, v]); // eslint-disable-line react-hooks/exhaustive-deps
   const legs = useMemo(() => (arcAc ? selectedLegs(g, arcAc) : []), [g, hour, v, arcAc]); // eslint-disable-line react-hooks/exhaustive-deps
   const nextArcs = useMemo(() => legs.filter((l) => !l.current), [legs]);
+  // v0.19 our scheduled routes as faint dashed lines (lowest layer); they change only when a route opens or closes.
+  const routeKey = Object.values(g.network?.routes ?? {}).map((r) => `${r.id}:${r.status}`).join();
+  const routeLines = useMemo(() => routeSectors(g), [routeKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // v0.9 §W.4 the selected aircraft's crew changes: static marks and the slip crews' airline legs (hourly).
   const slips = useMemo(() => (arcAc ? safe(() => slipsOfAircraft(g, arcAc, ...slipWindow(g.now)), []) : []), [g, hour, v, arcAc]); // eslint-disable-line react-hooks/exhaustive-deps
   const slipMarks = useMemo(() => placeSlipMarks(slips), [slips]);
@@ -584,6 +588,7 @@ export function OpsMap() {
           return (
             <>
               <ZoneLabels zones={zones} proj={ctx.proj} unit={ctx.unit} selected={selEv ? zones.find((z) => z.eventId === selEv)?.eventId : undefined} />
+              {routeLines.length > 0 && <RouteLinesLayer lines={routeLines} proj={ctx.proj} />}
               <PathsLayer shared={shared} />
               <SlipArcsLayer arcs={slipLegs} proj={ctx.proj} />
               <ArcsLayer legs={nextArcs} proj={ctx.proj} />

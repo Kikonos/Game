@@ -3,7 +3,10 @@
 // themselves load lazily.
 
 import '../../../styles/acmi/v019live.css';
+import { geoPath, type GeoProjection } from 'd3-geo';
 import { CalendarClock, CircleSlash, Route as RouteIcon } from 'lucide-react';
+import { memo, useMemo } from 'react';
+import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { DAY, fmtDay, fmtTime, fmtWeekdayTime } from '../../../engine/core/time';
 import type { Flight, GameState } from '../../../engine/core/types';
 import type { Rotation, Route } from '../../../engine/network/types';
@@ -130,3 +133,35 @@ export function confirmCancelRotation(g: GameState, r: Route, rot: Rotation) {
   });
 }
 
+
+/** §K the map's routes overlay: each operating (or on-sale) route's sectors as a faint dashed line, under everything. */
+export function routeSectors(g: GameState): { id: string; from: string; to: string }[] {
+  const out = new Map<string, { id: string; from: string; to: string }>();
+  for (const r of Object.values(g.network?.routes ?? {})) {
+    if (r.status !== 'operating' && r.status !== 'onSale') continue;
+    const m = marketOf(r);
+    if (!m) continue;
+    const chain = [m.from, ...(m.via ?? []), m.to];
+    const back = [m.to, ...(m.viaBack ?? []), m.from];
+    for (const c of [chain, back]) for (let i = 1; i < c.length; i++) {
+      const [a, b] = [c[i - 1], c[i]].sort();
+      out.set(`${a}-${b}`, { id: `${a}-${b}`, from: a, to: b });
+    }
+  }
+  return [...out.values()];
+}
+
+export const RouteLinesLayer = memo(function RouteLinesLayer({ lines, proj }: { lines: { id: string; from: string; to: string }[]; proj: GeoProjection }) {
+  const path = useMemo(() => geoPath(proj), [proj]);
+  if (!lines.length) return null;
+  return (
+    <g className="nw-map-routes" pointerEvents="none">
+      {lines.map((l) => {
+        const A = AIRPORT_BY_CODE[l.from];
+        const B = AIRPORT_BY_CODE[l.to];
+        const d = A && B ? path({ type: 'LineString', coordinates: [[A.lon, A.lat], [B.lon, B.lat]] }) : null;
+        return d ? <path key={l.id} d={d} fill="none" stroke="var(--accent)" strokeOpacity={0.32} strokeWidth={1.3} strokeDasharray="2 5" strokeLinecap="round" /> : null;
+      })}
+    </g>
+  );
+});
