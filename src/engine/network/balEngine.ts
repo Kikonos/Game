@@ -64,14 +64,14 @@ export const NET_ENGINE_BAL = {
   /** §E.1–E.3 demand: market size, season, segments, our share. */
   demand: {
     /** The balance lever on every market's size. */
-    scale: 1.0,
+    scale: 1.4,
     /** The VFR season index Jan … Dec [F/E research §2.4]. */
     season: [0.80, 0.60, 0.70, 0.85, 0.70, 0.85, 1.15, 1.20, 0.90, 0.70, 0.80, 1.30] as number[],
     /** The back (northbound) direction: early January and late August/September peaks (students). */
     seasonBack: [1.20, 0.70, 0.70, 0.80, 0.70, 0.80, 0.95, 1.10, 1.15, 0.75, 0.75, 0.95] as number[],
     growth: 0.03,
     /** Logit weights [E]. */
-    beta: { fare: 2.0, nonstop: 0.6, freq: 0.35, rep: 0.5, bags: 0.3, mkt: 0.4, hours: 0.04 },
+    beta: { fare: 2.0, nonstop: 1.2, freq: 0.35, rep: 0.5, bags: 0.3, mkt: 0.4, hours: 0.08 },
     /** Fare elasticity by segment (bucket choice) and how far each segment moves its date (± days) to fly with us. */
     elasticity: { vfr: 1.2, gov: 0.6, ngo: 0.7, biz: 0.6, students: 1.4, tourism: 1.3, teachers: 0.8 } as Record<string, number>,
     flex: { vfr: 0.5, gov: 0.2, ngo: 0.3, biz: 0.1, students: 0.5, tourism: 0.4, teachers: 0.6 } as Record<string, number>,

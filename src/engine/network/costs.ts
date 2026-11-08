@@ -160,3 +160,10 @@ export function routeMonthCosts(r: Route): Partial<Record<LedgerCat, number>> {
     marketing: r.model === 'partner' ? 0 : C.marketing[r.marketing] ?? 0,
   };
 }
+
+/** What cancelling a route sector on the day loses (pure): its ticket money (refunded) and the passengers' EU261 and care. */
+export function routeCancelLoss(g: GameState, f: Flight): number {
+  const at = sectorOf(g, f);
+  if (!at || at.s.accrued) return 0;
+  return Math.round((at.s.sold ?? 0) + routeDisruptionCost(g, f, 'cancel', 0));
+}
