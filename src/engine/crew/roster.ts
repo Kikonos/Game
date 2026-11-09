@@ -1209,8 +1209,8 @@ export function homeForLeave(g: GameState): string[] {
 
 /**
  * v0.19.3 Leave from away (the player: "they can deadhead home on the first day of leave and deadhead back on the last
- * day of leave. That's how we used to do it at Getjet. That way it doesn't affect the rostering."). Daily, on load and
- * when a trip after a leave is crewed: for annual leave inside the schedule horizon that begins away from base, a ticket
+ * day of leave. That's how we used to do it at Getjet. That way it doesn't affect the rostering."). Daily, when a trip
+ * after a leave is crewed, and for crew away whose leave is hours off (or after the load repair): for annual leave inside the schedule horizon that begins away from base, a ticket
  * home on its first day; when the next duty after it leaves from a station away from base (within LEAVE_BACK_GAP of its
  * end), a ticket back out there on its last day (a ticket out a trip already holds for it is replaced by that one).
  * Travel on a leave day: no duty, no rest (crew/leaveTrips.ts). One that no longer fits (the plan around it moved) is

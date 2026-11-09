@@ -365,6 +365,8 @@ const PURPOSE_CREW: Record<NonNullable<Flight['purpose']>, string> = {
 export function ticketPurpose(g: GameState, ticketId: string): { kind: 'delivery' | 'return' | 'refit' | 'check' | 'sale' | 'lease' | 'duty' | 'home'; aircraftId?: string; text: string } {
   const t = g.flights[ticketId];
   if (!t || t.kind !== 'deadhead') return { kind: 'duty', text: '' };
+  // v0.19.3 travel inside annual leave that began away.
+  if (t.leaveTrip) return { kind: 'home', text: t.leaveTrip === 'home' ? `Annual leave: home to ${cityOf(t.to)} on its first day` : `Annual leave: back to ${cityOf(t.to)} on its last day` };
   const did = crewIx(g).ticketDuty.get(ticketId);
   const d = did ? g.duties[did] : undefined;
   const p = d ? g.pairings[d.pairingId] : undefined;
