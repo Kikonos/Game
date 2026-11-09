@@ -16,6 +16,31 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.19.4',
+    name: 'Widebody tenders',
+    features: [
+      'Widebody tenders: once you hold Widebody operations and have a widebody (flying, delivering or bought), airlines send widebody requests too. Hajj airlifts from Saudia, flynas, Garuda, Biman, PIA and Air Algérie (the dates follow the Hajj calendar and cannot move), Ramadan Umrah lift, summer long-haul cover for Condor, Air Transat, TUI, Corsair and Air Europa, and winter sun cover for Edelweiss, Air Caraïbes, French bee, Air Tahiti Nui and Aircalin. About one a round, more as your company grows.',
+      'Bid a widebody on a widebody request: the aircraft list shows your widebodies with their fit. A narrowbody request still takes a narrowbody.',
+      'Offers, leads and tenders follow your fleet: clients see which aircraft you have, so a mixed fleet gets a steady share of widebody work, more when a widebody stands idle or is about to arrive. Seats are asked to fit your aircraft.',
+      'A lead keeps the body it was quoted for: the offer that comes from it is for the same kind of aircraft. Every lead, tender and pitch shows a Narrowbody or Widebody tag, and you choose which one to pitch.',
+      'Once you fly a widebody and work the charter market (2★), now and then, at most every month or two, a client asks for a double-decker (an A380 or a 747-400). You cannot fly it yet: it is marked "Stretch: out of reach", a taste of what comes next.',
+      'ETOPS 180 is fairer: its technical reliability now counts the twins that will fly ETOPS (your 180-capable widebodies), not the whole fleet, with at least 120 of their departures. The approval card shows the record by aircraft and by cause, the last 30 days, when your pace gets there and what would help.',
+      'New: the ETOPS reliability programme (Ladder › ETOPS 180). Spares along the ETOPS routes and an engineer on call, paid monthly per twin: fewer defects and AOGs on the twins, and an AOG away from base is fixed as fast as at home. The ETOPS maintenance programme helps the twins too.',
+    ],
+    improvements: [
+      'The ETOPS record starts fresh when you load an older save: the twins need a few months of good flying. Keep their checks on time, swap in a spare aircraft on an AOG, and an old airframe that fails often can leave the ETOPS fleet.',
+    ],
+  },
+  {
+    version: 'v0.19.3',
+    name: 'Leave from away',
+    features: [],
+    improvements: [],
+    fixes: [
+      'Annual leave that starts while crew are away (on a rotation or a tour) no longer takes days of the rotation. They deadhead home on the first day of leave and back out on the last day, to where their next duty starts. The leave keeps its days, the travel is not duty, and the calendar shows it on the leave, like "LEAVE" with "SGN→LIS".',
+    ],
+  },
+  {
     version: 'v0.19.2',
     name: 'Your own routes',
     features: [

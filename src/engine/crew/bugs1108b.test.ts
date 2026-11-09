@@ -101,35 +101,44 @@ describe('#2 Carolina Almeida: a "Days off" debuff with 8 days off of 7', () => 
   });
 });
 
-describe('#1 Carolina Almeida: annual leave starts and ends at home base', () => {
-  it('on load her tour part before the leave ends with a ticket home, and the part after it with a ticket back out', () => {
+describe('#1 Carolina Almeida: annual leave from away (v0.19.3: deadhead home on its first day, back on its last)', () => {
+  it('from the next daily run she stays on station until the leave, flies home on its first day and back out to her tour on its last', () => {
     const g = snap01();
+    const t0 = Math.floor(g.now / DAY) * DAY + DAY + 30;
+    while (g.now < t0) advanceTo(g, Math.min(t0, g.now + 12 * 60), new Set());
     const c = g.crew.c32u5;
     const leave = c.blocks!.find((b) => b.why === 'leave')!;
     const tickets = Object.values(g.flights).filter((f) => f.kind === 'deadhead' && f.status === 'scheduled' && f.crewIds.includes(c.id)).sort((a, b) => a.std - b.std);
-    const home = tickets.find((f) => f.to === 'LIS' && f.sta <= leave.from);
-    expect(home, 'a ticket home landing before the leave').toBeDefined();
-    expect(home!.from).toBe('MNL');
-    expect(home!.why).toMatch(/Home for annual leave/);
-    expect(locAt(c, segsOf(g, c), leave.from)).toBe('LIS');
-    // Her part of the tour after the leave (CP7040 on 21 Dec): flown back out, or someone on station has the seat.
+    // No trip home before the leave (it took days of the rotation): the leave's own trip on its first day.
+    expect(tickets.find((f) => f.to === 'LIS' && f.sta <= leave.from)).toBeUndefined();
+    const home = tickets.find((f) => f.leaveTrip === 'home')!;
+    expect(home.from).toBe('MNL');
+    expect(home.std).toBeGreaterThanOrEqual(leave.from);
+    expect(home.std).toBeLessThan(leave.from + DAY);
+    expect(home.why).toMatch(/Annual leave/);
+    expect(locAt(c, segsOf(g, c), leave.from)).toBe('MNL');
+    expect(locAt(c, segsOf(g, c), leave.from + DAY + 12 * 60)).toBe('LIS');
+    // Her part of the tour after the leave (CP7040 on 21 Dec): back out on the leave's last day.
     const p = g.pairings.p3tok;
     if (p.slots.some((s) => s.crewId === c.id)) {
-      const out = tickets.find((f) => f.from === 'LIS' && f.to === 'MNL' && f.std >= leave.to);
-      expect(out, 'a ticket back out after the leave').toBeDefined();
-      expect(out!.why).toMatch(/after annual leave/);
+      const back = tickets.find((f) => f.leaveTrip === 'back')!;
+      expect(back).toMatchObject({ from: 'LIS', to: 'MNL' });
+      expect(back.std).toBeGreaterThanOrEqual(leave.to - DAY);
+      expect(back.std).toBeLessThan(leave.to);
     }
   });
 
-  it('played on, she flies home before the leave and spends it in Lisbon', () => {
+  it('played on, she spends the leave in Lisbon (the leave keeps its dates)', () => {
     const g = snap01();
     const c = g.crew.c32u5;
-    const leave = c.blocks!.find((b) => b.why === 'leave')!;
-    while (g.now < leave.from + 60) advanceTo(g, Math.min(leave.from + 60, g.now + 12 * 60), new Set());
+    const leave = { ...c.blocks!.find((b) => b.why === 'leave')! };
+    while (g.now < leave.from + 2 * DAY) advanceTo(g, Math.min(leave.from + 2 * DAY, g.now + 12 * 60), new Set());
     expect(c.loc).toBe('LIS');
     expect(c.status).toBe('leave');
+    expect(c.blocks!.find((b) => b.why === 'leave')).toMatchObject({ from: leave.from, to: leave.to });
   }, 120_000);
 });
+
 
 describe('#3 VN6000: two captains (a far base reserve flying with the set)', () => {
   it('on load no flight lists more pilots than its duty needs: the reserve and the relief pilots stand by at the station', () => {

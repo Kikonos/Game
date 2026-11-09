@@ -78,7 +78,10 @@ function hajj(ctx: Ctx): Draft | null {
   // v0.8 fix pack: a max-seat all-economy cabin, every seat filled (the passengers are the seats): 180 on an A320,
   // 300–500 on a widebody (440 an A330-300's, 500 a 747-400's Hajj cabin). v0.8 pre-release: 300 most often (a 767's
   // 309Y and every A330/A340 take it, as the 300-seat ask before), the big cabins the rarer prize.
-  const pax = wide ? weightedPick(g, [[300, 0.55], [330, 0.25], [440, 0.12], [500, 0.08]] as const, ([, w]) => w)![0] : 180;
+  // v0.19.4 the seats asked for (a tender sized to our aircraft), or the cabin of the widebody of ours the client has in mind.
+  // (Three in five: the big cabins stay the rarer prize.)
+  const fitted = !!ctx.fitSeats && ctx.fitSeats >= 250 && chance(sideRng(g, `hajjfit:${g.seq}:${g.now}`), 0.6);
+  const pax = wide ? o.seats ?? (fitted ? ctx.fitSeats! : weightedPick(g, [[300, 0.55], [330, 0.25], [440, 0.12], [500, 0.08]] as const, ([, w]) => w)![0]) : 180;
   const legs: LegTemplate[] = [];
   const prefix = clientPrefix(client.name);
   let no = 3000 + int(g, 0, 50) * 10;

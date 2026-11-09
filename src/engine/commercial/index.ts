@@ -9,17 +9,20 @@ import { dailyCrises, devCrisis } from './crises';
 import { loadCommercial } from './state';
 import { seedMarketClients } from '../contracts/clients';
 import { dailyPresence, loadPresence, presence } from './presence';
-import { bidQuote, dailyTenders, decideTender, issueTender, placeBid, roundAt } from './tenders';
+import { bidQuote, dailyTenders, decideTender, issueTender, issueWideTender, placeBid, roundAt, wideTenderEligible } from './tenders';
 import { bookTrip, dailyTrips, fairsAhead, travelLegs } from './trips';
 import { dailySales, loadSales, monthlySales, setSalesHooks } from './sales';
-import { fleetCouldFly, generateOffer, leadWindow } from '../contracts/offers';
-import { TENDER_ISSUERS } from '../../data/fairs';
-import type { CrisisKind } from './types';
+import { fleetCouldFly, fleetFitType, generateOffer, leadWindow } from '../contracts/offers';
+import { TENDER_ISSUERS, WIDE_ISSUER_NAMES } from '../../data/fairs';
+import type { CrisisKind, WideTenderKind } from './types';
+import { chance } from '../core/rng';
+import { sideOf } from './state';
+import { wideShareOf } from '../contracts/fleetFit';
 
 export * from './types';
 export { com, comStats, loadCommercial } from './state';
 export {
-  TENDER, aircraftWanted, bidAircraft, bidQuote, decideTender, issueTender, offerWithBid, ourScore, placeBid, roundAt, roundName, tenderBoard, tenderById, tenderRow, withdrawBid,
+  TENDER, aircraftWanted, bidAircraft, bidQuote, decideTender, hajjTenderFor, issueTender, issueWideTender, offerWithBid, ourScore, placeBid, ramadanOf, roundAt, roundName, tenderBoard, tenderById, tenderRow, umrahTenderFor, wideKindsNow, wideTenderEligible, wideTenderWant, withdrawBid,
   type BidAircraft, type BidQuote, type BidTerms, type TenderRow, type TenderRound,
 } from './tenders';
 export { TRIPS, bookTrip, cancelTrip, fairDays, fairMeets, fairsAhead, inAudience, nextEdition, planTickets, presenceText, travelLegs, travellers, tripNow, tripQuote, tripTitle, tripsView, type FairView, type TravellerView, type TripQuote } from './trips';
@@ -36,13 +39,26 @@ export {
 setTravelHook(travelLegs);
 // v0.16 the sales desk builds its leads' offers and brokers' invited tenders through these (offers.ts and tenders.ts
 // import sales.ts: no cycle).
+const narrowIssuer = (name: string, kind: 'summer' | 'winter') => TENDER_ISSUERS.some((x) => x.name === name && (kind === 'summer' || !!x.winter));
+
 setSalesHooks({
   offer: (g, archetype, opts) => generateOffer(g, archetype, opts),
   fits: (g, offerId) => fleetCouldFly(g, offerId),
-  window: (g, archetype, r) => leadWindow(g, archetype, r),
-  tender: (g, opts) => issueTender(g, opts),
+  fitType: (g, offerId) => fleetFitType(g, offerId),
+  window: (g, archetype, r, onAc) => leadWindow(g, archetype, r, onAc),
+  // v0.19.4 a widebody tenderer invites us to its widebody RFP once we can bid one (else its narrowbody one, if any).
+  tender: (g, opts) => {
+    const name = opts.clientId ? g.clients[opts.clientId]?.name : undefined;
+    const round = roundAt(g.now);
+    // An airline that tenders both (Condor, TUI, Saudia…): the body by our fleet's weighted share.
+    const both = !!name && !!round && narrowIssuer(name, round.kind);
+    const wideFirst = !!name && WIDE_ISSUER_NAMES.has(name) && wideTenderEligible(g) && (!both || chance(sideOf(g, `inv:${opts.clientId}:${Math.floor(g.now / 1440)}`), wideShareOf(g)));
+    const wide = wideFirst ? issueWideTender(g, opts) : null;
+    if (wide) return wide;
+    return !name || !round || narrowIssuer(name, round.kind) ? issueTender(g, opts) : null;
+  },
   round: (t) => roundAt(t),
-  issuer: (name, kind) => TENDER_ISSUERS.some((x) => x.name === name && (kind === 'summer' || !!x.winter)),
+  issuer: (name, kind, g) => narrowIssuer(name, kind) || (WIDE_ISSUER_NAMES.has(name) && wideTenderEligible(g)),
 });
 
 function daily(g: GameState): void {
@@ -81,6 +97,15 @@ export const commercialModule: SimModule = {
 export function devTender(g: GameState, clientId?: string): string {
   for (let i = 0; i < 6; i++) {
     const t = issueTender(g, { clientId });
+    if (t) return t.id;
+  }
+  return '';
+}
+
+/** v0.19.4 a widebody RFP now (of that kind when given: 'hajj', 'umrah', 'summerLong', 'winterLong'); its id or ''. */
+export function devWideTender(g: GameState, kind?: WideTenderKind): string {
+  for (let i = 0; i < 6; i++) {
+    const t = issueWideTender(g, kind ? { kind } : {});
     if (t) return t.id;
   }
   return '';

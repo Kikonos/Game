@@ -8,6 +8,7 @@ import { DAY } from '../core/time';
 import type { CrewMember, Deployment, GameState, Minute, Pairing } from '../core/types';
 import { periodOf } from './duties';
 import { crewIx, dhBlock, planHome, snapDeparture, type TicketPlan } from './timeline';
+import { isAnnual, leaveTicketsOf } from './leaveTrips';
 
 /** The deployment of a tour pairing. */
 export const deploymentOf = (g: GameState, p: Pairing): Deployment | undefined => (p.tour && p.deploymentId ? g.deployments[p.deploymentId] : undefined);
@@ -45,8 +46,9 @@ export function tourHolding(g: GameState, c: CrewMember): Pairing | null {
     const span = tourSpan(g, q);
     if (!dep || !span || c.loc !== dep.base) continue;
     if (span.from > g.now + DAY || span.to <= g.now + 12 * 60) continue;
-    // (v0.17.2 a leave or course later in the period sends them home only when it is two days off, not weeks ahead.)
-    if (c.blocks?.some((b) => b.from < Math.min(span.to, g.now + 2 * DAY) && b.to > g.now)) continue;
+    // (v0.17.2 a leave or course later in the period sends them home only when it is two days off, not weeks ahead.
+    // v0.19.3 an annual leave with its own trip home on its first day does not: they stay on station until then.)
+    if (c.blocks?.some((b) => b.from < Math.min(span.to, g.now + 2 * DAY) && b.to > g.now && !(isAnnual(b) && leaveTicketsOf(g, c, b, 'home').length))) continue;
     if (q.dutyIds.some((id) => { const d = g.duties[id]; return !!d && !d.done && d.report > g.now; }) || !tourEndKnown(g, q)) hold = q;
   }
   return hold;
@@ -103,7 +105,7 @@ export function deploymentSets(g: GameState): SetLine[] {
       let home = to;
       for (const id of ids) {
         for (const f of crewIx(g).tickets.get(id) ?? []) {
-          if (f.kind === 'deadhead' && f.status === 'scheduled' && f.to === g.company.homeBase && f.std >= g.now && f.std < home) home = f.std;
+          if (f.kind === 'deadhead' && f.status === 'scheduled' && !f.leaveTrip && f.to === g.company.homeBase && f.std >= g.now && f.std < home) home = f.std;
         }
       }
       const of = Math.max(1, Math.round((to - per.from) / DAY));

@@ -19,3 +19,12 @@ export function ShapeTags({ s, compact, className = '' }: { s: Shape; compact?: 
     </span>
   );
 }
+
+/** v0.19.4 the body tag alone (leads, tenders and pitches: the body the client asked for). */
+export function BodyTag({ body, className = '' }: { body: 'narrow' | 'wide'; className?: string }) {
+  return (
+    <span className={`shape-tags ${className}`}>
+      <span className={`shape-tag body-${body}`} data-tip={body === 'wide' ? 'A widebody job (twin aisle)' : 'A narrowbody job (single aisle)'}>{BODY_LABEL[body]}</span>
+    </span>
+  );
+}

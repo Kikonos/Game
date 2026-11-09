@@ -18,7 +18,7 @@ import { DAY } from '../engine/core/time';
 import { pushDecision } from '../engine/core/messages';
 import type { ClientLevel } from '../engine/contracts';
 import type { WorldEventKind } from '../engine/core/types';
-import { devCrisisNow, devFair, devLead, devTender, devTenderBoard, type CrisisKind } from '../engine/commercial';
+import { devCrisisNow, devFair, devLead, devTender, devTenderBoard, devWideTender, type CrisisKind, type WideTenderKind } from '../engine/commercial';
 import { devDeportation, devDryLease, devEvacuation, devFarRoute, devHajj, devLevel, devMixedCrew, devRivalBid, devWorldEvent, devWorldTour } from '../engine/dev';
 import { devTourStopClosed } from '../engine/ops/tourStop';
 import { demoFlights, devAddType, devCrewShortage, devExtension, devFleet, devGrantApproval, devMarketOffer, devRestPlan, devRestSeats, devSaleReady, devShortCruise, devSplit, devStandby } from '../engine/dev';
@@ -1643,6 +1643,17 @@ class GameStore {
       const g = this.game;
       if (!g) return '';
       const id = devTender(g, clientId);
+      settle(g);
+      this.surfaceMessages();
+      if (id) this.openModal({ kind: 'tender', tenderId: id });
+      this.emit();
+      return id;
+    },
+    /** v0.19.4 a widebody RFP now ('hajj' | 'umrah' | 'summerLong' | 'winterLong'), its bid form. */
+    wideTender: (kind?: WideTenderKind) => {
+      const g = this.game;
+      if (!g) return '';
+      const id = devWideTender(g, kind);
       settle(g);
       this.surfaceMessages();
       if (id) this.openModal({ kind: 'tender', tenderId: id });

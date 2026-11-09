@@ -87,6 +87,7 @@ export { cashForecast, daysOverdue, fixedCosts, forecastItems, monthEndBill, mon
 export { delayFlight, delayOf, schedSta } from './flights';
 export { excusedLate, isOurDelay, latePenalty, NOT_OURS, onTimeLeg } from './latePolicy';
 export { GOALS, type GoalDef } from './goals';
+export { CAUSE_TEXT, etopsRecord, etopsTwin, etopsTwins, joinRelProgramme, leaveRelProgramme, relFactors, relProgBlocker, relProgState, type EtopsRecord, type RelProgState } from './etopsRel';
 export { aogChance, cancelCheck, checkAirportOk, checkCostOf, checkStatus, checkUsedAt, groundGaps, scheduleCheck, type CheckStatus } from './maintenance';
 export { acquireAircraft, eligibleTypes, marketView, renameAircraft, returnSiteOf, type MarketOfferView } from './market';
 export { checkRegistration, cleanAircraftName, cleanRegInput, NAME_MAX, regCountry, regFormat, suggestRegistration } from './registration';

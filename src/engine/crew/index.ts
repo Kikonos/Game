@@ -14,7 +14,7 @@ export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { setRedundantHook } from './utilisation';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, repairDaysOffMorale, repairStandbyMorale, setResignHooks } from './morale';
-import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
+import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, leaveTrips, repairLeaveTrips, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
 import { extFdp, localMin, minRest, referenceTime, signedTz, tzDeltaH, tzNights, woclMinutes } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { rosterHorizon, dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, dropStrandedStandby, v09Stats } from './dayPlan';
@@ -398,7 +398,8 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     // by hand while on annual leave rode our aircraft out to her trip).
     // v0.12.1 a flight home is the exception: sick, or with leave begun while away, they fly home as passengers (seed
     // 6: a captain sick at Düsseldorf 'missed' his ride home every morning for a week, a new ticket bought each day).
-    const off = f.to !== c.base && c.blocks?.some((b) => b.why !== 'training' && b.from <= (f.atd ?? f.std) && b.to > (f.atd ?? f.std));
+    // v0.19.3 nor a leave's own trip back out on its last day (travel on a leave day).
+    const off = f.to !== c.base && !f.leaveTrip && c.blocks?.some((b) => b.why !== 'training' && b.from <= (f.atd ?? f.std) && b.to > (f.atd ?? f.std));
     if (off || c.loc !== f.from || (late ??= landedAfter(g, f.from, (f.atd ?? f.std) - 15)).has(id)) {
       missed.push(id);
       continue;
@@ -411,7 +412,10 @@ function onFlightArrCrew(g: GameState, ev: SimEvent): void {
     // never logged a second time, whichever duty lists it now (an empty leg re-planned under a new id after the release
     // left the ride on no duty: bots logged the crew twice, 'duty starts before the previous one ends').
     const last = c.log[c.log.length - 1];
-    if (last && last.sectors > 0 && last.start <= (f.atd ?? f.std) && last.end > (f.atd ?? f.std)) {
+    if (f.leaveTrip) {
+      // v0.19.3 travel on a leave day: no duty logged, no rest after it (the calendar keeps the journey on the leave).
+      noteFlown(g, c, (f.atd ?? f.std) - checkInOf(f), f.ata ?? f.sta, flownLegs(g, [f]), true, true);
+    } else if (last && last.sectors > 0 && last.start <= (f.atd ?? f.std) && last.end > (f.atd ?? f.std)) {
       // (A late landing only moves the rest after it: the log keeps the duty as released.)
       c.restUntil = Math.max(c.restUntil, c.restUntil + Math.max(0, (f.ata ?? f.sta) - last.end));
     } else if (!mergedFor(dutyOf(id))) {
@@ -656,8 +660,10 @@ function daily(g: GameState) {
     const stayed = stayOn(g);
     if (stayed.length) recheckNext(g, stayed);
   }
-  // Bug 1108b: a trip ending away with a leave next books its ticket home now (leave starts and ends at home).
+  // Bug 1108b: a trip ending away with a course next books its ticket home now (a course starts and ends at home).
   homeForLeave(g);
+  // v0.19.3 annual leave that begins away: a ticket home on its first day, and back out on its last to the next duty.
+  leaveTrips(g);
   sendStrandedHome(g);
   // Crew-planning round: a ticket moved by any other path that lands after a leave began starts that leave at home.
   leaveAfterTickets(g);
@@ -817,8 +823,11 @@ export const crewModule: SimModule = {
     // Rotations round (v0.16.4): tickets booked off the timetable by an older build move onto it where the crew still
     // connect (last: every other repair has read the tickets as they were).
     retimeToTimetable(g);
-    // Bug 1108b: leave away from base in older saves (Carolina Almeida's at Manila): the trip home planned now.
+    // Bug 1108b: a course away from base in older saves: the trip home planned now.
     homeForLeave(g);
+    // v0.19.3 older saves' trips home before an annual leave (bug 1108b) become the leave's own trips where it is safe
+    // (the other leaves that begin away get theirs at the next daily run, as in a game played on).
+    repairLeaveTrips(g);
     // Bug 1108b: a far base's reserve no longer flies with the set (VN6000's second captain).
     repairReserveAboard(g);
   },

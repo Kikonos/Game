@@ -9,6 +9,7 @@ import { schedule } from '../core/queue';
 import { DAY, fmtDate, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, ApprovalId, GameState, HotelTier, Minute, PendingApproval, Policies, SimEvent } from '../core/types';
 import { pruneTechLog, seedTechLog, techReliability } from '../core/techLog';
+import { dailyRelProgramme, etopsRecord } from './etopsRel';
 import { clamp } from '../core/util';
 import { familyLabel } from '../crew/conversion';
 import { restOf } from '../crew/restPlan';
@@ -194,8 +195,27 @@ function cleanReq(g: GameState, days: number): Req {
   return { label: `No illegal crew duties: ${days} days`, ok: c.ok, have: c.text, why: `Needs ${days} days without an illegal crew duty (${c.text})`, grant: true };
 }
 
+/**
+ * v0.19.4 ETOPS 180 / 240: technical dispatch reliability of the ETOPS fleet (the twins that will fly it) over the window,
+ * with a minimum of their departures (ops/etopsRel.ts; the approval card shows the breakdown).
+ */
+function etopsTechReq(g: GameState, id: ApprovalId, days: number): Req {
+  const min = id === 'etops240' ? 240 : 180;
+  const r = etopsRecord(g, min, days);
+  const since = r.since > g.now - days * DAY ? ` since ${fmtDate(r.since)}` : '';
+  if (r.pct === null) {
+    const label = `ETOPS fleet technical reliability: not enough ETOPS flights yet (${r.deps} of ${r.minDeps} departures${since}; needs ${r.need}% over ${days} days)`;
+    return { label, ok: false, why: `Needs ETOPS fleet technical reliability ${r.need}% over ${days} days: not enough ETOPS twin departures yet (${r.deps} of ${r.minDeps})`, grant: true, etops: min };
+  }
+  return {
+    label: `ETOPS fleet technical reliability ${r.pct}% (needs ${r.need}%) over ${days} days${since}`, ok: r.pct >= r.need,
+    why: `Needs ETOPS fleet technical reliability ${r.need}% over ${days} days (${r.pct}% now)`, grant: true, etops: min,
+  };
+}
+
 /** v0.10.2 technical dispatch reliability over the window, at the approval's target (needs a minimum of departures). */
 function techReq(g: GameState, id: ApprovalId, days: number): Req {
+  if (id === 'etops180' || id === 'etops240') return etopsTechReq(g, id, days);
   const need = BAL.ladder.tech.target[id] ?? 97;
   const r = techReliability(g, days);
   if (r.pct === null) {
@@ -309,7 +329,7 @@ function reqsOf(g: GameState, id: ApprovalId, filing: boolean): Req[] {
 
 /** v0.7: the requirement checklist of an approval (✓/✗ with have/need). Pure. */
 export function approvalReqs(g: GameState, id: ApprovalId): ApprovalReq[] {
-  return reqsOf(g, id, true).map(({ label, ok, have, need, action }) => ({ label, ok, ...(have !== undefined ? { have } : {}), ...(need !== undefined ? { need } : {}), ...(action ? { action } : {}) }));
+  return reqsOf(g, id, true).map(({ label, ok, have, need, action, etops }) => ({ label, ok, ...(have !== undefined ? { have } : {}), ...(need !== undefined ? { need } : {}), ...(action ? { action } : {}), ...(etops ? { etops } : {}) }));
 }
 
 /** Why an approval can't be started now (null = it can): the first failing requirement. Pure. */
@@ -401,6 +421,8 @@ export function onApprovalDone(g: GameState, ev: SimEvent): void {
 export function dailyApprovals(g: GameState): void {
   pruneIncidents(g);
   pruneTechLog(g);
+  // v0.19.4 the ETOPS reliability programme's month.
+  dailyRelProgramme(g);
   finishEtopsMx(g);
   const co = g.company;
   for (let i = co.pendingApprovals.length - 1; i >= 0; i--) {
@@ -426,7 +448,7 @@ export function setPolicies(g: GameState, patch: Partial<Policies>): ActionResul
 
 // ---------- v0.7 the Ladder ----------
 
-export interface ApprovalReq { label: string; ok: boolean; have?: string; need?: string; /** v0.10.2 the row has its own action ('etopsMx': Set up). */ action?: 'etopsMx' }
+export interface ApprovalReq { label: string; ok: boolean; have?: string; need?: string; /** v0.10.2 the row has its own action ('etopsMx': Set up). */ action?: 'etopsMx'; /** v0.19.4 the ETOPS fleet's reliability row (180 or 240): the card shows its breakdown. */ etops?: number }
 export type NodeState = 'held' | 'pending' | 'ready' | 'locked';
 export interface LadderNode {
   id: ApprovalId; name: string; desc: string; state: NodeState; cost: number; /** Paid at the grant (0 = none). */ grantCost: number; days: number;

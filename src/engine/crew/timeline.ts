@@ -188,6 +188,8 @@ export interface TicketPlan {
   to: string;
   std: Minute;
   sta: Minute;
+  /** v0.19.3 a trip inside annual leave (as Flight.leaveTrip): planned, not bought yet. */
+  leaveTrip?: 'home' | 'back';
   /** Ride this own empty leg instead of buying a ticket. */
   rideId?: string;
 }
@@ -658,6 +660,8 @@ export function ctxOf(g: GameState, c: CrewMember): TimelineCtx {
 export const checkInOf = (t: TicketPlan): number => ((t as Partial<Flight>).charter ? BAL.crewControl.jet.checkInMin : CHECKIN());
 
 export function posSeg(t: TicketPlan, c: CrewMember, fresh = false): Seg {
+  // v0.19.3 travel inside annual leave: it moves them, nothing more (no rest after it; evalSegs folds it).
+  if ((t as Partial<Flight>).leaveTrip) return mkSeg({ kind: 'pos', start: t.std - checkInOf(t), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: 0, at: t.to, from: t.from, dutyId: undefined, ticketId: (t as Partial<Flight>).id, fresh, leave: true });
   return mkSeg({ kind: 'pos', start: t.std - checkInOf(t), end: t.sta, fdp: 0, maxFdp: 0, block: 0, sectors: 0, aug: false, disruptive: false, rest: posRest(t, t.to === c.base, tzDeltaH(c.base, t.to, t.sta)), at: t.to, from: t.from, dutyId: undefined, ticketId: (t as Partial<Flight>).id, fresh });
 }
 
@@ -1193,7 +1197,7 @@ export function droppableHome(g: GameState, c: CrewMember, segs: Seg[], dep: str
     && (start < release + 1440 || (endsAt !== undefined && endsAt !== dep && start >= release && start < release + 7 * 1440
       && !segs.some((y) => y.kind !== 'log' && y.start >= release && y.start < start)));
   for (const x of segs) {
-    if (onTour(g, x)) continue;
+    if (onTour(g, x) || x.leave) continue;
     if (x.kind === 'pos' && x.ticketId && x.from === dep && x.at === c.base && near(x.start) && locAt(c, segs, x.start) === dep) out.push(x.ticketId);
     else if (x.kind === 'duty' && x.home?.id && x.home.from === dep && x.at === c.base && near(x.home.std - CHECKIN())) out.push(x.home.id);
   }
@@ -1209,7 +1213,7 @@ export function droppableOut(g: GameState, c: CrewMember, segs: Seg[], station: 
   const now = g.now;
   for (const x of segs) {
     if (x.kind === 'log' || x.end <= release) continue;
-    if (x.start < release || x.start >= release + 2 * 1440 || onTour(g, x)) return [];
+    if (x.start < release || x.start >= release + 2 * 1440 || onTour(g, x) || x.leave) return [];
     if (x.kind === 'pos' && x.ticketId && x.from === c.base && x.at === station && x.start > now) return [x.ticketId];
     if (x.kind === 'duty' && x.out?.id && x.from === c.base && x.out.to === station && x.start > now) return [x.out.id];
     return [];

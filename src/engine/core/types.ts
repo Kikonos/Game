@@ -234,6 +234,8 @@ export interface Company {
   pendingApprovals: PendingApproval[];
   /** v0.10.2 the ETOPS maintenance programme (a one-off CAMO set-up the ETOPS approvals need): started, ready, paid; `held` once done. Older saves: not set up. */
   etopsMx?: { started: Minute; done: Minute; cost: number; held?: true };
+  /** v0.19.4 the ETOPS reliability programme (ops/etopsRel.ts): joined, in place from `ready`, the last month billed, left. Older saves: none. */
+  relProg?: { started: Minute; ready: Minute; billed?: number; ended?: Minute };
   policies: Policies;
   departments: Department[];
   /** Next numeric flight number for own-designator flights. */
@@ -269,6 +271,8 @@ export interface PlayerPrestige {
   levelAt: Partial<Record<Prestige, Minute>>;
   /** The last stretch offer (one level up) made. */
   stretchAt?: Minute;
+  /** v0.19.4 the last out-of-reach job (a taste of progression: a double-decker load) made (contracts/fleetFit.ts). */
+  reachAt?: Minute;
   /** Set once when derived from an older save's history on load. */
   derived?: true;
 }
@@ -658,6 +662,8 @@ export interface ContractOffer {
   // ---------- v0.16 (UPDATE-0.16.md) ----------
   /** v0.16 clients: a stretch offer from a client one level above ours ("a taste of what's to come"). */
   stretch?: true;
+  /** v0.19.4 out of reach for our fleet today (a double-decker load): a taste of progression (contracts/fleetFit.ts). */
+  reach?: true;
   /** v0.16 clients: the rate part of the client's prestige level (−4 % brochure work … +8 % majors), priced in. */
   prestigePct?: number;
   /** v0.16.3 the 'Restructuring' label's rate part (−5 %) while the company carries it, priced in. */
@@ -843,6 +849,17 @@ export interface DryLeaseState {
 export type FlightKind = 'revenue' | 'positioning' | 'ferry' | 'techstop' | 'deadhead';
 export type FlightStatus = 'scheduled' | 'enroute' | 'done' | 'cancelled';
 
+/** v0.19.4 one technical dispatch failure (core/techLog.ts). */
+export type TechCause = 'aog' | 'defect' | 'overrun' | 'grounded' | 'diversion' | 'etops';
+export interface TechFail {
+  t: Minute;
+  ac: string;
+  no: string;
+  cause: TechCause;
+  /** Minutes late at departure (absent: cancelled). */
+  late?: number;
+}
+
 export interface Flight {
   id: string;
   /** Flight number shown on the board: client number on wet leases, ours on charters. */
@@ -914,6 +931,11 @@ export interface Flight {
   charter?: { cls: JetClass; model: string; operator: string; reg: string };
   /** Rotations round (v0.16.4): why this crew ticket was bought: a tour change, an early trip home and its reason, a replacement. */
   why?: string;
+  /**
+   * v0.19.3 a crew ticket inside annual leave that began away from base: home on its first day ('home'), back out to the
+   * station of the next duty on its last ('back'). Travel on a leave day: not duty, no rest after it, the leave keeps its days.
+   */
+  leaveTrip?: 'home' | 'back';
   /** v0.8 held by a closed airport (world event id). */
   closedBy?: string;
   /** v0.8 rerouted around a closed zone: extra minutes (set once). */
@@ -924,6 +946,9 @@ export interface Flight {
   uninsured?: 'asked' | 'wait' | 'ok';
   /** v0.10.2 a technical cause hit this leg (a technical delay, the aircraft AOG or in an overrunning check, grounded): technical dispatch reliability. */
   tech?: true;
+  /** v0.19.4 the aircraft and the reason when a technical cause first hit the leg (the ETOPS fleet record and its breakdown). */
+  techAc?: string;
+  techWhy?: string;
   /** v0.11 Operations: diverted en route (ops/disrupt.ts): the planned destination, when and why it turned, the eta it had. */
   div?: {
     to0: string; at: Minute; eta0: Minute; cause: DisruptCause;
@@ -1142,6 +1167,8 @@ export interface FlownDuty {
   legs: FlownLeg[];
   /** A journey as a passenger (airline ticket or a seat on our own leg), not a duty. */
   pax?: true;
+  /** v0.19.3 a trip home or back inside annual leave (Flight.leaveTrip): drawn on the leave, not as a trip. */
+  lv?: true;
 }
 
 /** v0.18.1 a calendar year's annual leave. */
@@ -1748,7 +1775,7 @@ export interface SimEvent {
 
 export interface Stats {
   /** v0.18.1 annual leave requests: made, approved, declined (by the peak-month rule, by the share away, by the player), withdrawn. */
-  leave?: { asked: number; approved: number; declined: number; peak: number; share: number; byYou: number; withdrawn: number };
+  leave?: { asked: number; approved: number; declined: number; peak: number; share: number; byYou: number; withdrawn: number; /** v0.19.3 tickets home / back booked inside annual leave begun away. */ tripsHome?: number; tripsBack?: number };
   /** v0.12.1 approvals at departure: when each job ('<contract>|<aircraft>') last got the 'approvalLate' decision; revenue legs stopped at the gate. */
   gateAsked?: Record<string, Minute>;
   gateStopped?: number;
@@ -1804,6 +1831,14 @@ export interface Stats {
   /** v0.10.2 technical dispatch reliability by day (day number → [revenue departures, technical failures: off > 15 min
    *  late or cancelled for a technical reason]); 366 days kept. Older saves: seeded at load from onTimeM and the AOGs. */
   techDisp?: Record<number, [number, number]>;
+  /** v0.19.4 the same record by aircraft (aircraft id → day → [revenue departures, technical failures]) since
+   *  `techAcSince` (older saves: from the load), and the technical failures themselves (366 days): the ETOPS fleet's
+   *  record and the approval card's breakdown. */
+  techAc?: Record<string, Record<number, [number, number]>>;
+  techAcSince?: Minute;
+  techFails?: TechFail[];
+  /** v0.19.4 counters: out-of-reach jobs offered, widebody tenders issued, leads whose offer kept the lead's body. */
+  v0194?: { reach?: number; wideTenders?: number; leadKept?: number; leadChanged?: number };
   /** v0.7: illegal-crew and AOG incidents (pruned after 365 days; the Ladder's illegal-duty check). */
   incidents?: [Minute, 'illegalCrew' | 'aog'][];
   /** v0.7: deliveries, days delivery ferries waited for pilots, refits, lease returns and extensions, authority findings. */
@@ -2358,6 +2393,10 @@ export interface Lead {
   warned?: true;
   /** What the lead is about, in words ('Summer base at Frankfurt'). */
   title?: string;
+  /** v0.19.4 the body the client asked for, the seats and the type of ours it fits: the offer keeps them (older leads: none). */
+  body?: 'narrow' | 'wide';
+  seats?: number;
+  typeId?: string;
 }
 
 export interface Pitch {
@@ -2373,6 +2412,8 @@ export interface Pitch {
   offerAt?: Minute;
   /** Free: met at a fair this season. */
   free?: true;
+  /** v0.19.4 what we pitched: a narrowbody or a widebody (older pitches: what the lead says). */
+  body?: 'narrow' | 'wide';
 }
 
 export interface SalesRep {

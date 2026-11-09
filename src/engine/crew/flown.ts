@@ -24,12 +24,13 @@ export function flownLegs(g: GameState, fl: Flight[]): FlownLeg[] {
 }
 
 /** Records a duty or journey [s, e) with its legs; drops what is older than 70 days. */
-export function noteFlown(g: GameState, c: CrewMember, s: Minute, e: Minute, legs: FlownLeg[], pax = false): void {
+export function noteFlown(g: GameState, c: CrewMember, s: Minute, e: Minute, legs: FlownLeg[], pax = false, lv = false): void {
   if (!legs.length) return;
   const list = (c.flown ??= []);
   // The same duty logged twice (a late release re-run) replaces the earlier record.
   const same = list.findIndex((x) => x.s === s && !!x.pax === pax);
-  const rec: FlownDuty = { s, e, legs, ...(pax ? { pax: true as const } : {}) };
+  // (v0.19.3 lv: a trip inside annual leave, drawn on the leave.)
+  const rec: FlownDuty = { s, e, legs, ...(pax ? { pax: true as const } : {}), ...(lv ? { lv: true as const } : {}) };
   if (same >= 0) list[same] = rec;
   else list.push(rec);
   if (list[0].e < g.now - FLOWN_DAYS * DAY) c.flown = list.filter((x) => x.e >= g.now - FLOWN_DAYS * DAY);

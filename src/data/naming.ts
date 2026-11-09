@@ -536,10 +536,14 @@ export const CLIENT_SEEDS_V016: ClientSeed[] = [
   { name: 'Eni', kind: 'corporate', country: 'IT', base: 'FCO', prestige: 2 },
   { name: 'BHP', kind: 'corporate', country: 'AU', base: 'PER', prestige: 2, market: true },
   { name: 'Rio Tinto', kind: 'corporate', country: 'AU', base: 'PER', prestige: 2, market: true },
+  // v0.19.4 a Hajj airlift tenderer (widebody tenders), last so no other id moves.
+  { name: 'Pakistan International Airlines', kind: 'airline', country: 'PK', base: 'KHI', role: 'hajj', prestige: 3 },
 ];
 
 /** v0.16 the rating families the new airlines fly (approximate 2026 fleets); [] none of ours. */
 export const AIRLINE_FAMILIES_V016: Record<string, RatingFamily[]> = {
+  // v0.19.4
+  'Pakistan International Airlines': ['A320', 'B777'],
   'Air France': ['A320', 'A350', 'B777', 'B787', 'A330/340'], KLM: ['B737', 'A320', 'B777', 'B787', 'A330/340'], 'British Airways': ['A320', 'B777', 'B787', 'A350', 'A380'],
   'Virgin Atlantic': ['A330/340', 'A350', 'B787'], Iberia: ['A320', 'A330/340', 'A350'], SWISS: ['A320', 'A330/340', 'B777', 'A350'], 'Turkish Airlines': ['A320', 'B737', 'A330/340', 'A350', 'B777', 'B787'],
   'Air New Zealand': ['A320', 'B787', 'B777'], 'French bee': ['A350'], 'Air Caraïbes': ['A350', 'A330/340'], 'Austrian Airlines': ['A320', 'B787'], 'Brussels Airlines': ['A320', 'A330/340'],
@@ -556,6 +560,8 @@ export const AIRLINE_FAMILIES_V016: Record<string, RatingFamily[]> = {
 
 /** v0.16 where the new non-European airlines (and the overseas French ones) send a wet-leased aircraft. */
 export const AIRLINE_MARKETS_V016: Record<string, string[]> = {
+  // v0.19.4
+  'Pakistan International Airlines': ['PK', 'SA', 'AE', 'QA', 'OM', 'BH', 'KW', 'GB', 'FR', 'CA', 'MY', 'TH', 'CN'],
   'Air New Zealand': ['NZ', 'AU', 'FJ', 'WS', 'TO', 'CK', 'NC', 'PF', 'US', 'SG', 'JP'], Aircalin: ['NC', 'AU', 'NZ', 'PF', 'FJ', 'WF', 'VU', 'JP', 'SG'],
   'Air Tahiti Nui': ['PF', 'US', 'FR', 'NZ', 'JP', 'NC'], 'Air Austral': ['RE', 'YT', 'FR', 'MU', 'MG', 'SC', 'ZA', 'TH', 'IN'], 'Caribbean Airlines': ['TT', 'JM', 'BB', 'GY', 'SR', 'AG', 'US', 'CA', 'GB'],
   'Ethiopian Airlines': ['ET', 'KE', 'TZ', 'UG', 'RW', 'DJ', 'SD', 'NG', 'GH', 'ZA', 'AE', 'IN', 'CN', 'GB', 'DE', 'IT', 'FR', 'BE'], 'South African Airways': ['ZA', 'NA', 'ZW', 'ZM', 'MZ', 'MU', 'BR', 'AU', 'GB', 'DE'],

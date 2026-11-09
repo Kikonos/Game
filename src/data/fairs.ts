@@ -269,3 +269,49 @@ export const TENDER_ISSUERS: { name: string; w: number; fam?: 'A320' | 'B737'; m
 export const WINTER_TENDER_COUNTRIES = new Set(['SA', 'AE', 'QA', 'BH', 'KW', 'OM', 'MA', 'DZ', 'TN', 'LY', 'EG']);
 export const WINTER_SUN_BASES = new Set(['LPA', 'TFS', 'TFN', 'ACE', 'FUE', 'SPC', 'FNC', 'SID', 'BVC', 'RAI', 'HRG', 'SSH', 'RMF']);
 export const winterIssuer = (c: { country: string; base: string }): boolean => WINTER_TENDER_COUNTRIES.has(c.country) || WINTER_SUN_BASES.has(c.base);
+
+// ---------- v0.19.4 widebody tenders ----------
+// Real widebody ACMI tender patterns (checked Nov 2026 against the carriers' published wet leases and the Hajj and
+// Umrah charter seasons): the Hajj airlift is tendered by the Saudi carriers and the pilgrims' national airlines four
+// to six months ahead (Garuda, Biman, PIA and Air Algérie wet-lease A330s and 747s for it every year); the Saudi carriers
+// wet-lease widebodies for the Ramadan Umrah peak; European and Canadian leisure airlines take A330s for the summer
+// transatlantic and long-haul leisure peak (Condor, Air Transat, TUI, Corsair, Air Europa); the winter long-haul sun
+// carriers for the December–March peak (Edelweiss, Air Caraïbes, French bee, and in the Pacific Air Tahiti Nui and
+// Aircalin, whose long-haul fleets are small and lease in for heavy checks). The base is where the leased aircraft
+// flies from; the destinations are the carrier's own long-haul cities (a 7,000 km sector at most, a day's rotation).
+
+export interface WideTenderIssuer {
+  name: string;
+  w: number;
+  /** Long-haul leisure: the base and the destinations; Umrah: the base and the pilgrims' cities. */
+  base?: string;
+  dests?: string[];
+}
+
+export const WIDE_TENDER_ISSUERS: { summerLong: WideTenderIssuer[]; winterLong: WideTenderIssuer[]; hajj: WideTenderIssuer[]; umrah: WideTenderIssuer[] } = {
+  summerLong: [
+    { name: 'Condor', w: 2, base: 'FRA', dests: ['JFK', 'BOS', 'PHL', 'YYZ'] },
+    { name: 'Air Transat', w: 2, base: 'YUL', dests: ['LIS', 'OPO', 'CDG', 'BCN', 'FCO'] },
+    { name: 'TUI Airways', w: 1.5, base: 'MAN', dests: ['MCO', 'BGI', 'MBJ', 'CUN'] },
+    { name: 'Corsair', w: 1.5, base: 'ORY', dests: ['PTP', 'FDF', 'YUL'] },
+    { name: 'Air Europa', w: 1.5, base: 'MAD', dests: ['JFK', 'MIA', 'PUJ', 'HAV', 'CCS'] },
+  ],
+  winterLong: [
+    { name: 'Edelweiss Air', w: 2, base: 'ZRH', dests: ['PUJ', 'MRU', 'MLE', 'HAV', 'CUN'] },
+    { name: 'Air Caraïbes', w: 1.5, base: 'ORY', dests: ['PTP', 'FDF', 'CAY', 'SDQ'] },
+    { name: 'French bee', w: 1.5, base: 'ORY', dests: ['RUN', 'EWR', 'PUJ'] },
+    { name: 'Air Tahiti Nui', w: 1, base: 'PPT', dests: ['LAX', 'AKL'] },
+    { name: 'Aircalin', w: 1, base: 'NOU', dests: ['NRT', 'SYD', 'BNE', 'AKL'] },
+  ],
+  hajj: [
+    { name: 'Saudia', w: 2 }, { name: 'flynas', w: 2 }, { name: 'Garuda Indonesia', w: 1.5 },
+    { name: 'Biman Bangladesh Airlines', w: 1 }, { name: 'Pakistan International Airlines', w: 1 }, { name: 'Air Algérie', w: 1 },
+  ],
+  umrah: [
+    { name: 'Saudia', w: 2, base: 'JED', dests: ['KHI', 'LHE', 'ISB', 'DAC', 'CAI'] },
+    { name: 'flynas', w: 2, base: 'MED', dests: ['KHI', 'LHE', 'ISB', 'CAI', 'ALG'] },
+  ],
+};
+
+/** Every widebody tender issuer's name (an airline that tenders: brokers invite us). */
+export const WIDE_ISSUER_NAMES = new Set(Object.values(WIDE_TENDER_ISSUERS).flatMap((xs) => xs.map((x) => x.name)));

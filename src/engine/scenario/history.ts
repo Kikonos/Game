@@ -408,6 +408,26 @@ function seedRecord(g: GameState, h: ScenarioHistory, r: Rng, start: Minute): vo
     }
   }
   st.techDisp = Object.fromEntries(Object.entries(tech).filter(([k]) => Number(k) >= today - 366).map(([k, v]) => [k, [Math.round(v[0] * 100) / 100, Math.min(v[1], Math.ceil(v[0]))]]));
+  // v0.19.4 the same record by aircraft (the ETOPS fleet's record): departures shared evenly, each failure on one aircraft in turn.
+  const acs = fleet.map((a) => a.id).sort();
+  if (acs.length) {
+    const byAc: Record<string, Record<number, [number, number]>> = {};
+    const fails: NonNullable<typeof st.techFails> = [];
+    let turn = 0;
+    for (const [k, [d, f]] of Object.entries(st.techDisp)) {
+      const day = Number(k);
+      for (const id of acs) ((byAc[id] ??= {})[day] = [Math.round((d / acs.length) * 100) / 100, 0]);
+      for (let i = 0; i < f; i++) {
+        const id = acs[turn++ % acs.length];
+        byAc[id][day][1]++;
+        byAc[id][day][0] = Math.max(byAc[id][day][0], byAc[id][day][1]);
+        fails.push({ t: day * DAY + 12 * H, ac: id, no: '', cause: 'defect' });
+      }
+    }
+    st.techAc = byAc;
+    st.techFails = fails.sort((a, b) => a.t - b.t);
+    st.techAcSince = (today - 366) * DAY;
+  }
   v9.legalStreak = Math.round(st.legs * 0.15);
   v9.lastOverdue = g.company.aocAt;
   v9.lastCancel = start - int(r, 20, 140) * DAY;

@@ -334,6 +334,11 @@ export const CLIENT_LIVERIES: Record<string, ClientLiveryRecipe> = {
     basis: 'Air New Zealand: white fuselage, black tail with the white koru, black titles',
     fin: ['#000000', '#000000', 'solid'], body: { engines: W }, titles: ['AIR NEW ZEALAND', '#000000', 700], mark: { logo: ['wave', W, W] }, approx: true,
   },
+  // v0.19.4
+  'Pakistan International Airlines': {
+    basis: 'PIA 2019: white fuselage, dark green tail with the white crescent-and-star flag band, green PIA titles, green engines', approx: true,
+    fin: ['#00573f', '#00573f', 'solid'], body: { engines: '#00573f' }, titles: ['PIA', '#00573f', 700], mark: { code: ['PK', '#ffffff'] }, decalInk: '#00573f',
+  },
   'French bee': simple('French bee: white fuselage, blue tail with the pink bee, blue titles', 'FRENCH BEE', '#0094d4', 'BF', '#e94e8f', 'sweep'),
   'Air Caraïbes': {
     basis: 'Air Caraïbes: white fuselage, blue tail with the sun-and-palm mark in yellow and orange, blue titles',

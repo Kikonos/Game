@@ -18,6 +18,8 @@ import type { GameState } from '../../../engine/core/types';
 import { Bar, Empty } from '../../components/ui';
 import { money } from '../../format';
 import { store } from '../../store';
+import { BodyTag } from '../../components/ShapeTags';
+import { Seg } from '../../components/ui';
 
 const pct = (x: number) => `${Math.round(x * 1000) / 10} %`;
 const usdK = (v: number) => (Math.abs(v) >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${Math.round(v / 1e3)}K`);
@@ -43,7 +45,10 @@ function LeadRow({ l, on }: { l: LeadView; on: boolean }) {
   return (
     <div className={`v16s-row ${on ? 'on' : ''} ${done ? 'done' : ''}`} data-lead={l.id}>
       <span className="col grow" style={{ minWidth: 0, gap: 2 }}>
-        <b className="ellipsis">{flag(l.country)} {l.clientName} <span className={`chip v16s-chip ${l.stage === 'signed' ? 'good' : l.stage === 'negotiation' ? 'accent' : l.stage === 'lost' || l.stage === 'cold' ? 'warn' : ''}`}>{l.stageName}</span></b>
+        <span className="row gap-6 v16s-head" style={{ minWidth: 0, alignItems: 'center' }}>
+          <b className="ellipsis">{flag(l.country)} {l.clientName} <span className={`chip v16s-chip ${l.stage === 'signed' ? 'good' : l.stage === 'negotiation' ? 'accent' : l.stage === 'lost' || l.stage === 'cold' ? 'warn' : ''}`}>{l.stageName}</span></b>
+          {l.shown && <BodyTag body={l.shown} />}
+        </span>
         <span className="small muted ellipsis">{l.title ?? 'A job'} · about {usdK(l.value)} · {l.sourceName}</span>
         {done && l.why ? <span className="small dim ellipsis">{l.why}</span> : <span className={`small ${next.tone}`}>{next.text}</span>}
       </span>
@@ -88,6 +93,9 @@ function Pitches({ g }: { g: GameState }) {
   const made = pitchesView(g);
   const [pick, setPick] = useState('');
   const chosen = targets.find((t) => t.client.id === pick) ?? targets[0];
+  // v0.19.4 a narrowbody or a widebody, when we could offer them either.
+  const [bodyPick, setBody] = useState<'narrow' | 'wide' | null>(null);
+  const body = chosen && bodyPick && chosen.bodies.includes(bodyPick) ? bodyPick : chosen?.body ?? 'narrow';
   const w = desk.window;
   const quotaFull = desk.pitches.used >= desk.pitches.max;
   return (
@@ -104,7 +112,10 @@ function Pitches({ g }: { g: GameState }) {
               <select className="select" value={chosen?.client.id ?? ''} aria-label="Airline to pitch" onChange={(e) => setPick(e.target.value)}>
                 {targets.map((t) => <option key={t.client.id} value={t.client.id}>{t.client.name}{t.stretch ? ' · more stars than yours' : ''}{t.cost ? '' : ' · free'}</option>)}
               </select>
-              <button className="btn btn-primary" disabled={!chosen || quotaFull} onClick={() => chosen && store.act((g) => pitchAirline(g, chosen.client.id))}>
+              {chosen && chosen.bodies.length > 1 ? (
+                <Seg<'narrow' | 'wide'> value={body} onChange={setBody} options={[{ value: 'narrow', label: 'Narrowbody' }, { value: 'wide', label: 'Widebody' }]} />
+              ) : chosen ? <BodyTag body={body} /> : null}
+              <button className="btn btn-primary" disabled={!chosen || quotaFull} onClick={() => chosen && store.act((g) => pitchAirline(g, chosen.client.id, body))}>
                 Pitch{chosen && chosen.cost ? ` · ${money(chosen.cost)}` : ''}
               </button>
             </div>
@@ -120,7 +131,10 @@ function Pitches({ g }: { g: GameState }) {
           {made.slice(0, 12).map((p) => (
             <div key={p.id} className="v16s-row v16s-row-s">
               <span className="col grow" style={{ minWidth: 0, gap: 2 }}>
-                <b className="ellipsis">{flag(p.country)} {p.clientName} <span className="small muted">· {p.seasonLabel}</span></b>
+                <span className="row gap-6 v16s-head" style={{ minWidth: 0, alignItems: 'center' }}>
+                  <b className="ellipsis">{flag(p.country)} {p.clientName} <span className="small muted">· {p.seasonLabel}</span></b>
+                  {p.shown && <BodyTag body={p.shown} />}
+                </span>
                 <span className={`small ${p.tone === 'good' ? 'good' : p.tone === 'warn' ? 'dim' : 'muted'}`}>{p.status}</span>
               </span>
               <span className="small dim nowrap">{fmtDay(p.at)}</span>
