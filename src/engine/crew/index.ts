@@ -14,7 +14,7 @@ export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { setRedundantHook } from './utilisation';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, repairDaysOffMorale, repairStandbyMorale, setResignHooks } from './morale';
-import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, setFlightsCrew, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
+import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
 import { extFdp, localMin, minRest, referenceTime, signedTz, tzDeltaH, tzNights, woclMinutes } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { rosterHorizon, dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, dropStrandedStandby, v09Stats } from './dayPlan';
@@ -335,11 +335,17 @@ function repairReserveAboard(g: GameState): void {
   for (const f of Object.values(g.flights)) if (f.status === 'enroute') for (const id of f.crewIds) flying.add(id);
   for (const p of Object.values(g.pairings)) {
     if (p.status === 'done' || p.status === 'broken' || !p.tour) continue;
-    setFlightsCrew(g, p);
-    const d = openDuties(g, p)[0];
-    if (!d) continue;
+    const open = openDuties(g, p);
+    // (Only the names that stand by come off a flight's list: the rest of the save is left as it was.)
+    for (const d of open) {
+      for (const fid of d.flightIds) {
+        const f = g.flights[fid];
+        if (f && f.status === 'scheduled' && f.crewIds.some((id) => standsBy(g, p, d, id))) f.crewIds = f.crewIds.filter((id) => !standsBy(g, p, d, id));
+      }
+    }
+    if (!open[0]) continue;
     for (const s of p.slots) {
-      const c = s.crewId && standsBy(g, p, d, s.crewId) ? g.crew[s.crewId] : undefined;
+      const c = s.crewId && standsBy(g, p, open[0], s.crewId) ? g.crew[s.crewId] : undefined;
       if (c && c.status === 'onDuty' && !flying.has(c.id)) c.status = c.restUntil > g.now ? 'resting' : 'available';
     }
   }
