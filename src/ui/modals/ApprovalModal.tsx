@@ -2,13 +2,13 @@
 // need), cost and time, what it unlocks (types as art, the work), and Apply (behind a confirm over 25% of cash).
 // Pending: started, due, authority findings and what it is waiting for.
 
-import { BadgeCheck, Check, ShieldCheck, Wrench, X } from 'lucide-react';
+import { BadgeCheck, Check, ShieldCheck, TrendingDown, TrendingUp, Wrench, X } from 'lucide-react';
 import { artFor } from '../../data/acmiTypes';
 import { typeOf } from '../../engine/core/perf';
 import { fmtDate } from '../../engine/core/time';
-import type { ApprovalId } from '../../engine/core/types';
+import type { ApprovalId, GameState } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
-import { APPROVALS, applyApproval, atRiskLine, approvalBlocker, approvalReqs, etopsMxBlocker, ladder, setUpEtopsMx } from '../../engine/ops';
+import { APPROVALS, applyApproval, atRiskLine, approvalBlocker, approvalReqs, CAUSE_TEXT, etopsMxBlocker, etopsRecord, joinRelProgramme, ladder, relProgBlocker, relProgState, setUpEtopsMx } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { Bar, Modal } from '../components/ui';
 import { money } from '../format';
@@ -84,6 +84,7 @@ export function ApprovalModal({ id }: { id: ApprovalId }) {
               </div>
             ))}
           </div>
+          {reqs.filter((r) => r.etops).map((r) => <EtopsBreakdown key={r.label} g={g} min={r.etops!} days={180} />)}
           {reqs.some((r) => r.label === 'ETOPS maintenance programme') && <div className="small muted mt-8">The ETOPS maintenance programme is a one-off: {money(mx.cost)}, about {mx.days} days. You can apply while it is being set up; the grant waits for it.</div>}
           {id === 'widebody' && <div className="small muted mt-8">Booked conversions count for filing; the grant needs them finished. Time the class to end near your first widebody’s handover: converted pilots fly only the new type.</div>}
           <div className="small muted mt-8">{money(def.cost)} filing fee{def.grantCost ? ` + ${money(def.grantCost)} at the grant` : ''} · about {def.days} days. Granted only with pilots actually rated, no illegal crew duties and the technical reliability met; an illegal crew duty while pending adds 30 days.</div>
@@ -103,5 +104,60 @@ export function ApprovalModal({ id }: { id: ApprovalId }) {
         </>
       )}
     </Modal>
+  );
+}
+
+/**
+ * v0.19.4 the ETOPS fleet's record behind the technical reliability row: the percentage and its trend, by aircraft and
+ * by cause, when the current pace gets there, and what would help (the reliability programme's own Join).
+ */
+function EtopsBreakdown({ g, min, days }: { g: GameState; min: number; days: number }) {
+  const r = etopsRecord(g, min, days);
+  const prog = relProgState(g);
+  const join = () => store.act((gg) => joinRelProgramme(gg));
+  const trend = r.last30 !== null && r.prev30 !== null ? r.last30 - r.prev30 : null;
+  const causes = (Object.entries(r.causes) as [keyof typeof CAUSE_TEXT, number][]).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]);
+  return (
+    <div className="ap-etops mt-12" data-etops={min}>
+      <div className="row between gap-8" style={{ alignItems: 'baseline' }}>
+        <b>ETOPS fleet record</b>
+        <span className="small num nowrap">
+          {r.pct !== null ? <b className={r.pct >= r.need ? 'good' : 'warn'}>{r.pct}%</b> : <span className="dim">{r.deps} of {r.minDeps} departures</span>}
+          <span className="dim"> / {r.need}%</span>
+        </span>
+      </div>
+      <div className="small muted">The twins capable of ETOPS {min}, every revenue departure over {days} days{r.since > g.now - days * 1440 ? ` (their record starts ${fmtDate(r.since)})` : ''}: {r.deps} departures, {r.fails} technical failure{r.fails === 1 ? '' : 's'}.</div>
+      {r.last30 !== null && (
+        <div className="small row gap-6" style={{ alignItems: 'center' }}>
+          {trend !== null && (trend >= 0 ? <TrendingUp className="sc-ico-s good" /> : <TrendingDown className="sc-ico-s bad" />)}
+          <span>Last 30 days {r.last30}%{r.prev30 !== null ? `, the 30 before ${r.prev30}%` : ''}</span>
+        </div>
+      )}
+      {r.byAc.length > 0 && (
+        <div className="ap-etops-acs">
+          {r.byAc.map((a) => (
+            <div key={a.id} className="ap-etops-ac small">
+              <span className="mono">{a.reg}</span>
+              <span className="muted ellipsis">{a.type} · {a.age} y</span>
+              <span className="num">{a.deps} dep</span>
+              <span className={`num ${a.fails ? 'warn' : 'dim'}`}>{a.fails} failed</span>
+              <span className="num">{a.pct !== null ? `${a.pct}%` : '—'}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {causes.length > 0 && <div className="small muted">{causes.map(([c, n]) => `${CAUSE_TEXT[c]} ${n}`).join(' · ')}</div>}
+      <div className="small">{r.pct !== null && r.pct >= r.need ? 'On target.' : r.reachAt ? `At the last 60 days' pace: on target about ${fmtDate(r.reachAt)}.` : "At the last 60 days' pace it does not get there within a year."}</div>
+      {r.advice.length > 0 && (
+        <ul className="ap-etops-advice small">
+          {r.advice.slice(0, 5).map((x) => <li key={x}>{x}</li>)}
+        </ul>
+      )}
+      {prog === 'none' ? (
+        <div className="row gap-8 end"><button className="btn btn-sm" onClick={join} disabled={!!relProgBlocker(g)} title={relProgBlocker(g) ?? undefined}><Wrench /> Join the ETOPS reliability programme</button></div>
+      ) : (
+        <div className="small good">{prog === 'active' ? 'ETOPS reliability programme: in place.' : `ETOPS reliability programme: in place from ${fmtDate(g.company.relProg!.ready)}.`}</div>
+      )}
+    </div>
   );
 }

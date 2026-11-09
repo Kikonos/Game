@@ -234,6 +234,8 @@ export interface Company {
   pendingApprovals: PendingApproval[];
   /** v0.10.2 the ETOPS maintenance programme (a one-off CAMO set-up the ETOPS approvals need): started, ready, paid; `held` once done. Older saves: not set up. */
   etopsMx?: { started: Minute; done: Minute; cost: number; held?: true };
+  /** v0.19.4 the ETOPS reliability programme (ops/etopsRel.ts): joined, in place from `ready`, the last month billed, left. Older saves: none. */
+  relProg?: { started: Minute; ready: Minute; billed?: number; ended?: Minute };
   policies: Policies;
   departments: Department[];
   /** Next numeric flight number for own-designator flights. */

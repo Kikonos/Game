@@ -26,6 +26,7 @@ import { fdpLimitAt } from '../crew/timeline';
 import { dutyLegality } from '../crew/duties';
 import { cue } from '../core/cues';
 import { markTech, noteDispatch, techHit } from '../core/techLog';
+import { relFactors } from './etopsRel';
 import { v09Stats } from '../crew/dayPlan';
 import { confirmAlarm } from '../crew/selfCheck';
 import { requestPause } from '../core/pause';
@@ -812,7 +813,8 @@ function rollDelay(g: GameState, ac: Aircraft): { min: number; reason: string } 
     const min = Math.min(BAL.delayCap, Math.max(5, Math.round(-BAL.delayMean * Math.log(1 - next(g)))));
     return { min, reason: pick(g, OPS_REASONS) };
   }
-  if (chance(g, BAL.techDelayChance * ageF(g, ac))) {
+  // v0.19.4 the ETOPS twins' programmes (ops/etopsRel.ts): fewer defects at the gate.
+  if (chance(g, BAL.techDelayChance * ageF(g, ac) * relFactors(g, ac).delay)) {
     const min = Math.min(240, Math.max(15, Math.round(-BAL.techDelayMean * Math.log(1 - next(g)))));
     return { min, reason: pick(g, TECH_REASONS) };
   }

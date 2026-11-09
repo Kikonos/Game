@@ -152,3 +152,11 @@ button.ld-node { cursor: pointer; font: inherit; }
 .sc-ac-name-btn { height: 24px; width: 24px; color: var(--text-3); }
 .sc-ac-name-btn svg { width: 13px; height: 13px; }
 .sc-ac-name-in { max-width: 200px; }
+
+/* v0.19.4 the ETOPS fleet's record on the ETOPS 180 / 240 card. */
+.ap-etops { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
+.ap-etops-acs { display: flex; flex-direction: column; }
+.ap-etops-ac { display: grid; grid-template-columns: 76px minmax(0, 1fr) 64px 70px 52px; gap: 8px; align-items: center; min-height: 28px; border-bottom: 1px solid var(--border); }
+.ap-etops-ac:last-child { border-bottom: none; }
+.ap-etops-ac .num { text-align: right; }
+.ap-etops-advice { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }

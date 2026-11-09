@@ -11,6 +11,7 @@ import { Empty } from '../components/ui';
 import { store } from '../store';
 import { lockOf } from '../../engine/scenario';
 import { LockedPanel } from '../components/Locked';
+import { BodyTag } from '../components/ShapeTags';
 
 const days = (t: number, now: number) => Math.max(0, Math.ceil((t - now) / DAY));
 // v0.14.1 the programme's days on the base's local calendar (it starts at local midnight: the evening before in UTC),
@@ -33,8 +34,11 @@ function Row({ g, t, kind }: { g: GameState; t: TenderRow; kind: 'open' | 'mine'
     <button className={`v14-tn-row ${t.status}`} onClick={open} aria-label={`${t.client} tender`}>
       <span className="v14-tn-ico">{kind === 'result' ? (t.status === 'won' ? <Trophy /> : <Gavel />) : kind === 'mine' ? <CalendarClock /> : <FileSignature />}</span>
       <span className="col grow" style={{ minWidth: 0, gap: 2 }}>
-        <b className="ellipsis">{flag(t.country)} {t.client}{t.invited && <span className="chip v14-chip">Invitation</span>}</b>
-        <span className="small muted ellipsis">{t.base} · {span(t)} · {t.wanted}</span>
+        <span className="row gap-6 v14-tn-head" style={{ minWidth: 0, alignItems: 'center' }}>
+          <b className="ellipsis">{flag(t.country)} {t.client}{t.invited && <span className="chip v14-chip">Invitation</span>}</b>
+          <BodyTag body={t.body} />
+        </span>
+        <span className="small muted ellipsis">{t.round !== roundName(t.roundKey) ? `${t.round} · ` : ''}{t.base}{t.kind === 'hajj' ? '–JED/MED' : ''} · {span(t)} · {t.wanted}</span>
         {kind === 'result' && t.result && (
           <span className={`small ellipsis ${t.status === 'won' ? 'good' : 'warn'}`}>{t.status === 'won' ? `Won: ${t.result.why}` : `${t.result.winnerName}: ${t.result.why}`}</span>
         )}
@@ -64,7 +68,7 @@ export function TendersView({ g }: { g: GameState }) {
       <div className="small muted v14-season">{seasonLine(g.now)} Decided on price, reliability, relationship, aircraft age and fit.</div>
       {none && (
         <Empty icon={<FileSignature />} title="No tenders yet">
-          Airlines send requests for proposals for next summer from November to February. Your bid: a rate per block hour, an MGH, an aircraft, the crew and the dates.
+          Airlines send requests for proposals for next summer from November to February. Your bid: a rate per block hour, an MGH, an aircraft, the crew and the dates. With Widebody operations and a widebody, widebody requests come too: Hajj and Umrah lift, long-haul leisure cover.
         </Empty>
       )}
       {b.open.length > 0 && (

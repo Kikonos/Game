@@ -85,6 +85,8 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
           {prob && <Why refs={{ kind: 'offer', id: o.id }} tone={prob.severity === 'red' ? 'bad' : 'warn'} label={`${prob.what}: why?`} />}
           {/* v0.16 a stretch offer: a client one level above ours. */}
           {o.stretch && <span className="badge pr-stretch" data-tip="A client with more stars than yours: a taste of what's to come">Stretch offer</span>}
+          {/* v0.19.4 out of reach for the fleet today (a double-decker load). */}
+          {o.reach && <span className="badge pr-stretch" data-tip="No aircraft of ours can fly it yet: a taste of progression">Stretch: out of reach</span>}
           {o.urgency !== 'normal' && <span className={`badge ${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
           {pending ? (
             <span className="small accent nowrap" data-tip="The offer cannot lapse while the client considers your counter">Clock paused</span>

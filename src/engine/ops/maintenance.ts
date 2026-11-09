@@ -3,6 +3,7 @@
 import { v09Stats } from '../crew/dayPlan';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
+import { relFactors } from './etopsRel';
 import { checkStretch } from '../finance/distress';
 import { addFlight, flightsOf, nextId, removeFlights, retimeFlight, touchFlights } from '../core/entities';
 import { C_HUBS, cHubAt, type CHub } from '../../data/mro';
@@ -145,8 +146,10 @@ export function engineersAt(g: GameState, acId: string, airport: string): boolea
 
 /** AOG probability for the next departure: base × (1 + age/10) × (1 + 4 × deferred) × outstation 1.5 × the type's AOG factor. Pure. */
 export function aogChance(g: GameState, ac: Aircraft, airport: string): number {
-  const out = engineersAt(g, ac.id, airport) ? 1 : BAL.aogOutstation;
-  return BAL.aogBase * (1 + ageOf(g, ac) / 10) * (1 + 4 * ac.maint.deferred) * out * (typeOf(ac.typeId).aogMult ?? 1);
+  // v0.19.4 the ETOPS twins' programmes (ops/etopsRel.ts): fewer AOGs, and none likelier away from base with the spares pool.
+  const rf = relFactors(g, ac);
+  const out = engineersAt(g, ac.id, airport) || rf.noOutstation ? 1 : BAL.aogOutstation;
+  return BAL.aogBase * (1 + ageOf(g, ac) / 10) * (1 + 4 * ac.maint.deferred) * out * (typeOf(ac.typeId).aogMult ?? 1) * rf.aog;
 }
 
 /**
@@ -703,7 +706,8 @@ const CAUSES = ['Hydraulic leak', 'Bleed air fault', 'Bird strike', 'Brake wear 
 
 /** AOG at departure: the aircraft is grounded at the gate, the clock pauses and the recovery decision opens. */
 export function startAog(g: GameState, ac: Aircraft, f: Flight): void {
-  const out = !engineersAt(g, ac.id, f.from);
+  // v0.19.4 the ETOPS reliability programme's spares and engineer on call: fixed away as fast as at home.
+  const out = !engineersAt(g, ac.id, f.from) && !relFactors(g, ac).noOutstation;
   const hours = int(g, BAL.aogHours[0], BAL.aogHours[1]) * (out ? BAL.aogOutstation : 1);
   const m: MaintenanceEvent = {
     id: nextId(g, 'mx'), aircraftId: ac.id, kind: 'AOG', at: f.from, start: g.now, end: g.now + Math.round(hours * 60),

@@ -60,6 +60,14 @@ export function loadSales(g: GameState): void {
   c.leads ??= [];
   c.pitches ??= [];
   c.reps ??= [];
+  // v0.19.4 an older live lead gets its body now (its offer's, a narrowbody fleet's, else the fleet-weighted draw on its
+  // own stream), so the card shows it and the offer keeps it.
+  for (const l of c.leads) {
+    if (l.body || (l.stage !== 'lead' && l.stage !== 'proposal' && l.stage !== 'negotiation')) continue;
+    const o = l.offerId ? g.offers[l.offerId] : undefined;
+    const cl = g.clients[l.clientId];
+    l.body = o ? bodyOfReq(o.requirements) : !holdsWide(g) || !cl ? 'narrow' : pickBody(g, cl, next(sideOf(g, `leadbody:${l.id}`)));
+  }
 }
 
 // ---------- hooks (the builders that import this module) ----------
@@ -372,6 +380,8 @@ export interface LeadView extends Lead {
   sourceName: string;
   /** The offer under negotiation is still open on the market. */
   offerOpen: boolean;
+  /** v0.19.4 the body asked for (the card's tag): the lead's, else its offer's. */
+  shown?: Body;
 }
 
 export const STAGE_NAME: Record<LeadStage, string> = { lead: 'Lead', proposal: 'Proposal sent', negotiation: 'Offer on the market', signed: 'Signed', cold: 'Went cold', lost: 'Lost' };
@@ -389,6 +399,7 @@ export function leadsView(g: GameState): LeadView[] {
     ...l, clientName: g.clients[l.clientId]?.name ?? 'Client', country: g.clients[l.clientId]?.country ?? '', stageName: STAGE_NAME[l.stage],
     daysLeft: Math.max(0, Math.ceil((l.expires - g.now) / DAY)), marketName: MARKET_BY_ID[l.market as MarketId]?.name ?? l.market, sourceName: leadSourceName(g, l),
     offerOpen: !!l.offerId && (g.offers[l.offerId]?.status === 'open' || g.offers[l.offerId]?.status === 'countered'),
+    shown: l.body ?? (l.offerId && g.offers[l.offerId] ? bodyOfReq(g.offers[l.offerId].requirements) : undefined),
   });
   const a = list.filter(live).sort((x, y) => x.expires - y.expires).map(view);
   const b = list.filter((l) => !live(l)).sort((x, y) => y.moved - x.moved).map(view);

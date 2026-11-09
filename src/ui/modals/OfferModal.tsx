@@ -379,6 +379,7 @@ function PrestigeLines({ g, o }: { g: GameState; o: ContractOffer }) {
       <div className="row gap-8 wrap">
         <span className="pr-pill"><ClientStars n={p.stars} size={11} /> {p.name}</span>
         {p.stretch && <span className="badge pr-stretch">Stretch offer: a taste of what's to come</span>}
+        {o.reach && <span className="badge pr-stretch">Out of reach today: a taste of progression</span>}
         {p.pay && <span className="muted">{p.pay}</span>}
       </div>
       {p.checks.length > 0 && (

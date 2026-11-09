@@ -790,6 +790,8 @@ export interface TenderRow {
   /** v0.16 the broker that got us invited. */
   via?: string;
   id: string;
+  /** v0.19.4 the round's key ('S2029'): `round` may be the RFP's own name ('Hajj 1450'). */
+  roundKey: string;
   clientId: string;
   client: string;
   country: string;
@@ -820,7 +822,7 @@ export function tenderRow(g: GameState, t: Tender): TenderRow {
   const cl = g.clients[t.clientId];
   const p = o.pattern;
   return {
-    id: t.id, clientId: t.clientId, client: cl?.name ?? 'Client', country: cl?.country ?? '', round: t.label ?? roundName(t.round),
+    id: t.id, roundKey: t.round, clientId: t.clientId, client: cl?.name ?? 'Client', country: cl?.country ?? '', round: t.label ?? roundName(t.round),
     base: p.kind === 'base' ? p.base : p.legs[0]?.from ?? cl?.base ?? '', dests: p.kind === 'base' ? p.dests : [...new Set(p.legs.filter((l) => l.from === p.legs[0]?.from).map((l) => l.to))], start: o.start, end: o.end, seats: o.requirements.minSeats,
     wanted: aircraftWanted(t), deadline: t.deadline, resultAt: t.resultAt, status: t.status, invited: !!t.invited, rivals: t.rivals.length,
     ...(t.brokerId ? { via: brokerName(t.brokerId) } : {}),
