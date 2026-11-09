@@ -307,7 +307,8 @@ const tfOf = (x: number, y: number, r: number) => `translate3d(${x.toFixed(2)}px
 export class LandLayer {
   private root: HTMLDivElement;
   private baseEl: HTMLDivElement;
-  /** The world fallback, cropped to the view and a margin (cropDraw): its canvas, the crop and the raster it was cut from. */
+  /** The world fallback: zoomed out, one <img> of it per world in view; zoomed in, cut to the view (cropDraw): its canvas, the crop and the raster it was cut from. */
+  private baseCopies = new Map<number, HTMLImageElement>();
   private baseCv: HTMLCanvasElement | null = null;
   private baseCrop: number[] | null = null;
   private baseFrom: HTMLImageElement | null = null;
@@ -505,20 +506,44 @@ export class LandLayer {
     // Not needed while every tile in view is in (the layer stays, not drawn; its crop waits).
     const vis = this.front && this.complete(this.front) && !this.back ? 'hidden' : '';
     if (this.baseEl.style.visibility !== vis) this.baseEl.style.visibility = vis;
+    const a0 = (-v.ex - ox) / r;
+    const a1 = (v.w + v.ex - ox) / r;
+    if (r <= 2) {
+      // Zoomed out: the raster itself, one <img> per world in view (decoded once; shown and hidden for free).
+      if (this.baseCv) this.baseCv.style.display = 'none';
+      const c0 = Math.floor(a0 / BASE_W);
+      const c1 = Math.floor(a1 / BASE_W);
+      for (const [c, img] of this.baseCopies) if (c < c0 || c > c1 || img.src !== src.src) { img.remove(); this.baseCopies.delete(c); }
+      for (let c = c0; c <= c1; c++) {
+        if (this.baseCopies.has(c)) continue;
+        const img = new Image();
+        img.className = 'land-base-img';
+        img.alt = '';
+        img.draggable = false;
+        img.src = src.src;
+        const st = img.style;
+        st.left = `${c * BASE_W}px`;
+        st.top = `${b.py}px`;
+        st.width = `${b.w}px`;
+        st.height = `${b.h}px`;
+        this.baseEl.appendChild(img);
+        this.baseCopies.set(c, img);
+      }
+      return;
+    }
+    // Zoomed in: a world-sized image would be scaled up to a huge layer (slow to composite under the map's tilt), so a
+    // canvas holds the part of it in view and half the view's width spare all round, cut again when the view leaves it.
+    for (const img of this.baseCopies.values()) img.remove();
+    this.baseCopies.clear();
     if (vis && this.baseCv) return;
-    // The screen (with the tilt's lean) in the raster's px: zoomed out, the whole worlds it meets (cut again only when
-    // another world comes into view); zoomed in, it and half its width spare all round.
-    let a0 = (-v.ex - ox) / r;
-    let a1 = (v.w + v.ex - ox) / r;
-    const near = r > 2;
-    if (!near) { a0 = Math.floor(a0 / BASE_W) * BASE_W; a1 = Math.ceil(a1 / BASE_W) * BASE_W; }
-    const crop = cropFor(this.baseFrom === src ? this.baseCrop : null, a0, near ? (-v.ey - oy) / r : b.py, a1, near ? (v.h - oy) / r : b.py + b.h, near ? (a1 - a0) / 2 + 4 : 0, Math.floor(b.py), Math.ceil(b.py + b.h));
-    if (!crop) return;
+    const crop = cropFor(this.baseFrom === src ? this.baseCrop : null, a0, (-v.ey - oy) / r, a1, (v.h - oy) / r, (a1 - a0) / 2 + 4, Math.floor(b.py), Math.ceil(b.py + b.h));
     if (!this.baseCv) {
       this.baseCv = document.createElement('canvas');
       this.baseCv.className = 'land-base-img';
       this.baseEl.appendChild(this.baseCv);
     }
+    if (this.baseCv.style.display) this.baseCv.style.display = '';
+    if (!crop) return;
     this.baseCrop = crop;
     this.baseFrom = src;
     cropDraw(this.baseCv, src, BASE_W, b.py, crop[0], crop[1], crop[2], crop[3]);
@@ -536,6 +561,8 @@ export class LandLayer {
     this.front = this.back = null;
     if (this.baseCv) this.baseCv.width = 0;
     this.baseCv = null;
+    for (const img of this.baseCopies.values()) img.remove();
+    this.baseCopies.clear();
     this.baseEl.remove();
   }
 }

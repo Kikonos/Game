@@ -183,7 +183,8 @@ function buildNight(shared: LiveShared, t: number, rot = shared.nightRot) {
 
 /**
  * Night side: render it as the WorldMap `backdrop`. v0.12 a soft raster (twilight band, no hard edge) slid sideways
- * as the sun moves; three copies so it covers the world at any shift. Rebuilt when the theme changes.
+ * as the sun moves; rebuilt when the theme changes. v0.19 (perf) one canvas holding the part of it in view (cropNight),
+ * wrapped round the world as needed; `onScreen` is the map's ctx.onScreen.
  */
 export const NightLayer = memo(function NightLayer({ shared, theme, rot = 0, onScreen }: { shared: LiveShared; shift?: MapLayerCtx['backShift']; theme: string; rot?: number; onScreen?: MapLayerCtx['onScreen'] }) {
   const ref = useRef<HTMLDivElement>(null);

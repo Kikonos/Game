@@ -1402,6 +1402,12 @@ export function WorldMap({
   const MO = overMarginOf(box);
   const overVB = `${(-MO - box.ox) / box.s} ${(-MO - box.oy) / box.s} ${(box.w + 2 * MO) / box.s} ${(box.h + 2 * MO) / box.s}`;
   const overLayer: React.CSSProperties = { position: 'absolute', left: -MO, top: -MO, width: box.w + 2 * MO, height: box.h + 2 * MO, transformOrigin: '0 0', willChange: 'transform' };
+  // v0.19 (perf) the stage reaches the tilt's fullest lean past the box and clips there (the layers inside sit in the
+  // box as before): a tilted stage is drawn flat first, and its layers' oversized margins (tens of thousands of px
+  // zoomed in) made that surface huge. Its middle bottom, the tilt's origin, is where it was.
+  const SB = tiltBleed(box.w, box.h, TILT_MAX_DEG);
+  const stageStyle: React.CSSProperties = { left: -SB.ex - 2, top: -SB.ey - 2, right: -SB.ex - 2, bottom: 0, overflow: 'hidden' };
+  const stageIn: React.CSSProperties = { position: 'absolute', left: SB.ex + 2, top: SB.ey + 2, width: box.w, height: box.h };
 
   return (
     <div
@@ -1414,7 +1420,8 @@ export function WorldMap({
       onPointerCancel={interactive ? onPointerEnd : undefined}
       onPointerLeave={interactive ? (e) => { if (e.pointerType !== 'touch' && hover && !ptrs.current.size) { setHover(null); onHover?.(null); } } : undefined}
     >
-      <div ref={stageRef} className="map-stage">
+      <div ref={stageRef} className="map-stage" style={stageStyle}>
+      <div className="map-stage-in" style={stageIn}>
       {/* v0.19 (perf) the land as raster tiles (landTiles.ts): moved by a transform, drawn off the main thread. */}
       {tiled && <div ref={landRef} className="map-land" aria-hidden />}
       <div ref={baseWrap} className="map-layer map-layer-base" style={layerStyle}>
@@ -1455,6 +1462,7 @@ export function WorldMap({
           {layers?.(ctx)}
         </g>
       </svg>
+      </div>
       </div>
       </div>
       {tilt && <div ref={hazeRef} className="map-haze" aria-hidden />}
