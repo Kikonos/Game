@@ -685,6 +685,12 @@ export function WorldMap({
       for (const el of mkEls.current) el.setAttribute('transform', tf);
     }
     if (!sameView(live.current, view)) apply(live.current);
+    // v0.19 (perf) with the land in tiles, the ground layer holds only world-event zones: none, no layer to composite.
+    const bw = baseWrap.current;
+    if (bw) {
+      const d = tiled && !groundG.current?.firstChild && !baseG.current?.firstChild ? 'none' : '';
+      if (bw.style.display !== d) bw.style.display = d;
+    }
   });
   /** Paints the glow canvas at the layer's view (soft glows: at most 1.5 device px per CSS px). */
   const drawGlow = useCallback(() => {
