@@ -16,6 +16,22 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.19.2',
+    name: 'Your own routes',
+    features: [
+      'Contracts › Network › Build your own route: fly from one of your bases to any airport in the game. Search by city, code or country; fuel stops are suggested for the aircraft and you can change them. Then the same launch: study, business case, permits and the rest.',
+      'Each new pair gets its own market: family ties, business, holidays, the airlines already flying it, fares, season, cargo and how hard the permits are. Before a study you see a rough guess with a wide range; the study narrows it. Most pairs are thin or crowded; strong ones are where people are tied.',
+      'A flat map of the route in the launch, the business case and the route builder: the route, its fuel stops, the aircraft\'s range and the rivals\' one-stop routes.',
+    ],
+    improvements: [
+      'Spec sheets: the "Range from" circles are flat maps now, centred on each city, with the true range boundary.',
+      'Durations show one number when both ends match: "5 weeks", not "5-5 weeks".',
+    ],
+    fixes: [
+      'An aircraft going back to its lessor no longer flies to a paint shop after the return. The return check removes the client\'s colours (the client still pays its share), and a repaint booked after a return is cancelled.',
+    ],
+  },
+  {
     version: 'v0.19.1',
     name: 'Emergency swap',
     features: [],
