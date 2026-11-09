@@ -452,6 +452,8 @@ export function WorldMap({
   /** v0.19 (perf) the view the overlay's SVG transform was last written for; a CSS transform carries it to `live`. */
   const overView = useRef<View>(view);
   const overAt = useRef(0);
+  /** v0.19 (perf) the map is moving (gesture, fling, fly-to): data-moving on the root. */
+  const moving = useRef(false);
   const gest = useRef<Gesture | null>(null);
   const ptrs = useRef(new Map<number, { x: number; y: number }>());
   const anim = useRef(0);
@@ -606,6 +608,9 @@ export function WorldMap({
    */
   const apply = (v: View) => {
     live.current = v;
+    // v0.19 (perf) while the map moves, labels jump with the overlay's redraws instead of sliding (CSS transitions on SVG
+    // run on the main thread: each one repainted the overlay every frame for a third of a second).
+    if (!moving.current && busy()) { moving.current = true; wrapRef.current?.setAttribute('data-moving', ''); }
     placeTilt(v.k);
     placeLand(v, false);
     placeLayers(v);
@@ -627,8 +632,9 @@ export function WorldMap({
       syncLayers();
       placeLand(v, true);
       syncOver();
-      // v0.19 (perf) the screens' hourly refresh held back by the gesture goes now.
+      // v0.19 (perf) the screens' hourly refresh held back by the gesture goes now; labels slide again.
       store.mapGesture(false);
+      if (moving.current) { moving.current = false; wrapRef.current?.removeAttribute('data-moving'); }
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {

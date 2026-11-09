@@ -139,7 +139,7 @@ function rasterNight(shared: LiveShared, dec: number) {
 }
 
 /**
- * v0.19 (perf) the part of the night raster over the view `on` (frame map units, ctx.onScreen) and an eighth of a view
+ * v0.19 (perf) the part of the night raster over the view `on` (frame map units, ctx.onScreen) and a quarter of a view
  * round it, in the night's composited canvas (scaled up by the compositor): cut again only when the view or the sun has left
  * it. A canvas the width of the zoomed world was slow to composite under the map's tilt.
  */
@@ -151,7 +151,7 @@ function cropNight(shared: LiveShared, on: [number, number, number, number]) {
   const fy = NIGHT_H / (NIGHT_Y1 - NIGHT_Y0);
   const a0 = (on[0] - shared.nightX) * fx;
   const a1 = (on[2] - shared.nightX) * fx;
-  const crop = cropFor(shared.nightCrop, a0, (on[1] - NIGHT_Y0) * fy, a1, (on[3] - NIGHT_Y0) * fy, Math.min(NIGHT_W / 2, (a1 - a0) / 8 + 2), 0, NIGHT_H);
+  const crop = cropFor(shared.nightCrop, a0, (on[1] - NIGHT_Y0) * fy, a1, (on[3] - NIGHT_Y0) * fy, Math.min(NIGHT_W / 2, (a1 - a0) / 4 + 2), 0, NIGHT_H);
   if (!crop) return;
   shared.nightCrop = crop;
   cropDraw(cv, src, NIGHT_W, 0, crop[0], crop[1], crop[2], crop[3]);

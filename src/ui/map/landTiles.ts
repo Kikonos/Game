@@ -339,8 +339,9 @@ export class LandLayer {
   }
 
   /**
-   * Places the land for the live view. `settle`: the view is at rest: tiles for its exact zoom are asked for (also
-   * mid-gesture once the zoom has drifted far); otherwise the tiles there are just move and scale with the view.
+   * Places the land for the live view. `settle`: the view is at rest: tiles for its exact zoom are asked for. Mid-gesture
+   * the tiles there move and scale with the view; a pan at their zoom asks for the ones it brings into view, a pinch
+   * asks for none (the world fallback fills the edges until the fingers lift).
    */
   place(v: LandView, settle: boolean) {
     if (this.disposed || this.gen < 0) return;
@@ -353,10 +354,10 @@ export class LandLayer {
       return;
     }
     const sc = v.s * v.k;
-    if (!this.front || (settle && Math.abs(this.front.sc / sc - 1) > 1e-4) || Math.abs(Math.log(this.front.sc / sc)) > Math.log(2)) this.newSet(sc);
+    if (!this.front || (settle && Math.abs(this.front.sc / sc - 1) > 1e-4)) this.newSet(sc);
     if (this.back) this.placeSet(this.back, v);
     this.placeSet(this.front!, v);
-    this.fill(this.front!, v);
+    this.fill(this.front!, v, settle || Math.abs(this.front!.sc / sc - 1) <= 1e-4);
     this.placeBase(v);
   }
 
@@ -364,7 +365,7 @@ export class LandLayer {
    * The tiles in view (and half a tile round them) of the front set: shown when drawn, asked for when not. Tiles that
    * have left the view stay in the layer while they are within two tiles of it (no churn as a pan goes to and fro).
    */
-  private fill(set: TileSet, v: LandView) {
+  private fill(set: TileSet, v: LandView, ask: boolean) {
     const r = (v.s * v.k) / set.sc;
     const ox = v.x * v.s + v.ox;
     const oy = v.y * v.s + v.oy;
@@ -373,7 +374,7 @@ export class LandLayer {
     const maxRow = Math.ceil((MAP_H * set.sc) / TILE);
     const y0 = Math.max(r0, -2);
     const y1 = Math.min(r1, maxRow);
-    const key = `${c0}|${y0}|${c1}|${y1}`;
+    const key = `${c0}|${y0}|${c1}|${y1}|${ask ? 1 : 0}`;
     if ((set as TileSet & { range?: string }).range === key) return;
     (set as TileSet & { range?: string }).range = key;
     const want = new Set<string>();
@@ -394,7 +395,7 @@ export class LandLayer {
           this.attach(set, k, tx, ty, hit);
           continue;
         }
-        if (p.asked(ck)) continue;
+        if (!ask || p.asked(ck)) continue;
         p.ask(ck, tileSpec(set.sc, tx, ty, v.dpr), Math.hypot(tx - cxs, (ty - cys) * 1.3), (png) => {
           if (!png || gen !== p.gen) return;
           void imgOf(png, 'land-tile').then((img) => {
@@ -505,10 +506,13 @@ export class LandLayer {
     const vis = this.front && this.complete(this.front) && !this.back ? 'hidden' : '';
     if (this.baseEl.style.visibility !== vis) this.baseEl.style.visibility = vis;
     if (vis && this.baseCv) return;
-    // The screen (with the tilt's lean) in the raster's px, an eighth of its width spare all round.
-    const a0 = (-v.ex - ox) / r;
-    const a1 = (v.w + v.ex - ox) / r;
-    const crop = cropFor(this.baseFrom === src ? this.baseCrop : null, a0, (-v.ey - oy) / r, a1, (v.h - oy) / r, Math.min(BASE_W / 2, (a1 - a0) / 8 + 4), Math.floor(b.py), Math.ceil(b.py + b.h));
+    // The screen (with the tilt's lean) in the raster's px: zoomed out, the whole worlds it meets (cut again only when
+    // another world comes into view); zoomed in, it and half its width spare all round.
+    let a0 = (-v.ex - ox) / r;
+    let a1 = (v.w + v.ex - ox) / r;
+    const near = r > 2;
+    if (!near) { a0 = Math.floor(a0 / BASE_W) * BASE_W; a1 = Math.ceil(a1 / BASE_W) * BASE_W; }
+    const crop = cropFor(this.baseFrom === src ? this.baseCrop : null, a0, near ? (-v.ey - oy) / r : b.py, a1, near ? (v.h - oy) / r : b.py + b.h, near ? (a1 - a0) / 2 + 4 : 0, Math.floor(b.py), Math.ceil(b.py + b.h));
     if (!crop) return;
     if (!this.baseCv) {
       this.baseCv = document.createElement('canvas');

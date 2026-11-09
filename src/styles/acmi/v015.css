@@ -29,6 +29,7 @@
    every bitmap in them is a layer of its own, so a pan or a pinch never paints them again. */
 .map-land { position: absolute; left: 0; top: 0; width: 0; height: 0; pointer-events: none; }
 .map-land .land-base, .map-land .land-set, .map-world { position: absolute; left: 0; top: 0; width: 0; height: 0; transform-origin: 0 0; will-change: transform; pointer-events: none; }
+.worldmap[data-moving] .ops-ac .reg, .worldmap[data-moving] .ops-ac .tag, .worldmap[data-moving] .ops-ac .op-delivery-tag, .worldmap[data-moving] .ops-cmf .no, .worldmap[data-moving] .airports .ap-label { transition: none; }
 .map-land img, .map-land canvas, .map-world canvas { position: absolute; display: block; max-width: none; will-change: transform; user-select: none; -webkit-user-drag: none; }
 .map-haze {
   position: absolute; left: 0; right: 0; top: 0; height: 30%; pointer-events: none; opacity: 0;
