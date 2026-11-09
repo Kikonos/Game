@@ -10,7 +10,7 @@ import { insuranceOf, rentOf } from '../ops/finance';
 import { rateMultiplier } from '../contracts/pricing';
 import { costTotal, routeMonthCosts, sectorCost, sectorOf, sectorPax } from './costs';
 import { marketOfRoute } from './model';
-import { pnlOf } from './revenue';
+import { partnerFee, pnlOf } from './revenue';
 import { dirSectors, expectedPax, curveAt } from './sales';
 import type { Route } from './types';
 
@@ -111,7 +111,8 @@ export function sectorLive(g: GameState, flightId: string): SectorLive | null {
   if (!flown || s.cost === undefined) {
     // Estimate: tickets taken, cargo and extras at the catalogue's rates, the sector's costs.
     const m = marketOfRoute(route);
-    const est = flown ? revenue : Math.round((s.sold ?? 0) + (p.j + p.y) * (m?.ancillary ?? 20));
+    // A partner pays its fee a block hour and the flying costs at cost (it sells the seats itself).
+    const est = flown ? revenue : route.model === 'partner' ? partnerFee(g, route, s, f, p.j + p.y) : Math.round((s.sold ?? 0) + (p.j + p.y) * (m?.ancillary ?? 20));
     revenue = est;
     cost = Math.round(costTotal(sectorCost(g, route, f.from, f.to, ac?.typeId ?? route.series[0]?.typeId ?? 'b763', ac, { j: p.j, y: p.y, cargoKg: s.cargoKg, sold: s.sold ?? 0, blockMin: f.block })));
   }
