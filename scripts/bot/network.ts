@@ -94,7 +94,8 @@ export function botNetworkReport(g: GameState): string {
   const out: string[] = ['== network'];
   for (const r of all) {
     const months = Object.entries(r.pnl).map(([m, p]) => ({ m: +m, p })).sort((a, b) => a.m - b.m);
-    const flown = months.filter((x) => x.p.sectors > 0);
+    // Closed months only (the open month has its revenue but not yet its overheads, aircraft time and result).
+    const flown = months.filter((x) => x.p.sectors > 0 && x.m < monthKey(g.now));
     const sum = (f: (p: Route['pnl'][number]) => number, xs = flown) => xs.reduce((a, x) => a + f(x.p), 0);
     const rev = sum((p) => p.rev);
     const direct = sum((p) => p.direct);
@@ -140,6 +141,5 @@ export function botNetworkReport(g: GameState): string {
   }
   const s = N!.stats;
   out.push(`network stats launched ${s.launched} rotations ${s.rotations} pax ${s.pax} swaps ${s.swaps} subs ${s.subs} moves ${s.moves} cancels ${s.cancels} downgrades ${s.downgrades} · unearned ${k(all.reduce((a, r) => a + r.unearned, 0))}`);
-  void monthKey;
   return out.join('\n');
 }
