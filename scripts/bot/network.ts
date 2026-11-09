@@ -11,7 +11,7 @@ import type { GameState } from '../../src/engine/core/types';
 import { liveFlightsOf } from '../../src/engine/core/entities';
 import { acmiNetBH, answerSlot, businessCase, caseDraft, chainOf, decideCase, MARKET_BY_ID, startStudy } from '../../src/engine/network';
 import { distanceNm } from '../../src/engine/core/geo';
-import { maxSectorNm } from '../../src/engine/core/perf';
+import { blockMinutes, maxSectorNm } from '../../src/engine/core/perf';
 import type { Route } from '../../src/engine/network/types';
 
 const DIL = process.argv.includes('--routes=dil');
@@ -94,7 +94,8 @@ export function botNetworkReport(g: GameState): string {
   const out: string[] = ['== network'];
   for (const r of all) {
     const months = Object.entries(r.pnl).map(([m, p]) => ({ m: +m, p })).sort((a, b) => a.m - b.m);
-    const flown = months.filter((x) => x.p.sectors > 0);
+    // Closed months only (the open month has its revenue but not yet its overheads, aircraft time and result).
+    const flown = months.filter((x) => x.p.sectors > 0 && x.m < monthKey(g.now));
     const sum = (f: (p: Route['pnl'][number]) => number, xs = flown) => xs.reduce((a, x) => a + f(x.p), 0);
     const rev = sum((p) => p.rev);
     const direct = sum((p) => p.direct);
@@ -118,14 +119,21 @@ export function botNetworkReport(g: GameState): string {
     const perMonth = after.length ? afterRes / after.length : 0;
     const payback = perMonth > 0 ? launch / perMonth : Infinity;
     const firstDep = rots.find((x) => x.status === 'flown')?.dep;
-    out.push(`route ${r.marketId} ${r.model} ${r.status} opened ${fmtDate(r.opened)} first ${firstDep ? fmtDate(firstDep) : '-'} months ${flown.length} · rotations flown ${rots.filter((x) => x.status === 'flown').length} cancelled ${rots.filter((x) => x.status === 'cancelled').length} sub ${rots.filter((x) => x.operatedBy).length} · LF ${seats ? pct(pax / seats) : '-'} yield ${pax ? Math.round(sum((p) => p.tickets) / pax) : 0} · rev ${k(rev)} direct ${k(direct)} acTime ${k(acT)} result ${k(result)} margin ${rev ? pct(result / rev) : '-'} · contribution/BH ${Math.round(contribBH)} vs ACMI net/BH ${acmi} · launch ${k(launch)} payback ${Number.isFinite(payback) ? `${payback.toFixed(1)} mo` : 'never'} · rep ${Math.round(r.reputation)}`);
+    // Own-flown rotations only (a sub-chartered one has no block hours of ours and the rival's price as its cost).
+    const own = rots.filter((x) => x.status === 'flown' && !x.operatedBy);
+    const ownC = own.reduce((a, x) => a + x.sectors.reduce((b, q) => b + (q.rev ?? 0) - (q.cost ?? 0), 0), 0);
+    const ownBH = own.reduce((a, x) => a + x.sectors.reduce((b, q) => b + blockMinutes(typeId, q.from, q.to) / 60, 0), 0);
+    const ownPerBH = ownBH ? ownC / ownBH : 0;
+    const ownRot = own.length ? ownC / own.length : 0;
+    out.push(`route ${r.marketId} ${r.model} ${typeId}${r.series[0]?.tail ? ` ${g.fleet[r.series[0].tail]?.reg ?? ''}` : ''} ${r.status} opened ${fmtDate(r.opened)} first ${firstDep ? fmtDate(firstDep) : '-'} months ${flown.length} · rotations flown ${rots.filter((x) => x.status === 'flown').length} cancelled ${rots.filter((x) => x.status === 'cancelled').length} sub ${rots.filter((x) => x.operatedBy).length} · LF ${seats ? pct(pax / seats) : '-'} yield ${pax ? Math.round(sum((p) => p.tickets) / pax) : 0} · rev ${k(rev)} direct ${k(direct)} acTime ${k(acT)} result ${k(result)} margin ${rev ? pct(result / rev) : '-'} · contribution/BH ${Math.round(contribBH)} vs ACMI net/BH ${acmi} · launch ${k(launch)} payback ${Number.isFinite(payback) ? `${payback.toFixed(1)} mo` : 'never'} · rep ${Math.round(r.reputation)}`);
     out.push(`  months: ${flown.map((x) => `${x.m % 12 + 1}/${String(Math.floor(x.m / 12)).slice(2)} ${k(x.p.result)} ${x.p.seats ? Math.round((x.p.pax / x.p.seats) * 100) : 0}%`).join(' ')}`);
     const rotContrib = flown.length ? (rev - direct) / Math.max(1, rots.filter((x) => x.status === 'flown').length) : 0;
     const M = (name: string, ok: boolean, v: string) => out.push(`  balance ${name}: ${v} ${ok ? 'ok' : 'NO'}`);
     if (r.marketId === 'LIS-OXB' && after.length >= 3) M('OXB margin after ramp 2–8 %', afterRev > 0 && afterRes / afterRev >= 0.02 && afterRes / afterRev <= 0.08, afterRev ? pct(afterRes / afterRev) : '-');
     if (flown.length >= 3) M('first 3 months with launch spend −20…+2 %', f3 >= -0.2 && f3 <= 0.02, pct(f3));
-    if (bh) M('contribution/BH ≤ ACMI net/BH', contribBH <= acmi, `${Math.round(contribBH)} vs ${acmi}`);
-    if (rots.some((x) => x.status === 'flown')) M('rotation contribution $35–70k', rotContrib >= 35_000 && rotContrib <= 70_000, k(rotContrib));
+    if (ownBH) M('own-flown contribution/BH ≤ ACMI net/BH', ownPerBH <= acmi, `${Math.round(ownPerBH)} vs ${acmi} (${own.length} rotations)`);
+    if (own.length) M('own-flown rotation contribution $35–70k', ownRot >= 35_000 && ownRot <= 70_000, k(ownRot));
+    void rotContrib;
     if (r.model !== 'partner' && launch) M('launch spend $250–400k', launch >= 250_000 && launch <= 400_000, k(launch));
     if (after.length >= 3) M('payback 12–24 months', payback >= 12 && payback <= 24, Number.isFinite(payback) ? `${payback.toFixed(1)} mo` : 'never');
     const go = r.stages.find((s) => s.id === 'case')?.due;
@@ -133,6 +141,5 @@ export function botNetworkReport(g: GameState): string {
   }
   const s = N!.stats;
   out.push(`network stats launched ${s.launched} rotations ${s.rotations} pax ${s.pax} swaps ${s.swaps} subs ${s.subs} moves ${s.moves} cancels ${s.cancels} downgrades ${s.downgrades} · unearned ${k(all.reduce((a, r) => a + r.unearned, 0))}`);
-  void monthKey;
   return out.join('\n');
 }

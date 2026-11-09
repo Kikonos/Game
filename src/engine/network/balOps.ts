@@ -24,7 +24,7 @@ export const NET_OPS_BAL = {
     /** Passenger services per boarded passenger (PSS + services + insurance) and the J lounge at LIS. */
     pss: 3, services: 3, insurance: 1.5, lounge: 30,
     /** Distribution: GDS per segment on agency bookings, card fees on direct, agent commission; monthly fixed. */
-    gds: 13, agencyShare: 0.55, cardFee: 0.018, commission: 0.005, distributionMonth: 3_000,
+    gds: 13, agencyShare: 0.55, cardFee: 0.018, commission: 0.035, distributionMonth: 3_000,
     /** Ongoing marketing per route per month by level. */
     marketing: { low: 3_000, normal: 8_000, high: 15_000 } as Record<string, number>,
     /** Station overhead a month: an outstation, a tech stop; per DIL operation (permit team). */
