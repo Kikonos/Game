@@ -23,7 +23,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'Bid a widebody on a widebody request: the aircraft list shows your widebodies with their fit. A narrowbody request still takes a narrowbody.',
       'Offers, leads and tenders follow your fleet: clients see which aircraft you have, so a mixed fleet gets a steady share of widebody work, more when a widebody stands idle or is about to arrive. Seats are asked to fit your aircraft.',
       'A lead keeps the body it was quoted for: the offer that comes from it is for the same kind of aircraft. Every lead, tender and pitch shows a Narrowbody or Widebody tag, and you choose which one to pitch.',
-      'Now and then, at most every month or two, a client asks for a double-decker (an A380 or a 747-400). You cannot fly it yet: it is marked "Stretch: out of reach", a taste of what comes next.',
+      'Once you fly a widebody and work the charter market (2★), now and then, at most every month or two, a client asks for a double-decker (an A380 or a 747-400). You cannot fly it yet: it is marked "Stretch: out of reach", a taste of what comes next.',
       'ETOPS 180 is fairer: its technical reliability now counts the twins that will fly ETOPS (your 180-capable widebodies), not the whole fleet, with at least 120 of their departures. The approval card shows the record by aircraft and by cause, the last 30 days, when your pace gets there and what would help.',
       'New: the ETOPS reliability programme (Ladder › ETOPS 180). Spares along the ETOPS routes and an engineer on call, paid monthly per twin: fewer defects and AOGs on the twins, and an AOG away from base is fixed as fast as at home. The ETOPS maintenance programme helps the twins too.',
     ],

@@ -4,7 +4,8 @@
 // the widebody share and a target aircraft from here (offers.ts generateOffer, commercial/sales.ts, tenders.ts).
 //
 // The occasional out-of-reach job (the "taste of progression": a client asking for a double-decker) is rationed here
-// too: one at most every BAL.v0194.reach.days (offers.ts reachLoad marks it).
+// too: one at most every BAL.v0194.reach.days (offers.ts reachLoad marks it), and only once our prestige level reaches
+// BAL.v0194.reach.minLevel (the charter market: a brochure-work newcomer is not where a double-decker job calls).
 
 import { ACMI_TYPES_LIST } from '../../data/acmiTypes';
 import { AIRLINE_FAMILIES } from '../../data/naming';
@@ -13,7 +14,7 @@ import { typeOf } from '../core/perf';
 import { DAY } from '../core/time';
 import type { Aircraft, Client, GameState, Minute } from '../core/types';
 import { anchorsOf } from './plan';
-import { playerPrestige } from './prestige';
+import { playerLevel, playerPrestige, PRESTIGE_GATE } from './prestige';
 
 export interface FleetUnit {
   id: string;
@@ -120,8 +121,12 @@ export const seatsFor = (u: FleetUnit, roll: number): number => Math.max(100, Ma
 
 // ---------- the out-of-reach job (a taste of progression) ----------
 
-/** One out-of-reach job at most every BAL.v0194.reach.days. Pure. */
+/**
+ * One out-of-reach job at most every BAL.v0194.reach.days, and none below prestige level BAL.v0194.reach.minLevel (the
+ * ladder's market effects, as the stretch offers: off under vitest unless a suite switches PRESTIGE_GATE on). Pure.
+ */
 export function reachOpen(g: GameState): boolean {
+  if (PRESTIGE_GATE.on && playerLevel(g) < BAL.v0194.reach.minLevel) return false;
   const at = g.company.prestige?.reachAt;
   return at === undefined || g.now - at >= BAL.v0194.reach.days * DAY;
 }

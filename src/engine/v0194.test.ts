@@ -13,6 +13,7 @@ import { newDirector, director } from './ops/director';
 import { generateOffer, fleetCouldFly } from './contracts/offers';
 import { bodyOfReq } from './contracts/shape';
 import { fleetOutlook, reachOpen } from './contracts/fleetFit';
+import { playerPrestige, PRESTIGE_GATE } from './contracts/prestige';
 import {
   bidAircraft, bidQuote, dailyTenders, hajjTenderFor, issueTender, issueWideTender, placeBid, roundAt, tenderRow, wideTenderEligible, wideTenderWant,
 } from './commercial/tenders';
@@ -255,6 +256,32 @@ describe('the out-of-reach job (a taste of progression)', () => {
     expect(reach.length).toBeLessThanOrEqual(Math.ceil(days / BAL.v0194.reach.days));
     for (let i = 1; i < reach.length; i++) expect(reach[i] - reach[i - 1]).toBeGreaterThanOrEqual(BAL.v0194.reach.days * DAY);
     expect(reachOpen(g) || g.now - (g.company.prestige?.reachAt ?? 0) < BAL.v0194.reach.days * DAY).toBe(true);
+  });
+
+  it('respects our prestige level: none at brochure work (level 1), offered from the charter market (level 2) up', () => {
+    const was = PRESTIGE_GATE.on;
+    PRESTIGE_GATE.on = true;
+    try {
+      const count = (level: 1 | 2): number => {
+        const g = wideGame(3, fromUTC(2028, 1, 10));
+        playerPrestige(g).level = level;
+        let n = 0;
+        for (let d = 0; d < 120; d++) {
+          if (d === 0) expect(reachOpen(g)).toBe(level >= BAL.v0194.reach.minLevel);
+          for (let k = 0; k < 3; k++) {
+            const o = generateOffer(g, undefined, { ordinary: true });
+            if (o?.reach) n++;
+            if (o) delete g.offers[o.id];
+          }
+          g.now += DAY;
+        }
+        return n;
+      };
+      expect(count(1)).toBe(0);
+      expect(count(2)).toBeGreaterThanOrEqual(1);
+    } finally {
+      PRESTIGE_GATE.on = was;
+    }
   });
 });
 
