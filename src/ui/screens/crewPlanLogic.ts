@@ -17,7 +17,7 @@ export function fleetShort(f: RatingFamily, typeIds: string[] = []): string {
 }
 
 const ROLE_WORDS: Record<Role, [string, string]> = {
-  CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], CRP: ['relief pilot', 'relief pilots'], PUR: ['purser', 'pursers'], CC: ['cabin crew', 'cabin crew'],
+  CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], PUR: ['purser', 'pursers'], CC: ['cabin crew', 'cabin crew'],
 };
 /** '6 cabin crew', '1 captain', '2 first officers'. */
 export const roleCount = (role: Role, n: number) => `${n} ${ROLE_WORDS[role][n === 1 ? 0 : 1]}`;
@@ -65,6 +65,6 @@ export function setsWhyLines(p: Pick<FamilyPlan, 'setsPerAircraft' | 'limiting'>
     ? `${n} crews per aircraft: on a detachment, its crews on station plus one in five for leave and change-overs; at home, 5 or more for the flying.`
     : `${n} crews per aircraft: everyone has 8–10 days off a month and 4 weeks’ leave, so it takes about ${n} to keep one aircraft flying.`;
   const limit = `The role you have fewest of sets how many full crews you have${p.limiting ? `: here, ${ROLE_WORDS[p.limiting][1]}` : ''}.`;
-  const seats = `A captain can’t be planned as first officer; spare pursers fill cabin crew seats${p.augmented ? ' and spare first officers relief seats' : ''}; dual-rated crew count once, in their home fleet.`;
+  const seats = `A captain can’t be planned as first officer; spare pursers fill cabin crew seats; dual-rated crew count once, in their home fleet.`;
   return [why, limit, seats];
 }

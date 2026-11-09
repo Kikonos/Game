@@ -2,6 +2,7 @@
 // renders GLOSSARY[id].term and shows `short` in a popover; the Glossary screen lists every entry with "Show me".
 
 import type { ProblemKind } from '../engine/core/types';
+import { GLOSSARY_NETWORK, type NetworkTermId } from './glossaryNetwork';
 
 export type TermId =
   | 'fdp' | 'deadhead' | 'positioning' | 'tight' | 'discretion' | 'acmi' | 'wetLease' | 'subcharter' | 'aog' | 'standby' | 'rest' | 'blockHours'
@@ -25,7 +26,9 @@ export type TermId =
   /** v0.10.2 */
   | 'techReliability' | 'etopsMx'
   /** v0.17 the aircraft market (UPDATE-0.17.md §N.5) */
-  | 'loi' | 'creditCheck' | 'holdingDeposit' | 'letterOfCredit' | 'minHours' | 'transition' | 'recordsReview' | 'camo' | 'aocVariation' | 'sublease' | 'lessorRating';
+  | 'loi' | 'creditCheck' | 'holdingDeposit' | 'letterOfCredit' | 'minHours' | 'transition' | 'recordsReview' | 'camo' | 'aocVariation' | 'sublease' | 'lessorRating'
+  /** v0.19 scheduled routes (data/glossaryNetwork.ts) */
+  | NetworkTermId;
 
 export interface GlossaryEntry {
   term: string;
@@ -36,7 +39,7 @@ export interface GlossaryEntry {
 }
 
 /** Player words for a view id (the "Show me" button). */
-export const VIEW_LABEL: Record<string, string> = { board: 'Roster board', people: 'People', plan: 'Planning', market: 'Aircraft market', ladder: 'Ladder' };
+export const VIEW_LABEL: Record<string, string> = { board: 'Roster board', people: 'People', plan: 'Planning', market: 'Aircraft market', ladder: 'Ladder', network: 'Network' };
 
 export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   fdp: { term: 'FDP', short: "Flight duty period: the crew's working day, from report to the last on-blocks. There is a legal maximum.", where: { tab: 'crew', view: 'board' } },
@@ -53,7 +56,7 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   blockHours: { term: 'Block hours', short: 'Time from pushing back to parking; what clients pay for.', where: { tab: 'finance' } },
   mgh: { term: 'MGH', short: 'Minimum guaranteed hours: the block hours a wet-lease client pays for every month, flown or not.', where: { tab: 'contracts' } },
   ferry: { term: 'Ferry', short: 'An empty flight with no client: to a check, a delivery or a return.', where: { tab: 'schedule' } },
-  augmented: { term: 'Augmented', short: 'A third or fourth pilot so each can rest in flight; allows 14–18 h days depending on the rest facility.', where: { tab: 'company' } },
+  augmented: { term: 'Augmented', short: 'Extra pilots so each can rest in flight: 3 pilots are a captain and 2 first officers, 4 are 2 captains and 2 first officers in pairs A and B who take turns at the controls. A captain may sit as first officer. Allows 14–18 h days depending on the rest facility.', where: { tab: 'company' } },
   etops: { term: 'ETOPS', short: 'Permission to fly far from the nearest airport over water (120, 180 or 240 minutes).', where: { tab: 'company' } },
   aCheck: { term: 'A-check', short: 'A light overnight inspection every few hundred flight hours.', where: { tab: 'fleet' } },
   cCheck: { term: 'C-check', short: 'A heavy check in a hangar every couple of years; the aircraft is out for days.', where: { tab: 'fleet' } },
@@ -78,7 +81,7 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   ldmcr: { term: 'Lower-deck crew rest module', short: 'A bunk module loaded into the aft cargo hold for the cabin crew (A330, A340): class 1 rest.', where: { tab: 'fleet' } },
   recliners: { term: 'Crew rest recliners', short: 'Deep-reclining crew seats with leg rests in place of the last economy rows: class 2 rest without giving up business seats. They sell as seats when nobody rests.', where: { tab: 'fleet' } },
   inflightRest: { term: 'In-flight rest', short: 'Sleep on board: on long days part of the crew rests in turns while the others work.', where: { tab: 'schedule' } },
-  landingPilots: { term: 'Landing pilots', short: 'The two pilots who land the last flight: they need 2 hours’ rest in a row, the others 90 minutes.', where: { tab: 'schedule' } },
+  landingPilots: { term: 'Landing pilots', short: 'The pair who take off and land (pair A): they need 2 hours’ rest in a row, the others 90 minutes.', where: { tab: 'schedule' } },
   extension: { term: 'Planned extension', short: 'A planned extra hour (up to 14 h), at most twice a week per person, with 4 h more rest after.', where: { tab: 'crew', view: 'board' } },
   splitDuty: { term: 'Split duty', short: "A long wait on the ground (3 h or more) adds half of it to the day; a hotel room when it's 6 h or at night.", where: { tab: 'crew', view: 'board' } },
   delayedReport: { term: 'Delayed report', short: 'Crew told to come later before they leave the hotel: under 4 h the day keeps its original limit.', where: { tab: 'crew', view: 'board' } },
@@ -106,7 +109,7 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   // v0.7.4
   ySeats: { term: 'Curtained economy seats', short: "Curtained economy seats: the player's operators used these; the game treats them as class 3 rest. Every aircraft has them. They are blocked only on flights where someone rests, and sold on all others.", where: { tab: 'fleet' } },
   jSeats: { term: 'Curtained business seats', short: 'Business seats curtained off for resting crew: class 2 rest, on any aircraft whose cabin has business seats. Blocked only on flights where someone rests.', where: { tab: 'fleet' } },
-  crewSet: { term: 'Crew set', short: 'One full crew for one aircraft: captain, first officer, purser and the cabin crew its seats need (plus a relief pilot on long days). Each aircraft needs about 5 sets to fly every day of the year.', where: { tab: 'crew', view: 'plan' } },
+  crewSet: { term: 'Crew set', short: 'One full crew for one aircraft: captain, first officer, purser and the cabin crew its seats need (plus a third pilot, or a second captain and first officer, on long days). Each aircraft needs about 5 sets to fly every day of the year.', where: { tab: 'crew', view: 'plan' } },
   quickRefit: { term: 'Quick reconfiguration', short: 'Changing the cabin with seats we already hold: move rows, the class divider and curtains, change the pitch. About 48 hours in our hangar.', where: { tab: 'fleet' } },
   longestDay: { term: 'Longest day', short: "The longest day this aircraft can be planned for: 2 pilots, or 3–4 pilots who take turns to rest on board. Captain's discretion is never planned.", where: { tab: 'fleet' } },
   airportStandby: { term: 'Airport standby', short: 'Standby at the airport, ready at once. It counts in full as duty; called after 4 h, the day that follows is cut by the standby beyond 4 h; standby plus flying stays within 16 h.', where: { tab: 'crew', view: 'board' } },
@@ -137,6 +140,8 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   sublease: { term: 'Sublease', short: "Another airline's spare aircraft for a few months of its quiet season: quick to start, dearer than a normal lease, and back on a fixed date.", where: { tab: 'fleet', view: 'market' } },
   lessorRating: { term: 'Lessor rating', short: 'How lessors see our credit, A to D: years on the AOC, fleet, cash, profit, debts, client stars and reliability. It sets the deposit, who will deal with us and how many aircraft they place.', where: { tab: 'fleet', view: 'market' } },
   newBuildSlot: { term: 'New-build slot', short: 'A brand-new aircraft from the factory, leased before it is built. Months of waiting and the highest rent.', where: { tab: 'fleet' } },
+  // v0.19 scheduled routes.
+  ...GLOSSARY_NETWORK,
 };
 
 /** Words that the UI wraps in <Term> when they appear in a card's text (lower-case match). */

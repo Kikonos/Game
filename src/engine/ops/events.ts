@@ -291,7 +291,7 @@ function resolveAog(g: GameState, d: Decision, opt: string): ActionResult {
 
 // ---------- crew short ----------
 
-const SLOT_ORDER: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
+const SLOT_ORDER: Role[] = ['CPT', 'FO', 'PUR', 'CC'];
 const UNFIT: CrewStatus[] = ['sick', 'leave', 'training', 'joining'];
 /** Legality issues a later departure can cure (the rest are the person's, not the hour's). */
 const TIME_CURES: IssueCode[] = ['rest', 'location', 'fdp'];
@@ -1006,7 +1006,8 @@ function resolveChange(g: GameState, d: Decision, opt: string): ActionResult {
 
 function changeRequests(g: GameState): void {
   for (const c of Object.values(g.contracts)) {
-    if (c.status !== 'active') continue;
+    // v0.19 our own scheduled flights: no client asks to move them (and no roll is drawn for them).
+    if (c.status !== 'active' || c.archetype === 'scheduled') continue;
     // v0.11 the director: client requests come in busy spells only (their yearly rate packed into those days).
     if (!chance(g, (BAL.changeRequestWeekly / 7) * optionalFactor(g)) || !canAsk(g)) continue;
     changeRequestFor(g, c);
@@ -1159,7 +1160,7 @@ function resolveClientFee(g: GameState, d: Decision, opt: string): ActionResult 
 function clientFees(g: GameState): void {
   for (const c of Object.values(g.contracts)) {
     // v0.12.1 nor a day's move of a world tour (changeRequestFor).
-    if (c.status !== 'active' || c.dry || c.archetype === 'worldTour' || !chance({ rng: hash(`${g.seed}:feeday:${c.id}:${Math.floor(g.now / DAY)}`) | 0 }, (BAL.v08.rel.clientFeeWeekly / 7) * optionalFactor(g))) continue;
+    if (c.status !== 'active' || c.dry || c.archetype === 'worldTour' || c.archetype === 'scheduled' || !chance({ rng: hash(`${g.seed}:feeday:${c.id}:${Math.floor(g.now / DAY)}`) | 0 }, (BAL.v08.rel.clientFeeWeekly / 7) * optionalFactor(g))) continue;
     clientFeeFor(g, c);
   }
 }

@@ -7,6 +7,7 @@
 import { BAL } from '../core/balance';
 import { cancelFlight, flightsOf, removeFlights, retimeFlight, subcharterFlights, touchFlights, touchStatus, touchTickets } from '../core/entities';
 import { invoice, post } from '../core/ledger';
+import { noteRouteSub, ROUTE_COST_CATS, routeCancelLoss, routeLegCost } from '../network/costs';
 import { pushMessage } from '../core/messages';
 import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
@@ -413,6 +414,8 @@ export function underClosure<T>(g: GameState, f: Flight, fn: () => T, e: WorldEv
 export function applyHold(g: GameState, plan: HoldPlan, reason: string, moveReason?: string, cancelReason = reason, subAc?: Aircraft): number {
   const fm = fmCause;
   if (subAc && !fm && subcharterInstead(g, subAc, plan.cancels, `${reason}: the aircraft can't make these on time.`, false)) plan.cancels = [];
+  // v0.19 our own scheduled sectors: a rival flies them rather than refunding and compensating the passengers.
+  if (!fm) plan.cancels = routeSubInstead(g, plan.cancels, `${reason}: the aircraft can't make these on time.`);
   const rev = plan.cancels.filter((f) => f.status === 'scheduled' && isRevenue(f));
   const pen = cancelLegs(g, plan.cancels, cancelReason, 0);
   if (rev.length) {
@@ -563,6 +566,11 @@ export function windowLegs(g: GameState, ac: Aircraft, at: string, readyAt: Minu
 export function cancelCost(g: GameState, legs: Flight[]): number {
   let s = 0;
   for (const f of legs) {
+    // v0.19 a route sector cancelled on the day: refunds and EU261 (network/costs.ts), not a contract penalty.
+    if (f.sched) {
+      s += routeCancelLoss(g, f);
+      continue;
+    }
     const c = contractOf(g, f);
     if (c && isRevenue(f)) s += c.penalties.perCancelledLeg;
   }
@@ -590,7 +598,8 @@ export function cancelLegs(g: GameState, legs: Flight[], reason: string, repPerL
     cancelForceMajeure(g, live, `Cancelled: ${fmCause.title}`);
     return 0;
   }
-  const pen = agreed ? 0 : cancelCost(g, live);
+  // v0.19 route sectors pay their passengers in the network module (refunds, EU261), not here.
+  const pen = agreed ? 0 : cancelCost(g, live.filter((f) => !f.sched));
   if (!agreed) noteLostLegs(g, live);
   let rev = 0;
   const empty: string[] = [];
@@ -622,6 +631,12 @@ export function subcharterCost(g: GameState, legs: Flight[], factor: number): nu
     if (!isRevenue(f)) continue;
     const c = contractOf(g, f);
     const bh = f.block / 60;
+    // v0.19 our own route sector: the rival's wet rate and the fuel it now pays.
+    if (f.sched) {
+      const t = typeOf(f.aircraftId && g.fleet[f.aircraftId] ? g.fleet[f.aircraftId].typeId : 'b763');
+      s += (t.rateBH * 1.15 + t.fuelTBH * g.market.fuelPrice) * bh * factor;
+      continue;
+    }
     if (c?.product.kind === 'wet') s += c.product.ratePerBH * bh * factor;
     else if (c?.product.kind === 'charter') s += (c.product.price * f.block * factor) / Math.max(f.block, c.planRevMin ?? f.block * 4);
     else s += typeOf(f.aircraftId && g.fleet[f.aircraftId] ? g.fleet[f.aircraftId].typeId : 'a320ceo').rateBH * bh * factor;
@@ -664,6 +679,8 @@ export function pickRival(g: GameState, typeId: string, legs: Flight[] = []): st
 /** Hands revenue legs to a rival (still billed to our client), drops the empty legs; posts the cost. */
 export function subcharterLegs(g: GameState, legs: Flight[], rivalId: string, cost: number, out?: { hit?: SubHit }): number {
   const live = legs.filter((f) => f.status === 'scheduled' && f.purpose !== 'delivery');
+  // v0.19 a scheduled route's sectors: the rival's price counts in the route's own result.
+  if (live.some((f) => f.sched)) noteRouteSub(g, live, cost);
   const rev = live.filter(isRevenue);
   const empty = live.filter((f) => !isRevenue(f));
   // v0.7.2 the client notices (F3): reliability and relation, worse when hand-overs become a habit.
@@ -723,7 +740,9 @@ const inWindow = (g: GameState, ts: Minute[] | undefined) => {
  * 90 days (each leg counts for the next); at most capPerClient per client in capDays (splitting or bundling a hand-over
  * costs the same); relation −relationPerLeg a leg (at most relationCap per client). Pure.
  */
-export function subHit(g: GameState, rev: Flight[]): SubHit {
+export function subHit(g: GameState, rev0: Flight[]): SubHit {
+  // v0.19 our own scheduled flights handed to a rival: no penalty (the player's rule), only the price.
+  const rev = rev0.filter((f) => !f.sched);
   const S = BAL.v072.sub;
   let n90 = inWindow(g, g.stats.subLog);
   const sub = new Map<string, number>();
@@ -1234,9 +1253,31 @@ export function subcharterInstead(g: GameState, ac: Aircraft, legs: Flight[], wh
   return true;
 }
 
+/**
+ * v0.19 route sectors about to be dropped by operations: sub-chartered when a rival can fly them for less than the
+ * refunds and EU261 (almost always). Returns the legs still to cancel (the others, and route sectors no rival takes).
+ */
+function routeSubInstead(g: GameState, legs: Flight[], why: string): Flight[] {
+  const route = legs.filter((x) => x.sched && x.status === 'scheduled' && x.aircraftId && isRevenue(x));
+  if (!route.length) return legs;
+  const ac = g.fleet[route[0].aircraftId!];
+  if (!ac) return legs;
+  // The whole rotation's remaining sectors go together (the passengers' way home included).
+  const rot = route[0].sched!.rotId;
+  const all = flightsOf(g, ac.id).filter((x) => x.sched?.rotId === rot && x.status === 'scheduled');
+  if (!subcharterInstead(g, ac, all, why, false)) return legs;
+  const gone = new Set(all.map((x) => x.id));
+  return legs.filter((x) => !gone.has(x.id));
+}
+
 /** Cancels the unit `f` starts (empty legs go back to contracts) with one message; the rest is re-rostered. */
 function dropUnit(g: GameState, ac: Aircraft, f: Flight, reason: string, why: string, cat: MessageCat): void {
-  const legs = unitOf(g, ac, f);
+  // v0.19 our own scheduled sectors go to a rival instead (no refunds, no EU261).
+  const legs = fmCause ? unitOf(g, ac, f) : routeSubInstead(g, unitOf(g, ac, f), why);
+  if (!legs.length) {
+    rerosterFrom(g, ac.id, g.now);
+    return;
+  }
   const rev = legs.filter(isRevenue);
   const fm = fmCause;
   const pen = cancelLegs(g, legs, reason, 0);
@@ -1310,7 +1351,7 @@ function restFailed(g: GameState, f: Flight): Duty | null {
 function restOutOfHours(g: GameState, f: Flight, d: Duty): void {
   const p = g.pairings[d.pairingId];
   if (!p) return;
-  for (const s of p.slots) if (s.crewId && (s.role === 'PUR' || s.role === 'CC')) s.ooh = { crewId: s.crewId, limit: 'inflightRest', over: 0, at: g.now };
+  for (const s of p.slots) if (s.crewId && (s.role === 'PUR' || s.role === 'CC')) s.ooh = { crewId: s.crewId, limit: 'inflightRest', over: 0, at: g.now, dutyId: d.id };
   if (f.crewAlert === 'red') return;
   f.crewAlert = 'red';
   // Alarm self-check: the rest plan read again on its own before the alarm and the pause.
@@ -1503,6 +1544,12 @@ export function paysFuel(g: GameState, f: Flight): boolean {
  * passes the flown one; a forecast the planned f.block).
  */
 export function legCostEstimate(g: GameState, f: Flight, ac: Aircraft, blockMin = f.block): { maint: number; reserves: number; fuel: number; fees: number } {
+  // v0.19 a scheduled-route sector costs by its stations and passengers (network/costs.ts); the route lines (handling,
+  // catering, passenger services, navigation, distribution) ride in `fees` here and are posted on their own lines.
+  if (f.sched) {
+    const rc = routeLegCost(g, f, ac, blockMin);
+    return { maint: rc.maint, reserves: rc.reserves, fuel: rc.fuel, fees: rc.fees + rc.handling + rc.catering + rc.paxServices + rc.navCharges + rc.distribution };
+  }
   const bh = blockMin / 60;
   const fh = Math.max(0, blockMin - 20) / 60;
   const t = typeOf(ac.typeId);
@@ -1570,7 +1617,12 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
     if (fc && fc.product.kind === 'charter' && fc.product.fuelAtCost && isRevenue(f)) {
       invoice(g, { clientId: fc.clientId, contractId: fc.id, desc: `Fuel re-billed: ${f.no}`, amount: Math.round(cost.fuel), cat: 'otherRevenue', dueDays: fc.payment.basis === 'arrears' ? fc.payment.dueDays : 7 });
     }
-    post(g, 'airportFees', -cost.fees);
+    if (f.sched) {
+      // v0.19 the route lines on their own (network/costs.ts).
+      const rc = routeLegCost(g, f, ac, block);
+      post(g, 'airportFees', -Math.round(rc.fees));
+      for (const [k, cat] of ROUTE_COST_CATS) post(g, cat, -Math.round(rc[k]));
+    } else post(g, 'airportFees', -cost.fees);
   }
   g.finance.current.bh = Math.round((g.finance.current.bh + bh) * 100) / 100;
   // v0.12.1 one cabin crew short (ORO.CC.205(c)) covers the sector in hand only: the seat is required again for the

@@ -49,6 +49,7 @@ import { devDisruption } from '../engine/ops/disrupt';
 import { CURFEWS } from '../data/opsData';
 import { inspect, rampFindings } from '../engine/ops/ramp';
 import { devAudit } from '../engine/ops/audit';
+import { devLaunchRoute } from '../engine/network/launch';
 
 export type { GameSpeed } from '../engine/core/time';
 export type AppScreen = 'loading' | 'title' | 'newgame' | 'game' | /** v0.12 */ 'scenarios';
@@ -56,6 +57,8 @@ export type Tab = 'map' | 'contracts' | 'schedule' | 'crew' | 'fleet' | 'finance
 
 /** v0.14.1 (merge) game minutes between the frame loop's fallback copies. */
 const FRAME_SNAP_MIN = 6 * 60;
+/** v0.19 (perf) the longest a Map gesture holds back the clock's hourly refresh (ms). */
+const GESTURE_HOLD_MS = 2500;
 
 export const SPEED_LABEL: Record<GameSpeed, string> = { 1: '1×', 2: '2×', 4: '4×' };
 
@@ -176,7 +179,7 @@ export type ModalSpec =
   /** v0.5.1 livery editor: the company livery or one aircraft's (Company · All white · Custom). */
   | { kind: 'livery'; target: 'company' | { aircraftId: string } }
   /** v0.6: bulk type-rating conversion for the selected crew; the classes list (cancel per class / member). */
-  | { kind: 'convert'; crewIds: string[]; family?: RatingFamily; onBooked?: () => void }
+  | { kind: 'convert'; crewIds: string[]; family?: RatingFamily; onBooked?: () => void; advice?: { from: RatingFamily; role: Role; n: number } }
   | { kind: 'classes' }
   /** v0.7: sign a market offer; cabin refit; lease extend/return; an approval on the ladder; the ladder-step celebration. */
   | { kind: 'acquire'; offerId: string }
@@ -221,7 +224,11 @@ export type ModalSpec =
   | { kind: 'tender'; tenderId: string }
   | { kind: 'followDelivery'; aircraftId: string }
   /** v0.15 the welcome card of a new game (once, at the start; never on a load). */
-  | { kind: 'welcome' };
+  | { kind: 'welcome' }
+  /** v0.19 scheduled routes (ui/screens/network, a lazy chunk): the route page, the launch wizard, moving a rotation. */
+  | { kind: 'route'; routeId: string; tab?: 'overview' | 'timetable' | 'sales' | 'costs' }
+  | { kind: 'routeLaunch'; routeId?: string; marketId?: string }
+  | { kind: 'rotationMove'; rotId: string; delta: number; back?: ModalSpec };
 
 export interface Toast {
   id: number;
@@ -327,6 +334,13 @@ class GameStore {
   private modalBelow: ModalSpec | null = null;
   /** v0.6: a roster-board drag in progress holds the clock like a modal (no render; the speed control stays as set). */
   holdTime = false;
+  /**
+   * v0.19 (perf) a pan, pinch or fling on the Map (flat or globe) since this time (0: none): the clock keeps running and
+   * the map's own loops keep the aircraft moving, but the hourly re-render of the screens waits for the gesture's end
+   * (at most GESTURE_HOLD_MS), so a drag is never cut by a whole-screen render.
+   */
+  private gestureAt = 0;
+  private gestureEmit = false;
   toasts: Toast[] = [];
   /** v0.12.1 the last pop-ups, newest first (Inbox › Recent pop-ups); UI state only, never saved. */
   toastLog: ToastLogEntry[] = [];
@@ -375,6 +389,7 @@ class GameStore {
   getClockVersion = () => this.clockVersion;
 
   emit() {
+    this.gestureEmit = false;
     // v0.9 §S.1: the engine's sound cues since the last look (advance, actions, dev scenes) go to the sound set.
     this.drainCues();
     // v0.15 whatever path answered it (the card, the Inbox, Crew Control, operations), the hold sees it here.
@@ -626,6 +641,18 @@ class GameStore {
     this.emit();
   }
 
+  /** v0.19 (perf) a Map gesture starts (true) or has ended, its fling and easing included (false). */
+  mapGesture(on: boolean) {
+    if (on) {
+      // A gesture whose end was never seen (a fling stopped by a tap) holds nothing past its time.
+      const now = performance.now();
+      if (!this.gestureAt || now - this.gestureAt > GESTURE_HOLD_MS) this.gestureAt = now;
+      return;
+    }
+    this.gestureAt = 0;
+    if (this.gestureEmit) this.emit();
+  }
+
   togglePause() {
     this.paused = !this.paused;
     this.pauseReason = null;
@@ -698,7 +725,12 @@ class GameStore {
       if (res.pause) this.autoPause(res.pause);
       if (monthKey(g.now) !== month) this.scheduleAutosave();
       const fresh = this.surfaceMessages();
-      if (hour || this.paused || fresh) this.emit();
+      if (this.paused || fresh) this.emit();
+      else if (hour) {
+        // v0.19 (perf) mid-gesture on the Map the hourly refresh waits (mapGesture(false) sends it).
+        if (this.gestureAt && performance.now() - this.gestureAt < GESTURE_HOLD_MS) this.gestureEmit = true;
+        else this.emit();
+      }
     }
     const step = CLOCK_STEP[this.speed];
     const label = Math.floor(this.exact / step);
@@ -1580,6 +1612,17 @@ class GameStore {
       this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
       if (id) this.navigate('contracts', { view: 'clients', sel: { kind: 'client', id } });
       else this.emit();
+      return id;
+    },
+    /** v0.19 a scheduled route straight to operating (study, Go and every stage done; on sale), on an aircraft by reg. */
+    route: (marketId = 'LIS-OXB', reg?: string) => {
+      const g = this.game;
+      if (!g) return '';
+      const ac = reg ? Object.values(g.fleet).find((a) => a.reg === reg) : Object.values(g.fleet).filter((a) => a.status !== 'leasedOut').sort((a, b) => b.cabin.total - a.cabin.total)[0];
+      const id = devLaunchRoute(g, marketId, ac?.id);
+      settle(g);
+      this.surfaceMessages();
+      this.emit();
       return id;
     },
     world: (kind?: WorldEventKind, tpl?: string) => {

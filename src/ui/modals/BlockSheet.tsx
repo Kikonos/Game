@@ -5,8 +5,8 @@ import { ArrowRightLeft, CalendarClock, ChevronLeft, ChevronRight, Clock, FileSi
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { fmtDateTime, fmtDay, fmtDayRel, fmtDuration, fmtTime } from '../../engine/core/time';
-import type { Aircraft, Duty, Flight, GameState, MaintenanceEvent, Ref } from '../../engine/core/types';
-import { clientCrewOf, crewAlertKind, crewName, dutyCrew, slipOfFlight, dutyLegality, flightCrewStatus, restOf, restNeedLine, restLegsNote, restPlanForFlight, restSeatsBlocked, restShort, restVerdict, ridersText, rosterHorizon, rosterOutLine } from '../../engine/crew';
+import type { Aircraft, Duty, Flight, GameState, MaintenanceEvent, Ref, Role } from '../../engine/core/types';
+import { clientCrewOf, crewAlertKind, crewName, dutyCrew, dutyPilotsLine, slipOfFlight, dutyLegality, flightCrewStatus, restOf, restNeedLine, restLegsNote, restPlanForFlight, restSeatsBlocked, restShort, restVerdict, ridersText, rosterHorizon, rosterOutLine } from '../../engine/crew';
 import { seatLabel, typeOf } from '../../engine/core/perf';
 import { cabinOptions, cancelCheck, checkStatus, delayFlight, dryLeaseView, flightCrewAboard, flightType, flightZone, refitSlots } from '../../engine/ops';
 import { ClientCrewRow } from './v08Bits';
@@ -15,6 +15,7 @@ import { problemAt } from '../../engine/problems';
 import { tripOf, tripTargets } from '../../engine/ops/tripMove';
 import { subleaseTrip } from '../../engine/ops/sublease';
 import { usdSigned } from './TripMoveModal';
+import { SectorBlock } from '../screens/network/live';
 import { FlightTypeChip } from '../components/FlightType';
 import { ProblemCardView } from '../components/ProblemCard';
 import { restSeatWord } from '../components/RestLines';
@@ -39,6 +40,35 @@ const hm = (m: number) => `${Math.floor(Math.max(0, m) / 60)}:${String(Math.roun
  * the cruise was too short): verdict chip, the facilities, why it fails, the static timeline. A long unaugmented
  * widebody day gets one greyed line instead.
  */
+
+/** Bug 1108b: seat order on the flight sheet: flight crew on top, cabin crew under. */
+const SEAT_ORDER: Role[] = ['CPT', 'FO', 'PUR', 'CC'];
+
+/**
+ * Bug 1108b (#3 'two captains on VN6000'): plain lines under the crew: a captain in a first officer's seat, and who stands
+ * by at the station instead of flying (the far base's reserve; a tour's relief pilots on a day without in-flight rest).
+ */
+function crewNotes(g: GameState, view: NonNullable<ReturnType<typeof dutyCrew>>): string[] {
+  const out: string[] = [];
+  const who = (x: { crewId: string | null }) => {
+    const c = x.crewId ? g.crew[x.crewId] : undefined;
+    return c ? `${c.role === 'CPT' ? 'Capt' : c.role} ${crewName(c)}` : '';
+  };
+  for (const x of view.slots) {
+    const c = x.crewId ? g.crew[x.crewId] : undefined;
+    if (!c || x.standby || x.role !== 'FO' || c.role !== 'CPT') continue;
+    out.push(`Captain ${crewName(c)} flies as first officer${x.locked ? ' (your choice)' : ': no first officer was free'}.`);
+  }
+  const d = g.duties[view.dutyId];
+  const p = d ? g.pairings[d.pairingId] : undefined;
+  const at = p?.deploymentId ? g.deployments[p.deploymentId]?.base : undefined;
+  const res = view.slots.filter((x) => x.crewId && x.standby && x.reserve);
+  const rel = view.slots.filter((x) => x.crewId && x.standby && !x.reserve);
+  if (res.length) out.push(`Reserve on standby${at ? ` at ${at}` : ''}, not flying: ${res.map(who).join(', ')}.`);
+  if (rel.length) out.push(`Relief pilot${rel.length > 1 ? 's' : ''} on standby${at ? ` at ${at}` : ''}, not needed today (no in-flight rest): ${rel.map(who).join(', ')}.`);
+  return out;
+}
+
 function RestSection({ g, f, ac, d, legal }: { g: GameState; f: Flight; ac: Aircraft; d?: Duty; legal: boolean }) {
   const plan = restPlanForFlight(g, f.id);
   if (!plan) {
@@ -65,7 +95,7 @@ function RestSection({ g, f, ac, d, legal }: { g: GameState; f: Flight; ac: Airc
         <span className={`badge ${v.tone}`}>{v.text}</span>
       </div>
       <div className="small rt-facts">
-        <span><b>{pilots} pilots</b> <span className="muted">· rest in {restShort(rest.fc)} · <Term id="landingPilots">landing pilots</Term> 2 h in a row, the others 90 min</span></span>
+        <span><b>{pilots} pilots</b> <span className="muted">· {(d && dutyPilotsLine(g, d)) ?? (plan.augment === 2 ? '2 CPT + 2 FO · pairs A/B' : '1 CPT + 2 FO · pair A + relief')} · rest in {restShort(rest.fc)} · <Term id="landingPilots">landing pilots</Term> 2 h in a row, the others 90 min</span></span>
         <span><b>Cabin crew</b> <span className="muted">· {restShort(rest.cc)}{plan.cabinNeed !== null ? ` · ${hm(plan.cabinNeed)} each (a ${hm(plan.cabinFdp)} day${plan.band ? `, band ${plan.band}` : ''})` : ''} · half stay in the cabin</span></span>
       </div>
       {!plan.ok && plan.why && <div className={`small ${at ? 'muted' : 'bad'}`}>{plan.why}.</div>}
@@ -153,7 +183,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   if (zone) rows.push(['World event', <button className={`chip sc-chip ${zone.effect === 'held' ? 'bad' : 'warn'}`} onClick={() => store.openModal({ kind: 'worldEvent', eventId: zone.eventId })}>{zone.text}</button>]);
   if (f.warRisk) rows.push(['War-risk cover', `${money(f.warRisk)} for this landing`]);
   if (f.purpose === 'lease' && c?.dry) rows.push(['Dry lease', `${c.dry.outIds.includes(f.id) ? 'Delivery' : 'Return'} ferry · ${g.clients[c.clientId]?.name ?? 'lessee'} at ${c.dry.site}`]);
-  if (d) rows.push(['Duty', `Day length ${hm(d.fdp)} of ${hm(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sector${d.sectors === 1 ? '' : 's'}${d.augment ? ` · ${2 + d.augment} pilots` : ''}${d.ext ? ' · planned extension' : ''}${d.split ? ' · split duty' : ''}${d.discretion ? ` · commander's discretion +${hm(d.discretion)}` : ''}`]);
+  if (d) rows.push(['Duty', `Day length ${hm(d.fdp)} of ${hm(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sector${d.sectors === 1 ? '' : 's'}${d.augment ? ` · ${2 + d.augment} pilots (${dutyPilotsLine(g, d)})` : ''}${d.ext ? ' · planned extension' : ''}${d.split ? ' · split duty' : ''}${d.discretion ? ` · commander's discretion +${hm(d.discretion)}` : ''}`]);
   const live = f.status === 'scheduled' && !!f.aircraftId;
   const canSub = live && !!c && (f.kind === 'revenue' || f.kind === 'techstop');
   // v0.12 the trip's sub-lease (another operator flies it for us), or why it can't be handed over.
@@ -182,6 +212,8 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
         return sv ? <div className="small v9-slip"><Repeat className="sc-ico-s accent" /><span><Term id="slipCrew">{sv.text}</Term></span></div> : null;
       })()}
       <KV rows={rows} />
+      {/* v0.19 a scheduled-route flight: passengers by class, cargo and the sector's money; move or cancel its rotation. */}
+      {f.sched && <SectorBlock g={g} f={f} />}
       {ac && f.kind !== 'deadhead' && f.status !== 'cancelled' && <RestSection g={g} f={f} ac={ac} d={d} legal={cs.level !== 'illegal'} />}
       {f.aircraftId && f.kind !== 'deadhead' && (
         <div className="col gap-8">
@@ -191,9 +223,10 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
             <div className="row gap-8"><Dot tone={LEVEL_TONE[cs.level]} /><b>Crew {cs.level === 'ok' ? 'legal' : cs.level}</b>{cs.missing.length > 0 && <span className="small bad">missing {cs.missing.join(', ')}</span>}</div>
           )}
           {!later && why && !card && <div className={`small ${cs.level === 'illegal' ? 'bad' : 'warn'}`}>{why}</div>}
-          {view && view.slots.some((x) => x.crewId) && (
+          {view && view.slots.some((x) => x.crewId && !x.standby) && (
             <div className="sc-crew-grid">
-              {view.slots.filter((x) => x.crewId).map((x) => (
+              {/* Bug 1108b: flight crew first, then cabin crew (by seat); crew standing by at the station are listed apart. */}
+              {view.slots.filter((x) => x.crewId && !x.standby).sort((a, b) => SEAT_ORDER.indexOf(a.role) - SEAT_ORDER.indexOf(b.role) || a.index - b.index).map((x) => (
                 <button key={x.crewId} className={`sc-crew-chip ${x.level ?? ''}`} onClick={() => store.openPerson(x.crewId!)}>
                   <span className="mono dim">{seatLabel(x.role, g.crew[x.crewId!]?.role ?? x.role)}</span><span className="ellipsis grow">{x.name}</span>
                   {x.locked && <Lock className="sc-ico-s accent" aria-label="set by you" />}
@@ -202,6 +235,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
               ))}
             </div>
           )}
+          {view && crewNotes(g, view).map((t, i) => <div key={i} className="small muted">{t}</div>)}
           {(() => {
             const cc = f.dutyId && (f.kind === 'revenue' || f.kind === 'techstop') ? clientCrewOf(g, f.dutyId) : null;
             return cc ? <ClientCrewRow label={cc.label} roles={cc.roles} /> : null;
@@ -219,7 +253,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
         <div className="row wrap gap-8 sc-sheet-actions">
           <Stepper value={hold} min={0} max={8} onChange={setHold} format={(v) => (v ? `+${v * 30} min` : 'Hold')} />
           <button className="btn" onClick={doHold} disabled={!hold}><Clock /> Delay</button>
-          {canSub && <button className="btn" onClick={() => store.openModal({ kind: 'subcharter', contractId: c!.id, flightId: f.id, ...(sub?.ok ? { flightIds: sub.flightIds } : {}) })} title="Another operator flies it for us; the client still pays us (a sub-charter)"><Handshake /> Sub-lease</button>}
+          {canSub && <button className="btn" onClick={() => store.openModal({ kind: 'subcharter', contractId: c!.id, flightId: f.id, ...(sub?.ok ? { flightIds: sub.flightIds } : {}) })} title={f.sched ? 'Another operator flies it under our flight number; passengers keep their tickets, no penalty' : 'Another operator flies it for us; the client still pays us (a sub-charter)'}><Handshake /> {f.sched ? 'Sub-charter' : 'Sub-lease'}</button>}
           {trip && <button className={`btn ${moving ? 'active' : ''}`} onClick={() => setMoving(!moving)} disabled={!trip.ok} title={trip.ok ? `Move ${trip.label} to another aircraft` : trip.reason}><ArrowRightLeft /> Move trip to…</button>}
         </div>
       )}

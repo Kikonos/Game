@@ -44,7 +44,7 @@ describe('v0.14 crew sets in plain words', () => {
     expect(l[1]).toMatch(/here, cabin crew/);
     expect(l[2]).toMatch(/captain can’t be planned as first officer/);
     expect(l[2]).toMatch(/spare pursers fill cabin crew seats/);
-    expect(setsWhyLines(plan({ augmented: true }))[2]).toMatch(/spare first officers relief seats/);
+    expect(setsWhyLines(plan({ augmented: true }))[2]).not.toMatch(/relief/);
     expect(l[2]).toMatch(/count once, in their home fleet/);
     expect(setsWhyLines(plan({ setsPerAircraft: 7 }))[0]).toMatch(/^7 crews per aircraft: on a detachment/);
     for (const x of [...l, ...setsWhyLines(plan({ augmented: true, setsPerAircraft: 7, limiting: 'FO' }))]) expect(x.length).toBeLessThan(170);

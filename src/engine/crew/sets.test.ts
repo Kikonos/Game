@@ -23,11 +23,11 @@ const a320 = (g: GameState) => crewPlan(g).find((p) => p.family === 'A320')!;
 
 describe('set maths (pure)', () => {
   const set = { CPT: 1, FO: 1, PUR: 1, CC: 3 };
-  it('complete sets: the scarcest role decides; pursers fill cabin crew seats, first officers relief pilot seats', () => {
+  it('complete sets: the scarcest role decides; pursers fill cabin crew seats; a third pilot is a first officer', () => {
     expect(completeSets(set, { CPT: 10, FO: 9, PUR: 10, CC: 30 })).toBe(9);
     expect(completeSets(set, { CPT: 10, FO: 10, PUR: 10, CC: 28 })).toBe(9);
     expect(completeSets(set, { CPT: 10, FO: 10, PUR: 12, CC: 28 })).toBe(10);
-    expect(completeSets({ ...set, CRP: 1 }, { CPT: 5, FO: 10, PUR: 5, CC: 15 })).toBe(5);
+    expect(completeSets({ ...set, FO: 2 }, { CPT: 5, FO: 10, PUR: 5, CC: 15 })).toBe(5);
     expect(completeSets(set, {})).toBe(0);
     expect(completeSets({}, { CPT: 3 })).toBe(0);
   });
@@ -230,13 +230,13 @@ describe('crew sets with v0.8 work', () => {
 });
 
 describe('Hire and Planning agree (v0.8 fix pack: one source of truth)', () => {
-  /** Per family and role, the hire screen's need is the Planning view's (relief pilots counted as first officers). */
+  /** Per family and role, the hire screen's need is the Planning view's (v0.18.3: the third pilot is a first officer). */
   const agree = (g: GameState) => {
     const lines = staffing(g);
     for (const p of crewPlan(g)) {
       const need = (r: string) => p.roles.find((x) => x.role === r)?.need ?? 0;
       for (const r of ['CPT', 'PUR', 'CC'] as const) expect(lines.find((l) => l.family === p.family && l.role === r)?.need ?? 0, `${p.family} ${r}`).toBe(need(r));
-      expect(lines.find((l) => l.family === p.family && l.role === 'FO')?.need ?? 0, `${p.family} FO`).toBe(need('FO') + need('CRP'));
+      expect(lines.find((l) => l.family === p.family && l.role === 'FO')?.need ?? 0, `${p.family} FO`).toBe(need('FO'));
     }
   };
 

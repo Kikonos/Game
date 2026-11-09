@@ -170,7 +170,7 @@ function after(c: CrewMember, family: RatingFamily, course: Course, drop: Rating
   return [...kept, family];
 }
 
-const ROLE_PL: Record<Role, string> = { CPT: 'captains', FO: 'first officers', CRP: 'relief pilots', PUR: 'pursers', CC: 'cabin crew' };
+const ROLE_PL: Record<Role, string> = { CPT: 'captains', FO: 'first officers', PUR: 'pursers', CC: 'cabin crew' };
 
 /** Splits a pool into ceil(n/max) balanced classes, dealt round-robin from the given order. */
 function deal<T>(xs: T[], max: number): T[][] {
@@ -185,7 +185,7 @@ function ordered(g: GameState, ids: string[], group: Group): string[] {
   const by = (r: Role[]) => ids.filter((id) => r.includes(g.crew[id].role));
   if (group === 'cabin') return [...by(['PUR']), ...by(['CC'])];
   const cpt = by(['CPT']);
-  const fo = by(['FO', 'CRP']);
+  const fo = by(['FO']);
   const out: string[] = [];
   for (let i = 0; i < Math.max(cpt.length, fo.length); i++) {
     if (i < cpt.length) out.push(cpt[i]);
@@ -210,6 +210,19 @@ function cabinSlot(t: Minute, len: number, busy: [Minute, Minute][]): Minute {
   const cands = [t, ...busy.map((b) => b[1]).filter((e) => e > t)].sort((a, b) => a - b);
   for (const c of cands) if (busy.filter(([a, b]) => a < c + len && b > c).length < BAL.conv.cabinParallel) return c;
   return cands[cands.length - 1];
+}
+
+/**
+ * v0.18.3 the day a class would really start when asked for `t` (Convert proposals): base-local midnight, at least
+ * conversionEarliest, pilot classes pilotStaggerDays apart from booked ones and from `extra` starts, at most
+ * cabinParallel cabin classes at a time. The same rules as conversionPlan. Pure.
+ */
+export function classStartFor(g: GameState, group: Group, t: Minute, len: number, extra: Minute[] = []): Minute {
+  const booked = conversionClasses(g);
+  const start = localDay(g, Math.max(conversionEarliest(g), t) + 6 * 60);
+  if (group === 'pilot') return localDay(g, pilotSlot(start, [...booked.filter((k) => k.group === 'pilot').map((k) => k.start), ...extra]) + 6 * 60);
+  const busy: [Minute, Minute][] = [...booked.filter((k) => k.group === 'cabin').map((k) => [k.start, k.end] as [Minute, Minute]), ...extra.map((e) => [e, e + len] as [Minute, Minute])];
+  return localDay(g, cabinSlot(start, len, busy) + 6 * 60);
 }
 
 /** Why a crew member can't join (null: eligible). */

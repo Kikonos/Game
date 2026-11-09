@@ -334,10 +334,21 @@ export default function Globe(props: GlobeProps) {
     let prevLabels = new Set<string>();
     const apLabels = new Map<string, HTMLSpanElement>();
     let fleetNow: GlobeAc[] = [];
+    let fleetAt: { t: number; v: number; g: GameState | null } = { t: NaN, v: -1, g: null };
+    /** v0.19 (perf) theme colour tokens as read (cleared with the theme), and the airline grey. */
+    const tones = new Map<string, RGBA>();
+    const toneOf = (s: string) => {
+      let c = tones.get(s);
+      if (!c) tones.set(s, (c = colourOf(s)));
+      return c;
+    };
+    let greyInk = cssVar('--c-mark-848ea2').trim() || '#848ea2';
     const acScreen = new Map<string, { x: number; y: number; r: number }>();
     const cmScreen = new Map<string, { x: number; y: number; r: number }>();
     const reduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
     let spinTimer = 0;
+    /** v0.19 (perf) a drag holds back the screens' hourly refresh (store.mapGesture) until it and its inertia end. */
+    let held = false;
     /** The optional idle spin: a few seconds untouched, nothing selected, no dialog, no reduced motion. */
     const spinning = (now: number) => store.settings.globeSpin && !reduced && !gesture && !propsRef.current.sel && !propsRef.current.follow && !store.modal && now - lastInteract > IDLE_AFTER_MS;
     /** v0.18 the dashes' drift (screen px), moved on with the game clock; the spotter's aircraft and its fly-in. */
@@ -420,6 +431,7 @@ export default function Globe(props: GlobeProps) {
         idleSpin = true;
       }
       if (moving) dirty = true;
+      if (held && !gesture && !fly && !vel[0] && !vel[1]) { held = false; store.mapGesture(false); }
       const t = liveMinute();
       const timeMoved = t !== lastT && !store.modal;
       if (!dirty && !timeMoved) {
@@ -464,9 +476,11 @@ export default function Globe(props: GlobeProps) {
         inkEarth(earth.material, ink);
         inkAtmosphere(atmo.material, ink, p.theme !== 'light');
         aps.material.uniforms.uRing.value.set(...ink.halo);
-        // Airline greys and route colours are theme tokens too.
-        const grey = cssVar('--c-mark-848ea2').trim() || '#848ea2';
-        for (const c of cms.values()) c.ac.model.material = modelMat(grey);
+        // Airline greys and route colours are theme tokens too. v0.19 (perf) read once per theme (was per frame and
+        // per aircraft: each read forced a style pass after the frame's label writes).
+        tones.clear();
+        greyInk = cssVar('--c-mark-848ea2').trim() || '#848ea2';
+        for (const c of cms.values()) c.ac.model.material = modelMat(greyInk);
         apKey = [];
         staticKey = [];
       }
@@ -538,7 +552,11 @@ export default function Globe(props: GlobeProps) {
       }
       const selAc = p.sel?.kind === 'aircraft' ? p.sel.id : undefined;
       const selCm = p.sel?.kind === 'flight' ? p.sel.id : undefined;
-      fleetNow = globeFleet(game, t);
+      // v0.19 (perf) the fleet worked out again only when time or the game moved (not for every frame of a drag).
+      if (t !== fleetAt.t || store.version !== fleetAt.v || game !== fleetAt.g) {
+        fleetNow = globeFleet(game, t);
+        fleetAt = { t, v: store.version, g: game };
+      }
       const seen = new Set<string>();
       const seenArcs = new Set<string>();
       // Stands at each airport (screen px, as on the flat map), laid out east and north of the airport.
@@ -585,7 +603,7 @@ export default function Globe(props: GlobeProps) {
           }
           const type = f ? typeOfFlight(game, f) : 'operating';
           const st = TYPE_STROKE[type];
-          const c = colourOf(st.color);
+          const c = toneOf(st.color);
           const sel = selAc === a.id;
           styleArc(arc.mat, { color: [c[0], c[1], c[2]], opacity: sel ? 1 : type === 'operating' ? 0.7 : 0.8, width: sel ? 2.8 : st.width, before: null, after: dashOf(AHEAD_DASH[type]), split: a.progress, tail: 0.35, flow: anim ? flow : 0 }, av);
           arc.mesh.renderOrder = sel ? 2 : 1;
@@ -603,7 +621,7 @@ export default function Globe(props: GlobeProps) {
           acScreen.set(a.id, { x: q.x, y: q.y, r: rPx });
           const fs = touch ? 11 : 10;
           boxes.push({ id: a.id, x: q.x, y: q.y + rPx + 8, w: mark.length * fs * 0.62 + 4, h: fs + 2, el: o.label, x0: q.x, y0: q.y + rPx + 3 });
-        } else o.label.style.display = 'none';
+        } else if (o.label.style.display !== 'none') o.label.style.display = 'none';
       }
       for (const [id, o] of acs) if (!seen.has(id)) { dropAc(o); acs.delete(id); }
       for (const [id, arc] of ownArcs) if (!seenArcs.has(id)) { dropArc(arc); ownArcs.delete(id); }
@@ -617,7 +635,7 @@ export default function Globe(props: GlobeProps) {
       }
       const up = new Set<string>();
       cmScreen.clear();
-      const grey = cssVar('--c-mark-848ea2').trim() || '#848ea2';
+      const grey = greyInk;
       for (const cf of cmList) {
         if (cf.leg.dep > t || cf.leg.arr <= t) continue;
         const A = AIRPORT_BY_CODE[cf.leg.from];
@@ -638,7 +656,7 @@ export default function Globe(props: GlobeProps) {
         const q = placeAc(x.ac, pos, pr0, x.arc, undefined, x.scale, cam, wpp, pxPerM, crt, cup);
         if (q) cmScreen.set(cf.id, { ...q, r: (x.ac.dim * x.scale * pxPerM) / 2 });
         const st = TYPE_STROKE.deadhead;
-        const c = colourOf(st.color);
+        const c = toneOf(st.color);
         const sel = selCm === cf.id;
         styleArc(x.arc.mat, { color: [c[0], c[1], c[2]], opacity: sel ? 1 : 0.8, width: sel ? 1.8 : st.width, before: null, after: dashOf(st.dash), split: -1 }, av);
       }
@@ -654,7 +672,7 @@ export default function Globe(props: GlobeProps) {
         const want = a.label || a.state === 'hub' || (p.sel?.kind === 'airport' && p.sel.id === a.code);
         let el = apLabels.get(a.code);
         if (!want || !facing(v, cam, LABEL_COS)) {
-          if (el) el.style.display = 'none';
+          if (el && el.style.display !== 'none') el.style.display = 'none';
           continue;
         }
         const q = projectView(v, cv, w, h);
@@ -675,8 +693,13 @@ export default function Globe(props: GlobeProps) {
       prevLabels = shown;
       for (const bx of [...boxes, ...apBoxes]) {
         const on = shown.has(bx.id);
-        bx.el.style.display = on ? '' : 'none';
-        if (on) bx.el.style.transform = `translate(${bx.x0.toFixed(1)}px, ${bx.y0.toFixed(1)}px) translateX(-50%)`;
+        // v0.19 (perf) written only when it changes (a same-value write still costs a style pass).
+        const d = on ? '' : 'none';
+        if (bx.el.style.display !== d) bx.el.style.display = d;
+        if (on) {
+          const tf = `translate(${bx.x0.toFixed(1)}px, ${bx.y0.toFixed(1)}px) translateX(-50%)`;
+          if (bx.el.style.transform !== tf) bx.el.style.transform = tf;
+        }
       }
       // v0.18 the marks (pins, weather, events, crew changes, diversions, zone names) where they stand on screen.
       markScreen.clear();
@@ -713,12 +736,15 @@ export default function Globe(props: GlobeProps) {
     const m4 = new Matrix4();
     const vx = new Vector3();
     const vy = new Vector3();
+    // v0.19 (perf) scratch vectors: no allocations per aircraft per frame.
+    const vz = new Vector3();
+    const vn = new Vector3();
     /** A quad lying on the sphere at unit normal n, its top towards `fwd`, `side` world units across, at radius r. */
     const placeQuad = (mesh: Mesh, n: Vector3, fwd: Vec3, r: number, side: number, shift?: Vec3) => {
       vy.set(fwd[0], fwd[1], fwd[2]);
       vy.addScaledVector(n, -vy.dot(n)).normalize();
       vx.crossVectors(vy, n);
-      m4.makeBasis(vx.multiplyScalar(side), vy.multiplyScalar(side), n.clone().multiplyScalar(side));
+      m4.makeBasis(vx.multiplyScalar(side), vy.multiplyScalar(side), vz.copy(n).multiplyScalar(side));
       m4.setPosition(n.x * r + (shift?.[0] ?? 0), n.y * r + (shift?.[1] ?? 0), n.z * r + (shift?.[2] ?? 0));
       mesh.matrix.copy(m4);
       mesh.matrixWorldNeedsUpdate = true;
@@ -763,7 +789,7 @@ export default function Globe(props: GlobeProps) {
       // The model: metres → world units at the map's px per metre (to scale, as the flat map and the shadow).
       const sc = pxPerM * wpp * k;
       const right = cross(fwd, up);
-      m4.makeBasis(vx.set(right[0] * sc, right[1] * sc, right[2] * sc), vy.set(fwd[0] * sc, fwd[1] * sc, fwd[2] * sc), new Vector3(up[0] * sc, up[1] * sc, up[2] * sc));
+      m4.makeBasis(vx.set(right[0] * sc, right[1] * sc, right[2] * sc), vy.set(fwd[0] * sc, fwd[1] * sc, fwd[2] * sc), vz.set(up[0] * sc, up[1] * sc, up[2] * sc));
       m4.setPosition(P[0], P[1], P[2]);
       o.group.matrix.copy(m4);
       o.group.matrixWorldNeedsUpdate = true;
@@ -775,7 +801,7 @@ export default function Globe(props: GlobeProps) {
       const step = Math.round(lf * (SHADOW_STEPS - 1));
       const sm = shadeMat(o.typeId, step);
       if (o.shadow.material !== sm) o.shadow.material = sm;
-      placeQuad(o.shadow, new Vector3(...gN), fwd, R_SHADOW, o.dim * pxPerM * QUAD_PER_DIM * wpp * k, shift);
+      placeQuad(o.shadow, vn.set(gN[0], gN[1], gN[2]), fwd, R_SHADOW, o.dim * pxPerM * QUAD_PER_DIM * wpp * k, shift);
       o.shadow.visible = !occluded(vecOf(...lonLatOf(gN), R_SHADOW), cam);
       const nn = norm(P);
       const vis = !occluded(P, cam) && (alt > 0.004 || facing(ground, cam, LABEL_COS));
@@ -884,6 +910,8 @@ export default function Globe(props: GlobeProps) {
         gesture.y = m.y;
         orbit = { ...orbit, lon: wrap180(orbit.lon - (dx * dpp) / Math.max(0.25, Math.cos((orbit.lat * Math.PI) / 180))), lat: clampLat(orbit.lat + dy * dpp) };
       }
+      // v0.19 (perf) the screens' hourly refresh waits for the drag and its inertia to end (the frame loop sends it).
+      if (gesture.moved > 8) { held = true; store.mapGesture(true); }
       dirty = true;
       kick();
     };
@@ -1055,6 +1083,7 @@ export default function Globe(props: GlobeProps) {
 
     return () => {
       disposed = true;
+      if (held) store.mapGesture(false);
       unCapture();
       api.current = null;
       stats.aim = null;

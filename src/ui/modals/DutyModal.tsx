@@ -4,7 +4,7 @@
 // Engine: crew/rosterActions.ts (dutyCrew, dutyCandidates, dutyLegality, assignCrew, unassignCrew, swapCrew, unlockCrew).
 
 import { RankMark } from '../components/RankMark';
-import { clientCrewOf, crewAlertKind, rosterHorizon, rosterOutLine, slipOfFlight } from '../../engine/crew';
+import { clientCrewOf, crewAlertKind, dutyPilotsLine, rosterHorizon, rosterOutLine, slipOfFlight } from '../../engine/crew';
 import { releaseText } from '../../engine/crew/rosterActions';
 import { ClientCrewRow } from './v08Bits';
 import { ArrowLeftRight, BedDouble, ChevronDown, ChevronLeft, ChevronRight, Lock, LockOpen, Plus, Repeat, UserMinus, Users } from 'lucide-react';
@@ -47,6 +47,9 @@ export function dutyRoute(g: GameState, dutyId: string): string {
 }
 
 /** The other trip a candidate flies at the same time (for a swap), if exactly one overlaps this trip. */
+
+/** Bug 1108b: seats listed flight crew first, then cabin crew. */
+const SEAT_GROUP: Role[] = ['CPT', 'FO', 'PUR', 'CC'];
 function overlapDuty(g: GameState, v: DutyCrewView, crewId: string): string | null {
   const ds = v.dutyIds.map((id) => g.duties[id]).filter((d) => d && !d.done);
   if (!ds.length) return null;
@@ -91,9 +94,10 @@ function Seat({ s, busy, later, onChange, onRemove, onUnlock }: { s: RosterSlotV
         <span className="small muted row gap-8">
           {s.crewId ? <span className={s.level ? LEVEL_TONE[s.level] : ''}>{s.level ? LEVEL_LABEL[s.level] : 'Flown'}</span> : <span>{s.above ? `Optional ${ROLE_LABEL[s.role].toLowerCase()}` : `${ROLE_LABEL[s.role]} needed`}</span>}
           {s.above && (s.reserve
-            ? <span className="chip sc-chip sc-chip-extra" data-tip="Far base reserve: flies with this crew and takes a seat if someone falls sick">Reserve</span>
+            ? <span className="chip sc-chip sc-chip-extra" data-tip="Far base reserve: on hotel standby at the station while this crew flies; takes a seat if someone falls sick">Reserve</span>
             : <span className="chip sc-chip sc-chip-extra" data-tip="Above the legal minimum: optional, never blocks the departure">Extra</span>)}
           {s.extra && !s.above && <span className="chip sc-chip">added</span>}
+          {s.standby && !s.reserve && <span className="chip sc-chip sc-chip-extra" data-tip="A relief pilot for the set's long days: no in-flight rest on this one, so on hotel standby at the station">Standby this day</span>}
           {s.locked && <span className="row gap-4 accent"><Lock className="sc-ico-s" />set by you</span>}
         </span>
       </span>
@@ -171,7 +175,7 @@ function Picker({ g, v, pick, setPick, back }: { g: GameState; v: DutyCrewView; 
           <Candidate key={c.crewId} c={c} seat={pick.role} confirm={confirm === c.crewId} swapWith={!!holder && c.codes.includes('overlap') && !!overlapDuty(g, v, c.crewId)} onTap={() => tap(c)} />
         ))}
       </div>
-      {/* v0.7.2 §2: captains for an FO/CRP seat in their own group, after the FOs (pay stays; morale dips past twice a month). */}
+      {/* v0.7.2 §2: captains for an FO seat in their own group, after the FOs (pay stays; morale dips past twice a month). */}
       {shown.some((c) => c.asFo) && (
         <div className="col">
           <div className="upper dim sc-asfo-head"><Term id="asFo">Captain flying as {pick.role}</Term> <span className="tiny muted">same pay · morale dips past twice a month</span></div>
@@ -239,7 +243,7 @@ function DayLength({ g, dutyId, ac }: { g: GameState; dutyId: string; ac?: strin
       <span className="small muted row gap-8 wrap">
         <span><Term id="fdp">Day length</Term> <b className="num">{hm(d.fdp)}</b> of <b className="num">{hm(d.discretion ? d.maxFdp : limit)}</b>{d.discretion ? <> + {hm(d.discretion)} <Term id="discretion">discretion</Term></> : null}</span>
         {why && <button className="dm-why-btn" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? 'Hide why' : `Why ${hm(limit)}?`}</button>}
-        <span>· {d.sectors} sector{d.sectors === 1 ? '' : 's'} · {2 + d.augment} pilots{d.ext ? ' · planned extension' : ''}{d.split ? ' · split duty' : ''}{ac ? ` · ${ac}` : ''}</span>
+        <span>· {d.sectors} sector{d.sectors === 1 ? '' : 's'} · {2 + d.augment} pilots{d.augment ? ` (${dutyPilotsLine(g, d)})` : ''}{d.ext ? ' · planned extension' : ''}{d.split ? ' · split duty' : ''}{ac ? ` · ${ac}` : ''}</span>
       </span>
       {open && why && (
         <div className="dm-why small">
@@ -393,7 +397,8 @@ export function DutyModal({ id }: { id: string }) {
           <Picker g={g} v={v} pick={pick} setPick={setPick} back={() => setPick(null)} />
         ) : (
           <div className="col">
-            {v.slots.map((s) => (
+            {/* Bug 1108b: flight crew on top, cabin crew under (a reserve or extra seat sits with its group). */}
+            {[...v.slots].sort((a, b) => SEAT_GROUP.indexOf(a.role) - SEAT_GROUP.indexOf(b.role) || a.index - b.index).map((s) => (
               <div key={`${s.index}-${s.crewId ?? 'empty'}`} className="col gap-4">
                 <Seat s={s} busy={busy} later={later} onChange={() => setPick({ seat: s, role: s.role })} onRemove={() => remove(s)} onUnlock={() => s.crewId && store.act((gg) => unlockCrew(gg, v.dutyId, s.crewId!), { toastOk: false })} />
                 {s.crewId && !later && <SeatGauges g={g} crewId={s.crewId} dutyId={v.dutyId} />}

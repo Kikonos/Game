@@ -30,6 +30,7 @@ import { productValue, tourBizPct, tripTickets } from './pricing';
 import { v08Lines } from './missionChecks';
 import { dryFeasibility } from '../ops/dryLease';
 import { closedAirport, closedUntil } from '../ops/world';
+import { netHooks } from '../core/netHooks';
 import { checkAirportOk } from '../ops/maintenance';
 import { emptyDay } from './schedule';
 import { curfewOk } from '../core/curfew';
@@ -155,7 +156,7 @@ function splitHome(legs: ChainLeg[], home: string): [ChainLeg[], ChainLeg[]] | n
 }
 
 /** Places each trip among the aircraft's commitments: overlaps, positioning in (as late as possible) and out. */
-function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme): { fits: TripFit[]; conflicts: Anchor[] } {
+function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme): { fits: TripFit[]; conflicts: Anchor[]; routeRots: Set<string> } {
   const t = typeOf(ac.typeId);
   const turn = t.turnMin;
   const home = g.company.homeBase;
@@ -165,7 +166,10 @@ function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme)
   const cap = etopsCap(g.company.approvals, t.id);
   // v0.12.1 and empty legs within one crew's day (schedule.ts emptyDay: a crew-change stop beyond), as they are planned.
   const day = emptyDay(g, ac.id);
-  const anchors = anchorsOf(g, ac.id);
+  // v0.19 our own scheduled rotations in the job's window are choices, not blockers (§H.2): signing swaps,
+  // sub-charters, moves or cancels them, so the job is planned as if they were not there.
+  const routeRots = new Set(prog.trips.length && g.network && netHooks.conflicts ? netHooks.conflicts(g, ac.id, prog.trips[0].std - 2 * DAY, prog.trips[prog.trips.length - 1].sta + 2 * DAY).map((c) => c.rotId) : []);
+  const anchors = anchorsOf(g, ac.id).filter((a) => !(a.kind === 'flight' && routeRots.size && routeRots.has(g.flights[a.id]?.sched?.rotId ?? '')));
   const conflicts: Anchor[] = [];
   for (const a of anchors) {
     if (a.kind === 'start') continue;
@@ -210,7 +214,7 @@ function fitTrips(g: GameState, ac: Aircraft, o: ContractOffer, prog: Programme)
     }
     fits.push(fit);
   });
-  return { fits, conflicts };
+  return { fits, conflicts, routeRots };
 }
 
 /** Full report for one aircraft: the 12 checks of DESIGN §5.1.5 (+ client paint), positioning plan and contribution estimate. */
@@ -448,7 +452,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
 
   // Place the programme among this aircraft's commitments (only meaningful if it can fly it).
   const flyable = prog.ok && !rangeNo.length && !runwayNo.size;
-  const { fits, conflicts } = flyable ? fitTrips(g, ac, o, prog) : { fits: [] as TripFit[], conflicts: [] as Anchor[] };
+  const { fits, conflicts, routeRots } = flyable ? fitTrips(g, ac, o, prog) : { fits: [] as TripFit[], conflicts: [] as Anchor[], routeRots: new Set<string>() };
   rep.positionIn = fits[0]?.posIn ?? [];
   rep.positionOut = fits[fits.length - 1]?.posOut ?? [];
   rep.positionAll = fits.flatMap((f) => [...f.homeBefore, ...f.posIn, ...f.posOut, ...f.homeAfter]);
@@ -544,7 +548,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
     if (blocked) {
       availNo = true;
       add('availability', 'no', `Can't be back for ${describe(g, blocked.blockedNext!)}`, `It would have to be at ${blocked.blockedNext!.from} by ${fmtDateTime(blocked.blockedNext!.std - turn)} UTC.`);
-    } else add('availability', 'ok', `Free ${fmtDayRange(firstDep, lastArr)}`);
+    } else if (routeRots.size) add('availability', 'warn', `${routeRots.size === 1 ? 'One of your scheduled rotations is' : `${routeRots.size} of your scheduled rotations are`} on it: swap, sub-charter, move or cancel`, 'Signing applies your choice for each (or the cheapest).');
+    else add('availability', 'ok', `Free ${fmtDayRange(firstDep, lastArr)}`);
   }
 
   // 10. Positioning in and out.

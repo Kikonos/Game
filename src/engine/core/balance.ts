@@ -1,6 +1,9 @@
 // Balance defaults (DESIGN.md §8). USD. Each block is owned by the builder named in its comment;
 // tune values there, keep keys stable (the UI reads some of them).
 
+import { NET_ENGINE_BAL } from '../network/balEngine';
+import { NET_OPS_BAL } from '../network/balOps';
+
 export const BAL = {
   // ---------- start (architect) ----------
   startCash: 3_000_000,
@@ -53,23 +56,23 @@ export const BAL = {
    * captains earn about €9,000–10,500 basic a month and first officers €4,500–6,000 (the same survey), so an ACMI
    * widebody captain earns about €11,500–12,500 and a first officer €6,500–7,000 (+20–30 % on the market's narrowbody
    * pay). Our narrowbody scale sits at the low end of the market, so the widebody scale is set against the market:
-   * CPT 12,000 → 13,000 (about €11,300), FO 7,000 → 7,500, a cruise relief pilot (second officer) 4,300 → 5,500 on a
-   * widebody (below a widebody FO, above a narrowbody one). B757/767 pilots keep widebody pay while a 767 is in the fleet.
+   * CPT 12,000 → 13,000 (about €11,300), FO 7,000 → 7,500 on a widebody (v0.18.3: no cruise relief rank; augmented
+   * crews are captains and first officers, paid as such). B757/767 pilots keep widebody pay while a 767 is in the fleet.
    */
   salary: {
-    CPT: [9_400, 13_000], FO: [5_300, 7_500], CRP: [4_300, 5_500], PUR: [2_700, 2_700], CC: [2_000, 2_000],
+    CPT: [9_400, 13_000], FO: [5_300, 7_500], PUR: [2_700, 2_700], CC: [2_000, 2_000],
   } as Record<string, [number, number]>,
   /** Employer on-costs on salaries (RESEARCH §5.5: +10–35%; v0.5.1 mid-range, was 0.2). */
   onCosts: 0.25,
   /** Per diem per day away by role (USD; RESEARCH §5.3: CPT €100, FO €70, cabin €50), scaled by policies.perDiemPct. */
-  perDiem: { CPT: 108, FO: 76, CRP: 76, PUR: 60, CC: 54 } as Record<string, number>,
+  perDiem: { CPT: 108, FO: 76, PUR: 60, CC: 54 } as Record<string, number>,
   hotelPerNight: { 3: 90, 4: 140, 5: 230 } as Record<number, number>,
   /** Positioning ticket by distance: < 1,500 km, < 4,000 km, beyond. */
   deadheadTicket: [250, 600, 1_300],
   /** Days from order to joining (rated crew), and cost per hire. v0.7.2: cabin crew join in about a week. */
-  hireDays: { CPT: 60, FO: 45, CRP: 45, PUR: 7, CC: 7 } as Record<string, number>,
+  hireDays: { CPT: 60, FO: 45, PUR: 7, CC: 7 } as Record<string, number>,
   /** Rated widebody crew come off the market faster (long-haul operators shedding staff), days. */
-  hireDaysWide: { CPT: 40, FO: 35, CRP: 35, PUR: 7, CC: 7 } as Record<string, number>,
+  hireDaysWide: { CPT: 40, FO: 35, PUR: 7, CC: 7 } as Record<string, number>,
   hireCost: { pilot: 9_000, cabin: 2_000 },
   /**
    * v0.6 rated pilots on the market per family every 30 days (RESEARCH §5.4: rated captains are scarce). Hires beyond
@@ -242,6 +245,8 @@ export const BAL = {
     perDiemPerPct: 0.3, perDiemMax: 6, tour: { 4: 3, 5: 0, 6: -5 } as Record<number, number>,
     hotelDay: { 3: -0.4, 4: 0, 5: 0.25 } as Record<number, number>,
     awayDays: [[28, -0.15], [42, -0.3]] as [number, number][], offAway: -0.5, heavy28dH: 150, heavy: -0.2,
+    /** Bug 1108b back from annual leave (≥ minDays): +back at once, then a daily glow fading to 0 over `days`. */
+    leaveLift: { back: 6, glow: 0.15, days: 90, minDays: 5 },
     lateChange: -2, lateNoticeH: 72, extraDuty: 0.4, career: 4, recognition: 2, salaryLate: -15,
     /** Sick calls rise below sickFrom (×1 + (sickFrom − m)/sickSlope); resignations interpolate between [morale, ×] points. */
     // v0.17.2 sickSlope 50 → 80: low morale adds sick calls more gently (at most about ×1.8, was ×2.3).
@@ -803,5 +808,16 @@ export const BAL = {
       cost: { narrow: 80_000, wide: 150_000 }, days: { easa: [90, 120], uk: [45, 60], other: [60, 90] } as Record<string, [number, number]>, pilots: { CPT: 2, FO: 2 },
     },
     lc: { fee: 0.0125, grades: { A: 'all', B: 'midEol' } as Record<string, string>, cashDays: 30 }, // lane deals
+  },
+  /**
+   * v0.19 "Scheduled routes" (docs/UPDATE-0.19.md; engine/network). The numbers live in two files, one per lane, so the
+   * lanes never edit the same block: network/balEngine.ts (launch, study, demand, sales, fares, cargo, ancillary, rep, pnl;
+   * lane net-engine) and network/balOps.ts (ops, cost, pax; lane net-ops).
+   */
+  v019: {
+    /** Master switch: false hides the Network area and every route hook returns at once. */
+    on: true as boolean,
+    ...NET_ENGINE_BAL,
+    ...NET_OPS_BAL,
   },
 } as const;

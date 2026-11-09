@@ -34,6 +34,8 @@ import type { CounterView } from '../../engine/contracts';
 import { ProblemCardView } from '../components/ProblemCard';
 import { Modal, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
+import { RouteConflicts } from './RouteConflicts';
+import type { RouteChoice } from '../../engine/network/types';
 import { ArchIcon, Chips, Dot, KV } from '../screens/common';
 import { fuelLine } from '../screens/screenLogic';
 import { DepositPicker } from './offer/DepositPicker';
@@ -606,6 +608,8 @@ export function OfferModal({ offerId }: { offerId: string }) {
   const best = shown.find((r) => !blocked(r)) ?? bestByRank(shown) ?? shown[0];
   const [pick, setPick] = useState<string | null>(null);
   const [step, setStep] = useState(2);
+  // v0.19 what to do with our scheduled rotations on the chosen aircraft (empty: the engine takes the cheapest).
+  const [routeChoices, setRouteChoices] = useState<Record<string, RouteChoice>>({});
   // v0.8: opened = seen (a rival win is then announced in the Inbox).
   useEffect(() => {
     if (store.game?.offers[offerId] && !store.game.offers[offerId].seen) store.update((gg) => markOfferSeen(gg, offerId));
@@ -644,7 +648,8 @@ export function OfferModal({ offerId }: { offerId: string }) {
 
   const accept = () => {
     if (!sel) return;
-    const res = store.act((gg) => acceptOffer(gg, o.id, [sel.aircraftId], opts));
+    const rc = Object.keys(routeChoices).length ? { routeChoices } : {};
+    const res = store.act((gg) => acceptOffer(gg, o.id, [sel.aircraftId], { ...opts, ...rc } as typeof opts));
     if (res.ok) {
       store.closeModal();
       if (store.nav.tab === 'contracts' && res.data) store.navigate('contracts', { view: 'active', sel: { kind: 'contract', id: res.data.contractId } });
@@ -699,6 +704,8 @@ export function OfferModal({ offerId }: { offerId: string }) {
           </div>
           {/* v0.18 what stands between us and this job, the most important reason first; no four-line card here. */}
           <OfferVerdictBox g={g} v={verdict} offerId={o.id} busyFix={busyFix} />
+          {/* v0.19 our scheduled flights on the chosen aircraft: swap, sub-charter, move or cancel each (§H.2). */}
+          {live && sel && g.network && <RouteConflicts g={g} aircraftId={sel.aircraftId} from={o.start - 720} to={o.end + 720} value={routeChoices} onChange={setRouteChoices} earns={o.estValue} />}
           <p className="muted sc-blurb">{blurbOf(o)}</p>
           <Chips chips={[...v09Chips(o), ...reqChips(o.requirements, o.pattern, { shape: true }), ...riskChips(o.risk), ...effectChips(o)]} />
           <AnalystBlock g={g} offerId={o.id} fmtP={fmtP} steps={steps} lift={lift} onUse={live && !countered && !o.counter && !tenderWon ? setStep : undefined} />

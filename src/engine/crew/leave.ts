@@ -22,7 +22,7 @@ import { crewIx, segsOf, touchCrewState } from './timeline';
 
 const L = () => BAL.v09.roster.leave;
 const ROLE_WORD: Record<string, [string, string]> = {
-  CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], CRP: ['cruise relief pilot', 'cruise relief pilots'], PUR: ['purser', 'pursers'], CC: ['cabin crew member', 'cabin crew'],
+  CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], PUR: ['purser', 'pursers'], CC: ['cabin crew member', 'cabin crew'],
 };
 
 /** The Company's leave policy (defaults for a save without one). */

@@ -60,7 +60,7 @@
 
   /* Screen heads: title and subtitle on one line, the tools in one row that scrolls sideways when it must. */
   .shell.acmi .screen { padding-top: 10px; }
-  .shell.acmi .sc-head { margin-bottom: 10px; gap: 6px 12px; align-items: center; }
+  .shell.acmi .sc-head { gap: 6px 12px; align-items: center; }
   .shell.acmi .sc-head > .grow { display: flex; align-items: baseline; gap: 10px; flex: 1 1 220px; min-width: 0; }
   .shell.acmi .sc-head h1 { font-size: 19px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex-shrink: 0; max-width: 75%; }
   .shell.acmi .sc-head .subtitle { margin: 0; font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -104,7 +104,6 @@
   .rb-foot { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; flex-shrink: 0; }
   .rb-foot::-webkit-scrollbar { display: none; }
   .rb-foot > * { flex-shrink: 0; white-space: nowrap; }
-  .sc-crew-board > .sc-head { margin-bottom: 6px; }
   .rb { gap: 6px; }
   .rb-tools { flex-shrink: 0; flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; overscroll-behavior-x: contain; padding-bottom: 1px; }
   .rb-tools::-webkit-scrollbar { display: none; }

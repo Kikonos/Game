@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CalBlock, CalFlight } from '../../engine/crew/calendar';
-import { endAt, monthGrid, monthTotals, stationOf, type GridOpts } from './personLogic';
+import { DAY_KIND_LABEL, endAt, layovers, monthGrid, monthTotals, stationOf, type GridOpts } from './personLogic';
 
 const H = 60;
 const D = 24 * H;
@@ -133,5 +133,28 @@ describe('monthTotals', () => {
     expect(t.blockFlown).toBe(4 * H + 150);
     expect(t.duty).toBe(10 * H + 6 * H + 6 * H);
     expect(t.sectors).toBe(5);
+  });
+});
+
+describe('v0.18.3 positioning and layovers (player: Sofia Silva, LIS–JFK deadhead, hotel standby, JFK–LIS)', () => {
+  const dh = blk('deadhead', day(5, 15), day(5, 23) + 25, { flights: [fl('LIS', 'JFK', day(5, 16), day(5, 23) + 25, 'deadhead')], at: 'JFK' });
+  const sby = blk('standby', day(6, 13), day(6, 23), { sby: 'hotel', at: 'JFK' });
+  const back = duty(day(7, 17), day(8, 7), [fl('JFK', 'LIS', day(7, 18), day(8, 6))]);
+  it('a deadhead on its own is Positioning (its own kind and seat glyph), not Flying', () => {
+    const g = monthGrid([dh, sby, back], opts());
+    const c5 = g.cells.find((c) => c.inMonth && c.date === 5)!;
+    expect(c5.kind).toBe('pax');
+    expect(c5.icon).toBe('pax');
+    expect(DAY_KIND_LABEL.pax).toMatch(/^Positioning/);
+    expect(g.cells.find((c) => c.inMonth && c.date === 7)!.kind).toBe('trip');
+  });
+  it('the layover runs from landing to the next report across the hotel standby, and marks its days', () => {
+    const ls = layovers([dh, sby, back], 'LIS');
+    expect(ls).toHaveLength(1);
+    expect(ls[0]).toMatchObject({ at: 'JFK', from: dh.end, to: back.start, sby: [sby.start] });
+    const g = monthGrid([dh, sby, back], opts());
+    expect(g.cells.filter((c) => c.inMonth && c.layover).map((c) => c.date)).toEqual([5, 6, 7]);
+    // Home again: no layover after the trip.
+    expect(layovers([back, duty(day(9, 8), day(9, 12), [fl('LIS', 'OPO', day(9, 9), day(9, 10))])], 'LIS')).toHaveLength(0);
   });
 });

@@ -108,6 +108,7 @@ import { createScenario, METRICS, SCENARIO_BY_ID, fmtValue, reliability, scenari
 import { fleetWords } from '../src/engine/newGame';
 import { bidQuote, bookTrip, com, fairsAhead, homeMarket, placeBid, travellers } from '../src/engine/commercial';
 import { botFinance } from './bot/finance';
+import { botNetwork, botNetworkReport } from './bot/network';
 import { botSales } from './bot/sales';
 import { botLadder, botLadderReport } from './bot/ladder';
 import { botFarRouteReport, botFarRouteTally, farRouteOk } from './bot/clients';
@@ -659,6 +660,8 @@ function hire(g: GameState, t: Tally): void {
  * the month starts is hired once (they still help its later weeks). Never with less than $500K of cash.
  */
 const FORECAST_HIRE = process.argv.includes('--forecast-hire');
+/** v0.19 --routes: scheduled routes on idle widebodies (--routes=dil adds Dili). */
+const ROUTES = process.argv.some((a) => a === '--routes' || a.startsWith('--routes='));
 const fcActed = new Set<string>();
 let fcHired = 0;
 const fcHiredBy = new Map<string, number>();
@@ -676,7 +679,7 @@ function forecastHire(g: GameState, t: Tally): void {
     act(g, t);
   }
 }
-const isPilotRole = (r: Role) => r === 'CPT' || r === 'FO' || r === 'CRP';
+const isPilotRole = (r: Role) => r === 'CPT' || r === 'FO';
 
 /** v0.7.3 when a widebody family first flies revenue: its first aircraft home and Widebody operations granted. */
 function wideFrom(g: GameState, family: RatingFamily): number {
@@ -788,7 +791,7 @@ function conversions(g: GameState, t: Tally): void {
       // Donors: same role, other families, most spare first. Pilots only from a family that stays fully staffed
       // (they give up the old type); cabin crew keep their old type, so a family lends up to 15% of its need for
       // the 8-day course.
-      const pilot = l.role === 'CPT' || l.role === 'FO' || l.role === 'CRP';
+      const pilot = l.role === 'CPT' || l.role === 'FO';
       const spare = (x: StaffingLine) => (pilot ? x.have - x.need : Math.floor(x.have - 0.85 * x.need));
       const donors = lines.filter((x) => x.role === l.role && x.family !== fam && spare(x) > 0).sort((a, b) => spare(b) - spare(a) || (a.family < b.family ? -1 : 1));
       for (const d of donors) {
@@ -1488,6 +1491,8 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     if (botLadder(g)) act(g, t);
     // v0.16 the far routes offered and signed (scripts/bot/clients.ts; a tally only, no action).
     botFarRouteTally(g);
+    // v0.19 --routes: scheduled routes on idle widebodies (scripts/bot/network.ts).
+    if (ROUTES && botNetwork(g)) act(g, t);
     policies(g, t);
     rehire(g, t);
     extraCrew(g, t);
@@ -1998,9 +2003,9 @@ function redNote(g: GameState, m: GameState['messages'][number]): void {
   if (f?.aircraftId && g.fleet[f.aircraftId]) {
     const fam = typeOf(g.fleet[f.aircraftId].typeId).family;
     for (const role of new Set(flightCrewStatus(g, f.id, { live: false }).missing)) {
-      const key = `${monthKey(f.std)}|${fam}|${role === 'CRP' ? 'FO' : role}`;
+      const key = `${monthKey(f.std)}|${fam}|${role}`;
       redByMonth.set(key, (redByMonth.get(key) ?? 0) + 1);
-      const dk = `${Math.floor(f.std / DAY)}|${fam}|${role === 'CRP' ? 'FO' : role}`;
+      const dk = `${Math.floor(f.std / DAY)}|${fam}|${role}`;
       redByDay.set(dk, (redByDay.get(dk) ?? 0) + 1);
     }
   }
@@ -2384,7 +2389,7 @@ const maintDays = (k: MonthKey) => {
 const crewCap = (k: MonthKey) =>
   Object.values(g.crew)
     .filter((c) => c.hired < monthStart(k + 1))
-    .reduce((s, c) => s + (c.role === 'CPT' || c.role === 'FO' || c.role === 'CRP' ? BAL.pilotBHMonth : BAL.cabinBHMonth), 0);
+    .reduce((s, c) => s + (c.role === 'CPT' || c.role === 'FO' ? BAL.pilotBHMonth : BAL.cabinBHMonth), 0);
 const goalsBy = (t: number) => g.goals.filter((x) => x.done !== null && x.done < t).length;
 
 const pad = (s: string | number, n: number) => String(s).padStart(n);
@@ -2565,6 +2570,7 @@ console.log(botMarketReport(g));
 tourReport(g);
 // v0.16 far routes offered and signed (scripts/bot/clients.ts).
 console.log(botFarRouteReport());
+if (ROUTES || Object.keys(g.network?.routes ?? {}).length) console.log(botNetworkReport(g));
 {
   // v0.7.1 Crew Control: ladder stages, fixes by kind, jets and their share of revenue (soft targets, §16).
   const fixes = [...tally.crewFixes].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || 'none';

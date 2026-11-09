@@ -13,7 +13,7 @@ import { crewName } from './generate';
 import { rootReason, type Reason } from './reasons';
 import { emptyResult, fillAll, placeCrew, recheckPairing, releaseCrew } from './roster';
 import { levelOf, worst, type IssueCode } from './rules';
-import { block28, freshReport, locAt, segsOf, ticketPrice, touchCrew, typeIdOf, viaText } from './timeline';
+import { block28, freshReport, locAt, segsOf, standsBy, ticketPrice, touchCrew, typeIdOf, viaText } from './timeline';
 
 const LEVEL_RANK: Record<Legality, number> = { legal: 0, tight: 1, illegal: 2 };
 const hm = (m: number) => `${Math.floor(m / 60)}:${String(Math.round(m % 60)).padStart(2, '0')}`;
@@ -52,6 +52,8 @@ export interface RosterSlotView {
   reserve?: true;
   /** This crew member's legality on the pairing (null when the seat is empty). */
   level: Legality | null;
+  /** Bug 1108b: seated but not flying this duty: on hotel standby at the station (a reserve, or a relief pilot on a plain day). */
+  standby?: true;
 }
 
 export interface DutyCrewView {
@@ -84,7 +86,10 @@ export function dutyCrew(g: GameState, dutyOrFlightId: string): DutyCrewView | n
       // v0.14.1 (UI-2) the duty's own day length is every seat's: never 'Legal' above a red 'Day length 17:40 of 12:15'.
       level = worst(level ?? 'legal', d.done ? 'legal' : d.legality);
     }
-    return { index, role: s.role, crewId: s.crewId, name: c ? crewName(c) : null, locked: !!s.locked, extra: !!s.extra, above: !!s.above, ...(s.reserve ? { reserve: true as const } : {}), level };
+    return {
+      index, role: s.role, crewId: s.crewId, name: c ? crewName(c) : null, locked: !!s.locked, extra: !!s.extra, above: !!s.above, ...(s.reserve ? { reserve: true as const } : {}), level,
+      ...(c && standsBy(g, p, d, c.id) ? { standby: true as const } : {}),
+    };
   });
   return {
     dutyId: d.id, pairingId: p.id, aircraftId: p.aircraftId, contractId: p.contractId, kind: p.tour ? 'tour' : 'trip',
@@ -103,7 +108,7 @@ export interface DutyCandidate {
   name: string;
   /** The crew member's own role (a senior may fill a junior seat). */
   role: Role;
-  /** v0.7.2 a captain listed for an FO/CRP seat ('Captain flying as FO' group, after the FOs). */
+  /** v0.7.2 a captain listed for an FO seat ('Captain flying as FO' group, after the FOs). */
   asFo?: true;
   legal: boolean;
   level: Legality;
@@ -171,7 +176,7 @@ export function dutyCandidates(g: GameState, dutyOrFlightId: string, role: Role)
     const travel = o && !lost ? `${ride ? `Flies out on our own${rideNo ? ` ${rideNo}` : ' flight'}` : 'Deadhead'} ${o.from} ${fmtTime(o.std)} → ${o.to} ${fmtTime(o.sta)} UTC${ride ? ', no ticket' : viaText(o.from, o.to, o.std, o.sta)}` : undefined;
     // v0.7.2 a captain for a first officer's seat: their own group 'Captain flying as FO', after the first officers
     // of the same legality (the UI groups by asFo).
-    const asFo = c.role === 'CPT' && (role === 'FO' || role === 'CRP');
+    const asFo = c.role === 'CPT' && role === 'FO';
     // v0.7.3 on standby for the report (Crew Control calls them first: no overtime); v0.9 any kind.
     const sby = standbyFor(g, c, first.report) ?? onStandby(g, c.id, g.now);
     const dayOff = issues.some((i) => i.code === 'daysOff');
@@ -221,7 +226,7 @@ export function dutyLegality(g: GameState, dutyOrFlightId: string): DutyLegality
   // v0.6: optional seats above the legal minimum only warn when empty (v0.12.1 a far base's reserve seat does not).
   const spare = p.slots.filter((s) => !s.crewId && s.above && !s.reserve);
   if (spare.length && !d.done) {
-    const cab = spare.filter((s) => s.role !== 'CRP').length;
+    const cab = spare.filter((s) => s.role !== 'CPT' && s.role !== 'FO').length;
     const pil = spare.length - cab;
     const parts = [cab ? `${cab} extra cabin seat${cab > 1 ? 's' : ''}` : '', pil ? 'the spare pilot seat' : ''].filter(Boolean).join(' and ');
     warnings.push({ level: 'tight', code: 'extraEmpty', text: `${parts[0].toUpperCase()}${parts.slice(1)} empty` });
@@ -260,7 +265,7 @@ export interface RosterOpts {
 
 /** v0.7.1 plain words for empty seats: ['CPT', 'FO', 'CC', 'CC'] → 'captain, first officer and 2 cabin crew'. */
 const SEAT_WORD: Record<Role, [string, string]> = {
-  CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], CRP: ['relief pilot', 'relief pilots'],
+  CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'],
   PUR: ['purser', 'pursers'], CC: ['cabin crew', 'cabin crew'],
 };
 function seatWords(roles: Role[]): string {

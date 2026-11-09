@@ -24,6 +24,8 @@ export const ARCH_LABEL: Record<Archetype, string> = {
   medical: 'Medical airbridge', musicTour: 'Music tour', antarctic: 'Antarctica',
   // v0.12.1
   worldTour: 'World tour',
+  // v0.19
+  scheduled: 'Scheduled route',
 };
 
 /** Category label; a season base of 120 days or more is long-term, as its title says. */
@@ -45,9 +47,9 @@ export const workDays = (c: Pick<Contract, 'pattern' | 'start' | 'end'>): string
   return a === b ? a : `${a} – ${b}`;
 };
 
-export const ROLES: Role[] = ['CPT', 'FO', 'CRP', 'PUR', 'CC'];
-export const ROLE_LABEL: Record<Role, string> = { CPT: 'Captain', FO: 'First officer', CRP: 'Relief pilot', PUR: 'Purser', CC: 'Cabin crew' };
-export const isPilotRole = (r: Role) => r === 'CPT' || r === 'FO' || r === 'CRP';
+export const ROLES: Role[] = ['CPT', 'FO', 'PUR', 'CC'];
+export const ROLE_LABEL: Record<Role, string> = { CPT: 'Captain', FO: 'First officer', PUR: 'Purser', CC: 'Cabin crew' };
+export const isPilotRole = (r: Role) => r === 'CPT' || r === 'FO';
 
 export const CREW_STATUS_LABEL: Record<CrewStatus, string> = {
   available: 'Available', onDuty: 'On duty', resting: 'Resting', off: 'Day off', leave: 'Leave', sick: 'Sick', training: 'Training', joining: 'Joining',
@@ -215,7 +217,7 @@ export interface CrewFilter {
 
 export const NO_FILTER: CrewFilter = { group: 'all', role: 'all', status: 'all', rating: 'all', q: '' };
 
-const ROLE_RANK: Record<Role, number> = { CPT: 0, FO: 1, CRP: 2, PUR: 3, CC: 4 };
+const ROLE_RANK: Record<Role, number> = { CPT: 0, FO: 1, PUR: 3, CC: 4 };
 
 /** Filters and sorts crew: role, then surname. */
 export function filterCrew(list: CrewMember[], f: CrewFilter): CrewMember[] {
@@ -251,6 +253,10 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   distress: 'Deferrals & restructuring',
   // v0.17
   transition: 'Lease transitions',
+  // v0.19 scheduled routes (UPDATE-0.19.md §N.1)
+  ticketRevenue: 'Passenger tickets', cargoRevenue: 'Cargo and mail', ancillaryRevenue: 'Bags, seats and onboard',
+  handling: 'Ground handling', catering: 'Catering', paxServices: 'Passenger services', navCharges: 'Navigation charges',
+  distribution: 'Distribution (GDS, BSP, cards)', marketing: 'Marketing and research', paxComp: 'Passenger compensation', routeSetup: 'Route set-up and stations',
 };
 
 /**
@@ -289,7 +295,7 @@ export function statementView(current: MonthStatement, history: MonthStatement[]
 }
 
 /** v0.7: 'market' filters by topic (aircraft market alerts). v0.7.1: 'problems' = messages about a problem still open, and bad news of the last week. */
-export type MsgFilter = MessageCat | 'all' | 'market' | 'problems' | /** v0.8 world events */ 'world' | /** v0.12.1 the toast log (UI only) */ 'popups';
+export type MsgFilter = MessageCat | 'all' | 'market' | 'problems' | /** v0.8 world events */ 'world' | /** v0.12.1 the toast log (UI only) */ 'popups' | /** v0.19 scheduled routes */ 'network';
 
 /** Bad news stays under 'Problems only' this long. */
 export const PROBLEM_RECENT = 7 * DAY;
@@ -307,6 +313,7 @@ export function filterMessages(list: Message[], cat: MsgFilter, g?: GameState): 
   if (cat === 'all') return list;
   if (cat === 'market') return list.filter((m) => m.topic === 'market');
   if (cat === 'world') return list.filter((m) => m.topic === 'world');
+  if (cat === 'network') return list.filter((m) => m.topic === 'network');
   // v0.12.1 the pop-up log is not messages (InboxScreen lists store.toastLog).
   if (cat === 'popups') return [];
   if (cat === 'problems') return g ? list.filter((m) => isProblemMessage(m, g)) : list.filter((m) => !!m.problem || m.tone === 'bad');
@@ -378,6 +385,9 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     // v0.8: a client / rival opens its pane on Company; a world event its pin on the map.
     case 'client':
       return { tab: 'contracts', view: 'clients', sel: ref };
+    // v0.19 a scheduled route: Contracts › Network.
+    case 'route':
+      return { tab: 'contracts', view: 'network', sel: ref };
     case 'rival':
       return { tab: 'company', view: 'rivals', sel: ref };
     case 'event':

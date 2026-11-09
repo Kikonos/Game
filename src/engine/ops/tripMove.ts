@@ -208,7 +208,7 @@ function ratedGap(g: GameState, tgt: Aircraft, c: Contract): string | null {
   return `No crew rated on the ${name} can take it (no ${miss.map(roleWord).join(' or ')})`;
 }
 
-const ROLE_WORD: Record<Role, string> = { CPT: 'captain', FO: 'first officer', CRP: 'relief pilot', PUR: 'purser', CC: 'cabin crew' };
+const ROLE_WORD: Record<Role, string> = { CPT: 'captain', FO: 'first officer', PUR: 'purser', CC: 'cabin crew' };
 const roleWord = (r: Role) => ROLE_WORD[r] ?? r;
 
 /** The checks that need no copy of the game: what refuses the move and the new leg times. Pure. */

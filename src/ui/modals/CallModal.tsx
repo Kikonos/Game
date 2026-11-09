@@ -10,6 +10,7 @@
 // come back to the call). Accept signs on the picked aircraft. The caller waits 30–90 min of game time (the countdown in
 // the head); every dialog holds the clock, so the wait only runs once the player is back on the map with time going.
 
+import { RouteConflictsLine } from './RouteConflicts';
 import { Clock, Eye, Menu, PhoneCall, PhoneIncoming, PhoneOff, TriangleAlert } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { answerCall, callFit, callPlan, callReports, callScript, declineCall, fmtPrice } from '../../engine/contracts';
@@ -115,6 +116,8 @@ export function CallModal({ offerId, aircraftId }: { offerId: string; aircraftId
           })}
         </div>
       )}
+      {/* v0.19 our scheduled flights on the picked aircraft: the cheapest choice is taken; Details to choose. */}
+      {open && selId && g.network && <RouteConflictsLine g={g} aircraftId={selId} from={o.start - 720} to={o.end + 720} />}
       {portal && (
         <div className="v14-strip">
           <SchedulePortal key={selId} g={g} o={o} aircraftId={selId!} candidates={reports.map((r) => r.aircraftId)} report={sel} open={clashOpen} span={callSpan(o, g.now)} back={back} />

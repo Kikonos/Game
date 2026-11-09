@@ -8,13 +8,14 @@ import type { RatingFamily } from '../../data/acmiTypes';
 import type { GameState, Role } from '../../engine/core/types';
 import { fmtDay } from '../../engine/core/time';
 import {
-  crewRev, crewUtilisation, makeRedundant, offerUnpaidLeave, redundancyQuote, REDUNDANCY, roleWords, unpaidQuote, UNPAID, UTIL_TYPICAL, type UtilSurplus,
+  convertWhyNot, crewRev, crewUtilisation, makeRedundant, offerUnpaidLeave, redundancyQuote, REDUNDANCY, roleWords, unpaidQuote, UNPAID, UTIL_TYPICAL, type UtilSurplus,
 } from '../../engine/crew';
 import { Seg, Stepper } from '../components/ui';
 import { RankMark } from '../components/RankMark';
 import { store } from '../store';
+import { lockOf } from '../../engine/scenario';
 
-const ROLE_PLURAL: Record<Role, string> = { CPT: 'Captains', FO: 'First officers', CRP: 'Relief pilots', PUR: 'Pursers', CC: 'Cabin crew' };
+const ROLE_PLURAL: Record<Role, string> = { CPT: 'Captains', FO: 'First officers', PUR: 'Pursers', CC: 'Cabin crew' };
 const k = (v: number) => (v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(2)}M` : `$${Math.round(v / 1000)}K`);
 const h = (v: number) => `${Math.round(v)} h`;
 
@@ -35,6 +36,8 @@ function SurplusRow({ g, s }: { g: GameState; s: UtilSurplus }) {
           <button className={`btn btn-sm ${act === 'unpaid' ? 'btn-on' : ''}`} onClick={() => setAct(act === 'unpaid' ? 'none' : 'unpaid')} aria-pressed={act === 'unpaid'}>Unpaid leave</button>
           <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'distress', id: 'furlough' })}>Furlough</button>
           <button className={`btn btn-sm ${act === 'redundant' ? 'btn-on' : ''}`} onClick={() => setAct(act === 'redundant' ? 'none' : 'redundant')} aria-pressed={act === 'redundant'}>Redundancy</button>
+          {/* v0.18.3 convert them to a type that needs crew (the conversion dialog with proposals). */}
+          <button className="btn btn-sm" disabled={!!convertWhyNot(g, fam, s.role) || !!lockOf(g, 'training')} title={convertWhyNot(g, fam, s.role) ?? lockOf(g, 'training') ?? 'Train them on a type that needs crew'} onClick={() => store.openModal({ kind: 'convert', crewIds: [], advice: { from: fam, role: s.role, n: s.n } })}>Convert</button>
         </span>
       </div>
       {uq && (
@@ -65,7 +68,7 @@ export function UtilisationView({ g }: { g: GameState }) {
   const u = useMemo(() => crewUtilisation(g), [g, rev, day, Object.keys(g.crew).length]);
   const [all, setAll] = useState(false);
   const [who, setWho] = useState<'pilots' | 'cabin'>('pilots');
-  const pilot = (r: Role) => r === 'CPT' || r === 'FO' || r === 'CRP';
+  const pilot = (r: Role) => r === 'CPT' || r === 'FO';
   const people = u.people.filter((p) => g.crew[p.id]?.status !== 'joining' && (who === 'pilots' ? pilot(p.role) : !pilot(p.role))).sort((a, b) => a.d28 - b.d28 || a.name.localeCompare(b.name));
   const shown = all ? people : people.slice(0, 12);
   const groups = u.groups.filter((x) => x.idle > 0 || x.n >= 3);

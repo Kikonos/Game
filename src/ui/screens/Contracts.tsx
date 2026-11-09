@@ -2,7 +2,7 @@
 // cancel with penalty) and Missed. DESIGN.md §6.3.
 
 import { AlertTriangle, CalendarRange, ChevronDown, ChevronRight, CircleSlash, Clock, Crown, FileSearch, Handshake, Inbox as InboxIcon, Medal, Palette, PhoneIncoming, Users } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { flag } from '../../data/countries';
 import { cancelContract, cancelCost, contractProgress, counterView, idleWindows, type IdleWindow, leadDays, offerClientLine, offerCompetition, standing } from '../../engine/contracts';
 import { dryLeaseView, marketOutlook } from '../../engine/ops';
@@ -36,8 +36,11 @@ import { openTenders, TendersView } from './Tenders';
 import { MarketsView } from './Markets';
 import { cancelWarning, lockOf, rulesOf } from '../../engine/scenario';
 import { LockedPanel, LockNote, lockedProps } from '../components/Locked';
+import { isRouteContract, networkTotals, routeName, seasonWord } from './network/networkLogic';
+// v0.19 Contracts › Network (scheduled routes) in its own chunk with its stylesheet.
+const NetworkView = lazy(() => import('./network'));
 
-type View = 'market' | 'active' | 'tenders' | 'missed' | 'clients' | 'markets' | /** v0.16.3 the Market hub's Leads segment (was the Sales tab) */ 'leads' | 'filter';
+type View = 'market' | 'active' | 'tenders' | 'missed' | 'clients' | 'markets' | /** v0.16.3 the Market hub's Leads segment (was the Sales tab) */ 'leads' | 'filter' | /** v0.19 */ 'network';
 /** v0.16.3 the Market hub's segments; 'sales' (old links) opens Leads. */
 type Hub = 'market' | 'leads' | 'tenders';
 const HUB: Record<string, Hub> = { market: 'market', leads: 'leads', sales: 'leads', tenders: 'tenders' };
@@ -280,27 +283,53 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
   );
 }
 
+/** v0.19 one compact line per open route contract ('Scheduled · LIS–OXB · summer 2027'); tap: the route page. */
+function RouteContractLines({ g }: { g: GameState }) {
+  const list = Object.values(g.contracts).filter((c) => isRouteContract(c) && (c.status === 'signed' || c.status === 'active') && c.sched && g.network?.routes[c.sched.routeId]);
+  if (!list.length) return null;
+  return (
+    <div className="card sc-list sc-route-lines">
+      {list.sort((a, b) => a.start - b.start).map((c) => {
+        const r = g.network!.routes[c.sched!.routeId];
+        return (
+          <button key={c.id} className="sc-list-row sc-route-line" onClick={() => store.openModal({ kind: 'route', routeId: r.id })}>
+            <ArchIcon a={c.archetype} />
+            <span className="grow ellipsis small"><span className="upper dim">Scheduled</span> · <b>{routeName(r)}</b> · {seasonWord(c.sched!.season)}</span>
+            <ChevronRight className="sc-ico-s dim" />
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function Active({ g, sel }: { g: GameState; sel: string | null }) {
   const rev = flightsRev(g);
   const hour = Math.floor(g.now / 60);
   const ids = Object.keys(g.contracts).join();
   const [open, closed] = useMemo(() => {
-    const all = Object.values(g.contracts);
+    // v0.19 route contracts (our scheduled flying) are one compact line each, below the ACMI work.
+    const all = Object.values(g.contracts).filter((c) => !isRouteContract(c));
     const o = all.filter((c) => c.status === 'signed' || c.status === 'active').sort((a, b) => a.start - b.start);
     const cl = all.filter((c) => (c.status === 'completed' || c.status === 'cancelled') && c.end > g.now - 60 * DAY).sort((a, b) => b.end - a.end).slice(0, 8);
     return [o, cl];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [g, rev, hour, ids]);
+  const routeLines = <RouteContractLines g={g} />;
   if (!open.length && !closed.length) {
     return (
-      <Empty icon={<FileSearch />} title="No contracts yet">
-        Accept an offer from the Market tab. Its flights appear on the Schedule straight away.
-      </Empty>
+      <>
+        <Empty icon={<FileSearch />} title="No contracts yet">
+          Accept an offer from the Market tab. Its flights appear on the Schedule straight away.
+        </Empty>
+        {routeLines}
+      </>
     );
   }
   return (
     <div className="col gap-12">
       {open.map((c) => <ContractRow key={c.id} g={g} c={c} sel={sel === c.id} />)}
+      {routeLines}
       {closed.length > 0 && <div className="upper dim mt-8">Recently finished</div>}
       {closed.map((c) => <ContractRow key={c.id} g={g} c={c} sel={sel === c.id} />)}
     </div>
@@ -343,7 +372,7 @@ function HeadStrip({ g }: { g: GameState }) {
       <button className={`v8-standing t${st.tier}`} onClick={() => store.navigate('company', { view: 'overview' })} aria-label={`Standing: ${st.name}`}>
         <Medal className="sc-ico-s" />
         <span className="col" style={{ minWidth: 0 }}>
-          <b className="ellipsis">{st.name} · <span className="muted v8-st-text">{st.text.toLowerCase()}</span></b>
+          <b className="ellipsis">{st.name}<span className="muted v8-st-text"> · {st.text.toLowerCase()}</span></b>
           {st.next && <span className="small dim ellipsis">{st.next}</span>}
         </span>
         <ChevronRight className="sc-ico-s dim" />
@@ -365,12 +394,14 @@ export function ContractsScreen() {
   const g = useGame();
   const nav = store.nav;
   const raw = nav.view === 'sales' ? 'leads' : nav.view;
-  const view = (['market', 'active', 'tenders', 'missed', 'clients', 'markets', 'leads', 'filter'].includes(raw ?? '') ? raw : 'market') as View;
+  const view = (['market', 'active', 'tenders', 'missed', 'clients', 'markets', 'leads', 'filter', 'network'].includes(raw ?? '') ? raw : 'market') as View;
   const hub: Hub | null = HUB[view] ?? null;
   const nMarket = marketOffers(g).length;
   const nLeads = salesTabCount(g);
   const nTenders = openTenders(g);
-  const nActive = Object.values(g.contracts).filter((c) => c.status === 'signed' || c.status === 'active').length;
+  const nActive = Object.values(g.contracts).filter((c) => (c.status === 'signed' || c.status === 'active') && !isRouteContract(c)).length;
+  // v0.19 routes operating (the Network tab's count).
+  const nRoutes = networkTotals(g).operating;
   const nMissed = missedOffers(g).length;
   // v0.11 Clients moved here from Company. Same rule as the Clients list's first filter (a job done, a contract or an open offer); moves at most daily.
   const day = Math.floor(g.now / 1440);
@@ -382,6 +413,8 @@ export function ContractsScreen() {
           // v0.16.3 one Market tab: offers, the leads pipeline and the tender board as segments (Sales and Tenders were tabs).
           { id: 'market', label: 'Market', count: nMarket + nLeads + nTenders || undefined },
           { id: 'active', label: 'Active', count: nActive },
+          // v0.19 our scheduled routes (secondary to ACMI).
+          { id: 'network', label: 'Network', count: nRoutes || undefined },
           { id: 'missed', label: 'Missed', count: nMissed },
           { id: 'clients', label: 'Clients', count: nClients || undefined },
           // v0.14 market presence, the trade fairs and sales trips (moved here from Company › Team).
@@ -401,6 +434,7 @@ export function ContractsScreen() {
       {view === 'clients' && <ClientsView g={g} />}
       {view === 'markets' && <MarketsView g={g} />}
       {view === 'filter' && <FilterView g={g} />}
+      {view === 'network' && <Suspense fallback={null}><NetworkView g={g} /></Suspense>}
     </div>
   );
 }

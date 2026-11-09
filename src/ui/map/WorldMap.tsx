@@ -4,14 +4,15 @@ import { memo, type ReactNode, useCallback, useEffect, useId, useLayoutEffect, u
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
 import { REGIONS } from '../../data/regions';
 import { PLANE_PATH } from '../components/Logo';
-import { useTheme } from '../store';
+import { store, useTheme } from '../store';
 import { paleOnLight } from '../theme';
 import { isTouch, useTouch } from '../useMedia';
 import { MAP_H, MAP_W, basePaths, projection } from './mapData';
 import { type LabelBox, placeLabels } from './mapLogic';
-import { cssRect, toCss } from '../device';
+import { cssRect, toCss, uiZoomNow } from '../device';
 import { TILT_MAX_DEG, tiltBleed, tiltCss, tiltDeg, untilt } from './depth';
 import { FRAME_EDGE_BUSY_U, FRAME_EDGE_U, frameRot, frameX, landOffset, lonCentre, nearX, nextFrame } from './wrap';
+import { LandLayer, rasterLandOk, readLandInk } from './landTiles';
 
 export interface MapRoute {
   id: string;
@@ -39,7 +40,10 @@ export interface MapLayerCtx {
   k: number;
   /** Screen px per map unit at zoom 1 (container scale). */
   px: number;
-  /** Zoom on screen right now (ahead of k during gestures); cheap, call per frame. */
+  /**
+   * The zoom the overlay is drawn at right now (ahead of k during gestures); cheap, call per frame. v0.19 (perf) mid-gesture
+   * the overlay is moved and scaled as one composited layer and drawn again only every so often: size marks for this zoom.
+   */
   liveK: () => number;
   /** Zoom of the last fit (initial view or Reset); k / fitK is the zoom relative to it. */
   fitK: number;
@@ -53,6 +57,8 @@ export interface MapLayerCtx {
   onScreen: () => [number, number, number, number];
   /** v0.18 the projection's rotation (degrees of longitude; 0 unless the map wraps): layers placed by longitude follow it. */
   rot: number;
+  /** v0.19 (perf) calls fn each time the overlay is drawn again at a new zoom or place (before that paint); returns the unsubscribe. */
+  onSync?: (fn: () => void) => () => void;
 }
 
 /** v0.12 the `glow` layer's painter: draws on a canvas; `at` gives a map point's canvas px, `px` canvas px per screen px. */
@@ -103,7 +109,11 @@ interface Props {
   ground?: (ctx: MapLayerCtx) => ReactNode;
   /** SVG layers between the land and the airports (ops map: arcs). */
   underlay?: (ctx: MapLayerCtx) => ReactNode;
-  /** A big, slow layer right above the land in its own composited layer (ops map: night), shifted with ctx.backShift. */
+  /**
+   * A big, slow layer right above the land (ops map: night). v0.19 (perf) HTML placed in map units of the frame (as the
+   * SVG layers are, ctx.proj), in a composited layer that WorldMap moves and scales with the view: give its bitmaps
+   * (canvas, img) their own layer (will-change) and they are never painted again by a pan or a zoom.
+   */
   backdrop?: (ctx: MapLayerCtx) => ReactNode;
   /**
    * v0.12 a canvas layer of its own above the backdrop (ops map: city lights): moved with the land on the compositor,
@@ -146,6 +156,22 @@ interface Geo { w: number; h: number; s: number; ox: number; oy: number; left: n
  * is only rewritten when a gesture ends or runs out of margin. Only the light overlay repaints per frame.
  */
 const marginOf = (g: { w: number; h: number }) => Math.round(Math.max(g.w, g.h) * 0.3);
+/**
+ * v0.19 (perf) the marks overlay (airports, routes, aircraft, pins, labels) is a composited layer of its own, oversized by
+ * this margin (at least the tilt's lean): a pan moves it with a CSS transform and it is drawn again only when the view
+ * runs out of margin, the zoom has drifted OVER_ZOOM_STEP, or the gesture ends (was: drawn again every frame).
+ */
+const overMarginOf = (g: { w: number; h: number }) => {
+  const b = tiltBleed(g.w, g.h, TILT_MAX_DEG);
+  return Math.ceil(Math.max(marginOf(g), b.ex, b.ey)) + 8;
+};
+/**
+ * Zoom drift (ratio) mid-gesture before the overlay is drawn again for the new zoom: at once past OVER_ZOOM_MAX, past
+ * OVER_ZOOM_STEP once OVER_SYNC_MS have gone by since the last time (the marks grow or shrink that much meanwhile).
+ */
+const OVER_ZOOM_STEP = 1.03;
+const OVER_ZOOM_MAX = 1.12;
+const OVER_SYNC_MS = 110;
 /** The ocean as a background (static under the moving layers); matches the old SVG gradient. */
 const OCEAN = 'radial-gradient(75% 75% at 50% 40%, var(--map-ocean-0) 0%, var(--map-ocean-1) 100%)';
 
@@ -367,7 +393,8 @@ interface Gesture {
  * the midpoint, double tap to zoom in, two-finger tap to zoom out, mouse drag / wheel / trackpad
  * pinch (ctrl+wheel in Chrome, gesture events in Safari). Taps pick the nearest airport (or route)
  * within a finger-sized radius. While a gesture runs the transform is written straight to the DOM
- * and React re-renders markers at most every 120 ms.
+ * and React re-renders markers only when it ends. v0.19 (perf) a gesture moves composited layers alone (land tiles,
+ * backdrop, overlay: CSS transforms), and a pan that keeps the zoom re-renders nothing at all.
  */
 export function WorldMap({
   rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent: accentIn = 'var(--accent)', selected, onSelect, onSelectRoute, onHover,
@@ -390,8 +417,15 @@ export function WorldMap({
   const planesRef = useRef<SVGGElement>(null);
   const baseWrap = useRef<HTMLDivElement>(null);
   const baseG = useRef<SVGGElement>(null);
-  const backWrap = useRef<HTMLDivElement>(null);
-  const backG = useRef<SVGGElement>(null);
+  /** v0.19 (perf) the backdrop's world layer (HTML in frame map units, moved and scaled with the view). */
+  const backWorld = useRef<HTMLDivElement>(null);
+  /** v0.19 (perf) the land as raster tiles (the wrapping ops map; the title's small map keeps its SVG land). */
+  const tiled = wrapOn && rasterLandOk();
+  const landRef = useRef<HTMLDivElement>(null);
+  const landLayer = useRef<LandLayer | null>(null);
+  /** v0.19 (perf) the overlay's composited layer, and what is told when the overlay is drawn again. */
+  const overWrap = useRef<HTMLDivElement>(null);
+  const syncHooks = useRef(new Set<() => void>());
   const glowWrap = useRef<HTMLDivElement>(null);
   const groundG = useRef<SVGGElement>(null);
   const landUses = useRef<(SVGUseElement | null)[]>([]);
@@ -399,6 +433,9 @@ export function WorldMap({
   const glowRef = useRef(glow);
   glowRef.current = glow;
   const [view, setView] = useState<View>({ k: 1, x: 0, y: 0 });
+  /** v0.19 (perf) the zoom React last drew the marks for (a pan alone no longer re-renders the map). */
+  const committedK = useRef(view.k);
+  committedK.current = view.k;
   // Container geometry as rendered (s = screen pixels per map unit at zoom 1; the SVG uses "slice" scaling).
   const [box, setBox] = useState<Geo>(() => geoOf(1000, 600));
   const pxPerUnit = box.s;
@@ -412,6 +449,11 @@ export function WorldMap({
   const mkU = useRef(0);
   /** The view on screen right now; ahead of `view` (React state) during gestures and animations. */
   const live = useRef<View>(view);
+  /** v0.19 (perf) the view the overlay's SVG transform was last written for; a CSS transform carries it to `live`. */
+  const overView = useRef<View>(view);
+  const overAt = useRef(0);
+  /** v0.19 (perf) the map is moving (gesture, fling, fly-to): data-moving on the root. */
+  const moving = useRef(false);
   const gest = useRef<Gesture | null>(null);
   const ptrs = useRef(new Map<number, { x: number; y: number }>());
   const anim = useRef(0);
@@ -429,8 +471,6 @@ export function WorldMap({
   const hazeRef = useRef<HTMLDivElement>(null);
   const tiltOk = useRef(false);
   const tiltNow = useRef(0);
-  const [bleed, setBleed] = useState(false);
-  const bleedRef = useRef(false);
   const rot = wrapOn ? frameRot(frame) : rotate;
   const proj = projection(rot);
   const path = useMemo(() => geoPath(proj), [proj]);
@@ -462,14 +502,70 @@ export function WorldMap({
     const r = v.k / lv.k;
     const tx = g.ox * (1 - r) + g.s * (v.x - r * lv.x) + M * (1 - r);
     const ty = g.oy * (1 - r) + g.s * (v.y - r * lv.y) + M * (1 - r);
-    // Keep half a margin spare for the backdrop shift; zooming past 1.5× would show a blurry raster.
-    const q = (r * M) / 2;
+    // Zooming past 1.5× would show a blurry raster. v0.19 (perf) the backdrop has its own world layer now (no shift to
+    // keep margin for): this layer is painted again only once the view has used its whole margin.
+    const q = 2;
     const ok = r > 0.67 && r < 1.5 && tx - M <= -q && r * (g.w + 2 * M) + tx - M >= g.w + q && ty - M <= -q && r * (g.h + 2 * M) + ty - M >= g.h + q;
     if (!ok && allowSync) { syncLayers(); return; }
     const tf = `translate(${tx.toFixed(2)}px, ${ty.toFixed(2)}px) scale(${r.toPrecision(6)})`;
     if (baseWrap.current) baseWrap.current.style.transform = tf;
     if (glowWrap.current) glowWrap.current.style.transform = tf;
-    if (backWrap.current) backWrap.current.style.transform = `${tf} translateX(${(backDx.current * lv.k * g.s).toFixed(2)}px)`;
+  };
+  /** v0.19 (perf) the backdrop's world layer to the view v (frame map units; a transform only, never a repaint). */
+  const placeWorld = (v: View) => {
+    const el = backWorld.current;
+    if (!el) return;
+    const g = geoRef.current;
+    const x = (v.x + v.k * (offRef.current + backDx.current)) * g.s + g.ox;
+    const tf = `translate3d(${x.toFixed(2)}px, ${(v.y * g.s + g.oy).toFixed(2)}px, 0) scale(${(v.k * g.s).toPrecision(6)})`;
+    if (el.style.transform !== tf) el.style.transform = tf;
+  };
+  /** v0.19 (perf) device px per CSS px for the land tiles (the UI size zoom included; at most 2). */
+  const landDpr = () => Math.min(2, (window.devicePixelRatio || 1) * uiZoomNow());
+  /** v0.19 (perf) the land tiles to the view v; `settle`: at rest, so tiles for its exact zoom are drawn. */
+  const placeLand = (v: View, settle: boolean) => {
+    const l = landLayer.current;
+    if (!l) return;
+    const g = geoRef.current;
+    const b = tiltBleed(g.w, g.h, tiltNow.current);
+    l.place({ k: v.k, x: v.x, y: v.y, s: g.s, ox: g.ox, oy: g.oy, w: g.w, h: g.h, dpr: landDpr(), ex: b.ex, ey: b.ey }, settle);
+  };
+  /**
+   * v0.19 (perf) draws the overlay again for the live view: its SVG transform, the marks' counter-scale and the layers
+   * that size marks by zoom (ctx.onSync, before this paint); the layer's CSS transform back to none. One repaint.
+   */
+  const syncOver = () => {
+    const v = live.current;
+    overView.current = v;
+    overAt.current = performance.now();
+    worldRef.current?.setAttribute('transform', tfAt(v, offRef.current));
+    const u = 1 / (geoRef.current.s * v.k);
+    if (u !== mkU.current) {
+      mkU.current = u;
+      const tf = `scale(${u})`;
+      for (const el of mkEls.current) el.setAttribute('transform', tf);
+    }
+    if (overWrap.current && overWrap.current.style.transform) overWrap.current.style.transform = '';
+    for (const fn of syncHooks.current) fn();
+  };
+  /** v0.19 (perf) moves and scales the overlay's layer from overView to v; draws it again when out of margin or zoom drift. */
+  const placeOver = (v: View) => {
+    const ov = overView.current;
+    const g = geoRef.current;
+    const M = overMarginOf(g);
+    const r = v.k / ov.k;
+    const tx = g.ox * (1 - r) + g.s * (v.x - r * ov.x) + M * (1 - r);
+    const ty = g.oy * (1 - r) + g.s * (v.y - r * ov.y) + M * (1 - r);
+    const b = tiltBleed(g.w, g.h, tiltNow.current);
+    const q = 2;
+    const zr = Math.abs(Math.log(r));
+    const zoomOk = zr < Math.log(OVER_ZOOM_STEP) || (zr < Math.log(OVER_ZOOM_MAX) && performance.now() - overAt.current < OVER_SYNC_MS);
+    const ok = zoomOk && tx - M <= -b.ex - q && r * (g.w + 2 * M) + tx - M >= g.w + b.ex + q && ty - M <= -b.ey - q && r * (g.h + 2 * M) + ty - M >= g.h + q;
+    if (!ok) { syncOver(); return; }
+    const el = overWrap.current;
+    if (!el) return;
+    const tf = r === 1 && Math.abs(tx) < 0.005 && Math.abs(ty) < 0.005 ? '' : `translate3d(${tx.toFixed(2)}px, ${ty.toFixed(2)}px, 0) scale(${r.toPrecision(6)})`;
+    if (el.style.transform !== tf) el.style.transform = tf;
   };
   /** Rewrites the land/backdrop SVG transform to the live view (one repaint of the land). */
   const syncLayers = () => {
@@ -494,7 +590,6 @@ export function WorldMap({
     }
     const tf = tfAt(v, offRef.current);
     groundG.current?.setAttribute('transform', tf);
-    backG.current?.setAttribute('transform', tf);
     drawGlow();
     placeLayers(v, false);
   };
@@ -506,38 +601,44 @@ export function WorldMap({
     tiltNow.current = deg;
     if (stageRef.current) stageRef.current.style.transform = tiltCss(deg, geoRef.current.h);
     if (hazeRef.current) hazeRef.current.style.opacity = (deg / TILT_MAX_DEG).toFixed(3);
-    if (deg > 0 !== bleedRef.current) { bleedRef.current = deg > 0; setBleed(deg > 0); }
   };
-  /** Moves the map on screen without a React render (the transforms are owned here, not by JSX). */
+  /**
+   * Moves the map on screen without a React render (the transforms are owned here, not by JSX). v0.19 (perf) every layer
+   * moves by a transform alone (land tiles, backdrop, overlay); the overlay is drawn again only now and then (placeOver).
+   */
   const apply = (v: View) => {
     live.current = v;
+    // v0.19 (perf) while the map moves, labels jump with the overlay's redraws instead of sliding (CSS transitions on SVG
+    // run on the main thread: each one repainted the overlay every frame for a third of a second).
+    if (!moving.current && busy()) { moving.current = true; wrapRef.current?.setAttribute('data-moving', ''); }
     placeTilt(v.k);
-    worldRef.current?.setAttribute('transform', tfAt(v, offRef.current));
+    placeLand(v, false);
     placeLayers(v);
+    placeWorld(v);
     reframe(v);
-    // Markers keep their screen size between commits (no sawtooth while pinching).
-    const u = 1 / (geoRef.current.s * v.k);
-    if (u !== mkU.current) {
-      mkU.current = u;
-      const tf = `scale(${u})`;
-      for (const el of mkEls.current) el.setAttribute('transform', tf);
-    }
+    placeOver(v);
   };
   const commit = useCallback(() => {
     window.clearTimeout(commitTimer.current);
     commitTimer.current = 0;
     const v = live.current;
-    setView((cur) => (sameView(cur, v) ? cur : v));
-    // v0.18 the frame re-centred on the view with this render once the gesture is over.
-    if (!busy()) reframe(v);
-    if (!busy()) syncLayers();
+    // v0.19 (perf) a new zoom re-renders the marks (labels, sizes); a pan alone does not (nothing in them depends on
+    // where the view is): its end draws the overlay and the land again in place, and remembers the view.
+    if (v.k !== committedK.current) setView((cur) => (sameView(cur, v) ? cur : v));
+    else if (memo && restored.current) memo.view = v;
+    if (!busy()) {
+      // v0.18 the frame re-centred on the view with this render once the gesture is over.
+      reframe(v);
+      syncLayers();
+      placeLand(v, true);
+      syncOver();
+      // v0.19 (perf) the screens' hourly refresh held back by the gesture goes now; labels slide again.
+      store.mapGesture(false);
+      if (moving.current) { moving.current = false; wrapRef.current?.removeAttribute('data-moving'); }
+    }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  /** Re-renders markers/labels for the new zoom at most every 120 ms while a gesture runs. */
-  const scheduleCommit = () => {
-    if (!commitTimer.current) commitTimer.current = window.setTimeout(commit, 120);
-  };
   useLayoutEffect(() => {
-    if (!busy()) { apply(view); syncLayers(); }
+    if (!busy()) { apply(view); syncLayers(); placeLand(view, true); syncOver(); }
     if (memo && restored.current) memo.view = view;
   }, [view]); // eslint-disable-line react-hooks/exhaustive-deps
   // v0.18 a new frame is on screen: every transform moves to it at once (before the paint, so nothing jumps).
@@ -546,9 +647,24 @@ export function WorldMap({
     offRef.current = frameX(frame);
     apply(live.current);
     syncLayers();
+    syncOver();
   }, [frame]); // eslint-disable-line react-hooks/exhaustive-deps
   // New geometry (resize) or new layer elements: rewrite the layer transforms.
-  useLayoutEffect(() => { syncLayers(); placeTilt(live.current.k, true); }, [box, !!backdrop, !!glow]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => { syncLayers(); placeTilt(live.current.k, true); placeWorld(live.current); placeLand(live.current, !busy()); syncOver(); }, [box, !!backdrop, !!glow]); // eslint-disable-line react-hooks/exhaustive-deps
+  // v0.19 (perf) the land tiles: made with the map (the wrapping one), coloured by the theme.
+  useLayoutEffect(() => {
+    const el = landRef.current;
+    if (!tiled || !el) return;
+    const l = new LandLayer(el);
+    landLayer.current = l;
+    l.setInk(readLandInk(el));
+    placeLand(live.current, true);
+    return () => { l.destroy(); landLayer.current = null; };
+  }, [tiled]); // eslint-disable-line react-hooks/exhaustive-deps
+  useLayoutEffect(() => {
+    const el = landRef.current;
+    if (el && landLayer.current) landLayer.current.setInk(readLandInk(el));
+  }, [theme]);
   // v0.15 the tilt follows its setting and the system's reduced motion (no tilt then).
   useEffect(() => {
     const mq = typeof matchMedia === 'function' ? matchMedia('(prefers-reduced-motion: reduce)') : null;
@@ -557,11 +673,24 @@ export function WorldMap({
     mq?.addEventListener?.('change', set);
     return () => mq?.removeEventListener?.('change', set);
   }, [tilt]); // eslint-disable-line react-hooks/exhaustive-deps
-  // After every render: the marker groups to counter-scale (React wrote the committed scale into them).
+  // After every render: the marker groups to counter-scale (React wrote the committed scale into them). v0.19 (perf) they
+  // follow the overlay's zoom (overView), which a CSS scale carries to the live one; the overlay is not drawn again here.
   useLayoutEffect(() => {
     mkEls.current = worldRef.current ? (Array.from(worldRef.current.querySelectorAll('.mk')) as SVGGElement[]) : [];
     mkU.current = 1 / (pxPerUnit * view.k);
+    const u = 1 / (geoRef.current.s * overView.current.k);
+    if (u !== mkU.current) {
+      mkU.current = u;
+      const tf = `scale(${u})`;
+      for (const el of mkEls.current) el.setAttribute('transform', tf);
+    }
     if (!sameView(live.current, view)) apply(live.current);
+    // v0.19 (perf) with the land in tiles, the ground layer holds only world-event zones: none, no layer to composite.
+    const bw = baseWrap.current;
+    if (bw) {
+      const d = tiled && !groundG.current?.firstChild && !baseG.current?.firstChild ? 'none' : '';
+      if (bw.style.display !== d) bw.style.display = d;
+    }
   });
   /** Paints the glow canvas at the layer's view (soft glows: at most 1.5 device px per CSS px). */
   const drawGlow = useCallback(() => {
@@ -583,8 +712,8 @@ export function WorldMap({
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const backShift = useCallback((dx: number) => {
     backDx.current = dx;
-    placeLayers(live.current, false);
-    return dx * layerView.current.k * geoRef.current.s;
+    placeWorld(live.current);
+    return dx * live.current.k * geoRef.current.s;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const measure = (): Geo => {
@@ -649,7 +778,7 @@ export function WorldMap({
     const g = geoRef.current;
     return [(g.w / 2 - g.ox) / g.s, (g.h / 2 - g.oy) / g.s];
   };
-  useEffect(() => () => { stopAnim(); window.clearTimeout(commitTimer.current); window.clearTimeout(settleTimer.current); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { stopAnim(); window.clearTimeout(commitTimer.current); window.clearTimeout(settleTimer.current); store.mapGesture(false); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- fitting ----------
   const fitKey = fitFn ? '(fn)' : (fit ?? []).join(',');
@@ -885,6 +1014,7 @@ export function WorldMap({
         g.samples = [{ t: performance.now(), x: toCss(e.clientX), y: toCss(e.clientY) }];
         userMoved.current = true;
         userAt.current = performance.now();
+        store.mapGesture(true);
         return;
       }
       // v0.15 the map point under the finger stays under it (un-tilted: exact on the tilted map too).
@@ -901,14 +1031,15 @@ export function WorldMap({
       if (!g.pinchMoved && (Math.abs(d - g.d0) > 10 || Math.hypot(mc[0] - g.mid[0], mc[1] - g.mid[1]) > 10)) {
         g.pinchMoved = true;
         userMoved.current = true;
+        store.mapGesture(true);
       }
       userAt.current = performance.now();
       if (!g.pinchMoved) return;
       g.mid = mc;
       const m = vbOf(mc[0], mc[1]);
       const k = Math.max(1, Math.min(K_MAX, g.start.k * (d / g.d0)));
+      // v0.19 (perf) no re-render while the fingers are down (was every 120 ms): the marks are re-laid out when they lift.
       apply(clampV({ k, x: m[0] - g.anchor[0] * k, y: m[1] - g.anchor[1] * k }, geo));
-      scheduleCommit();
     }
   };
 
@@ -994,7 +1125,7 @@ export function WorldMap({
       zoomBy(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), vbOf(toCss(e.clientX), toCss(e.clientY)), false);
       wheelUntil.current = performance.now() + 160;
       userAt.current = performance.now();
-      scheduleCommit();
+      store.mapGesture(true);
       settle();
     };
     type GestureEv = Event & { scale: number; clientX: number; clientY: number };
@@ -1019,7 +1150,7 @@ export function WorldMap({
       apply(clampV({ k, x: m[0] - p[0] * k, y: m[1] - p[1] * k }, geoRef.current));
       userMoved.current = true;
       wheelUntil.current = performance.now() + 160;
-      scheduleCommit();
+      store.mapGesture(true);
       settle();
     };
     const onGEnd = (ev: Event) => {
@@ -1252,7 +1383,11 @@ export function WorldMap({
   // Dense networks only label hubs until you zoom in, to avoid a pile of overlapping codes.
   const crowded = airports.filter((a) => a.label).length > 16 && k * pxPerUnit < 2.2;
   const regionFont = touch ? 12.5 : 11;
-  const liveK = useCallback(() => live.current.k, []);
+  const liveK = useCallback(() => overView.current.k, []);
+  const onSync = useCallback((fn: () => void) => {
+    syncHooks.current.add(fn);
+    return () => { syncHooks.current.delete(fn); };
+  }, []);
   const onScreen = useCallback((): [number, number, number, number] => {
     const g = geoRef.current;
     const v = live.current;
@@ -1263,15 +1398,22 @@ export function WorldMap({
     return [x0, y0, x0 + (g.w + 2 * b.ex) / g.s / v.k, y0 + (g.h + b.ey) / g.s / v.k];
   }, []);
   const M = marginOf(box);
-  const ctx: MapLayerCtx = { proj, unit, k, px: pxPerUnit, liveK, fitK: fitK.current, backShift, margin: M, redrawGlow: drawGlow, onScreen, rot };
+  const ctx: MapLayerCtx = { proj, unit, k, px: pxPerUnit, liveK, fitK: fitK.current, backShift, margin: M, redrawGlow: drawGlow, onScreen, rot, onSync };
   // Oversized layer box (container + margin) and the viewBox that keeps the overlay's "slice" mapping.
   const layerStyle: React.CSSProperties = { position: 'absolute', left: -M, top: -M, width: box.w + 2 * M, height: box.h + 2 * M, transformOrigin: '0 0', willChange: 'transform', pointerEvents: 'none' };
   const layerVB = `${(-M - box.ox) / box.s} ${(-M - box.oy) / box.s} ${(box.w + 2 * M) / box.s} ${(box.h + 2 * M) / box.s}`;
   const svgFill: React.CSSProperties = { position: 'absolute', inset: 0, width: '100%', height: '100%', display: 'block' };
-  // v0.15 tilted: the overlay reaches past the top and sides (same mapping as "slice"), so the far edge stays filled.
-  const bl = bleed ? tiltBleed(box.w, box.h, TILT_MAX_DEG) : null;
-  const overVB = bl ? `${(-bl.ex - box.ox) / box.s} ${(-bl.ey - box.oy) / box.s} ${(box.w + 2 * bl.ex) / box.s} ${(box.h + bl.ey) / box.s}` : `0 0 ${MAP_W} ${MAP_H}`;
-  const overStyle: React.CSSProperties = bl ? { position: 'absolute', left: -bl.ex, top: -bl.ey, width: box.w + 2 * bl.ex, height: box.h + bl.ey, display: 'block' } : svgFill;
+  // v0.19 (perf) the overlay: its own composited layer, oversized all round (beyond the tilt's lean too), with the
+  // same mapping as "slice"; gestures move and scale it (placeOver), so it is not drawn again every frame.
+  const MO = overMarginOf(box);
+  const overVB = `${(-MO - box.ox) / box.s} ${(-MO - box.oy) / box.s} ${(box.w + 2 * MO) / box.s} ${(box.h + 2 * MO) / box.s}`;
+  const overLayer: React.CSSProperties = { position: 'absolute', left: -MO, top: -MO, width: box.w + 2 * MO, height: box.h + 2 * MO, transformOrigin: '0 0', willChange: 'transform' };
+  // v0.19 (perf) the stage reaches the tilt's fullest lean past the box and clips there (the layers inside sit in the
+  // box as before): a tilted stage is drawn flat first, and its layers' oversized margins (tens of thousands of px
+  // zoomed in) made that surface huge. Its middle bottom, the tilt's origin, is where it was.
+  const SB = tiltBleed(box.w, box.h, TILT_MAX_DEG);
+  const stageStyle: React.CSSProperties = { left: -SB.ex - 2, top: -SB.ey - 2, right: -SB.ex - 2, bottom: 0, overflow: 'hidden' };
+  const stageIn: React.CSSProperties = { position: 'absolute', left: SB.ex + 2, top: SB.ey + 2, width: box.w, height: box.h };
 
   return (
     <div
@@ -1284,11 +1426,14 @@ export function WorldMap({
       onPointerCancel={interactive ? onPointerEnd : undefined}
       onPointerLeave={interactive ? (e) => { if (e.pointerType !== 'touch' && hover && !ptrs.current.size) { setHover(null); onHover?.(null); } } : undefined}
     >
-      <div ref={stageRef} className="map-stage">
+      <div ref={stageRef} className="map-stage" style={stageStyle}>
+      <div className="map-stage-in" style={stageIn}>
+      {/* v0.19 (perf) the land as raster tiles (landTiles.ts): moved by a transform, drawn off the main thread. */}
+      {tiled && <div ref={landRef} className="map-land" aria-hidden />}
       <div ref={baseWrap} className="map-layer map-layer-base" style={layerStyle}>
         <svg viewBox={layerVB} preserveAspectRatio="none" style={svgFill}>
           <g ref={baseG}>
-            {wrapOn ? (
+            {tiled ? null : wrapOn ? (
               <>
                 {/* v0.18 wrapping: the land drawn once, shown in up to three copies side by side; (perf) only the
                     copies that reach the view are drawn (syncLayers), usually one, two at the seam. */}
@@ -1301,18 +1446,15 @@ export function WorldMap({
         </svg>
       </div>
       {backdrop && (
-        <div ref={backWrap} className="map-layer map-layer-back" style={layerStyle}>
-          <svg viewBox={layerVB} preserveAspectRatio="none" style={svgFill}>
-            <g ref={backG}>{backdrop(ctx)}</g>
-          </svg>
-        </div>
+        <div ref={backWorld} className="map-world map-world-back">{backdrop(ctx)}</div>
       )}
       {glow && (
         <div ref={glowWrap} className="map-layer map-layer-glow" style={layerStyle}>
           <canvas ref={glowCv} style={svgFill} />
         </div>
       )}
-      <svg viewBox={overVB} preserveAspectRatio={bl ? 'none' : 'xMidYMid slice'} style={overStyle}>
+      <div ref={overWrap} className="map-over" style={overLayer}>
+      <svg viewBox={overVB} preserveAspectRatio="none" style={svgFill}>
         <g ref={worldRef}>
           {regionLabelEls.map((r) => (
             <text key={r.id} x={r.x} y={r.y} textAnchor="middle" className={`region-label ${r.locked ? 'locked' : ''}`} fontSize={regionFont * unit} style={{ opacity: k * pxPerUnit > 2.6 ? 0 : 1 }}>
@@ -1326,6 +1468,8 @@ export function WorldMap({
           {layers?.(ctx)}
         </g>
       </svg>
+      </div>
+      </div>
       </div>
       {tilt && <div ref={hazeRef} className="map-haze" aria-hidden />}
       {hover && tooltip && (

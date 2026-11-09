@@ -50,6 +50,13 @@ export function openMessage(g: GameState, m: Message) {
   }
   // v0.18 a message about a person opens their sheet (monthly roster).
   if (m.ref?.kind === 'crew' && g.crew[m.ref.id]) return store.openPerson(m.ref.id);
+  // v0.19 a route's note opens its page (or the launch while it is launching).
+  if (m.ref?.kind === 'route') {
+    const r = g.network?.routes[m.ref.id];
+    store.navigate('contracts', { view: 'network' });
+    if (r && r.status !== 'closed') store.openModal(r.status === 'study' || r.status === 'case' || r.status === 'launching' ? { kind: 'routeLaunch', routeId: r.id } : { kind: 'route', routeId: r.id });
+    return;
+  }
   const link = m.ref ? refTarget(g, m.ref) : null;
   if (!link) return;
   if (link.offerId) {
@@ -218,6 +225,7 @@ export function InboxScreen() {
     counts.set(m.cat, (counts.get(m.cat) ?? 0) + 1);
     if (m.topic === 'market') counts.set('market', (counts.get('market') ?? 0) + 1);
     if (m.topic === 'world') counts.set('world', (counts.get('world') ?? 0) + 1);
+    if (m.topic === 'network' && !m.read) counts.set('network', (counts.get('network') ?? 0) + 1);
     if (isProblemMessage(m, g)) counts.set('problems', (counts.get('problems') ?? 0) + 1);
   }
   const markAll = () => store.update((gg) => void markRead(gg, gg.messages.filter((m) => store.shows(m)).map((m) => m.id)));
@@ -228,6 +236,8 @@ export function InboxScreen() {
     ...MSG_CATS.slice(1).filter((c) => msgs.some((m) => m.cat === c.id)),
     ...(msgs.some((m) => m.topic === 'market') ? [{ id: 'market' as const, label: 'Market' }] : []),
     ...(msgs.some((m) => m.topic === 'world') ? [{ id: 'world' as const, label: 'World' }] : []),
+    // v0.19 scheduled routes' notes.
+    ...(msgs.some((m) => m.topic === 'network') ? [{ id: 'network' as const, label: 'Routes' }] : []),
     { id: 'popups' as const, label: 'Recent pop-ups' },
   ];
   return (
