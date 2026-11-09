@@ -2,7 +2,7 @@
 // stages in game time with one decision at a time (the business case: go, change the plan, or shelve). It can be
 // closed and reopened; the stages run while it is shut.
 
-import { ArrowLeft, BarChart3, Building2, CalendarClock, Check, ChevronRight, Flag as FlagIcon, Plane, Play, Rocket, Users, X } from 'lucide-react';
+import { ArrowLeft, BarChart3, Building2, CalendarClock, Check, ChevronRight, Compass, Flag as FlagIcon, Plane, Play, Rocket, Users, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { flag } from '../../../data/countries';
@@ -17,7 +17,8 @@ import { int, money, moneyDelta, pct } from '../../format';
 import { store, useGame } from '../../store';
 import { LaunchProgress } from './bits';
 import { net, type BusinessCase, type CaseDraft, type Recommendation } from './netApi';
-import { DAY_SHORT, daysOf, hhmm, marketBlock, MODEL_HINT, routeCode, routeName, seriesWords, STAGE_LABEL } from './networkLogic';
+import { DAY_SHORT, daysOf, hhmm, marketBlock, marketOf, MODEL_HINT, routeCode, routeName, seriesWords, STAGE_LABEL } from './networkLogic';
+import { RouteMap } from './RouteMap';
 
 const MODEL_WORD: Record<RouteModel, string> = { own: 'Own brand', partner: 'For a partner', tour: 'Holidays charter' };
 const DEPTHS: StudyDepth[] = ['desk', 'full', 'survey'];
@@ -62,6 +63,11 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
     return (
       <Modal title="Open a new route" icon={<Rocket className="accent" />} onClose={close} size="wide" className="nw-modal">
         <p className="small muted">Pick a market. A route takes four to six months from the study to the first flight, longer with setbacks.</p>
+        <button className="nw-market nw-build" onClick={() => store.openModal({ kind: 'routeBuild' })}>
+          <span className="nw-flag" aria-hidden><Compass className="sc-ico-s accent" /></span>
+          <span className="col grow nw-market-text"><b>Build your own route</b><span className="tiny muted nw-market-blurb">Any destination in the world, from any of our bases. Not researched yet: the study tells.</span></span>
+          <ChevronRight className="sc-ico-s dim" />
+        </button>
         <div className="nw-markets nw-pick">
           {ROUTE_MARKETS.map((x) => {
             const block = marketBlock(g, x);
@@ -83,6 +89,7 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
   const block = marketBlock(g, m);
   const mdl = model ?? m.model;
   const cfg = studyCfg(depth);
+  const bigType = Object.values(g.fleet).filter((a) => a.status !== 'leasedOut').sort((a, b) => b.cabin.total - a.cabin.total)[0]?.typeId;
   const go = () => {
     const r = store.act((gg) => {
       const res = net.startStudy(gg, m.id, depth, mdl);
@@ -107,6 +114,7 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
         <div className="row gap-8 small muted"><span aria-hidden>{flag(AIRPORT_BY_CODE[m.to]?.country ?? '')}</span><span>{m.country}</span><span className="mono">{routeCode(m)}</span>{m.via?.length ? <span>fuel stop {m.via.join(', ')}</span> : null}</div>
         <p className="small nw-blurb">{m.blurb}</p>
         {block && <div className="small warn">{block}</div>}
+        <RouteMap from={m.from} to={m.to} via={m.via} viaBack={m.viaBack} typeId={bigType} />
         <MarketFacts m={m} />
         {m.models.length > 1 && (
           <div className="col gap-6">
@@ -254,7 +262,7 @@ function DraftEditor({ g, m, d, set }: { g: GameState; m: RouteMarket | undefine
 
 /** Stage 2: the business case, the recommendation and the player's plan, with Go / Shelve. */
 function CaseCard({ g, r }: { g: GameState; r: Route }) {
-  const m = ROUTE_MARKETS.find((x) => x.id === r.marketId);
+  const m = marketOf(r);
   const rec = useMemo(() => net.recommend(g, r.id), [g.network?.rev, r.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const [draft, setDraft] = useState<CaseDraft | null>(() => net.defaultDraft(g, r.id) ?? (rec ? {
     model: rec.model, days: rec.days, every: rec.every ?? 1, monthly: rec.monthly, out: rec.out, back: rec.back ?? 0, nights: rec.nights ?? m?.timetable.nights ?? 0, typeId: rec.typeId, fares: 'market', marketing: 'normal',
@@ -273,6 +281,7 @@ function CaseCard({ g, r }: { g: GameState; r: Route }) {
         <div className="nw-est small">Study ({r.study.depth === 'desk' ? 'desk' : r.study.depth === 'full' ? 'full' : 'full + survey'}): <b>{int(r.study.est.p50)}</b> travellers a week both ways, likely between {int(r.study.est.p10)} and {int(r.study.est.p90)}.</div>
       )}
       {rec && <RecommendationCard rec={rec} />}
+      {draft && m && <RouteMap from={m.from} to={m.to} via={m.via} viaBack={m.viaBack} typeId={draft.typeId} rivals={m.competitors} className="nw-case-map" />}
       {draft && <DraftEditor g={g} m={m} d={draft} set={setDraft} />}
       {c ? (
         <div className="col gap-8">
@@ -298,7 +307,7 @@ function RouteLaunch({ g, routeId }: { g: GameState; routeId: string }) {
   const r = g.network?.routes[routeId];
   const close = () => store.closeModal();
   if (!r) return <Modal title="Route" onClose={close}><p className="muted">This route no longer exists.</p></Modal>;
-  const m = ROUTE_MARKETS.find((x) => x.id === r.marketId);
+  const m = marketOf(r);
   const waitingCase = r.status === 'case' || r.stages.some((s) => s.id === 'case' && s.state === 'waiting');
   const slotWait = r.stages.find((s) => s.id === 'slots' && s.state === 'waiting');
   const stop = () => store.openModal({
@@ -324,6 +333,7 @@ function RouteLaunch({ g, routeId }: { g: GameState; routeId: string }) {
           <div className="row gap-8 small muted"><span className="mono">{routeCode(m)}</span><span>{r.model === 'partner' && m?.partner ? `for ${m.partner.name}` : MODEL_WORD[r.model]}</span></div>
           <LaunchProgress g={g} r={r} />
           {r.firstFlight && <div className="small nw-first"><FlagIcon className="sc-ico-s accent" /> First flight {fmtDayRel(r.firstFlight, g.now)}</div>}
+          {m && !waitingCase && <RouteMap from={m.from} to={m.to} via={m.via} viaBack={m.viaBack} typeId={r.plan?.typeId} rivals={m.competitors} className="nw-launch-map" />}
         </div>
         <div className="nw-launch-now">
           {r.status === 'study' && (

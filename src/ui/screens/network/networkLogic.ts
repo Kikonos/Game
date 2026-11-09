@@ -10,10 +10,11 @@ import type { LaunchStageId, Rotation, Route, RoutePnl, RouteSeries, SectorLoad 
 
 export const MARKET_BY_ID: Record<string, RouteMarket> = Object.fromEntries(ROUTE_MARKETS.map((m) => [m.id, m]));
 
-export const marketOf = (r: Pick<Route, 'marketId'>): RouteMarket | undefined => MARKET_BY_ID[r.marketId];
+/** The market of a route: its own (a custom route, v0.19.2) or the catalogue's. */
+export const marketOf = (r: Pick<Route, 'marketId'> & { custom?: RouteMarket }): RouteMarket | undefined => r.custom ?? MARKET_BY_ID[r.marketId];
 
 /** 'Lisbon – Bissau' */
-export function routeName(r: Pick<Route, 'marketId'>): string {
+export function routeName(r: Pick<Route, 'marketId'> & { custom?: RouteMarket }): string {
   const m = marketOf(r);
   if (!m) return r.marketId;
   return `${AIRPORT_BY_CODE[m.from]?.city ?? m.from} – ${m.city ?? AIRPORT_BY_CODE[m.to]?.city ?? m.to}`;
@@ -27,7 +28,7 @@ export function routeCode(m: RouteMarket | undefined, back = false): string {
 }
 
 /** 'Own brand' · 'For STP Airways' · '<Company> Holidays'. */
-export function modelLabel(g: GameState, r: Pick<Route, 'model' | 'partnerId' | 'marketId'>): string {
+export function modelLabel(g: GameState, r: Pick<Route, 'model' | 'partnerId' | 'marketId'> & { custom?: RouteMarket }): string {
   if (r.model === 'own') return 'Own brand';
   if (r.model === 'partner') {
     const name = (r.partnerId && g.clients[r.partnerId]?.name) || marketOf(r)?.partner?.name || 'a partner';

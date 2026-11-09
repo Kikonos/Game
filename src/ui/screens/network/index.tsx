@@ -2,7 +2,7 @@
 // catalogue of markets. Secondary to ACMI: a calm list, one row a route. Loaded lazily with its own stylesheet.
 
 import '../../../styles/acmi/v019.css';
-import { ChevronRight, Globe2, Plane, PlusCircle, Route as RouteIcon } from 'lucide-react';
+import { ChevronRight, Compass, Globe2, Plane, PlusCircle, Route as RouteIcon } from 'lucide-react';
 import { useMemo } from 'react';
 import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { flag } from '../../../data/countries';
@@ -100,10 +100,15 @@ export default function NetworkView({ g }: { g: GameState }) {
         </Empty>
       )}
       <div className="row between wrap gap-8 nw-open">
-        <span className="upper dim row gap-6"><Globe2 className="sc-ico-s" /> Markets from Lisbon and Porto</span>
+        <span className="upper dim row gap-6"><Globe2 className="sc-ico-s" /> Suggested markets, researched</span>
         <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'routeLaunch' })}><PlusCircle /> Open a new route</button>
       </div>
       <div className="card nw-markets">{markets.map((m) => <MarketRow key={m.id} g={g} m={m} />)}</div>
+      <button className="card nw-build-card" onClick={() => store.openModal({ kind: 'routeBuild' })} aria-label="Build your own route to any destination">
+        <Compass className="accent" aria-hidden />
+        <span className="col grow"><b>Build your own route</b><span className="small muted">Any destination in the world from one of our bases, with fuel stops where the aircraft needs them. Not researched: the study tells how many would fly.</span></span>
+        <ChevronRight className="sc-ico-s dim" />
+      </button>
       <div className="tiny dim row gap-6 nw-foot"><Plane className="sc-ico-s" /> Route flights sit on the Schedule beside your ACMI work. When a job wants the aircraft, you choose: swap, sub-charter, move or cancel.</div>
     </div>
   );
