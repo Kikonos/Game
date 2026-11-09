@@ -26,6 +26,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     improvements: [
       'The aircraft strip on the map stops before the map buttons and scrolls sideways (finger, trackpad or mouse wheel). +N shows the rest; with many aircraft, All aircraft lists them by what they are doing.',
       'Crew calendar: travel as a passenger has its own colour and a seat icon (Positioning, not Flying). Every night away from base shows its layover, also after a deadhead and over hotel standby days.',
+      'Calmer screens: cards and sections keep an even gap everywhere (no more boxes touching on Company), long names wrap instead of being cut, and on the iPhone the client details, chart labels and the new-game aircraft fit.',
     ],
     fixes: [
       'Cruise relief pilots are now first officers, with the same ratings and hire date and a first officer\'s pay.',

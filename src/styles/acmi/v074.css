@@ -4,7 +4,7 @@
    ========================================================================== */
 
 /* ---- People view strip: one line per family ---- */
-.cp-strip { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 14px; scrollbar-width: none; }
+.cp-strip { display: flex; gap: var(--tile-gap); overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
 .cp-strip::-webkit-scrollbar { display: none; }
 .cp-chip {
   display: flex; align-items: baseline; gap: 10px; min-height: 44px; padding: 8px 14px; flex-shrink: 0;
@@ -13,7 +13,7 @@
 .cp-chip.short { border-color: rgba(var(--warn-rgb), 0.45); }
 .cp-chip b { font-size: 14px; }
 /* Rotations round (v0.16.4): the sets on station, one chip per set; not a button. */
-.cp-deploy { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.cp-deploy { display: flex; flex-direction: column; gap: var(--space-2); }
 .cp-chip.static { cursor: default; align-items: flex-start; }
 .cp-chip.static .cp-line { display: flex; flex-direction: column; gap: 2px; white-space: normal; max-width: 320px; }
 
