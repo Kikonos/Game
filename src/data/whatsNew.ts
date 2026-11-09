@@ -16,6 +16,15 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.19.1',
+    name: 'Emergency swap',
+    features: [],
+    improvements: [],
+    fixes: [
+      'When an aircraft is AOG or in an unplanned repair, its trips can move to any aircraft with enough seats: the client\'s cabin, size, family and livery wishes give way, and the move says "Emergency swap". Range, runways, ETOPS, approvals and rated crew still count.',
+    ],
+  },
+  {
     version: 'v0.19',
     name: 'Scheduled routes',
     features: [
