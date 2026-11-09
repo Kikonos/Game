@@ -31,6 +31,10 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     fixes: [
       'Cruise relief pilots are now first officers, with the same ratings and hire date and a first officer\'s pay.',
       'Flight times on a deadhead row are no longer cut off.',
+      'Annual leave starts and ends at home. Crew on a tour fly home after their last flight before the leave, and back out after it if the tour still needs them.',
+      'Morale: "Days off" weighs only when a month falls below the legal minimum, and a day off the planner moved shows as "Day off moved". Days off at a hotel away from home no longer lower morale. Back from annual leave, crew are happier for a few months.',
+      'A far base\'s spare captain and purser stay on standby at the hotel instead of flying every sector. On a tour\'s short days (no rest on board) two pilots fly and the others stand by. The flight sheet lists the flight crew first and says who stands by.',
+      'A delay that broke one flight\'s in-flight rest plan no longer raises "crew out of hours" on the set\'s later flights. The Details list in Crew Control stays inside its card.',
     ],
   },
   {
