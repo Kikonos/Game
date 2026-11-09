@@ -825,10 +825,9 @@ export const crewModule: SimModule = {
     retimeToTimetable(g);
     // Bug 1108b: a course away from base in older saves: the trip home planned now.
     homeForLeave(g);
-    // v0.19.3 older saves' trips home before an annual leave (bug 1108b) become the leave's own trips where it is safe,
-    // then every leave that begins away gets its trips home and back.
+    // v0.19.3 older saves' trips home before an annual leave (bug 1108b) become the leave's own trips where it is safe
+    // (the other leaves that begin away get theirs at the next daily run, as in a game played on).
     repairLeaveTrips(g);
-    leaveTrips(g);
     // Bug 1108b: a far base's reserve no longer flies with the set (VN6000's second captain).
     repairReserveAboard(g);
   },

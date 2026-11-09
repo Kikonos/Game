@@ -293,7 +293,8 @@ function ticketWhy(g: GameState, p: Pairing, crewId: string, out: boolean, t?: T
   const dep = p.deploymentId ? g.deployments[p.deploymentId] : undefined;
   // Bug 1108b: home for a leave or a course (it starts within two days of landing), or back out after one.
   const c = g.crew[crewId];
-  const blk = t && c?.blocks?.find((b) => (b.why === 'leave' || b.why === 'training') && (out ? b.to <= t.std && b.to > t.std - 7 * DAY : b.from >= t.sta - DAY && b.from < t.sta + 2 * DAY));
+  // (v0.19.3 never 'Home for annual leave': a leave that begins away has its own trip home on its first day.)
+  const blk = t && c?.blocks?.find((b) => (b.why === 'training' || (out && b.why === 'leave')) && (out ? b.to <= t.std && b.to > t.std - 7 * DAY : b.from >= t.sta - DAY && b.from < t.sta + 2 * DAY));
   if (blk) {
     const what = blk.why === 'training' ? 'a course' : blk.annual ? 'annual leave' : 'leave';
     const where = p.tour ? `set ${p.tour.set + 1}${dep ? ` at ${dep.base}` : ''}` : 'the next trip';
@@ -1365,7 +1366,7 @@ export function repairLeaveTrips(g: GameState): string[] {
       const d = b ? g.duties[ix.ticketDuty.get(t.id) ?? ''] : undefined;
       const p = d ? g.pairings[d.pairingId] : undefined;
       const span = p ? tourSpan(g, p) : null;
-      if (!b || !d || !p || !span || span.to <= b.from || !/annual leave/.test(t.why ?? '')) continue;
+      if (!b || !d || !p || !span || span.to <= b.from || !/^Home for annual leave/.test(t.why ?? '')) continue;
       const segs = segsOf(g, c);
       const without = withoutTickets(segs, [t.id]);
       if (without.some((x) => x.kind !== 'log' && x.kind !== 'sby' && x.start >= d.release && x.start < b.from)) continue;
@@ -1401,6 +1402,9 @@ function bookLeaveTrip(g: GameState, c: CrewMember, t: TicketLike, why: string):
   const f = addDeadhead(g, { crewIds: [c.id], from: t.from, to: t.to, std: t.std, sta: t.sta, cost, contractId: null });
   f.leaveTrip = t.leaveTrip ?? 'home';
   f.why = why;
+  const st = (g.stats.leave ??= { asked: 0, approved: 0, declined: 0, peak: 0, share: 0, byYou: 0, withdrawn: 0 });
+  if (f.leaveTrip === 'home') st.tripsHome = (st.tripsHome ?? 0) + 1;
+  else st.tripsBack = (st.tripsBack ?? 0) + 1;
   if (cost) post(g, 'deadhead', -cost);
   touchCrew(g);
   return f;

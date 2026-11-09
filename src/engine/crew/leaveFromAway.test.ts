@@ -26,7 +26,13 @@ import { flightCrewStatus } from './roster';
 import { monthGrid } from '../../ui/modals/personLogic';
 import { midnight } from './dayPlan';
 
-const snap = () => deserialize(fixture('v0182-leave'));
+/** The save, played to just after the next daily run (it books the leave trips; a load books none of its own). */
+const snap = () => {
+  const g = deserialize(fixture('v0182-leave'));
+  const t = Math.floor(g.now / DAY) * DAY + DAY + 30;
+  while (g.now < t) advanceTo(g, Math.min(t, g.now + 12 * 60), new Set());
+  return g;
+};
 const leaveOf = (c: CrewMember) => c.blocks!.find((b) => b.why === 'leave' && b.annual)!;
 const tickets = (g: GameState, c: CrewMember, kind?: 'home' | 'back'): Flight[] =>
   Object.values(g.flights).filter((f) => f.kind === 'deadhead' && f.status !== 'cancelled' && f.crewIds.includes(c.id) && (kind ? f.leaveTrip === kind : true)).sort((a, b) => a.std - b.std);

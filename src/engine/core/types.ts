@@ -1755,7 +1755,7 @@ export interface SimEvent {
 
 export interface Stats {
   /** v0.18.1 annual leave requests: made, approved, declined (by the peak-month rule, by the share away, by the player), withdrawn. */
-  leave?: { asked: number; approved: number; declined: number; peak: number; share: number; byYou: number; withdrawn: number };
+  leave?: { asked: number; approved: number; declined: number; peak: number; share: number; byYou: number; withdrawn: number; /** v0.19.3 tickets home / back booked inside annual leave begun away. */ tripsHome?: number; tripsBack?: number };
   /** v0.12.1 approvals at departure: when each job ('<contract>|<aircraft>') last got the 'approvalLate' decision; revenue legs stopped at the gate. */
   gateAsked?: Record<string, Minute>;
   gateStopped?: number;

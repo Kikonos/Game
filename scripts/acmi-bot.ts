@@ -2848,7 +2848,7 @@ console.log(
     );
     // v0.18.1 annual leave by request.
     const lv = g.stats.leave;
-    if (lv) console.log(`leave requests: asked ${lv.asked} · approved ${lv.approved} · declined ${lv.declined} (peak ${lv.peak}, share ${lv.share}, by you ${lv.byYou}) · withdrawn ${lv.withdrawn} · leave days a crew-year ${((12 * r.leaveDays) / Math.max(1, months.length)).toFixed(1)}`);
+    if (lv) console.log(`leave requests: asked ${lv.asked} · approved ${lv.approved} · declined ${lv.declined} (peak ${lv.peak}, share ${lv.share}, by you ${lv.byYou}) · withdrawn ${lv.withdrawn} · trips home/back inside leave ${lv.tripsHome ?? 0}/${lv.tripsBack ?? 0} · leave days a crew-year ${((12 * r.leaveDays) / Math.max(1, months.length)).toFixed(1)}`);
     // v0.9 fix: how evenly flying is shared (last closed month, per family and role, crew on the books all month).
     const lastMk = monthKey(g.now) - 1;
     const mid = fromUTC(Math.floor(lastMk / 12), (lastMk % 12) + 1, 15);
