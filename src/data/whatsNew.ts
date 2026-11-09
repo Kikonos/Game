@@ -32,6 +32,15 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
+    version: 'v0.19.3',
+    name: 'Leave from away',
+    features: [],
+    improvements: [],
+    fixes: [
+      'Annual leave that starts while crew are away (on a rotation or a tour) no longer takes days of the rotation. They deadhead home on the first day of leave and back out on the last day, to where their next duty starts. The leave keeps its days, the travel is not duty, and the calendar shows it on the leave, like "LEAVE" with "SGN→LIS".',
+    ],
+  },
+  {
     version: 'v0.19.2',
     name: 'Your own routes',
     features: [

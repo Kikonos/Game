@@ -31,7 +31,7 @@ import { currentFlight, flightTimes } from '../../engine/core/query';
 import { DAY, fmtDay, fmtDayRel, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
 import type { Aircraft, CrewMember, Flight, GameState, MaintenanceEvent, ProblemRef, Ref, Role } from '../../engine/core/types';
 import type { DryLeaseView } from '../../engine/ops';
-import { type CrewAlertKind, crewName, crewShortCard, dutyCrew, flightCrewStatus, outOfHours, restNow, restOf, restSeatsBlocked, restText, ridersText, sellableSeats, seatsText, slipOfFlight, slipsOfAircraft, standbyNow } from '../../engine/crew';
+import { type CrewAlertKind, crewName, crewShortCard, crewTravelNow, dutyCrew, flightCrewStatus, outOfHours, restNow, restOf, restSeatsBlocked, restText, ridersText, sellableSeats, seatsText, slipOfFlight, slipsOfAircraft, standbyNow } from '../../engine/crew';
 import { crewHoursCard } from '../../engine/problems';
 import { checkStatus, CONNECT_MIN, commercialItinerary, deliveryStatus, dryLeaseOf, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, flightCrewAboard, type FlightType, flightType, flightZone, problemAt, problemFor, ticketPurpose, worldEvent, worldZones } from '../../engine/ops';
 import { ferryCost } from '../../engine/ops/delivery';
@@ -590,12 +590,19 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
 
 // ---------- airport ----------
 
+/** v0.19.3 travelling as a passenger and off the ground (airborne or connecting): no longer at the station. */
+const inAir = (g: GameState, m: CrewMember): boolean => {
+  const t = crewTravelNow(g, m);
+  return !!t && t.phase !== 'checkIn';
+};
+
 function AirportPanel({ g, code }: { g: GameState; code: string }) {
   const a = AIRPORT_BY_CODE[code];
   const t = g.now;
   const waiting = awaitingDelivery(g, code);
   const here = Object.values(g.fleet).filter((ac) => !waiting.includes(ac) && ((!ac.flightId && ac.at === code) || (ac.flightId && g.flights[ac.flightId]?.to === code)));
-  const hotel = Object.values(g.crew).filter((m) => m.loc === code && m.base !== code && m.status !== 'onDuty' && m.status !== 'joining');
+  // (v0.19.3 not someone already flying out on a ticket: a leave's trip home, any deadhead in the air.)
+  const hotel = Object.values(g.crew).filter((m) => m.loc === code && m.base !== code && m.status !== 'onDuty' && m.status !== 'joining' && !inAir(g, m));
   const based = code === g.company.homeBase ? Object.values(g.crew).filter((m) => m.loc === code && (m.status === 'available' || m.status === 'off' || m.status === 'resting')).length : 0;
   // v0.16.1 not the offers the player's filter hides (they sit under "N hidden" on the Market tab only).
   const offers = Object.values(g.offers).filter((o) => o.status === 'open' && !o.hidden && o.pin === code);

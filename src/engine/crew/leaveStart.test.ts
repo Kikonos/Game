@@ -15,7 +15,7 @@ import { touchCrew } from './timeline';
 const ticketsOf = (g: GameState, id: string): Flight[] => Object.values(g.flights).filter((f) => f.kind === 'deadhead' && f.crewIds.includes(id));
 
 describe('a leave that starts while away', () => {
-  it('crew at an outstation go home when their leave is hours away, even with a ticket out of there for after it', () => {
+  it('crew at an outstation fly home on the first day of their leave (v0.19.3), and back out on its last for work after it', () => {
     const g = newGame(21);
     const c = Object.values(g.crew).find((x) => x.role === 'CC' && x.status === 'available')!;
     c.loc = 'PRG';
@@ -27,19 +27,20 @@ describe('a leave that starts while away', () => {
     // The trip after the leave starts from Prague (the planner kept her there for it).
     addDeadhead(g, { crewIds: [c.id], from: 'PRG', to: 'FNC', std: from + 11 * DAY, sta: from + 11 * DAY + 240, cost: 0 });
     touchCrew(g);
-    let leaveFrom = from;
     const during: string[] = [];
-    while (g.now < from + DAY) {
-      for (const f of ticketsOf(g, c.id)) if (f.status === 'scheduled' && f.std <= g.now + 30 && f.std >= leaveFrom && f.std < leaveFrom + 10 * DAY) during.push(`${f.from}-${f.to}`);
+    while (g.now < from + 2 * DAY) {
+      for (const f of ticketsOf(g, c.id)) if (f.status === 'scheduled' && f.std <= g.now + 30 && f.std >= from && f.std < from + 10 * DAY && !during.includes(`${f.from}-${f.to}`)) during.push(`${f.from}-${f.to}`);
       advanceTo(g, g.now + 30);
-      leaveFrom = c.blocks?.find((b) => b.why === 'leave')?.from ?? leaveFrom;
     }
     expect(c.loc, 'home for the leave').toBe(c.base);
-    expect(during).toEqual([]);
-    const home = ticketsOf(g, c.id).find((f) => f.from === 'PRG' && f.to === c.base)!;
-    expect(home.status).toBe('done');
-    // The leave starts when she lands (no earlier), and keeps its days.
-    expect(leaveFrom).toBeGreaterThanOrEqual(home.ata ?? home.sta);
+    // Only the leave's own trip home flew inside it; the leave keeps its dates.
+    expect(during).toEqual(['PRG-LIS']);
+    expect(c.blocks?.find((b) => b.why === 'leave')?.from).toBe(from);
+    expect(c.flown?.some((x) => x.lv)).toBe(true);
+    // Back out to Prague on the leave's last day for the ticket on from there.
+    const back = ticketsOf(g, c.id).find((f) => f.leaveTrip === 'back')!;
+    expect(back).toMatchObject({ from: c.base, to: 'PRG' });
+    expect(back.std).toBeLessThan(from + 10 * DAY);
+    expect(back.std).toBeGreaterThanOrEqual(from + 8 * DAY);
   });
 });
-

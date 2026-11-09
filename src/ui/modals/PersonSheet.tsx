@@ -107,6 +107,7 @@ function DayInner({ cell }: { cell: DayCell }) {
       {cell.legality && <span className={`ps-leg ${cell.legality}`} aria-label={cell.legality === 'illegal' ? 'cannot legally fly' : 'tight'} />}
       <Glyph icon={cell.icon} />
       {cell.code && <span className="ps-code">{cell.code}</span>}
+      {cell.sub && <span className="ps-lt num" aria-label={`deadhead ${cell.sub}`}>{cell.sub}</span>}
     </>
   );
 }
@@ -279,7 +280,21 @@ function DayDetail({ g, c, data, k }: { g: GameState; c: CrewMember; data: Month
   const date = fmtDate(cell.start + 12 * HOUR, true);
   if (ow) {
     const b = ow.blocks[0];
-    return <div className="ps-dd">{head(DAY_KIND_LABEL[ow.kind], `${fmtDay(b.start)} – ${fmtDay(b.end - 1)}`, ow.kind)}<div className="small muted">{b.detail}</div>{outside}</div>;
+    // v0.19.3 the trip home or back on this leave day.
+    const trips = ow.kind === 'leave' ? cell.blocks.filter((x) => !!x.leaveTrip) : [];
+    return (
+      <div className="ps-dd">
+        {head(DAY_KIND_LABEL[ow.kind], `${fmtDay(b.start)} – ${fmtDay(b.end - 1)}`, ow.kind)}
+        <div className="small muted">{b.detail}</div>
+        {trips.map((x) => (
+          <Fragment key={`lt-${x.start}`}>
+            <div className="small muted">{x.leaveTrip === 'home' ? 'Deadhead home on the first day of leave (not duty).' : 'Deadhead back on the last day of leave, to the next duty (not duty).'}</div>
+            <DutyCard g={g} c={c} b={x} rests={rests} hi layover={false} />
+          </Fragment>
+        ))}
+        {outside}
+      </div>
+    );
   }
   const shown = cell.blocks.filter((b) => b.kind !== 'rest' || cell.kind === 'rest');
   return (

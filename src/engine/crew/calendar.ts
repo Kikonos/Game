@@ -58,6 +58,8 @@ export interface CalBlock {
   /** v0.18.1 a rest block: the minimum rest (minutes) and why it is that long ('5 h time change', '12 h at home'…). */
   minRest?: number;
   restWhy?: string;
+  /** v0.19.3 a trip home on the first day of annual leave begun away, or back out on its last: drawn on the leave. */
+  leaveTrip?: 'home' | 'back';
 }
 
 /** v0.9 strip labels per standby kind (§R.14). */
@@ -149,13 +151,14 @@ function standbyDutyBlock(g: GameState, c: CrewMember, p: Pairing, d: Duty): Cal
 }
 
 /** v0.18.1 a duty or journey flown, from its record (crew/flown.ts). */
-function flownBlock(x: FlownDuty): CalBlock {
+function flownBlock(x: FlownDuty, base?: string): CalBlock {
   const flights: CalFlight[] = x.legs.map(([no, from, to, std, sta, type], i) => ({ id: `flown:${x.s}:${i}`, no, from, to, std, sta, type }));
   const legs = flights.map((f) => `${f.no} ${f.from}–${f.to} ${hhmm(f.std)}–${hhmm(f.sta)} ${FLIGHT_TYPE_LABEL[f.type]}`).join(' · ');
   const route = [flights[0].from, ...flights.map((f) => f.to)].join('–');
   if (x.pax) {
     const air = flights.every((f) => f.type === 'deadhead');
-    return { kind: air ? 'deadhead' : 'positioning', start: x.s, end: x.e, label: air ? 'Deadhead' : 'Positioning', flights, detail: `${route} as a passenger\n${legs}` };
+    const lv = x.lv ? (flights[flights.length - 1].to === base ? 'home' : 'back') : undefined;
+    return { kind: air ? 'deadhead' : 'positioning', start: x.s, end: x.e, label: air ? 'Deadhead' : 'Positioning', flights, detail: `${route} as a passenger${lv ? ` on a leave day (${lv === 'home' ? 'home on its first day' : 'back on its last day'})` : ''}\n${legs}`, ...(lv ? { leaveTrip: lv } : {}) };
   }
   const types = new Set(flights.map((f) => f.type));
   const label = types.size === 1 && types.has('ferry') ? 'Ferry duty' : types.size === 1 && types.has('positioning') ? 'Positioning duty' : 'Duty';
@@ -177,7 +180,8 @@ function travelBlocks(g: GameState, c: CrewMember, from: Minute, to: Minute): Ca
       flights: !f.charter && legs.length ? legs.map((l, i) => ({ id: `${f.id}:${i}`, no: l.no, from: l.from, to: l.to, std: l.dep, sta: l.arr, type: 'deadhead' as const })) : [calFlight(g, f)],
       detail: f.charter
         ? `${f.charter.operator} ${f.charter.model} ${f.from}–${f.to} ${hhmm(f.std)}–${hhmm(f.sta)}${jetFor(g, f)}`
-        : `${f.from}–${f.to} as a passenger, check-in ${hhmm(f.std - BAL.deadheadCheckIn)}\n${via}`,
+        : `${f.from}–${f.to} as a passenger, check-in ${hhmm(f.std - BAL.deadheadCheckIn)}${f.leaveTrip ? ` · on a leave day: ${f.leaveTrip === 'home' ? 'home on the first day of annual leave' : 'back out on its last day'}, not duty` : ''}\n${via}`,
+      ...(f.leaveTrip ? { leaveTrip: f.leaveTrip } : {}),
     });
   }
   for (const f of mine) {
@@ -221,7 +225,7 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
     if (x.pax ? travel.some((w) => overlaps(w, b)) || work.some((w) => w.kind === 'duty' && overlaps(w, b)) : work.some((w) => w.kind === 'duty' && !!w.flights?.length && overlaps(w, b))) continue;
     // A duty still on record whose flights were pruned (a long tour's early days) takes the legs from the record.
     const i = x.pax ? -1 : work.findIndex((w) => w.kind === 'duty' && !w.flights?.length && overlaps(w, b));
-    const fb = flownBlock(x);
+    const fb = flownBlock(x, c.base);
     if (i >= 0) work[i] = { ...fb, dutyId: work[i].dutyId, legality: work[i].legality };
     else work.push(fb);
   }
@@ -480,7 +484,12 @@ function statusView(g: GameState, crewId: string): CrewStatusView {
     if (cls) return { ...base, label: 'Training', tone: 'info', text: `${cls.label}${to ? ` · until ${fmtDay(to - 1)}` : ''}`, until: to, restUntil: null };
     return { ...base, label: 'Training', tone: 'info', text: to ? `${trainingWhat(g, c, now, now + 1)} until ${fmtDate(to)}` : 'Training', until: to, restUntil: null };
   }
-  if (why === 'leave') return { ...base, label: 'Leave', tone: 'info', text: block ? `On leave until ${fmtDate(block.to)}` : 'On leave', until: block?.to ?? null, restUntil: null };
+  if (why === 'leave') {
+    // v0.19.3 travelling home (or back out) on a leave day: where they are reads from the journey.
+    const t = crewTravelNow(g, c);
+    const leg = t ? ` · ${t.phase === 'air' ? `flying ${arrow(t.from, t.to)}` : `${t.no} ${arrow(t.from, t.to)} dep ${fmtTime(t.dep)}`}` : '';
+    return { ...base, label: 'Leave', tone: 'info', text: `${block ? `On leave until ${fmtDate(block.to)}` : 'On leave'}${leg}`, until: block?.to ?? null, restUntil: null, ...(t ? { nowAt: travelView(c, t, base).nowAt, travel: t } : {}) };
+  }
   // Travelling as a passenger (before the duty check: a ticket inside a duty still reads as travel).
   const travel = crewTravelNow(g, c);
   if (travel) return travelView(c, travel, base);
