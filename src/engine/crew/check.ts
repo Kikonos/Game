@@ -8,7 +8,7 @@ import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } f
 import { dayFloorIssue, eveFloorIssue, monthFloorIssue, offIssue, offMovable } from './dayPlan';
 import { evalSegs, EXT_REST, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { flightsRev } from '../core/entities';
-import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outMerges, outTicket, planHome, planHomeAfter, planOut, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
+import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outMerges, outTicket, planHome, planHomeAfter, planOut, reserveSeat, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 import { sameTour, tourHomePlan, tourSpan } from './tours';
 
 export interface CrewPlan {
@@ -192,7 +192,8 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
       if (w !== tk.from) issues.push({ code: 'location', level: 'illegal', text: `At ${w}, not ${tk.from} for the ticket to ${tk.to}`, dutyId: first.id });
     } else if (tk && ((tk.status === 'enroute' && c.loc !== tk.from) || (tk.status === 'done' && locAt(c, base, first.report) !== tk.to))) out = null;
     const at = out ? out.to : locAt(c, base, first.report);
-    if (at !== dep && !started) issues.push({ code: 'location', level: 'illegal', text: `At ${at}, not ${dep}`, dutyId: first.id });
+    // (Bug 1108b: a reserve stands by at the station; it need not be at a departure elsewhere.)
+    if (at !== dep && !started && !reserveSeat(p, c.id)) issues.push({ code: 'location', level: 'illegal', text: `At ${at}, not ${dep}`, dutyId: first.id });
   } else {
     // Still at the departure airport with a ticket home around this trip: they stay on instead.
     // Not onto a tour: its crews come out fresh for the rotation.

@@ -6,14 +6,14 @@
 import { BAL } from '../core/balance';
 import { deadheadFlights, flightsRev } from '../core/entities';
 import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../core/time';
-import type { CrewMember, Duty, Flight, FlownDuty, GameState, Legality, Minute, StandbyKind, TrainingKind } from '../core/types';
+import type { CrewMember, Duty, Flight, FlownDuty, GameState, Legality, Minute, Pairing, StandbyKind, TrainingKind } from '../core/types';
 import { commercialItinerary } from '../ops/commercial';
 import { FLIGHT_TYPE_LABEL, flightType, type FlightType } from '../ops/flightType';
 import { classBlockText } from './conversion';
 import { rosterOf } from './roster';
 import { dayIndex, midnight, offOn, publishDayOf, rosterHorizon } from './dayPlan';
 import { offsetAt, tzDeltaH } from './rules';
-import { crewIx, dutyFlights, revenueRide, segsOf } from './timeline';
+import { crewIx, dutyFlights, reserveStation, revenueRide, segsOf, standsBy } from './timeline';
 
 export type CalKind = 'duty' | 'positioning' | 'deadhead' | 'sick' | 'joining' | 'training' | 'leave' | 'off' | 'standby' | 'rest';
 
@@ -135,6 +135,19 @@ function dutyBlock(g: GameState, d: Duty): CalBlock {
   };
 }
 
+/** Bug 1108b #3: standing by at the station while the set flies duty d (reserve, or relief pilot on a plain day). */
+function standbyDutyBlock(g: GameState, c: CrewMember, p: Pairing, d: Duty): CalBlock {
+  const at = reserveStation(g, p, d);
+  const fl = dutyFlights(g, d).filter((f) => f.status !== 'cancelled');
+  const route = fl.length ? [fl[0].from, ...fl.map((f) => f.to)].join('–') : d.restAt;
+  const reserve = p.slots.some((s) => s.crewId === c.id && s.reserve);
+  const t = (x: Minute) => fmtTime(x, at);
+  return {
+    kind: 'standby', start: d.report, end: d.release, label: reserve ? 'Reserve' : 'Relief pilot', sby: 'hotel', ...(at !== c.base ? { at } : {}), dutyId: d.id,
+    detail: `${reserve ? 'Reserve' : 'Relief pilot'} on hotel standby at ${at} ${t(d.report)}–${t(d.release)} local while the set flies ${fl[0]?.no ?? 'its duty'} ${route}${reserve ? ': called only if someone falls sick' : ': not needed on this day (no in-flight rest)'} · ready in 45 min`,
+  };
+}
+
 /** v0.18.1 a duty or journey flown, from its record (crew/flown.ts). */
 function flownBlock(x: FlownDuty): CalBlock {
   const flights: CalFlight[] = x.legs.map(([no, from, to, std, sta, type], i) => ({ id: `flown:${x.s}:${i}`, no, from, to, std, sta, type }));
@@ -192,7 +205,14 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
   const c = g.crew[crewId];
   if (!c || to <= from) return [];
   const status = statusBlocks(g, c).filter((b) => overlaps(b, { start: from, end: to }));
-  const work: CalBlock[] = rosterOf(g, crewId, from, to).map((d) => dutyBlock(g, d));
+  // Bug 1108b #3: a duty they stand by for at the station (a far base's reserve, a tour's relief pilot on a plain day)
+  // reads as hotel standby; one stood by already is on record as a standby window (below).
+  const work: CalBlock[] = [];
+  for (const d of rosterOf(g, crewId, from, to)) {
+    const p = g.pairings[d.pairingId];
+    if (!p || !standsBy(g, p, d, crewId)) work.push(dutyBlock(g, d));
+    else if (!d.done) work.push(standbyDutyBlock(g, c, p, d));
+  }
   const travel = travelBlocks(g, c, from, to);
   // v0.18.1 past duties and journeys no longer in the plan (pruned trips and flights) from the record of legs flown.
   for (const x of c.flown ?? []) {

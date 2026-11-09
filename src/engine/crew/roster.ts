@@ -23,7 +23,7 @@ import { restMarked } from './restMarks';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
-import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, freshReport, locAt, noteRiders, OUT_CONNECT, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, slotAfter, snapDeparture, takeLostRides, takeSkippedFull, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
+import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, freshReport, locAt, noteRiders, OUT_CONNECT, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, standsBy, slotAfter, snapDeparture, takeLostRides, takeSkippedFull, ticketPrice, touchCrew, typeIdOf, withoutTickets } from './timeline';
 import { deploymentOf, tourDay, tourHolding, tourHomePlan, tourSpan } from './tours';
 
 export { buildDuties } from './duties';
@@ -52,8 +52,10 @@ export function clientPaysCrewTravel(g: GameState, p: Pairing | undefined): bool
 
 /** Operating crew on the pairing's flights still to fly. */
 export function setFlightsCrew(g: GameState, p: Pairing): void {
-  const ids = p.slots.filter((s) => s.crewId).map((s) => s.crewId!);
+  // (Bug 1108b: a far base's reserve, and a tour's relief pilots on a plain day, stand by at the station: not operating.)
+  const all = p.slots.filter((s) => s.crewId).map((s) => s.crewId!);
   for (const d of openDuties(g, p)) {
+    const ids = all.filter((id) => !standsBy(g, p, d, id));
     for (const fid of d.flightIds) {
       const f = g.flights[fid];
       if (f && f.status === 'scheduled') {
@@ -69,8 +71,8 @@ export function boardCrew(g: GameState, f: Flight): void {
   if (f.kind === 'deadhead' || !f.dutyId) return;
   const d = g.duties[f.dutyId];
   const p = d ? g.pairings[d.pairingId] : undefined;
-  if (!p) return;
-  const ids = p.slots.filter((s) => s.crewId).map((s) => s.crewId!);
+  if (!p || !d) return;
+  const ids = p.slots.filter((s) => s.crewId && !standsBy(g, p, d, s.crewId)).map((s) => s.crewId!);
   if (ids.join() !== f.crewIds.join()) f.crewIds = ids;
 }
 
@@ -1951,7 +1953,8 @@ export function dropStraySpares(g: GameState, f: Flight): boolean {
   const bad = new Set(crewIssuesFor(g, d).map((x) => x.crewId));
   let n = 0;
   for (const s of [...p.slots]) {
-    if (!s.above || !s.crewId) continue;
+    // (Bug 1108b: a reserve does not board; it stays at the station on standby.)
+    if (!s.above || !s.crewId || standsBy(g, p, d, s.crewId)) continue;
     const c = g.crew[s.crewId];
     if (c && c.loc === f.from && !bad.has(c.id)) continue;
     releaseCrew(g, p, s.crewId, 'Spare seat: not at the departure or over a limit');

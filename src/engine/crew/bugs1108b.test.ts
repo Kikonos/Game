@@ -16,7 +16,9 @@ import { DAY } from '../core/time';
 import { dailyMorale, moraleOf } from './morale';
 import { addCrew, fixtureGame } from './fixtures';
 import { advanceTo } from '../sim';
-import { segsOf, locAt } from './timeline';
+import { segsOf, locAt, standsBy } from './timeline';
+import { isPilot } from '../core/perf';
+import { crewCalendar } from './calendar';
 
 const snap04 = () => deserialize(fixture('v0182-cp7040'));
 const snap01 = () => deserialize(fixture('v0182-leave'));
@@ -126,5 +128,56 @@ describe('#1 Carolina Almeida: annual leave starts and ends at home base', () =>
     while (g.now < leave.from + 60) advanceTo(g, Math.min(leave.from + 60, g.now + 12 * 60), new Set());
     expect(c.loc).toBe('LIS');
     expect(c.status).toBe('leave');
+  }, 120_000);
+});
+
+describe('#3 VN6000: two captains (a far base reserve flying with the set)', () => {
+  it('on load no flight lists more pilots than its duty needs: the reserve and the relief pilots stand by at the station', () => {
+    const g = snap04();
+    let n = 0;
+    for (const f of Object.values(g.flights)) {
+      if (f.status !== 'scheduled' || f.kind === 'deadhead' || !f.dutyId || !g.duties[f.dutyId]) continue;
+      const d = g.duties[f.dutyId];
+      expect(f.crewIds.filter((id) => g.crew[id] && isPilot(g.crew[id].role)).length, `${f.no} ${f.from}-${f.to}`).toBeLessThanOrEqual(2 + d.augment);
+      n++;
+    }
+    expect(n).toBeGreaterThan(100);
+    const vn = Object.values(g.flights).filter((f) => f.no === 'VN6000' && f.status === 'scheduled').sort((a, b) => a.std - b.std)[0];
+    const d = g.duties[vn.dutyId!];
+    const p = g.pairings[d.pairingId];
+    const res = p.slots.filter((s) => s.reserve && s.crewId);
+    expect(res.length).toBeGreaterThan(0);
+    for (const s of res) {
+      expect(vn.crewIds).not.toContain(s.crewId);
+      expect(standsBy(g, p, d, s.crewId!)).toBe(true);
+    }
+    // CP7040 (a plain day of the Manila set: 4 pilots on station for its augmented days): two of them fly it.
+    const cp = g.flights.f3rxe;
+    expect(cp.crewIds.filter((id) => isPilot(g.crew[id].role)).length).toBe(2);
+  });
+
+  it('the reserve stands by at the hotel (a quarter counted as duty, no flying), shows so on the calendar, and is logged so', () => {
+    const g = snap04();
+    const vn = Object.values(g.flights).filter((f) => f.no === 'VN6000' && f.status === 'scheduled').sort((a, b) => a.std - b.std)[0];
+    const d = g.duties[vn.dutyId!];
+    const p = g.pairings[d.pairingId];
+    const r = g.crew[p.slots.find((s) => s.reserve && s.crewId && isPilot(s.role))!.crewId!];
+    const seg = segsOf(g, r).find((x) => x.dutyId === d.id && x.kind === 'duty')!;
+    expect(seg.block).toBe(0);
+    expect(seg.fdp).toBe(0);
+    expect(seg.share).toBe(BAL.v09.roster.share.hotel);
+    expect(seg.at).toBe('SGN');
+    const cal = crewCalendar(g, r.id, d.report - 60, d.release + 60);
+    expect(cal.some((b) => b.kind === 'standby' && /Reserve/.test(b.label))).toBe(true);
+    expect(cal.some((b) => b.kind === 'duty' && b.dutyId === d.id)).toBe(false);
+    const log0 = r.log.length;
+    const hours = r.totalHours;
+    while (g.now < d.release + 120) advanceTo(g, Math.min(d.release + 120, g.now + 6 * 60), new Set());
+    expect(g.duties[d.id]?.done ?? true).toBe(true);
+    expect(r.log.length).toBe(log0);
+    expect(r.totalHours).toBe(hours);
+    expect(r.loc).toBe('SGN');
+    expect(r.status).not.toBe('onDuty');
+    expect((r.standby ?? []).some((w) => w.kind === 'hotel' && w.at === 'SGN' && w.from <= d.report + 60 && w.to >= d.release - 120)).toBe(true);
   }, 120_000);
 });

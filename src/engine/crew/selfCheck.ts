@@ -18,6 +18,7 @@ import type { CrewMember, Duty, Flight, GameState, Minute, OohLimit, Pairing, Se
 import { BAL } from '../core/balance';
 import { cabinInflightRest, offsetAt } from './rules';
 import { restOf } from './restPlan';
+import { standsBy } from './timeline';
 
 const H = 60;
 /** A claim is refuted only when the independent reading is clear of the limit by this much (rounding, report times). */
@@ -314,7 +315,8 @@ export function checkAlarm(g: GameState, kind: AlarmKind, flightId: string, hook
     }
     // 3. Seats and the minimum crew, counted from the slots (not the planner's marks).
     const empty = p.slots.filter((s) => !s.crewId && !s.above);
-    const aboard = p.slots.filter((s) => s.crewId && h.crew[s.crewId]).map((s) => h.crew[s.crewId!]);
+    // (Bug 1108b: a far base's reserve stands by at the station: not aboard.)
+    const aboard = p.slots.filter((s) => s.crewId && h.crew[s.crewId] && !standsBy(h, p, d, s.crewId)).map((s) => h.crew[s.crewId!]);
     const pilots = aboard.filter((c) => isPilot(c.role));
     const ac = p.aircraftId ? h.fleet[p.aircraftId] : undefined;
     const pax = d.flightIds.some((id) => h.flights[id]?.kind === 'revenue' || h.flights[id]?.kind === 'techstop');

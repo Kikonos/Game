@@ -6,7 +6,7 @@ import { flightsOf, flightsRev, takeFlightChanges, touchTickets } from '../core/
 import type { SimModule } from '../core/module';
 import { schedule } from '../core/queue';
 import { DAY, monthKey, yearOf } from '../core/time';
-import type { CrewMember, Duty, Flight, GameState, Minute, SimEvent } from '../core/types';
+import type { CrewMember, Duty, Flight, GameState, Minute, Pairing, SimEvent } from '../core/types';
 import { cancelConversion, classOf, dailyClasses, restoreCcqRatings } from './conversion';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { afterDiversion, deletePairing, resizeDeployments, dutyLegality as dutyLevel, pairingSeats, planAircraft, refreshPairing, syncDuty } from './duties';
@@ -14,7 +14,7 @@ export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { setRedundantHook } from './utilisation';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, repairDaysOffMorale, repairStandbyMorale, setResignHooks } from './morale';
-import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
+import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, setFlightsCrew, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
 import { extFdp, localMin, minRest, referenceTime, signedTz, tzDeltaH, tzNights, woclMinutes } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { rosterHorizon, dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, dropStrandedStandby, v09Stats } from './dayPlan';
@@ -25,7 +25,8 @@ import { pushMessage } from '../core/messages';
 import { post } from '../core/ledger';
 import { flownLegs, noteFlown, rebuildFlown } from './flown';
 import { dailyLeave, leaveLoad, leavePolicy } from './leave';
-import { aboard, checkInOf, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, extCutAt, onBlocks, passengers, touchCrew, touchCrewState, typeIdOf } from './timeline';
+import { aboard, checkInOf, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, extCutAt, onBlocks, passengers, reserveStation, standsBy, touchCrew, touchCrewState, typeIdOf } from './timeline';
+import { openDuties } from './check';
 import { reportMinutes } from '../core/perf';
 
 export {
@@ -163,7 +164,8 @@ function onDutyReport(g: GameState, ev: SimEvent): void {
   d.plannedFdp ??= d.fdp;
   for (const s of p.slots) {
     const c = s.crewId ? g.crew[s.crewId] : undefined;
-    if (!c) continue;
+    // (Bug 1108b: a far base's reserve, or a tour's relief pilot on a plain day, stands by at the hotel: not on duty.)
+    if (!c || standsBy(g, p, d, c.id)) continue;
     // Crew-planning round: from the crew member's own start (a ticket out merged into the FDP checks in hours before
     // the report; cabin crew report earlier). Seed 6: an FO ticketed out at 08:00 for a 13:45 report, 33 h after a home
     // standby, had the time off counted as a recovery rest up to 13:45; the next 168 h ran from there (179 h in fact).
@@ -236,7 +238,11 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
   for (const s of p.slots) {
     const c = s.crewId ? g.crew[s.crewId] : undefined;
     if (!c) continue;
-    if (flown.length && !flown.some((f) => f.crewIds.includes(c.id) || aboard(f, c.id)) && !d.deadheadIds.some((id) => { const t = g.flights[id]; return !!t && t.status === 'done' && aboard(t, c.id); })) continue;
+    if (flown.length && !flown.some((f) => f.crewIds.includes(c.id) || aboard(f, c.id)) && !d.deadheadIds.some((id) => { const t = g.flights[id]; return !!t && t.status === 'done' && aboard(t, c.id); })) {
+      // Bug 1108b: the reserve stood by at the station while the set flew: the hours stay on record as hotel standby.
+      if (standsBy(g, p, d, c.id)) reserveStoodBy(g, c, p, d);
+      continue;
+    }
     let out = null;
     let home = null;
     for (const fid of d.deadheadIds) {
@@ -303,6 +309,40 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
   onDutyMorale(g, p, last);
   touchCrewState(g);
   recheckAfterRelease(g, p);
+}
+
+/**
+ * Bug 1108b: a far base's reserve on duty d stood by at the station (hotel standby) and was not called: the window goes
+ * on record (the duty windows count it at its share, the calendar shows it), and the status set by an older build's
+ * report comes back.
+ */
+function reserveStoodBy(g: GameState, c: CrewMember, p: Pairing, d: Duty): void {
+  const seg = dutySegs(g, c, p, d, null, null).find((x) => x.kind === 'duty');
+  const from = seg?.start ?? d.report;
+  const to = Math.min(g.now, seg?.end ?? d.release);
+  if (to > from && !(c.standby ?? []).some((w) => w.from < to && w.to > from)) {
+    c.standby = [...(c.standby ?? []), { from, to, kind: 'hotel' as const, at: reserveStation(g, p, d) }].sort((a, b) => a.from - b.from);
+  }
+  if (c.status === 'onDuty') c.status = c.restUntil > g.now ? 'resting' : 'available';
+}
+
+/**
+ * Bug 1108b save repair: flights still to fly no longer list a far base's reserve as operating crew, and a reserve an
+ * older build reported for duty (not aboard a flight under way) is back on standby at the station.
+ */
+function repairReserveAboard(g: GameState): void {
+  const flying = new Set<string>();
+  for (const f of Object.values(g.flights)) if (f.status === 'enroute') for (const id of f.crewIds) flying.add(id);
+  for (const p of Object.values(g.pairings)) {
+    if (p.status === 'done' || p.status === 'broken' || !p.tour) continue;
+    setFlightsCrew(g, p);
+    const d = openDuties(g, p)[0];
+    if (!d) continue;
+    for (const s of p.slots) {
+      const c = s.crewId && standsBy(g, p, d, s.crewId) ? g.crew[s.crewId] : undefined;
+      if (c && c.status === 'onDuty' && !flying.has(c.id)) c.status = c.restUntil > g.now ? 'resting' : 'available';
+    }
+  }
 }
 
 /** Crew who got to `at` (on a leg they operated or rode) after `t`. */
@@ -773,6 +813,8 @@ export const crewModule: SimModule = {
     retimeToTimetable(g);
     // Bug 1108b: leave away from base in older saves (Carolina Almeida's at Manila): the trip home planned now.
     homeForLeave(g);
+    // Bug 1108b: a far base's reserve no longer flies with the set (VN6000's second captain).
+    repairReserveAboard(g);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
