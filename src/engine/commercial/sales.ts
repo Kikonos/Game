@@ -22,7 +22,7 @@ import { schedule } from '../core/queue';
 import { chance, int, pick, weightedPick, type RngHolder } from '../core/rng';
 import { statsV016 } from '../core/stats016';
 import { distance } from '../core/geo';
-import { DAY, dayIndex, fmtDay, fromUTC, monthKey, monthStart, toDate } from '../core/time';
+import { DAY, dayIndex, fmtDay, fromUTC, monthKey, monthStart, toDate, fmtSpan } from '../core/time';
 import type {
   ActionResult, Archetype, BrokerId, BrokerRel, Client, ClientKind, ContractOffer, GameState, HeadCandidate, Lead, LeadSource, LeadStage, Minute, MonthKey, Pitch, SalesRep,
 } from '../core/types';
@@ -660,7 +660,7 @@ export function pitchAirline(g: GameState, clientId: string): ActionResult {
   const p: Pitch = { id: nextId(g, 'pt'), clientId, season: w.season, at: g.now, replyAt: g.now + days * DAY, ...(t.cost ? {} : { free: true as const }) };
   com(g).pitches!.push(p);
   statsV016(g).pitches++;
-  return { ok: true, msg: `Pitched ${t.client.name} for ${w.label} cover. Their answer comes in ${Math.round(S.pitch.replyDays[0] / 7)}–${Math.round(S.pitch.replyDays[1] / 7)} weeks.` };
+  return { ok: true, msg: `Pitched ${t.client.name} for ${w.label} cover. Their answer comes in ${fmtSpan(Math.round(S.pitch.replyDays[0] / 7), Math.round(S.pitch.replyDays[1] / 7), 'weeks')}.` };
 }
 
 export const pitchesOf = (g: GameState): Pitch[] => g.com?.pitches ?? [];

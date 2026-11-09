@@ -9,7 +9,7 @@ import { flag } from '../../../data/countries';
 import { ROUTE_MARKETS, type RouteMarket } from '../../../data/routes';
 import { BAL } from '../../../engine/core/balance';
 import { typeOf } from '../../../engine/core/perf';
-import { DAY, fmtDayRel } from '../../../engine/core/time';
+import { DAY, fmtDayRel, fmtSpan } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
 import type { FareLevel, MarketingLevel, Route, RouteModel, StudyDepth } from '../../../engine/network/types';
 import { Modal, Seg, Stepper } from '../../components/ui';
@@ -43,7 +43,7 @@ function MarketFacts({ m }: { m: RouteMarket }) {
     <div className="nw-facts">
       <div><span>Travellers a year</span><b className="num">{int(m.odPerYear)}</b></div>
       <div><span>Nonstop rivals</span><b>{rivals.length ? rivals.map((c) => `${c.name} ${c.perWeek}/wk`).join(', ') : 'none'}</b></div>
-      <div><span>Economy fares</span><b className="num">{money(m.fareY[0])}–{money(m.fareY[1])} one way</b></div>
+      <div><span>Economy fares</span><b className="num">{m.fareY[0] === m.fareY[1] ? money(m.fareY[0]) : `${money(m.fareY[0])}–${money(m.fareY[1])}`} one way</b></div>
       <div><span>Cargo a rotation</span><b>{cargo}</b></div>
       <div><span>Usual timetable</span><b>{when}, {hhmm(tt.out)}{tt.nights ? `, ${tt.nights} night${tt.nights > 1 ? 's' : ''} there` : ', back the same day'}</b></div>
       <div><span>How it is sold</span><b>{m.models.map((x) => MODEL_WORD[x]).join(' or ')}</b></div>
@@ -124,7 +124,7 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
               return (
                 <button key={d} className={`nw-depth ${depth === d ? 'on' : ''}`} onClick={() => setDepth(d)} aria-pressed={depth === d}>
                   <b>{DEPTH_WORD[d]}</b>
-                  {c && <span className="small num">{money(c.cost)} · {Math.round(c.days[0] / 7)}–{Math.round(c.days[1] / 7)} weeks</span>}
+                  {c && <span className="small num">{money(c.cost)} · {fmtSpan(Math.max(1, Math.round(c.days[0] / 7)), Math.max(1, Math.round(c.days[1] / 7)), 'weeks')}</span>}
                   {c && <span className="tiny muted">estimate within ±{Math.round(c.accuracy * 100)} %</span>}
                   <span className="tiny muted">{DEPTH_HINT[d]}</span>
                 </button>

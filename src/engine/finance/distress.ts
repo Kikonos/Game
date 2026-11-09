@@ -19,7 +19,7 @@ import { cashOnly, post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
 import { chance } from '../core/rng';
-import { DAY, fmtDate, fmtDay, monthKey, monthStart, nextMonthStart } from '../core/time';
+import { DAY, fmtDate, fmtDay, monthKey, monthStart, nextMonthStart, fmtSpan } from '../core/time';
 import type { ActionResult, CreditorGroup, Distress, GameState, Instalment, Minute, MonthKey, PaymentPlan, RentDeferral } from '../core/types';
 import { clamp, hashUnit } from '../core/util';
 import { cancelByClient } from '../contracts/accept';
@@ -898,7 +898,7 @@ export function distressOptions(g: GameState): DistressOption[] {
   out.push({
     id: 'prepay', title: 'Ask a client to pay early', rank: 1,
     gives: preOk.length ? `${k$(preOk.reduce((s, x) => s + x.q.now, 0))} now across ${preOk.length} invoice${preOk.length === 1 ? '' : 's'}` : 'Cash now for an invoice not yet due',
-    costs: `${Math.round(D.prepay.clamp[0] * 100)}–${Math.round(D.prepay.clamp[1] * 100)} % off the invoice`,
+    costs: `${fmtSpan(Math.round(D.prepay.clamp[0] * 100), Math.round(D.prepay.clamp[1] * 100))} % off the invoice`,
     consequence: `Relation ${D.prepay.relation} with the client; about half say no when they barely know us`,
     why: preOk.length ? null : recv.length ? 'No invoice to ask for (overdue ones: chase or sell them)' : 'No open invoices',
     targets: pre.map((x) => ({ id: x.r.id, label: `${g.clients[x.r.clientId]?.name ?? 'Client'} · ${k$(x.r.amount)} · due ${fmtDay(x.r.due)}`, why: x.q.why })), targetLabel: 'Invoice',
@@ -939,7 +939,7 @@ export function distressOptions(g: GameState): DistressOption[] {
   const rOk = rq.filter((x) => !x.q.why);
   out.push({
     id: 'rent', title: 'Ask a lessor to defer the rent', rank: 5,
-    gives: rOk.length ? `${D.rent.months[0]}–${D.rent.months[1]} months' rent kept (${k$(Math.max(...rOk.map((x) => x.q.rent)))} a month on ${rOk[0].a.reg}${rOk.length > 1 ? ` and ${rOk.length - 1} more` : ''})` : 'Two or three months\' rent kept now',
+    gives: rOk.length ? `${fmtSpan(D.rent.months[0], D.rent.months[1])} months' rent kept (${k$(Math.max(...rOk.map((x) => x.q.rent)))} a month on ${rOk[0].a.reg}${rOk.length > 1 ? ` and ${rOk.length - 1} more` : ''})` : 'Two or three months\' rent kept now',
     costs: `Repaid plus ${Math.round(D.rent.premium * 100)} % over the same months after; the lease runs ${D.rent.extendX}× the months longer`,
     consequence: `Reliability ${D.rent.reliable}; a repayment taken from an overdrawn account blocks that lessor for a year`,
     why: rOk.length ? null : leased.length ? rq[0].q.why : 'No leased aircraft',

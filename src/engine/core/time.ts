@@ -134,6 +134,17 @@ export function fmtDayRange(a: Minute, b: Minute): string {
   return x === y ? x : `${x}–${y}`;
 }
 
+/**
+ * v0.19.2 a span of whole numbers: '5 weeks' when both ends are equal, '5–7 weeks' when they differ (never '5–5 weeks');
+ * `unit` is the plural word, made singular for exactly one ('1 week'). Pure.
+ */
+export function fmtSpan(lo: number, hi: number, unit = ''): string {
+  const a = Math.min(lo, hi), b = Math.max(lo, hi);
+  const n = a === b ? `${a}` : `${a}–${b}`;
+  if (!unit) return n;
+  return `${n} ${b === 1 && unit.endsWith('s') ? unit.slice(0, -1) : unit}`;
+}
+
 /** '1 Mar' / '1 Mar 2027' on the local calendar at an airport (home-base dates in messages: classes, leave dates). */
 export const fmtDayAt = (code: string, t: Minute): string => fmtDay(toLocal(code, t));
 export const fmtDateAt = (code: string, t: Minute): string => fmtDate(toLocal(code, t));
