@@ -353,11 +353,11 @@ export class LandLayer {
       return;
     }
     const sc = v.s * v.k;
-    this.placeBase(v);
     if (!this.front || (settle && Math.abs(this.front.sc / sc - 1) > 1e-4) || Math.abs(Math.log(this.front.sc / sc)) > Math.log(2)) this.newSet(sc);
     if (this.back) this.placeSet(this.back, v);
     this.placeSet(this.front!, v);
     this.fill(this.front!, v);
+    this.placeBase(v);
   }
 
   /**
@@ -501,9 +501,10 @@ export class LandLayer {
     if (this.baseEl.style.transform !== tf) this.baseEl.style.transform = tf;
     const src = baseImg?.img;
     if (!src) return;
-    // Not needed while every tile in view is in (the layer stays, not drawn).
+    // Not needed while every tile in view is in (the layer stays, not drawn; its crop waits).
     const vis = this.front && this.complete(this.front) && !this.back ? 'hidden' : '';
     if (this.baseEl.style.visibility !== vis) this.baseEl.style.visibility = vis;
+    if (vis && this.baseCv) return;
     // The screen (with the tilt's lean) in the raster's px, an eighth of its width spare all round.
     const a0 = (-v.ex - ox) / r;
     const a1 = (v.w + v.ex - ox) / r;

@@ -165,8 +165,13 @@ const overMarginOf = (g: { w: number; h: number }) => {
   const b = tiltBleed(g.w, g.h, TILT_MAX_DEG);
   return Math.ceil(Math.max(marginOf(g), b.ex, b.ey)) + 8;
 };
-/** Zoom drift (ratio) mid-gesture before the overlay is drawn again for the new zoom (marks grow at most this much meanwhile). */
-const OVER_ZOOM_STEP = 1.06;
+/**
+ * Zoom drift (ratio) mid-gesture before the overlay is drawn again for the new zoom: at once past OVER_ZOOM_MAX, past
+ * OVER_ZOOM_STEP once OVER_SYNC_MS have gone by since the last time (the marks grow or shrink that much meanwhile).
+ */
+const OVER_ZOOM_STEP = 1.03;
+const OVER_ZOOM_MAX = 1.12;
+const OVER_SYNC_MS = 110;
 /** The ocean as a background (static under the moving layers); matches the old SVG gradient. */
 const OCEAN = 'radial-gradient(75% 75% at 50% 40%, var(--map-ocean-0) 0%, var(--map-ocean-1) 100%)';
 
@@ -446,6 +451,7 @@ export function WorldMap({
   const live = useRef<View>(view);
   /** v0.19 (perf) the view the overlay's SVG transform was last written for; a CSS transform carries it to `live`. */
   const overView = useRef<View>(view);
+  const overAt = useRef(0);
   const gest = useRef<Gesture | null>(null);
   const ptrs = useRef(new Map<number, { x: number; y: number }>());
   const anim = useRef(0);
@@ -529,6 +535,7 @@ export function WorldMap({
   const syncOver = () => {
     const v = live.current;
     overView.current = v;
+    overAt.current = performance.now();
     worldRef.current?.setAttribute('transform', tfAt(v, offRef.current));
     const u = 1 / (geoRef.current.s * v.k);
     if (u !== mkU.current) {
@@ -549,7 +556,9 @@ export function WorldMap({
     const ty = g.oy * (1 - r) + g.s * (v.y - r * ov.y) + M * (1 - r);
     const b = tiltBleed(g.w, g.h, tiltNow.current);
     const q = 2;
-    const ok = r < OVER_ZOOM_STEP && r > 1 / OVER_ZOOM_STEP && tx - M <= -b.ex - q && r * (g.w + 2 * M) + tx - M >= g.w + b.ex + q && ty - M <= -b.ey - q && r * (g.h + 2 * M) + ty - M >= g.h + q;
+    const zr = Math.abs(Math.log(r));
+    const zoomOk = zr < Math.log(OVER_ZOOM_STEP) || (zr < Math.log(OVER_ZOOM_MAX) && performance.now() - overAt.current < OVER_SYNC_MS);
+    const ok = zoomOk && tx - M <= -b.ex - q && r * (g.w + 2 * M) + tx - M >= g.w + b.ex + q && ty - M <= -b.ey - q && r * (g.h + 2 * M) + ty - M >= g.h + q;
     if (!ok) { syncOver(); return; }
     const el = overWrap.current;
     if (!el) return;
