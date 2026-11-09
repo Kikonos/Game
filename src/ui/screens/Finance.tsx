@@ -149,6 +149,7 @@ export function FinanceScreen() {
   // v0.7.1 §14: the cash card on top with the date it bites; a losing month is one calm line (only while this month
   // is losing too, or after two in a row), which the player can put away. The full card stays behind Explain in the Inbox.
   const cash = problemAt(g, { kind: 'cash', id: 'cash' });
+  const unearned = Math.round(Object.values(g.network?.routes ?? {}).reduce((a, r) => a + (r.unearned ?? 0), 0));
   const loss = problemAt(g, { kind: 'statement', id: String(g.finance.current.month) });
   const [lossHidden, setLossHidden] = useState<string | null>(null);
   const showLoss = loss && loss.subject.kind === 'lossMonth' && showLossMonth(g) && lossHidden !== loss.subject.ref.id;
@@ -167,7 +168,11 @@ export function FinanceScreen() {
         </div>
       )}
       <div className="sc-kpis">
-        <Kpi label="Cash" icon={<Wallet />} value={<span className={g.company.cash < 0 ? 'bad' : ''}>{money(g.company.cash)}</span>} sub={fc.length ? `90-day low ${money(low)}` : undefined} />
+        <Kpi label="Cash" icon={<Wallet />} value={<span className={g.company.cash < 0 ? 'bad' : ''}>{money(g.company.cash)}</span>} sub={<>
+          {fc.length ? `90-day low ${money(low)}` : null}
+          {/* v0.19 scheduled routes: ticket cash taken for flights not flown yet (refunded if a flight is cancelled). */}
+          {unearned > 0 && <span className="fin-unearned">Tickets sold, not yet flown: <b>{money(unearned)}</b></span>}
+        </>} />
         <Kpi label="Revenue" icon={<TrendingUp />} value={money(cur.revenue)} sub={earned > 0 ? <span className="good">+{money(earned)} earned, invoiced at month end</span> : 'invoiced this month'} />
         <Kpi label="Costs" icon={<Banknote />} value={money(cur.costs)} sub="this month" />
         <Kpi className="fin-profit" label="Profit" icon={<Landmark />} value={<span className={tone(cur.profit)}>{money(cur.profit)}</span>} sub={<>

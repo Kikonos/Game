@@ -2286,7 +2286,25 @@ export function splitOverlong(g: GameState): void {
  * Re-plans an aircraft from t: duties that broke their FDP limit are re-cut (tours and single-duty trips),
  * crew who became illegal are freed, then the auto-roster refills (crew already at the station score best).
  */
+/** v0.19 re-rosters running per aircraft: nested ones beyond a few deep are the endless kind and wait. */
+const rerostering = new Map<string, number>();
+
 export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): RosterResult {
+  // v0.19 a re-ticket that fails on another trip re-rosters that trip's aircraft; two aircraft sharing crew could ask
+  // for each other without end (a stack overflow on s0612 with a route). Beyond four nested passes for one aircraft
+  // the outer passes finish the work (they re-check every trip of their own anyway).
+  const depth = rerostering.get(aircraftId) ?? 0;
+  if (depth >= 4) return emptyResult();
+  rerostering.set(aircraftId, depth + 1);
+  try {
+    return rerosterFrom0(g, aircraftId, t);
+  } finally {
+    if (depth) rerostering.set(aircraftId, depth);
+    else rerostering.delete(aircraftId);
+  }
+}
+
+function rerosterFrom0(g: GameState, aircraftId: string, t: Minute): RosterResult {
   // v0.9 round 5 speed (§R.19): what each crewed trip's check read, as checked below; after the fill, a trip whose
   // seats, duties and crew timelines are as they were keeps that check (the fill of one seat bumped the revision
   // and had every crewed trip of the aircraft planned again: a sixth of all re-checks). The check's own result is kept

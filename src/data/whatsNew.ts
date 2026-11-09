@@ -16,6 +16,28 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.19',
+    name: 'Scheduled routes',
+    features: [
+      'Contracts › Network: fly your own scheduled routes, as Euro Atlantic did to Bissau, São Tomé and Dili. They run in the background beside your ACMI work and earn a modest margin, best with an aircraft that would otherwise stand idle.',
+      'Opening a route takes months: a market study, the business case, permits, slots, brand or partner, ticket sales, a launch campaign, airport contracts and crew briefings, then the first flight. Each step costs money and time, and some go wrong.',
+      'The study recommends the days, times and aircraft size. Change them and the business case shows what it does to the numbers.',
+      'Passengers by class, load factor, cargo (live animals too) and the money of every flight: on the flight sheet, the route page and the map.',
+      'Any timetable: weekly, twice a week, monthly, your days and times. Move one flight or a whole series, or hold a route flight on the Schedule and drag it: the whole rotation moves.',
+      'When an ACMI job wants the aircraft, choose for each flight: another aircraft (business passengers who lose their seat are refunded), a sub-charter (no penalty), or move or cancel it (a small cost).',
+    ],
+    improvements: [
+      'Finance shows the ticket cash taken for flights not flown yet.',
+      'Calmer screens: cards and sections keep an even gap everywhere (no more boxes touching on Company), long names wrap instead of being cut, and on the iPhone the client details, chart labels and the new-game aircraft fit.',
+    ],
+    fixes: [
+      'Annual leave starts and ends at home. Crew on a tour fly home after their last flight before the leave, and back out after it if the tour still needs them.',
+      'Morale: "Days off" weighs only when a month falls below the legal minimum, and a day off the planner moved shows as "Day off moved". Days off at a hotel away from home no longer lower morale. Back from annual leave, crew are happier for a few months.',
+      'A far base\'s spare captain and purser stay on standby at the hotel instead of flying every sector. On a tour\'s short days (no rest on board) two pilots fly and the others stand by. The flight sheet lists the flight crew first and says who stands by.',
+      'A delay that broke one flight\'s in-flight rest plan no longer raises "crew out of hours" on the set\'s later flights. The Details list in Crew Control stays inside its card.',
+    ],
+  },
+  {
     version: 'v0.18.3',
     name: 'Pilot pairs',
     features: [
@@ -26,15 +48,10 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     improvements: [
       'The aircraft strip on the map stops before the map buttons and scrolls sideways (finger, trackpad or mouse wheel). +N shows the rest; with many aircraft, All aircraft lists them by what they are doing.',
       'Crew calendar: travel as a passenger has its own colour and a seat icon (Positioning, not Flying). Every night away from base shows its layover, also after a deadhead and over hotel standby days.',
-      'Calmer screens: cards and sections keep an even gap everywhere (no more boxes touching on Company), long names wrap instead of being cut, and on the iPhone the client details, chart labels and the new-game aircraft fit.',
     ],
     fixes: [
       'Cruise relief pilots are now first officers, with the same ratings and hire date and a first officer\'s pay.',
       'Flight times on a deadhead row are no longer cut off.',
-      'Annual leave starts and ends at home. Crew on a tour fly home after their last flight before the leave, and back out after it if the tour still needs them.',
-      'Morale: "Days off" weighs only when a month falls below the legal minimum, and a day off the planner moved shows as "Day off moved". Days off at a hotel away from home no longer lower morale. Back from annual leave, crew are happier for a few months.',
-      'A far base\'s spare captain and purser stay on standby at the hotel instead of flying every sector. On a tour\'s short days (no rest on board) two pilots fly and the others stand by. The flight sheet lists the flight crew first and says who stands by.',
-      'A delay that broke one flight\'s in-flight rest plan no longer raises "crew out of hours" on the set\'s later flights. The Details list in Crew Control stays inside its card.',
     ],
   },
   {

@@ -49,6 +49,7 @@ import { devDisruption } from '../engine/ops/disrupt';
 import { CURFEWS } from '../data/opsData';
 import { inspect, rampFindings } from '../engine/ops/ramp';
 import { devAudit } from '../engine/ops/audit';
+import { devLaunchRoute } from '../engine/network/launch';
 
 export type { GameSpeed } from '../engine/core/time';
 export type AppScreen = 'loading' | 'title' | 'newgame' | 'game' | /** v0.12 */ 'scenarios';
@@ -221,7 +222,11 @@ export type ModalSpec =
   | { kind: 'tender'; tenderId: string }
   | { kind: 'followDelivery'; aircraftId: string }
   /** v0.15 the welcome card of a new game (once, at the start; never on a load). */
-  | { kind: 'welcome' };
+  | { kind: 'welcome' }
+  /** v0.19 scheduled routes (ui/screens/network, a lazy chunk): the route page, the launch wizard, moving a rotation. */
+  | { kind: 'route'; routeId: string; tab?: 'overview' | 'timetable' | 'sales' | 'costs' }
+  | { kind: 'routeLaunch'; routeId?: string; marketId?: string }
+  | { kind: 'rotationMove'; rotId: string; delta: number; back?: ModalSpec };
 
 export interface Toast {
   id: number;
@@ -1580,6 +1585,17 @@ class GameStore {
       this.lastMsgId = g.messages[0]?.id ?? this.lastMsgId;
       if (id) this.navigate('contracts', { view: 'clients', sel: { kind: 'client', id } });
       else this.emit();
+      return id;
+    },
+    /** v0.19 a scheduled route straight to operating (study, Go and every stage done; on sale), on an aircraft by reg. */
+    route: (marketId = 'LIS-OXB', reg?: string) => {
+      const g = this.game;
+      if (!g) return '';
+      const ac = reg ? Object.values(g.fleet).find((a) => a.reg === reg) : Object.values(g.fleet).filter((a) => a.status !== 'leasedOut').sort((a, b) => b.cabin.total - a.cabin.total)[0];
+      const id = devLaunchRoute(g, marketId, ac?.id);
+      settle(g);
+      this.surfaceMessages();
+      this.emit();
       return id;
     },
     world: (kind?: WorldEventKind, tpl?: string) => {

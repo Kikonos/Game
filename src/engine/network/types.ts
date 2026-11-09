@@ -91,6 +91,16 @@ export interface SectorLoad {
   rev?: number;
   cost?: number;
   onTime?: boolean;
+  /** Ticket cash (USD) taken for this sector and held as unearned until it flies (sales.ts keeps it; a refund takes it). */
+  sold?: number;
+  /** Seats of a group block held on this sector (sold at the block fare; unsold ones are released 21 days out). */
+  blockY?: number;
+  /** When the sector left (revenue accrued once: at departure, or at arrival for a sub-chartered sector). */
+  accrued?: true;
+  /** Cancelled on the day by operations: tickets refunded and passengers compensated once. */
+  voided?: true;
+  /** What a rival charged to fly this sector for us (USD; counted in the sector's cost at arrival). */
+  subCost?: number;
 }
 
 export type RotationStatus = 'planned' | 'flights' | 'flown' | 'cancelled';
@@ -113,6 +123,10 @@ export interface Rotation {
   moved?: number;
   /** When passengers were told of the last change. */
   notice?: Minute;
+  /** Passengers moved to our next rotation, to a rival, or refunded when it was cancelled. */
+  reprotect?: { ours: number; rival: number; refunded: number };
+  /** The no-aircraft card was given. */
+  carded?: true;
 }
 
 /** §J.2 a route's month. Revenue positive, costs positive amounts (the result is rev − direct − acTime). */
@@ -170,6 +184,44 @@ export interface Route {
   contractIds: string[];
   firstFlight?: Minute;
   closed?: Minute;
+  /** Demand dents (ops: business class lost, late moves): demand × x for that class until the date. */
+  dents?: RouteDent[];
+  /** The plan chosen at Go (the business case's draft): what the launch files and sells. */
+  plan?: RoutePlan;
+  /** Cards already given once (key → when): weak pace, no aircraft, a waiting decision's reminder. */
+  told?: Record<string, Minute>;
+  /** The partner's fee a block hour (partner model), fixed at Go (a better fee won at the brand stage raises it). */
+  partnerFeeBH?: number;
+  /** Stations without a caterer up to the standard (double catering from Lisbon); fuel on cash terms. */
+  noCaterer?: string[];
+  /** A rival's reaction to the launch: its fare cut until a date. */
+  rivalCut?: { x: number; until: Minute };
+  /** Rotations flown in a row with the cabin advertised (product consistency, §I). */
+  consistent?: number;
+  /** Ticket refunds and passenger costs this month (route P&L), and the month's launch spend. */
+  monthPax?: number;
+}
+
+/** The plan the player drafts in the business case (and the launch files): pattern, times, aircraft, fares. */
+export interface RoutePlan {
+  model: RouteModel;
+  days: number;
+  every: number;
+  monthly?: { nth: number; weekday: number };
+  out: number;
+  back: number;
+  nights: number;
+  typeId: string;
+  layout?: CabinLayout;
+  fares: FareLevel;
+  marketing: MarketingLevel;
+}
+
+/** A temporary dent in a route's demand (J only, or all passengers). */
+export interface RouteDent {
+  cls: 'J' | 'all';
+  x: number;
+  until: Minute;
 }
 
 export interface NetworkStats {
@@ -192,6 +244,8 @@ export interface NetworkState {
   distribution?: Minute;
   /** The BSP bank guarantee held in cash. */
   bspHold?: { amount: number; until: Minute };
+  /** Ticket money sold through travel agents, paid to us by BSP on the 15th and the last day of the month (USD). */
+  bspDue?: number;
   stats: NetworkStats;
   /** UI cache key. */
   rev?: number;

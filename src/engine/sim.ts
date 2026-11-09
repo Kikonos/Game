@@ -11,12 +11,14 @@ import { asStep } from './core/uiRev';
 import { DAY, monthKey, nextDayStart } from './core/time';
 import type { GameState, Minute, SimEvent, SimEventType } from './core/types';
 import { crewModule } from './crew';
+import { networkModule } from './network';
 import { opsModule } from './ops';
 import { scenarioModule } from './scenario/module';
 
 /** Dispatch order for every event type: ops (state machine, money) → contracts → crew (→ v0.12 the scenario's goals, last). */
 /** v0.14 the commercial module (tenders, sales trips, client crises) runs after contracts, before crew. */
-export const MODULES: SimModule[] = [opsModule, contractsModule, commercialModule, crewModule, scenarioModule];
+/** v0.19 the network module (scheduled routes) runs after commercial, before crew. */
+export const MODULES: SimModule[] = [opsModule, contractsModule, commercialModule, networkModule, crewModule, scenarioModule];
 
 const table = new Map<SimEventType, ((g: GameState, ev: SimEvent) => void)[]>();
 for (const m of MODULES) {

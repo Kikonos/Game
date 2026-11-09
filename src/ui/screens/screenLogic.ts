@@ -295,7 +295,7 @@ export function statementView(current: MonthStatement, history: MonthStatement[]
 }
 
 /** v0.7: 'market' filters by topic (aircraft market alerts). v0.7.1: 'problems' = messages about a problem still open, and bad news of the last week. */
-export type MsgFilter = MessageCat | 'all' | 'market' | 'problems' | /** v0.8 world events */ 'world' | /** v0.12.1 the toast log (UI only) */ 'popups';
+export type MsgFilter = MessageCat | 'all' | 'market' | 'problems' | /** v0.8 world events */ 'world' | /** v0.12.1 the toast log (UI only) */ 'popups' | /** v0.19 scheduled routes */ 'network';
 
 /** Bad news stays under 'Problems only' this long. */
 export const PROBLEM_RECENT = 7 * DAY;
@@ -313,6 +313,7 @@ export function filterMessages(list: Message[], cat: MsgFilter, g?: GameState): 
   if (cat === 'all') return list;
   if (cat === 'market') return list.filter((m) => m.topic === 'market');
   if (cat === 'world') return list.filter((m) => m.topic === 'world');
+  if (cat === 'network') return list.filter((m) => m.topic === 'network');
   // v0.12.1 the pop-up log is not messages (InboxScreen lists store.toastLog).
   if (cat === 'popups') return [];
   if (cat === 'problems') return g ? list.filter((m) => isProblemMessage(m, g)) : list.filter((m) => !!m.problem || m.tone === 'bad');
@@ -384,6 +385,9 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     // v0.8: a client / rival opens its pane on Company; a world event its pin on the map.
     case 'client':
       return { tab: 'contracts', view: 'clients', sel: ref };
+    // v0.19 a scheduled route: Contracts › Network.
+    case 'route':
+      return { tab: 'contracts', view: 'network', sel: ref };
     case 'rival':
       return { tab: 'company', view: 'rivals', sel: ref };
     case 'event':

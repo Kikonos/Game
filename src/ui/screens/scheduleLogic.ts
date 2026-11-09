@@ -49,6 +49,8 @@ export interface GanttBlock {
   /** v0.12 flights: the flight number (or why an empty leg flies) and the route, for the two-line label. */
   no?: string;
   route?: string;
+  /** v0.19 a scheduled-route flight (our own timetable): the route colour and a small glyph. */
+  sched?: true;
 }
 
 // ---------- v0.12 block labels ----------
@@ -216,6 +218,7 @@ export function rowBlocks(g: GameState, aircraftId: string, from: Minute, to: Mi
       label: why ? `${why} ${f.from}-${f.to}` : `${f.no} ${f.from}-${f.to}`, short: ftype === 'ferry' || why ? 'FERRY' : f.to, refs: [{ kind: 'flight', id: f.id }],
       no: why ?? f.no, route: `${f.from}-${f.to}`,
       crew, done: f.status === 'done', at: f.from, alert: crew && f.crewAlert ? f.crewAlert : undefined,
+      ...(f.sched ? { sched: true as const } : {}),
     });
   }
   for (const m of Object.values(g.maintenance)) {

@@ -767,6 +767,9 @@ export function standsBy(g: GameState, p: Pairing, d: Duty, crewId: string): boo
   let seat: CrewSlot | undefined;
   for (const s of p.slots) if (s.crewId === crewId) seat = s;
   if (!seat) return false;
+  // Already flown with the set on this duty (a save from before the reserve stood by, or a seat that changed mid-duty):
+  // they stay with the set to the end of the duty, never left at an outstation.
+  if (d.flightIds.some((fid) => { const f = g.flights[fid]; return !!f && f.status !== 'scheduled' && f.status !== 'cancelled' && (f.crewIds.includes(crewId) || aboard(f, crewId)); })) return false;
   if (seat.reserve) return true;
   if ((seat.role !== 'CPT' && seat.role !== 'FO') || !p.tour) return false;
   const pilots = p.slots.filter((s) => s.crewId && !s.reserve && (s.role === 'CPT' || s.role === 'FO'));

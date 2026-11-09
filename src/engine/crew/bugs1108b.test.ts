@@ -5,7 +5,7 @@
 
 import { describe, expect, it } from 'vitest';
 import { fixture } from '../fixtures/compatKit';
-import { deserialize } from '../save';
+import { deserialize, serialize } from '../save';
 import { ALARM_HOOKS } from './control';
 import { checkAlarm } from './selfCheck';
 import { crewAlertKind, outOfHours } from './outOfHours';
@@ -154,6 +154,23 @@ describe('#3 VN6000: two captains (a far base reserve flying with the set)', () 
     // CP7040 (a plain day of the Manila set: 4 pilots on station for its augmented days): two of them fly it.
     const cp = g.flights.f3rxe;
     expect(cp.crewIds.filter((id) => isPilot(g.crew[id].role)).length).toBe(2);
+  });
+
+  it('a reserve already in the air with the set when the save was made flies the rest of that duty home (never left at the outstation)', () => {
+    // The 8 Nov export (bugs1108 current): Carolina Silva (the SGN set's reserve purser) was aboard VN6040 SGN–HAN; the
+    // load repair took her off VN6041 HAN–SGN and she stayed at Hanoi until a ticket from Saigon 2 weeks later.
+    const g0 = snap04();
+    const vn = Object.values(g0.flights).filter((f) => f.no === 'VN6000' && f.status === 'scheduled').sort((a, b) => a.std - b.std)[0];
+    const d = g0.duties[vn.dutyId!];
+    const p = g0.pairings[d.pairingId];
+    const res = p.slots.find((s) => s.reserve && s.crewId)!.crewId!;
+    expect(d.flightIds.length).toBeGreaterThan(1);
+    // As an older build left it: the reserve listed on every sector of the duty, the first under way.
+    for (const fid of d.flightIds) g0.flights[fid].crewIds = [...g0.flights[fid].crewIds, res];
+    g0.flights[d.flightIds[0]].status = 'enroute';
+    const g = deserialize(serialize(g0));
+    expect(standsBy(g, g.pairings[p.id], g.duties[d.id], res)).toBe(false);
+    for (const fid of d.flightIds.slice(1)) expect(g.flights[fid].crewIds, g.flights[fid].no).toContain(res);
   });
 
   it('the reserve stands by at the hotel (a quarter counted as duty, no flying), shows so on the calendar, and is logged so', () => {

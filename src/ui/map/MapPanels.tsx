@@ -47,6 +47,7 @@ import { shapeOf } from '../../engine/contracts/shape';
 import { topBlocker } from '../../engine/contracts/blockers';
 import { archLabel, capFirst, expiryLabel, hangarWord, offerDays, offerModal } from '../screens/screenLogic';
 import { ALERT_BANNER, ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, deliveryTag, EVENT_KIND_LABEL, EVENT_TONE, hotelCount, leasedOut, mapLivery, OOH_SHORT, oohLine, parseCommercialId, parseSlipId, PURPOSE_LABEL, purposeChain, restChip, restingLine, restSeatNoun, shortIndex, type ShortRow, slipLine, slipSelId, slipWindow, upcomingLegs } from './mapLogic';
+import { RouteLive } from '../screens/network/live';
 import { MiniMap } from './MiniMap';
 import { eventIcon } from './WorldLayer';
 import { safe } from './safe';
@@ -472,6 +473,11 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
         <span className="chip">{ac.builtYear}</span>
       </div>
       <Section title={cur ? 'Current flight' : 'Now'}>{now}</Section>
+      {/* v0.19 a scheduled-route flight (now, or the next leg): passengers by class, load, cargo and profit; next bookings. */}
+      {(() => {
+        const rf = cur?.sched ? cur : !cur && legs[0]?.sched ? legs[0] : undefined;
+        return rf ? <Section title={cur ? 'On board' : `Booked on ${rf.no}`}><RouteLive g={g} f={rf} /></Section> : null;
+      })()}
       <DeliveryBlock g={g} ac={ac} />
       {lease && <LeaseBlock g={g} v={lease} />}
       <PlannedBlocks g={g} ac={ac} />

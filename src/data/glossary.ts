@@ -2,6 +2,7 @@
 // renders GLOSSARY[id].term and shows `short` in a popover; the Glossary screen lists every entry with "Show me".
 
 import type { ProblemKind } from '../engine/core/types';
+import { GLOSSARY_NETWORK, type NetworkTermId } from './glossaryNetwork';
 
 export type TermId =
   | 'fdp' | 'deadhead' | 'positioning' | 'tight' | 'discretion' | 'acmi' | 'wetLease' | 'subcharter' | 'aog' | 'standby' | 'rest' | 'blockHours'
@@ -25,7 +26,9 @@ export type TermId =
   /** v0.10.2 */
   | 'techReliability' | 'etopsMx'
   /** v0.17 the aircraft market (UPDATE-0.17.md §N.5) */
-  | 'loi' | 'creditCheck' | 'holdingDeposit' | 'letterOfCredit' | 'minHours' | 'transition' | 'recordsReview' | 'camo' | 'aocVariation' | 'sublease' | 'lessorRating';
+  | 'loi' | 'creditCheck' | 'holdingDeposit' | 'letterOfCredit' | 'minHours' | 'transition' | 'recordsReview' | 'camo' | 'aocVariation' | 'sublease' | 'lessorRating'
+  /** v0.19 scheduled routes (data/glossaryNetwork.ts) */
+  | NetworkTermId;
 
 export interface GlossaryEntry {
   term: string;
@@ -36,7 +39,7 @@ export interface GlossaryEntry {
 }
 
 /** Player words for a view id (the "Show me" button). */
-export const VIEW_LABEL: Record<string, string> = { board: 'Roster board', people: 'People', plan: 'Planning', market: 'Aircraft market', ladder: 'Ladder' };
+export const VIEW_LABEL: Record<string, string> = { board: 'Roster board', people: 'People', plan: 'Planning', market: 'Aircraft market', ladder: 'Ladder', network: 'Network' };
 
 export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   fdp: { term: 'FDP', short: "Flight duty period: the crew's working day, from report to the last on-blocks. There is a legal maximum.", where: { tab: 'crew', view: 'board' } },
@@ -137,6 +140,8 @@ export const GLOSSARY: Record<TermId, GlossaryEntry> = {
   sublease: { term: 'Sublease', short: "Another airline's spare aircraft for a few months of its quiet season: quick to start, dearer than a normal lease, and back on a fixed date.", where: { tab: 'fleet', view: 'market' } },
   lessorRating: { term: 'Lessor rating', short: 'How lessors see our credit, A to D: years on the AOC, fleet, cash, profit, debts, client stars and reliability. It sets the deposit, who will deal with us and how many aircraft they place.', where: { tab: 'fleet', view: 'market' } },
   newBuildSlot: { term: 'New-build slot', short: 'A brand-new aircraft from the factory, leased before it is built. Months of waiting and the highest rent.', where: { tab: 'fleet' } },
+  // v0.19 scheduled routes.
+  ...GLOSSARY_NETWORK,
 };
 
 /** Words that the UI wraps in <Term> when they appear in a card's text (lower-case match). */
