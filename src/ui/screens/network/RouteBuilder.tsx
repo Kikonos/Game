@@ -5,7 +5,7 @@
 
 import { ArrowLeft, Compass, MapPin, Play, Plus, Rocket, Search, Sparkles, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../../data/airports';
+import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { countryName, flag } from '../../../data/countries';
 import { SEGMENT_LABEL, stationFor, type RouteMarket } from '../../../data/routes';
 import { BAL } from '../../../engine/core/balance';
@@ -21,7 +21,7 @@ import { Modal, Seg } from '../../components/ui';
 import { int, money } from '../../format';
 import { store, useGame } from '../../store';
 import { net } from './netApi';
-import { hhmm, MODEL_HINT } from './networkLogic';
+import { hhmm, MODEL_HINT, rightsWord, searchAirports } from './networkLogic';
 import { RouteMap } from './RouteMap';
 
 const DEPTHS: StudyDepth[] = ['desk', 'full', 'survey'];
@@ -29,38 +29,6 @@ const DEPTH_WORD: Record<StudyDepth, string> = { desk: 'Desk study', full: 'Full
 const MODEL_WORD: Record<RouteModel, string> = { own: 'Own brand', partner: 'For a partner', tour: 'Holidays charter' };
 const DAY_NAME = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const MON = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
-
-/** Airports matching a search (code, city, airport name, country), best first; never fuel-stop fields. Pure. */
-export function searchAirports(q: string, exclude: string[] = [], limit = 8): Airport[] {
-  const s = q.trim().toLowerCase();
-  if (s.length < 2) return [];
-  const scored: [number, Airport][] = [];
-  for (const a of AIRPORTS) {
-    if (a.enroute || a.ice || exclude.includes(a.code)) continue;
-    const code = a.code.toLowerCase();
-    const city = a.city.toLowerCase();
-    const country = countryName(a.country).toLowerCase();
-    let sc = 0;
-    if (code === s) sc = 100;
-    else if (city === s) sc = 90;
-    else if (city.startsWith(s)) sc = 70;
-    else if (a.name.toLowerCase().startsWith(s)) sc = 55;
-    else if (country.startsWith(s)) sc = 40;
-    else if (city.includes(s) || a.name.toLowerCase().includes(s)) sc = 30;
-    else if (country.includes(s)) sc = 20;
-    if (sc) scored.push([sc + a.size, a]);
-  }
-  return scored.sort((x, y) => y[0] - x[0] || (x[1].code < y[1].code ? -1 : 1)).slice(0, limit).map((x) => x[1]);
-}
-
-/** Traffic rights in plain words. */
-export function rightsWord(hard: number): string {
-  if (hard <= 0) return 'Open skies: nothing to wait for';
-  if (hard <= 0.1) return 'Open: a filing, a few weeks';
-  if (hard <= 0.3) return 'Bilateral: a permit, two to four months';
-  if (hard <= 0.5) return 'Hard: a permit, four to six months, may be refused';
-  return 'Very hard: few permits for a newcomer';
-}
 
 const pctOf = (v: number) => `${Math.round(v * 100)} %`;
 
