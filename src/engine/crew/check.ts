@@ -8,7 +8,7 @@ import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } f
 import { dayFloorIssue, eveFloorIssue, monthFloorIssue, offIssue, offMovable } from './dayPlan';
 import { evalSegs, EXT_REST, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { flightsRev } from '../core/entities';
-import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outMerges, outTicket, planHome, planHomeAfter, planOut, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
+import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outMerges, outTicket, planHome, planHomeAfter, planOut, reserveSeat, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 import { sameTour, tourHomePlan, tourSpan } from './tours';
 
 export interface CrewPlan {
@@ -152,6 +152,8 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
   const dropped: string[] = [];
   let booked: TicketPlan | null = null;
   let loose: string | undefined;
+  /** Bug 1108b: this plan takes them home for a leave or course after the trip (leaveBefore). */
+  let forLeave = false;
   if (existing) {
     for (const fid of [...first.deadheadIds, ...last.deadheadIds]) {
       const f = g.flights[fid];
@@ -190,7 +192,8 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
       if (w !== tk.from) issues.push({ code: 'location', level: 'illegal', text: `At ${w}, not ${tk.from} for the ticket to ${tk.to}`, dutyId: first.id });
     } else if (tk && ((tk.status === 'enroute' && c.loc !== tk.from) || (tk.status === 'done' && locAt(c, base, first.report) !== tk.to))) out = null;
     const at = out ? out.to : locAt(c, base, first.report);
-    if (at !== dep && !started) issues.push({ code: 'location', level: 'illegal', text: `At ${at}, not ${dep}`, dutyId: first.id });
+    // (Bug 1108b: a reserve stands by at the station; it need not be at a departure elsewhere.)
+    if (at !== dep && !started && !reserveSeat(p, c.id)) issues.push({ code: 'location', level: 'illegal', text: `At ${at}, not ${dep}`, dutyId: first.id });
   } else {
     // Still at the departure airport with a ticket home around this trip: they stay on instead.
     // Not onto a tour: its crews come out fresh for the rotation.
@@ -214,13 +217,18 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
     }
     // No ticket home when the crew's next work starts where this trip ends, or when it is a ticket straight back
     // out there (that ticket is dropped: a hotel night or two beats two tickets).
-    if (last.restAt !== c.base && nextFrom(base, last.release) !== last.restAt) {
-      const back = p.tour ? [] : droppableOut(g, c, base, last.restAt, last.release);
+    // Bug 1108b: never across an annual leave or a course: leave starts and ends at home base. A leave after this trip
+    // and before the crew's next work sends them home after its last duty (not at the tour's end, and never held at the
+    // hotel by a standby there): Carolina Almeida's leave was planned at Manila, her tour's next part after it.
+    const leaveNext = leaveBefore(c, base, last.release, g.now + (BAL.scheduleHorizonDays - 1) * DAY);
+    forLeave = leaveNext && last.restAt !== c.base;
+    if (last.restAt !== c.base && (leaveNext || nextFrom(base, last.release) !== last.restAt)) {
+      const back = p.tour || leaveNext ? [] : droppableOut(g, c, base, last.restAt, last.release);
       const stay = back.length ? withoutTickets(base, back) : base;
       if (back.length && nextFrom(stay, last.release) === last.restAt) {
         base = stay;
         dropped.push(...back);
-      } else home = p.tour ? tourHomePlan(g, p, last, c.base, cabinEarly(g, p)) : planHome(last, c.base, cabinEarly(g, p) + outExtra(out, duties));
+      } else home = p.tour && !leaveNext ? tourHomePlan(g, p, last, c.base, cabinEarly(g, p)) : planHome(last, c.base, cabinEarly(g, p) + outExtra(out, duties));
     }
   }
   let segs = buildSegs(g, c, p, duties, out, home);
@@ -325,9 +333,19 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
     for (const i of ftl) {
       if (i.code !== 'location' || i.level !== 'illegal' || !i.dutyId || own.has(i.dutyId)) continue;
       const q = g.pairings[g.duties[i.dutyId]?.pairingId ?? ''];
-      const qd = q && q.status === 'planned' && !q.tour ? openDuties(g, q)[0] : undefined;
+      // Bug 1108b: home for a leave, a later trip or tour part from the station they leave gets its own ticket out after
+      // the leave (re-ticketed from home, or re-crewed when that does not work).
+      const qd = q && q.status === 'planned' && (!q.tour || (forLeave && !!home)) ? openDuties(g, q)[0] : undefined;
       if (!q || !qd || qd.id !== i.dutyId) continue;
       const tk = qd.deadheadIds.map((id) => g.flights[id]).find((f) => !!f && f.kind === 'deadhead' && f.status === 'scheduled' && f.std - BAL.deadheadCheckIn > g.now && f.sta <= qd.report && aboard(f, c.id));
+      if (!tk && forLeave && home && c.blocks?.some((b) => (b.why === 'leave' || b.why === 'training') && b.from >= home!.sta - DAY && b.to <= qd.report)) {
+        i.level = 'legal';
+        if (!retick.includes(q.id)) {
+          retick.push(q.id);
+          retickCost += ticketPrice(c.base, g.flights[qd.flightIds[0]]?.from ?? qd.restAt);
+        }
+        continue;
+      }
       if (!tk) continue;
       i.level = 'legal';
       if (!retick.includes(q.id)) {
@@ -443,6 +461,20 @@ export function readyAt(c: CrewMember, segs: Seg[], t: Minute, now = -Infinity):
 }
 
 /** Where the crew's next planned work within 3 days after t starts ('' when none or unknown). */
+/**
+ * Bug 1108b: an annual leave or a course c starts after t and before their next work (a duty or a ticket; standby
+ * gives way), and before `until` (the schedule horizon: every duty before it is known): they must be home for it. Pure.
+ */
+export function leaveBefore(c: CrewMember, segs: Seg[], t: Minute, until: Minute): boolean {
+  let next = Math.min(t + 35 * 1440, until);
+  for (const s of segs) {
+    if (s.kind === 'log' || s.kind === 'sby' || s.start < t) continue;
+    next = Math.min(next, s.start);
+    break;
+  }
+  return !!c.blocks?.some((b) => (b.why === 'leave' || b.why === 'training') && b.from >= t && b.from < next);
+}
+
 function nextFrom(segs: Seg[], t: Minute): string {
   for (const s of segs) if (s.kind !== 'log' && s.start >= t) return s.start < t + 3 * 1440 ? s.from ?? '' : '';
   return '';

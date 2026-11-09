@@ -9,6 +9,7 @@ import { crewName } from './generate';
 import type { IssueCode, LegalityIssue } from './rules';
 import { flightCrewStatus } from './roster';
 import { crewRev } from './timeline';
+import { restMarked, restMarkLive } from './restMarks';
 
 export type CrewAlertKind = 'short' | 'hours';
 
@@ -99,7 +100,8 @@ function compute(g: GameState, flightId: string): OohInfo[] {
   const seen = new Set<string>();
   for (const s of p.slots) {
     // Taken off for a limit (empty seat), or still aboard with an in-flight rest plan that failed at the gate (§Y.1).
-    if (!s.ooh || (s.crewId && s.ooh.limit !== 'inflightRest')) continue;
+    // (Bug 1108b: an in-flight rest mark only for the duty it is about.)
+    if (!s.ooh || (s.crewId && !restMarkLive(d, s))) continue;
     const cm = g.crew[s.ooh.crewId];
     if (!cm || seen.has(cm.id)) continue;
     seen.add(cm.id);
@@ -138,7 +140,7 @@ export function crewAlertKind(g: GameState, flightId: string): CrewAlertKind | n
     // A rest plan that failed at the gate (§Y.1) holds a flight whose crew are otherwise complete.
     const f = g.flights[flightId];
     const d = f?.dutyId ? g.duties[f.dutyId] : undefined;
-    return d && g.pairings[d.pairingId]?.slots.some((s) => s.ooh?.limit === 'inflightRest' && s.crewId) ? 'hours' : null;
+    return d && restMarked(g.pairings[d.pairingId], d) ? 'hours' : null;
   }
   return outOfHours(g, flightId).length ? 'hours' : 'short';
 }

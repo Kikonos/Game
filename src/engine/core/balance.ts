@@ -245,6 +245,8 @@ export const BAL = {
     perDiemPerPct: 0.3, perDiemMax: 6, tour: { 4: 3, 5: 0, 6: -5 } as Record<number, number>,
     hotelDay: { 3: -0.4, 4: 0, 5: 0.25 } as Record<number, number>,
     awayDays: [[28, -0.15], [42, -0.3]] as [number, number][], offAway: -0.5, heavy28dH: 150, heavy: -0.2,
+    /** Bug 1108b back from annual leave (≥ minDays): +back at once, then a daily glow fading to 0 over `days`. */
+    leaveLift: { back: 6, glow: 0.15, days: 90, minDays: 5 },
     lateChange: -2, lateNoticeH: 72, extraDuty: 0.4, career: 4, recognition: 2, salaryLate: -15,
     /** Sick calls rise below sickFrom (×1 + (sickFrom − m)/sickSlope); resignations interpolate between [morale, ×] points. */
     // v0.17.2 sickSlope 50 → 80: low morale adds sick calls more gently (at most about ×1.8, was ×2.3).

@@ -1351,7 +1351,7 @@ function restFailed(g: GameState, f: Flight): Duty | null {
 function restOutOfHours(g: GameState, f: Flight, d: Duty): void {
   const p = g.pairings[d.pairingId];
   if (!p) return;
-  for (const s of p.slots) if (s.crewId && (s.role === 'PUR' || s.role === 'CC')) s.ooh = { crewId: s.crewId, limit: 'inflightRest', over: 0, at: g.now };
+  for (const s of p.slots) if (s.crewId && (s.role === 'PUR' || s.role === 'CC')) s.ooh = { crewId: s.crewId, limit: 'inflightRest', over: 0, at: g.now, dutyId: d.id };
   if (f.crewAlert === 'red') return;
   f.crewAlert = 'red';
   // Alarm self-check: the rest plan read again on its own before the alarm and the pause.

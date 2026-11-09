@@ -110,14 +110,18 @@ export function ProblemCardView({ card, compact, g, hideActions, onAction, child
           </span>
         </div>
       ) : null}
+      {/* Bug 1108b: the buttons on one row, the list under them in the card's own width (it ran beside the Details
+          button and out of Crew Control's left column on the iPad). */}
       <div className="pc-details">
-        {card.details.length > 0 && (
-          <button className="btn btn-ghost btn-sm pc-details-btn" onClick={() => setDetails(!details)} aria-expanded={details}>
-            {details ? <ChevronUp /> : <ChevronDown />} Details
-          </button>
-        )}
-        {/* Alarm self-check: the alarm was checked again on its own before it chimed; the evidence is in the details. */}
-        {card.checked && <button className="btn btn-ghost btn-sm sc-checked good" onClick={() => setDetails(!details)} title={card.checked.join('\n')}>Checked ✓</button>}
+        <div className="pc-details-btns">
+          {card.details.length > 0 && (
+            <button className="btn btn-ghost btn-sm pc-details-btn" onClick={() => setDetails(!details)} aria-expanded={details}>
+              {details ? <ChevronUp /> : <ChevronDown />} Details
+            </button>
+          )}
+          {/* Alarm self-check: the alarm was checked again on its own before it chimed; the evidence is in the details. */}
+          {card.checked && <button className="btn btn-ghost btn-sm sc-checked good" onClick={() => setDetails(!details)} title={card.checked.join('\n')}>Checked ✓</button>}
+        </div>
         {details && (card.details.length > 0 || card.checked) && <ul className="pc-details-list small muted">{[...card.details, ...(card.checked ?? []).map((x) => `Checked: ${x}`)].map((d, i) => <li key={i}>{d}</li>)}</ul>}
       </div>
     </div>
