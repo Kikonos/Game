@@ -164,8 +164,10 @@ describe('ETOPS maintenance programme (v0.10.2)', () => {
     expect(row('etops120')).toBe('Technical reliability 96.4% (needs 97%) over 90 days');
     // v0.14 Widebody operations at 95 % (was 97).
     expect(row('widebody')).toBe('Technical reliability 96.4% (needs 95%) over 90 days');
-    expect(row('etops180')).toBe('Technical reliability 96.4% (needs 98%) over 180 days');
-    expect(row('etops240')).toBe('Technical reliability 96.4% (needs 98%) over 180 days');
+    // v0.19.4 ETOPS 180 and 240 count the ETOPS fleet (the twins capable of it), with their own minimum of departures.
+    const erow = (id: Parameters<typeof approvalReqs>[1]) => approvalReqs(g, id).find((r) => /^ETOPS fleet technical reliability/.test(r.label))!.label;
+    expect(erow('etops180')).toMatch(/^ETOPS fleet technical reliability: not enough ETOPS flights yet \(0 of 120 departures( since [^;]+)?; needs 98% over 180 days\)$/);
+    expect(erow('etops240')).toMatch(/^ETOPS fleet technical reliability: not enough ETOPS flights yet \(0 of 120 departures( since [^;]+)?; needs 98% over 180 days\)$/);
     expect(row('ulr')).toBe('Technical reliability 96.4% (needs 98.5%) over 365 days');
   });
 });

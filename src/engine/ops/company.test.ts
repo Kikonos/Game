@@ -71,6 +71,10 @@ describe('approvals (v0.7 ladder)', () => {
     addCrew(g, { CPT: 4, FO: 3 }, 'B757/767');
     expect(approvalBlocker(g, 'etops180')).toBe('Needs 4 B767 first officers rated (3 now)');
     addCrew(g, { FO: 1 }, 'B757/767');
+    // v0.19.4 ETOPS 180's technical reliability is the ETOPS fleet's: the twin's own record (120 departures at least).
+    expect(approvalBlocker(g, 'etops180')).toMatch(/^Needs ETOPS fleet technical reliability 98% over 180 days: not enough ETOPS twin departures yet \(0 of 120\)/);
+    g.stats.techAcSince = g.now - 200 * DAY;
+    g.stats.techAc = { [w.id]: { [Math.floor(g.now / DAY) - 10]: [150, 1] } };
     expect(approvalBlocker(g, 'etops180')).toBeNull();
     // Cash last.
     g.company.cash = 100_000;
