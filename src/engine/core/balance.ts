@@ -846,7 +846,7 @@ export const BAL = {
        * fleet once ETOPS is held: a finding on an ETOPS-significant system holds it. Chance `base` × the age factor
        * (1 + age/10) × (1 + deferredX × deferred defects) × progX with the reliability programme; minutes as a technical delay.
        */
-      check: { base: 0.005, deferredX: 3, progX: 0.5 },
+      check: { base: 0.0025, deferredX: 2.5, progX: 0.5 },
     },
   },
 } as const;
