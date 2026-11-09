@@ -72,8 +72,11 @@ export function cargoFor(g: GameState, route: Route, rot: Rotation, dir: Dir, ty
   return { kg: mk + ak + pk + gk + nk, avi: ak, mail: mk, rev: Math.round(rev) };
 }
 
-/** The partner's fee for a sector: its block hours × the fee a BH, plus the share of tickets above 70 % full. */
-function partnerFee(g: GameState, route: Route, s: SectorLoad, f: Flight): number {
+/**
+ * The partner's fee for a sector: its block hours × the fee a BH, plus the share of tickets above 70 % full (pure; the
+ * passengers flown, or `pax` for an estimate before departure).
+ */
+export function partnerFee(g: GameState, route: Route, s: SectorLoad, f: Flight, pax0?: number): number {
   const P = BAL.v019.fares.partner;
   const typeId = f.aircraftId ? g.fleet[f.aircraftId]?.typeId ?? '' : route.series[0]?.typeId ?? '';
   const t = typeOf(typeId);
@@ -83,7 +86,7 @@ function partnerFee(g: GameState, route: Route, s: SectorLoad, f: Flight): numbe
   const pass = ac ? passThrough(routeLegCost(g, f, ac)) : 0;
   const base = feeBH * (f.block / 60) + pass;
   const cap = s.capJ + s.capY;
-  const pax = (s.flownJ ?? 0) + (s.flownY ?? 0);
+  const pax = pax0 ?? (s.flownJ ?? 0) + (s.flownY ?? 0);
   const above = Math.max(0, pax - Math.ceil(cap * P.shareAbove));
   const share = above * fareFor(g, route, 'Y', f.std) * P.share;
   return Math.round(base + share);

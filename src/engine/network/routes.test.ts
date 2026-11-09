@@ -114,6 +114,19 @@ describe('v0.19 sales, revenue and costs', () => {
     }
   });
 
+  it('a partner sector before departure: the live estimate counts the partner fee', () => {
+    const g = newGame(13);
+    const id = devLaunchRoute(g, 'LIS-TMS', biggest(g).id);
+    const r = g.network!.routes[id];
+    expect(r.model).toBe('partner');
+    run(g, 1);
+    materialise(g, r);
+    const fid = r.rotations.flatMap((x) => x.sectors.map((s) => s.flightId)).find((x): x is string => !!x && g.flights[x].status === 'scheduled')!;
+    const live = sectorLive(g, fid)!;
+    expect(live.flown).toBe(false);
+    expect(live.revenue).toBeGreaterThan(live.cost * 0.9);
+  });
+
   it('determinism: the same seed gives the same route', () => {
     const play = () => {
       const g = newGame(14);
