@@ -155,8 +155,10 @@ export type MarketingLevel = 'low' | 'normal' | 'high';
 
 export interface Route {
   id: string;
-  /** data/routes.ts ROUTE_MARKETS id, e.g. 'LIS-OXB'. */
+  /** data/routes.ts ROUTE_MARKETS id, e.g. 'LIS-OXB'; v0.19.2 a custom market's id ('X:LIS-JFK', custom.ts). */
   marketId: string;
+  /** v0.19.2 the market of a route the player built (custom.ts), kept as it was when the study was ordered. */
+  custom?: import('../../data/routes').RouteMarket;
   model: RouteModel;
   /** The partner's client id (model 'partner'). */
   partnerId?: string;

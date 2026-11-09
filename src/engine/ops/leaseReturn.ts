@@ -23,6 +23,7 @@ import { cCheckGross, cDueAt, checkCostOf, checkUsedAt, nextPlanned, scheduleChe
 import { maintWord, usd } from './util';
 import { lockOf } from '../scenario/rules';
 import { atomic } from '../crew/atomic';
+import { dropPaintForExit, stripInReturn } from './paint';
 import { extensionRentX } from '../leasing/terms';
 
 export interface ReturnQuote { site: string; lines: { label: string; amount: number }[]; total: number; deposit: number; checkDays: number; ferry: DeliveryLeg[] }
@@ -369,6 +370,9 @@ function bookLeaseReturn(g: GameState, ac: Aircraft): ActionResult {
   if (!r.ok) return r;
   const m = g.maintenance[r.data!.maintId];
   ac.returning = { site: q.site, maintId: m.id, ferryIds: [...(m.ferryIds ?? [])], quote: q.total };
+  // v0.19.2 (player's CS-TCS) a client strip booked at a paint shop goes: the return check strips it (repaint line), and
+  // nothing is painted after the aircraft has gone.
+  dropPaintForExit(g, ac.id, m.start, true);
   const f0 = m.ferryIds?.length ? g.flights[m.ferryIds[0]] : undefined;
   pushMessage(g, {
     tone: 'info', cat: 'company', title: `Lease return booked: ${ac.reg}`,
@@ -441,8 +445,12 @@ export function onReturnEnd(g: GameState, m: MaintenanceEvent): void {
   // v0.17 an up-front reserves deposit comes back with the aircraft.
   if (own.reservesDeposit) cashOnly(g, own.reservesDeposit);
   settleDeparture(g, ac);
+  // v0.19.2 a client's colours still on it: stripped in the return check; the client pays its share as at a paint shop.
+  const strip = stripInReturn(g, ac);
   // Bug 1108b (checks on the player's save): legs still planned for it after the return (a ferry home planned past the
   // return check) go with it; their crew are re-planned through the usual settle (orphan legs, crew left on tickets).
+  // v0.19.2 and so do checks or paint-shop visits still booked for it.
+  dropMaintOf(g, ac.id, m.id);
   const left = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled');
   if (left.length) removeFlights(g, left.map((f) => f.id));
   delete g.fleet[ac.id];
@@ -451,8 +459,46 @@ export function onReturnEnd(g: GameState, m: MaintenanceEvent): void {
   const parts = (q?.lines ?? []).map((l) => `${l.label.replace(/^Return check$/, 'check').replace(/^Half-life compensation$/, 'half-life').replace(/^C-check due before the return$/, 'the C-check that was due').replace(/^Strip and white repaint$/, 'repaint').replace(/^Cabin back to /, 'cabin back to ')} ${usd(l.amount)}`);
   pushMessage(g, {
     tone: 'info', cat: 'company', title: `${ac.reg} returned to ${lessorOf(ac)}`,
-    body: `Redelivered at ${siteCity(m.at)} after a ${Math.round((m.end - m.start) / DAY)}-day return check. Return costs ${usd(ac.returning?.quote ?? m.cost)}${parts.length ? ` (${parts.join(', ')})` : ''}.${own.deposit ? ` Deposit ${usd(own.deposit)} refunded.` : ''}${ac.returning?.ferryIds.length ? ' The ferry crew deadheads home.' : ''}`,
+    body: `Redelivered at ${siteCity(m.at)} after a ${Math.round((m.end - m.start) / DAY)}-day return check. Return costs ${usd(ac.returning?.quote ?? m.cost)}${parts.length ? ` (${parts.join(', ')})` : ''}.${own.deposit ? ` Deposit ${usd(own.deposit)} refunded.` : ''}${strip > 0 ? ` The client paid ${usd(strip)} towards the repaint.` : ''}${ac.returning?.ferryIds.length ? ' The ferry crew deadheads home.' : ''}`,
   });
+}
+
+/**
+ * v0.19.2 an aircraft leaving the fleet (returned or sold): its checks and paint-shop visits still booked are called
+ * off with their ferries (`keep`: the event that ends now).
+ */
+export function dropMaintOf(g: GameState, aircraftId: string, keep?: string): void {
+  for (const x of Object.values(g.maintenance)) {
+    if (x.aircraftId !== aircraftId || x.id === keep || x.status !== 'planned') continue;
+    x.status = 'cancelled';
+    x.ev++;
+    const ferries = (x.ferryIds ?? []).filter((id) => g.flights[id]?.status === 'scheduled');
+    if (ferries.length) removeFlights(g, ferries);
+  }
+}
+
+/**
+ * v0.19.2 load repair (player's CS-TCS, s1212): a client strip booked after a lease return was booked (a paint shop at
+ * LIS after the handover at HAM) is dropped with its ferry, and so is any check or paint visit still planned for an
+ * aircraft that has left the fleet. Idempotent. Returns how many events were dropped.
+ */
+export function repairExitPaint(g: GameState): number {
+  let n = 0;
+  for (const x of Object.values(g.maintenance)) {
+    if (x.status !== 'planned' || g.fleet[x.aircraftId]) continue;
+    x.status = 'cancelled';
+    x.ev++;
+    const ferries = (x.ferryIds ?? []).filter((id) => g.flights[id]?.status === 'scheduled');
+    if (ferries.length) removeFlights(g, ferries);
+    n++;
+  }
+  for (const ac of Object.values(g.fleet)) {
+    const rm = ac.returning ? g.maintenance[ac.returning.maintId] : undefined;
+    if (rm && (rm.status === 'planned' || rm.status === 'inWork')) n += dropPaintForExit(g, ac.id, rm.start, true);
+    else if (ac.sale) n += dropPaintForExit(g, ac.id, ac.sale.closes, false);
+  }
+  if (n) touchFlights(g);
+  return n;
 }
 
 /** v0.17.2 a return this close after the C-check falls due weighs flying on, parking or an early return against the check. */

@@ -136,6 +136,8 @@ interface Plan {
   reasons: string[];
   /** v0.7.3 the worst crew day of the trip on the target (its rest facilities): 3 or 4 pilots, extension, split. */
   need: DutyNeed | null;
+  /** v0.19.1 client preferences waived in an emergency swap (shown as warnings). */
+  waived?: string[];
 }
 
 const NEED_RANK: Record<DutyNeed['mode'], number> = { basic: 0, split: 1, ext: 2, aug1: 3, aug2: 4, none: 9 };
@@ -176,24 +178,37 @@ function busyText(g: GameState, ac: Aircraft, a: Anchor, day: Minute): string {
 }
 
 /** Requirements of the contract the target aircraft doesn't meet (cabin, family, paint, approvals). */
-function requirementGaps(g: GameState, c: Contract, src: Aircraft, tgt: Aircraft, legs: Flight[], start: Minute): string[] {
-  const out: string[] = [];
+/**
+ * v0.19.1 the source aircraft can't fly the trip (AOG, an unplanned repair, a check overdue): an emergency swap, where
+ * the client takes any aircraft with enough seats (the player: "only seat numbers should matter"). Pure.
+ */
+export function sourceDown(g: GameState, src: Aircraft, start: Minute, end: Minute): boolean {
+  if (isGrounded(g, src)) return true;
+  return Object.values(g.maintenance).some((m) => m.aircraftId === src.id && m.status !== 'done' && m.status !== 'cancelled'
+    && (m.kind === 'AOG' || !m.planned) && m.start < end && m.end > start);
+}
+
+/** Requirements of the contract the target doesn't meet: [hard, soft]. Soft ones (cabin layout, size, family, body, paint) give way in an emergency swap. */
+function requirementGapsSplit(g: GameState, c: Contract, src: Aircraft, tgt: Aircraft, legs: Flight[], start: Minute): { text: string; soft: boolean }[] {
+  const all: { text: string; soft: boolean }[] = [];
+  const out = { push: (...t: string[]) => { for (const x of t) all.push({ text: x, soft: false }); } };
+  const soft = { push: (...t: string[]) => { for (const x of t) all.push({ text: x, soft: true }); } };
   const req = c.requirements;
   const t = typeOf(tgt.typeId);
   const cab = cabinAt(g, tgt, start).cabin;
   const pax = Math.max(0, ...legs.map((f) => f.pax ?? 0));
   if (cab.total < req.minSeats) out.push(`The client needs at least ${req.minSeats} seats; ${tgt.reg} has ${cab.total}`);
   else if (pax > cab.total) out.push(`${pax} passengers are booked; ${tgt.reg} has ${cab.total} seats`);
-  if (req.maxSeats && cab.total > req.maxSeats) out.push(`The client wants at most ${req.maxSeats} seats; ${tgt.reg} has ${cab.total}`);
+  if (req.maxSeats && cab.total > req.maxSeats) soft.push(`The client wants at most ${req.maxSeats} seats; ${tgt.reg} has ${cab.total}`);
   const want = layoutsOf(fullLoadReq(req, c.archetype, t.body));
-  if (want && !want.includes(cab.layout)) out.push(`The client asked for ${want.map(layoutName).join(' or ')} seats; ${tgt.reg} is ${layoutName(cab.layout)}`);
-  else if (req.minPremium && cab.j + cab.w < req.minPremium) out.push(`The client asked for ${req.minPremium}+ business seats; ${tgt.reg} has ${cab.j + cab.w || 'none'}`);
-  if (req.families?.length && !req.families.includes(t.family)) out.push(`The client only takes ${req.families.join(' or ')} aircraft; ${tgt.reg} is ${an(typeWord(tgt.typeId)).toLowerCase()} ${typeWord(tgt.typeId)}`);
-  if (req.body && req.body !== t.body) out.push(bodyText(req.body, tgt.reg, tgt.typeId));
-  if (c.paint?.accepted && src.paintedFor === c.id && tgt.paintedFor !== c.id) out.push(`The client's livery is on ${src.reg}; ${tgt.reg} is in ${tgt.paintedFor ? 'another client’s' : 'our'} colours`);
+  if (want && !want.includes(cab.layout)) soft.push(`The client asked for ${want.map(layoutName).join(' or ')} seats; ${tgt.reg} is ${layoutName(cab.layout)}`);
+  else if (req.minPremium && cab.j + cab.w < req.minPremium) soft.push(`The client asked for ${req.minPremium}+ business seats; ${tgt.reg} has ${cab.j + cab.w || 'none'}`);
+  if (req.families?.length && !req.families.includes(t.family)) soft.push(`The client only takes ${req.families.join(' or ')} aircraft; ${tgt.reg} is ${an(typeWord(tgt.typeId)).toLowerCase()} ${typeWord(tgt.typeId)}`);
+  if (req.body && req.body !== t.body) soft.push(bodyText(req.body, tgt.reg, tgt.typeId));
+  if (c.paint?.accepted && src.paintedFor === c.id && tgt.paintedFor !== c.id) soft.push(`The client's livery is on ${src.reg}; ${tgt.reg} is in ${tgt.paintedFor ? 'another client’s' : 'our'} colours`);
   const gate = aircraftGate(g, tgt.typeId);
   if (!gate.ok || gate.pending.length) out.push(`The ${typeWord(tgt.typeId)} can't fly passengers for us yet: ${gate.text.split(':')[0].toLowerCase()}`);
-  return out;
+  return all;
 }
 
 /** Each crew seat of the target's complement can be filled by someone rated on its type (not leaving, not joining). */
@@ -273,7 +288,15 @@ function planMove(g: GameState, flightId: string, targetId: string): Plan | { er
       break;
     }
   }
-  reasons.push(...requirementGaps(g, c, src, tgt, trip.moved, trip.start));
+  {
+    const gaps = requirementGapsSplit(g, c, src, tgt, trip.moved, trip.start);
+    const end = Math.max(...trip.moved.map((f) => f.sta));
+    const emergency = sourceDown(g, src, trip.start, end);
+    for (const x of gaps) {
+      if (x.soft && emergency) (plan.waived ??= []).push(x.text);
+      else reasons.push(x.text);
+    }
+  }
   const rated = ratedGap(g, tgt, c);
   if (rated) reasons.push(rated);
   if (reasons.length) return plan;
@@ -743,6 +766,7 @@ function fullQuote(g: GameState, plan: Plan, q: TripMoveQuote): void {
     const cs = flightCrewStatus(h, f.id);
     if (cs.level === 'missing' || cs.level === 'illegal') for (const r of cs.missing.length ? cs.missing : (['CPT'] as Role[])) short.add(r);
   }
+  if (plan.waived?.length) q.warnings.push(`Emergency swap: ${plan.src.reg} can't fly it, so the client takes ${plan.tgt.reg} as it is (${plan.waived.join('; ')})`);
   if (short.size) q.warnings.push(`The roster can't crew it yet (${[...short].map(roleWord).join(', ')} short): you'll get a crew warning to fix it`);
   // v0.7.3 in-flight rest on the target: the rest plan of each moved leg's duty (the roster's own, on the copy).
   const badRest = moved.map((f) => restPlanForFlight(h, f.id)).find((p) => p && !p.ok && p.code !== 'tooShort');

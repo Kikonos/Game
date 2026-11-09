@@ -12,7 +12,8 @@ import type { GameState, Minute } from '../core/types';
 import type { FareLevel, MarketingLevel, Route, RouteModel, RouteSeries, Segment } from './types';
 
 export const MARKET_BY_ID: Record<string, RouteMarket> = Object.fromEntries(ROUTE_MARKETS.map((m) => [m.id, m]));
-export const marketOfRoute = (r: Pick<Route, 'marketId'>): RouteMarket | undefined => MARKET_BY_ID[r.marketId];
+/** The market of a route: its own (a custom route, v0.19.2) or the catalogue's. */
+export const marketOfRoute = (r: Pick<Route, 'marketId'> & { custom?: RouteMarket }): RouteMarket | undefined => r.custom ?? MARKET_BY_ID[r.marketId];
 export { routeStation };
 
 export type Dir = 'out' | 'back';
@@ -142,7 +143,14 @@ export function shareOf(m: RouteMarket, x: ShareInput): number {
     const u = -B.fare * c.fareX * (1 - (x.rivalCut ?? 0)) + B.nonstop * (c.stops === 0 ? 1 : 0) + B.freq * Math.log(Math.max(0.25, c.perWeek)) - B.hours * Math.max(0, c.hours - x.hours);
     sum += Math.exp(u);
   }
-  return Math.exp(ours) / sum;
+  const logit = Math.exp(ours) / sum;
+  if (!m.custom) return logit;
+  // v0.19.2 a custom market against busy rivals: a newcomer's share follows its share of the departures (one-stop
+  // itineraries count a little), so one weekly flight never takes a fifth of a trunk route.
+  let rivalF = 0;
+  for (const c of m.competitors) rivalF += c.stops === 0 ? c.perWeek : 0.15 * c.perWeek;
+  const f = Math.max(0.25, x.freqPerWeek);
+  return Math.min(logit, 1.6 * (f / (f + rivalF)));
 }
 
 /** Hours door to door of our service in a direction (block + stops). */

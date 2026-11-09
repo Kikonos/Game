@@ -14,7 +14,7 @@ import { onFlightArr, onFlightDep, pruneFlights } from './flights';
 import { checkGoals, ladderGrant, syncGoals } from './goals';
 import { onMaintEnd, onMaintStart, planChecks, setMaintHooks, setRestFitHook } from './maintenance';
 import { dailyDelivery, loadEtopsFerries, onDeliveryArr, onDeliveryDep } from './delivery';
-import { dailyLeases, onReturnEnd, onReturnStart } from './leaseReturn';
+import { dailyLeases, onReturnEnd, onReturnStart, repairExitPaint } from './leaseReturn';
 import { dailyMarket, loadMarket, onDelivery, onLeaseEnd, refreshMarket } from './market';
 import { dailyPaint, normaliseLivery } from './paint';
 import { loadRest, loadRest074, rollRestFor } from '../crew/restPlan';
@@ -223,6 +223,8 @@ export const opsModule: SimModule = {
     loadCompliance(g);
     // v0.16.2 a rescue that never cleared the overdraft gets its top-up once.
     repairRescue(g, monthEndBill(g, monthKey(g.now)).total);
+    // v0.19.2 (player's CS-TCS) no paint shop after a lease return or a sale (a client strip booked past the handover).
+    repairExitPaint(g);
   },
   handlers: {
     day: daily,

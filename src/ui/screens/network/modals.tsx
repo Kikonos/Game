@@ -5,14 +5,16 @@ import '../../../styles/acmi/v019.css';
 import { RotationMoveModal } from '../../modals/RotationMoveModal';
 import type { ModalSpec } from '../../store';
 import { LaunchWizard } from './LaunchWizard';
+import { RouteBuilder } from './RouteBuilder';
 import { RoutePage } from './RoutePage';
 
-export type NetworkModalSpec = Extract<ModalSpec, { kind: 'route' | 'routeLaunch' | 'rotationMove' }>;
+export type NetworkModalSpec = Extract<ModalSpec, { kind: 'route' | 'routeLaunch' | 'routeBuild' | 'rotationMove' }>;
 
 export default function NetworkModals({ m }: { m: NetworkModalSpec }) {
   switch (m.kind) {
     case 'route': return <RoutePage key={`${m.routeId}:${m.tab ?? ''}`} routeId={m.routeId} tab={m.tab} />;
     case 'routeLaunch': return <LaunchWizard key={`${m.routeId ?? ''}:${m.marketId ?? ''}`} routeId={m.routeId} marketId={m.marketId} />;
+    case 'routeBuild': return <RouteBuilder key="build" from={m.from} to={m.to} />;
     case 'rotationMove': return <RotationMoveModal key={`${m.rotId}@${m.delta}`} rotId={m.rotId} delta={m.delta} back={m.back} />;
   }
 }

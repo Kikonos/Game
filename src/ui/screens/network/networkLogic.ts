@@ -1,7 +1,8 @@
 // v0.19 "Scheduled routes" (docs/UPDATE-0.19.md §K): the Network area's pure view helpers (no React). The words the
 // player reads about a route: its name and model, the status chip, the timetable in words, loads, trends and money.
 
-import { AIRPORT_BY_CODE } from '../../../data/airports';
+import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../../data/airports';
+import { countryName } from '../../../data/countries';
 import { ROUTE_MARKETS, type RouteMarket } from '../../../data/routes';
 import { typeOf } from '../../../engine/core/perf';
 import { DAY, fmtDay, fmtTime, localMinuteOfDay, monthKey, toDate } from '../../../engine/core/time';
@@ -10,10 +11,11 @@ import type { LaunchStageId, Rotation, Route, RoutePnl, RouteSeries, SectorLoad 
 
 export const MARKET_BY_ID: Record<string, RouteMarket> = Object.fromEntries(ROUTE_MARKETS.map((m) => [m.id, m]));
 
-export const marketOf = (r: Pick<Route, 'marketId'>): RouteMarket | undefined => MARKET_BY_ID[r.marketId];
+/** The market of a route: its own (a custom route, v0.19.2) or the catalogue's. */
+export const marketOf = (r: Pick<Route, 'marketId'> & { custom?: RouteMarket }): RouteMarket | undefined => r.custom ?? MARKET_BY_ID[r.marketId];
 
 /** 'Lisbon – Bissau' */
-export function routeName(r: Pick<Route, 'marketId'>): string {
+export function routeName(r: Pick<Route, 'marketId'> & { custom?: RouteMarket }): string {
   const m = marketOf(r);
   if (!m) return r.marketId;
   return `${AIRPORT_BY_CODE[m.from]?.city ?? m.from} – ${m.city ?? AIRPORT_BY_CODE[m.to]?.city ?? m.to}`;
@@ -27,7 +29,7 @@ export function routeCode(m: RouteMarket | undefined, back = false): string {
 }
 
 /** 'Own brand' · 'For STP Airways' · '<Company> Holidays'. */
-export function modelLabel(g: GameState, r: Pick<Route, 'model' | 'partnerId' | 'marketId'>): string {
+export function modelLabel(g: GameState, r: Pick<Route, 'model' | 'partnerId' | 'marketId'> & { custom?: RouteMarket }): string {
   if (r.model === 'own') return 'Own brand';
   if (r.model === 'partner') {
     const name = (r.partnerId && g.clients[r.partnerId]?.name) || marketOf(r)?.partner?.name || 'a partner';
@@ -345,4 +347,38 @@ export function seasonWord(code: string): string {
   if (!m) return code;
   const y = 2000 + Number(m[2]);
   return m[1] === 'S' ? `summer ${y}` : `winter ${y}–${String(y + 1).slice(2)}`;
+}
+
+// ---------- v0.19.2 the route builder ----------
+
+/** Airports matching a search (code, city, airport name, country), best first; never fuel-stop fields. Pure. */
+export function searchAirports(q: string, exclude: string[] = [], limit = 8): Airport[] {
+  const s = q.trim().toLowerCase();
+  if (s.length < 2) return [];
+  const scored: [number, Airport][] = [];
+  for (const a of AIRPORTS) {
+    if (a.enroute || a.ice || exclude.includes(a.code)) continue;
+    const code = a.code.toLowerCase();
+    const city = a.city.toLowerCase();
+    const country = countryName(a.country).toLowerCase();
+    let sc = 0;
+    if (code === s) sc = 100;
+    else if (city === s) sc = 90;
+    else if (city.startsWith(s)) sc = 70;
+    else if (a.name.toLowerCase().startsWith(s)) sc = 55;
+    else if (country.startsWith(s)) sc = 40;
+    else if (city.includes(s) || a.name.toLowerCase().includes(s)) sc = 30;
+    else if (country.includes(s)) sc = 20;
+    if (sc) scored.push([sc + a.size, a]);
+  }
+  return scored.sort((x, y) => y[0] - x[0] || (x[1].code < y[1].code ? -1 : 1)).slice(0, limit).map((x) => x[1]);
+}
+
+/** Traffic rights in plain words. */
+export function rightsWord(hard: number): string {
+  if (hard <= 0) return 'Open skies: nothing to wait for';
+  if (hard <= 0.1) return 'Open: a filing, a few weeks';
+  if (hard <= 0.3) return 'Bilateral: a permit, two to four months';
+  if (hard <= 0.5) return 'Hard: a permit, four to six months, may be refused';
+  return 'Very hard: few permits for a newcomer';
 }

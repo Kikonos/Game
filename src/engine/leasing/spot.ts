@@ -15,7 +15,7 @@ import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
 import { typeOf } from '../core/perf';
 import { chance, int, pick, type RngHolder } from '../core/rng';
-import { DAY, fmtDay, toDate } from '../core/time';
+import { DAY, fmtDay, toDate, fmtSpan } from '../core/time';
 import type { ActionResult, AircraftOffer, GameState, Minute, Rfp } from '../core/types';
 import { aircraftGate } from '../ops/company';
 import { bandsFor, makeOffer, postOffer, shortName } from '../ops/market';
@@ -85,7 +85,7 @@ export function askSpot(g: GameState, d: SpotDraft): ActionResult<{ rfpId: strin
   const L = g.leasing;
   if (!L) return { ok: false, error: 'Short-term aircraft are not on the market' };
   const months = Math.round(d.months);
-  if (months < P().months[0] || months > P().months[1]) return { ok: false, error: `Short-term leases run ${P().months[0]}–${P().months[1]} months` };
+  if (months < P().months[0] || months > P().months[1]) return { ok: false, error: `Short-term leases run ${fmtSpan(P().months[0], P().months[1], 'months')}` };
   const from = Math.max(d.from, g.now);
   const srcs = sourcesFor(d.family, from, months);
   if (!srcs.length) {

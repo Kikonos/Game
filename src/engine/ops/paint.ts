@@ -457,6 +457,38 @@ function dropPaint(g: GameState, m: MaintenanceEvent): void {
   touchFlights(g);
 }
 
+/**
+ * v0.19.2 (player's CS-TCS) an aircraft leaving the fleet (a lease return booked, or a sale) takes no paint-shop visit
+ * after it goes: every planned paint event from `from` on is called off, and so is every planned client strip when it
+ * goes back to its lessor (the return check strips it and paints it white: returnQuote's repaint line). Returns how many
+ * were dropped.
+ */
+export function dropPaintForExit(g: GameState, aircraftId: string, from: Minute, returning: boolean): number {
+  let n = 0;
+  for (const m of Object.values(g.maintenance)) {
+    if (m.aircraftId !== aircraftId || m.kind !== 'paint' || m.status !== 'planned') continue;
+    if (m.start >= from || (returning && m.paint?.phase === 'out')) {
+      dropPaint(g, m);
+      n++;
+    }
+  }
+  return n;
+}
+
+/**
+ * v0.19.2 the return check strips a client's colours (returnQuote's repaint line): the client's share of its strip for a
+ * contract that ran its course is invoiced as at the paint shop. The amount, or 0.
+ */
+export function stripInReturn(g: GameState, ac: Aircraft): number {
+  const c = ac.paintedFor ? g.contracts[ac.paintedFor] : undefined;
+  delete ac.paintedFor;
+  const t = c?.paint;
+  if (!c || !t || c.status !== 'completed' || !(t.clientShare > 0)) return 0;
+  const amount = Math.round(t.stripCost * Math.min(1, t.clientShare));
+  if (amount > 0) invoice(g, { clientId: c.clientId, contractId: c.id, desc: `Repaint after ${c.title}: ${ac.reg} (in the return check)`, amount, cat: 'otherRevenue', dueDays: c.payment.dueDays });
+  return amount;
+}
+
 /** Contract cancelled by us: paint-ins not started yet are called off (a finished paint is stripped by dailyPaint). */
 export function cancelPaintFor(g: GameState, c: Contract): void {
   for (const id of Object.values(c.paint?.inMx ?? {})) {
@@ -523,11 +555,16 @@ export function dailyPaint(g: GameState): void {
       if (!ac || ac.status === 'stored' || ac.status === 'leasedOut') continue;
       if (done) {
         if (ac.paintedFor !== c.id || liveMx(g, t.outMx?.[acId])) continue;
+        // v0.19.2 (player's CS-TCS) going back to its lessor: the return check strips it (no paint shop after the return).
+        if (ac.returning) continue;
         // A new client's paint-in already booked paints over it.
         if (Object.values(g.maintenance).some((m) => m.aircraftId === acId && m.paint?.phase === 'in' && m.status === 'planned')) continue;
         const after = Math.max(lastArrivalFor(g, c, acId), g.now + BAL.ferryLeadMin);
-        const slot = paintWindow(g, acId, { days: t.stripDays }, after + (BAL.paint.stripWithinDays + t.stripDays) * DAY, after);
+        // v0.19.2 a sold aircraft is stripped before the handover or not at all (the buyer's problem then, no warning).
+        const by = after + (BAL.paint.stripWithinDays + t.stripDays) * DAY;
+        const slot = paintWindow(g, acId, { days: t.stripDays }, ac.sale ? Math.min(by, ac.sale.closes) : by, after);
         if (slot && !bookPaint(g, c, acId, 'out', slot)) continue;
+        if (ac.sale) continue;
         if (!t.warned) {
           t.warned = true;
           pushMessage(g, { tone: 'warn', cat: 'tech', title: `${ac.reg} still wears ${g.clients[c.clientId]?.name ?? 'client'} colours`, body: 'No paint-shop slot within 30 days; it flies in their livery until one opens.', ref: { kind: 'aircraft', id: acId } });

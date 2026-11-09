@@ -3,6 +3,7 @@
 // Money in USD at $1 ≈ €0.86. Data only: no market is open until the player starts its study.
 
 import type { RouteModel, Segment } from '../engine/network/types';
+import { AIRPORT_BY_CODE } from './airports';
 
 /** §G one station's costs for a 767-300ER turn (other types scale by √(MTOW/187 t)). */
 export interface RouteStation {
@@ -40,6 +41,8 @@ export interface RouteCompetitor {
   fareX: number;
   /** Its seats a flight (capacity cap for the share). */
   seats: number;
+  /** v0.19.2 the hub of a one-stop rival (the builder's map draws it faintly). */
+  via?: string;
 }
 
 export interface RouteMarket {
@@ -91,6 +94,10 @@ export interface RouteMarket {
   eu261: 'mid' | 'long';
   /** Short reason the player sees in the catalogue. */
   blurb: string;
+  /** v0.19.2 a market the player built (engine/network/custom.ts): not researched, so the study's spread is wider. */
+  custom?: true;
+  /** v0.19.2 how hard the traffic rights are for a newcomer (0 open skies … 0.7 very hard): longer, dearer, riskier. */
+  rightsHard?: number;
 }
 
 /** §G stations (767 reference). */
@@ -335,9 +342,49 @@ export function routeMarket(id: string): RouteMarket {
   return m;
 }
 
-/** A station's costs (a station missing from the table costs like a mid African one). */
+/** A station's costs: the researched table, else (v0.19.2) estimated from the airport's region and size. */
 export function routeStation(code: string): RouteStation {
-  return ROUTE_STATIONS[code] ?? { code, fuelX: 1.12, airport: 2_600, handling: 4_600, paxCharge: 1, overhead: 9_000, cat: 'B', caterer: false, euCargo: false, taxes: 50 };
+  return ROUTE_STATIONS[code] ?? stationFor(code);
+}
+
+const genStations = new Map<string, RouteStation>();
+/** v0.19.2 by region [E]: fuel into-plane against the world price, charges and handling a 767 turn (USD). */
+const REGION_COST: Record<string, { fuel: number; charges: number; handling: number; pax: number; taxes: number }> = {
+  EU: { fuel: 1.0, charges: 1.1, handling: 1.05, pax: 2.2, taxes: 45 },
+  NA: { fuel: 0.95, charges: 1.2, handling: 1.2, pax: 2.5, taxes: 40 },
+  SA: { fuel: 1.05, charges: 1.0, handling: 0.95, pax: 1.5, taxes: 50 },
+  AF: { fuel: 1.15, charges: 1.15, handling: 1.1, pax: 1.0, taxes: 55 },
+  ME: { fuel: 0.92, charges: 0.9, handling: 0.85, pax: 0.5, taxes: 30 },
+  AS: { fuel: 1.0, charges: 0.9, handling: 0.8, pax: 1.0, taxes: 35 },
+  OC: { fuel: 1.08, charges: 1.1, handling: 1.15, pax: 2.0, taxes: 45 },
+};
+
+/** v0.19.2 an airport's station costs from its region, size, runway and remoteness (pure, cached). */
+export function stationFor(code: string): RouteStation {
+  const hit = genStations.get(code);
+  if (hit) return hit;
+  const a = AIRPORT_BY_CODE[code];
+  let st: RouteStation;
+  if (!a) st = { code, fuelX: 1.12, airport: 2_600, handling: 4_600, paxCharge: 1, overhead: 9_000, cat: 'B', caterer: false, euCargo: false, taxes: 50 };
+  else {
+    const R = REGION_COST[a.continent] ?? REGION_COST.AF;
+    const remote = !!a.remote || !!a.enroute;
+    const r100 = (v: number) => Math.round(v / 100) * 100;
+    st = {
+      code,
+      fuelX: Math.round((R.fuel + (a.size <= 1 ? 0.08 : 0) + (remote ? 0.15 : 0)) * 100) / 100,
+      airport: r100((1_400 + 450 * a.size) * R.charges),
+      handling: r100((3_000 + 450 * a.size) * R.handling * (remote ? 1.2 : 1)),
+      paxCharge: R.pax,
+      overhead: r100(6_000 + 1_500 * a.size + (a.continent === 'AF' ? 2_000 : 0) + (remote ? 3_000 : 0)),
+      cat: a.runwayM < 2_200 || (a.elevM ?? 0) > 1_500 || remote ? 'C' : a.size >= 3 ? 'A' : 'B',
+      caterer: a.size >= 3 || (a.size >= 2 && a.tour >= 0.7),
+      euCargo: a.continent === 'EU' || a.size >= 4,
+      taxes: R.taxes,
+    };
+  }
+  genStations.set(code, st);
+  return st;
 }
 
 /** Segment words for the study and the business case. */

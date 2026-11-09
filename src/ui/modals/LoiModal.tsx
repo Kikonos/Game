@@ -11,7 +11,7 @@ import { COUNTRIES } from '../../data/countries';
 import { MARKET_LIVERY } from '../../data/livery';
 import { BAL } from '../../engine/core/balance';
 import { typeOf } from '../../engine/core/perf';
-import { fmtDay } from '../../engine/core/time';
+import { fmtDay, fmtSpan } from '../../engine/core/time';
 import { loiQuote, paintCost, signLoi, type LoiOpts } from '../../engine/leasing';
 import { whyText } from '../../engine/leasing/terms';
 import { checkRegistration, cleanRegInput, marketView, NAME_MAX, problemFor, regCountry, suggestRegistration, type ProblemAction } from '../../engine/ops';
@@ -110,7 +110,7 @@ export function LoiModal({ offerId }: { offerId: string }) {
             ...(q.reservesDeposit ? [['Reserves up front', `${money(q.reservesDeposit)} at signing, back at return`]] as [string, string][] : []),
             ['Reserves', q.reserves],
             ['Return', v.returnText ?? q.ret],
-            ['Credit check', `${q.lessor} answers in ${q.committeeDays[0]}–${q.committeeDays[1]} days (our rating ${q.grade})`],
+            ['Credit check', `${q.lessor} answers in ${fmtSpan(q.committeeDays[0], q.committeeDays[1], 'days')} (our rating ${q.grade})`],
             ['Transition', `${money(q.transition)} at signing${q.techReps ? ` + tech reps ${money(q.techReps)}` : ''}${q.paint ? ` + paint ${money(q.paint)}` : ''}`],
             ['Cash after', `${money(q.cashAfter)} now · ${money(q.cashAfter - atSign)} after signing`],
           ]} />

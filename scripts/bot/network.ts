@@ -9,12 +9,19 @@ import { typeOf } from '../../src/engine/core/perf';
 import { DAY, fmtDate, monthKey } from '../../src/engine/core/time';
 import type { GameState } from '../../src/engine/core/types';
 import { liveFlightsOf } from '../../src/engine/core/entities';
-import { acmiNetBH, answerSlot, businessCase, caseDraft, chainOf, decideCase, MARKET_BY_ID, startStudy } from '../../src/engine/network';
+import { acmiNetBH, answerSlot, businessCase, caseDraft, chainOf, customId, decideCase, marketById, startStudy } from '../../src/engine/network';
 import { distanceNm } from '../../src/engine/core/geo';
 import { blockMinutes, maxSectorNm } from '../../src/engine/core/perf';
 import type { Route } from '../../src/engine/network/types';
 
 const DIL = process.argv.includes('--routes=dil');
+/** v0.19.2 --custom-route[=LIS-LUX]: the bot builds this route first (the builder's custom market) and flies it even at a loss (a test of the custom path), then OXB. */
+const CUSTOM = (() => {
+  const a = process.argv.find((x) => x === '--custom-route' || x.startsWith('--custom-route='));
+  if (!a) return null;
+  const [from, to] = (a.split('=')[1] ?? 'LIS-LUX').split('-');
+  return customId({ from, to });
+})();
 const k = (v: number) => `${Math.round(v / 1000)}k`;
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
 
@@ -23,8 +30,14 @@ const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
  * 25 of the last 60 days, and under half of the next 60 days booked.
  */
 function idleWide(g: GameState, exclude: Set<string>, marketId = 'LIS-OXB'): string | null {
+  return idleAll(g, exclude, marketId)[0] ?? null;
+}
+
+/** Every idle aircraft that reaches the market, widebodies first. */
+function idleAll(g: GameState, exclude: Set<string>, marketId: string): string[] {
+  const out: string[] = [];
   const day = Math.floor(g.now / DAY);
-  const m = MARKET_BY_ID[marketId];
+  const m = marketById(marketId);
   const reach = (typeId: string) => !!m && [...chainOf(m, 'out'), ...chainOf(m, 'back').slice(1)].every((x, i, a) => i === 0 || distanceNm(a[i - 1], x) <= maxSectorNm(typeId, a[i - 1], x));
   const list = Object.values(g.fleet).filter((ac) => ac.cabin.total >= 150 && reach(ac.typeId)).sort((a, b) => (typeOf(b.typeId)?.body === 'wide' ? 1 : 0) - (typeOf(a.typeId)?.body === 'wide' ? 1 : 0) || (a.id < b.id ? -1 : 1));
   for (const ac of list) {
@@ -34,9 +47,9 @@ function idleWide(g: GameState, exclude: Set<string>, marketId = 'LIS-OXB'): str
     if (60 - flew.size < 25) continue;
     const busyDays = new Set(liveFlightsOf(g, ac.id).filter((f) => f.std < g.now + 60 * DAY && f.status !== 'cancelled').map((f) => Math.floor(f.std / DAY)));
     if (busyDays.size > 30) continue;
-    return ac.id;
+    out.push(ac.id);
   }
-  return null;
+  return out;
 }
 
 const live = (g: GameState) => Object.values(g.network?.routes ?? {}).filter((r) => r.status !== 'closed');
@@ -51,12 +64,21 @@ export function botNetwork(g: GameState): boolean {
   for (const r of routes) {
     if (r.status === 'case') {
       const d = caseDraft(g, r.id);
-      const ac = idleWide(g, used, r.marketId);
+      let ac = idleWide(g, used, r.marketId);
+      // v0.19.2 a custom route: the idle aircraft whose business case is best (a narrowbody often beats a 767 there).
+      if (d && r.custom) {
+        let best = -Infinity;
+        for (const id of idleAll(g, used, r.marketId)) {
+          const bc = businessCase(g, r.id, { ...d, typeId: g.fleet[id].typeId, layout: g.fleet[id].cabin.layout });
+          if (bc && bc.p50.result > best) { best = bc.p50.result; ac = id; }
+        }
+      }
       if (d && ac) {
         d.typeId = g.fleet[ac].typeId;
         d.layout = g.fleet[ac].cabin.layout;
         const bc = businessCase(g, r.id, d);
-        if (bc && bc.p50.result > 0) {
+        // v0.19.2 --custom-route is a test of the custom path: it goes even when the case shows a loss.
+        if (bc && (bc.p50.result > 0 || (CUSTOM !== null && r.marketId === CUSTOM))) {
           decideCase(g, r.id, 'go', d);
           if (r.series[0]) r.series[0].tail = ac;
           used.add(ac);
@@ -78,7 +100,7 @@ export function botNetwork(g: GameState): boolean {
     const r = routes.find((x) => x.marketId === id);
     return r ? Object.values(r.pnl).filter((p) => p.sectors && p.result > 0).length : 0;
   };
-  const next = !has('LIS-OXB') ? 'LIS-OXB' : !has('LIS-TMS') && goodMonths('LIS-OXB') >= 3 ? 'LIS-TMS' : DIL && !has('LIS-DIL') ? 'LIS-DIL' : null;
+  const next = CUSTOM && !has(CUSTOM) ? CUSTOM : !has('LIS-OXB') ? 'LIS-OXB' : !has('LIS-TMS') && goodMonths('LIS-OXB') >= 3 ? 'LIS-TMS' : DIL && !has('LIS-DIL') ? 'LIS-DIL' : null;
   if (next && g.company.homeBase === 'LIS' && !routes.some((r) => r.status === 'study' || r.status === 'case') && idleWide(g, used, next)) {
     const res = startStudy(g, next, 'full');
     if (res.routeId) did = true;

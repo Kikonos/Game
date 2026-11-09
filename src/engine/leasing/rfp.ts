@@ -16,7 +16,7 @@ import { nextId } from '../core/entities';
 import { pushMessage } from '../core/messages';
 import { runwayFit, typeOf } from '../core/perf';
 import { chance, int, pick, range, type RngHolder } from '../core/rng';
-import { DAY, fmtDay, yearOf } from '../core/time';
+import { DAY, fmtDay, yearOf, fmtSpan } from '../core/time';
 import type { ActionResult, AgeBand, AircraftOffer, CreditGrade, GameState, LessorId, Minute, Rfp, RfpAnswer } from '../core/types';
 import { aircraftGate } from '../ops/company';
 import { bandYears as marketBandYears, makeOffer } from '../ops/market';
@@ -112,7 +112,7 @@ export function rfpPreview(g: GameState, d: RfpDraft): RfpPreview {
   const weeks = (n: number) => Math.max(1, Math.round(n / 7));
   const won = lines.length - okN;
   const credit = lines.some((l) => !l.ok && l.kind === 'credit');
-  const text = `Goes to ${okN} lessor${okN === 1 ? '' : 's'}${won ? ` · ${won} won't consider us yet${credit ? ` (rating ${grade})` : ''}` : ''} · answers in ${weeks(reply[0])}–${weeks(reply[1])} weeks`;
+  const text = `Goes to ${okN} lessor${okN === 1 ? '' : 's'}${won ? ` · ${won} won't consider us yet${credit ? ` (rating ${grade})` : ''}` : ''} · answers in ${fmtSpan(weeks(reply[0]), weeks(reply[1]), 'weeks')}`;
   const gate = aircraftGate(g, d.typeId);
   const years = bandYears(g, t, d.band);
   let blocked: string | null = null;

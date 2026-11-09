@@ -228,6 +228,8 @@ export type ModalSpec =
   /** v0.19 scheduled routes (ui/screens/network, a lazy chunk): the route page, the launch wizard, moving a rotation. */
   | { kind: 'route'; routeId: string; tab?: 'overview' | 'timetable' | 'sales' | 'costs' }
   | { kind: 'routeLaunch'; routeId?: string; marketId?: string }
+  /** v0.19.2 build a route to any destination (Network › Build your own route). */
+  | { kind: 'routeBuild'; from?: string; to?: string }
   | { kind: 'rotationMove'; rotId: string; delta: number; back?: ModalSpec };
 
 export interface Toast {
