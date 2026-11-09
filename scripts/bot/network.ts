@@ -15,7 +15,7 @@ import { blockMinutes, maxSectorNm } from '../../src/engine/core/perf';
 import type { Route } from '../../src/engine/network/types';
 
 const DIL = process.argv.includes('--routes=dil');
-/** v0.19.2 --custom-route[=LIS-LUX]: after OXB the bot builds this route itself (the builder's custom market). */
+/** v0.19.2 --custom-route[=LIS-LUX]: the bot builds this route first (the builder's custom market), then OXB. */
 const CUSTOM = (() => {
   const a = process.argv.find((x) => x === '--custom-route' || x.startsWith('--custom-route='));
   if (!a) return null;
@@ -99,7 +99,7 @@ export function botNetwork(g: GameState): boolean {
     const r = routes.find((x) => x.marketId === id);
     return r ? Object.values(r.pnl).filter((p) => p.sectors && p.result > 0).length : 0;
   };
-  const next = !has('LIS-OXB') ? 'LIS-OXB' : CUSTOM && !has(CUSTOM) ? CUSTOM : !has('LIS-TMS') && goodMonths('LIS-OXB') >= 3 ? 'LIS-TMS' : DIL && !has('LIS-DIL') ? 'LIS-DIL' : null;
+  const next = CUSTOM && !has(CUSTOM) ? CUSTOM : !has('LIS-OXB') ? 'LIS-OXB' : !has('LIS-TMS') && goodMonths('LIS-OXB') >= 3 ? 'LIS-TMS' : DIL && !has('LIS-DIL') ? 'LIS-DIL' : null;
   if (next && g.company.homeBase === 'LIS' && !routes.some((r) => r.status === 'study' || r.status === 'case') && idleWide(g, used, next)) {
     const res = startStudy(g, next, 'full');
     if (res.routeId) did = true;
