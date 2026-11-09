@@ -35,10 +35,11 @@ export const leaveHorizon = (g: GameState): Minute => g.now + (BAL.scheduleHoriz
  * The first seat from → to on base-local day k of crew member c (from 06:00 base time, else from midnight), checked in
  * no earlier than `notBefore`, landing by `latest`. Null when there is none that day. Pure.
  */
-export function leaveTripPlan(g: GameState, c: CrewMember, from: string, to: string, k: number, notBefore: Minute, latest: Minute, kind: 'home' | 'back'): TicketPlan | null {
+export function leaveTripPlan(g: GameState, c: CrewMember, from: string, to: string, k: number, notBefore: Minute, latest: Minute, kind: 'home' | 'back', b?: Block): TicketPlan | null {
   if (from === to || !from || !to) return null;
-  const a = midnight(c.base, k);
-  const z = midnight(c.base, k + 1);
+  // (Inside the leave: a block that does not run from midnight to midnight cuts its first and last day.)
+  const a = Math.max(midnight(c.base, k), b?.from ?? -Infinity);
+  const z = Math.min(midnight(c.base, k + 1), b?.to ?? Infinity);
   const blk = dhBlock(from, to);
   const lo = Math.max(notBefore + BAL.deadheadCheckIn, g.now + BAL.deadheadCheckIn);
   for (const start of [a + 6 * 60, a]) {
@@ -108,7 +109,7 @@ export function leaveBackPlan(g: GameState, c: CrewMember, b: Block, to: string,
   const k0 = dayIndex(c.base, b.from);
   for (const k of [kLast, kLast - 1]) {
     if (k <= k0) break;
-    const p = leaveTripPlan(g, c, c.base, to, k, b.from, latest, 'back');
+    const p = leaveTripPlan(g, c, c.base, to, k, b.from, latest, 'back', b);
     if (p) return p;
   }
   return null;
@@ -123,7 +124,7 @@ export function leaveHomePlan(g: GameState, c: CrewMember, b: Block, from: strin
   const kLast = dayIndex(c.base, b.to - 1);
   for (const k of [k0, k0 + 1]) {
     if (k > kLast || (k > k0 && k >= kLast)) break;
-    const p = leaveTripPlan(g, c, from, c.base, k, notBefore, b.to, 'home');
+    const p = leaveTripPlan(g, c, from, c.base, k, notBefore, b.to, 'home', b);
     if (p) return p;
   }
   return null;

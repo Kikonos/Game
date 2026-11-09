@@ -13,11 +13,11 @@ import { DAY } from '../core/time';
 import type { CrewMember, Flight, GameState } from '../core/types';
 import { addDeadhead } from '../core/entities';
 import { fixtureGame, addCrew } from './fixtures';
-import { segsOf, locAt, ctxOf, posSeg, crewIx } from './timeline';
+import { segsOf, locAt, ctxOf, crewIx } from './timeline';
 import { evalSegs } from './rules';
 import { dayIndex } from './dayPlan';
 import { leaveTrips } from './roster';
-import { leaveBackFor, leaveHomePlan } from './leaveTrips';
+import { leaveBackFor } from './leaveTrips';
 import { judgePerson } from './selfCheck';
 import { crewCalendar, crewStatusView } from './calendar';
 import { leaveYearOf } from './leave';
@@ -188,9 +188,10 @@ describe('v0.19.3 annual leave that begins away', () => {
     const b = { from: midnight(c.base, k + 5), to: midnight(c.base, k + 12), why: 'leave' as const, annual: true as const };
     c.blocks = [b];
     c.loc = 'HAM';
-    const home = leaveHomePlan(g, c, b, 'HAM', g.now)!;
-    expect(home).toBeTruthy();
-    const segs = [posSeg(home, c)];
+    // Away at Hamburg with nothing before the leave: its trip home booked on its first day.
+    leaveTrips(g);
+    expect(tickets(g, c, 'home')).toHaveLength(1);
+    const segs = segsOf(g, c);
     const report = midnight(c.base, k + 12) + 20 * 60;
     for (const dep of ['DXB', 'HAM']) {
       const back = leaveBackFor(g, c, segs, report, dep)!;

@@ -8,7 +8,17 @@ import type { GameState } from '../core/types';
 import { deserialize } from '../save';
 import { advanceTo } from '../sim';
 
-const load = (): GameState => deserialize(fixture('v0102-blue'));
+/**
+ * v0.19.3 the purser c7c's annual leave from 16 Aug begins at Düsseldorf: she now flies home on its first day (no longer
+ * at once), which changes that night's run of chance (delays) before BLU404. The leave has nothing to do with these
+ * checks: it is taken off so the evening plays as the save recorded it (BLU404 late into the Heathrow curfew).
+ */
+const load = (): GameState => {
+  const g = deserialize(fixture('v0102-blue'));
+  const c = g.crew.c7c;
+  if (c?.blocks) c.blocks = c.blocks.filter((b) => b.from > g.now + 30 * 24 * 60);
+  return g;
+};
 const byNo = (g: GameState, no: string) => Object.values(g.flights).filter((f) => f.no === no);
 const msgs = (g: GameState, re: RegExp) => g.messages.filter((m) => re.test(m.title));
 /** Plays on in 15-minute steps, as the game screen does. */

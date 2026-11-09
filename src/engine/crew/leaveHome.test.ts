@@ -1,7 +1,9 @@
 // Crew-planning round (26 Oct 2026): annual leave starts at home. Bot seeds 2-5 and the player's save had crew fly a
 // deadhead on the first morning of their leave (a ticket home after a late landing, or after the 36 h recovery at the
 // hotel), and seed 3 an FO who sat out a ten-day leave in Hamburg and flew home in the middle of it (the planner had kept
-// him there for a trip after the leave).
+// him there for a trip after the leave). v0.19.3 (the player: "they can deadhead home on the first day of leave and
+// deadhead back on the last day"): an annual leave that begins away starts with its own trip home on its first day
+// (travel on a leave day, the leave keeps its dates) and ends with one back out on its last to where the next work is.
 
 import { describe, expect, it } from 'vitest';
 import { acceptOffer } from '../contracts';
@@ -47,25 +49,32 @@ describe('leave starts at home', () => {
     expect(c.blocks![0].from).toBe(from);
   });
 
-  it('v0.12.1 (C4) one held that lands inside the leave gives way to an earlier one: still exactly one ticket home', () => {
+  it('v0.12.1 (C4) one held on the leave\'s first day is its trip home (v0.19.3): still exactly one ticket home, nothing bought', () => {
     const { g, c, from } = away(1);
-    addDeadhead(g, { crewIds: [c.id], from: 'HAM', to: c.base, std: from + 6 * 60, sta: from + 9 * 60, cost: 0 });
+    const t = addDeadhead(g, { crewIds: [c.id], from: 'HAM', to: c.base, std: from + 6 * 60, sta: from + 9 * 60, cost: 0 });
+    const cash = g.finance.current.lines.deadhead ?? 0;
     sendStrandedHome(g);
     const home = ticketsOf(g, c.id).filter((f) => f.to === c.base);
-    expect(home.length).toBe(1);
-    expect(home[0].sta).toBeLessThanOrEqual(from);
+    expect(home.map((f) => f.id)).toEqual([t.id]);
+    expect(home[0].leaveTrip).toBe('home');
+    expect(g.finance.current.lines.deadhead ?? 0).toBe(cash);
+    expect(c.blocks![0].from).toBe(from);
   });
-  it('crew left at an outstation go home before their leave, even with a ticket out of there for a trip after it', () => {
+  it('crew left at an outstation fly home on the first day of their leave and back out on its last for work after it', () => {
     const { g, c, from } = away(1);
     // A ticket on from Hamburg for work after the leave (the planner had kept them there).
-    addDeadhead(g, { crewIds: [c.id], from: 'HAM', to: 'ZAG', std: from + 12 * DAY, sta: from + 12 * DAY + 120, cost: 0 });
+    addDeadhead(g, { crewIds: [c.id], from: 'HAM', to: 'ZAG', std: from + 11 * DAY, sta: from + 11 * DAY + 120, cost: 0 });
     sendStrandedHome(g);
     const home = ticketsOf(g, c.id).find((f) => f.from === 'HAM' && f.to === c.base);
     expect(home, 'a ticket home').toBeDefined();
-    // Lands before the leave starts (or the leave starts when it lands); never a flight inside the leave.
+    // v0.19.3 on the leave's first day, inside it; the leave keeps its dates; back to Hamburg on its last day.
     const b = c.blocks!.find((x) => x.why === 'leave')!;
-    expect(home!.std).toBeLessThan(b.from);
-    expect(home!.sta).toBeLessThanOrEqual(b.from);
+    expect(b.from).toBe(from);
+    expect(home!.leaveTrip).toBe('home');
+    expect(dayIndex(c.base, home!.std)).toBe(dayIndex(c.base, b.from));
+    const back = ticketsOf(g, c.id).find((f) => f.leaveTrip === 'back')!;
+    expect(back).toMatchObject({ from: c.base, to: 'HAM' });
+    expect(dayIndex(c.base, back.std)).toBe(dayIndex(c.base, b.to - 1));
   });
 
   it('a ticket that can only land after the leave began moves its start to the landing, keeping the days', () => {
@@ -86,13 +95,11 @@ describe('leave starts at home', () => {
     const b = c.blocks![0];
     expect(b.from).toBe(sta);
     expect(days(b)).toBe(before);
-    // A late evening landing loses the first day: the leave runs a day longer.
+    // v0.19.3 a ticket that leaves inside an annual leave is travel on a leave day: the leave keeps its dates.
     const late = away(2);
     const b0 = { ...late.c.blocks![0] };
     leaveAfterTicket(late.g, [late.c.id], { std: late.from + 16 * 60, sta: late.from + 20 * 60, to: late.c.base });
-    expect(late.c.blocks![0].from).toBe(late.from + 20 * 60);
-    expect(days(late.c.blocks![0])).toBe(days(b0));
-    expect(late.c.blocks![0].to).toBe(b0.to + DAY);
+    expect(late.c.blocks![0]).toEqual(b0);
     expect(std).toBeLessThan(b.from);
   });
   it('a ticket home moved by any other path (a retime) into the leave starts the leave at its landing (daily check)', () => {

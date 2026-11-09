@@ -844,7 +844,7 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void
   const cost = clientPaysCrewTravel(g, p) ? 0 : ticketPrice(c.loc, c.base);
   const contractId = p?.contractId ?? null;
   // Crew going home together share one booking (one flight per group, DESIGN §3.5).
-  const group = Object.values(g.flights).find((f) => f.kind === 'deadhead' && f.status === 'scheduled' && f.from === c.loc && f.to === c.base && f.std === std && f.contractId === contractId && !ix.ticketDuty.has(f.id));
+  const group = Object.values(g.flights).find((f) => f.kind === 'deadhead' && f.status === 'scheduled' && f.from === c.loc && f.to === c.base && f.std === std && f.contractId === contractId && !f.leaveTrip && !ix.ticketDuty.has(f.id));
   // Rotations round: the ticket says why they go home (an early release's reason, else 'home after the trip'), and names
   // a departure passed over as full.
   const fullAt = takeSkippedFull(c.loc, c.base, std);
@@ -1285,11 +1285,22 @@ function leaveHome(g: GameState, c: CrewMember, b: LeaveBlock): boolean {
     for (const s of segs) if (s.kind !== 'sby' && !s.leave && s.start < b.from) notBefore = Math.max(notBefore, s.end);
   }
   if (!from || from === c.base) return changed;
-  const plan = leaveHomePlan(g, c, b, from, notBefore);
-  if (!plan) return changed;
-  // Tickets home from there inside the leave are no longer needed (a tour's way home at its period's end).
-  const extra = (ix.tickets.get(c.id) ?? []).filter((f) => f.kind === 'deadhead' && !f.leaveTrip && notLeft(g, f) && f.from === from && f.to === c.base && f.std >= b.from && f.std < b.to).map((f) => f.id);
+  // Tickets home from there inside the leave: one of their own, loose, on its first day is the leave's trip home; the
+  // others are no longer needed (a tour's way home at its period's end).
+  const inside = (ix.tickets.get(c.id) ?? []).filter((f) => f.kind === 'deadhead' && !f.leaveTrip && notLeft(g, f) && f.from === from && f.to === c.base && f.std >= b.from && f.std < b.to);
+  const own = inside.find((f) => f.crewIds.length === 1 && !f.charter && !ix.ticketDuty.has(f.id) && dayIndex(c.base, f.std) === dayIndex(c.base, Math.max(b.from, g.now)) && f.std - BAL.deadheadCheckIn >= notBefore);
+  const plan = own ? null : leaveHomePlan(g, c, b, from, notBefore);
+  if (!own && !plan) return changed;
+  const extra = inside.filter((f) => f !== own).map((f) => f.id);
   if (extra.length) dropPlanned(g, c.id, extra);
+  if (own) {
+    own.leaveTrip = 'home';
+    own.why = `Annual leave from ${fmtDay(b.from + 720)}: home to ${c.base} on its first day`;
+    touchTickets(g);
+    touchCrew(g);
+    return true;
+  }
+  if (!plan) return changed;
   bookLeaveTrip(g, c, plan, `Annual leave from ${fmtDay(b.from + 720)}: home to ${c.base} on its first day`);
   return true;
 }
@@ -1320,7 +1331,7 @@ function leaveBack(g: GameState, c: CrewMember, b: LeaveBlock): boolean {
         const f = g.flights[next.ticketId];
         const after = segs.find((s) => s.kind === 'duty' && s.start >= next.end);
         if (f && notLeft(g, f) && after && after.from === next.at) want = { to: next.at, latest: after.start - LEAVE_BACK_BUFFER, replace: f.id };
-      }
+      } else if (next.kind === 'pos' && next.from && next.from !== c.base) want = { to: next.from, latest: next.start - LEAVE_BACK_BUFFER };
     }
   }
   // With no way back, tickets still to leave from where the leave took them home from are no longer theirs to fly (a
