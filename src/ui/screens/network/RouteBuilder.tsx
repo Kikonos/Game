@@ -183,7 +183,11 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
         <div className="col gap-12 rb-form">
           <div className="col gap-6">
             <span className="upper dim">From</span>
-            {bases.length > 1 ? (
+            {bases.length > 4 ? (
+              <select className="nw-select" value={from} onChange={(e) => pickFrom(e.target.value)} aria-label="Origin base">
+                {bases.map((b) => <option key={b} value={b}>{AIRPORT_BY_CODE[b]?.city ?? b} ({b})</option>)}
+              </select>
+            ) : bases.length > 1 ? (
               <Seg<string> value={from} onChange={pickFrom} options={bases.map((b) => ({ value: b, label: `${AIRPORT_BY_CODE[b]?.city ?? b}` }))} />
             ) : (
               <div className="small"><MapPin className="sc-ico-s accent" /> {A?.city ?? from} <span className="mono muted">{from}</span> <span className="tiny muted">· our base</span></div>
