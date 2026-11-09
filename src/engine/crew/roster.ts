@@ -1164,16 +1164,19 @@ export function sendStrandedHome(g: GameState): void {
  * Bug 1108b (the player's Carolina Almeida: "She's taking her leave at MNL? She should have deadheaded to Lisbon and
  * come back if needed"): annual leave starts and ends at home base. Daily and on load: crew whose trip or tour part ends
  * away from base with a leave or course next (before any other work, in the next 35 days) get that trip's ticket home
- * after its last duty now (planCrew plans it so: crew/check.ts leaveBefore), so the roster and the calendar show the
+ * after its last duty now (planCrew plans it so: crew/check.ts leaveBefore; inside the schedule horizon, where every
+ * duty before the leave is known), so the roster and the calendar show the
  * way home; a later part of the tour from that station is ticketed out again after the leave, or re-crewed. Crew with
  * no work before the leave keep going home two days before it (sendStrandedHome, homeBeforeLeave). Returns the crew
  * re-ticketed.
  */
 export function homeForLeave(g: GameState): string[] {
   const done: string[] = [];
+  // (Inside the schedule horizon: every duty before the leave is known.)
+  const until = g.now + (BAL.scheduleHorizonDays - 1) * DAY;
   for (const c of Object.values(g.crew)) {
-    if (!c.blocks?.some((b) => (b.why === 'leave' || b.why === 'training') && b.from > g.now && b.from < g.now + 35 * DAY)) continue;
-    const blocks = c.blocks.filter((b) => (b.why === 'leave' || b.why === 'training') && b.from > g.now && b.from < g.now + 35 * DAY).sort((a, b) => a.from - b.from);
+    if (!c.blocks?.some((b) => (b.why === 'leave' || b.why === 'training') && b.from > g.now && b.from < until)) continue;
+    const blocks = c.blocks.filter((b) => (b.why === 'leave' || b.why === 'training') && b.from > g.now && b.from < until).sort((a, b) => a.from - b.from);
     for (const b of blocks) {
       // The last work before the leave (standby gives way to the ticket home).
       let last: Seg | undefined;

@@ -220,7 +220,7 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
     // Bug 1108b: never across an annual leave or a course: leave starts and ends at home base. A leave after this trip
     // and before the crew's next work sends them home after its last duty (not at the tour's end, and never held at the
     // hotel by a standby there): Carolina Almeida's leave was planned at Manila, her tour's next part after it.
-    const leaveNext = leaveBefore(c, base, last.release);
+    const leaveNext = leaveBefore(c, base, last.release, g.now + (BAL.scheduleHorizonDays - 1) * DAY);
     forLeave = leaveNext && last.restAt !== c.base;
     if (last.restAt !== c.base && (leaveNext || nextFrom(base, last.release) !== last.restAt)) {
       const back = p.tour || leaveNext ? [] : droppableOut(g, c, base, last.restAt, last.release);
@@ -463,10 +463,10 @@ export function readyAt(c: CrewMember, segs: Seg[], t: Minute, now = -Infinity):
 /** Where the crew's next planned work within 3 days after t starts ('' when none or unknown). */
 /**
  * Bug 1108b: an annual leave or a course c starts after t and before their next work (a duty or a ticket; standby
- * gives way), in the next 35 days: they must be home for it. Pure.
+ * gives way), and before `until` (the schedule horizon: every duty before it is known): they must be home for it. Pure.
  */
-export function leaveBefore(c: CrewMember, segs: Seg[], t: Minute): boolean {
-  let next = t + 35 * 1440;
+export function leaveBefore(c: CrewMember, segs: Seg[], t: Minute, until: Minute): boolean {
+  let next = Math.min(t + 35 * 1440, until);
   for (const s of segs) {
     if (s.kind === 'log' || s.kind === 'sby' || s.start < t) continue;
     next = Math.min(next, s.start);

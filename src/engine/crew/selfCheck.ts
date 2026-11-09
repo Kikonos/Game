@@ -108,7 +108,10 @@ function workOf(g: GameState, c: CrewMember, t: Minute, skipDuty?: string): Span
       if (!d) continue;
       const s = dutySpan(g, d, p, !isPilot(c.role));
       if (!s || s.end < from || s.start > to) continue;
-      if (id !== skipDuty && !logged(s)) out.push(s);
+      // (Bug 1108b: standing by at the station for this duty, a reserve or a relief pilot: hotel standby, a quarter.)
+      if (!d.done && standsBy(g, p, d, c.id)) {
+        if (id !== skipDuty) out.push({ ...s, block: 0, aug: false, ext: false, kind: 'standby', weight: 0.25 });
+      } else if (id !== skipDuty && !logged(s)) out.push(s);
       for (const tid of d.deadheadIds) {
         const tk = g.flights[tid];
         if (!tk || tk.status === 'cancelled' || !tk.crewIds.includes(c.id)) continue;
