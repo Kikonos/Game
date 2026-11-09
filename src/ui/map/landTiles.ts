@@ -13,8 +13,8 @@ import { MAP_H, loadMapData, projection, worldGeo } from './mapData';
 
 export { BASE_W, TILE, paintLand, tileRange, tileSpec, baseSpec, type LandGeo, type LandInk, type LandSet, type TileSpec };
 
-/** Tiles kept (on screen or not) before the least recently used go. */
-export const TILE_CAP = 96;
+/** Tiles kept (on screen or not) before the least recently used go (at most ~1 MB each on a 2× screen). */
+export const TILE_CAP = 64;
 
 /** A d3 path context that records rings into flat arrays. */
 class Rec {

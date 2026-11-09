@@ -639,7 +639,9 @@ class GameStore {
   /** v0.19 (perf) a Map gesture starts (true) or has ended, its fling and easing included (false). */
   mapGesture(on: boolean) {
     if (on) {
-      if (!this.gestureAt) this.gestureAt = performance.now();
+      // A gesture whose end was never seen (a fling stopped by a tap) holds nothing past its time.
+      const now = performance.now();
+      if (!this.gestureAt || now - this.gestureAt > GESTURE_HOLD_MS) this.gestureAt = now;
       return;
     }
     this.gestureAt = 0;
