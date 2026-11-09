@@ -843,6 +843,17 @@ export interface DryLeaseState {
 export type FlightKind = 'revenue' | 'positioning' | 'ferry' | 'techstop' | 'deadhead';
 export type FlightStatus = 'scheduled' | 'enroute' | 'done' | 'cancelled';
 
+/** v0.19.4 one technical dispatch failure (core/techLog.ts). */
+export type TechCause = 'aog' | 'defect' | 'overrun' | 'grounded' | 'diversion';
+export interface TechFail {
+  t: Minute;
+  ac: string;
+  no: string;
+  cause: TechCause;
+  /** Minutes late at departure (absent: cancelled). */
+  late?: number;
+}
+
 export interface Flight {
   id: string;
   /** Flight number shown on the board: client number on wet leases, ours on charters. */
@@ -924,6 +935,9 @@ export interface Flight {
   uninsured?: 'asked' | 'wait' | 'ok';
   /** v0.10.2 a technical cause hit this leg (a technical delay, the aircraft AOG or in an overrunning check, grounded): technical dispatch reliability. */
   tech?: true;
+  /** v0.19.4 the aircraft and the reason when a technical cause first hit the leg (the ETOPS fleet record and its breakdown). */
+  techAc?: string;
+  techWhy?: string;
   /** v0.11 Operations: diverted en route (ops/disrupt.ts): the planned destination, when and why it turned, the eta it had. */
   div?: {
     to0: string; at: Minute; eta0: Minute; cause: DisruptCause;
@@ -1804,6 +1818,12 @@ export interface Stats {
   /** v0.10.2 technical dispatch reliability by day (day number → [revenue departures, technical failures: off > 15 min
    *  late or cancelled for a technical reason]); 366 days kept. Older saves: seeded at load from onTimeM and the AOGs. */
   techDisp?: Record<number, [number, number]>;
+  /** v0.19.4 the same record by aircraft (aircraft id → day → [revenue departures, technical failures]) since
+   *  `techAcSince` (older saves: from the load), and the technical failures themselves (366 days): the ETOPS fleet's
+   *  record and the approval card's breakdown. */
+  techAc?: Record<string, Record<number, [number, number]>>;
+  techAcSince?: Minute;
+  techFails?: TechFail[];
   /** v0.7: illegal-crew and AOG incidents (pruned after 365 days; the Ladder's illegal-duty check). */
   incidents?: [Minute, 'illegalCrew' | 'aog'][];
   /** v0.7: deliveries, days delivery ferries waited for pilots, refits, lease returns and extensions, authority findings. */

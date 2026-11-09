@@ -25,7 +25,7 @@ import { applyDiscretion, boardCrew, crewControl, crewIssuesFor, dropStraySpares
 import { fdpLimitAt } from '../crew/timeline';
 import { dutyLegality } from '../crew/duties';
 import { cue } from '../core/cues';
-import { markTech, noteDispatch } from '../core/techLog';
+import { markTech, noteDispatch, techHit } from '../core/techLog';
 import { v09Stats } from '../crew/dayPlan';
 import { confirmAlarm } from '../crew/selfCheck';
 import { requestPause } from '../core/pause';
@@ -899,7 +899,7 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
   }
   // 4. AOG (its own roll; technical delays never become one).
   if (chance(g, aogChance(g, ac, f.from))) {
-    f.tech = true;
+    techHit(f, 'AOG');
     startAog(g, ac, f);
     holdFlight(g, f, 30);
     return;

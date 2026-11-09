@@ -6,15 +6,32 @@
 
 import { BAL } from './balance';
 import { DAY, monthStart } from './time';
-import type { Flight, GameState } from './types';
+import type { Flight, GameState, TechCause } from './types';
 
 /** Reasons that make a leg technical: the aircraft itself (not a knock-on of a short technical delay elsewhere). */
 const TECH_RE = /^(Recovery: )?(Aircraft unserviceable|Maintenance overrun|AOG|Aircraft grounded)|^Technical|grounded$/;
 export const isTechReason = (reason: string | undefined): boolean => !!reason && TECH_RE.test(reason);
 
-/** Marks a leg technical when the reason is. */
+/** Marks a leg technical when the reason is (v0.19.4 and remembers the aircraft and the first technical reason). */
 export function markTech(f: Flight, reason: string | undefined): void {
-  if (isTechReason(reason)) f.tech = true;
+  if (isTechReason(reason)) techHit(f, reason!);
+}
+
+/** v0.19.4 a technical cause touched the leg: flagged, with the aircraft it hit and why (the first cause kept). */
+export function techHit(f: Flight, reason: string): void {
+  f.tech = true;
+  if (f.aircraftId && !f.techAc) f.techAc = f.aircraftId;
+  f.techWhy ??= reason;
+}
+
+/** v0.19.4 the cause of a technical failure, from the reason text. Pure. */
+export function techCause(reason: string | undefined): TechCause {
+  const r = (reason ?? '').replace(/^Recovery: /, '');
+  if (/^(AOG|Aircraft unserviceable)/.test(r)) return 'aog';
+  if (/^Maintenance overrun/.test(r)) return 'overrun';
+  if (/grounded/.test(r)) return 'grounded';
+  if (/diversion/i.test(r)) return 'diversion';
+  return 'defect';
 }
 
 const isRev = (f: Flight) => f.kind === 'revenue' || f.kind === 'techstop';
@@ -25,12 +42,31 @@ function bucket(g: GameState): [number, number] {
   return (rec[Math.floor(g.now / DAY)] ??= [0, 0]);
 }
 
+/**
+ * v0.19.4 the aircraft's own record: a leg a technical cause touched counts for the aircraft it hit (a swap or a
+ * sub-charter that saves it is that aircraft's save), any other for the aircraft that flew it.
+ */
+function noteAc(g: GameState, f: Flight, fail: boolean, late?: number): void {
+  const ac = f.tech ? f.techAc ?? f.aircraftId : f.aircraftId;
+  if (!ac) return;
+  const day = Math.floor(g.now / DAY);
+  const rec = ((g.stats.techAc ??= {})[ac] ??= {});
+  const b = (rec[day] ??= [0, 0]);
+  b[0]++;
+  if (!fail) return;
+  b[1]++;
+  (g.stats.techFails ??= []).push({ t: g.now, ac, no: f.no, cause: techCause(f.techWhy), ...(late !== undefined ? { late } : {}) });
+}
+
 /** A revenue leg left (our aircraft, or a rival's for us): counted, a failure when technical and over 15 min late. */
 export function noteDispatch(g: GameState, f: Flight): void {
   if (!isRev(f)) return;
   const b = bucket(g);
   b[0]++;
-  if (f.tech && lateOf(f) > BAL.ladder.tech.lateMin) b[1]++;
+  const late = lateOf(f);
+  const fail = !!f.tech && late > BAL.ladder.tech.lateMin;
+  if (fail) b[1]++;
+  noteAc(g, f, fail, fail ? Math.round(late) : undefined);
 }
 
 /** A revenue leg cancelled: a failure when technical (other cancellations are not departures of ours). */
@@ -39,14 +75,18 @@ export function noteTechCancel(g: GameState, f: Flight, reason: string | undefin
   const b = bucket(g);
   b[0]++;
   b[1]++;
+  if (!f.tech && reason) techHit(f, reason);
+  noteAc(g, f, true);
 }
 
 /** Daily: buckets older than a year drop out. */
 export function pruneTechLog(g: GameState): void {
-  const rec = g.stats.techDisp;
-  if (!rec) return;
   const keep = Math.floor(g.now / DAY) - BAL.ladder.tech.keepDays;
-  for (const k of Object.keys(rec)) if (Number(k) < keep) delete rec[Number(k)];
+  const rec = g.stats.techDisp;
+  if (rec) for (const k of Object.keys(rec)) if (Number(k) < keep) delete rec[Number(k)];
+  for (const r of Object.values(g.stats.techAc ?? {})) for (const k of Object.keys(r)) if (Number(k) < keep) delete r[Number(k)];
+  const fails = g.stats.techFails;
+  if (fails?.length && fails[0].t < keep * DAY) g.stats.techFails = fails.filter((x) => x.t >= keep * DAY);
 }
 
 export interface TechReliability { deps: number; fails: number; /** % (one decimal) or null under the minimum sample. */ pct: number | null }
@@ -72,6 +112,11 @@ export function techReliability(g: GameState, days: number): TechReliability {
  * months) spread evenly over each month's days so far, and each AOG of the last year as one failed departure.
  */
 export function seedTechLog(g: GameState): void {
+  // v0.19.4 the record by aircraft starts now in an older save (nothing told us which aircraft failed before), at the
+  // start in a new game.
+  g.stats.techAc ??= {};
+  g.stats.techFails ??= [];
+  g.stats.techAcSince ??= g.now;
   if (g.stats.techDisp) return;
   const rec: Record<number, [number, number]> = {};
   const today = Math.floor(g.now / DAY);
