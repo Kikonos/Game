@@ -914,6 +914,11 @@ export interface Flight {
   charter?: { cls: JetClass; model: string; operator: string; reg: string };
   /** Rotations round (v0.16.4): why this crew ticket was bought: a tour change, an early trip home and its reason, a replacement. */
   why?: string;
+  /**
+   * v0.19.3 a crew ticket inside annual leave that began away from base: home on its first day ('home'), back out to the
+   * station of the next duty on its last ('back'). Travel on a leave day: not duty, no rest after it, the leave keeps its days.
+   */
+  leaveTrip?: 'home' | 'back';
   /** v0.8 held by a closed airport (world event id). */
   closedBy?: string;
   /** v0.8 rerouted around a closed zone: extra minutes (set once). */
@@ -1142,6 +1147,8 @@ export interface FlownDuty {
   legs: FlownLeg[];
   /** A journey as a passenger (airline ticket or a seat on our own leg), not a duty. */
   pax?: true;
+  /** v0.19.3 a trip home or back inside annual leave (Flight.leaveTrip): drawn on the leave, not as a trip. */
+  lv?: true;
 }
 
 /** v0.18.1 a calendar year's annual leave. */

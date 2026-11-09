@@ -440,6 +440,11 @@ export interface Seg {
   out?: { id?: string; to: string; start: Minute; fdp: number; maxFdp: number; disruptive: boolean };
   /** Being checked (a candidate assignment). */
   fresh?: boolean;
+  /**
+   * v0.19.3 travel inside annual leave (Flight.leaveTrip): it only moves the crew member (evalSegs folds it into the
+   * place of the seg before it); no duty, no rest after it, not counted in any duty window.
+   */
+  leave?: true;
   /** v0.7.3 share of the seg counted towards the 7/14/28-day duty windows (home standby 0.25; absent = 1). */
   share?: number;
   /** v0.7.3 planned extension; early start / late finish / night duty (CS FTL.1.235(a)). */
@@ -464,7 +469,7 @@ export function mkSeg(o: Seg): Seg {
   return {
     kind: o.kind, start: o.start, end: o.end, fdp: o.fdp, maxFdp: o.maxFdp, block: o.block, sectors: o.sectors, aug: o.aug, disruptive: o.disruptive,
     rest: o.rest, at: o.at, from: o.from, dutyId: o.dutyId, ticketId: o.ticketId, home: o.home, out: o.out, fresh: o.fresh, share: o.share,
-    ext: o.ext, early: o.early, late: o.late, night: o.night, split: o.split, sbyFrom: o.sbyFrom, sby: o.sby,
+    ext: o.ext, early: o.early, late: o.late, night: o.night, split: o.split, sbyFrom: o.sbyFrom, sby: o.sby, leave: o.leave,
   };
 }
 
@@ -581,9 +586,24 @@ const segEnd = (x: Seg, slack: number) => (x.kind === 'duty' ? x.end + slack : x
  * (within 28 days); with no fresh seg, every non-log seg. Rest, FDP, rolling duty/block windows, calendar-year
  * block and the 36/60 h recovery every 168 h.
  */
-export function evalSegs(ctx: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
+export function evalSegs(ctxIn: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
   const issues: LegalityIssue[] = [];
-  const segs = standbyView(ctx, segsIn);
+  // v0.19.3 travel inside annual leave is not duty: it only moves the crew member (folded into the seg before it).
+  let ctx = ctxIn;
+  let folded = segsIn;
+  if (segsIn.some((s) => s.leave)) {
+    folded = [];
+    for (const s of segsIn) {
+      if (!s.leave) {
+        folded.push(s);
+        continue;
+      }
+      const p = folded[folded.length - 1];
+      if (p) folded[folded.length - 1] = { ...p, at: s.at };
+      else ctx = { ...ctx, loc: s.at };
+    }
+  }
+  const segs = standbyView(ctx, folded);
   let firstFresh = -1;
   let lastFreshEnd = -Infinity;
   for (let i = 0; i < segs.length; i++) {

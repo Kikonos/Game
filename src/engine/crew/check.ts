@@ -8,8 +8,9 @@ import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } f
 import { dayFloorIssue, eveFloorIssue, monthFloorIssue, offIssue, offMovable } from './dayPlan';
 import { evalSegs, EXT_REST, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { flightsRev } from '../core/entities';
-import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outMerges, outTicket, planHome, planHomeAfter, planOut, reserveSeat, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
+import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outMerges, outTicket, planHome, posSeg, planHomeAfter, planOut, reserveSeat, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 import { sameTour, tourHomePlan, tourSpan } from './tours';
+import { leaveBackFor } from './leaveTrips';
 
 export interface CrewPlan {
   level: Legality;
@@ -24,6 +25,11 @@ export interface CrewPlan {
   retick?: string[];
   /** v0.12.1 what those new tickets out cost. */
   retickCost?: number;
+  /**
+   * v0.19.3 the trip back out on the last day of an annual leave that began away (crew/leaveTrips.ts): this trip's first
+   * duty leaves from the station they went home from. Bought with the trip's tickets (roster.ts buyTickets), not duty.
+   */
+  leaveBack?: TicketPlan;
 }
 
 /** Duties of p still to fly (not released), in report order. */
@@ -152,8 +158,10 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
   const dropped: string[] = [];
   let booked: TicketPlan | null = null;
   let loose: string | undefined;
-  /** Bug 1108b: this plan takes them home for a leave or course after the trip (leaveBefore). */
+  /** Bug 1108b: this plan takes them home for a course after the trip (leaveBefore). */
   let forLeave = false;
+  /** v0.19.3 the trip back out on the last day of an annual leave begun away (not bought yet). */
+  let leaveBack: TicketPlan | undefined;
   if (existing) {
     for (const fid of [...first.deadheadIds, ...last.deadheadIds]) {
       const f = g.flights[fid];
@@ -191,7 +199,16 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
       const w = locAt(c, base, tk.std);
       if (w !== tk.from) issues.push({ code: 'location', level: 'illegal', text: `At ${w}, not ${tk.from} for the ticket to ${tk.to}`, dutyId: first.id });
     } else if (tk && ((tk.status === 'enroute' && c.loc !== tk.from) || (tk.status === 'done' && locAt(c, base, first.report) !== tk.to))) out = null;
-    const at = out ? out.to : locAt(c, base, first.report);
+    let at = out ? out.to : locAt(c, base, first.report);
+    // v0.19.3 the trip back out on the last day of an annual leave begun away, not bought yet (the daily run buys it).
+    if (!out && at !== dep && !started) {
+      const back = leaveBackFor(g, c, base, first.report, dep);
+      if (back) {
+        leaveBack = back;
+        base = merge(base, [posSeg(back, c)]);
+        at = dep;
+      }
+    }
     // (Bug 1108b: a reserve stands by at the station; it need not be at a departure elsewhere.)
     if (at !== dep && !started && !reserveSeat(p, c.id)) issues.push({ code: 'location', level: 'illegal', text: `At ${at}, not ${dep}`, dutyId: first.id });
   } else {
@@ -207,7 +224,16 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
     booked = ride ?? prebooked(g, first, c.id);
     const bookedId = booked ? (booked as Partial<Flight>).id : undefined;
     if (bookedId) base = withoutTickets(base, [bookedId]);
-    const loc = locAt(c, base, first.report);
+    let loc = locAt(c, base, first.report);
+    // v0.19.3 annual leave that began away ends with a trip back out on its last day to this trip's station (not duty).
+    if (!booked && loc !== dep) {
+      const back = leaveBackFor(g, c, base, first.report, dep);
+      if (back) {
+        leaveBack = back;
+        base = merge(base, [posSeg(back, c)]);
+        loc = dep;
+      }
+    }
     if (booked) out = booked;
     else if (loc !== dep) {
       // From where they will be, once their rest after earlier work is over (crew away from base included).
@@ -217,9 +243,9 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
     }
     // No ticket home when the crew's next work starts where this trip ends, or when it is a ticket straight back
     // out there (that ticket is dropped: a hotel night or two beats two tickets).
-    // Bug 1108b: never across an annual leave or a course: leave starts and ends at home base. A leave after this trip
-    // and before the crew's next work sends them home after its last duty (not at the tour's end, and never held at the
-    // hotel by a standby there): Carolina Almeida's leave was planned at Manila, her tour's next part after it.
+    // Bug 1108b: never across a course: it starts and ends at home base. A course after this trip and before the crew's
+    // next work sends them home after its last duty. (v0.19.3 annual leave no longer does: a leave that begins away
+    // starts with a trip home on its first day and ends with one back out on its last, crew/leaveTrips.ts.)
     const leaveNext = leaveBefore(c, base, last.release, g.now + (BAL.scheduleHorizonDays - 1) * DAY);
     forLeave = leaveNext && last.restAt !== c.base;
     if (last.restAt !== c.base && (leaveNext || nextFrom(base, last.release) !== last.restAt)) {
@@ -333,12 +359,12 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
     for (const i of ftl) {
       if (i.code !== 'location' || i.level !== 'illegal' || !i.dutyId || own.has(i.dutyId)) continue;
       const q = g.pairings[g.duties[i.dutyId]?.pairingId ?? ''];
-      // Bug 1108b: home for a leave, a later trip or tour part from the station they leave gets its own ticket out after
-      // the leave (re-ticketed from home, or re-crewed when that does not work).
+      // Bug 1108b: home for a course, a later trip or tour part from the station they leave gets its own ticket out after
+      // the course (re-ticketed from home, or re-crewed when that does not work).
       const qd = q && q.status === 'planned' && (!q.tour || (forLeave && !!home)) ? openDuties(g, q)[0] : undefined;
       if (!q || !qd || qd.id !== i.dutyId) continue;
       const tk = qd.deadheadIds.map((id) => g.flights[id]).find((f) => !!f && f.kind === 'deadhead' && f.status === 'scheduled' && f.std - BAL.deadheadCheckIn > g.now && f.sta <= qd.report && aboard(f, c.id));
-      if (!tk && forLeave && home && c.blocks?.some((b) => (b.why === 'leave' || b.why === 'training') && b.from >= home!.sta - DAY && b.to <= qd.report)) {
+      if (!tk && forLeave && home && c.blocks?.some((b) => b.why === 'training' && b.from >= home!.sta - DAY && b.to <= qd.report)) {
         i.level = 'legal';
         if (!retick.includes(q.id)) {
           retick.push(q.id);
@@ -355,7 +381,7 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
     }
   }
   issues.push(...ftl);
-  return { level: levelOf(issues), issues, out, home, segs, drop: dropped.length ? dropped : undefined, ...(retick.length ? { retick, retickCost } : {}) };
+  return { level: levelOf(issues), issues, out, home, segs, drop: dropped.length ? dropped : undefined, ...(retick.length ? { retick, retickCost } : {}), ...(leaveBack ? { leaveBack } : {}) };
 }
 
 /**
@@ -462,8 +488,9 @@ export function readyAt(c: CrewMember, segs: Seg[], t: Minute, now = -Infinity):
 
 /** Where the crew's next planned work within 3 days after t starts ('' when none or unknown). */
 /**
- * Bug 1108b: an annual leave or a course c starts after t and before their next work (a duty or a ticket; standby
- * gives way), and before `until` (the schedule horizon: every duty before it is known): they must be home for it. Pure.
+ * Bug 1108b: a course c starts after t and before their next work (a duty or a ticket; standby gives way), and before
+ * `until` (the schedule horizon: every duty before it is known): they must be home for it. Pure. (v0.19.3 annual leave
+ * no longer counts: it begins away with a trip home on its first day, crew/leaveTrips.ts.)
  */
 export function leaveBefore(c: CrewMember, segs: Seg[], t: Minute, until: Minute): boolean {
   let next = Math.min(t + 35 * 1440, until);
@@ -472,7 +499,7 @@ export function leaveBefore(c: CrewMember, segs: Seg[], t: Minute, until: Minute
     next = Math.min(next, s.start);
     break;
   }
-  return !!c.blocks?.some((b) => (b.why === 'leave' || b.why === 'training') && b.from >= t && b.from < next);
+  return !!c.blocks?.some((b) => b.why === 'training' && b.from >= t && b.from < next);
 }
 
 function nextFrom(segs: Seg[], t: Minute): string {
