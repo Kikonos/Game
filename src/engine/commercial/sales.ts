@@ -83,7 +83,8 @@ export interface SalesHooks {
   tender: (g: GameState, opts: { clientId?: string; invited?: boolean }) => Tender | null;
   round: (t: Minute) => RoundNow | null;
   /** Whether this airline issues RFPs in that kind of round (data/fairs.ts TENDER_ISSUERS). */
-  issuer: (name: string, kind: 'summer' | 'winter') => boolean;
+  /** v0.19.4 or a widebody tenderer once we can bid one. */
+  issuer: (name: string, kind: 'summer' | 'winter', g: GameState) => boolean;
 }
 let hooks: SalesHooks | null = null;
 export function setSalesHooks(h: SalesHooks): void {
@@ -295,7 +296,7 @@ function quoteLead(g: GameState, c: Client, archetypes: Archetype[], key: string
   try {
     for (const body of tryBodies) {
       const u = body === 'wide' ? targetUnit(g, 'wide', next(br)) : undefined;
-      const seats = u ? seatsFor(u, next(br)) : undefined;
+      const seats = u ? Math.min(280, seatsFor(u, next(br))) : undefined;
       for (const a of order) {
         if (lockOf(g, 'market', { archetype: a })) continue;
         const bodyOpts: Partial<OfferOpts> = holdsWide(g) ? { wide: body === 'wide', aspire: false, ...(seats && !opts.seats ? { seats } : {}) } : { wide: false };
@@ -588,7 +589,7 @@ function brokerLead(g: GameState, id: BrokerId): void {
   const F = BROKER_FOCUS[id];
   // In tender season an airline that tenders gets us invited instead (the tender names the broker; +4 when we win).
   const round = hooks.round(g.now);
-  if (round && c.kind === 'airline' && hooks.issuer(c.name, round.kind) && !lockOf(g, 'tenders') && !com(g).tenders.some((t) => t.clientId === c.id && t.status === 'open')) {
+  if (round && c.kind === 'airline' && hooks.issuer(c.name, round.kind, g) && !lockOf(g, 'tenders') && !com(g).tenders.some((t) => t.clientId === c.id && t.status === 'open')) {
     const t = hooks.tender(g, { clientId: c.id, invited: true });
     if (t) {
       t.brokerId = id;
