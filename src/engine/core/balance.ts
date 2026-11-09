@@ -820,4 +820,27 @@ export const BAL = {
     ...NET_ENGINE_BAL,
     ...NET_OPS_BAL,
   },
+  /**
+   * v0.19.4 "Widebody tenders" (contracts/fleetFit.ts, commercial/wideTenders.ts, core/techLog.ts).
+   * fleet: the offer mix by our fleet: aircraft delivering within `horizonDays` count (from their handover +
+   *   `deliveryDays`); an aircraft idle over the next `idleDays` weighs up to 1 + `idleWeight`; a client with one of our
+   *   aircraft in mind asks for its cabin, up to `seatsUnder` less.
+   * reach: the out-of-reach job (a double-decker load: a taste of progression) at most once every `days`, and only
+   *   when the fleet holds a widebody (without one, the ladder jobs stay as they were: widebodies).
+   * tenders: widebody RFPs a round once eligible, by our level (index = level), and their award lead.
+   * etops: ETOPS 180 / 240 technical reliability on the ETOPS fleet (the 180- / 240-capable twins): at least `minDeps`
+   *   of their revenue departures in the window; the ETOPS reliability programme (cost per twin a month; effects on the
+   *   twins: technical delays × `delayX`, AOG chance × `aogX`, no outstation factor on chance or repair time: rotables
+   *   and an engineer on call along the ETOPS network); the ETOPS maintenance programme held: × `mxX` on both.
+   */
+  v0194: {
+    fleet: { horizonDays: 120, deliveryDays: 4, idleDays: 60, idleWeight: 1.5, seatsUnder: 0.12 },
+    reach: { days: 45, pax: [450, 520] as [number, number], a380From: 490 },
+    tenders: { wide: [0, 1, 1, 2, 3] as number[], deadline: [14, 21] as [number, number] },
+    etops: {
+      minDeps: 120,
+      programme: { costPerTwin: 22_000, days: 21, delayX: 0.7, aogX: 0.7 },
+      mxX: 0.85,
+    },
+  },
 } as const;

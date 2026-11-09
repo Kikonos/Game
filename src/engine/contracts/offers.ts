@@ -51,6 +51,7 @@ import { afterOfferDays, isQuiet, QUIET_MARKET_OFFERS } from '../ops/director';
 import { marketTilt, presenceWeight } from '../commercial/presence';
 import { clientCrewOnCabin, fuelFactor, MISSION_BUILDERS, missionWeights, presidential, rollClientCabin, WINDOW_FIT_V08 } from './missions';
 import { lockOf, themeWeight, unreachableApproval } from '../scenario/rules';
+import { fleetOutlook, noteReach, reachOpen, seatsFor, targetUnit } from './fleetFit';
 
 // ---------- process ----------
 
@@ -170,6 +171,12 @@ export interface OfferOpts {
   /** v0.16 sales: the broker that brought the job (named on the offer, its commission) and the pipeline lead it answers. */
   brokerId?: BrokerId;
   leadId?: string;
+  /** v0.19.4 a base programme flown from this airport (not the client's own hub: a tender's long-haul base). */
+  baseAt?: string;
+  /** v0.19.4 the seats the client asks for (a lead's job kept; a tender sized to our aircraft). */
+  seats?: number;
+  /** v0.19.4 everyday work (false) or a ladder job (true); default: a widebody asked for by name is a ladder job. */
+  aspire?: boolean;
 }
 
 export interface Ctx {
@@ -179,6 +186,8 @@ export interface Ctx {
   aspire: boolean;
   window?: IdleWindow;
   o: OfferOpts;
+  /** v0.19.4 the seats of the aircraft of ours the client has in mind (fleetFit.ts targetUnit). */
+  fitSeats?: number;
 }
 
 export interface Draft {
@@ -223,6 +232,10 @@ export interface Draft {
   stretch?: true;
   iosaAsked?: true;
   exotic?: true;
+  /** v0.19.4 out of reach for our fleet (a double-decker load): a taste of progression. */
+  reach?: true;
+  /** v0.19.4 the seats were asked for (OfferOpts.seats): never turned into a jumbo load. */
+  sized?: true;
   /** v0.16 sales: the broker that brought it and the pipeline lead it answers (commercial/sales.ts). */
   brokerId?: BrokerId;
   leadId?: string;
@@ -430,7 +443,7 @@ function seasonBase(ctx: Ctx): Draft | null {
   const cands = clientsOf(g, ['airline'], (c) => (o.airport ? c.base === o.airport : hubs.includes(c.base)) && !!AIRPORT_BY_CODE[c.base]);
   const client = nearClient(ctx, cands);
   if (!client) return null;
-  const base = client.base;
+  const base = o.baseAt && AIRPORT_BY_CODE[o.baseAt] ? o.baseAt : client.base;
   // v0.5.1: a few season deals are long (4–8 months, planned a month or more ahead); most clients want them in their colours.
   // Rolled on a side stream (seed + time + id counter) so the main RNG sequence is unchanged by v0.5.1.
   // v0.8 a Newcomer gets 30–45-day bases (never the long variant); a Respected company twice as many long ones;
@@ -478,7 +491,8 @@ function seasonBase(ctx: Ctx): Draft | null {
     dests = pickN(g, [...byCity.values()], n, (a) => a.tour * (1 + a.size)).map((a) => a.code);
   }
   if (dests.length < (wide || o.dests ? 1 : 3)) return null;
-  const minSeats = wide ? pick(g, [250, 260, 280]) : pick(g, [168, 174, 180]);
+  // v0.19.4 the seats asked for (a lead's, a tender's), or for a widebody the cabin of the one of ours the client has in mind.
+  const minSeats = o.seats ?? (wide && ctx.fitSeats ? Math.min(280, ctx.fitSeats) : wide ? pick(g, [250, 260, 280]) : pick(g, [168, 174, 180]));
   const layout: CabinLayout | undefined = wide ? 'two-class' : chance(g, ctx.aspire ? 0.3 : 0.05) ? 'two-class' : chance(g, 0.85) ? 'all-economy' : undefined;
   let families: RatingFamily[] | undefined = !wide && chance(g, 0.25) ? [chance(g, ctx.aspire ? 0.5 : 0.88) ? 'A320' : 'B737'] : undefined;
   // v0.8 crew commonality means the client's own family (Croatia Airlines never asks for a 737).
@@ -1151,7 +1165,7 @@ export function forceJumbo(on: boolean): void {
 
 function jumboLoad(g: GameState, d: Draft): void {
   const p = d.pattern;
-  if (d.product || d.jumbo || p.kind !== 'legs' || !JUMBO_ARCH.has(d.archetype) || d.req.families?.length || d.req.stretchers) return;
+  if (d.product || d.jumbo || d.sized || p.kind !== 'legs' || !JUMBO_ARCH.has(d.archetype) || d.req.families?.length || d.req.stretchers) return;
   if (d.archetype === 'adhoc' && !d.req.layouts?.includes('all-economy')) return;
   if (d.req.minPremium || (d.req.layouts && !d.req.layouts.includes('all-economy')) || (d.req.layout && d.req.layout !== 'all-economy')) return;
   const pax = Math.max(0, ...p.legs.map((l) => l.pax ?? 0));
@@ -1187,6 +1201,39 @@ function jumboLoad(g: GameState, d: Draft): void {
   d.jumbo = true;
 }
 
+/** v0.19.4 the kinds of work an out-of-reach double-decker load comes with (legs patterns: a full load each way). */
+const REACH_ARCH = new Set<Archetype>(['hajj', 'troopRotation', 'unRotation', 'repatriation', 'sports']);
+
+/**
+ * v0.19.4 the out-of-reach job (a taste of progression): the client asks for a double-decker: 450–520 passengers on each
+ * loaded leg, any cabin with the seats, an A380 (or a 747-400 up to 489 seats). False when the draft has no full legs
+ * to load (generateOffer draws again). Side stream: the main sequence is unchanged by the load.
+ */
+function reachLoad(g: GameState, d: Draft): boolean {
+  const p = d.pattern;
+  if (p.kind !== 'legs' || d.product || d.req.stretchers) return false;
+  const pax = Math.max(0, ...p.legs.map((l) => l.pax ?? 0));
+  if (pax <= 0) return false;
+  const R = BAL.v0194.reach;
+  const n = int(sideRng(g, `reach:${d.archetype}:${d.client.id}:${d.start}`), R.pax[0], R.pax[1]);
+  const loaded = p.legs.filter((l) => (l.pax ?? 0) > 0).length;
+  for (const l of p.legs) if ((l.pax ?? 0) > 0) l.pax = n;
+  for (let m = loaded; m >= 2; m--) d.blurb = d.blurb.replace(new RegExp(`\\b${pax * m}(?= [a-z])`, 'g'), String(n * m));
+  d.blurb = d.blurb.replace(new RegExp(`\\b${pax}(?= [a-z])`, 'g'), String(n));
+  const a380 = n >= R.a380From;
+  d.blurb = `${d.blurb} They want a double-decker for it: ${a380 ? 'an A380' : 'an A380 or a 747-400'}, about ${n} seats.`;
+  d.req.minSeats = n;
+  delete d.req.layouts;
+  delete d.req.layout;
+  delete d.req.maxSeats;
+  delete d.req.minPremium;
+  d.req.body = 'wide';
+  d.req.families = a380 ? ['A380'] : ['A380', 'B747'];
+  d.jumbo = true;
+  d.reach = true;
+  return true;
+}
+
 /**
  * v0.9.1 a big full job (Hajj, troops, a UN or national contingent, an evacuation, a repatriation, a full widebody
  * charter: 250+ passengers on a widebody) bills the fuel at cost after flying, as the jumbo loads do: the client pays
@@ -1217,12 +1264,26 @@ export function fleetCouldFly(g: GameState, offerId: string): boolean {
 }
 
 /**
+ * v0.19.4 the type of ours a job fits (the static checks, as fleetCouldFly), the idlest such aircraft first: a lead
+ * remembers it, so its offer stays a job for that type. Undefined when none fits. Pure.
+ */
+export function fleetFitType(g: GameState, offerId: string): string | undefined {
+  const fo = fleetOutlook(g);
+  const idle = (id: string) => fo.units.find((u) => u.id === id)?.idle ?? 0;
+  const ok = Object.values(g.fleet).filter((a) => a.status !== 'leasedOut' && a.status !== 'stored'
+    && !feasibility(g, offerId, a.id, { quick: true }).checks.some((c) => c.level === 'no' && STATIC_CHECKS.has(c.id)));
+  ok.sort((a, b) => idle(b.id) - idle(a.id) || (a.id < b.id ? -1 : 1));
+  return ok[0]?.typeId;
+}
+
+/**
  * v0.16 balance: the idle window a lead's offer is drafted into (we proposed dates that suit our calendar): one of the
  * fleet's free windows inside 90 days that the kind of work fits, the longer the likelier, drawn on the lead's own
  * stream; undefined when none fits (the draft then takes its own dates). Pure in g.
  */
-export function leadWindow(g: GameState, archetype: Archetype, r: RngHolder): IdleWindow | undefined {
-  const ws = idleWindows(g, 2, 90).filter((w) => fitsWindow(archetype, w, g.now));
+export function leadWindow(g: GameState, archetype: Archetype, r: RngHolder, onAc?: (aircraftId: string) => boolean): IdleWindow | undefined {
+  // v0.19.4 a lead's offer keeps its body and type: the windows of those aircraft only (when given).
+  const ws = idleWindows(g, 2, 90).filter((w) => fitsWindow(archetype, w, g.now) && (!onAc || onAc(w.aircraftId)));
   return ws.length ? weightedPick(r, ws, (w) => Math.sqrt((w.to - w.from) / DAY)) : undefined;
 }
 
@@ -1411,6 +1472,7 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
   if (d.jumbo) o.jumbo = true;
   // v0.16 pass-throughs: a stretch offer, a far-flung route, the broker and the lead behind it.
   if (d.stretch) o.stretch = true;
+  if (d.reach) o.reach = true;
   if (d.exotic) o.exotic = true;
   // A broker named on an ordinary offer (data/naming.ts BROKERS) takes its own rate too, not the flat 5 %.
   const bid = d.brokerId ?? brokerIdOf(d.broker);
@@ -1535,12 +1597,21 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
   const roll = next(g);
   // v0.14 an ordinary market offer fits an idle aircraft more often (fewer offers, each one more useful).
   const gapShare = opts.ordinary ? BAL.marketOffers.gapFitShare : BAL.gapFitShare;
-  let mode = roll < gapShare ? 'gap' : roll < 1 - BAL.aspirationalShare ? 'fleet' : 'aspire';
-  const fleet = Object.values(g.fleet);
-  const wideShare = fleet.length ? fleet.filter((a) => typeOf(a.typeId).body === 'wide').length / fleet.length : 0;
+  let mode: 'gap' | 'fleet' | 'aspire' | 'reach' = roll < gapShare ? 'gap' : roll < 1 - BAL.aspirationalShare ? 'fleet' : 'aspire';
+  // v0.19.4 work tailored to the fleet (fleetFit.ts): the widebody share weighted by what we have or will soon have,
+  // idle aircraft weighing more (was the plain count of every aircraft, leased out and stored ones included).
+  const fo = fleetOutlook(g);
+  const wideShare = fo.wideShare;
+  // v0.19.4 with a widebody of ours the ladder job is the next rung, out of reach today (a double-decker load), at most
+  // one every BAL.v0194.reach.days and only on the market's own draw; otherwise everyday work for the fleet. Without a
+  // widebody the ladder jobs stay widebody jobs, as before.
+  if (mode === 'aspire' && fo.anyWide) {
+    const free = !archetype && opts.wide === undefined && !opts.client && !opts.leadId && reachOpen(g) && !Object.values(g.offers).some((x) => x.reach && (x.status === 'open' || x.status === 'countered'));
+    mode = free && fo.maxSeats < BAL.v0194.reach.a380From ? 'reach' : 'fleet';
+  }
   // At most two ladder jobs on the market at once, so the board stays mostly workable.
   if (mode === 'aspire' && wideShare < 1 && Object.values(g.offers).filter((x) => x.status === 'open' && isWideJob(x.requirements)).length >= 2) mode = 'fleet';
-  let wide = opts.wide ?? (mode === 'aspire' ? wideShare < 1 : chance(g, wideShare));
+  let wide = opts.wide ?? (mode === 'aspire' ? wideShare < 1 : mode === 'reach' ? true : chance(g, wideShare));
   let window: IdleWindow | undefined;
   if (opts.window) window = opts.window;
   else if (opts.window === undefined && mode === 'gap') {
@@ -1551,9 +1622,18 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
   // with "Follow-on: CS-TTL is free at AMS", CS-TTL an A330 (the draw had picked a narrowbody job for its window).
   const wac = window && opts.wide === undefined ? g.fleet[window.aircraftId] : undefined;
   if (wac) wide = typeOf(wac.typeId).body === 'wide';
+  // v0.19.4 a widebody job has one of our widebodies in mind (the window's, else one weighted by idleness): its cabin.
+  const fitAc = wide && mode !== 'reach' ? (wac ?? (window ? g.fleet[window.aircraftId] : undefined)) : undefined;
+  const fr = sideRng(g, `fit:${g.seq}:${g.now}`);
+  const fitU = wide && mode !== 'reach' ? (fitAc && typeOf(fitAc.typeId).body === 'wide' ? fo.units.find((u) => u.id === fitAc.id) : targetUnit(g, 'wide', next(fr))) : undefined;
+  const fitSeats = fitU ? seatsFor(fitU, next(fr)) : undefined;
   const tries: Archetype[] = [];
   if (archetype) tries.push(archetype, archetype, archetype);
-  else {
+  else if (mode === 'reach') {
+    // v0.19.4 the kinds of work a double-decker load comes with (a contingent, pilgrims, a club and its fans, evacuees).
+    const ws = weights(g, !!opts.ordinary).filter(([a, w]) => w > 0 && REACH_ARCH.has(a));
+    for (let i = 0; i < 3 && ws.length; i++) tries.push(weightedPick(g, ws, ([, w]) => w)![0]);
+  } else {
     // v0.12.1 only archetypes with a weight: every weight 0 made weightedPick return nothing and the [0] throw.
     const ws = weights(g, !!opts.ordinary).filter(([a, w]) => w > 0 && (!window || fitsWindow(a, window, g.now)));
     for (let i = 0; i < 3 && ws.length; i++) {
@@ -1568,12 +1648,15 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     const build = builderOf(tries[i]);
     if (!build) continue;
     // Last attempt drops the window so a forced archetype still appears.
-    const ctx: Ctx = { g, wide, aspire: opts.wide ?? mode === 'aspire', window: i === tries.length - 1 && !opts.window ? undefined : window, o: opts };
-    const d = build(ctx);
+    const ctx: Ctx = { g, wide, aspire: opts.aspire ?? opts.wide ?? (mode === 'aspire' || mode === 'reach'), window: i === tries.length - 1 && !opts.window ? undefined : window, o: opts, ...(fitSeats ? { fitSeats } : {}) };
+    const d0 = build(ctx);
+    // v0.19.4 the out-of-reach job: the draft becomes a double-decker load (or is drawn again when it cannot).
+    const d = d0 && mode === 'reach' ? (reachLoad(g, d0) ? d0 : null) : d0;
     if (d && opts.paint !== undefined) d.paint = opts.paint;
     if (d && opts.repeatOf) d.repeatOf = opts.repeatOf;
     if (d && opts.eventId) d.eventId = opts.eventId;
     if (d && opts.cabin !== undefined) d.cabin = opts.cabin;
+    if (d && opts.seats) d.sized = true;
     // v0.16 sales: a lead's offer names its broker (the broker's own commission) and the lead it answers.
     if (d && opts.brokerId) {
       d.brokerId = opts.brokerId;
@@ -1587,6 +1670,12 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     if (o) {
       // v0.16 a stretch offer made: the next one waits a month (contracts/prestige.ts).
       noteStretch(g, o);
+      // v0.19.4 and an out-of-reach one: the next waits BAL.v0194.reach.days.
+      if (o.reach) {
+        noteReach(g);
+        const v = (g.stats.v0194 ??= {});
+        v.reach = (v.reach ?? 0) + 1;
+      }
       // v0.6: the last gap-fit offer (the quiet-week floor looks at it).
       if (ctx.window) g.stats.lastGapOfferAt = g.now;
       if (opts.ordinary) g.stats.lastMarketOfferAt = g.now;

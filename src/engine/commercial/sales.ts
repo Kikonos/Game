@@ -19,7 +19,7 @@ import { pushMessage } from '../core/messages';
 import { isolatePauses } from '../core/pause';
 import { typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
-import { chance, int, pick, weightedPick, type RngHolder } from '../core/rng';
+import { chance, int, next, pick, weightedPick, type RngHolder } from '../core/rng';
 import { statsV016 } from '../core/stats016';
 import { distance } from '../core/geo';
 import { DAY, dayIndex, fmtDay, fromUTC, monthKey, monthStart, toDate, fmtSpan } from '../core/time';
@@ -36,6 +36,8 @@ import { mkHurt, type ProblemCard } from '../problems/types';
 import { rollPeople } from './people';
 import { bumpPresence, clientMarket, homeMarket, presenceWeight } from './presence';
 import { busyNow, com, comStats, paceOf, sideOf, usdK, withStream } from './state';
+import { bodiesFor, holdsWide, pickBody, seatsFor, targetUnit, wideShareOf } from '../contracts/fleetFit';
+import { bodyOfReq, type Body } from '../contracts/shape';
 import type { Tender } from './types';
 
 /** The tender round open now (tenders.ts roundAt), as the hooks hand it in. */
@@ -66,8 +68,10 @@ export interface SalesHooks {
   offer: (g: GameState, archetype: Archetype, opts: OfferOpts) => ContractOffer | null;
   /** v0.16 balance: whether an aircraft of ours is the kind that offer needs (offers.ts fleetCouldFly): brokers and sales staff bring work for the types we operate. */
   fits: (g: GameState, offerId: string) => boolean;
-  /** v0.16 balance: an idle window of the fleet the kind of work fits (offers.ts leadWindow): a lead's offer takes dates that suit our calendar. */
-  window: (g: GameState, archetype: Archetype, r: RngHolder) => IdleWindow | undefined;
+  /** v0.19.4 the type of ours the job fits (offers.ts fleetFitType): the lead remembers it. */
+  fitType: (g: GameState, offerId: string) => string | undefined;
+  /** v0.16 balance: an idle window of the fleet the kind of work fits (offers.ts leadWindow): a lead's offer takes dates that suit our calendar. v0.19.4 on these aircraft only. */
+  window: (g: GameState, archetype: Archetype, r: RngHolder, onAc?: (aircraftId: string) => boolean) => IdleWindow | undefined;
   tender: (g: GameState, opts: { clientId?: string; invited?: boolean }) => Tender | null;
   round: (t: Minute) => RoundNow | null;
   /** Whether this airline issues RFPs in that kind of round (data/fairs.ts TENDER_ISSUERS). */
@@ -263,7 +267,7 @@ export function leadArchetypes(c: Client, focus: Archetype[] = []): Archetype[] 
  * A quiet draft of the job to price the lead (title, estimated value): built and dropped at once, on a borrowed
  * stream; the stretch slot it might take is given back (the real offer comes at the proposal's answer).
  */
-function quoteLead(g: GameState, c: Client, archetypes: Archetype[], key: string, opts: Partial<OfferOpts> = {}): { archetype: Archetype; title: string; value: number } | null {
+function quoteLead(g: GameState, c: Client, archetypes: Archetype[], key: string, opts: Partial<OfferOpts> = {}, want?: Body): LeadQuote | null {
   if (!hooks) return null;
   const p = g.company.prestige;
   const stretchAt = p?.stretchAt;
@@ -274,17 +278,31 @@ function quoteLead(g: GameState, c: Client, archetypes: Archetype[], key: string
   // The likeliest kind first in three of five leads; otherwise the client's other kinds come first (one roll on the
   // lead's own stream, so the mix is not all series or all one-offs).
   const order = archetypes.length > 1 && !chance(sideOf(g, `leadq:${key}:kind`), S.lead.firstKind) ? [...archetypes.slice(1), archetypes[0]] : archetypes;
+  // v0.19.4 the body the client asks for, fixed now (the offer keeps it): what our fleet has and the client flies,
+  // weighted by our idle and soon-idle aircraft (contracts/fleetFit.ts); a widebody job has one of ours in mind (its seats).
+  const br = sideOf(g, `leadq:${key}:body`);
+  const first = want ?? pickBody(g, c, next(br));
+  const bodies = bodiesFor(g, c);
+  const tryBodies: Body[] = [first, ...bodies.filter((b) => b !== first)];
   try {
-    for (const a of order) {
-      if (lockOf(g, 'market', { archetype: a })) continue;
-      const o = isolatePauses(() => withStream(g, `leadq:${key}:${a}`, () => hooks!.offer(g, a, { client: c.id, window: false, wide: wideOpt(g), paint: false, cabin: false, ...opts }), true));
-      if (!o) continue;
-      // v0.16 balance: a broker or a sales manager brings work for the types we fly (a job no aircraft of ours could do
-      // is not a lead): checked while the draft is still on the board.
-      const fits = o.clientId === c.id && hooks.fits(g, o.id);
-      delete g.offers[o.id];
-      if (!fits) continue;
-      return { archetype: a, title: o.title, value: o.estValue };
+    for (const body of tryBodies) {
+      const u = body === 'wide' ? targetUnit(g, 'wide', next(br)) : undefined;
+      const seats = u ? seatsFor(u, next(br)) : undefined;
+      for (const a of order) {
+        if (lockOf(g, 'market', { archetype: a })) continue;
+        const bodyOpts: Partial<OfferOpts> = holdsWide(g) ? { wide: body === 'wide', aspire: false, ...(seats && !opts.seats ? { seats } : {}) } : { wide: false };
+        const o = isolatePauses(() => withStream(g, `leadq:${key}:${a}${body === first ? '' : `:${body}`}`, () => hooks!.offer(g, a, { client: c.id, window: false, paint: false, cabin: false, ...bodyOpts, ...opts }), true));
+        if (!o) continue;
+        // v0.16 balance: a broker or a sales manager brings work for the types we fly (a job no aircraft of ours could do
+        // is not a lead): checked while the draft is still on the board.
+        const fits = o.clientId === c.id && hooks.fits(g, o.id);
+        const typeId = fits ? hooks.fitType(g, o.id) : undefined;
+        const got = bodyOfReq(o.requirements);
+        const minSeats = o.requirements.minSeats;
+        delete g.offers[o.id];
+        if (!fits) continue;
+        return { archetype: a, title: o.title, value: o.estValue, body: got, seats: minSeats, ...(typeId ? { typeId } : {}) };
+      }
     }
     return null;
   } finally {
@@ -299,6 +317,8 @@ function quoteLead(g: GameState, c: Client, archetypes: Archetype[], key: string
   }
 }
 
+interface LeadQuote { archetype: Archetype; title: string; value: number; body: Body; seats: number; typeId?: string }
+
 interface NewLead {
   source: LeadSource;
   brokerId?: BrokerId;
@@ -309,11 +329,13 @@ interface NewLead {
   why: (title: string) => string;
   /** v0.16 balance: the quote's dates (a pitch lead is priced for its season, not for next month). */
   opts?: Partial<OfferOpts>;
+  /** v0.19.4 the body asked for (a pitch's). */
+  body?: Body;
 }
 
 /** A lead into the pipeline (null when no sensible job could be drafted for that client). */
 function newLead(g: GameState, c: Client, x: NewLead): Lead | null {
-  const q = quoteLead(g, c, x.archetypes, x.key, x.opts);
+  const q = quoteLead(g, c, x.archetypes, x.key, x.opts, x.body);
   if (!q) return null;
   const r = sideOf(g, `lead:${x.key}:reply`);
   const stage: LeadStage = x.stage ?? 'lead';
@@ -322,6 +344,7 @@ function newLead(g: GameState, c: Client, x: NewLead): Lead | null {
     archetype: q.archetype, market: clientMarket(c), stage, created: g.now, moved: g.now,
     expires: stage === 'proposal' ? g.now + int(r, S.lead.replyDays[0], S.lead.replyDays[1]) * DAY : g.now + S.lead.coldDays * DAY,
     value: q.value, title: q.title, why: x.why(q.title),
+    body: q.body, seats: q.seats, ...(q.typeId ? { typeId: q.typeId } : {}),
   };
   leads(g).push(lead);
   const st = statsV016(g);
@@ -424,16 +447,27 @@ function leadOffer(g: GameState, l: Lead): ContractOffer | null {
   const season = pitch ? seasonDates(pitch.season, r) : null;
   const inSeason = !!season && season.start > g.now + 10 * DAY;
   // v0.16 balance: our proposal named dates that suit our calendar (an idle window the work fits), unless the season sets them.
-  const window = inSeason ? false : hooks.window(g, l.archetype, r) ?? false;
+  // v0.19.4 the lead keeps its body and, where it can, its type: the window of an aircraft of that type (else of that
+  // body), the seats it was quoted with; an older lead (no body) as before.
+  const body = l.body && holdsWide(g) ? l.body : l.body === 'narrow' ? 'narrow' : undefined;
+  const ofType = (id: string) => !!g.fleet[id] && g.fleet[id].typeId === l.typeId;
+  const ofBody = (id: string) => !!g.fleet[id] && (typeOf(g.fleet[id].typeId).body === 'wide' ? 'wide' : 'narrow') === body;
+  const window = inSeason ? false : (body ? (l.typeId ? hooks.window(g, l.archetype, r, ofType) : undefined) ?? hooks.window(g, l.archetype, r, ofBody) : hooks.window(g, l.archetype, r)) ?? false;
   const opts: OfferOpts = {
-    client: c.id, window, wide: wideOpt(g), leadId: l.id, ...(l.brokerId ? { brokerId: l.brokerId } : {}),
+    client: c.id, window, wide: body ? body === 'wide' : wideOpt(g), leadId: l.id, ...(l.brokerId ? { brokerId: l.brokerId } : {}),
     ...(inSeason ? { start: season.start, days: season.days } : {}),
+    ...(body ? { aspire: false } : {}), ...(body && l.seats ? { seats: l.seats } : {}),
   };
   const o = withStream(g, `leado:${l.id}`, () => hooks!.offer(g, l.archetype, opts));
   if (!o) return null;
   if (o.clientId !== c.id) {
     delete g.offers[o.id];
     return null;
+  }
+  if (body) {
+    const v = (g.stats.v0194 ??= {});
+    if (bodyOfReq(o.requirements) === body) v.leadKept = (v.leadKept ?? 0) + 1;
+    else v.leadChanged = (v.leadChanged ?? 0) + 1;
   }
   o.firstRefusal = true;
   delete o.rivalBid;
@@ -617,6 +651,9 @@ export interface PitchTarget {
   stretch: boolean;
   cost: number;
   pitched: boolean;
+  /** v0.19.4 what we could pitch them (our fleet and theirs), and the likelier one. */
+  bodies: Body[];
+  body: Body;
 }
 
 /** Airlines we can pitch for the season open now: at our level or one above, in business, not yet pitched. Pure. */
@@ -637,12 +674,19 @@ export function pitchTargets(g: GameState): PitchTarget[] {
   const done = new Set((g.com?.pitches ?? []).filter((p) => p.season === w.season).map((p) => p.clientId));
   return Object.values(g.clients)
     .filter((c) => c.kind === 'airline' && !c.rivalId && c.ceased === undefined && clientPrestige(c) <= lvl + 1 && airlineInReach(g, c))
-    .map((c) => ({ client: c, level: clientPrestige(c), stretch: clientPrestige(c) > lvl, cost: pitchFree(g, c.id) ? 0 : S.pitch.cost, pitched: done.has(c.id) }))
+    .map((c) => {
+      const bodies = bodiesFor(g, c);
+      return { client: c, level: clientPrestige(c), stretch: clientPrestige(c) > lvl, cost: pitchFree(g, c.id) ? 0 : S.pitch.cost, pitched: done.has(c.id), bodies, body: defaultPitchBody(g, bodies) };
+    })
     .sort((a, b) => Number(a.pitched) - Number(b.pitched) || b.client.relation - a.client.relation || a.client.name.localeCompare(b.client.name));
 }
 
-/** Pitch an airline for the coming season's cover: a visit ($1,500, free when we met them lately); the answer in 2–6 weeks. */
-export function pitchAirline(g: GameState, clientId: string): ActionResult {
+/** v0.19.4 the body a pitch offers by default: a widebody when half our fleet's weighted work is widebody. Pure. */
+const defaultPitchBody = (g: GameState, bodies: Body[]): Body => (bodies.length === 1 ? bodies[0] : wideShareOf(g) >= 0.5 ? 'wide' : 'narrow');
+
+/** Pitch an airline for the coming season's cover: a visit ($1,500, free when we met them lately); the answer in 2–6 weeks.
+ *  v0.19.4 with a narrowbody or a widebody (one of the bodies we could offer them; default the likelier). */
+export function pitchAirline(g: GameState, clientId: string, body?: Body): ActionResult {
   const w = pitchWindow(g);
   if (!w) return { ok: false, error: 'Pitch summer cover from October to February, winter cover from April to August' };
   const lock = lockOf(g, 'sales');
@@ -657,15 +701,18 @@ export function pitchAirline(g: GameState, clientId: string): ActionResult {
   if (t.cost) post(g, 'sales', -t.cost);
   const r = sideOf(g, `pitch:${w.season}:${clientId}`);
   const days = int(r, S.pitch.replyDays[0], S.pitch.replyDays[1]);
-  const p: Pitch = { id: nextId(g, 'pt'), clientId, season: w.season, at: g.now, replyAt: g.now + days * DAY, ...(t.cost ? {} : { free: true as const }) };
+  const b = body && t.bodies.includes(body) ? body : t.body;
+  const p: Pitch = { id: nextId(g, 'pt'), clientId, season: w.season, at: g.now, replyAt: g.now + days * DAY, ...(t.cost ? {} : { free: true as const }), body: b };
   com(g).pitches!.push(p);
   statsV016(g).pitches++;
-  return { ok: true, msg: `Pitched ${t.client.name} for ${w.label} cover. Their answer comes in ${fmtSpan(Math.round(S.pitch.replyDays[0] / 7), Math.round(S.pitch.replyDays[1] / 7), 'weeks')}.` };
+  return { ok: true, msg: `Pitched ${t.client.name} for ${w.label} cover with ${b === 'wide' ? 'a widebody' : 'a narrowbody'}. Their answer comes in ${fmtSpan(Math.round(S.pitch.replyDays[0] / 7), Math.round(S.pitch.replyDays[1] / 7), 'weeks')}.` };
 }
 
 export const pitchesOf = (g: GameState): Pitch[] => g.com?.pitches ?? [];
 
 export interface PitchView extends Pitch {
+  /** v0.19.4 the body pitched (an older pitch: its lead's, else none). */
+  shown?: Body;
   clientName: string;
   country: string;
   seasonLabel: string;
@@ -685,7 +732,7 @@ export function pitchesView(g: GameState): PitchView[] {
         : p.result === 'no' ? 'No, thank you'
         : p.result === 'offer' ? (lead ? `Yes: ${STAGE_NAME[lead.stage].toLowerCase()}` : `Yes: their offer comes about ${fmtDay(p.offerAt ?? p.replyAt)}`)
         : lead ? `Maybe: ${STAGE_NAME[lead.stage].toLowerCase()}` : 'Maybe';
-      return { ...p, clientName: g.clients[p.clientId]?.name ?? 'Airline', country: g.clients[p.clientId]?.country ?? '', seasonLabel: seasonLabel(p.season), status, tone: !p.result ? 'info' : p.result === 'no' ? 'warn' : 'good' };
+      return { ...p, shown: p.body ?? lead?.body, clientName: g.clients[p.clientId]?.name ?? 'Airline', country: g.clients[p.clientId]?.country ?? '', seasonLabel: seasonLabel(p.season), status, tone: !p.result ? 'info' : p.result === 'no' ? 'warn' : 'good' };
     });
 }
 
@@ -703,7 +750,7 @@ function pitchReply(g: GameState, p: Pitch): void {
   }
   if (roll === 'maybe') {
     const sd = seasonDates(p.season, sideOf(g, `pitch:${p.id}:season`));
-    const lead = newLead(g, c, { source: 'pitch', archetypes: ['seasonBase'], key: `pitch:${p.id}`, stage: 'proposal', why: (t) => `After our ${label} pitch: ${name} may need cover. ${t}.`, opts: sd.start > g.now + 10 * DAY ? { start: sd.start, days: sd.days } : {} });
+    const lead = newLead(g, c, { source: 'pitch', archetypes: ['seasonBase'], key: `pitch:${p.id}`, stage: 'proposal', why: (t) => `After our ${label} pitch: ${name} may need cover. ${t}.`, opts: sd.start > g.now + 10 * DAY ? { start: sd.start, days: sd.days } : {}, ...(p.body ? { body: p.body } : {}) });
     if (lead) {
       p.result = 'maybe';
       p.leadId = lead.id;
@@ -739,7 +786,7 @@ function pitchOffer(g: GameState, p: Pitch): void {
     return;
   }
   const sd = seasonDates(p.season, sideOf(g, `pitch:${p.id}:season`));
-  const lead = newLead(g, c, { source: 'pitch', archetypes: ['seasonBase'], key: `pitcho:${p.id}`, stage: 'proposal', why: (t) => `After our ${seasonLabel(p.season)} pitch: ${c.name} wants our cover. ${t}.`, opts: sd.start > g.now + 10 * DAY ? { start: sd.start, days: sd.days } : {} });
+  const lead = newLead(g, c, { source: 'pitch', archetypes: ['seasonBase'], key: `pitcho:${p.id}`, stage: 'proposal', why: (t) => `After our ${seasonLabel(p.season)} pitch: ${c.name} wants our cover. ${t}.`, opts: sd.start > g.now + 10 * DAY ? { start: sd.start, days: sd.days } : {}, ...(p.body ? { body: p.body } : {}) });
   if (!lead) {
     p.leadId = '';
     return;

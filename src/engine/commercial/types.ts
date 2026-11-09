@@ -36,6 +36,9 @@ export interface RivalTenderBid {
   age: number;
 }
 
+/** v0.19.4 the widebody RFPs: Hajj airlifts, Ramadan Umrah lift, summer transatlantic and winter long-haul leisure cover. */
+export type WideTenderKind = 'hajj' | 'umrah' | 'summerLong' | 'winterLong';
+
 export interface Tender {
   id: string;
   /** 'S2028' summer round, 'W2027' winter round. */
@@ -52,6 +55,12 @@ export interface Tender {
   /** What the client prefers: its own family (crew commonality), and its cabin crew on board (language). */
   family?: string;
   mixedPref?: boolean;
+  /** v0.19.4 a widebody RFP (commercial/tenders.ts issueWideTender): its kind, the dates fixed by the calendar (Hajj:
+   *  the bid takes the ask's dates), and its name when it is not the round's ('Hajj 1450', 'Ramadan 2030'). */
+  wide?: true;
+  kind?: WideTenderKind;
+  fixed?: true;
+  label?: string;
   rivals: RivalTenderBid[];
   bid?: TenderBid;
   status: TenderStatus;
@@ -135,6 +144,8 @@ export interface CommercialState {
   crises: Crisis[];
   /** RFPs issued per round ('S2028' → 4). */
   rounds?: Record<string, number>;
+  /** v0.19.4 widebody RFPs issued per round (counted apart from the narrowbody ones). */
+  wideRounds?: Record<string, number>;
   lastCrisis?: Minute;
   /** v0.14 market presence 0–100 by market (commercial/presence.ts); seeded on a new game or the first load. */
   presence?: PresenceState;

@@ -269,6 +269,8 @@ export interface PlayerPrestige {
   levelAt: Partial<Record<Prestige, Minute>>;
   /** The last stretch offer (one level up) made. */
   stretchAt?: Minute;
+  /** v0.19.4 the last out-of-reach job (a taste of progression: a double-decker load) made (contracts/fleetFit.ts). */
+  reachAt?: Minute;
   /** Set once when derived from an older save's history on load. */
   derived?: true;
 }
@@ -658,6 +660,8 @@ export interface ContractOffer {
   // ---------- v0.16 (UPDATE-0.16.md) ----------
   /** v0.16 clients: a stretch offer from a client one level above ours ("a taste of what's to come"). */
   stretch?: true;
+  /** v0.19.4 out of reach for our fleet today (a double-decker load): a taste of progression (contracts/fleetFit.ts). */
+  reach?: true;
   /** v0.16 clients: the rate part of the client's prestige level (−4 % brochure work … +8 % majors), priced in. */
   prestigePct?: number;
   /** v0.16.3 the 'Restructuring' label's rate part (−5 %) while the company carries it, priced in. */
@@ -1824,6 +1828,8 @@ export interface Stats {
   techAc?: Record<string, Record<number, [number, number]>>;
   techAcSince?: Minute;
   techFails?: TechFail[];
+  /** v0.19.4 counters: out-of-reach jobs offered, widebody tenders issued, leads whose offer kept the lead's body. */
+  v0194?: { reach?: number; wideTenders?: number; leadKept?: number; leadChanged?: number };
   /** v0.7: illegal-crew and AOG incidents (pruned after 365 days; the Ladder's illegal-duty check). */
   incidents?: [Minute, 'illegalCrew' | 'aog'][];
   /** v0.7: deliveries, days delivery ferries waited for pilots, refits, lease returns and extensions, authority findings. */
@@ -2378,6 +2384,10 @@ export interface Lead {
   warned?: true;
   /** What the lead is about, in words ('Summer base at Frankfurt'). */
   title?: string;
+  /** v0.19.4 the body the client asked for, the seats and the type of ours it fits: the offer keeps them (older leads: none). */
+  body?: 'narrow' | 'wide';
+  seats?: number;
+  typeId?: string;
 }
 
 export interface Pitch {
@@ -2393,6 +2403,8 @@ export interface Pitch {
   offerAt?: Minute;
   /** Free: met at a fair this season. */
   free?: true;
+  /** v0.19.4 what we pitched: a narrowbody or a widebody (older pitches: what the lead says). */
+  body?: 'narrow' | 'wide';
 }
 
 export interface SalesRep {

@@ -7,19 +7,20 @@
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { countryName } from '../../data/countries';
-import { TENDER_ISSUERS, winterIssuer } from '../../data/fairs';
+import { TENDER_ISSUERS, WIDE_TENDER_ISSUERS, winterIssuer, type WideTenderIssuer } from '../../data/fairs';
+import { nextHajj, type HajjDates } from '../../data/worldCalendar';
 import { BAL } from '../core/balance';
 import { nextId } from '../core/entities';
 import { pushMessage } from '../core/messages';
 import { complement, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
-import { chance, int, range, weightedPick } from '../core/rng';
+import { chance, int, pick, range, weightedPick, type RngHolder } from '../core/rng';
 import { DAY, fmtDay, fromUTC, toDate } from '../core/time';
 import { clamp } from '../core/util';
 import type { ActionResult, ContractOffer, GameState, Minute, Rival } from '../core/types';
 import { acceptOffer, jobDayRange, jobDays } from '../contracts/accept';
 import { feasibility, type CheckLevel } from '../contracts/feasibility';
-import { generateOffer } from '../contracts/offers';
+import { generateOffer, type OfferOpts } from '../contracts/offers';
 import { productValue } from '../contracts/pricing';
 import { bumpClient, levelOf } from '../contracts/relations';
 import { addVisibility, clientPrestige, playerPrestige } from '../contracts/prestige';
@@ -27,7 +28,8 @@ import { brokerName, onTenderWonVia } from './sales';
 import { isActive, rivalFits } from '../contracts/rivals';
 import { busyShare } from '../ops/director';
 import { busyNow, clientByName, com, comStats, paceOf, sideOf, withStream } from './state';
-import type { RivalTenderBid, Tender, TenderBid } from './types';
+import type { RivalTenderBid, Tender, TenderBid, WideTenderKind } from './types';
+import { holdsWide, seatsFor, targetUnit } from '../contracts/fleetFit';
 import { lockOf } from '../scenario/rules';
 
 /** v0.14 the tender rounds and the award model (kept here, not in balance.ts). */
@@ -198,14 +200,206 @@ export function issueTender(g: GameState, opts: { clientId?: string; invited?: b
   return null;
 }
 
-/** v0.14.1 the latest award for an ask starting then: the earliest start a bid may ask, less the award lead and the wait for a busy day. Pure. */
-const latestAward = (start: Minute): Minute => start + TENDER.startShift[0] * DAY - (TENDER.awardLead + TENDER.quietWait) * DAY;
+// ---------- v0.19.4 widebody RFPs ----------
+
+const WT = () => BAL.v0194.tenders;
+
+/** Whether widebody RFPs come to us: Widebody operations held and a widebody of ours (in the fleet, delivering or bought). Pure. */
+export function wideTenderEligible(g: GameState): boolean {
+  return g.company.approvals.includes('widebody') && holdsWide(g);
+}
+
+/** Widebody RFPs a round once eligible: by our level (BAL.v0194.tenders.wide). Pure. */
+export function wideTenderWant(g: GameState): number {
+  if (!wideTenderEligible(g)) return 0;
+  const lvl = playerPrestige(g).level;
+  const w = WT().wide;
+  return w[Math.min(w.length - 1, lvl)] ?? 0;
+}
+
+/** The first day of Ramadan before a Hajj (Arafah − 96 days: Ramadan, Shawwal, Dhu al-Qadah and 8 days). Pure. */
+export const ramadanOf = (h: HajjDates): Minute => h.arafah - 96 * DAY;
+
+/** The Hajj an RFP issued now would be for: its in-bound phase starts 45–200 days ahead and leaves time to award. Pure. */
+export function hajjTenderFor(now: Minute): HajjDates | null {
+  return nextHajj(now, 2).find((h) => h.pre[0] - now >= 45 * DAY && h.pre[0] - now <= 200 * DAY && latestAward(h.pre[0], true) >= now + (2 * TENDER.minDays + 1) * DAY) ?? null;
+}
+
+/** The Ramadan Umrah peak an RFP issued now would be for: [from a week before Ramadan, to 5 days after Eid]. Pure. */
+export function umrahTenderFor(now: Minute): { h: HajjDates; start: Minute; days: number } | null {
+  for (const h of nextHajj(now, 3)) {
+    const start = Math.floor((ramadanOf(h) - 7 * DAY) / DAY) * DAY;
+    if (start - now < 45 * DAY || start - now > 240 * DAY || latestAward(start) < now + (2 * TENDER.minDays + 1) * DAY) continue;
+    return { h, start, days: 7 + 30 + 5 };
+  }
+  return null;
+}
+
+/** The kinds of widebody RFP a round may issue now: its season's long-haul leisure cover, and the Hajj or the Umrah peak when their dates fit. Pure. */
+export function wideKindsNow(g: GameState, round: TenderRound): WideTenderKind[] {
+  const out: WideTenderKind[] = [round.kind === 'summer' ? 'summerLong' : 'winterLong'];
+  if (hajjTenderFor(g.now)) out.push('hajj');
+  if (umrahTenderFor(g.now)) out.push('umrah');
+  return out;
+}
+
+const KIND_LABEL: Record<WideTenderKind, string> = { hajj: 'Hajj airlift', umrah: 'Ramadan Umrah lift', summerLong: 'summer long-haul cover', winterLong: 'winter long-haul cover' };
+
+/**
+ * v0.19.4 issues one widebody RFP: the kind (the round's long-haul leisure cover, or the Hajj or Ramadan peak when its
+ * dates fit; the kinds not yet asked this round first), a real issuer of it (data/fairs.ts WIDE_TENDER_ISSUERS), the ask
+ * sized to our widebodies (a client "sees which aircraft we have"), rivals with widebodies, deadline and award. Null when
+ * nothing could be built (or the kind / client given cannot issue now).
+ */
+export function issueWideTender(g: GameState, opts: { round?: TenderRound; kind?: WideTenderKind; clientId?: string; invited?: boolean } = {}): Tender | null {
+  const c = com(g);
+  const round = opts.round ?? roundAt(g.now) ?? nextRoundOf(g.now);
+  const n0 = c.wideRounds?.[round.key] ?? 0;
+  const key = `w${round.key}:${n0}:${c.tenders.length}:${opts.clientId ?? ''}:${opts.kind ?? ''}`;
+  const r = sideOf(g, `tnw:${key}`);
+  const busy = new Set(c.tenders.filter((t) => t.status === 'open').map((t) => t.clientId));
+  // An airline asked for by name (a broker's invitation) issues the kinds it tenders for.
+  const cname = opts.clientId ? g.clients[opts.clientId]?.name : undefined;
+  const kinds = (opts.kind ? [opts.kind] : wideKindsNow(g, round)).filter((k) => !cname || WIDE_TENDER_ISSUERS[k].some((x) => x.name === cname));
+  if (!kinds.length) return null;
+  const asked = new Set(c.tenders.filter((t) => t.round === round.key && t.kind).map((t) => t.kind!));
+  const fresh = kinds.filter((k) => !asked.has(k));
+  for (let tries = 0; tries < 4; tries++) {
+    const pool = fresh.length && tries < 2 ? fresh : kinds;
+    const kind = opts.kind ?? pick(r, pool);
+    const issuers = WIDE_TENDER_ISSUERS[kind];
+    const meta = opts.clientId ? issuers.find((x) => clientByName(g, x.name)?.id === opts.clientId) : weightedPick(r, issuers, (x) => x.w);
+    if (!meta) return null;
+    const client = clientByName(g, meta.name);
+    if (!client || busy.has(client.id) || client.ceased !== undefined || !AIRPORT_BY_CODE[client.base]) {
+      if (opts.clientId) return null;
+      continue;
+    }
+    // The ask sized to one of our widebodies (one delivering counts for work after its handover).
+    const u = targetUnit(g, 'wide', range(r, 0, 1));
+    if (!u) return null;
+    const seats = Math.min(kind === 'hajj' || kind === 'umrah' ? 500 : 280, seatsFor(u, range(r, 0, 1)));
+    const built = buildWideAsk(g, kind, meta, client.id, seats, round, `askw:${key}:${tries}`, r);
+    if (!built) continue;
+    const { o, fixed, label } = built;
+    delete g.offers[o.id];
+    delete o.rivalBid;
+    delete o.requirements.families;
+    // Pilgrims fly in any everyday cabin with the seats (the business seats sold as economy); long-haul leisure two- or three-class.
+    if (kind === 'hajj' || kind === 'umrah') {
+      delete o.requirements.layout;
+      o.requirements.layouts = ['all-economy', 'two-class'];
+    }
+    const cc = o.requirements.clientCabin;
+    if (cc) {
+      delete o.requirements.clientCabin;
+      if (o.product.kind === 'wet') {
+        o.product.ratePerBH += BAL.v08.mixedCrew.perCabinBH * cc.n;
+        o.estValue = productValue(o.product, o.estBH, o.start, o.end, o.terms);
+      }
+    }
+    o.status = 'declined';
+    const invited = !!opts.invited;
+    const nRivals = invited ? int(r, 0, 1) : int(r, TENDER.rivals[0], TENDER.rivals[1]);
+    let deadline = g.now + int(r, WT().deadline[0], WT().deadline[1]) * DAY;
+    let resultAt = deadline + int(r, TENDER.decide[0], TENDER.decide[1]) * DAY;
+    const last = Math.floor(latestAward(o.start, fixed) / DAY) * DAY;
+    if (resultAt > last) {
+      resultAt = last;
+      deadline = Math.min(deadline, resultAt - TENDER.minDays * DAY);
+    }
+    if (deadline < g.now + TENDER.minDays * DAY) continue;
+    const t: Tender = {
+      id: nextId(g, 'tn'), round: round.key, clientId: client.id, ask: o, issued: g.now, deadline, resultAt,
+      ...(invited ? { invited } : {}), wide: true, kind, ...(fixed ? { fixed: true as const } : {}), ...(label ? { label } : {}),
+      ...(kind === 'hajj' || kind === 'umrah' ? { mixedPref: true } : {}),
+      rivals: rivalBids(g, o, nRivals, key), status: 'open',
+    };
+    c.tenders.push(t);
+    (c.wideRounds ??= {})[round.key] = n0 + 1;
+    const v = (g.stats.v0194 ??= {});
+    v.wideTenders = (v.wideTenders ?? 0) + 1;
+    const where = o.pattern.kind === 'base' ? `based at ${city(o.pattern.base)}` : `from ${city(tenderRow(g, t).base)} to Jeddah and Madinah`;
+    pushMessage(g, {
+      tone: 'info', cat: 'commercial', title: `${invited ? 'Invitation to tender' : 'Widebody tender'}: ${client.name}, ${label ?? roundName(round.key)}`,
+      body: `${client.name} wants ${aircraftWanted(t)} ${where} from ${jobDays(o)[0]} to ${jobDays(o)[1]} (${KIND_LABEL[kind]}${fixed ? ', dates fixed' : ''}). Bids close ${fmtDay(deadline)} (00:00 UTC).`,
+      ref: { kind: 'tender', id: t.id }, cue: 'offerNew',
+    });
+    return t;
+  }
+  return null;
+}
+
+/** n distinct items in a random order (a side stream). Pure in g. */
+function pickSome<T>(r: RngHolder, xs: T[], n: number): T[] {
+  const pool = [...xs];
+  const out: T[] = [];
+  while (out.length < n && pool.length) out.push(pool.splice(Math.floor(range(r, 0, pool.length)), 1)[0]);
+  return out;
+}
+
+/**
+ * A widebody base ask from the issuer's own cities: two or three of them, else those our approvals let us fly one by one
+ * (the Caribbean from Paris needs ETOPS 180: an ETOPS 120 operator is asked for the cities it can reach). Null when none.
+ */
+function baseAsk(g: GameState, r: RngHolder, meta: WideTenderIssuer, stream: string, opts: OfferOpts): ContractOffer | null {
+  const all = pickSome(r, (meta.dests ?? []).filter((x) => AIRPORT_BY_CODE[x]), (meta.dests ?? []).length);
+  const n = int(r, 2, 3);
+  const build = (dests: string[], k: string) => withStream(g, `${stream}:${k}`, () => generateOffer(g, 'seasonBase', { ...opts, baseAt: meta.base, dests, waves: 1 }), true);
+  const first = build(all.slice(0, n), 'a');
+  if (first) return first;
+  const ok: string[] = [];
+  for (const d of all) {
+    const o = build([d], d);
+    if (!o) continue;
+    delete g.offers[o.id];
+    ok.push(d);
+  }
+  return ok.length ? build(ok.slice(0, n), 'b') : null;
+}
+
+/** The ask of a widebody RFP (a clone off the market), or null. */
+function buildWideAsk(g: GameState, kind: WideTenderKind, meta: WideTenderIssuer, clientId: string, seats: number, round: TenderRound, stream: string, r: RngHolder): { o: ContractOffer; fixed: boolean; label?: string } | null {
+  const common = { client: clientId, wide: true, aspire: false, window: false as const, paint: false, cabin: false as const, seats };
+  if (kind === 'hajj') {
+    const h = hajjTenderFor(g.now);
+    if (!h) return null;
+    const o = withStream(g, stream, () => generateOffer(g, 'hajj', { ...common, hajj: h }), true);
+    return o ? { o, fixed: true, label: `Hajj ${h.ah}` } : null;
+  }
+  if (kind === 'umrah') {
+    const u = umrahTenderFor(g.now);
+    if (!u || !meta.base || !meta.dests) return null;
+    const o = baseAsk(g, r, meta, stream, { ...common, start: u.start, days: u.days });
+    if (!o) return null;
+    const y = toDate(ramadanOf(u.h)).getUTCFullYear();
+    o.title = `Ramadan Umrah lift from ${city(meta.base)}`;
+    o.blurb = `${o.blurb.replace(/^.*? wants /, `${g.clients[clientId]?.name ?? 'The airline'} wants `)} The Ramadan Umrah peak: pilgrims to the holy cities from the week before Ramadan to Eid; the client sells the seats.`;
+    return { o, fixed: false, label: `Ramadan ${y}` };
+  }
+  if (!meta.base || !meta.dests) return null;
+  const starts: [number, number][] = kind === 'summerLong' ? [[5, 1], [5, 15], [6, 1]] : [[11, 1], [11, 15], [12, 1]];
+  const days = kind === 'summerLong' ? int(r, 120, 150) : int(r, 105, 140);
+  let si = int(r, 0, starts.length - 1);
+  while (si < starts.length && latestAward(fromUTC(round.year, ...starts[si])) < g.now + (2 * TENDER.minDays + 1) * DAY) si++;
+  if (si >= starts.length) return null;
+  const start = fromUTC(round.year, ...starts[si]);
+  const o = baseAsk(g, r, meta, stream, { ...common, start, days });
+  if (!o) return null;
+  o.blurb = `${o.blurb} ${kind === 'summerLong' ? 'Their summer long-haul peak' : 'Their winter sun peak'}: a widebody wet-leased for the season.`;
+  return { o, fixed: false };
+}
+
+/** v0.14.1 the latest award for an ask starting then: the earliest start a bid may ask, less the award lead and the wait
+ *  for a busy day. v0.19.4 dates fixed by the calendar (a Hajj airlift): from the ask's own start. Pure. */
+const latestAward = (start: Minute, fixed = false): Minute => start + (fixed ? 0 : TENDER.startShift[0]) * DAY - (TENDER.awardLead + TENDER.quietWait) * DAY;
 
 /**
  * v0.14.1 the earliest start a bid may ask: the ask's start less TENDER.startShift (whole days); for a tender from an
  * older save whose award comes late, not before a week after the award (and its wait for a busy day). Pure.
  */
 export function earliestBidStart(t: Tender): Minute {
+  if (t.fixed) return t.ask.start;
   const lo = t.ask.start + TENDER.startShift[0] * DAY;
   const need = t.resultAt + TENDER.quietWait * DAY + TENDER.minDays * DAY;
   return lo >= need ? lo : t.ask.start + Math.ceil((need - t.ask.start) / DAY) * DAY;
@@ -222,6 +416,8 @@ function nextRoundOf(t: Minute): TenderRound {
 /** 'an A320-family aircraft (180 seats)' from the ask. Pure. */
 export function aircraftWanted(t: Tender): string {
   const req = t.ask.requirements;
+  // v0.19.4 a widebody RFP.
+  if (t.wide) return t.kind === 'hajj' || t.kind === 'umrah' ? `a widebody for pilgrims (${req.minSeats}+ seats)` : `a widebody (${req.minSeats}+ seats)`;
   const fam = t.family === 'B737' ? 'a 737' : t.family === 'A320' ? 'an A320' : 'an A320 or 737';
   return `${fam}-size aircraft (${req.minSeats}+ seats)`;
 }
@@ -243,9 +439,17 @@ export function dailyTenders(g: GameState): void {
   const lvl = playerPrestige(g).level;
   const want = TENDER[round.kind].count[paceOf(g)] + (BAL.v016.sales.tenderExtra[Math.min(3, lvl)] ?? 0);
   const have = c.rounds?.[round.key] ?? 0;
-  if (have >= want) return;
   // Spread what is left over the busy days left in the window.
   const daysLeft = Math.max(1, (round.until - g.now) / DAY);
+  // v0.19.4 the widebody RFPs of the round, once we hold Widebody operations and a widebody (in the fleet or delivering):
+  // about one a round, more at higher levels, spread over the same busy days (their own roll).
+  const wWant = wideTenderWant(g);
+  const wHave = c.wideRounds?.[round.key] ?? 0;
+  if (wHave < wWant) {
+    const pw = clamp((wWant - wHave) / Math.max(1, daysLeft * busyShare(paceOf(g))), 0.05, 1);
+    if (chance(sideOf(g, `issuew:${round.key}:${Math.floor(g.now / DAY)}`), pw)) issueWideTender(g, { round });
+  }
+  if (have >= want) return;
   const p = clamp((want - have) / Math.max(1, daysLeft * busyShare(paceOf(g))), 0.05, 1);
   if (chance(sideOf(g, `issue:${round.key}:${Math.floor(g.now / DAY)}`), p)) issueTender(g, { round });
 }
@@ -285,6 +489,9 @@ export interface BidQuote {
   mixedCut: number;
   mixedPref: boolean;
   rivals: number;
+  /** v0.19.4 a widebody RFP, and dates fixed by the calendar (no date steppers). */
+  wide: boolean;
+  fixed: boolean;
 }
 
 /** The ask with our terms: dates moved by whole days, our rate and MGH, their cabin crew. Pure (a clone). */
@@ -351,7 +558,7 @@ export function bidAircraft(g: GameState, tenderId: string, terms?: BidTerms): B
   // winter tenders, won both, and the second award found it busy with the first.
   const others = com(g).tenders.filter((x) => x.id !== t.id && (x.status === 'open' || x.status === 'closed') && x.bid && x.bid.start < bid.end && x.bid.end > bid.start);
   return Object.values(g.fleet)
-    .filter((a) => a.status !== 'stored' && a.status !== 'leasedOut' && !a.sale && typeOf(a.typeId).body === 'narrow')
+    .filter((a) => a.status !== 'stored' && a.status !== 'leasedOut' && !a.sale && typeOf(a.typeId).body === (t.wide ? 'wide' : 'narrow'))
     .map((a) => {
       const fit = fitOn(g, offerWithBid(t, bid, a.typeId, a.cabin.total), a.id);
       return { id: a.id, reg: a.reg, type: typeOf(a.typeId).short, age: yearsOld(g, a.builtYear), family: typeOf(a.typeId).family, level: fit.level, note: fit.note, otherBids: others.filter((x) => x.bid!.aircraftId === a.id).length };
@@ -371,9 +578,10 @@ export function bidQuote(g: GameState, tenderId: string): BidQuote | null {
   const home = g.company.homeBase;
   return {
     tenderId, budget, mgh, rateMin: r10(budget * 0.85), rateMax: r10(budget * 1.15), mghMin: Math.round(mgh * 0.8), mghMax: Math.round(mgh * 1.2),
-    start: Math.max(bid0.start, earliestBidStart(t)), end: bid0.end,
-    startRange: [earliestBidStart(t), o.start + TENDER.startShift[1] * DAY], endRange: [o.end + TENDER.endShift[0] * DAY, o.end + TENDER.endShift[1] * DAY],
+    start: t.fixed ? o.start : Math.max(bid0.start, earliestBidStart(t)), end: t.fixed ? o.end : bid0.end,
+    startRange: t.fixed ? [o.start, o.start] : [earliestBidStart(t), o.start + TENDER.startShift[1] * DAY], endRange: t.fixed ? [o.end, o.end] : [o.end + TENDER.endShift[0] * DAY, o.end + TENDER.endShift[1] * DAY],
     aircraft, crewLabel: `Crew based in ${countryName(AIRPORT_BY_CODE[home]?.country ?? '') || home}`, mixedCut: mixedCutPerBH(), mixedPref: !!t.mixedPref, rivals: t.rivals.length,
+    wide: !!t.wide, fixed: !!t.fixed,
   };
 }
 
@@ -387,9 +595,12 @@ export function placeBid(g: GameState, tenderId: string, bid: Omit<TenderBid, 'a
   if (t.status !== 'open' || g.now >= t.deadline) return { ok: false, error: 'Bids for this tender have closed' };
   const ac = g.fleet[bid.aircraftId];
   if (!ac) return { ok: false, error: 'Choose an aircraft' };
-  if (typeOf(ac.typeId).body !== 'narrow') return { ok: false, error: `${ac.reg} is a widebody: they want a narrowbody` };
+  // v0.19.4 the body they asked for: a narrowbody RFP takes a narrowbody, a widebody RFP a widebody.
+  if (typeOf(ac.typeId).body !== (t.wide ? 'wide' : 'narrow')) return { ok: false, error: t.wide ? `${ac.reg} is a narrowbody: they want a widebody` : `${ac.reg} is a widebody: they want a narrowbody` };
   const o = t.ask;
   if (!(bid.rate > 0) || !(bid.mgh > 0)) return { ok: false, error: 'Rate and MGH must be above zero' };
+  // v0.19.4 dates fixed by the calendar (a Hajj airlift): the bid flies the ask's own dates.
+  if (t.fixed && (bid.start !== o.start || bid.end !== o.end)) return { ok: false, error: 'The dates are fixed: they fly the pilgrims on these days' };
   if (bid.start < earliestBidStart(t) || bid.start > o.start + TENDER.startShift[1] * DAY) return { ok: false, error: bid.start < earliestBidStart(t) && bid.start >= o.start + TENDER.startShift[0] * DAY ? `Too soon: they decide ${fmtDay(t.resultAt)}` : 'Start too far from their dates' };
   if (bid.end < o.end + TENDER.endShift[0] * DAY || bid.end > o.end + TENDER.endShift[1] * DAY || bid.end - bid.start < 30 * DAY) return { ok: false, error: 'End too far from their dates' };
   // v0.14 the offer dialog's feasibility on our terms: no bid on a tail that cannot fly it (busy over the window, …).
@@ -598,6 +809,10 @@ export interface TenderRow {
   result?: Tender['result'] & { winnerName: string };
   budget: number;
   mgh: number;
+  /** v0.19.4 the body asked for (the card's tag), the kind of widebody RFP. */
+  body: 'narrow' | 'wide';
+  kind?: WideTenderKind;
+  fixed: boolean;
 }
 
 export function tenderRow(g: GameState, t: Tender): TenderRow {
@@ -605,13 +820,14 @@ export function tenderRow(g: GameState, t: Tender): TenderRow {
   const cl = g.clients[t.clientId];
   const p = o.pattern;
   return {
-    id: t.id, clientId: t.clientId, client: cl?.name ?? 'Client', country: cl?.country ?? '', round: roundName(t.round),
-    base: p.kind === 'base' ? p.base : cl?.base ?? '', dests: p.kind === 'base' ? p.dests : [], start: o.start, end: o.end, seats: o.requirements.minSeats,
+    id: t.id, clientId: t.clientId, client: cl?.name ?? 'Client', country: cl?.country ?? '', round: t.label ?? roundName(t.round),
+    base: p.kind === 'base' ? p.base : p.legs[0]?.from ?? cl?.base ?? '', dests: p.kind === 'base' ? p.dests : [...new Set(p.legs.filter((l) => l.from === p.legs[0]?.from).map((l) => l.to))], start: o.start, end: o.end, seats: o.requirements.minSeats,
     wanted: aircraftWanted(t), deadline: t.deadline, resultAt: t.resultAt, status: t.status, invited: !!t.invited, rivals: t.rivals.length,
     ...(t.brokerId ? { via: brokerName(t.brokerId) } : {}),
     ...(t.bid ? { bid: { ...t.bid, reg: g.fleet[t.bid.aircraftId]?.reg ?? '—' } } : {}),
     ...(t.result ? { result: { ...t.result, winnerName: t.result.winner === 'us' ? 'You' : g.rivals.find((x) => x.id === t.result!.winner)?.name ?? 'A rival' } } : {}),
     budget: o.product.kind === 'wet' ? o.product.ratePerBH : 0, mgh: o.product.kind === 'wet' ? o.product.mghPerMonth : 0,
+    body: t.wide ? 'wide' : 'narrow', ...(t.kind ? { kind: t.kind } : {}), fixed: !!t.fixed,
   };
 }
 
