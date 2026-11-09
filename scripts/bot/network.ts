@@ -30,6 +30,12 @@ const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
  * 25 of the last 60 days, and under half of the next 60 days booked.
  */
 function idleWide(g: GameState, exclude: Set<string>, marketId = 'LIS-OXB'): string | null {
+  return idleAll(g, exclude, marketId)[0] ?? null;
+}
+
+/** Every idle aircraft that reaches the market, widebodies first. */
+function idleAll(g: GameState, exclude: Set<string>, marketId: string): string[] {
+  const out: string[] = [];
   const day = Math.floor(g.now / DAY);
   const m = marketById(marketId);
   const reach = (typeId: string) => !!m && [...chainOf(m, 'out'), ...chainOf(m, 'back').slice(1)].every((x, i, a) => i === 0 || distanceNm(a[i - 1], x) <= maxSectorNm(typeId, a[i - 1], x));
@@ -41,9 +47,9 @@ function idleWide(g: GameState, exclude: Set<string>, marketId = 'LIS-OXB'): str
     if (60 - flew.size < 25) continue;
     const busyDays = new Set(liveFlightsOf(g, ac.id).filter((f) => f.std < g.now + 60 * DAY && f.status !== 'cancelled').map((f) => Math.floor(f.std / DAY)));
     if (busyDays.size > 30) continue;
-    return ac.id;
+    out.push(ac.id);
   }
-  return null;
+  return out;
 }
 
 const live = (g: GameState) => Object.values(g.network?.routes ?? {}).filter((r) => r.status !== 'closed');
@@ -58,7 +64,15 @@ export function botNetwork(g: GameState): boolean {
   for (const r of routes) {
     if (r.status === 'case') {
       const d = caseDraft(g, r.id);
-      const ac = idleWide(g, used, r.marketId);
+      let ac = idleWide(g, used, r.marketId);
+      // v0.19.2 a custom route: the idle aircraft whose business case is best (a narrowbody often beats a 767 there).
+      if (d && r.custom) {
+        let best = -Infinity;
+        for (const id of idleAll(g, used, r.marketId)) {
+          const bc = businessCase(g, r.id, { ...d, typeId: g.fleet[id].typeId, layout: g.fleet[id].cabin.layout });
+          if (bc && bc.p50.result > best) { best = bc.p50.result; ac = id; }
+        }
+      }
       if (d && ac) {
         d.typeId = g.fleet[ac].typeId;
         d.layout = g.fleet[ac].cabin.layout;
