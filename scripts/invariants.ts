@@ -70,6 +70,8 @@ interface FlightRec {
   reducedCabin?: number;
   /** Operating crew without the type rating when the leg was first seen flown. */
   unrated?: string[];
+  /** v0.19.4 diverted en route: the destination it was dispatched to (the ETOPS check is on the dispatched sector). */
+  planned?: string;
 }
 interface LogRec {
   start: Minute;
@@ -299,6 +301,7 @@ export function createChecker(opts: CheckerOpts = {}) {
         flights.set(f.id, {
           id: f.id, seats: f.aircraftId ? g.fleet[f.aircraftId]?.cabin.total : undefined, no: f.no, kind: f.kind, from: f.from, to: f.to, atd: f.atd ?? f.std, ata: f.ata ?? f.sta, aircraftId: f.aircraftId, contractId: f.contractId,
           crewIds: [...f.crewIds], riders: [...(f.riders ?? [])], purpose: f.purpose, operatedBy: f.operatedBy, reducedCabin: f.reducedCabin,
+          ...(f.div?.to0 ? { planned: f.div.to0 } : {}),
           unrated: f.kind !== 'deadhead' && f.aircraftId && g.fleet[f.aircraftId] ? f.crewIds.filter((id) => g.crew[id] && !g.crew[id].ratings.includes(typeOf(g.fleet[f.aircraftId!].typeId).family)) : [],
         });
         for (const id of new Set([...f.crewIds, ...(f.riders ?? [])])) if (g.crew[id] || crew.has(id)) (g.crew[id] ? hist(g, id) : crew.get(id)!).flights.push(f.id);
@@ -456,7 +459,9 @@ export function createChecker(opts: CheckerOpts = {}) {
       (byAc.get(f.aircraftId) ?? byAc.set(f.aircraftId, []).get(f.aircraftId)!).push(f);
       const typeId = typeOfAc.get(f.aircraftId);
       if (typeId) {
-        const need = etopsNeeded(typeId, f.from, f.to);
+        // v0.19.4 ETOPS is a dispatch rule: a leg that diverted en route (seed 5: MTY–HAV landed at Cancún) is checked on
+        // the sector it was dispatched for, not on the way to the alternate it turned to.
+        const need = etopsNeeded(typeId, f.from, f.planned ?? f.to);
         const ac = g.fleet[f.aircraftId];
         // Empty ferries (delivery, lease, return, sale) fly on a one-off ferry permit, as the game says for deliveries:
         // reported apart. The airframe's own ETOPS figure is not used by the game (company approval and type only).

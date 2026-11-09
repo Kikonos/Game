@@ -374,3 +374,33 @@ describe('saves', () => {
     expect(etopsRecord(o, 180, 180).pct).toBeNull();
   });
 });
+
+describe('invariants: ETOPS on the dispatched sector (seed 5, VB2040)', () => {
+  it('a leg that diverted en route is checked on the sector it was dispatched for, not on the way to its alternate', async () => {
+    const { createChecker } = await import('../../scripts/invariants');
+    const { acceptOffer } = await import('./contracts/accept');
+    const { legsOffer } = await import('./contracts/testkit');
+    const { flightsOf } = await import('./core/entities');
+    const g = newGame(5);
+    const ac = narrows(g)[0];
+    const r = acceptOffer(g, legsOffer(g, [['MTY', 'HAV', g.now + 2 * DAY]]).id, [ac.id]);
+    expect(r.ok).toBe(true);
+    const f = flightsOf(g, ac.id).find((x) => x.from === 'MTY' && x.to === 'HAV' && x.kind === 'revenue')!;
+    expect(f).toBeDefined();
+    const inv = createChecker();
+    inv.observe(g);
+    // It turned to Cancún en route (MTY–CUN in a straight line would be an ETOPS 120 sector for a twin).
+    Object.assign(f, { status: 'done', atd: f.std, ata: f.sta, to: 'CUN', div: { to0: 'HAV', at: f.std + 60, eta0: f.sta, cause: 'technical' } });
+    inv.observe(g);
+    inv.finish(g);
+    expect(inv.errors.filter((e: { code: string }) => e.code === 'etops')).toEqual([]);
+    const inv2 = createChecker();
+    inv2.observe(g);
+    delete (f as { div?: unknown }).div;
+    const f2 = { ...f, id: `${f.id}x` };
+    g.flights[f2.id] = f2;
+    inv2.observe(g);
+    inv2.finish(g);
+    expect(inv2.errors.some((e: { code: string; text: string }) => e.code === 'etops' && e.text.includes('MTY–CUN'))).toBe(true);
+  });
+});
