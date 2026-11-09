@@ -10,7 +10,8 @@
 // - the ETOPS reliability programme (a monthly fee per ETOPS twin; set-up 3 weeks): rotable spares along the ETOPS
 //   network and an engineer on call: technical delays × delayX, AOGs × aogX, and an AOG away from base is fixed as fast
 //   as at home and no likelier (no outstation factor);
-// - checks on time (deferred defects raise the AOG chance; an A-check clears most), a swap or the AOG team on an AOG
+// - checks on time (deferred defects raise the AOG chance, and on an ETOPS twin they hold the departure for the ETOPS
+//   pre-departure service check: × (1 + deferredX × deferred); an A-check clears most), a swap or the AOG team on an AOG
 //   (a swap that gets the leg away within 15 minutes counts as on time), and the oldest airframe out of the ETOPS fleet.
 
 import { BAL } from '../core/balance';
@@ -180,7 +181,7 @@ export function etopsAdvice(g: GameState, r: EtopsRecord): string[] {
     out.push(`${worst.reg} (${worst.type}, ${worst.age} years) caused ${worst.fails} of the ${r.fails} failures. Age adds about 10 % a year to defects and AOGs: keep its checks early, or replace it with a younger twin (an aircraft that leaves the fleet takes its record with it).`);
   }
   for (const a of r.byAc) {
-    if (a.deferred >= 0.15) out.push(`${a.reg} carries deferred defects (${Math.round(a.deferred * 100)} %): an A-check now clears most of them and lowers its AOG risk.`);
+    if (a.deferred >= 0.15) out.push(`${a.reg} carries deferred defects (${Math.round(a.deferred * 100)} %): the ETOPS pre-departure check holds it for them. An A-check now clears most and lowers its AOG risk.`);
   }
   const aog = r.causes.aog ?? 0;
   if (aog >= 2 && aog >= r.fails / 2) out.push('AOGs cost the most: on the next one swap in a free aircraft (a leg that leaves within 15 minutes counts as on time) or fly in the AOG team.');
@@ -260,7 +261,9 @@ export function dailyRelProgramme(g: GameState): void {
 /** Factors on an aircraft's technical delay and AOG chances, and whether an AOG away from base is fixed as at home. Pure. */
 export function relFactors(g: GameState, ac: Aircraft): { delay: number; aog: number; noOutstation: boolean } {
   if (!etopsTwin(ac.typeId, 180)) return { delay: 1, aog: 1, noOutstation: false };
-  let delay = 1;
+  // The ETOPS pre-departure service check: open defects on ETOPS-significant systems are put right before the twin
+  // leaves, so deferred defects delay it (checks on time keep them few; an A-check clears most).
+  let delay = 1 + E().deferredX * ac.maint.deferred;
   let aog = 1;
   if (g.company.etopsMx?.held) {
     delay *= E().mxX;

@@ -331,6 +331,11 @@ describe('ETOPS 180 on the ETOPS fleet', () => {
     g.now += (BAL.v0194.etops.programme.days + 1) * DAY;
     expect(relProgState(g)).toBe('active');
     expect(relFactors(g, tw).aog).toBeLessThan(1);
+    tw.maint.deferred = 0;
+    const clean = relFactors(g, tw).delay;
+    tw.maint.deferred = 0.3;
+    expect(relFactors(g, tw).delay).toBeCloseTo(clean * (1 + BAL.v0194.etops.deferredX * 0.3), 5);
+    tw.maint.deferred = 0;
     expect(relFactors(g, tw).noOutstation).toBe(true);
     expect(relFactors(g, nb)).toEqual({ delay: 1, aog: 1, noOutstation: false });
     expect(aogChance(g, tw, 'JFK')).toBeLessThan(before * 0.6);
