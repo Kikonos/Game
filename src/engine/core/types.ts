@@ -3,6 +3,9 @@
 // Builders may ADD optional fields in their own domain section; renames/removals go through the architect.
 
 import type { CabinLayout, RatingFamily } from '../../data/acmiTypes';
+import type { FlightSched, NetworkState } from '../network/types';
+// v0.19 scheduled routes (engine/network, docs/UPDATE-0.19.md §R).
+export type * from '../network/types';
 import type { LogoId } from '../../data/livery';
 import type { CommercialState } from '../commercial/types';
 
@@ -447,6 +450,8 @@ export interface Client {
   prestige?: Prestige;
   /** v0.16.1 star rating 0–5 shown for the level (contracts/prestige.ts). load: ??= from its seed, else derived. */
   stars?: Stars;
+  /** v0.19 our own sales record (scheduled routes, own brand and tour operator): never in client lists or offers. */
+  own?: true;
 }
 
 /** v0.8 client relationship level (contracts/relations.ts). */
@@ -458,6 +463,8 @@ export type Archetype =
   | 'capacityLease' | 'hajj' | 'unRotation' | 'vip' | 'deportation' | 'evacuation' | 'humanitarian' | 'subcharterIn' | 'dryLeaseOut'
   // v0.8
   | 'medical' | 'musicTour' | 'antarctic'
+  /** v0.19 a route contract of our own scheduled flying (engine/network): one per route and IATA season. */
+  | 'scheduled'
   // v0.12.1 a round-the-world private-jet tour (Les Voyages de TMR's 'Tour du monde en avion privé'): one widebody,
   // one crew, three weeks.
   | 'worldTour';
@@ -793,6 +800,8 @@ export interface Contract {
   /** v0.16 clients: visibility already credited for this contract (completeContract credits once); signed off a stretch offer. */
   visibilityDone?: true;
   stretch?: true;
+  /** v0.19 a route contract (archetype 'scheduled'): its route and IATA season ('S27', 'W27'). */
+  sched?: { routeId: string; season: string };
 }
 
 /** v0.8 a dry lease out: delivery ferry, the lease at the lessee's base, the return ferry. */
@@ -929,6 +938,8 @@ export interface Flight {
   reducedCabin?: number;
   /** v0.12.1 moved later at its client's own request (minutes, by whom): the schedule moved with it (no penalty, not late). */
   asked?: { min: number; by: string };
+  /** v0.19 a scheduled-route flight: its route, rotation and sector (engine/network; loads in the rotation). */
+  sched?: FlightSched;
 }
 
 /** v0.11 the live disruption cards (ops/disrupt.ts). */
@@ -1511,7 +1522,11 @@ export type LedgerCat =
   /** v0.16.3 distress finance (engine/finance/distress.ts): deferral premiums, payment-plan fees, early-payment discounts, restructuring costs and write-offs (a gain). */
   | 'distress'
   /** v0.17 a lease transition (tech reps, fleet-standard mods, registration, the CAMO's work); a cost (engine/leasing). */
-  | 'transition';
+  | 'transition'
+  /** v0.19 scheduled routes (engine/network, UPDATE-0.19.md §N.1): revenue lines. */
+  | 'ticketRevenue' | 'cargoRevenue' | 'ancillaryRevenue'
+  /** v0.19 scheduled routes: cost lines. */
+  | 'handling' | 'catering' | 'paxServices' | 'navCharges' | 'distribution' | 'marketing' | 'paxComp' | 'routeSetup';
 
 export interface MonthStatement {
   month: MonthKey;
@@ -2023,6 +2038,8 @@ export interface GameState {
   treasury?: Treasury;
   /** v0.17 the aircraft market (engine/leasing): tightness, requests, deals, letters of credit. load/init: loadLeasing */
   leasing?: Leasing;
+  /** v0.19 scheduled routes (engine/network). load/init: loadNetwork */
+  network?: NetworkState;
   /** v0.16 ops: the offer filter (contracts/filter.ts). Absent = no filter. */
   filter?: OfferFilter;
   /** v0.16 ops: the Compliance Monitoring Manager (ops/compliance.ts). load: ??= nobody hired */

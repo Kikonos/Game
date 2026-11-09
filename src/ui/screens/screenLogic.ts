@@ -24,6 +24,8 @@ export const ARCH_LABEL: Record<Archetype, string> = {
   medical: 'Medical airbridge', musicTour: 'Music tour', antarctic: 'Antarctica',
   // v0.12.1
   worldTour: 'World tour',
+  // v0.19
+  scheduled: 'Scheduled route',
 };
 
 /** Category label; a season base of 120 days or more is long-term, as its title says. */
@@ -251,6 +253,10 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   distress: 'Deferrals & restructuring',
   // v0.17
   transition: 'Lease transitions',
+  // v0.19 scheduled routes (UPDATE-0.19.md §N.1)
+  ticketRevenue: 'Passenger tickets', cargoRevenue: 'Cargo and mail', ancillaryRevenue: 'Bags, seats and onboard',
+  handling: 'Ground handling', catering: 'Catering', paxServices: 'Passenger services', navCharges: 'Navigation charges',
+  distribution: 'Distribution (GDS, BSP, cards)', marketing: 'Marketing and research', paxComp: 'Passenger compensation', routeSetup: 'Route set-up and stations',
 };
 
 /**

@@ -30,7 +30,9 @@ export function cashOnly(g: GameState, amount: number): void {
 /** v0.12.1 the statement's revenue lines (the Finance rows and the totals split the same way). */
 export const REVENUE_CATS: readonly LedgerCat[] = ['acmiRevenue', 'charterRevenue', 'otherRevenue', 'leaseIncome', 'assetSale',
   // v0.16 interest on spare cash (engine/finance).
-  'interestIncome'];
+  'interestIncome',
+  // v0.19 scheduled routes (engine/network): tickets, cargo and mail, ancillaries.
+  'ticketRevenue', 'cargoRevenue', 'ancillaryRevenue'];
 
 /** v0.12.1 the statement's cost lines, in the Finance screen's order. */
 export const COST_CATS: readonly LedgerCat[] = [
@@ -46,6 +48,8 @@ export const COST_CATS: readonly LedgerCat[] = [
   'distress',
   // v0.17 lease transitions (tech reps, fleet-standard mods, registration, the CAMO's work: engine/leasing).
   'transition',
+  // v0.19 scheduled routes (engine/network, UPDATE-0.19.md §N.1).
+  'handling', 'catering', 'paxServices', 'navCharges', 'distribution', 'marketing', 'paxComp', 'routeSetup',
 ];
 
 /**
