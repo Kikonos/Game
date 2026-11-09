@@ -818,8 +818,8 @@ function rollDelay(g: GameState, ac: Aircraft, f?: Flight): { min: number; reaso
     const min = Math.min(240, Math.max(15, Math.round(-BAL.techDelayMean * Math.log(1 - next(g)))));
     return { min, reason: pick(g, TECH_REASONS) };
   }
-  // v0.19.4 the ETOPS pre-departure service check before an ETOPS sector of a twin (ops/etopsRel.ts): a finding holds it.
-  const pe = f && isRevenue(f) ? etopsCheckChance(g, ac, f.from, f.to) : 0;
+  // v0.19.4 the ETOPS dispatch standard of a twin of the ETOPS fleet (ops/etopsRel.ts): a pre-departure finding holds it.
+  const pe = f && isRevenue(f) ? etopsCheckChance(g, ac) : 0;
   if (pe > 0 && chance(g, pe)) {
     const min = Math.min(240, Math.max(20, Math.round(-BAL.techDelayMean * Math.log(1 - next(g)))));
     return { min, reason: 'Technical: ETOPS pre-departure check' };

@@ -332,15 +332,18 @@ describe('ETOPS 180 on the ETOPS fleet', () => {
     g.now += (BAL.v0194.etops.programme.days + 1) * DAY;
     expect(relProgState(g)).toBe('active');
     expect(relFactors(g, tw).aog).toBeLessThan(1);
-    // The ETOPS pre-departure check: only before an ETOPS sector of a twin, more with deferred defects, halved by the programme.
+    // The ETOPS dispatch standard: only on a twin of the ETOPS fleet with ETOPS held, more with deferred defects, halved by the programme.
     tw.maint.deferred = 0;
-    const clean = etopsCheckChance(g, tw, 'LIS', 'JFK');
-    expect(clean).toBeGreaterThan(0);
-    expect(etopsCheckChance(g, tw, 'LIS', 'MAD')).toBe(0);
-    expect(etopsCheckChance(g, nb, 'LIS', 'JFK')).toBe(0);
+    const clean = etopsCheckChance(g, tw);
+    expect(clean).toBeCloseTo(BAL.v0194.etops.check.base * (1 + (new Date(Date.UTC(2000, 0, 1) + g.now * 60_000).getUTCFullYear() - tw.builtYear) / 10) * BAL.v0194.etops.check.progX, 6);
+    expect(etopsCheckChance(g, nb)).toBe(0);
     tw.maint.deferred = 0.3;
-    expect(etopsCheckChance(g, tw, 'LIS', 'JFK')).toBeCloseTo(clean * (1 + BAL.v0194.etops.check.deferredX * 0.3), 6);
+    expect(etopsCheckChance(g, tw)).toBeCloseTo(clean * (1 + BAL.v0194.etops.check.deferredX * 0.3), 6);
     tw.maint.deferred = 0;
+    const held = [...g.company.approvals];
+    g.company.approvals = g.company.approvals.filter((a) => !a.startsWith('etops'));
+    expect(etopsCheckChance(g, tw)).toBe(0);
+    g.company.approvals = held;
     expect(relFactors(g, tw).noOutstation).toBe(true);
     expect(relFactors(g, nb)).toEqual({ delay: 1, aog: 1, noOutstation: false });
     expect(aogChance(g, tw, 'JFK')).toBeLessThan(before * 0.6);

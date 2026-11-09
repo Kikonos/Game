@@ -10,15 +10,16 @@
 // - the ETOPS reliability programme (a monthly fee per ETOPS twin; set-up 3 weeks): rotable spares along the ETOPS
 //   network and an engineer on call: technical delays × delayX, AOGs × aogX, and an AOG away from base is fixed as fast
 //   as at home and no likelier (no outstation factor);
-// - the ETOPS pre-departure service check before every ETOPS sector of a twin (etopsCheckChance): an old airframe and
-//   deferred defects are held more, the programme halves it;
+// - the ETOPS dispatch standard (etopsCheckChance): a twin of the ETOPS fleet is kept fit for ETOPS every day, so its
+//   ETOPS-significant defects are fixed before it leaves (an old airframe and deferred defects are held more; the
+//   programme halves it);
 // - checks on time (deferred defects raise the AOG chance and the pre-departure check's; an A-check clears most), a swap or the AOG team on an AOG
 //   (a swap that gets the leg away within 15 minutes counts as on time), and the oldest airframe out of the ETOPS fleet.
 
 import { BAL } from '../core/balance';
 import { pushMessage } from '../core/messages';
 import { post } from '../core/ledger';
-import { etopsNeeded, typeOf } from '../core/perf';
+import { typeOf } from '../core/perf';
 import { DAY, fmtDate, fmtDay, monthKey, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, GameState, Minute, TechCause } from '../core/types';
 
@@ -261,12 +262,13 @@ export function dailyRelProgramme(g: GameState): void {
 // ---------- effects ----------
 
 /**
- * The ETOPS pre-departure service check's chance of a finding that holds this departure (0 unless an ETOPS twin leaves
- * on a sector that needs ETOPS): open defects on ETOPS-significant systems are put right before an ETOPS dispatch, so
- * an old airframe and a backlog of deferred defects are held more; the reliability programme halves it. Pure.
+ * The ETOPS dispatch standard's chance of a finding that holds this departure: a twin of the ETOPS fleet (capable of
+ * 180, with ETOPS held) is kept fit to fly ETOPS on any day, so open defects on ETOPS-significant systems are put right
+ * before it leaves instead of being deferred (the ETOPS pre-departure service check). An old airframe and a backlog of
+ * deferred defects are held more; the reliability programme halves it. 0 for any other aircraft. Pure.
  */
-export function etopsCheckChance(g: GameState, ac: Aircraft, from: string, to: string): number {
-  if (!etopsTwin(ac.typeId, 180) || etopsNeeded(ac.typeId, from, to) <= 0) return 0;
+export function etopsCheckChance(g: GameState, ac: Aircraft): number {
+  if (!etopsTwin(ac.typeId, 180) || !g.company.approvals.some((a) => a === 'etops120' || a === 'etops180' || a === 'etops240')) return 0;
   const C = E().check;
   return C.base * (1 + ageOf(g, ac) / 10) * (1 + C.deferredX * ac.maint.deferred) * (relProgState(g) === 'active' ? C.progX : 1);
 }
