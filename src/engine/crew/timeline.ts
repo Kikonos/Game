@@ -9,7 +9,7 @@ import { reportMinutes } from '../core/perf';
 import { fullDeparture, isDeparture, itinerary, nextDeparture, ourSeats, ticketBlock, TT_CREW_SEATS } from '../ops/commercial';
 import { curfewOk } from '../core/curfew';
 import { DAY, fmtDateTime, fmtTime, monthKey, yearOf } from '../core/time';
-import type { Archetype, CrewMember, Duty, Flight, GameState, Minute, Pairing, StandbyKind } from '../core/types';
+import type { Archetype, CrewMember, CrewSlot, Duty, Flight, GameState, Minute, Pairing, StandbyKind } from '../core/types';
 import { asbyRest, disruptiveKinds, extRestCut, isDisruptive, maxFdp, minRest, mkSeg, referenceTime, standbyCut, tzDeltaH, type RefTime, type Seg, type TimelineCtx } from './rules';
 import { restOf } from './restPlan';
 import { sellableSeats } from './crewRest';
@@ -683,7 +683,7 @@ function fillKey(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPl
   const o = out as Partial<Flight> | null;
   const h = home as Partial<Flight> | null;
   let i = 0;
-  KEY[i++] = (isCabin(c) ? 1 : 0) + (fresh ? 2 : 0) + (d.ext ? 4 : 0) + (d.split ? 8 : 0);
+  KEY[i++] = (isCabin(c) ? 1 : 0) + (fresh ? 2 : 0) + (d.ext ? 4 : 0) + (d.split ? 8 : 0) + (standsBy(g, p, d, c.id) ? 16 : 0);
   KEY[i++] = c.base; KEY[i++] = p.base; KEY[i++] = d.restAt; KEY[i++] = f0?.from ?? ''; KEY[i++] = f0?.status ?? ''; KEY[i++] = p.aircraftId ?? '';
   KEY[i++] = d.ev; KEY[i++] = d.flightsEv; KEY[i++] = d.report; KEY[i++] = d.release; KEY[i++] = d.fdp; KEY[i++] = d.maxFdp; KEY[i++] = d.discretion ?? 0; KEY[i++] = d.cabinEarly ?? -1;
   KEY[i++] = d.augment; KEY[i++] = d.sectors; KEY[i++] = d.flightIds.length; KEY[i++] = p.start; KEY[i++] = rest?.fc?.cls ?? 0; KEY[i++] = rest?.cc?.cls ?? 0;
@@ -704,9 +704,10 @@ export function dutySegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: 
       // itself when nothing changed (callers only read it or copy its segs into their own arrays).
       const block = dutyBlock(g, d);
       let same = true;
-      for (const x of m.segs) if (x.kind === 'duty' && x.block !== block) same = false;
+      // (Bug 1108b: a standby-share seg, the station's reserve or relief pilot, flies nothing.)
+      for (const x of m.segs) if (x.kind === 'duty' && x.share === undefined && x.block !== block) same = false;
       // v0.9 round 4 speed: the updated list is kept (segsOf's dependency check reads the list by identity).
-      if (!same) m.segs = m.segs.map((x) => (x.kind === 'duty' && x.block !== block ? { ...x, block } : x));
+      if (!same) m.segs = m.segs.map((x) => (x.kind === 'duty' && x.share === undefined && x.block !== block ? { ...x, block } : x));
       return m.segs;
     }
   }
@@ -748,7 +749,78 @@ function joinedAt(g: GameState, p: Pairing, crewId: string, d: Duty): Minute {
   return d.report <= g.now && !d.done ? Math.max(d.report, freshReport(g, p, d)) : d.report;
 }
 
+/**
+ * Bug 1108b #3 (the player's VN6000: "why do we have two captains on this flight?"): a far base's reserve (crew/farBase.ts,
+ * a spare captain and purser with the station's set) is not operating crew. They stay at the station on hotel standby
+ * while the set flies, and step in only when someone falls sick (promoteSpares moves them to the empty seat).
+ */
+export const reserveSeat = (p: Pairing, crewId: string): boolean => p.slots.some((s) => s.crewId === crewId && !!s.reserve);
+
+/**
+ * Bug 1108b #3: the crew seated on p who do not fly duty d and stand by at the station instead: a far base's reserve on
+ * every duty, and on a tour's plain day from its base (no in-flight rest: CP7040 MNL–KIX–MNL, 10:25 of 11:15) the
+ * relief pilots the set carries for its augmented days. The duty's pilots are the first captain's seat, the first first
+ * officer's seat, then the next pilot seats in order up to 2 + its augmentation (a seat that empties hands the day to
+ * the next pilot on station). Pure.
+ */
+export function standsBy(g: GameState, p: Pairing, d: Duty, crewId: string): boolean {
+  let seat: CrewSlot | undefined;
+  for (const s of p.slots) if (s.crewId === crewId) seat = s;
+  if (!seat) return false;
+  if (seat.reserve) return true;
+  if ((seat.role !== 'CPT' && seat.role !== 'FO') || !p.tour) return false;
+  const pilots = p.slots.filter((s) => s.crewId && !s.reserve && (s.role === 'CPT' || s.role === 'FO'));
+  const need = 2 + d.augment;
+  if (pilots.length <= need) return false;
+  const st = reserveStation(g, p, d);
+  if (d.restAt !== st || (g.flights[d.flightIds[0]]?.from ?? d.restAt) !== st) return false;
+  const op = new Set<CrewSlot>();
+  const cpt = pilots.find((s) => s.role === 'CPT');
+  const fo = pilots.find((s) => s.role === 'FO');
+  if (cpt) op.add(cpt);
+  if (fo) op.add(fo);
+  for (const s of pilots) {
+    if (op.size >= need) break;
+    op.add(s);
+  }
+  return !op.has(seat);
+}
+
+/** Where a reserve stands by for duty d: the deployment's base, else the duty's departure. */
+export const reserveStation = (g: GameState, p: Pairing, d: Duty): string =>
+  (p.deploymentId && g.deployments[p.deploymentId]?.base) || g.flights[d.flightIds[0]]?.from || d.restAt;
+
+/**
+ * A reserve's time on duty d, read by the standby rules (CS FTL.1.225(b)): hotel standby at the station for the duty's
+ * hours, a quarter of it counted towards the 7/14/28-day duty, no flying, no FDP, and the rest after an uncalled standby
+ * (10 h away) unless a ticket takes them on (a call for positioning). A 'duty' seg so the day plan keeps it a working
+ * day, with the standby's numbers; their tickets out and home are their own segs.
+ */
+function reserveSegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPlan | null, home: TicketPlan | null, fresh: boolean): Seg[] {
+  const segs: Seg[] = [];
+  const at = reserveStation(g, p, d);
+  let start = d.report;
+  if (out) {
+    if (!flown(out)) segs.push({ ...posSeg(out, c, fresh), dutyId: d.id });
+    // (Landing close to the report: the standby starts once the rest after the ticket is over.)
+    start = Math.max(start, out.sta + posRest(out, false));
+  }
+  let end = Math.max(start + 1, d.release);
+  let rest = minRest({ dutyMin: 0, atHome: at === c.base, augmented: false, tzShift: 0 });
+  if (home && home.std - checkInOf(home) < end + rest) {
+    end = Math.max(start + 1, Math.min(end, home.std - checkInOf(home)));
+    rest = 0;
+  }
+  segs.push(mkSeg({
+    kind: 'duty', start, end, fdp: 0, maxFdp: 24 * 60, block: 0, sectors: 0, aug: false, disruptive: false, share: sbyShare('hotel'),
+    rest, at, from: at, dutyId: d.id, fresh,
+  }));
+  if (home && !flown(home)) segs.push({ ...posSeg(home, c, fresh), dutyId: d.id });
+  return segs;
+}
+
 function dutySegsRaw(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPlan | null, home: TicketPlan | null, fresh: boolean): Seg[] {
+  if (standsBy(g, p, d, c.id)) return reserveSegs(g, c, p, d, out, home, fresh);
   const segs: Seg[] = [];
   const dep = g.flights[d.flightIds[0]]?.from ?? d.restAt;
   const early = isCabin(c) ? cabinEarly(g, p, d) : 0;

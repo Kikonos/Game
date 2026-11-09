@@ -18,6 +18,7 @@ import type { CrewMember, Duty, Flight, GameState, Minute, OohLimit, Pairing, Se
 import { BAL } from '../core/balance';
 import { cabinInflightRest, offsetAt } from './rules';
 import { restOf } from './restPlan';
+import { standsBy } from './timeline';
 
 const H = 60;
 /** A claim is refuted only when the independent reading is clear of the limit by this much (rounding, report times). */
@@ -107,7 +108,10 @@ function workOf(g: GameState, c: CrewMember, t: Minute, skipDuty?: string): Span
       if (!d) continue;
       const s = dutySpan(g, d, p, !isPilot(c.role));
       if (!s || s.end < from || s.start > to) continue;
-      if (id !== skipDuty && !logged(s)) out.push(s);
+      // (Bug 1108b: standing by at the station for this duty, a reserve or a relief pilot: hotel standby, a quarter.)
+      if (!d.done && standsBy(g, p, d, c.id)) {
+        if (id !== skipDuty) out.push({ ...s, block: 0, aug: false, ext: false, kind: 'standby', weight: 0.25 });
+      } else if (id !== skipDuty && !logged(s)) out.push(s);
       for (const tid of d.deadheadIds) {
         const tk = g.flights[tid];
         if (!tk || tk.status === 'cancelled' || !tk.crewIds.includes(c.id)) continue;
@@ -314,7 +318,8 @@ export function checkAlarm(g: GameState, kind: AlarmKind, flightId: string, hook
     }
     // 3. Seats and the minimum crew, counted from the slots (not the planner's marks).
     const empty = p.slots.filter((s) => !s.crewId && !s.above);
-    const aboard = p.slots.filter((s) => s.crewId && h.crew[s.crewId]).map((s) => h.crew[s.crewId!]);
+    // (Bug 1108b: a far base's reserve stands by at the station: not aboard.)
+    const aboard = p.slots.filter((s) => s.crewId && h.crew[s.crewId] && !standsBy(h, p, d, s.crewId)).map((s) => h.crew[s.crewId!]);
     const pilots = aboard.filter((c) => isPilot(c.role));
     const ac = p.aircraftId ? h.fleet[p.aircraftId] : undefined;
     const pax = d.flightIds.some((id) => h.flights[id]?.kind === 'revenue' || h.flights[id]?.kind === 'techstop');
@@ -337,6 +342,16 @@ export function checkAlarm(g: GameState, kind: AlarmKind, flightId: string, hook
       const c = h.crew[n.crewId];
       if (!c || seen.has(`${c.id}|${n.code}`)) continue;
       seen.add(`${c.id}|${n.code}`);
+      // Bug 1108b: 'cannot rest in this cruise' is judged on its own too: a duty not augmented needs no in-flight rest at
+      // all (its day is within the basic limit), and an augmented one whose rest fits at the gate is fine.
+      if (n.code === 'inflightRest') {
+        const fit = d.augment > 0 ? inflightFits(h, d, p, Math.max(f.std + (f.delay ?? 0), h.now)) : null;
+        if (!fit || fit.fits) {
+          claimsRefuted++;
+          refuted.push(`claimed ${CODE_WORDS.inflightRest}, read on its own: ${fit ? `in-flight rest on ${f.no}: ${fit.line}` : `${f.no} is not an augmented day (day ${hm(d.fdp)} of ${hm(d.maxFdp)}): no in-flight rest needed`}`);
+          continue;
+        }
+      }
       const r = judgePerson(h, c, d, p);
       if (refutes(r, n.code) === true) {
         claimsRefuted++;

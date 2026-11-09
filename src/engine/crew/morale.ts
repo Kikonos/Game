@@ -46,7 +46,7 @@ export interface MoraleSummary {
 export const MORALE_LABEL: Record<MoraleDriver, string> = {
   policy: 'Pay & tours', hotel: 'Hotels', tour: 'Long tour', offAway: 'Days off away', workload: 'Workload', lateChange: 'Late changes',
   discretion: 'Extended duties', mission: 'Missions', extraCrew: 'Extra crew', career: 'New type', pay: 'Pay', recognition: 'Client thanks',
-  standby: 'Long standby runs', daysOff: 'Days off', leave: 'Leave declined',
+  standby: 'Long standby runs', daysOff: 'Days off', leave: 'Leave', offMoved: 'Day off moved',
 };
 
 const M = () => BAL.morale;
@@ -214,9 +214,15 @@ function dailyDrivers(g: GameState, c: CrewMember, target: number): Partial<Reco
     let t = 0;
     for (const [d, v] of M().awayDays) if (days > d) t = v;
     if (t) out.tour = t;
-    // Yesterday without work, at the hotel (v0.9: a hotel standby day is work).
-    const from = g.now - DAY;
-    if ((c.awaySince ?? g.now) <= from && !c.log.some((e) => e.end > from && e.start < g.now) && !c.standby?.some((w) => w.from < g.now && w.to > from)) out.offAway = M().offAway;
+    // Bug 1108b: a day off at the hotel away from home is no longer a driver (the player, a flight attendant: "days off
+    // away shouldn't be a negative consequence, it's nothing"). Hotels and long tours still are.
+  }
+  // Bug 1108b: back from annual leave, rested: a lift that fades over a few months (the shock at the return is in
+  // leaveLift; this is the slow part, tapering to nothing).
+  if (c.leaveBack !== undefined) {
+    const L = M().leaveLift;
+    const days = (g.now - c.leaveBack) / DAY;
+    if (days >= 0 && days < L.days) out.leave = r1(L.glow * (1 - days / L.days));
   }
   // Crew bug round: long standby runs are no longer a morale driver (the player, a flight attendant: standby is part of
   // the job and does not wear people down; pay, tours, hotels, days off and late changes do).
@@ -242,6 +248,51 @@ export function repairStandbyMorale(g: GameState): void {
   }
 }
 
+/**
+ * Bug 1108b (the player: "leave should give a big morale buff for a few months"): the first daily run after an annual
+ * leave of at least a week ends gives a lift (BAL.morale.leaveLift.back), and dailyDrivers adds a fading glow for the
+ * next months. Once per leave (c.leaveBack). Daily, before the drivers.
+ */
+function leaveLift(g: GameState, c: CrewMember): void {
+  const L = M().leaveLift;
+  let back: Minute | undefined;
+  for (const b of c.blocks ?? []) {
+    if (b.why !== 'leave' || !b.annual || b.to > g.now || b.to - b.from < L.minDays * DAY) continue;
+    if (c.leaveBack !== undefined && b.to <= c.leaveBack) continue;
+    if (back === undefined || b.to > back) back = b.to;
+  }
+  if (back === undefined) return;
+  c.leaveBack = back;
+  moraleShock(g, c, 'leave', L.back);
+}
+
+/**
+ * Bug 1108b save repair: a day off away from home is no longer a driver (what is left of it comes back, as the standby
+ * repair does), and the 'daysOff' driver now speaks only of a month's count below the legal minimum: a negative left
+ * from a published day off moved (a swap asked, a day taken) moves to its own driver 'Day off moved'; one from a month
+ * of 7 (the planner's aim was 8) comes back. Once: a save without the keys is untouched.
+ */
+export function repairDaysOffMorale(g: GameState): void {
+  for (const c of Object.values(g.crew)) {
+    const why = c.moraleWhy;
+    if (!why) continue;
+    const away = why.offAway;
+    if (away !== undefined) {
+      delete why.offAway;
+      if (!c.notice && away < 0) c.morale = r1(clamp(c.morale - away, 0, 100));
+    }
+    const off = why.daysOff;
+    if (off === undefined || off >= 0) continue;
+    const months = Object.entries(c.offMonths ?? {}).sort((a, b) => +a[0] - +b[0]);
+    const lastN = months.length ? months[months.length - 1][1] : null;
+    // A month closed below the legal 7 keeps its debuff.
+    if (lastN !== null && lastN < BAL.v09.roster.off.legalMonth) continue;
+    delete why.daysOff;
+    if (c.offSwapAt !== undefined && c.offSwapAt > g.now - 45 * DAY) why.offMoved = r1((why.offMoved ?? 0) + off);
+    else if (!c.notice) c.morale = r1(clamp(c.morale - off, 0, 100));
+  }
+}
+
 /** Notice period for a resignation (pilots 60 days, cabin 30). */
 const noticeDays = (r: Role) => (isPilot(r) ? M().noticeDays.pilot : M().noticeDays.cabin);
 
@@ -258,7 +309,7 @@ export function setResignHooks(onResign: (g: GameState, c: CrewMember) => void, 
 /** Top drivers (by size) in a "why" record. */
 function topDrivers(why: Partial<Record<MoraleDriver, number>>, n = 3): MoraleDriverView[] {
   return (Object.entries(why) as [MoraleDriver, number][])
-    .filter(([k, v]) => k !== 'standby' && Math.abs(v) >= 0.5)
+    .filter(([k, v]) => k !== 'standby' && k !== 'offAway' && Math.abs(v) >= 0.5)
     .sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]) || (a[0] < b[0] ? -1 : 1))
     .slice(0, n)
     .map(([key, v]) => ({ key, label: MORALE_LABEL[key], value: Math.round(v) }));
@@ -280,7 +331,7 @@ export function resignRoll(g: GameState, c: CrewMember): boolean {
 /** Crew bug round: a resignation's reason in plain words (a driver that weighs on morale). */
 export const LEAVE_WHY: Partial<Record<MoraleDriver, string>> = {
   policy: 'low per diem or long tours', pay: 'salaries paid late', hotel: 'poor hotels', tour: 'long weeks away from home',
-  offAway: 'days off spent at a hotel away from home', workload: 'too many hours', lateChange: 'late roster changes',
+  workload: 'too many hours', lateChange: 'late roster changes', offMoved: 'days off moved or taken', leave: 'leave requests declined',
   discretion: 'duties extended past the plan', daysOff: 'too few days off', extraCrew: 'flying short-handed', career: 'a new type to learn',
 };
 
@@ -358,6 +409,7 @@ export function dailyMorale(g: GameState): void {
       if (Math.abs(v) < 0.05) delete why[k];
       else why[k] = v;
     }
+    leaveLift(g, c);
     const drv = dailyDrivers(g, c, target);
     // Drift toward the company target (its policy part is reported as a driver of its own).
     let delta = (target - c.morale) * M().revert;

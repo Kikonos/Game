@@ -13,7 +13,7 @@ import { crewName } from './generate';
 import { rootReason, type Reason } from './reasons';
 import { emptyResult, fillAll, placeCrew, recheckPairing, releaseCrew } from './roster';
 import { levelOf, worst, type IssueCode } from './rules';
-import { block28, freshReport, locAt, segsOf, ticketPrice, touchCrew, typeIdOf, viaText } from './timeline';
+import { block28, freshReport, locAt, segsOf, standsBy, ticketPrice, touchCrew, typeIdOf, viaText } from './timeline';
 
 const LEVEL_RANK: Record<Legality, number> = { legal: 0, tight: 1, illegal: 2 };
 const hm = (m: number) => `${Math.floor(m / 60)}:${String(Math.round(m % 60)).padStart(2, '0')}`;
@@ -52,6 +52,8 @@ export interface RosterSlotView {
   reserve?: true;
   /** This crew member's legality on the pairing (null when the seat is empty). */
   level: Legality | null;
+  /** Bug 1108b: seated but not flying this duty: on hotel standby at the station (a reserve, or a relief pilot on a plain day). */
+  standby?: true;
 }
 
 export interface DutyCrewView {
@@ -84,7 +86,10 @@ export function dutyCrew(g: GameState, dutyOrFlightId: string): DutyCrewView | n
       // v0.14.1 (UI-2) the duty's own day length is every seat's: never 'Legal' above a red 'Day length 17:40 of 12:15'.
       level = worst(level ?? 'legal', d.done ? 'legal' : d.legality);
     }
-    return { index, role: s.role, crewId: s.crewId, name: c ? crewName(c) : null, locked: !!s.locked, extra: !!s.extra, above: !!s.above, ...(s.reserve ? { reserve: true as const } : {}), level };
+    return {
+      index, role: s.role, crewId: s.crewId, name: c ? crewName(c) : null, locked: !!s.locked, extra: !!s.extra, above: !!s.above, ...(s.reserve ? { reserve: true as const } : {}), level,
+      ...(c && standsBy(g, p, d, c.id) ? { standby: true as const } : {}),
+    };
   });
   return {
     dutyId: d.id, pairingId: p.id, aircraftId: p.aircraftId, contractId: p.contractId, kind: p.tour ? 'tour' : 'trip',

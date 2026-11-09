@@ -594,13 +594,13 @@ export function takeOffDays(g: GameState, c: CrewMember, segs: Seg[], planner: b
       rosterStats(g).offMoved = (rosterStats(g).offMoved ?? 0) + 1;
       if (k < pub && !broke) {
         broke = true;
-        moraleShock(g, c, 'daysOff', R().swap.morale);
+        moraleShock(g, c, 'offMoved', R().swap.morale);
         c.offSwapAt = g.now;
         rosterStats(g).offSwaps = (rosterStats(g).offSwaps ?? 0) + 1;
       }
     } else if (k < pub && !broke) {
       broke = true;
-      moraleShock(g, c, 'daysOff', R().morale.broken);
+      moraleShock(g, c, 'offMoved', R().morale.broken);
       rosterStats(g).offBroken++;
     }
     const to = replacementDay(g, c, hits, monthOfDay(k), all);
@@ -1627,7 +1627,9 @@ export function dayPlanMonth(g: GameState): void {
         if (yearOffs(g, c, v) < v.need) r.yearsLow = (r.yearsLow ?? 0) + 1;
       }
     }
-    const below = Math.min(M.below, minFor(g, c, mk));
+    // Bug 1108b: a debuff only below the legal minimum the crew card shows ('8 of 7 required'), never for 7 against the
+    // planner's own aim of 8 (a published day moved is its own driver, 'Day off moved').
+    const below = Math.min(M.below, legalFor(g, c, mk));
     const delta = n > M.above ? Math.min(M.aboveMax, (n - M.above) * M.aboveEach) : n < below ? (below - n) * M.belowEach : 0;
     if (delta) moraleShock(g, c, 'daysOff', delta);
   }

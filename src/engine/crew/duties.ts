@@ -576,7 +576,8 @@ export function aboveMinimum(g: GameState, p: Pairing): { pilots: number; cabin:
   let pilots = 0;
   let cabin = 0;
   for (const s of p.slots) {
-    if (!s.crewId || !g.crew[s.crewId]) continue;
+    // (Bug 1108b: a far base's reserve stands by at the station: not crew aboard.)
+    if (!s.crewId || !g.crew[s.crewId] || s.reserve) continue;
     if (s.role === 'CPT' || s.role === 'FO') pilots++;
     else cabin++;
   }

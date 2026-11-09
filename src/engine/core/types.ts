@@ -1025,8 +1025,10 @@ export interface DutyLogEntry {
 export type MoraleDriver = 'policy' | 'hotel' | 'tour' | 'offAway' | 'workload' | 'lateChange' | 'discretion' | 'mission' | 'extraCrew' | 'career' | 'pay' | 'recognition'
   /** v0.9 long standby runs; days off in the month (and a published day off taken). */
   | 'standby' | 'daysOff'
-  /** v0.18.1 a leave request declined. */
-  | 'leave';
+  /** v0.18.1 a leave request declined; bug 1108b also the lift after annual leave. */
+  | 'leave'
+  /** Bug 1108b a published day off moved or taken (was counted under 'daysOff'). */
+  | 'offMoved';
 
 /** v0.9 standby kinds (UPDATE-0.9.md §R.3): home (SBY), hotel at a station away from base, airport (ASBY), reserve (RES). */
 export type StandbyKind = 'home' | 'hotel' | 'airport' | 'reserve';
@@ -1115,6 +1117,8 @@ export interface CrewMember {
   leaveYears?: Record<number, LeaveYear>;
   /** v0.18.1 a declined leave request: no new request before this minute. */
   leaveAskAt?: Minute;
+  /** Bug 1108b the end of the last annual leave whose morale lift was given (crew/morale.ts: rested for a few months). */
+  leaveBack?: Minute;
 }
 
 /** v0.18.1 one flown leg: flight number (an airline's 'TP 1342' for a ticket), ends, off and on blocks, type. */
@@ -1175,7 +1179,7 @@ export interface CrewSlot {
   /** v0.12.1 a far base's reserve seat (crew/farBase.ts; with `above`): the set's spare on station. */
   reserve?: true;
   /** v0.9 crew out of hours: who was taken off this seat for a legal limit, which, by how much (min) and when; cleared on a legal refill. */
-  ooh?: { crewId: string; limit: OohLimit; over: number; at: Minute };
+  ooh?: { crewId: string; limit: OohLimit; over: number; at: Minute; /** Bug 1108b: an in-flight rest mark ('inflightRest') names the duty whose plan failed (crew/restMarks.ts). */ dutyId?: string };
   /** v0.9 round 4 (§Y.1): a replacement who joined after the duty reported: their own report (a fresh day). Cleared with the seat. */
   from?: Minute;
   /** Rotations round: who left this seat and why (the replacement's ticket says whom they replace). Cleared on refill. */
