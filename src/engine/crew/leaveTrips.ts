@@ -64,9 +64,24 @@ export function leaveTicketsOf(g: GameState, c: CrewMember, b: Block, kind: 'hom
   return out;
 }
 
-/** The leave seg (planned ticket home inside block b) in a timeline, if any. */
-const homeSegOf = (segs: Seg[], c: CrewMember, b: Block): Seg | undefined =>
-  segs.find((s) => s.leave && s.at === c.base && s.start >= b.from - DAY && s.start < b.to);
+/**
+ * The trip home of leave b, booked (a ticket not cancelled) or flown (the crew's journey record: a flown ticket is
+ * dropped from the flights two days after it lands): where it left from and when it lands. Null when the leave did not
+ * begin away (or its trip home is not booked yet). Pure.
+ */
+export function leaveHomeTrip(g: GameState, c: CrewMember, b: Block): { from: string; std: Minute; sta: Minute; ticket?: Flight } | null {
+  const f = leaveTicketsOf(g, c, b, 'home')[0];
+  if (f) return { from: f.from, std: f.std, sta: f.sta, ticket: f };
+  const x = c.flown?.find((r) => r.lv && r.s >= b.from - DAY && r.s < b.to && r.legs.length && r.legs[r.legs.length - 1][2] === c.base);
+  return x ? { from: x.legs[0][1], std: x.s, sta: x.e } : null;
+}
+
+/** A trip back out of leave b booked or flown (as leaveHomeTrip). */
+export function leaveBackTaken(g: GameState, c: CrewMember, b: Block): boolean {
+  if (leaveTicketsOf(g, c, b, 'back').length) return true;
+  return !!c.flown?.some((r) => r.lv && r.s >= b.from && r.s < b.to + DAY && r.legs.length && r.legs[0][1] === c.base);
+}
+
 const backSegOf = (segs: Seg[], c: CrewMember, b: Block): Seg | undefined =>
   segs.find((s) => s.leave && s.from === c.base && s.start >= b.from && s.start < b.to + DAY);
 
@@ -80,10 +95,10 @@ export function leaveBackFor(g: GameState, c: CrewMember, segs: Seg[], report: M
   if (!dep || dep === c.base || !c.blocks?.length) return null;
   const b = c.blocks.find((x) => isAnnual(x) && x.to <= report && (tour || report < x.to + LEAVE_BACK_GAP) && x.to > g.now);
   if (!b) return null;
-  const home = homeSegOf(segs, c, b);
-  if (!home || backSegOf(segs, c, b)) return null;
+  const home = leaveHomeTrip(g, c, b);
+  if (!home || backSegOf(segs, c, b) || leaveBackTaken(g, c, b)) return null;
   // Nothing else between the trip home and the duty (standby gives way).
-  if (segs.some((s) => !s.leave && s.kind !== 'log' && s.kind !== 'sby' && s.start >= home.end && s.start < report)) return null;
+  if (segs.some((s) => !s.leave && s.kind !== 'log' && s.kind !== 'sby' && s.start >= home.sta && s.start < report)) return null;
   return leaveBackPlan(g, c, b, dep, report - LEAVE_BACK_BUFFER);
 }
 

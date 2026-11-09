@@ -84,7 +84,16 @@ describe('v0.19.3 annual leave that begins away', () => {
     expect(c.log.length).toBeLessThanOrEqual(logN + 3);
     expect(c.restUntil).toBeLessThanOrEqual(b.from);
     expect(c.flown?.some((x) => x.lv && x.s >= b.from)).toBe(true);
-  }, 180_000);
+    // On through the leave (the flown ticket home leaves the flights after two days): one trip back on the last day,
+    // nothing booked twice, back at Manila for her tour, the leave as it was.
+    while (g.now < b.to + 2 * DAY) advanceTo(g, Math.min(b.to + 2 * DAY, g.now + 12 * 60), new Set());
+    const lv = (c.flown ?? []).filter((x) => x.lv);
+    expect(lv.map((x) => `${x.legs[0][1]}-${x.legs[x.legs.length - 1][2]}`)).toEqual(['MNL-LIS', 'LIS-MNL']);
+    expect(tickets(g, c).filter((f) => f.leaveTrip && f.status === 'scheduled')).toEqual([]);
+    expect(c.loc).toBe('MNL');
+    expect(leaveOf(c)).toMatchObject({ from: b.from, to: b.to });
+    expect(c.log.filter((e) => e.start >= b.from && e.start < b.to)).toHaveLength(0);
+  }, 400_000);
 
   it('no FTL issue and no self-check alarm: the trips are not duty and break no rest', () => {
     const g = snap();

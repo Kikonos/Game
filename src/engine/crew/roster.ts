@@ -25,7 +25,7 @@ import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, rec
 import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
 import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, freshReport, locAt, noteRiders, OUT_CONNECT, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, standsBy, slotAfter, snapDeparture, takeLostRides, takeSkippedFull, ticketPrice, touchCrew, touchCrewState, typeIdOf, withoutTickets } from './timeline';
 import { deploymentOf, tourDay, tourHolding, tourHomePlan, tourSpan } from './tours';
-import { isAnnual, leaveBackPlan, leaveHomePlan, leaveHorizon, leaveTicketsOf, LEAVE_BACK_BUFFER, LEAVE_BACK_GAP } from './leaveTrips';
+import { isAnnual, leaveBackPlan, leaveBackTaken, leaveHomePlan, leaveHomeTrip, leaveHorizon, leaveTicketsOf, LEAVE_BACK_BUFFER, LEAVE_BACK_GAP } from './leaveTrips';
 
 export { buildDuties } from './duties';
 
@@ -1252,6 +1252,9 @@ const notLeft = (g: GameState, f: Flight) => f.status === 'scheduled' && f.std -
 /** v0.19.3 the trip home on the first day of leave b, when it begins away. True when tickets changed. */
 function leaveHome(g: GameState, c: CrewMember, b: LeaveBlock): boolean {
   let changed = false;
+  // Flown home already (its ticket dropped two days after landing), or on the way back out: nothing more.
+  const trip = leaveHomeTrip(g, c, b);
+  if ((trip && !trip.ticket) || (b.from <= g.now && leaveBackTaken(g, c, b))) return false;
   let held: Flight | undefined;
   for (const f of leaveTicketsOf(g, c, b, 'home')) {
     if (held || !notLeft(g, f)) {
@@ -1293,8 +1296,11 @@ function leaveHome(g: GameState, c: CrewMember, b: LeaveBlock): boolean {
 
 /** v0.19.3 the trip back out on the last day of leave b to the station of the next duty. True when tickets changed. */
 function leaveBack(g: GameState, c: CrewMember, b: LeaveBlock): boolean {
-  const home = leaveTicketsOf(g, c, b, 'home')[0];
+  // (The trip home booked or flown: a flown ticket leaves the flights two days after it lands.)
+  const home = leaveHomeTrip(g, c, b);
   const have = leaveTicketsOf(g, c, b, 'back');
+  // Flown back already (its ticket dropped two days after landing): nothing more.
+  if (!have.length && leaveBackTaken(g, c, b)) return false;
   let changed = false;
   let want: { to: string; latest: Minute; replace?: string } | null = null;
   const segs = withoutTickets(segsOf(g, c), have.map((f) => f.id));
@@ -1321,7 +1327,7 @@ function leaveBack(g: GameState, c: CrewMember, b: LeaveBlock): boolean {
   // tour's way home at its period's end): they will be home.
   if (home && !want) {
     const ix = crewIx(g);
-    const stale = (ix.tickets.get(c.id) ?? []).filter((f) => f.kind === 'deadhead' && !f.leaveTrip && notLeft(g, f) && f.std >= home.sta && f.from === home.from && f.to === c.base && (g.duties[ix.ticketDuty.get(f.id) ?? '']?.release ?? -Infinity) <= home.std);
+    const stale = (ix.tickets.get(c.id) ?? []).filter((f) => f.kind === 'deadhead' && !f.leaveTrip && notLeft(g, f) && f.std >= home.sta && f.from === home.from && f.to === c.base && (g.duties[ix.ticketDuty.get(f.id) ?? '']?.release ?? -Infinity) <= home.sta);
     if (stale.length) {
       dropPlanned(g, c.id, stale.map((f) => f.id));
       changed = true;
