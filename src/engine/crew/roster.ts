@@ -7,7 +7,7 @@ import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
 import { canFill, complement, typeOf } from '../core/perf';
-import { DAY, fmtDateTime, fmtTime, monthKey } from '../core/time';
+import { DAY, fmtDateTime, fmtDay, fmtTime, monthKey } from '../core/time';
 import { flightNoAt, isDeparture, nextDeparture, prevDeparture } from '../ops/commercial';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { acceptable, crewIds, crewIssuesFor, crewKey, mergeSegs, openDuties, otherTrip, overForAnyone, planCrew, type CrewPlan } from './check';
@@ -251,7 +251,7 @@ export function buyTickets(g: GameState, p: Pairing, plans: Map<string, CrewPlan
     for (const [t, d] of [[plan.out, first], [plan.home, last]] as const) {
       if (!t) continue;
       const k = `${d.id}:${t.from}:${t.to}:${t.std}:${t.rideId ?? ''}`;
-      const gr = groups.get(k) ?? { d, t, ids: [], why: ticketWhy(g, p, id, t === plan.out) };
+      const gr = groups.get(k) ?? { d, t, ids: [], why: ticketWhy(g, p, id, t === plan.out, t) };
       gr.ids.push(id);
       groups.set(k, gr);
     }
@@ -277,12 +277,20 @@ let ownRelease: string | null = null;
  * Rotations round: what a crew ticket is for, in plain words (Flight.why): a tour's own change, a replacement for someone
  * who left a seat early (the seat remembers whom and why: CrewSlot.left), or a trip's own positioning.
  */
-function ticketWhy(g: GameState, p: Pairing, crewId: string, out: boolean): string {
+function ticketWhy(g: GameState, p: Pairing, crewId: string, out: boolean, t?: TicketLike): string {
   const seat = p.slots.find((s) => s.crewId === crewId);
   const left = seat?.left && seat.left.crewId !== crewId ? seat.left : undefined;
   const who = left ? g.crew[left.crewId] : undefined;
   if (out && left) return `Replaces ${who ? crewName(who) : 'a crew member'}: ${left.why}`;
   const dep = p.deploymentId ? g.deployments[p.deploymentId] : undefined;
+  // Bug 1108b: home for a leave or a course (it starts within two days of landing), or back out after one.
+  const c = g.crew[crewId];
+  const blk = t && c?.blocks?.find((b) => (b.why === 'leave' || b.why === 'training') && (out ? b.to <= t.std && b.to > t.std - 7 * DAY : b.from >= t.sta - DAY && b.from < t.sta + 2 * DAY));
+  if (blk) {
+    const what = blk.why === 'training' ? 'a course' : blk.annual ? 'annual leave' : 'leave';
+    const where = p.tour ? `set ${p.tour.set + 1}${dep ? ` at ${dep.base}` : ''}` : 'the next trip';
+    return out ? `Back to ${where} after ${what}` : `Home for ${what} from ${fmtDay(blk.from + 720)}`;
+  }
   if (p.tour) return `${out ? 'Tour out' : 'Tour home'}: set ${p.tour.set + 1}${dep ? ` at ${dep.base}` : ''}`;
   return out ? 'Trip out' : 'Trip home';
 }
@@ -1148,6 +1156,42 @@ export function sendStrandedHome(g: GameState): void {
       recheckNext(g, [c.id]);
     } else sendHome(g, c);
   }
+}
+
+/**
+ * Bug 1108b (the player's Carolina Almeida: "She's taking her leave at MNL? She should have deadheaded to Lisbon and
+ * come back if needed"): annual leave starts and ends at home base. Daily and on load: crew whose trip or tour part ends
+ * away from base with a leave or course next (before any other work, in the next 35 days) get that trip's ticket home
+ * after its last duty now (planCrew plans it so: crew/check.ts leaveBefore), so the roster and the calendar show the
+ * way home; a later part of the tour from that station is ticketed out again after the leave, or re-crewed. Crew with
+ * no work before the leave keep going home two days before it (sendStrandedHome, homeBeforeLeave). Returns the crew
+ * re-ticketed.
+ */
+export function homeForLeave(g: GameState): string[] {
+  const done: string[] = [];
+  for (const c of Object.values(g.crew)) {
+    if (!c.blocks?.some((b) => (b.why === 'leave' || b.why === 'training') && b.from > g.now && b.from < g.now + 35 * DAY)) continue;
+    const blocks = c.blocks.filter((b) => (b.why === 'leave' || b.why === 'training') && b.from > g.now && b.from < g.now + 35 * DAY).sort((a, b) => a.from - b.from);
+    for (const b of blocks) {
+      // The last work before the leave (standby gives way to the ticket home).
+      let last: Seg | undefined;
+      for (const x of segsOf(g, c)) {
+        if (x.kind === 'log' || x.kind === 'sby' || x.end <= g.now) continue;
+        if (x.start >= b.from) break;
+        last = x;
+      }
+      if (!last || last.kind !== 'duty' || !last.dutyId || !last.at || last.at === c.base) continue;
+      const d = g.duties[last.dutyId];
+      const p = d ? g.pairings[d.pairingId] : undefined;
+      if (!d || !p || d.done || p.status === 'done' || p.status === 'broken' || !p.slots.some((s) => s.crewId === c.id)) continue;
+      const open = openDuties(g, p);
+      if (open[open.length - 1]?.id !== d.id || open[0].report <= g.now) continue;
+      if (retick(g, p, c)) done.push(c.id);
+      break;
+    }
+  }
+  if (done.length) touchCrew(g);
+  return done;
 }
 
 /**

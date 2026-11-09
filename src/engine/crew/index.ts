@@ -14,7 +14,7 @@ export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { setRedundantHook } from './utilisation';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, repairDaysOffMorale, repairStandbyMorale, setResignHooks } from './morale';
-import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
+import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
 import { extFdp, localMin, minRest, referenceTime, signedTz, tzDeltaH, tzNights, woclMinutes } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { rosterHorizon, dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, dropStrandedStandby, v09Stats } from './dayPlan';
@@ -610,6 +610,8 @@ function daily(g: GameState) {
     const stayed = stayOn(g);
     if (stayed.length) recheckNext(g, stayed);
   }
+  // Bug 1108b: a trip ending away with a leave next books its ticket home now (leave starts and ends at home).
+  homeForLeave(g);
   sendStrandedHome(g);
   // Crew-planning round: a ticket moved by any other path that lands after a leave began starts that leave at home.
   leaveAfterTickets(g);
@@ -769,6 +771,8 @@ export const crewModule: SimModule = {
     // Rotations round (v0.16.4): tickets booked off the timetable by an older build move onto it where the crew still
     // connect (last: every other repair has read the tickets as they were).
     retimeToTimetable(g);
+    // Bug 1108b: leave away from base in older saves (Carolina Almeida's at Manila): the trip home planned now.
+    homeForLeave(g);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);

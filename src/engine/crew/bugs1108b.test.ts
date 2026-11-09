@@ -15,6 +15,8 @@ import { BAL } from '../core/balance';
 import { DAY } from '../core/time';
 import { dailyMorale, moraleOf } from './morale';
 import { addCrew, fixtureGame } from './fixtures';
+import { advanceTo } from '../sim';
+import { segsOf, locAt } from './timeline';
 
 const snap04 = () => deserialize(fixture('v0182-cp7040'));
 const snap01 = () => deserialize(fixture('v0182-leave'));
@@ -95,4 +97,34 @@ describe('#2 Carolina Almeida: a "Days off" debuff with 8 days off of 7', () => 
     dailyMorale(g);
     expect(c.moraleWhy?.leave).toBeUndefined();
   });
+});
+
+describe('#1 Carolina Almeida: annual leave starts and ends at home base', () => {
+  it('on load her tour part before the leave ends with a ticket home, and the part after it with a ticket back out', () => {
+    const g = snap01();
+    const c = g.crew.c32u5;
+    const leave = c.blocks!.find((b) => b.why === 'leave')!;
+    const tickets = Object.values(g.flights).filter((f) => f.kind === 'deadhead' && f.status === 'scheduled' && f.crewIds.includes(c.id)).sort((a, b) => a.std - b.std);
+    const home = tickets.find((f) => f.to === 'LIS' && f.sta <= leave.from);
+    expect(home, 'a ticket home landing before the leave').toBeDefined();
+    expect(home!.from).toBe('MNL');
+    expect(home!.why).toMatch(/Home for annual leave/);
+    expect(locAt(c, segsOf(g, c), leave.from)).toBe('LIS');
+    // Her part of the tour after the leave (CP7040 on 21 Dec): flown back out, or someone on station has the seat.
+    const p = g.pairings.p3tok;
+    if (p.slots.some((s) => s.crewId === c.id)) {
+      const out = tickets.find((f) => f.from === 'LIS' && f.to === 'MNL' && f.std >= leave.to);
+      expect(out, 'a ticket back out after the leave').toBeDefined();
+      expect(out!.why).toMatch(/after annual leave/);
+    }
+  });
+
+  it('played on, she flies home before the leave and spends it in Lisbon', () => {
+    const g = snap01();
+    const c = g.crew.c32u5;
+    const leave = c.blocks!.find((b) => b.why === 'leave')!;
+    while (g.now < leave.from + 60) advanceTo(g, Math.min(leave.from + 60, g.now + 12 * 60), new Set());
+    expect(c.loc).toBe('LIS');
+    expect(c.status).toBe('leave');
+  }, 120_000);
 });
