@@ -37,6 +37,8 @@ const LINKS: Record<string, string[]> = {
   US: ['GB', 'FR', 'DE', 'NL', 'IE', 'IT', 'ES', 'PT', 'IS', 'JP', 'KR', 'CN', 'IL', 'BR', 'AR', 'CO', 'MX', 'GH', 'NG', 'ZA'],
 };
 const linked = (a: string, b: string) => !!(LINKS[a]?.includes(b) || LINKS[b]?.includes(a));
+/** v0.19.2 two countries tied by history or language (custom route markets read it). Pure. */
+export const countriesLinked = linked;
 
 export interface CommercialLeg {
   airline: string;
@@ -127,6 +129,13 @@ function serves(c: Carrier, a: Airport, b: Airport, km: number): boolean {
   if (SUPER.has(c.iata)) return other.size >= 4 || (link && other.size >= (other.continent === 'NA' ? 3 : 2));
   // v0.7: long haul to North America goes to the gateways (size ≥ 3), not to Charleston.
   return (other.size >= 5 && hub.size >= 4) || (link && (other.size >= 3 || (other.size >= 2 && other.continent !== 'NA')));
+}
+
+/** v0.19.2 does this carrier plausibly fly a ↔ b nonstop (custom route markets: rivals and their connections)? Pure. */
+export function carrierServes(c: Carrier, from: string, to: string): boolean {
+  const a = AIRPORT_BY_CODE[from];
+  const b = AIRPORT_BY_CODE[to];
+  return !!a && !!b && from !== to && serves(c, a, b, distance(from, to));
 }
 
 /** Carriers flying from → to nonstop. Pure. */

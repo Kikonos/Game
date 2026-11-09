@@ -3,7 +3,9 @@
 // deviation), then rights, slots, brand, distribution, filing (sales open), the campaign, station contracts, crew
 // briefings and the first flight. Each stage has a cost, a duration and setbacks rolled on the network's side stream.
 
+import { AIRPORT_BY_CODE } from '../../data/airports';
 import { routeStation, type RouteMarket } from '../../data/routes';
+import { chainProblem, CUSTOM_STUDY_EXTRA, customMarket, customTruth, parseCustomId } from './custom';
 import { BAL } from '../core/balance';
 import { cashOnly, post } from '../core/ledger';
 import { blockMinutes, typeOf } from '../core/perf';
@@ -67,13 +69,21 @@ function partnerClient(g: GameState, m: RouteMarket): string | undefined {
   return id;
 }
 
+/** The market of an id: the catalogue's, or (v0.19.2) a custom one built from its id's draft. */
+export function marketById(marketId: string): RouteMarket | undefined {
+  if (MARKET_BY_ID[marketId]) return MARKET_BY_ID[marketId];
+  const d = parseCustomId(marketId);
+  return d ? customMarket(d) ?? undefined : undefined;
+}
+
 /** Why a market can't start a study now (null: it can). */
 export function studyBlock(g: GameState, marketId: string): string | null {
   if (!BAL.v019.on) return 'Not available.';
-  const m = MARKET_BY_ID[marketId];
+  const m = marketById(marketId);
   if (!m) return 'Unknown market.';
   if (m.closed) return m.closed;
-  const r = Object.values(g.network?.routes ?? {}).find((x) => x.marketId === marketId && x.status !== 'closed');
+  // v0.19.2 the same city pair counts once, whatever its fuel stops.
+  const r = Object.values(g.network?.routes ?? {}).find((x) => x.status !== 'closed' && (x.marketId === marketId || (marketOfRoute(x)?.from === m.from && marketOfRoute(x)?.to === m.to)));
   if (r) return r.status === 'operating' ? 'You fly it already.' : 'You are launching it already.';
   if (g.gameOver) return 'The company has failed.';
   return null;
@@ -83,7 +93,7 @@ export function studyBlock(g: GameState, marketId: string): string | null {
 export function startStudy(g: GameState, marketId: string, depth: StudyDepth, model?: RouteModel): { routeId?: string; why?: string } {
   const why = studyBlock(g, marketId);
   if (why) return { why };
-  const m = MARKET_BY_ID[marketId];
+  const m = marketById(marketId)!;
   const N = ensureNet(g);
   N.ownClientId ??= 'own';
   const md: RouteModel = model && m.models.includes(model) ? model : m.model;
@@ -99,6 +109,8 @@ export function startStudy(g: GameState, marketId: string, depth: StudyDepth, mo
     reputation: Math.min(BAL.v019.rep.start, g.company.reputation.reliable), unearned: 0, pnl: {}, contractIds: [],
   };
   if (md === 'partner') r.partnerId = partnerClient(g, m);
+  // v0.19.2 a custom route keeps its market as it was built (a later model change never moves its study).
+  if (m.custom) r.custom = structuredClone(m);
   N.routes[id] = r;
   N.stats.launched++;
   if (shelved?.study) {
@@ -112,7 +124,10 @@ export function startStudy(g: GameState, marketId: string, depth: StudyDepth, mo
     return { routeId: id };
   }
   const h = netSide(g, `study:${id}`);
-  const truth = Math.max(0.45, Math.min(1.6, 1 + gaussian(h) * cfg.sigma));
+  // v0.19.2 a custom pair: the game's own real size for it (fixed per pair, customTruth) and the study's usual noise.
+  const truth = m.custom
+    ? Math.max(0.3, Math.min(3, customTruth(g, m) * (1 + gaussian(h) * cfg.sigma)))
+    : Math.max(0.45, Math.min(1.6, 1 + gaussian(h) * cfg.sigma));
   r.study = { depth, start: g.now, truth };
   const st = stage(r, 'study');
   st.state = 'running';
@@ -303,7 +318,7 @@ export function businessCase(g: GameState, routeId: string, draft: RoutePlan): B
 }
 
 /** The demand the study measures against (passengers a week both ways at the recommended plan, truth 1). */
-function studyBase(g: GameState, r: Route): number {
+export function studyBase(g: GameState, r: Route): number {
   const m = marketOfRoute(r)!;
   const rec = searchPlan(g, r, 1);
   if (!rec) return 0;
@@ -356,7 +371,8 @@ function searchPlan(g: GameState, r: Route, x: number): { plan: RoutePlan; resul
     const c = [...chainOf(m, 'out'), ...chainOf(m, 'back').slice(1)];
     let ok = true;
     for (let i = 1; i < c.length && ok; i++) if (payloadMax(typeId, c[i - 1], c[i]) <= 0 || blockMinutes(typeId, c[i - 1], c[i]) <= 0) ok = false;
-    if (!ok) continue;
+    // v0.19.2 nor one whose runway or full-payload range rules a sector out (payloadMax never reaches zero past the range).
+    if (!ok || chainProblem(m, typeId)) continue;
     for (const out of times.slice(0, 2)) {
       const plan: RoutePlan = { model: r.model, days: pat.days, every: pat.every, monthly: pat.monthly, out, back: m.timetable.back, nights: m.timetable.nights, typeId, layout: 'two-class', fares: 'market', marketing: 'normal' };
       const pr = project(g, r, plan, g.now + 120 * DAY, x);
@@ -459,6 +475,9 @@ export function decideCase(g: GameState, routeId: string, decision: CaseDecision
   }
   const p = draft ?? caseDraft(g, routeId);
   if (!p || !typeOf(p.typeId)) return 'Choose an aircraft type.';
+  // v0.19.2 a type that cannot fly a sector (runway, range) cannot be filed.
+  const cant = chainProblem(m, p.typeId);
+  if (cant) return cant;
   if (!p.monthly && !(p.days & 127)) return 'Pick at least one day.';
   r.plan = { ...p };
   r.model = m.models.includes(p.model) ? p.model : r.model;
@@ -498,9 +517,11 @@ function startStage(g: GameState, r: Route, id: LaunchStageId): void {
   switch (id) {
     case 'rights': {
       const R = C.rights[r.model];
-      d = int(h, R.days[0], R.days[1]);
-      spend(g, r, 'routeSetup', R.cost + stops.size * C.rights.techStop.cost, id);
-      if (chance(h, C.rights.refused * (m.risk?.coup ? 2 : 1))) {
+      // v0.19.2 a custom market's rights regime: a hard one takes longer, costs more and is refused more often.
+      const hard = m.rightsHard ?? 0;
+      d = Math.round(int(h, R.days[0], R.days[1]) * (1 + hard));
+      spend(g, r, 'routeSetup', R.cost + stops.size * C.rights.techStop.cost + Math.round(hard * 20_000), id);
+      if (chance(h, C.rights.refused * (m.risk?.coup ? 2 : 1) + hard * 0.12)) {
         s.state = 'failed';
         s.setback = `${m.country} refused the permit.`;
         r.status = 'closed';
@@ -508,7 +529,7 @@ function startStage(g: GameState, r: Route, id: LaunchStageId): void {
         pushRouteNote(g, r, 'bad', `Permit refused: ${m.city}`, `${m.country} turned the application down. The money spent is gone; you can try again later with a new study.`, null);
         return;
       }
-      if (chance(h, C.rights.delay.p)) {
+      if (chance(h, C.rights.delay.p + hard * 0.3)) {
         const extra = int(h, C.rights.delay.days[0], C.rights.delay.days[1]);
         d += extra;
         s.setback = `The ${m.country} permit is delayed: ${Math.round(extra / 7)} more weeks.`;
@@ -528,7 +549,7 @@ function startStage(g: GameState, r: Route, id: LaunchStageId): void {
       if (r.model !== 'tour' && chance(h, bank ? C.slots.peakBank : C.slots.offPeak)) {
         const shift = int(h, C.slots.shift[0], C.slots.shift[1]) * (chance(h, 0.5) ? 1 : -1);
         const at = Math.round((out + shift) / 5) * 5;
-        s.setback = `Lisbon offers ${hh((at + 1_440) % 1_440)} instead of ${hh(out)}.`;
+        s.setback = `${AIRPORT_BY_CODE[m.from]?.city ?? m.from} offers ${hh((at + 1_440) % 1_440)} instead of ${hh(out)}.`;
         (s as LaunchStage & { offer?: number }).offer = shift;
       }
       break;
@@ -565,7 +586,7 @@ function startStage(g: GameState, r: Route, id: LaunchStageId): void {
       const nc = [m.to, ...stops].filter((x) => !routeStation(x).caterer);
       if (nc.length) {
         r.noCaterer = nc;
-        s.setback = `No caterer up to standard at ${nc.join(', ')}: meals for the way back are loaded in Lisbon.`;
+        s.setback = `No caterer up to standard at ${nc.join(', ')}: meals for the way back are loaded in ${AIRPORT_BY_CODE[m.from]?.city ?? m.from}.`;
       }
       break;
     }
@@ -602,6 +623,11 @@ function startStage(g: GameState, r: Route, id: LaunchStageId): void {
   s.due = g.now + d * DAY;
 }
 
+/** The study's accuracy (± share at one sigma-ish) at a depth; a custom pair adds CUSTOM_STUDY_EXTRA. */
+export function studyAccuracy(depth: StudyDepth, custom: boolean): number {
+  return L().study[depth].accuracy + (custom ? CUSTOM_STUDY_EXTRA[depth] : 0);
+}
+
 /** Daily: moves the route's launch stages along (durations, costs, setbacks), opens sales, reminds of decisions. */
 export function stepLaunch(g: GameState, r: Route): void {
   const m = marketOfRoute(r);
@@ -611,11 +637,12 @@ export function stepLaunch(g: GameState, r: Route): void {
     const st = stage(r, 'study');
     if (st.due !== undefined && g.now >= st.due && r.study) {
       st.state = 'done';
-      const cfg = C.study[r.study.depth];
       const base = studyBase(g, r);
-      const err = 1 + gaussian(netSide(g, `studyErr:${r.id}`)) * cfg.accuracy * 0.6;
+      // v0.19.2 an unresearched (custom) pair: a little less accurate at every depth.
+      const acc = studyAccuracy(r.study.depth, !!m.custom);
+      const err = 1 + gaussian(netSide(g, `studyErr:${r.id}`)) * acc * 0.6;
       const p50 = Math.max(10, Math.round(base * r.study.truth * err));
-      r.study.est = { p10: Math.round(p50 * (1 - 1.28 * cfg.accuracy)), p50, p90: Math.round(p50 * (1 + 1.28 * cfg.accuracy)) };
+      r.study.est = { p10: Math.max(1, Math.round(p50 * (1 - 1.28 * acc))), p50, p90: Math.round(p50 * (1 + 1.28 * acc)) };
       r.study.done = g.now;
       r.study.validUntil = g.now + C.validDays * DAY;
       r.status = 'case';
