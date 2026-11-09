@@ -441,6 +441,10 @@ export function onReturnEnd(g: GameState, m: MaintenanceEvent): void {
   // v0.17 an up-front reserves deposit comes back with the aircraft.
   if (own.reservesDeposit) cashOnly(g, own.reservesDeposit);
   settleDeparture(g, ac);
+  // Bug 1108b (checks on the player's save): legs still planned for it after the return (a ferry home planned past the
+  // return check) go with it; their crew are re-planned through the usual settle (orphan legs, crew left on tickets).
+  const left = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled');
+  if (left.length) removeFlights(g, left.map((f) => f.id));
   delete g.fleet[ac.id];
   g.stats.leaseReturns = (g.stats.leaseReturns ?? 0) + 1;
   touchFlights(g);
