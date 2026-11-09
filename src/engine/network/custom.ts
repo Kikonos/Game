@@ -353,7 +353,7 @@ export function customMarket(d: MarketDraft): RouteMarket | null {
 function blurbOf(f: CustomFacts, nonstop: RouteCompetitor[], all: RouteCompetitor[], vfr: number, tour: number, biz: number): string {
   const kind = vfr >= 0.5 ? 'Family and diaspora travel' : tour >= 0.5 ? 'A holiday market' : biz >= 0.4 ? 'Mostly business travel' : 'Mixed travel';
   const rival = nonstop.length
-    ? `${nonstop.slice(0, 2).map((c) => c.name).join(' and ')}${nonstop.length > 2 ? ` and ${nonstop.length - 2} more` : ''} fly it nonstop`
+    ? `${nonstop.slice(0, 2).map((c) => c.name).join(' and ')}${nonstop.length > 2 ? ` and ${nonstop.length - 2} more` : ''} ${nonstop.length === 1 ? 'flies' : 'fly'} it nonstop`
     : all.length ? `no nonstop today; people connect via ${all.filter((c) => c.via).slice(0, 2).map((c) => AIRPORT_BY_CODE[c.via!].city).join(' or ')}` : 'no airline links it today';
   const thin = f.od < 8_000 ? ' Very few people travel between these cities.' : '';
   return `${kind}; ${rival}.${thin}`;

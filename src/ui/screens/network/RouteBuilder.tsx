@@ -37,35 +37,38 @@ function Picker({ label, value, exclude, onPick, placeholder }: { label: string;
   const hits = useMemo(() => searchAirports(q, exclude), [q, exclude.join()]); // eslint-disable-line react-hooks/exhaustive-deps
   const a = value ? AIRPORT_BY_CODE[value] : undefined;
   return (
-    <div className="rb-pick">
-      <label className="rb-search">
+    <div className="crb-pick">
+      <label className="crb-search">
         <Search className="sc-ico-s dim" aria-hidden />
         <input value={q} onChange={(e) => setQ(e.target.value)} placeholder={a ? `${a.city} (${a.code}) · ${placeholder}` : placeholder} aria-label={label} autoComplete="off" spellCheck={false} />
-        {q && <button className="rb-clear" onClick={() => setQ('')} aria-label="Clear the search"><X className="sc-ico-s" /></button>}
+        {q && <button className="crb-clear" onClick={() => setQ('')} aria-label="Clear the search"><X className="sc-ico-s" /></button>}
       </label>
       {hits.length > 0 && (
-        <div className="rb-hits" role="listbox" aria-label={`${label}: matches`}>
+        <div className="crb-hits" role="listbox" aria-label={`${label}: matches`}>
           {hits.map((h) => (
-            <button key={h.code} role="option" aria-selected={h.code === value} className="rb-hit" onClick={() => { onPick(h.code); setQ(''); }}>
+            <button key={h.code} role="option" aria-selected={h.code === value} className="crb-hit" onClick={() => { onPick(h.code); setQ(''); }}>
               <span className="nw-flag" aria-hidden>{flag(h.country)}</span>
-              <span className="col grow rb-hit-text"><b className="ellipsis">{h.city}</b><span className="tiny muted ellipsis">{h.name} · {countryName(h.country)}</span></span>
+              <span className="col grow crb-hit-text"><b className="ellipsis">{h.city}</b><span className="tiny muted ellipsis">{h.name} · {countryName(h.country)}</span></span>
               <span className="mono small muted">{h.code}</span>
             </button>
           ))}
         </div>
       )}
-      {q.trim().length >= 2 && !hits.length && <div className="tiny muted rb-none">No airport matches “{q.trim()}”.</div>}
+      {q.trim().length >= 2 && !hits.length && <div className="tiny muted crb-none">No airport matches “{q.trim()}”.</div>}
     </div>
   );
 }
 
 function SeasonBars({ v }: { v: number[] }) {
-  const max = Math.max(...v, 1);
+  const max = Math.max(...v);
+  const min = Math.min(...v);
+  // The shape of the year: the quietest month a quarter high, the busiest full.
+  const h = (x: number) => (max > min ? 25 + (75 * (x - min)) / (max - min) : 60);
   return (
-    <div className="rb-season" aria-label="Season: travellers by month against the year's average">
+    <div className="crb-season" aria-label="Season: travellers by month against the year's average">
       {v.map((x, i) => (
-        <span key={i} className="rb-sb" title={`${MON[i]}: ${Math.round(x * 100)} % of an average month`}>
-          <i style={{ height: `${Math.max(8, (x / max) * 100)}%` }} />
+        <span key={i} className="crb-sb" title={`${MON[i]}: ${Math.round(x * 100)} % of an average month`}>
+          <i style={{ height: `${h(x)}%` }} />
           <em className="tiny dim">{MON[i]}</em>
         </span>
       ))}
@@ -85,16 +88,16 @@ function MarketPreview({ m, typeId }: { m: RouteMarket; typeId: string }) {
   let blk = 0;
   try { blk = blockMinutes(typeId, m.from, m.to); } catch { blk = 0; }
   return (
-    <div className="col gap-10 rb-market">
-      <div className="rb-size">
+    <div className="col gap-10 crb-market">
+      <div className="crb-size">
         <span className="tiny dim upper">Travellers a year, both ways</span>
         <b className="num">about {int(r.mid)}</b>
         <span className="small muted">a first guess from the airports and the ties: anywhere from {int(r.lo)} to {int(r.hi)}. A study narrows it.</span>
       </div>
       <p className="small nw-blurb">{m.blurb}</p>
-      <div className="rb-segs" aria-label="Who travels">
+      <div className="crb-segs" aria-label="Who travels">
         {segs.map(([k, v]) => (
-          <span key={k} className="rb-seg"><span className="small">{SEGMENT_LABEL[k]}</span><span className="rb-seg-bar"><i style={{ width: `${Math.round(v * 100)}%` }} /></span><span className="tiny num muted">{pctOf(v)}</span></span>
+          <span key={k} className="crb-seg"><span className="small">{SEGMENT_LABEL[k]}</span><span className="crb-seg-bar"><i style={{ width: `${Math.round(v * 100)}%` }} /></span><span className="tiny num muted">{pctOf(v)}</span></span>
         ))}
       </div>
       <div><span className="tiny dim upper">Season</span><SeasonBars v={m.season ?? BAL.v019.demand.season} /></div>
@@ -167,7 +170,7 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
   const A = AIRPORT_BY_CODE[from];
   const B = to ? AIRPORT_BY_CODE[to] : undefined;
   return (
-    <Modal title={B ? `${A?.city ?? from} – ${B.city}` : 'Build your own route'} icon={<Compass className="accent" />} onClose={close} size="xwide" className="nw-modal rb" footer={
+    <Modal title={B ? `${A?.city ?? from} – ${B.city}` : 'Build your own route'} icon={<Compass className="accent" />} onClose={close} size="xwide" className="nw-modal crb" footer={
       <>
         <button className="btn btn-ghost" onClick={() => store.openModal({ kind: 'routeLaunch' })}><ArrowLeft /> Suggestions</button>
         <span className="grow" />
@@ -179,8 +182,8 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
         )}
       </>
     }>
-      <div className="rb-grid">
-        <div className="col gap-12 rb-form">
+      <div className="crb-grid">
+        <div className="col gap-12 crb-form">
           <div className="col gap-6">
             <span className="upper dim">From</span>
             {bases.length > 4 ? (
@@ -207,15 +210,15 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
           {to && (
             <div className="col gap-6">
               <div className="row between"><span className="upper dim">Fuel stops</span>{stops && <button className="btn btn-ghost btn-sm" onClick={() => setStops(null)}><Sparkles /> Suggest</button>}</div>
-              <div className="rb-stops">
+              <div className="crb-stops">
                 {via.length === 0 && viaBack.length === 0 && <span className="small muted">{autoWhy ?? 'None: nonstop both ways.'}</span>}
                 {via.map((s) => (
-                  <span key={`o${s}`} className="rb-stop"><span className="mono small">{s}</span><span className="tiny muted">{AIRPORT_BY_CODE[s]?.city}</span>
+                  <span key={`o${s}`} className="crb-stop"><span className="mono small">{s}</span><span className="tiny muted">{AIRPORT_BY_CODE[s]?.city}</span>
                     <button aria-label={`Remove the stop at ${s}`} onClick={() => setStops({ via: via.filter((x) => x !== s), viaBack: viaBack.filter((x) => x !== s) })}><X className="sc-ico-s" /></button>
                   </span>
                 ))}
                 {viaBack.filter((s) => !via.includes(s)).map((s) => (
-                  <span key={`b${s}`} className="rb-stop back"><span className="mono small">{s}</span><span className="tiny muted">back only</span>
+                  <span key={`b${s}`} className="crb-stop back"><span className="mono small">{s}</span><span className="tiny muted">back only</span>
                     <button aria-label={`Remove the stop at ${s}`} onClick={() => setStops({ via, viaBack: viaBack.filter((x) => x !== s) })}><X className="sc-ico-s" /></button>
                   </span>
                 ))}
@@ -226,14 +229,14 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
             </div>
           )}
         </div>
-        <div className="rb-map">
+        <div className="crb-map">
           <RouteMap from={from} to={to} via={via} viaBack={viaBack} typeId={typeId} rivals={m?.competitors} />
         </div>
       </div>
-      {!to && <p className="small muted rb-hint">Any airport in our list is a destination: search by city, code or country. Most pairs nobody flies are thin; strong ones are where people are tied (family, work, holidays).</p>}
-      {cat && <div className="small warn rb-cat">{cat.city} from {AIRPORT_BY_CODE[cat.from]?.city} is one of the suggested markets, already researched: open it there.</div>}
+      {!to && <p className="small muted crb-hint">Any airport in our list is a destination: search by city, code or country. Most pairs nobody flies are thin; strong ones are where people are tied (family, work, holidays).</p>}
+      {cat && <div className="small warn crb-cat">{cat.city} from {AIRPORT_BY_CODE[cat.from]?.city} is one of the suggested markets, already researched: open it there.</div>}
       {m && !cat && (
-        <div className="rb-below">
+        <div className="crb-below">
           {block && <div className="small warn">{block}</div>}
           <MarketPreview m={m} typeId={typeId} />
           {models.length > 1 && (

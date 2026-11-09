@@ -281,7 +281,7 @@ function CaseCard({ g, r }: { g: GameState; r: Route }) {
         <div className="nw-est small">Study ({r.study.depth === 'desk' ? 'desk' : r.study.depth === 'full' ? 'full' : 'full + survey'}): <b>{int(r.study.est.p50)}</b> travellers a week both ways, likely between {int(r.study.est.p10)} and {int(r.study.est.p90)}.</div>
       )}
       {rec && <RecommendationCard rec={rec} />}
-      {draft && m && <RouteMap from={m.from} to={m.to} via={m.via} viaBack={m.viaBack} typeId={draft.typeId} rivals={m.competitors} className="nw-case-map" />}
+      {draft && m && <RouteMap from={m.from} to={m.to} via={m.via} viaBack={m.viaBack} typeId={draft.typeId} rivals={m.competitors} height={220} className="nw-case-map" />}
       {draft && <DraftEditor g={g} m={m} d={draft} set={setDraft} />}
       {c ? (
         <div className="col gap-8">

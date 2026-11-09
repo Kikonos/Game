@@ -68,7 +68,10 @@ export function discSvg(lat: number, lon: number, nm: number, size = 128): strin
   const f = (v: number) => Math.round(v * 10) / 10;
   const landD = land ? path(land) ?? '' : '';
   const grat = path(geoGraticule10()) ?? '';
-  const ringD = path({ type: 'Polygon', coordinates: [rangeRing(lat, lon, nm, 1.5)] }) ?? '';
+  const ring = rangeRing(lat, lon, nm, 1.5);
+  // The region filled, its boundary stroked as a line (a ring over a pole would otherwise stroke the map's edge too).
+  const fillD = path({ type: 'Polygon', coordinates: [ring] }) ?? '';
+  const ringD = path({ type: 'LineString', coordinates: ring }) ?? '';
   const city = proj([lon, lat]) ?? [c, c];
   // The map's top and bottom (the poles) inside the disc, when the window reaches past them.
   const yN = c + k * (cLat - 90);
@@ -81,6 +84,7 @@ export function discSvg(lat: number, lon: number, nm: number, size = 128): strin
     + `<rect class="rd-sea" x="0" y="${f(Math.max(0, yN))}" width="${size}" height="${f(Math.min(size, yS) - Math.max(0, yN))}"/>`
     + `<path class="rd-grat" d="${grat}"/>`
     + `<path class="rd-land" d="${landD}"/>`
+    + `<path class="rd-range-fill" d="${fillD}"/>`
     + `<path class="rd-range" d="${ringD}"/>`
     + `</g>`
     + `<circle class="rd-rim" cx="${c}" cy="${c}" r="${f(r)}"/>`

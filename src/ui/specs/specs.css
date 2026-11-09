@@ -44,7 +44,8 @@
 .rd-void { fill: var(--panel-2); }
 .rd-svg.flat .rd-land, :root[data-theme='light'] .rd-svg.flat .rd-land { fill: var(--map-land-0); fill-opacity: 1; stroke: var(--map-coast); stroke-width: 0.5; stroke-linejoin: round; }
 .rd-svg.flat .rd-grat { stroke: var(--map-grid); stroke-width: 0.7; }
-.rd-svg.flat .rd-range { fill: rgba(var(--accent-rgb), 0.16); stroke: var(--accent); stroke-width: 1.4; stroke-linejoin: round; }
+.rd-svg.flat .rd-range-fill { fill: rgba(var(--accent-rgb), 0.16); stroke: none; }
+.rd-svg.flat .rd-range { fill: none; stroke: var(--accent); stroke-width: 1.4; stroke-linejoin: round; }
 
 .sp-map-head .seg { flex-wrap: wrap; }
 .sp-own-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--accent); display: inline-block; }

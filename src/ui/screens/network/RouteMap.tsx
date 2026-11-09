@@ -13,7 +13,6 @@ import { landPathFor, loadMapData, mapReady } from '../../map/mapData';
 
 const EARTH_NM = 3440.065;
 const W = 560;
-const H = 300;
 const PAD = 22;
 
 export interface RouteMapProps {
@@ -24,6 +23,8 @@ export interface RouteMapProps {
   /** The aircraft whose full-payload range ring is drawn from the origin. */
   typeId?: string;
   rivals?: RouteCompetitor[];
+  /** The drawing's height for a 560-wide map (default 300; a flatter strip in the business case). */
+  height?: number;
   /** Accessible label. */
   label?: string;
   className?: string;
@@ -32,6 +33,7 @@ export interface RouteMapProps {
 interface BuiltMap {
   land: string;
   grat: string;
+  ringFill: string;
   ring: string;
   route: string;
   back: string;
@@ -46,6 +48,7 @@ const ll = (c: string): [number, number] | null => {
 
 /** Everything the SVG draws (px), or null when the origin is unknown. Pure apart from the loaded land. */
 export function buildRouteMap(p: RouteMapProps, landOn: boolean): BuiltMap | null {
+  const H = p.height ?? 300;
   const A = ll(p.from);
   if (!A) return null;
   const B = p.to ? ll(p.to) : null;
@@ -90,7 +93,10 @@ export function buildRouteMap(p: RouteMapProps, landOn: boolean): BuiltMap | nul
   if (B) put(p.to!, 'end');
   for (const c of [...via, ...back]) put(c, 'stop');
   if (B) for (const h of hubs) put(h, 'hub');
-  return { land: landOn ? landPathFor(proj) : '', grat: path(geoGraticule10()) ?? '', ring: ringGeo ? path(ringGeo) ?? '' : '', route: out, back: backD, rivals, aps };
+  // The range region filled, its boundary a line (a clipped polygon would stroke the map's edges too).
+  const ringFill = ringGeo ? path(ringGeo) ?? '' : '';
+  const ring = ringGeo ? path({ type: 'LineString', coordinates: ringGeo.coordinates[0] }) ?? '' : '';
+  return { land: landOn ? landPathFor(proj) : '', grat: path(geoGraticule10()) ?? '', ringFill, ring, route: out, back: backD, rivals, aps };
 }
 
 export function RouteMap(p: RouteMapProps) {
@@ -101,16 +107,18 @@ export function RouteMap(p: RouteMapProps) {
     void loadMapData().then(() => { if (live) setLandOn(true); });
     return () => { live = false; };
   }, [landOn]);
-  const key = JSON.stringify([p.from, p.to, p.via, p.viaBack, p.typeId, (p.rivals ?? []).map((r) => r.via ?? ''), landOn]);
+  const key = JSON.stringify([p.from, p.to, p.via, p.viaBack, p.typeId, (p.rivals ?? []).map((r) => r.via ?? ''), p.height, landOn]);
   const b = useMemo(() => buildRouteMap(p, landOn), [key]); // eslint-disable-line react-hooks/exhaustive-deps
   if (!b) return null;
   const t = p.typeId && typeOf(p.typeId) ? typeOf(p.typeId) : null;
+  const H = p.height ?? 300;
   return (
     <figure className={`rm ${p.className ?? ''}`}>
       <svg className="rm-svg" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={p.label ?? `Map of ${[p.from, ...(p.via ?? []), p.to ?? ''].filter(Boolean).join('–')}`}>
         <rect className="rm-sea" width={W} height={H} rx={12} />
         <path className="rm-grat" d={b.grat} />
         <path className="rm-land" d={b.land} />
+        {b.ringFill && <path className="rm-ring-fill" d={b.ringFill} />}
         {b.ring && <path className="rm-ring" d={b.ring} />}
         {b.rivals.map((d, i) => <path key={`r${i}`} className="rm-rival" d={d} />)}
         {b.back && <path className="rm-route back" d={b.back} />}
