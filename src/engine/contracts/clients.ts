@@ -150,7 +150,7 @@ const IATA: Record<string, string> = {
   'Azul Brazilian Airlines': 'AD', 'Air Canada': 'AC', 'LATAM Perú': 'LP', 'Vietnam Airlines': 'VN', Saudia: 'SV', flynas: 'XY',
   'Aegean Airlines': 'A3', 'Bulgaria Air': 'FB', 'Corendon Airlines': 'XC', 'Fiji Airways': 'FJ', 'Jet2.com': 'LS', 'TUI fly Belgium': 'TB',
   // v0.8
-  'Garuda Indonesia': 'GA', 'Biman Bangladesh Airlines': 'BG', 'Air Algérie': 'AH',
+  'Garuda Indonesia': 'GA', 'Biman Bangladesh Airlines': 'BG', 'Air Algérie': 'AH', 'Pakistan International Airlines': 'PK',
   // v0.14 the market-presence airlines
   'Air Peace': 'P4', 'Air Côte d’Ivoire': 'HF', 'ASKY Airlines': 'KP', 'Africa World Airlines': 'AW', 'Kenya Airways': 'KQ', RwandAir: 'WB',
   'Air Tanzania': 'TC', IndiGo: '6E', SpiceJet: 'SG', 'SriLankan Airlines': 'UL', 'US-Bangla Airlines': 'BS', 'Jeju Air': '7C', 'Hong Kong Airlines': 'HX',

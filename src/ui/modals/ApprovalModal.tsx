@@ -147,7 +147,7 @@ function EtopsBreakdown({ g, min, days }: { g: GameState; min: number; days: num
         </div>
       )}
       {causes.length > 0 && <div className="small muted">{causes.map(([c, n]) => `${CAUSE_TEXT[c]} ${n}`).join(' · ')}</div>}
-      <div className="small">{r.pct !== null && r.pct >= r.need ? 'On target.' : r.reachAt ? `At the last 60 days' pace: on target about ${fmtDate(r.reachAt)}.` : "At the last 60 days' pace it does not get there within a year."}</div>
+      <div className="small">{r.pct !== null && r.pct >= r.need ? 'On target.' : r.reachAt ? `At the last 60 days' pace: on target about ${fmtDate(r.reachAt)}.` : r.deps < 20 ? 'Too few ETOPS flights yet to tell when it gets there.' : "At the last 60 days' pace it does not get there within a year."}</div>
       {r.advice.length > 0 && (
         <ul className="ap-etops-advice small">
           {r.advice.slice(0, 5).map((x) => <li key={x}>{x}</li>)}
