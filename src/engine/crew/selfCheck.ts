@@ -14,6 +14,7 @@
 import { cabinMinimum, isPilot, reportMinutes, typeOf } from '../core/perf';
 import { isolatePauses } from '../core/pause';
 import { DAY, fmtDateTime } from '../core/time';
+import { deadheadFlights } from '../core/entities';
 import type { CrewMember, Duty, Flight, GameState, Minute, OohLimit, Pairing, SelfCheckRecord, SelfCheckState } from '../core/types';
 import { BAL } from '../core/balance';
 import { cabinInflightRest, offsetAt } from './rules';
@@ -75,7 +76,7 @@ export function augMax(augment: 1 | 2, fcCls: 1 | 2 | 3, ccCls: 1 | 2 | 3 | null
   return base + (sectors <= 2 && longestBlock > 9 * H ? H : 0);
 }
 
-interface Span { start: Minute; end: Minute; block: number; aug: boolean; ext: boolean; dep: string; arr: string; kind: 'duty' | 'ticket' | 'standby' | 'log'; weight: number; /** A ticket of the duty being judged (positioning into it: part of its day, no rest before it). */ own?: true }
+interface Span { start: Minute; end: Minute; block: number; aug: boolean; ext: boolean; dep: string; arr: string; kind: 'duty' | 'ticket' | 'standby' | 'log' | 'leave'; weight: number; /** A ticket of the duty being judged (positioning into it: part of its day, no rest before it). */ own?: true }
 
 /** One planned duty of a crew member, measured from its flights as they are now (report and release from the legs). */
 function dutySpan(g: GameState, d: Duty, p: Pairing, cabin: boolean): Span | null {
@@ -121,6 +122,11 @@ function workOf(g: GameState, c: CrewMember, t: Minute, skipDuty?: string): Span
       }
     }
   }
+  // v0.19.3 a trip home or back inside annual leave: where they are, nothing more (no duty, no rest, never a clash).
+  for (const tk of deadheadFlights(g)) {
+    if (!tk.leaveTrip || tk.status === 'cancelled' || tk.sta < from || tk.std > to || !tk.crewIds.includes(c.id)) continue;
+    out.push({ start: tk.std - H, end: tk.sta, block: 0, aug: false, ext: false, dep: tk.from, arr: tk.to, kind: 'leave', weight: 0 });
+  }
   for (const w of c.standby ?? []) {
     if (w.to < from || w.from > to) continue;
     const end = w.calledAt !== undefined ? Math.min(w.to, w.calledAt) : w.to;
@@ -162,8 +168,8 @@ export function judgePerson(g: GameState, c: CrewMember, d: Duty, p: Pairing): P
   // Rest before the report: from the end of the last work before it (a standby ended by this duty is its call-out).
   // (Positioning into this duty is part of its day: the rest is owed before the ticket, not between it and the report.)
   const first = Math.min(me.start, ...work.filter((x) => x.own).map((x) => x.start));
-  const prev = work.filter((x) => x.end <= first + 1 && x.kind !== 'standby' && !x.own).pop();
-  const prevAny = work.filter((x) => x.end <= first + 1 && !x.own).pop();
+  const prev = work.filter((x) => x.end <= first + 1 && x.kind !== 'standby' && x.kind !== 'leave' && !x.own).pop();
+  const prevAny = work.filter((x) => x.end <= first + 1 && x.kind !== 'leave' && !x.own).pop();
   if (prev && prevAny === prev) {
     const atHome = me.dep === c.base;
     const tz = Math.abs(offsetAt(c.base, me.start) - offsetAt(me.dep, me.start)) / 60;

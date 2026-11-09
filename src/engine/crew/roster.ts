@@ -1299,7 +1299,10 @@ function leaveBack(g: GameState, c: CrewMember, b: LeaveBlock): boolean {
   const segs = withoutTickets(segsOf(g, c), have.map((f) => f.id));
   if (home) {
     const next = segs.find((s) => s.kind !== 'log' && s.kind !== 'sby' && !s.leave && s.start >= home.sta);
-    if (next && next.start < b.to + LEAVE_BACK_GAP) {
+    // (A tour's next duty, whenever it comes: the set lives on station.)
+    const tourOf = (x: Seg | undefined) => !!x?.dutyId && !!g.pairings[g.duties[x.dutyId]?.pairingId ?? '']?.tour;
+    const soon = (x: Seg) => x.start < b.to + LEAVE_BACK_GAP || tourOf(x) || tourOf(segs.find((y) => y.kind === 'duty' && y.start >= x.end));
+    if (next && next.start >= b.to - DAY && soon(next)) {
       const d = next.dutyId ? g.duties[next.dutyId] : undefined;
       if (next.kind === 'duty' && next.out?.id && next.out.to !== c.base && d) {
         // A ticket out merged into the duty's day: the trip back on the last day replaces it.

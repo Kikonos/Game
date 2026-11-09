@@ -70,6 +70,8 @@ interface FlightRec {
   reducedCabin?: number;
   /** Operating crew without the type rating when the leg was first seen flown. */
   unrated?: string[];
+  /** v0.19.3 a trip home or back inside annual leave (travel on a leave day). */
+  leaveTrip?: 'home' | 'back';
 }
 interface LogRec {
   start: Minute;
@@ -298,7 +300,7 @@ export function createChecker(opts: CheckerOpts = {}) {
       if (f.status === 'done' && !flights.has(f.id)) {
         flights.set(f.id, {
           id: f.id, seats: f.aircraftId ? g.fleet[f.aircraftId]?.cabin.total : undefined, no: f.no, kind: f.kind, from: f.from, to: f.to, atd: f.atd ?? f.std, ata: f.ata ?? f.sta, aircraftId: f.aircraftId, contractId: f.contractId,
-          crewIds: [...f.crewIds], riders: [...(f.riders ?? [])], purpose: f.purpose, operatedBy: f.operatedBy, reducedCabin: f.reducedCabin,
+          crewIds: [...f.crewIds], riders: [...(f.riders ?? [])], purpose: f.purpose, operatedBy: f.operatedBy, reducedCabin: f.reducedCabin, leaveTrip: f.leaveTrip,
           unrated: f.kind !== 'deadhead' && f.aircraftId && g.fleet[f.aircraftId] ? f.crewIds.filter((id) => g.crew[id] && !g.crew[id].ratings.includes(typeOf(g.fleet[f.aircraftId!].typeId).family)) : [],
         });
         for (const id of new Set([...f.crewIds, ...(f.riders ?? [])])) if (g.crew[id] || crew.has(id)) (g.crew[id] ? hist(g, id) : crew.get(id)!).flights.push(f.id);
@@ -494,7 +496,7 @@ export function createChecker(opts: CheckerOpts = {}) {
         if (!a && b.from !== h.loc0 && b.atd > h.t0) err('teleport', b.atd, `${h.name}: was at ${h.loc0} ${fmtDateTime(h.t0)}, first leg ${b.no} left ${b.from}`);
         if (a && b.atd < a.ata) err('crew-twice', b.atd, `${h.name}: ${b.no} left ${fmtDateTime(b.atd)} before ${a.no} landed ${fmtDateTime(a.ata)}`);
         // Unavailable windows.
-        for (const bl of h.blocks.values()) if (b.atd >= bl.from && b.atd < bl.to && bl.why !== 'joining' && !(bl.why === 'sick' && b.kind === 'deadhead') && !((bl.why === 'sick' || bl.why === 'leave') && b.to === h.base && (b.kind === 'deadhead' || b.riders.includes(h.id)))) err('blocked', b.atd, `${h.name} flew ${b.no} ${fmtDateTime(b.atd)} while ${bl.why} (${fmtDateTime(bl.from)}–${fmtDateTime(bl.to)})`);
+        for (const bl of h.blocks.values()) if (b.atd >= bl.from && b.atd < bl.to && bl.why !== 'joining' && !(bl.why === 'sick' && b.kind === 'deadhead') && !((bl.why === 'sick' || bl.why === 'leave') && b.to === h.base && (b.kind === 'deadhead' || b.riders.includes(h.id))) && !(bl.why === 'leave' && b.leaveTrip)) err('blocked', b.atd, `${h.name} flew ${b.no} ${fmtDateTime(b.atd)} while ${bl.why} (${fmtDateTime(bl.from)}–${fmtDateTime(bl.to)})`);
         if (b.unrated?.includes(h.id)) {
           const typeId = typeOfAc.get(b.aircraftId ?? '') ?? 'a320ceo';
           err('rating', b.atd, `${h.name} operated ${b.no} on ${typeOf(typeId).short} without the ${typeOf(typeId).family} rating`);

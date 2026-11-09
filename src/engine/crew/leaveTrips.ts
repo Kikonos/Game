@@ -20,7 +20,10 @@ type Block = NonNullable<CrewMember['blocks']>[number];
 /** Annual leave (not sickness, a course, unpaid leave or a resignation's last days). */
 export const isAnnual = (b: Block): boolean => b.why === 'leave' && !!b.annual;
 
-/** A next duty starting within this of the leave's end gets the trip back out on the leave's last day. */
+/**
+ * A next duty starting within this of the leave's end gets the trip back out on the leave's last day; a tour's (a set on
+ * station) gets it whenever it comes: the set lives there, days off and standby at the hotel as before the leave.
+ */
 export const LEAVE_BACK_GAP = 2 * DAY;
 /** The ticket back lands at least this long before the next duty's report. */
 export const LEAVE_BACK_BUFFER = 3 * 60;
@@ -69,12 +72,13 @@ const backSegOf = (segs: Seg[], c: CrewMember, b: Block): Seg | undefined =>
 
 /**
  * The trip back out for a duty reporting at `report` from `dep` (away from base): when an annual leave that began away
- * (its trip home is in the timeline) ends within LEAVE_BACK_GAP before it with no other work between, a seat from base
+ * (its trip home is in the timeline) ends within LEAVE_BACK_GAP before it (any time before, on a tour) with no other
+ * work between, a seat from base
  * on the leave's last day (else the day before) landing LEAVE_BACK_BUFFER before the report. Null otherwise. Pure.
  */
-export function leaveBackFor(g: GameState, c: CrewMember, segs: Seg[], report: Minute, dep: string): TicketPlan | null {
+export function leaveBackFor(g: GameState, c: CrewMember, segs: Seg[], report: Minute, dep: string, tour = false): TicketPlan | null {
   if (!dep || dep === c.base || !c.blocks?.length) return null;
-  const b = c.blocks.find((x) => isAnnual(x) && x.to <= report && report < x.to + LEAVE_BACK_GAP && x.to > g.now);
+  const b = c.blocks.find((x) => isAnnual(x) && x.to <= report && (tour || report < x.to + LEAVE_BACK_GAP) && x.to > g.now);
   if (!b) return null;
   const home = homeSegOf(segs, c, b);
   if (!home || backSegOf(segs, c, b)) return null;

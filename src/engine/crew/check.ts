@@ -202,7 +202,7 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
     let at = out ? out.to : locAt(c, base, first.report);
     // v0.19.3 the trip back out on the last day of an annual leave begun away, not bought yet (the daily run buys it).
     if (!out && at !== dep && !started) {
-      const back = leaveBackFor(g, c, base, first.report, dep);
+      const back = leaveBackFor(g, c, base, first.report, dep, !!p.tour);
       if (back) {
         leaveBack = back;
         base = merge(base, [posSeg(back, c)]);
@@ -227,7 +227,7 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
     let loc = locAt(c, base, first.report);
     // v0.19.3 annual leave that began away ends with a trip back out on its last day to this trip's station (not duty).
     if (!booked && loc !== dep) {
-      const back = leaveBackFor(g, c, base, first.report, dep);
+      const back = leaveBackFor(g, c, base, first.report, dep, !!p.tour);
       if (back) {
         leaveBack = back;
         base = merge(base, [posSeg(back, c)]);

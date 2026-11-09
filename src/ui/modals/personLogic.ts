@@ -38,6 +38,8 @@ export interface DayCell {
   icon: DayIcon;
   /** Short text under the icon: IATA code, 'XX', 'SBY E', 'ASBY'… ('' for none). */
   code: string;
+  /** v0.19.3 a leave day's trip home or back out: 'SGN→LIS' (small, under the code; absent for none). */
+  sub?: string;
   /** Small corner badge: 'A' airport standby on a flying day, '+1' planned extension. */
   badge: 'A' | '+1' | null;
   /** Worst legality of the day's duties. */
@@ -151,7 +153,8 @@ export function monthGrid(blocks: CalBlock[], o: GridOpts): MonthGrid {
 
   // Trips: work blocks chained while away from base. A planned day off or a standby between two duties away breaks the
   // span (that day is its own tile), as does a return to base.
-  const work = blocks.filter((b) => WORK.has(b.kind)).sort((a, b) => a.start - b.start);
+  // (v0.19.3 a trip home or back inside annual leave is drawn on the leave, not as a trip.)
+  const work = blocks.filter((b) => WORK.has(b.kind) && !b.leaveTrip).sort((a, b) => a.start - b.start);
   const dayHas = (k: number, pred: (b: CalBlock) => boolean) => {
     const s = o.midnight(k);
     const e = o.midnight(k + 1);
@@ -254,6 +257,12 @@ export function monthGrid(blocks: CalBlock[], o: GridOpts): MonthGrid {
         const lead = ow.k0 === k || (k - first) % 7 === 0;
         cell.icon = lead ? STATUS_ICON[ow.kind] ?? null : null;
         cell.code = lead ? STATUS_CODE[ow.kind] ?? '' : '';
+        // v0.19.3 the trip home on the leave's first day, back out on its last: 'SGN→LIS' under the word.
+        const trip = ow.kind === 'leave' ? on.find((b) => b.leaveTrip && o.dayOf(b.flights?.[0]?.std ?? b.start) === k) : undefined;
+        if (trip) {
+          const fl = trip.flights ?? [];
+          cell.sub = `${fl[0]?.from ?? ''}→${fl[fl.length - 1]?.to ?? trip.at ?? ''}`;
+        }
       }
     } else {
       const sby = on.find((b) => b.kind === 'standby');
