@@ -473,8 +473,13 @@ function retick(g: GameState, p: Pairing, c: CrewMember): boolean {
   // and bought again (the player's save: 1,026 of 1,409 tickets were bought and dropped, their cost sunk).
   const movedHome = plan.home && !plan.home.rideId ? moveHome(g, p, c, plan.home) : null;
   // A ticket out that still works for the trip as it stands is kept as booked; one that no longer fits moves with the plan.
+  // v0.19.4 fix: "as it stands" includes where it starts: a ticket to the old first departure is no ticket out once the
+  // trip's first duty went (seed 2: CS-TIH's empty legs VNO–MAD–BVC dropped when a new job re-planned the aircraft, the
+  // trip now starting at Boa Vista; the LIS–VNO ticket was kept on every re-check, so the crew stayed on it, flagged
+  // 'At VNO, not BVC', flew out to Vilnius for nothing and home again, past their 168 h recovery rest).
   const d0 = openDuties(g, p)[0];
-  const heldOut = d0 ? d0.deadheadIds.map((id) => g.flights[id]).find((f) => !!f && f.kind === 'deadhead' && f.status === 'scheduled' && !f.charter && f.std > g.now + BAL.deadheadCheckIn && f.sta <= d0.report && aboard(f, c.id) && outStillFits(g, p, d0, f.from, f.std, f.sta - f.std) && f.from === locAt(c, segsOf(g, c, p.id), f.std)) : undefined;
+  const dep0 = d0 ? g.flights[d0.flightIds[0]]?.from ?? d0.restAt : undefined;
+  const heldOut = d0 ? d0.deadheadIds.map((id) => g.flights[id]).find((f) => !!f && f.kind === 'deadhead' && f.status === 'scheduled' && !f.charter && f.to === dep0 && f.std > g.now + BAL.deadheadCheckIn && f.sta <= d0.report && aboard(f, c.id) && outStillFits(g, p, d0, f.from, f.std, f.sta - f.std) && f.from === locAt(c, segsOf(g, c, p.id), f.std)) : undefined;
   const movedOut = heldOut ? heldOut.id : plan.out && !plan.out.rideId && !(plan.out as Partial<Flight>).id ? moveHome(g, p, c, plan.out, true) : null;
   dropWhy = 'retick';
   dropTickets(g, p, c.id, movedHome ?? undefined, movedOut ?? undefined);
