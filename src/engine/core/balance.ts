@@ -841,8 +841,12 @@ export const BAL = {
       minDeps: 120,
       programme: { costPerTwin: 22_000, days: 21, delayX: 0.7, aogX: 0.7 },
       mxX: 0.85,
-      /** An ETOPS twin's technical delays × (1 + deferredX × its deferred defects): the ETOPS pre-departure service check. */
-      deferredX: 2.5,
+      /**
+       * The ETOPS pre-departure service check before each ETOPS sector of a twin: a finding on an ETOPS-significant
+       * system holds the departure. Chance `base` × the age factor (1 + age/10) × (1 + deferredX × deferred defects)
+       * × progX with the reliability programme; minutes as a technical delay.
+       */
+      check: { base: 0.012, deferredX: 3, progX: 0.5 },
     },
   },
 } as const;

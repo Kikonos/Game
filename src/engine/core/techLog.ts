@@ -31,6 +31,7 @@ export function techCause(reason: string | undefined): TechCause {
   if (/^Maintenance overrun/.test(r)) return 'overrun';
   if (/grounded/.test(r)) return 'grounded';
   if (/diversion/i.test(r)) return 'diversion';
+  if (/ETOPS pre-departure/.test(r)) return 'etops';
   return 'defect';
 }
 

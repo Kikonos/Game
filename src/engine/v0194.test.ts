@@ -19,6 +19,7 @@ import {
 import { dailySales, fairLead, leadsView, loadSales, pitchAirline, pitchTargets, pitchesView, workLead } from './commercial/sales';
 import { com } from './commercial/state';
 import { approvalReqs, aogChance, etopsRecord, joinRelProgramme, relFactors, relProgState } from './ops';
+import { etopsCheckChance } from './ops/etopsRel';
 import { noteDispatch, noteTechCancel, seedTechLog } from './core/techLog';
 import { deserialize, serialize } from './save';
 import { typeOf } from './core/perf';
@@ -331,10 +332,14 @@ describe('ETOPS 180 on the ETOPS fleet', () => {
     g.now += (BAL.v0194.etops.programme.days + 1) * DAY;
     expect(relProgState(g)).toBe('active');
     expect(relFactors(g, tw).aog).toBeLessThan(1);
+    // The ETOPS pre-departure check: only before an ETOPS sector of a twin, more with deferred defects, halved by the programme.
     tw.maint.deferred = 0;
-    const clean = relFactors(g, tw).delay;
+    const clean = etopsCheckChance(g, tw, 'LIS', 'JFK');
+    expect(clean).toBeGreaterThan(0);
+    expect(etopsCheckChance(g, tw, 'LIS', 'MAD')).toBe(0);
+    expect(etopsCheckChance(g, nb, 'LIS', 'JFK')).toBe(0);
     tw.maint.deferred = 0.3;
-    expect(relFactors(g, tw).delay).toBeCloseTo(clean * (1 + BAL.v0194.etops.deferredX * 0.3), 5);
+    expect(etopsCheckChance(g, tw, 'LIS', 'JFK')).toBeCloseTo(clean * (1 + BAL.v0194.etops.check.deferredX * 0.3), 6);
     tw.maint.deferred = 0;
     expect(relFactors(g, tw).noOutstation).toBe(true);
     expect(relFactors(g, nb)).toEqual({ delay: 1, aog: 1, noOutstation: false });

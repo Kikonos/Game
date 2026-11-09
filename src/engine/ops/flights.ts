@@ -26,7 +26,7 @@ import { fdpLimitAt } from '../crew/timeline';
 import { dutyLegality } from '../crew/duties';
 import { cue } from '../core/cues';
 import { markTech, noteDispatch, techHit } from '../core/techLog';
-import { relFactors } from './etopsRel';
+import { etopsCheckChance, relFactors } from './etopsRel';
 import { v09Stats } from '../crew/dayPlan';
 import { confirmAlarm } from '../crew/selfCheck';
 import { requestPause } from '../core/pause';
@@ -808,7 +808,7 @@ function pruneSubLog(g: GameState): void {
 const OPS_REASONS = ['ATC slot', 'Weather at destination', 'Late ground handling', 'Late passengers', 'Catering', 'Fuelling', 'Airport congestion'];
 const TECH_REASONS = ['Technical: bleed fault', 'Technical: brake temperature', 'Technical: pressurisation sensor', 'Technical: APU', 'Technical: cabin defect'];
 
-function rollDelay(g: GameState, ac: Aircraft): { min: number; reason: string } | null {
+function rollDelay(g: GameState, ac: Aircraft, f?: Flight): { min: number; reason: string } | null {
   if (chance(g, BAL.delayChance)) {
     const min = Math.min(BAL.delayCap, Math.max(5, Math.round(-BAL.delayMean * Math.log(1 - next(g)))));
     return { min, reason: pick(g, OPS_REASONS) };
@@ -817,6 +817,12 @@ function rollDelay(g: GameState, ac: Aircraft): { min: number; reason: string } 
   if (chance(g, BAL.techDelayChance * ageF(g, ac) * relFactors(g, ac).delay)) {
     const min = Math.min(240, Math.max(15, Math.round(-BAL.techDelayMean * Math.log(1 - next(g)))));
     return { min, reason: pick(g, TECH_REASONS) };
+  }
+  // v0.19.4 the ETOPS pre-departure service check before an ETOPS sector of a twin (ops/etopsRel.ts): a finding holds it.
+  const pe = f && isRevenue(f) ? etopsCheckChance(g, ac, f.from, f.to) : 0;
+  if (pe > 0 && chance(g, pe)) {
+    const min = Math.min(240, Math.max(20, Math.round(-BAL.techDelayMean * Math.log(1 - next(g)))));
+    return { min, reason: 'Technical: ETOPS pre-departure check' };
   }
   return null;
 }
@@ -883,7 +889,7 @@ export function onFlightDep(g: GameState, ev: SimEvent): void {
       v8.strikeDelays = (v8.strikeDelays ?? 0) + 1;
       return;
     }
-    const d = rollDelay(g, ac);
+    const d = rollDelay(g, ac, f);
     // v0.11 a long ATC slot or a slow tight turn becomes a card in a busy spell (the same delay, a way to cut it).
     if (d && delayCard(g, f, ac, d)) return;
     if (d) {

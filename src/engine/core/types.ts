@@ -850,7 +850,7 @@ export type FlightKind = 'revenue' | 'positioning' | 'ferry' | 'techstop' | 'dea
 export type FlightStatus = 'scheduled' | 'enroute' | 'done' | 'cancelled';
 
 /** v0.19.4 one technical dispatch failure (core/techLog.ts). */
-export type TechCause = 'aog' | 'defect' | 'overrun' | 'grounded' | 'diversion';
+export type TechCause = 'aog' | 'defect' | 'overrun' | 'grounded' | 'diversion' | 'etops';
 export interface TechFail {
   t: Minute;
   ac: string;
