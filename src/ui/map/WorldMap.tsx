@@ -4,7 +4,7 @@ import { memo, type ReactNode, useCallback, useEffect, useId, useLayoutEffect, u
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
 import { REGIONS } from '../../data/regions';
 import { PLANE_PATH } from '../components/Logo';
-import { useTheme } from '../store';
+import { store, useTheme } from '../store';
 import { paleOnLight } from '../theme';
 import { isTouch, useTouch } from '../useMedia';
 import { MAP_H, MAP_W, basePaths, projection } from './mapData';
@@ -618,6 +618,8 @@ export function WorldMap({
       syncLayers();
       placeLand(v, true);
       syncOver();
+      // v0.19 (perf) the screens' hourly refresh held back by the gesture goes now.
+      store.mapGesture(false);
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   useLayoutEffect(() => {
@@ -755,7 +757,7 @@ export function WorldMap({
     const g = geoRef.current;
     return [(g.w / 2 - g.ox) / g.s, (g.h / 2 - g.oy) / g.s];
   };
-  useEffect(() => () => { stopAnim(); window.clearTimeout(commitTimer.current); window.clearTimeout(settleTimer.current); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => { stopAnim(); window.clearTimeout(commitTimer.current); window.clearTimeout(settleTimer.current); store.mapGesture(false); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------- fitting ----------
   const fitKey = fitFn ? '(fn)' : (fit ?? []).join(',');
@@ -991,6 +993,7 @@ export function WorldMap({
         g.samples = [{ t: performance.now(), x: toCss(e.clientX), y: toCss(e.clientY) }];
         userMoved.current = true;
         userAt.current = performance.now();
+        store.mapGesture(true);
         return;
       }
       // v0.15 the map point under the finger stays under it (un-tilted: exact on the tilted map too).
@@ -1007,6 +1010,7 @@ export function WorldMap({
       if (!g.pinchMoved && (Math.abs(d - g.d0) > 10 || Math.hypot(mc[0] - g.mid[0], mc[1] - g.mid[1]) > 10)) {
         g.pinchMoved = true;
         userMoved.current = true;
+        store.mapGesture(true);
       }
       userAt.current = performance.now();
       if (!g.pinchMoved) return;
@@ -1100,6 +1104,7 @@ export function WorldMap({
       zoomBy(Math.exp(-dy * (e.ctrlKey ? 0.01 : 0.0015)), vbOf(toCss(e.clientX), toCss(e.clientY)), false);
       wheelUntil.current = performance.now() + 160;
       userAt.current = performance.now();
+      store.mapGesture(true);
       settle();
     };
     type GestureEv = Event & { scale: number; clientX: number; clientY: number };
@@ -1124,6 +1129,7 @@ export function WorldMap({
       apply(clampV({ k, x: m[0] - p[0] * k, y: m[1] - p[1] * k }, geoRef.current));
       userMoved.current = true;
       wheelUntil.current = performance.now() + 160;
+      store.mapGesture(true);
       settle();
     };
     const onGEnd = (ev: Event) => {

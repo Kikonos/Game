@@ -23,6 +23,7 @@ import { commercialFlightsBetween, commercialProgress, type CommercialFlight, ty
 import { liveMinute, store } from '../store';
 import { mix } from '../components/aircraft/ink';
 import { isTouch } from '../useMedia';
+import { cropDraw, cropFor } from './landTiles';
 import { MAP_H, MAP_W } from './mapData';
 import { type AcLabel, thinLabels, deliveryTag, headingDeg, JET_PATH, leasedOut, onMap, type LabelBox, boxOverlap, groupCommercial, lerpAngle, standOffsets, regMark, downSide, legLabelSide, placeLabels, regSlot, type RegSlot, type SlipArc, type SlipMark, trackCovered, trackLabelAt, type LegArc, type PinGroup, sunPoint, TYPE_STROKE } from './mapLogic';
 import { mapPxPerM, SIL_BUILD_K, silColour, silhouette, silPx, silSpec } from './silhouettes';
@@ -40,12 +41,14 @@ export interface LiveShared {
   ac: Map<string, [number, number]>;
   /** Airline legs with our crew aboard, by CommercialFlight id. */
   cm: Map<string, [number, number]>;
-  /** v0.12 the night raster's slide group, its canvas (three worlds side by side) and the declination it was painted for. */
+  /** v0.12 the night raster's slide group, its canvas and the declination it was painted for. */
   night: HTMLDivElement | null;
   nightCv: HTMLCanvasElement | null;
   nightDec: number;
-  /** v0.19 (perf) the slide last written (map units). */
+  /** v0.19 (perf) the slide last written (map units), the raster (one world, off screen) and the part of it on screen (raster px). */
   nightX: number;
+  nightSrc: HTMLCanvasElement | null;
+  nightCrop: number[] | null;
   /** Subsolar point the night was placed for (it is then slid by the sun's longitude change). */
   nightSun: [number, number] | null;
   /** v0.18 the map projection's rotation the night was placed for (the wrapping map turns it). */
@@ -59,7 +62,7 @@ export interface LiveShared {
   aps: [number, number][];
 }
 
-export const newShared = (): LiveShared => ({ ac: new Map(), cm: new Map(), night: null, nightCv: null, nightDec: NaN, nightX: NaN, nightSun: null, nightRot: 0, pathsCm: null, pathsOwn: null, cmRoot: null, aps: [] });
+export const newShared = (): LiveShared => ({ ac: new Map(), cm: new Map(), night: null, nightCv: null, nightDec: NaN, nightX: NaN, nightSrc: null, nightCrop: null, nightSun: null, nightRot: 0, pathsCm: null, pathsOwn: null, cmRoot: null, aps: [] });
 
 /** Frame cost stats for perf checks (console: __contrailMap). */
 const stats = { frames: 0, avgMs: 0, maxMs: 0, reset() { this.frames = 0; this.avgMs = 0; this.maxMs = 0; } };
@@ -118,18 +121,45 @@ function nightInk(): { rgb: [number, number, number]; a: number } {
 }
 
 /**
- * Paints the night raster for a declination into its canvas, three worlds side by side. v0.19 (perf) straight into the
- * canvas (was a PNG data URL for three SVG images, painted again with the backdrop layer at every margin's end).
+ * Paints the night raster for a declination (one world, off screen). v0.19 (perf) into a canvas, cut to the view by
+ * cropNight (was a PNG data URL for three SVG images, painted again with the backdrop layer at every margin's end).
  */
 function rasterNight(shared: LiveShared, dec: number) {
-  const cv = shared.nightCv;
-  const c2 = cv?.getContext('2d');
-  if (!cv || !c2) return;
+  const cv = (shared.nightSrc ??= document.createElement('canvas'));
+  cv.width = NIGHT_W;
+  cv.height = NIGHT_H;
+  const c2 = cv.getContext('2d');
+  if (!c2) return;
   const im = c2.createImageData(NIGHT_W, NIGHT_H);
   const { rgb, a } = nightInk();
   fillNight(im.data, NIGHT_W, NIGHT_H, dec, (j) => mercLat(NIGHT_Y0 + ((j + 0.5) / NIGHT_H) * (NIGHT_Y1 - NIGHT_Y0), MAP_W), rgb, a);
-  for (let c = 0; c < 3; c++) c2.putImageData(im, c * NIGHT_W, 0);
+  c2.putImageData(im, 0, 0);
   shared.nightDec = dec;
+  shared.nightCrop = null;
+}
+
+/**
+ * v0.19 (perf) the part of the night raster over the view `on` (frame map units, ctx.onScreen) and an eighth of a view
+ * round it, in the night's composited canvas (scaled up by the compositor): cut again only when the view or the sun has left
+ * it. A canvas the width of the zoomed world was slow to composite under the map's tilt.
+ */
+function cropNight(shared: LiveShared, on: [number, number, number, number]) {
+  const cv = shared.nightCv;
+  const src = shared.nightSrc;
+  if (!cv || !src || !Number.isFinite(shared.nightX)) return;
+  const fx = NIGHT_W / MAP_W;
+  const fy = NIGHT_H / (NIGHT_Y1 - NIGHT_Y0);
+  const a0 = (on[0] - shared.nightX) * fx;
+  const a1 = (on[2] - shared.nightX) * fx;
+  const crop = cropFor(shared.nightCrop, a0, (on[1] - NIGHT_Y0) * fy, a1, (on[3] - NIGHT_Y0) * fy, Math.min(NIGHT_W / 2, (a1 - a0) / 8 + 2), 0, NIGHT_H);
+  if (!crop) return;
+  shared.nightCrop = crop;
+  cropDraw(cv, src, NIGHT_W, 0, crop[0], crop[1], crop[2], crop[3]);
+  const st = cv.style;
+  st.left = `${(crop[0] / fx).toFixed(3)}px`;
+  st.top = `${(NIGHT_Y0 + crop[1] / fy).toFixed(3)}px`;
+  st.width = `${((crop[2] - crop[0]) / fx).toFixed(3)}px`;
+  st.height = `${((crop[3] - crop[1]) / fy).toFixed(3)}px`;
 }
 
 /**
@@ -155,26 +185,31 @@ function buildNight(shared: LiveShared, t: number, rot = shared.nightRot) {
  * Night side: render it as the WorldMap `backdrop`. v0.12 a soft raster (twilight band, no hard edge) slid sideways
  * as the sun moves; three copies so it covers the world at any shift. Rebuilt when the theme changes.
  */
-export const NightLayer = memo(function NightLayer({ shared, theme, rot = 0 }: { shared: LiveShared; shift?: MapLayerCtx['backShift']; theme: string; rot?: number }) {
+export const NightLayer = memo(function NightLayer({ shared, theme, rot = 0, onScreen }: { shared: LiveShared; shift?: MapLayerCtx['backShift']; theme: string; rot?: number; onScreen?: MapLayerCtx['onScreen'] }) {
   const ref = useRef<HTMLDivElement>(null);
   const cvRef = useRef<HTMLCanvasElement>(null);
   const rotRef = useRef(rot);
   rotRef.current = rot;
+  const onRef = useRef(onScreen);
+  onRef.current = onScreen;
   useLayoutEffect(() => {
     shared.night = ref.current;
     shared.nightCv = cvRef.current;
     shared.nightDec = NaN;
     shared.nightX = NaN;
+    shared.nightCrop = null;
     buildNight(shared, liveMinute(), rotRef.current);
-    return () => { shared.night = null; shared.nightSun = null; shared.nightCv = null; };
+    if (onRef.current) cropNight(shared, onRef.current());
+    return () => { shared.night = null; shared.nightSun = null; shared.nightCv = null; shared.nightCrop = null; };
   }, [shared, theme]);
   // v0.18 the wrapping map turned its projection: the night moves with it (no repaint of its raster).
   useLayoutEffect(() => {
     if (shared.night && shared.nightRot !== rot) buildNight(shared, liveMinute(), rot);
+    if (onRef.current) cropNight(shared, onRef.current());
   }, [rot]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div ref={ref} className="ops-night" style={{ position: 'absolute', left: 0, top: 0 }}>
-      <canvas ref={cvRef} width={NIGHT_W * 3} height={NIGHT_H} style={{ left: -MAP_W, top: NIGHT_Y0, width: MAP_W * 3, height: NIGHT_Y1 - NIGHT_Y0 }} />
+      <canvas ref={cvRef} width={1} height={1} />
     </div>
   );
 });
@@ -685,6 +720,8 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
       const t = liveMinute();
       const k = c.liveK();
       const rooted = shared.pathsOwn === ownRoot && shared.pathsCm === cmPathRoot && shared.cmRoot === cmRoot;
+      // v0.19 (perf) the night's canvas holds the part of it in view: cut again once the view has left it (a pan).
+      if (shared.night) cropNight(shared, c.onScreen());
       if (t === lastT && k === lastK && !settling && !dirty.current && rooted && c.proj === projUsed) return;
       const t0 = performance.now();
       const fresh = dirty.current;
@@ -713,7 +750,10 @@ export function AircraftLayer({ ctx, g, shared, selected, selectedFlight }: { ct
       lastSunT = tn;
       lastSun = sun;
       // v0.19 (perf) the night slides on the compositor (its own canvas layer): placed again as the sun moves.
-      if (shared.night && (!shared.nightSun || shared.nightSun[0] !== sun[0] || shared.nightSun[1] !== sun[1] || shared.nightRot !== c.rot)) buildNight(shared, tn, c.rot);
+      if (shared.night && (!shared.nightSun || shared.nightSun[0] !== sun[0] || shared.nightSun[1] !== sun[1] || shared.nightRot !== c.rot)) {
+        buildNight(shared, tn, c.rot);
+        cropNight(shared, c.onScreen());
+      }
       if (anim !== root.classList.contains('trails')) root.classList.toggle('trails', anim);
       const u = 1 / (c.px * k); // map units per screen px right now
       // v0.14 every icon to one scale (px per metre) for this zoom.
