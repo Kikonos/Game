@@ -44,8 +44,8 @@ describe("v0.9 What's new catch-up (UPDATE-0.9.md §X)", () => {
     expect(WHATS_NEW.slice(0, 2).map((e) => `${e.version} ${e.name}`)).toEqual(['v0.19 Scheduled routes', 'v0.18.3 Pilot pairs']);
     const txt = [...CURRENT.features, ...CURRENT.improvements, ...(CURRENT.fixes ?? [])].join('\n');
     for (const s of ['Contracts › Network', 'market study', 'recommends', 'load factor', 'live animals', 'drag it: the whole rotation moves', 'sub-charter (no penalty)', 'ticket cash']) expect(txt).toContain(s);
-    // The same release: the screen polish and the second bug batch of 8 Nov.
-    for (const s of ['Calmer screens', 'Annual leave starts and ends at home', 'Day off moved', 'stay on standby at the hotel', 'crew out of hours']) expect(txt).toContain(s);
+    // The same release: the screen polish, the smooth map and the second bug batch of 8 Nov.
+    for (const s of ['Calmer screens', 'Panning and zooming the map is smooth', 'Annual leave starts and ends at home', 'Day off moved', 'stay on standby at the hotel', 'crew out of hours']) expect(txt).toContain(s);
     expect(txt).not.toMatch(/§|EU261|unearned/);
   });
   it('v0.18.3 pilot pairs (no cruise relief rank), Convert, the map strip and the calendar, in plain words', () => {

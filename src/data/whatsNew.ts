@@ -29,6 +29,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     improvements: [
       'Finance shows the ticket cash taken for flights not flown yet.',
       'Calmer screens: cards and sections keep an even gap everywhere (no more boxes touching on Company), long names wrap instead of being cut, and on the iPhone the client details, chart labels and the new-game aircraft fit.',
+      'Panning and zooming the map is smooth, also on iPad: the land is drawn once per zoom, in the background, and the map slides as a picture under your finger instead of being drawn again every frame. The 3D globe does less work per frame too.',
     ],
     fixes: [
       'Annual leave starts and ends at home. Crew on a tour fly home after their last flight before the leave, and back out after it if the tour still needs them.',
