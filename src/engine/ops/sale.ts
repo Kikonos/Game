@@ -2,6 +2,7 @@
 // v0.7 market model (age, market index) adjusted for hours, cycles, C-check life and cabin; it closes 10–20 days
 // after agreement with the handover at home base (a ferry home when it would be elsewhere).
 
+import { dropMaintOf } from './leaseReturn';
 import { ageFactor } from '../../data/acmiTypes';
 import { EX_OPERATORS } from '../../data/market';
 import { BAL } from '../core/balance';
@@ -246,6 +247,8 @@ export function onSaleClose(g: GameState, ev: SimEvent): void {
       kept = ` ${n} cancelled.`;
     }
   }
+  // v0.19.2 checks or paint-shop visits still booked for it go with it.
+  dropMaintOf(g, ac.id);
   const rest = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled');
   if (rest.length) removeFlights(g, rest.map((f) => f.id));
   const book = ac.ownership.kind === 'owned' ? ac.ownership.bookValue : 0;

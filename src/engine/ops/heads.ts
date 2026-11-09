@@ -41,7 +41,7 @@ import { bestSlip } from '../crew/slip';
 import { cardMeta, checkCard, checkClashCard } from '../problems';
 import { achievementProgress, setHeadUnlockHook } from './achievements';
 import { applyDecisionOption, crewReadyAt, setReceivableHook } from './events';
-import { cancelCheck, checkCostOf, checkStatus, nextPlanned, planA, suggestC } from './maintenance';
+import { cancelCheck, checkCostOf, checkStatus, disposalWhy, nextPlanned, planA, suggestC } from './maintenance';
 import { headsBill } from './finance';
 import { usd } from './util';
 import { closedAirport } from './world';
@@ -627,7 +627,9 @@ function maintPlanner(g: GameState): void {
       done(g, h, 'tech', `${firstName(h)} booked ${ac.reg}'s A-check`, `${fmtDay(m.start)} ${fmtTime(m.start)} at ${m.at}${m.at === g.company.homeBase ? '' : ' (line station)'}.`, { kind: 'aircraft', id: ac.id },
         early ? `It went in about 15 % early, so that share of the interval is lost (${usd(lost)}).` : undefined);
     }
-    if (!nextPlanned(g, ac.id, 'C') && st.cDue - g.now <= M.cDays * DAY && !h.proposals.some((p) => p.kind === 'cSlot' && p.data.aircraftId === ac.id) && !dismissedNow(g, h, { kind: 'cSlot', data: { aircraftId: ac.id } })) {
+    // v0.19.2 none for an aircraft leaving the fleet (sold, or going back before its C-check falls due: s1212's CS-TCS
+    // got a C-check proposed mid-way through its return check).
+    if (!nextPlanned(g, ac.id, 'C') && st.cDue - g.now <= M.cDays * DAY && !disposalWhy(g, ac, 'C') && !h.proposals.some((p) => p.kind === 'cSlot' && p.data.aircraftId === ac.id) && !dismissedNow(g, h, { kind: 'cSlot', data: { aircraftId: ac.id } })) {
       const s = suggestC(g, ac, st.cDue);
       if (s) propose(g, h, { kind: 'cSlot', text: `${ac.reg} C-check ${fmtDayRange(s.from, s.to)}`, cost: checkCostOf(ac, 'C'), ref: { kind: 'aircraft', id: ac.id }, data: { aircraftId: ac.id, reg: ac.reg, from: s.from, to: s.to } }, 14 * 24);
     }

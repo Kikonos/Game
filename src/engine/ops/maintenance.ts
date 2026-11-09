@@ -254,6 +254,14 @@ export function scheduleCheck(
   // v0.7.2 no C-check or refit on an aircraft that is leaving (the sale price already allows for the check).
   const leaving = (kind === 'C' || kind === 'refit') && !opts.auto && !opts.forced ? disposalWhy(g, ac, kind === 'C' ? 'C' : undefined) : null;
   if (leaving) return { ok: false, error: leaving };
+  // v0.19.2 (player's CS-TCS) no paint shop once the aircraft has gone (a return check started or a sale handed over),
+  // and no client strip for one going back to its lessor: its return check strips it and paints it white.
+  if (kind === 'paint' && opts.paint && (ac.returning || ac.sale)) {
+    const rm = ac.returning ? g.maintenance[ac.returning.maintId] : undefined;
+    const exit = rm ? rm.start : ac.sale ? ac.sale.closes : Infinity;
+    if (ac.returning && opts.paint.phase === 'out') return { ok: false, error: `${ac.reg} goes back to the lessor: the return check repaints it` };
+    if (Math.max(start, g.now) + opts.paint.days * DAY > exit) return { ok: false, error: `${ac.reg} leaves the fleet ${fmtDay(exit)}` };
+  }
   if (!AIRPORT_BY_CODE[at]) return { ok: false, error: 'Unknown airport' };
   if (!pt && !opts.moved && !checkAirportOk(g, kind as 'A' | 'C', at, ac.id)) return { ok: false, error: kind === 'C' ? `C-checks are done at an MRO hub for the ${typeOf(ac.typeId).short}` : 'A-checks need the home base, a deployment base or a major airport' };
   if (!pt && nextPlanned(g, ac.id, kind)) return { ok: false, error: `${ac.reg} already has a ${kind}-check booked` };
