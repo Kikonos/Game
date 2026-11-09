@@ -15,7 +15,7 @@ import { blockMinutes, maxSectorNm } from '../../src/engine/core/perf';
 import type { Route } from '../../src/engine/network/types';
 
 const DIL = process.argv.includes('--routes=dil');
-/** v0.19.2 --custom-route[=LIS-LUX]: the bot builds this route first (the builder's custom market), then OXB. */
+/** v0.19.2 --custom-route[=LIS-LUX]: the bot builds this route first (the builder's custom market) and flies it even at a loss (a test of the custom path), then OXB. */
 const CUSTOM = (() => {
   const a = process.argv.find((x) => x === '--custom-route' || x.startsWith('--custom-route='));
   if (!a) return null;
@@ -77,7 +77,8 @@ export function botNetwork(g: GameState): boolean {
         d.typeId = g.fleet[ac].typeId;
         d.layout = g.fleet[ac].cabin.layout;
         const bc = businessCase(g, r.id, d);
-        if (bc && bc.p50.result > 0) {
+        // v0.19.2 --custom-route is a test of the custom path: it goes even when the case shows a loss.
+        if (bc && (bc.p50.result > 0 || (CUSTOM !== null && r.marketId === CUSTOM))) {
           decideCase(g, r.id, 'go', d);
           if (r.series[0]) r.series[0].tail = ac;
           used.add(ac);
