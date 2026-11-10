@@ -272,7 +272,10 @@ function CashLine({ path, now }: { path: CashPath; now: number }) {
               const l0 = anchor === 'end' ? lx - lw : anchor === 'start' ? lx : lx - lw / 2;
               const show = l0 > right + 8;
               if (show) right = l0 + lw;
-              const above = ey - 14 > padT + 4;
+              // A dip (both neighbours higher) takes its label below, clear of the line; else above, room allowing.
+              const i = pts.findIndex((p) => p.t === ev.t);
+              const dip = i > 0 && i < pts.length - 1 && pts[i - 1].cash > ev.cash && pts[i + 1].cash > ev.cash;
+              const above = dip ? ey + 22 > padT + h : ey - 14 > padT + 4;
               return (
                 <g key={ev.t} className="gl-event">
                   <circle cx={ex} cy={ey} r={5} fill="var(--panel-solid)" stroke="var(--text-2)" strokeWidth={2} />
