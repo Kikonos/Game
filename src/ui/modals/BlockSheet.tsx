@@ -6,7 +6,7 @@ import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { fmtDateTime, fmtDay, fmtDayRel, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { Aircraft, Duty, Flight, GameState, MaintenanceEvent, Ref, Role } from '../../engine/core/types';
-import { clientCrewOf, crewAlertKind, crewName, dutyCrew, dutyPilotsLine, slipOfFlight, dutyLegality, flightCrewStatus, restOf, restNeedLine, restLegsNote, restPlanForFlight, restSeatsBlocked, restShort, restVerdict, ridersText, rosterHorizon, rosterOutLine } from '../../engine/crew';
+import { clientCrewOf, crewAlertKind, crewName, dutyCrew, dutyPilotsLine, slipOfFlight, dutyLegality, flightCrewStatus, restOf, restCabinN, restNeedLine, restLegsNote, restPlanForFlight, restSeatsBlocked, restShort, restVerdict, ridersText, rosterHorizon, rosterOutLine } from '../../engine/crew';
 import { seatLabel, typeOf } from '../../engine/core/perf';
 import { cabinOptions, cancelCheck, checkStatus, delayFlight, dryLeaseView, flightCrewAboard, flightType, flightZone, refitSlots } from '../../engine/ops';
 import { ClientCrewRow } from './v08Bits';
@@ -96,7 +96,10 @@ function RestSection({ g, f, ac, d, legal }: { g: GameState; f: Flight; ac: Airc
       </div>
       <div className="small rt-facts">
         <span><b>{pilots} pilots</b> <span className="muted">· {(d && dutyPilotsLine(g, d)) ?? (plan.augment === 2 ? '2 CPT + 2 FO · pairs A/B' : '1 CPT + 2 FO · pair A + relief')} · rest in {restShort(rest.fc)} · <Term id="landingPilots">landing pilots</Term> 2 h in a row, the others 90 min</span></span>
-        <span><b>Cabin crew</b> <span className="muted">· {restShort(rest.cc)}{plan.cabinNeed !== null ? ` · ${hm(plan.cabinNeed)} each (a ${hm(plan.cabinFdp)} day${plan.band ? `, band ${plan.band}` : ''})` : ''} · half stay in the cabin</span></span>
+        {/* v0.19.5 an empty leg: no cabin crew work it (no passengers), so no cabin rest to plan. */}
+        {d && restCabinN(g, d) === 0
+          ? <span><b>Cabin crew</b> <span className="muted">· none working: no passengers aboard</span></span>
+          : <span><b>Cabin crew</b> <span className="muted">· {restShort(rest.cc)}{plan.cabinNeed !== null ? ` · ${hm(plan.cabinNeed)} each (a ${hm(plan.cabinFdp)} day${plan.band ? `, band ${plan.band}` : ''})` : ''} · half stay in the cabin</span></span>}
       </div>
       {!plan.ok && plan.why && <div className={`small ${at ? 'muted' : 'bad'}`}>{plan.why}.</div>}
       {plan.extraCabin > 0 && <div className="small warn">+{plan.extraCabin} cabin crew fly so that everyone gets their rest.</div>}
