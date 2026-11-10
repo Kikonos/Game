@@ -2,7 +2,7 @@
 // receivables by due date. DESIGN.md §6.3.
 
 import { Banknote, Clock, Landmark, TrendingUp, Wallet, X } from 'lucide-react';
-import { memo, useMemo, useState } from 'react';
+import { lazy, memo, Suspense, useMemo, useState } from 'react';
 import { statementTotals } from '../../engine/core/ledger';
 import { DAY, fmtDay, fmtMonth } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
@@ -10,7 +10,7 @@ import { cashForecast, daysOverdue } from '../../engine/ops';
 import { factorQuote } from '../../engine/finance';
 import { Receipt } from 'lucide-react';
 import { problemAt } from '../../engine/problems';
-import { LineChart, PairBars } from '../components/charts';
+import { BarChart, PairBars } from '../components/charts';
 import { ProblemCardView } from '../components/ProblemCard';
 import { Why } from '../components/Why';
 import { Card, Kpi } from '../components/ui';
@@ -23,6 +23,9 @@ import { ScreenHint } from '../components/ScreenHint';
 import { monthEndCosts } from '../shell/cashRate';
 import { Financing } from './finance/Financing';
 import { DebtPanel } from './finance/DebtPanel';
+
+// v0.20 Finance at a glance (verdict, donuts, per block hour, tips, the cash line): its own chunk.
+const Glance = lazy(() => import('./finance/Glance'));
 
 const tone = (v: number) => (v < 0 ? 'bad' : v > 0 ? 'good' : '');
 
@@ -63,12 +66,12 @@ function Key({ color, name, value }: { color: string; name: string; value: strin
 }
 
 /**
- * v0.12 the last 12 months: revenue and costs as paired bars on one axis, and the month-end cash as its own small line
- * (two scales never share a chart). Drawn from a key that changes at most daily (and on a month's close), so the clock
- * running never redraws them.
+ * v0.12 the last 12 months: revenue and costs as paired bars on one axis. v0.20: the profit of each month as its own
+ * small bar chart beside it (the cash line moved to At a glance). Drawn from a key that changes at most daily (and on
+ * a month's close), so the clock running never redraws them.
  */
 const MonthCharts = memo(function MonthCharts({ pts }: { pts: MonthPoint[]; k: string }) {
-  const labels = pts.map((p) => fmtMonth(p.month));
+  const labels = pts.map((p) => (p.current ? `${fmtMonth(p.month)} so far` : fmtMonth(p.month)));
   const last = pts[pts.length - 1];
   return (
     <div className="sc-fin-cols fin-months mt-16">
@@ -78,12 +81,10 @@ const MonthCharts = memo(function MonthCharts({ pts }: { pts: MonthPoint[]; k: s
           <Key color="var(--series-2)" name="Costs" value={money(last.costs)} />
         </span>
       }>
-        <PairBars height={190} labels={labels.map((l, i) => (pts[i].current ? `${l} so far` : l))} a={{ name: 'Revenue', color: 'var(--series-1)', values: pts.map((p) => p.revenue) }} b={{ name: 'Costs', color: 'var(--series-2)', values: pts.map((p) => p.costs) }} format={(v) => money(v)} />
+        <PairBars height={190} labels={labels} a={{ name: 'Revenue', color: 'var(--series-1)', values: pts.map((p) => p.revenue) }} b={{ name: 'Costs', color: 'var(--series-2)', values: pts.map((p) => p.costs) }} format={(v) => money(v)} />
       </Card>
-      <Card title="Cash at month end" sub="this month: cash now">
-        {pts.length > 1
-          ? <LineChart height={190} labels={labels} series={[{ name: 'Cash', color: 'var(--accent)', values: pts.map((p) => p.cash) }]} format={(v) => money(v)} zero endLabel />
-          : <div className="small muted">The line starts when this month closes. Cash now {money(last.cash)}.</div>}
+      <Card title="Profit each month" sub="revenue minus costs">
+        <BarChart height={190} labels={labels} values={pts.map((p) => p.revenue - p.costs)} pos="var(--good)" neg="var(--bad)" name="Profit" format={(v) => money(v)} />
       </Card>
     </div>
   );
@@ -167,7 +168,11 @@ export function FinanceScreen() {
           <button className="btn btn-ghost btn-icon" onClick={() => setLossHidden(loss.subject.ref.id)} aria-label="Put this away"><X /></button>
         </div>
       )}
-      <div className="sc-kpis">
+      {/* v0.20 At a glance (ui/screens/finance/Glance.tsx), lazy: a quiet placeholder of its height while it loads. */}
+      <Suspense fallback={<div className="gl-wait" aria-hidden />}>
+        <Glance g={g} forecast={fc} />
+      </Suspense>
+      <div className="sc-kpis mt-16">
         <Kpi label="Cash" icon={<Wallet />} value={<span className={g.company.cash < 0 ? 'bad' : ''}>{money(g.company.cash)}</span>} sub={<>
           {fc.length ? `90-day low ${money(low)}` : null}
           {/* v0.19 scheduled routes: ticket cash taken for flights not flown yet (refunded if a flight is cancelled). */}
@@ -183,18 +188,9 @@ export function FinanceScreen() {
         <Kpi label="Receivables" icon={<Clock />} value={money(outstanding)} sub={overdue > 0 ? <span className="warn">{money(overdue)} overdue</span> : 'none overdue'} />
       </div>
       <MonthCharts pts={months} k={monthsKey} />
-      <div className="sc-fin-cols mt-16">
-        <Card title="Cash forecast" sub="90 days: invoices due, salaries, rent and planned flying">
-          {fc.length > 1 ? (
-            <LineChart height={190} labels={fc.map((p) => fmtDay(p.t))} series={[{ name: 'Cash', color: 'var(--accent)', values: fc.map((p) => p.cash) }]} format={(v) => money(v)} zero />
-          ) : (
-            <div className="small muted">No forecast yet.</div>
-          )}
-        </Card>
-        <Card title="Receivables" sub={`${open.length} unpaid · ${money(outstanding)}`} bodyClass="flush">
-          <Receivables g={g} />
-        </Card>
-      </div>
+      <Card title="Receivables" sub={`${open.length} unpaid · ${money(outstanding)}`} bodyClass="flush" className="mt-16">
+        <Receivables g={g} />
+      </Card>
       {/* v0.16.3 the ways out of debt, while cash is below zero or a way out still runs (ui/screens/finance/DebtPanel.tsx). */}
       <DebtPanel g={g} focus={store.nav.view === 'debt'} />
       {/* v0.16 the bank: credit line, loans, leaseback, factoring, interest on cash (ui/screens/finance/Financing.tsx). */}

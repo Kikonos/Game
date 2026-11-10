@@ -505,15 +505,17 @@ function fillSlots(g: GameState, f: Flight): number {
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
   const p = d ? g.pairings[d.pairingId] : undefined;
   let n = 0;
-  p?.slots.forEach((s, i) => {
-    if (s.crewId || s.above) return;
-    const r = replaceCrew(g, p.id, i);
+  // (The seats as they were: a fill may split the trip and drop the empty leg's cabin seats from this part.)
+  for (const s of [...(p?.slots ?? [])]) {
+    const i = p!.slots.indexOf(s);
+    if (i < 0 || s.crewId || s.above) continue;
+    const r = replaceCrew(g, p!.id, i);
     const c = r.ok && r.data ? g.crew[r.data.crewId] : undefined;
     if (c) {
       n++;
       if (!calledNow(g, c.id)) moraleShock(g, c, 'pay', -4);
     }
-  });
+  }
   return n;
 }
 

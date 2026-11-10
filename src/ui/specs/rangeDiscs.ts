@@ -1,11 +1,14 @@
-// v0.18 "Range from" discs on the spec sheet; v0.19.2 a flat map inside the circle (player: "the range circles should
-// be a flat map, not a globe — still inside a circle, just a flat map"): an equirectangular map centred on the city's
-// longitude (and on its latitude as far as the map allows: no empty polar caps), the land from Natural Earth 1:110m
-// (world-atlas, loaded with the spec sheet's chunk), and the full-payload range as the true geodesic boundary (d3
-// geoCircle: every point the range away along a great circle), which a flat map shows stretched towards the poles.
-// Static SVG strings, cached; colours from the map tokens (light and dark).
+// "Range from" discs on the spec sheet. v0.18: the world around a city on an azimuthal equidistant projection (the
+// distance from the centre true in every direction, so the full-payload range is an exact circle). v0.19.2 tried a
+// flat (equirectangular) map in the circle; v0.19.5 (player's report bmwalwl3kkqo9: "Why did the range circles look so
+// weird? ... turn them back into a globe") back to the globe, zoomed to the range: on a flat map a 737's 5,000 km from
+// London, New York or Beijing reaches past the North Pole, so the boundary ran off the top of the disc, the map ended in
+// a blank band above the pole and the shape was stretched. Every type flies at least 4,600 km and three of the five
+// cities sit 40–52° north, so no flat projection keeps the whole range inside the disc; the globe does for every range.
+// The land from Natural Earth 1:110m (world-atlas, loaded with the spec sheet's chunk), in the flat map's colours with
+// a coastline; the range drawn geodesically (d3 geoCircle). Static SVG strings, cached; colours from the map tokens.
 
-import { geoCircle, geoEquirectangular, geoGraticule10, geoPath } from 'd3-geo';
+import { geoAzimuthalEquidistant, geoCircle, geoGraticule10, geoPath } from 'd3-geo';
 import type { MultiPolygon, Polygon } from 'geojson';
 import { feature } from 'topojson-client';
 
@@ -35,60 +38,41 @@ export function rangeRing(lat: number, lon: number, nm: number, step = 4): [numb
   return c.coordinates[0] as [number, number][];
 }
 
-/** How far the disc shows around the city (degrees of arc, kept for the old tests): 60 % more than the range, 55–180°. */
-export const discExtentDeg = (nm: number) => Math.min(180, Math.max(55, nmToDeg(nm) * 1.6));
+/** v0.19.5 the share of the disc's radius the range fills at most (the rest is the margin around it). */
+export const DISC_FILL = 0.8;
 
-/** v0.19.2 degrees of longitude across the disc: the range ring's width and some room, 70° to 240°. Pure. */
-export const discWidthDeg = (nm: number) => Math.min(240, Math.max(70, nmToDeg(nm) * 2.6));
-
-/** The latitude at the disc's centre: the city's, moved towards the equator only as far as needed to keep more than
- *  20° of empty space off either pole. Pure. */
-export function discCentreLat(lat: number, widthDeg: number): number {
-  const lim = Math.max(0, 90 - widthDeg / 2 + 20);
-  return Math.max(-lim, Math.min(lim, lat));
-}
+/**
+ * How far the disc shows around the city (degrees of arc to its rim): v0.19.5 zoomed to the range, the range at
+ * DISC_FILL of the radius, at least 40° (short ranges keep some world around them), at most the whole world. Pure.
+ */
+export const discExtentDeg = (nm: number) => Math.min(180, Math.max(40, nmToDeg(nm) / DISC_FILL));
 
 const cache = new Map<string, string>();
-let uid = 0;
 
-/** One disc (`size` px square): the flat map around the city, the range region and boundary, the city dot. */
+/** One disc (`size` px square) centred on the city: the world within discExtentDeg, the range region and circle. */
 export function discSvg(lat: number, lon: number, nm: number, size = 128): string {
   const key = `${lat.toFixed(2)},${lon.toFixed(2)},${Math.round(nm)},${size},${land ? 1 : 0}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const c = size / 2;
   const r = c - 1.5;
-  const wDeg = discWidthDeg(nm);
-  const k = (2 * r) / wDeg;
-  const cLat = discCentreLat(lat, wDeg);
-  // Equirectangular: one degree is k px both ways; rotated to the city's longitude, shifted to its (clamped) latitude.
-  const proj = geoEquirectangular().rotate([-lon, 0]).scale((k * 180) / Math.PI).translate([c, c + k * cLat])
-    .clipExtent([[c - r - 2, c - r - 2], [c + r + 2, c + r + 2]]).precision(0.4);
+  const ext = discExtentDeg(nm);
+  // The projection's clip circle is the disc's rim: the map fills the disc to its edge (no band, no empty corner).
+  const proj = geoAzimuthalEquidistant().rotate([-lon, -lat]).clipAngle(ext - 0.01).scale(r / ((ext * Math.PI) / 180)).translate([c, c]).precision(0.3);
   const path = geoPath(proj);
   const f = (v: number) => Math.round(v * 10) / 10;
   const landD = land ? path(land) ?? '' : '';
   const grat = path(geoGraticule10()) ?? '';
   const ring = rangeRing(lat, lon, nm, 1.5);
-  // The region filled, its boundary stroked as a line (a ring over a pole would otherwise stroke the map's edge too).
+  // The region filled under the circle, the circle stroked on top: one closed shape, centred on the city.
   const fillD = path({ type: 'Polygon', coordinates: [ring] }) ?? '';
-  const ringD = path({ type: 'LineString', coordinates: ring }) ?? '';
-  const city = proj([lon, lat]) ?? [c, c];
-  // The map's top and bottom (the poles) inside the disc, when the window reaches past them.
-  const yN = c + k * (cLat - 90);
-  const yS = c + k * (cLat + 90);
-  const id = `rdc${(uid = (uid + 1) % 1e6)}`;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" class="rd-svg flat" aria-hidden="true">`
-    + `<defs><clipPath id="${id}"><circle cx="${c}" cy="${c}" r="${f(r)}"/></clipPath></defs>`
-    + `<circle class="rd-void" cx="${c}" cy="${c}" r="${f(r)}"/>`
-    + `<g clip-path="url(#${id})">`
-    + `<rect class="rd-sea" x="0" y="${f(Math.max(0, yN))}" width="${size}" height="${f(Math.min(size, yS) - Math.max(0, yN))}"/>`
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" class="rd-svg globe" aria-hidden="true">`
+    + `<circle class="rd-sea" cx="${c}" cy="${c}" r="${f(r)}"/>`
     + `<path class="rd-grat" d="${grat}"/>`
     + `<path class="rd-land" d="${landD}"/>`
-    + `<path class="rd-range-fill" d="${fillD}"/>`
-    + `<path class="rd-range" d="${ringD}"/>`
-    + `</g>`
+    + `<path class="rd-range" d="${fillD}"/>`
     + `<circle class="rd-rim" cx="${c}" cy="${c}" r="${f(r)}"/>`
-    + `<circle class="rd-city" cx="${f(city[0])}" cy="${f(city[1])}" r="2.6"/></svg>`;
+    + `<circle class="rd-city" cx="${c}" cy="${c}" r="2.6"/></svg>`;
   if (cache.size > 80) cache.clear();
   cache.set(key, svg);
   return svg;

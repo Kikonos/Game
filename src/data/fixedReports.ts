@@ -29,6 +29,7 @@ export const FIXED_REPORTS: Record<string, FixedReport> = {
   bmw8f32wu6dbb: { version: 'v0.18.3', what: '"Days off" only lowers morale when a month falls below the legal minimum; a day off moved is "Day off moved"; days off at a hotel no longer count against morale, and annual leave lifts morale for a few months.' },
   bmw8fl4ddjfay: { version: 'v0.18.3', what: 'the spare captain and purser at a far base stand by at the hotel instead of flying, and a short day flies with two pilots; the flight sheet lists the flight crew first.' },
   bmw8gfbgud6o6: { version: 'v0.18.3', what: 'a delay that broke one flight\'s in-flight rest plan no longer raises "crew out of hours" on the set\'s later flights; the Details list stays inside its card.' },
+  bmwalwl3kkqo9: { version: 'v0.19.5', what: 'the range circles are a globe again, zoomed to the range: the whole range fits inside the circle, with no blank band and no boundary running off the edge.' },
 };
 
 /** 'v0.17.2' → [0, 17, 2]. Pure. */

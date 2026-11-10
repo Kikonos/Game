@@ -1,6 +1,7 @@
 // Flight types shown everywhere (v0.5.2): map paths, Up Next, Schedule, flight details, crew roster.
 //   Operating   revenue leg (incl. fuel-stop legs)                         solid green
-//   Positioning our aircraft empty, full crew aboard (cabin crew needed)    dotted amber
+//   Positioning our aircraft empty, pilots flying, cabin crew riding along  dotted amber
+//               (v0.19.5 no passengers, no cabin crew seats: ORO.CC.100; they ride to their passengers)
 //   Ferry       our aircraft empty, pilots only                            dotted amber + FERRY tag
 //   Deadhead    our crew as passengers on another airline                  grey icon, thin grey dotted
 // The crew engine decides pilots-only vs full crew: an empty trip, or empty duties after a trip's last revenue
@@ -24,7 +25,7 @@ export const FLIGHT_TYPE_LABEL: Record<FlightType, string> = {
 
 export const FLIGHT_TYPE_HINT: Record<FlightType, string> = {
   operating: 'Revenue flight with passengers',
-  positioning: 'Our aircraft empty, full crew aboard (cabin crew needed at the destination)',
+  positioning: 'Our aircraft empty, pilots flying, cabin crew riding along to their next job',
   ferry: 'Our aircraft empty, pilots only',
   deadhead: 'Our crew as passengers on another airline',
 };

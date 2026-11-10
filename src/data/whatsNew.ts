@@ -16,6 +16,35 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.20',
+    name: 'Finance at a glance',
+    features: [
+      'Finance now opens with the month in one line: "You made" in green or "You lost" in red, what you earned and spent, and what it would have been without one-off costs like a lease return. Beside it: your cash today and where it is heading.',
+      'Pick any of the last six months, or this month so far, with the row of months on top.',
+      'Where the money went and where it came from: two rings in plain groups (crew pay, crew travel and hotels, aircraft rent, maintenance, fuel and airports, office and sales, one-offs; ACMI, charters, routes, leases). Tap a slice or a row to see what is in it, what it means and how it compares with the month before.',
+      'Each block hour: what one hour of flying earns and what it costs, group by group, so you can see at once if an hour pays for itself.',
+      'The three biggest changes on the month before, as small up and down chips.',
+      'Tips from your numbers in plain words, for example when crew pay is a large share of what you earn, with a button to the right place (Crew › Utilisation).',
+      'The cash line: the last 12 months and the next 90 days on one line, with the zero line, today, and the big one-offs marked. A new chart shows the profit of each month.',
+    ],
+    improvements: [],
+  },
+  {
+    version: 'v0.19.5',
+    name: 'Empty legs',
+    features: [],
+    improvements: [
+      "Saves show your airline's name instead of Slot 1.",
+    ],
+    fixes: [
+      'An empty leg needs pilots only. With no passengers on board there are no cabin crew seats to fill, so an empty leg never shows "Crew missing" for a purser or cabin crew.',
+      'An empty leg from away into a charter is flown by its pilots. The cabin crew go straight to where the passengers board, on a ticket, or ride along on the empty leg when they are already there. Before, the whole cabin was flown out to Bangkok two days early to sit in an empty aircraft for 12 hours, and few were free for so many days.',
+      'Crew rated on two aircraft types are kept for the type that needs them: an A320 trip takes crew rated on the A320 alone first, so the A330 still has pursers.',
+      'Eight days before a flight you can already ask someone to work a day off (in Crew Control), not only in the last 72 hours. A flight short of crew is no longer left with only Cancel or Sub-charter while someone is free apart from a day off.',
+      'The range circles on the spec sheets are a globe again, zoomed to the range: the whole range fits inside the circle around the city, with crisp land and no blank band.',
+    ],
+  },
+  {
     version: 'v0.19.4',
     name: 'Widebody tenders',
     features: [
