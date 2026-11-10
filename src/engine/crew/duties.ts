@@ -1190,6 +1190,18 @@ export function setCrewTrailOkHook(f: (g: GameState, p: Pairing, c: CrewMember) 
 }
 
 /** Only empty legs (positioning / ferry): flown with pilots only when it is a trip of its own. */
+/** v0.19.5 block of leading empty duties from away worth a pilots-only trip of their own: a long move (or one needing
+ *  extra pilots), where flying the cabin crew out to it costs a long ticket and a long empty leg for nothing. */
+export const LONG_LEAD_BLOCK = 6 * 60;
+export function longLead(g: GameState, ds: Duty[]): boolean {
+  let block = 0;
+  for (const d of ds) {
+    if (d.augment > 0) return true;
+    for (const id of d.flightIds) block += g.flights[id]?.block ?? 0;
+  }
+  return block >= LONG_LEAD_BLOCK;
+}
+
 export function emptyDuty(g: GameState, d: Duty): boolean {
   return d.flightIds.every((id) => {
     const k = g.flights[id]?.kind;
@@ -1235,9 +1247,11 @@ function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
     // pilots-only trip too: no passengers, no cabin crew needed (ORO.CC.100). The cabin crew go straight to where the
     // passengers board (a ticket, or a ride on the empty leg itself); before, the whole cabin was flown out to Bangkok
     // two days early to sit in an empty aircraft for 12 h, and the empty leg showed "Crew missing: PUR, CC".
+    // Only a long move (longLead): a short hop keeps one crew (bot seed 2: LGW–CPH, 2 h, split off, needed a captain
+    // of its own the day before the job's, and the swap that covered it left the job short).
     let h = 0;
     while (h < k && empty(cur[h])) h++;
-    if (h > 0 && h < k && leadsFromAway(cur[0]) && !process.env.V195_NOSPLIT) {
+    if (h > 0 && h < k && leadsFromAway(cur[0]) && longLead(g, cur.slice(0, h))) {
       newPairing(g, cur.slice(0, h), acId, null);
       cur = cur.slice(h);
       k -= h;

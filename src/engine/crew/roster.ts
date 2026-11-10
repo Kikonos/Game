@@ -11,7 +11,7 @@ import { DAY, fmtDateTime, fmtDay, fmtTime, monthKey } from '../core/time';
 import { flightNoAt, isDeparture, nextDeparture, prevDeparture } from '../ops/commercial';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { acceptable, crewIds, crewIssuesFor, crewKey, mergeSegs, openDuties, otherTrip, overForAnyone, planCrew, type CrewPlan } from './check';
-import { deletePairing, dropGoneCrew, dutyLegality, emptyDuty, noteCrewOkWhy, unboardGone, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setDropBuyBackHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
+import { deletePairing, dropGoneCrew, dutyLegality, emptyDuty, longLead, noteCrewOkWhy, unboardGone, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setDropBuyBackHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './standby';
 import { applyBuyBack, buyBackFor, buyBackMode, undoBuyBack, type BuyBack } from './buyBack';
@@ -1377,8 +1377,9 @@ function leaveBack(g: GameState, c: CrewMember, b: LeaveBlock): boolean {
  * out after the leave follows (leaveTrips). Past and flown legs are never touched. Returns the crew changed.
  */
 /**
- * v0.19.5 (BLU2266 BKK–BRU) a trip not yet begun that starts away from base with empty legs before its first passenger
- * duty: the empty duties become a pilots-only trip of their own (as crew/duties.ts buildTrips now cuts them). Its pilots
+ * v0.19.5 (BLU2266 BKK–BRU) a trip not yet begun that starts away from base with a long move of empty legs (longLead)
+ * before its first passenger duty: the empty duties become a pilots-only trip of their own (as crew/duties.ts buildTrips
+ * now cuts them). Its pilots
  * keep both parts; the cabin crew come off the empty legs and their ticket out, and are ticketed (re-checked) to where
  * the passengers board instead. Older saves had the whole cabin flown out to the empty leg; with a seat still open it
  * showed "Crew missing" on a leg that needs only its pilots. Returns the trips split.
@@ -1394,7 +1395,7 @@ export function splitLeadingEmpty(g: GameState): string[] {
     if (ds[0].deadheadIds.some((id) => { const t = g.flights[id]; return !!t && t.status !== 'cancelled' && t.std - BAL.deadheadCheckIn <= g.now; })) continue;
     let h = 0;
     while (h < ds.length && emptyDuty(g, ds[h])) h++;
-    if (h === 0 || h === ds.length) continue;
+    if (h === 0 || h === ds.length || !longLead(g, ds.slice(0, h))) continue;
     if (!splitPairing(g, p, ds[h].report)) continue;
     done.push(p.id);
     acs.add(p.aircraftId);
@@ -2050,7 +2051,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
     // v0.19.5 (BLU2264) crew rated on another family too are kept for it: someone rated on this family alone goes
     // first, as a crewing department protects its scarcer fleet. Before, six A330/340 pursers flew A320 tours while
     // fourteen A320-only pursers sat at home, and an A330 charter eight days out found no purser at all.
-    score -= (process.env.V195_NOMULTI ? 0 : MULTI_RATED) * (c.ratings.length - 1);
+    score -= MULTI_RATED * (c.ratings.length - 1);
     if (p.tour && tp) score -= 400;
     // v0.18.2 a leave inside the period: last resort only, below anyone flown out for it (was −300, less than a ticket
     // out: a set's crew already on station took the next period over their leave and went home in the middle of it).
