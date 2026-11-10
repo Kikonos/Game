@@ -16,6 +16,21 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.19.5',
+    name: 'Empty legs',
+    features: [],
+    improvements: [
+      "Saves show your airline's name instead of Slot 1.",
+    ],
+    fixes: [
+      'An empty leg needs pilots only. With no passengers on board there are no cabin crew seats to fill, so an empty leg never shows "Crew missing" for a purser or cabin crew.',
+      'An empty leg from away into a charter is flown by its pilots. The cabin crew go straight to where the passengers board, on a ticket, or ride along on the empty leg when they are already there. Before, the whole cabin was flown out to Bangkok two days early to sit in an empty aircraft for 12 hours, and few were free for so many days.',
+      'Crew rated on two aircraft types are kept for the type that needs them: an A320 trip takes crew rated on the A320 alone first, so the A330 still has pursers.',
+      'Eight days before a flight you can already ask someone to work a day off (in Crew Control), not only in the last 72 hours. A flight short of crew is no longer left with only Cancel or Sub-charter while someone is free apart from a day off.',
+      'The range circles on the spec sheets are a globe again, zoomed to the range: the whole range fits inside the circle around the city, with crisp land and no blank band.',
+    ],
+  },
+  {
     version: 'v0.19.4',
     name: 'Widebody tenders',
     features: [
