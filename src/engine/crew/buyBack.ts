@@ -40,13 +40,15 @@ export interface BuyBack extends BuyBackDays {
  * the work reports within 72 h, c's morale is 35 or more and they are not joining or leaving, no day was bought from
  * them this month yet, and the month and year keep their legal days off with the day repaid. `base`: c's timeline
  * without the trip. Null when not. Pure.
+ * v0.19.5 `anyTime`: the player asking in Crew Control, any day ahead (the roster's own buy-backs keep the 72 h): the
+ * crewing desk may ask whenever, and a seat eight days out no longer offered only cancel or sub-charter.
  */
-export function buyBackFor(g: GameState, c: CrewMember, plan: CrewPlan, base: Seg[]): BuyBack | null {
+export function buyBackFor(g: GameState, c: CrewMember, plan: CrewPlan, base: Seg[], anyTime = false): BuyBack | null {
   if (!plan.issues.some((i) => i.code === 'daysOff' && i.level !== 'legal')) return null;
   if (!acceptable(g, { ...plan, issues: plan.issues.filter((i) => i.code !== 'daysOff') })) return null;
   if (c.morale < R().minMorale || c.status === 'joining' || c.notice) return null;
   const work = plan.segs.filter((x) => x.kind !== 'log');
-  if (!work.length || work[0].start > g.now + R().horizonH * 60) return null;
+  if (!work.length || (!anyTime && work[0].start > g.now + R().horizonH * 60)) return null;
   const v = buyBackDays(g, c, base, plan.segs);
   if (!v || c.boughtOff?.includes(v.month)) return null;
   return { crewId: c.id, ...v, cost: buyBackPay(c) * v.paid };

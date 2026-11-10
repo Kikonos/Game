@@ -153,6 +153,8 @@ export const canAugment = (g: GameState, rest: AcRest | 1 | 2 | 3 | null) => (ty
 /** v0.7.3 cabin crew a plan is made for: the legal minimum plus the client's required extra cabin crew; 0 on a pilots-only trip. */
 function planCabinN(g: GameState, acId: string | null, fl: Flight[], p?: Pairing): number {
   if (p && pilotsOnlyTrip(g, p)) return 0;
+  // v0.19.5 empty legs only: the plan is the pilots' (cabin crew aboard ride as passengers, no rest groups for them).
+  if (fl.length && fl.every((f) => f.kind === 'positioning' || f.kind === 'ferry')) return 0;
   const ac = acId ? g.fleet[acId] : undefined;
   let req = 0;
   for (const f of fl) {
@@ -1188,7 +1190,7 @@ export function setCrewTrailOkHook(f: (g: GameState, p: Pairing, c: CrewMember) 
 }
 
 /** Only empty legs (positioning / ferry): flown with pilots only when it is a trip of its own. */
-function emptyDuty(g: GameState, d: Duty): boolean {
+export function emptyDuty(g: GameState, d: Duty): boolean {
   return d.flightIds.every((id) => {
     const k = g.flights[id]?.kind;
     return k === 'positioning' || k === 'ferry';
@@ -1223,11 +1225,23 @@ function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
   };
   /** The cabin crew's earlier report (absent: the type's default, as timeline.cabinEarly reads it). */
   const early = (d: Duty) => d.cabinEarly ?? cabinEarlyOf(g.fleet[acId]?.typeId ?? '');
+  const leadsFromAway = (d: Duty) => (g.flights[d.flightIds[0]]?.from ?? home) !== home;
   // v0.5.2: empty duties after the trip's last revenue duty are their own pilots-only trip (a ferry: the cabin
   // crew aren't needed at the destination and go home by ticket; the pilots usually fly on, crew.planCrew drop).
   const close = () => {
     let k = cur.length;
     while (k > 0 && empty(cur[k - 1])) k--;
+    // v0.19.5 (BLU2266 BKK–BRU) empty duties before the trip's first passenger duty, leaving from away, are their own
+    // pilots-only trip too: no passengers, no cabin crew needed (ORO.CC.100). The cabin crew go straight to where the
+    // passengers board (a ticket, or a ride on the empty leg itself); before, the whole cabin was flown out to Bangkok
+    // two days early to sit in an empty aircraft for 12 h, and the empty leg showed "Crew missing: PUR, CC".
+    let h = 0;
+    while (h < k && empty(cur[h])) h++;
+    if (h > 0 && h < k && leadsFromAway(cur[0])) {
+      newPairing(g, cur.slice(0, h), acId, null);
+      cur = cur.slice(h);
+      k -= h;
+    }
     if (k > 0 && k < cur.length) {
       augmentWithPilots(g, newPairing(g, cur.slice(0, k), acId, null));
       newPairing(g, cur.slice(k), acId, null);

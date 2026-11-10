@@ -173,7 +173,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   if (f.pax) rows.push(['Passengers', offload ? <span className="warn">{f.pax} booked · {(f.pax ?? 0) - offload} fly ({offload} offloaded at departure)</span> : String(f.pax)]);
   if (blocked && ac) rows.push(['Seats', <span className="warn">{ac.cabin.total} · {ac.cabin.total - blocked} sellable ({blocked} {restSeatWord(restOf(g, ac.id)) ?? 'seats'} blocked for crew rest)</span>]);
   if (type === 'ferry') rows.push(['Crew aboard', 'Pilots only · cabin crew travel separately']);
-  else if (type === 'positioning') rows.push(['Crew aboard', 'Full crew · cabin crew needed at the destination']);
+  else if (type === 'positioning') rows.push(['Crew aboard', 'Pilots fly it · cabin crew ride along to their next job (no passengers, no cabin seats needed)']);
   // v0.12.1 our crew riding a passenger flight: how many and the seats still free.
   const riding = ridersText(g, f);
   if (riding) rows.push(['Our crew riding', riding]);

@@ -766,7 +766,7 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
     if (bbs.length) {
       const y = bbs[0];
       const mode = buyBackMode(g);
-      why = `${crewName(y.c)} is ${y.here ? `in ${city(x.dep)}` : `in ${city(y.c.loc)}`} and only a day off (${dayLabel(y.bb.worked)}) stands in the way: ${mode === 'auto' ? 'Auto-fix asks them to work it' : 'ask them to work it in Crew Control'} (${usd(y.bb.cost)}, twice a day's pay).${bbs.length > 1 ? ` ${bbs.slice(1).map((z) => crewName(z.c)).join(' and ')} too.` : ''}`;
+      why = `${crewName(y.c)} is ${y.here ? `in ${city(x.dep)}` : `in ${city(y.c.loc)}`} and only a day off (${dayLabel(y.bb.worked)}) stands in the way: ${mode === 'auto' && d.report - g.now <= BAL.v09.roster.buyBack.horizonH * 60 ? 'Auto-fix asks them to work it' : 'ask them to work it in Crew Control'} (${usd(y.bb.cost)}, twice a day's pay).${bbs.length > 1 ? ` ${bbs.slice(1).map((z) => crewName(z.c)).join(' and ')} too.` : ''}`;
       terms.push('daysOff');
     } else if (free?.standby && !free.travel) {
       why = `${free.name} is on ${SBY_WORD[free.standby.kind]} at ${city(x.dep)} and can take the ${word[0]} seat: call them in (no overtime).`;
@@ -1259,7 +1259,7 @@ export function buyBackPicks(g: GameState, flightId: string, chosen?: string[]):
         if (!c || inTheAir(g, c.id)) continue;
         const base = segsOf(g, c, p!.id);
         const plan = planCrew(g, c, p!, base);
-        const bb = buyBackFor(g, c, plan, base);
+        const bb = buyBackFor(g, c, plan, base, true);
         if (bb) list.push({ role, c, bb, here: !plan.out, ticket: plan.out ? cand.ticket : 0 });
       }
       list.sort((a, b) => Number(b.here) - Number(a.here) || a.bb.cost + a.ticket - b.bb.cost - b.ticket || (a.c.id < b.c.id ? -1 : 1));
@@ -1794,7 +1794,7 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
         const seat = p.slots.findIndex((s) => !s.crewId && !s.above && s.role === y.role);
         if (seat < 0) continue;
         const had = new Set(Object.keys(h.flights).filter((id) => h.flights[id].kind === 'deadhead'));
-        placeCrew(h, p, seat, y.c, { what: f.no, quiet: true });
+        placeCrew(h, p, seat, y.c, { what: f.no, quiet: true, anyTime: true });
         cost += y.bb.cost + ticketsBought(h, p, y.c.id, had);
         changes.push(`${crewName(y.c)} ${y.bb.clip ? 'ends the day off on' : 'works the day off on'} ${dayLabel(y.bb.worked)}${y.bb.clip ? ' early' : ''} for the ${ROLE_WORD[y.role][0]} seat (${usd(y.bb.cost)})${rideText(h, d, y.c.id)}. ${repayText(y.c, y.bb).replace(/\.$/, '')}`.trim());
       }

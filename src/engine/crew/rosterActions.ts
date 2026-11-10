@@ -4,7 +4,8 @@
 // to fly. Manual assignments are locked: the rolling re-plan keeps them, flagged when illegal, never silently.
 
 import { onStandby, readyMinOf, standbyFor } from './standby';
-import { canFill, typeOf } from '../core/perf';
+import { canFill, isPilot, typeOf } from '../core/perf';
+import { emptyLegsOnly } from './restPlan';
 import { DAY, fmtDateTime, fmtDay, fmtTime } from '../core/time';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role, StandbyKind } from '../core/types';
 import { atomic } from './atomic';
@@ -220,7 +221,9 @@ export function dutyLegality(g: GameState, dutyOrFlightId: string): DutyLegality
   if (d.legality !== 'legal') {
     warnings.push({ level: d.legality, code: 'fdp', text: `FDP ${hm(d.fdp)} ${d.legality === 'illegal' ? 'over' : 'close to'} the ${hm(max)} limit${d.discretion ? ' (with discretion)' : ''}` });
   }
-  const missing = p.slots.filter((s) => !s.crewId && !s.above).map((s) => s.role);
+  // v0.19.5 a duty of empty legs needs its pilots only (its trip's cabin crew ride along to their passengers).
+  const emptyOnly = d.flightIds.length > 0 && emptyLegsOnly(g, d);
+  const missing = p.slots.filter((s) => !s.crewId && !s.above && (!emptyOnly || isPilot(s.role))).map((s) => s.role);
   if (missing.length) warnings.push({ level: 'illegal', code: 'missing', text: `No ${seatWords(missing)} yet` });
   let level: Legality = worst(d.legality, missing.length ? 'illegal' : 'legal');
   // v0.6: optional seats above the legal minimum only warn when empty (v0.12.1 a far base's reserve seat does not).
