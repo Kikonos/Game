@@ -164,6 +164,9 @@ function importFile(file?: File) {
   });
 }
 
+/** 'Autosave', 'Scenario autosave', 'Slot 2'. */
+const slotName = (slot: string): string => (slot === AUTOSAVE_SLOT ? 'Autosave' : slot === SCENARIO_SLOT ? 'Scenario autosave' : `Slot ${slot}`);
+
 function SavesModal({ mode }: { mode: 'save' | 'load' }) {
   const [, force] = useState(0);
   const saves = listSaves();
@@ -173,7 +176,7 @@ function SavesModal({ mode }: { mode: 'save' | 'load' }) {
   const back = () => store.openModal({ kind: 'saves', mode });
   const save = (slot: string) => {
     if (store.game && saveToSlot(store.game, slot)) {
-      store.toast('good', 'Game saved', `Slot ${slot}`);
+      store.toast('good', 'Game saved', `${store.game.company.name} · ${slotName(slot)}`);
       force((x) => x + 1);
     } else store.toast('bad', 'Could not save', 'Browser storage is unavailable or full.');
   };
@@ -189,12 +192,12 @@ function SavesModal({ mode }: { mode: 'save' | 'load' }) {
     const m = saves.find((x) => x.slot === slot);
     if (mode === 'save') {
       if (!m) return save(slot);
-      store.openModal({ kind: 'confirm', title: `Overwrite slot ${slot}?`, confirm: 'Overwrite', body: `It holds ${m.company} on ${m.date}. That save will be replaced.`, onConfirm: () => { save(slot); back(); } });
-    } else if (m) confirmReplace(`Load ${slot === AUTOSAVE_SLOT ? 'the autosave' : slot === SCENARIO_SLOT ? 'the scenario autosave' : `slot ${slot}`}?`, 'Load', () => load(slot));
+      store.openModal({ kind: 'confirm', title: `Overwrite ${m.company}?`, confirm: 'Overwrite', body: `${slotName(slot)} holds ${m.company} on ${m.date}. That save will be replaced.`, onConfirm: () => { save(slot); back(); } });
+    } else if (m) confirmReplace(`Load ${m.company}${auto(slot) ? ` (${slotName(slot).toLowerCase()})` : ''}?`, 'Load', () => load(slot));
   };
   const del = (slot: string) => {
     const m = saves.find((x) => x.slot === slot);
-    store.openModal({ kind: 'confirm', title: `Delete slot ${slot}?`, confirm: 'Delete', danger: true, body: m ? `${m.company} on ${m.date} will be deleted. This cannot be undone.` : 'This cannot be undone.', onConfirm: () => { deleteSlot(slot); back(); } });
+    store.openModal({ kind: 'confirm', title: `Delete ${m?.company ?? `slot ${slot}`}?`, confirm: 'Delete', danger: true, body: m ? `${m.company} on ${m.date} will be deleted. This cannot be undone.` : 'This cannot be undone.', onConfirm: () => { deleteSlot(slot); back(); } });
   };
   return (
     <Modal title={mode === 'save' ? 'Save game' : 'Load game'} icon={mode === 'save' ? <Save className="accent" /> : <FolderOpen className="accent" />} onClose={() => store.closeModal()} footer={
@@ -208,8 +211,9 @@ function SavesModal({ mode }: { mode: 'save' | 'load' }) {
               <button className="slot-main" disabled={mode === 'load' && !m} onClick={() => onSlot(slot)}>
                 <span className="slot-color" style={{ background: m?.color ?? 'transparent' }} />
                 <div className="grow">
-                  <b>{slot === AUTOSAVE_SLOT ? 'Autosave' : slot === SCENARIO_SLOT ? 'Scenario autosave' : `Slot ${slot}`}</b>
-                  <div className="small muted">{m ? `${m.scen && SCENARIO_BY_ID[m.scen] ? `${SCENARIO_BY_ID[m.scen].name} · ` : ''}${m.company} · ${m.date} · ${money(m.cash)} · ${m.fleet} aircraft` : 'Empty'}</div>
+                  {/* v0.19.5 a filled slot is named after its airline; the slot number moves to the line below. */}
+                  <b>{m ? m.company : slotName(slot)}</b>
+                  <div className="small muted">{m ? `${slotName(slot)} · ${m.scen && SCENARIO_BY_ID[m.scen] ? `${SCENARIO_BY_ID[m.scen].name} · ` : ''}${m.date} · ${money(m.cash)} · ${m.fleet} aircraft` : 'Empty'}</div>
                   {m && <div className="tiny dim">Saved {new Date(m.savedAt).toLocaleString()}</div>}
                 </div>
                 <span className="small accent">{mode === 'save' ? (m ? 'Overwrite' : 'Save') : m ? 'Load' : ''}</span>
