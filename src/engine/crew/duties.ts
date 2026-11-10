@@ -1237,7 +1237,7 @@ function buildTrips(g: GameState, acId: string, duties: Duty[]): void {
     // two days early to sit in an empty aircraft for 12 h, and the empty leg showed "Crew missing: PUR, CC".
     let h = 0;
     while (h < k && empty(cur[h])) h++;
-    if (h > 0 && h < k && leadsFromAway(cur[0])) {
+    if (h > 0 && h < k && leadsFromAway(cur[0]) && !process.env.V195_NOSPLIT) {
       newPairing(g, cur.slice(0, h), acId, null);
       cur = cur.slice(h);
       k -= h;

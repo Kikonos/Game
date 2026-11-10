@@ -2050,7 +2050,7 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
     // v0.19.5 (BLU2264) crew rated on another family too are kept for it: someone rated on this family alone goes
     // first, as a crewing department protects its scarcer fleet. Before, six A330/340 pursers flew A320 tours while
     // fourteen A320-only pursers sat at home, and an A330 charter eight days out found no purser at all.
-    score -= MULTI_RATED * (c.ratings.length - 1);
+    score -= (process.env.V195_NOMULTI ? 0 : MULTI_RATED) * (c.ratings.length - 1);
     if (p.tour && tp) score -= 400;
     // v0.18.2 a leave inside the period: last resort only, below anyone flown out for it (was −300, less than a ticket
     // out: a set's crew already on station took the next period over their leave and went home in the middle of it).
@@ -3082,8 +3082,17 @@ export function replaceCrew(g: GameState, pairingId: string, slot: number, crewI
     return { ok: false, error: 'Extra seat removed' };
   }
   if (cur) releaseCrew(g, p, cur, 'Replaced by hand');
+  // v0.19.5 (bot seed 2) the seat object, not its index: the fill may split the trip (a crew member joins at a later
+  // duty, splitTourGap) and the first part, an empty leg, keeps its pilots only; the seat then lives on in the later part.
+  const seat = p.slots[slot];
+  const duties = [...p.dutyIds];
+  const had = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
   fillAll(g, [p], emptyResult(), cur ? new Set([cur]) : undefined);
-  const now = p.slots[slot].crewId;
+  let now = p.slots.includes(seat) ? seat.crewId : null;
+  if (!p.slots.includes(seat)) {
+    const q = Object.values(g.pairings).find((x) => x !== p && x.aircraftId === p.aircraftId && x.dutyIds.some((id) => duties.includes(id)) && x.slots.some((s) => s.role === seat.role && s.crewId && !had.has(s.crewId)));
+    now = q?.slots.find((s) => s.role === seat.role && s.crewId && !had.has(s.crewId))?.crewId ?? null;
+  }
   recheckPairing(g, p);
   touchCrew(g);
   if (!now) return { ok: false, error: 'No legal crew member can reach this duty' };
