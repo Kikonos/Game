@@ -123,7 +123,7 @@ describe('range discs', () => {
       for (const [x, y] of ring) expect(Math.abs(haversine(lat, lon, y, x) / 1.852 - nm)).toBeLessThan(nm * 0.002 + 1);
     }
   });
-  it('the disc shows more than the range, up to the whole world', () => {
+  it('the disc shows more than the range (v0.19.5 zoomed to it), up to the whole world', () => {
     expect(discExtentDeg(2565)).toBeGreaterThan(nmToDeg(2565));
     expect(discExtentDeg(9000)).toBe(180);
   });

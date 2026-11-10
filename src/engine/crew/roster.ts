@@ -6,12 +6,12 @@ import { addDeadhead, deadheadFlights, flightsOf, markFlightsChanged, removeFlig
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
-import { canFill, complement, typeOf } from '../core/perf';
+import { canFill, complement, isPilot, typeOf } from '../core/perf';
 import { DAY, fmtDateTime, fmtDay, fmtTime, monthKey } from '../core/time';
 import { flightNoAt, isDeparture, nextDeparture, prevDeparture } from '../ops/commercial';
 import type { ActionResult, CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { acceptable, crewIds, crewIssuesFor, crewKey, mergeSegs, openDuties, otherTrip, overForAnyone, planCrew, type CrewPlan } from './check';
-import { deletePairing, dropGoneCrew, dutyLegality, noteCrewOkWhy, unboardGone, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setDropBuyBackHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
+import { deletePairing, dropGoneCrew, dutyLegality, emptyDuty, longLead, noteCrewOkWhy, unboardGone, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setDropBuyBackHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './standby';
 import { applyBuyBack, buyBackFor, buyBackMode, undoBuyBack, type BuyBack } from './buyBack';
@@ -22,7 +22,7 @@ import { confirmAlarm } from './selfCheck';
 import { restMarked } from './restMarks';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
-import { cabinOwnReport, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
+import { cabinOwnReport, emptyLegsOnly, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
 import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, freshReport, locAt, noteRiders, OUT_CONNECT, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, standsBy, slotAfter, snapDeparture, takeLostRides, takeSkippedFull, ticketPrice, touchCrew, touchCrewState, typeIdOf, withoutTickets } from './timeline';
 import { deploymentOf, tourDay, tourHolding, tourHomePlan, tourSpan } from './tours';
 import { isAnnual, leaveBackPlan, leaveBackTaken, leaveHomePlan, leaveHomeTrip, leaveHorizon, leaveTicketsOf, LEAVE_BACK_BUFFER, LEAVE_BACK_GAP } from './leaveTrips';
@@ -1376,6 +1376,37 @@ function leaveBack(g: GameState, c: CrewMember, b: LeaveBlock): boolean {
  * and the timeline is no less legal; home standby planned in between becomes hotel standby at the station. The trip back
  * out after the leave follows (leaveTrips). Past and flown legs are never touched. Returns the crew changed.
  */
+/**
+ * v0.19.5 (BLU2266 BKK–BRU) a trip not yet begun that starts away from base with a long move of empty legs (longLead)
+ * before its first passenger duty: the empty duties become a pilots-only trip of their own (as crew/duties.ts buildTrips
+ * now cuts them). Its pilots
+ * keep both parts; the cabin crew come off the empty legs and their ticket out, and are ticketed (re-checked) to where
+ * the passengers board instead. Older saves had the whole cabin flown out to the empty leg; with a seat still open it
+ * showed "Crew missing" on a leg that needs only its pilots. Returns the trips split.
+ */
+export function splitLeadingEmpty(g: GameState): string[] {
+  const done: string[] = [];
+  const home = g.company.homeBase;
+  const acs = new Set<string>();
+  for (const p of Object.values(g.pairings)) {
+    if (p.status !== 'planned' || p.deploymentId || p.tour || !p.aircraftId) continue;
+    const ds = openDuties(g, p);
+    if (ds.length < 2 || ds[0].report <= g.now || g.flights[ds[0].flightIds[0]]?.from === home) continue;
+    if (ds[0].deadheadIds.some((id) => { const t = g.flights[id]; return !!t && t.status !== 'cancelled' && t.std - BAL.deadheadCheckIn <= g.now; })) continue;
+    let h = 0;
+    while (h < ds.length && emptyDuty(g, ds[h])) h++;
+    if (h === 0 || h === ds.length || !longLead(g, ds.slice(0, h))) continue;
+    if (!splitPairing(g, p, ds[h].report)) continue;
+    done.push(p.id);
+    acs.add(p.aircraftId);
+  }
+  for (const ac of acs) {
+    if (g.company.policies.autoRoster) rerosterFrom(g, ac, g.now);
+    else for (const q of crewIx(g).byAircraft.get(ac) ?? []) if (q.status === 'planned' && crewCount(q)) recheckPairing(g, q);
+  }
+  return done;
+}
+
 export function repairLeaveTrips(g: GameState): string[] {
   const done: string[] = [];
   const ix = crewIx(g);
@@ -1951,6 +1982,9 @@ export function setReserveOkHook(f: typeof reserveOk): void {
   reserveOk = f;
 }
 
+/** v0.19.5 the score each rating beyond the trip's family costs a candidate (more than a standby call-in's bonus). */
+const MULTI_RATED = 80;
+
 /** v0.18.2 the score a leave or course inside a tour's period costs a candidate (more than any ticket out). */
 const LEAVE_IN_TOUR = 20_000;
 
@@ -2014,6 +2048,10 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
     // v0.9 fix: flying shared out like a crew-planning department: the fewest duty days in the month first, then the
     // 28-day block (a crew member flying every day while another sits on standby would be noticed).
     let score = -tp - 2 * (block28(segs, first.report) / 60) - 12 * monthDutyDays(segs, first.report);
+    // v0.19.5 (BLU2264) crew rated on another family too are kept for it: someone rated on this family alone goes
+    // first, as a crewing department protects its scarcer fleet. Before, six A330/340 pursers flew A320 tours while
+    // fourteen A320-only pursers sat at home, and an A330 charter eight days out found no purser at all.
+    score -= MULTI_RATED * (c.ratings.length - 1);
     if (p.tour && tp) score -= 400;
     // v0.18.2 a leave inside the period: last resort only, below anyone flown out for it (was −300, less than a ticket
     // out: a set's crew already on station took the next period over their leave and went home in the middle of it).
@@ -3045,8 +3083,17 @@ export function replaceCrew(g: GameState, pairingId: string, slot: number, crewI
     return { ok: false, error: 'Extra seat removed' };
   }
   if (cur) releaseCrew(g, p, cur, 'Replaced by hand');
+  // v0.19.5 (bot seed 2) the seat object, not its index: the fill may split the trip (a crew member joins at a later
+  // duty, splitTourGap) and the first part, an empty leg, keeps its pilots only; the seat then lives on in the later part.
+  const seat = p.slots[slot];
+  const duties = [...p.dutyIds];
+  const had = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
   fillAll(g, [p], emptyResult(), cur ? new Set([cur]) : undefined);
-  const now = p.slots[slot].crewId;
+  let now = p.slots.includes(seat) ? seat.crewId : null;
+  if (!p.slots.includes(seat)) {
+    const q = Object.values(g.pairings).find((x) => x !== p && x.aircraftId === p.aircraftId && x.dutyIds.some((id) => duties.includes(id)) && x.slots.some((s) => s.role === seat.role && s.crewId && !had.has(s.crewId)));
+    now = q?.slots.find((s) => s.role === seat.role && s.crewId && !had.has(s.crewId))?.crewId ?? null;
+  }
   recheckPairing(g, p);
   touchCrew(g);
   if (!now) return { ok: false, error: 'No legal crew member can reach this duty' };
@@ -3149,7 +3196,7 @@ export function repairGoneCrew(g: GameState): Pairing[] {
  * Puts crew member c into slot `slot` of p (the current holder is released first): tickets, operating crew on
  * the flights, duty events, legality. No checks: callers validate (rosterActions.ts, replaceCrew).
  */
-export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember, buy?: { what: string; quiet?: boolean }): CrewPlan {
+export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember, buy?: { what: string; quiet?: boolean; anyTime?: boolean }): CrewPlan {
   // v0.14.1 the seat object, not its index: releasing the holder of an extra seat drops that seat (releaseCrew), so the
   // replacement is written into it and the seat put back (a call-out or Replace for an added crew member threw here).
   const seat = p.slots[slot];
@@ -3161,7 +3208,7 @@ export function placeCrew(g: GameState, p: Pairing, slot: number, c: CrewMember,
   const hadCrew = crewCount(p) > 0;
   const plan = planCrew(g, c, p, segsOf(g, c, p.id));
   // v0.12.1 Crew Control's buy-back: the day is worked for pay and repaid (crew/buyBack.ts), no broken-day morale.
-  const bb = buy ? buyBackFor(g, c, plan, segsOf(g, c, p.id)) : null;
+  const bb = buy ? buyBackFor(g, c, plan, segsOf(g, c, p.id), !!buy.anyTime) : null;
   p.slots[slot].crewId = c.id;
   delete p.slots[slot].ooh;
   const od = openDuties(g, p);
@@ -3216,12 +3263,17 @@ export function flightCrewStatus(g: GameState, flightId: string, opts?: { live?:
   if (!f || !f.aircraftId || f.kind === 'deadhead' || f.status === 'cancelled') return { level: 'ok', missing: [] };
   const d = f.dutyId ? g.duties[f.dutyId] : undefined;
   const p = d ? g.pairings[d.pairingId] : undefined;
+  // (A duty of empty legs only: one that also carries passengers needs its cabin crew aboard from its first leg.)
+  const emptyLeg = (f.kind === 'positioning' || f.kind === 'ferry') && (!d || emptyLegsOnly(g, d));
   if (!d || !p) {
     if (f.status !== 'scheduled') return { level: 'ok', missing: [] };
     const ac = g.fleet[f.aircraftId];
-    return { level: 'missing', missing: ac ? complement(ac.typeId, ac.cabin.total, { extraCabin: contractExtraReq(g, f.contractId) }) : [] };
+    // v0.19.5 an empty leg needs its pilots only (no passengers: ORO.CC.100).
+    return { level: 'missing', missing: ac ? complement(ac.typeId, ac.cabin.total, { extraCabin: contractExtraReq(g, f.contractId) }).filter((r) => !emptyLeg || isPilot(r)) : [] };
   }
-  const missing = p.slots.filter((s) => !s.crewId && !s.above).map((s) => s.role);
+  // v0.19.5 (BLU2266) on an empty leg only the pilots' seats are required: the trip's cabin crew ride it to their
+  // passengers, and a cabin seat still open is that passenger leg's shortage, not this one's.
+  const missing = p.slots.filter((s) => !s.crewId && !s.above && (!emptyLeg || isPilot(s.role))).map((s) => s.role);
   if (d.legality === 'illegal') return { level: 'illegal', missing };
   if (missing.length) return { level: 'missing', missing };
   // v0.9 round 4 (§Y.1): a rest plan that failed at the gate (cabin seats marked, crew still aboard) blocks the departure

@@ -323,7 +323,9 @@ export function checkAlarm(g: GameState, kind: AlarmKind, flightId: string, hook
       return r.fits ? withhold('the in-flight rest fits when read on its own', evidence) : { confirmed: true, evidence, why: '' };
     }
     // 3. Seats and the minimum crew, counted from the slots (not the planner's marks).
-    const empty = p.slots.filter((s) => !s.crewId && !s.above);
+    // v0.19.5 an empty leg's required seats are its pilots' (no passengers: ORO.CC.100).
+    const emptyOnly = d.flightIds.length > 0 && d.flightIds.every((id) => h.flights[id]?.kind === 'positioning' || h.flights[id]?.kind === 'ferry');
+    const empty = p.slots.filter((s) => !s.crewId && !s.above && (!emptyOnly || isPilot(s.role)));
     // (Bug 1108b: a far base's reserve stands by at the station: not aboard.)
     const aboard = p.slots.filter((s) => s.crewId && h.crew[s.crewId] && !standsBy(h, p, d, s.crewId)).map((s) => h.crew[s.crewId!]);
     const pilots = aboard.filter((c) => isPilot(c.role));

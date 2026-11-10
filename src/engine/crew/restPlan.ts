@@ -513,6 +513,14 @@ export function restLegs(g: GameState, d: Duty): RestLeg[] {
 }
 
 /** v0.7.3 a trip of empty legs only (positioning / ferry): it flies with its pilots, no cabin crew aboard. Pure. */
+/** v0.19.5 a duty of empty legs only (positioning, ferry): no passengers, so no cabin crew work it (ORO.CC.100). Pure. */
+export function emptyLegsOnly(g: GameState, d: Pick<Duty, 'flightIds'>): boolean {
+  return d.flightIds.every((id) => {
+    const k = g.flights[id]?.kind;
+    return k === 'positioning' || k === 'ferry';
+  });
+}
+
 export function pilotsOnlyTrip(g: GameState, p: Pairing): boolean {
   for (const id of p.dutyIds) {
     for (const fid of g.duties[id]?.flightIds ?? []) {
@@ -530,6 +538,8 @@ export function pilotsOnlyTrip(g: GameState, p: Pairing): boolean {
 export function restCabinN(g: GameState, d: Duty): number {
   const p = g.pairings[d.pairingId];
   if (p && pilotsOnlyTrip(g, p)) return 0;
+  // v0.19.5 cabin crew on an empty leg into their trip's passenger work ride it as passengers: no rest groups to plan.
+  if (d.flightIds.length && emptyLegsOnly(g, d)) return 0;
   const ac = p?.aircraftId ? g.fleet[p.aircraftId] : undefined;
   const c = p?.contractId ? g.contracts[p.contractId] : undefined;
   return Math.max(cabinMinimum(ac?.typeId ?? 'a320ceo', ac?.cabin.total ?? 180), 1) + (c?.requirements.extraCabin ?? 0);

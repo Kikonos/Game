@@ -14,7 +14,7 @@ export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { setRedundantHook } from './utilisation';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, repairDaysOffMorale, repairStandbyMorale, setResignHooks } from './morale';
-import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, leaveTrips, repairLeaveTrips, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
+import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, leaveTrips, repairLeaveTrips, splitLeadingEmpty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
 import { extFdp, localMin, minRest, referenceTime, signedTz, tzDeltaH, tzNights, woclMinutes } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { rosterHorizon, dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, dropStrandedStandby, v09Stats } from './dayPlan';
@@ -79,7 +79,7 @@ export { crewAway, type CrewAway } from './away';
 export { crewSeatsBlocked, restClassAt, restSeatsBlocked, sellableSeats } from './crewRest';
 // v0.7.3 (UPDATE-0.7.3.md §7).
 export {
-  augLimit, bunksFor, cabinBand, effectiveRest, fittedRest, hasBunks, isSeatRest, longestDay, migrateRest, restOfAc, restWords, seatRest, ySeatsFor, planRest, restNow, restOf, restPlan, restPlanForFlight, restLegsNote, restShort, restText, restVerdict, restWhere,
+  augLimit, bunksFor, cabinBand, effectiveRest, fittedRest, hasBunks, isSeatRest, longestDay, migrateRest, restOfAc, restWords, seatRest, ySeatsFor, planRest, restCabinN, restNow, restOf, restPlan, restPlanForFlight, restLegsNote, restShort, restText, restVerdict, restWhere,
   cockpitWords, dutyPilotsLine, pairOfCrew, pilotPairs, seatName, seatPair,
   type LongestDay, type PairsView, type PilotPair, type RestLeg, type RestPlan, type RestSeat, type RestTurn,
 } from './restPlan';
@@ -830,6 +830,8 @@ export const crewModule: SimModule = {
     repairLeaveTrips(g);
     // Bug 1108b: a far base's reserve no longer flies with the set (VN6000's second captain).
     repairReserveAboard(g);
+    // v0.19.5 empty legs from away before a trip's first passengers: a pilots-only trip (BLU2266).
+    splitLeadingEmpty(g);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
