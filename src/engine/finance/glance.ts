@@ -246,7 +246,7 @@ export function financeTips(lines: Partial<Record<LedgerCat, number>>, monthName
   const share = v.revenue > 0 ? crew / v.revenue : null;
   if (share !== null && share > CREW_SHARE_TYPICAL[1]) {
     const spare = f.pilots.have - f.pilots.need;
-    let text = `Crew pay is ${pct(share)} of what you earned in ${monthName}. A busy ACMI operator spends about ${pct(CREW_SHARE_TYPICAL[0])}–${pct(CREW_SHARE_TYPICAL[1])}.`;
+    let text = `Crew pay is ${pct(share)} of what you earned in ${monthName}. A busy ACMI operator spends about ${Math.round(CREW_SHARE_TYPICAL[0] * 100)}–${pct(CREW_SHARE_TYPICAL[1])}.`;
     if (spare >= Math.max(4, f.pilots.need * 0.1)) {
       text += ` You have ${f.pilots.have} pilots for ${f.aircraft} flying aircraft; the flying needs about ${f.pilots.need}.`;
       if (f.pilotHours28 < PILOT_HOURS_TYPICAL[0]) text += ` Each flew about ${Math.round(f.pilotHours28)} h in the last 4 weeks (${PILOT_HOURS_TYPICAL[0]}–${PILOT_HOURS_TYPICAL[1]} h is usual).`;
