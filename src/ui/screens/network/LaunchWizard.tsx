@@ -2,22 +2,25 @@
 // stages in game time with one decision at a time (the business case: go, change the plan, or shelve). It can be
 // closed and reopened; the stages run while it is shut.
 
-import { ArrowLeft, BarChart3, Building2, CalendarClock, Check, ChevronRight, Compass, Flag as FlagIcon, Plane, Play, Rocket, Users, X } from 'lucide-react';
+import { ArrowLeft, BarChart3, Building2, CalendarClock, Check, ChevronRight, CircleAlert, CircleCheck, CircleX, Compass, Eye, Flag as FlagIcon, LineChart, Plane, Play, Rocket, Users, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { flag } from '../../../data/countries';
 import { ROUTE_MARKETS, type RouteMarket } from '../../../data/routes';
 import { BAL } from '../../../engine/core/balance';
 import { typeOf } from '../../../engine/core/perf';
-import { DAY, fmtDayRel, fmtSpan } from '../../../engine/core/time';
+import { DAY, fmtDay, fmtDayRel, fmtSpan } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
+import { caseAdvice, plannerStudyX, setStop, sharedStop, stopoverCompare, studyBase, validStudyFor, type Advice, type BusinessCase as EngineCase, type StopCompare } from '../../../engine/network';
 import type { FareLevel, MarketingLevel, Route, RouteModel, StudyDepth } from '../../../engine/network/types';
+import { Info } from '../../components/Term';
 import { Modal, Seg, Stepper } from '../../components/ui';
+import { fallRows, LoadMeter, MarginStrip, SeatSplit, Waterfall } from './caseViz';
 import { int, money, moneyDelta, pct } from '../../format';
 import { store, useGame } from '../../store';
 import { LaunchProgress } from './bits';
 import { net, type BusinessCase, type CaseDraft, type Recommendation } from './netApi';
-import { DAY_SHORT, daysOf, hhmm, marketBlock, marketOf, MODEL_HINT, routeCode, routeName, seriesWords, STAGE_LABEL } from './networkLogic';
+import { DAY_SHORT, daysOf, hhmm, lastQuarters, marketBlock, marketOf, MODEL_HINT, routeCode, routeName, seriesWords, STAGE_LABEL } from './networkLogic';
 import { RouteMap } from './RouteMap';
 
 const MODEL_WORD: Record<RouteModel, string> = { own: 'Own brand', partner: 'For a partner', tour: 'Holidays charter' };
@@ -78,6 +81,7 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
                   <span className="row gap-8"><b>{x.city}</b><span className="mono tiny muted">{routeCode(x)}</span></span>
                   <span className="tiny muted nw-market-blurb">{block ?? x.blurb}</span>
                 </span>
+                {!block && validStudyFor(g, x.id)?.study?.validUntil !== undefined && <><span className="nw-valid tiny">Valid until {fmtDay(validStudyFor(g, x.id)!.study!.validUntil!)}</span><span className="small accent nowrap">Show study</span></>}
                 {!block && <ChevronRight className="sc-ico-s dim" />}
               </button>
             );
@@ -89,6 +93,8 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
   const block = marketBlock(g, m);
   const mdl = model ?? m.model;
   const cfg = studyCfg(depth);
+  // v0.21 a shelved study still good: shown instead of selling a new one (report bmwbir591j4cw).
+  const kept = validStudyFor(g, m.id);
   const bigType = Object.values(g.fleet).filter((a) => a.status !== 'leasedOut').sort((a, b) => b.cabin.total - a.cabin.total)[0]?.typeId;
   const go = () => {
     const r = store.act((gg) => {
@@ -107,7 +113,9 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
         {!marketId && <button className="btn btn-ghost" onClick={() => setMid(undefined)}><ArrowLeft /> Markets</button>}
         <span className="grow" />
         <button className="btn" onClick={close}>Not now</button>
-        <button className="btn btn-primary" disabled={!!block} onClick={go}><Play /> Order the study{cfg ? ` · ${money(cfg.cost)}` : ''}</button>
+        {kept?.study?.validUntil !== undefined && <span className="nw-valid tiny">Valid until {fmtDay(kept.study.validUntil)}</span>}
+        {kept ? <button className="btn btn-primary" disabled={!!block} onClick={go}><Eye /> Show study</button>
+          : <button className="btn btn-primary" disabled={!!block} onClick={go}><Play /> Order the study{cfg ? ` · ${money(cfg.cost)}` : ''}</button>}
       </>
     }>
       <div className="col gap-12">
@@ -124,7 +132,7 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
           </div>
         )}
         {m.models.length === 1 && <div className="tiny muted">{m.models[0] === 'partner' && m.partner ? `Flown for ${m.partner.name}. ` : ''}{MODEL_HINT[m.models[0]]}</div>}
-        <div className="col gap-6">
+        {!kept && <div className="col gap-6">
           <span className="upper dim">Step 1 · Market study</span>
           <div className="nw-depths">
             {DEPTHS.map((d) => {
@@ -133,13 +141,13 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
                 <button key={d} className={`nw-depth ${depth === d ? 'on' : ''}`} onClick={() => setDepth(d)} aria-pressed={depth === d}>
                   <b>{DEPTH_WORD[d]}</b>
                   {c && <span className="small num">{money(c.cost)} · {fmtSpan(Math.max(1, Math.round(c.days[0] / 7)), Math.max(1, Math.round(c.days[1] / 7)), 'weeks')}</span>}
-                  {c && <span className="tiny muted">estimate within ±{Math.round(c.accuracy * 100)} %</span>}
+                  {c && <span className="tiny muted">estimate within ±{Math.round(c.accuracy * plannerStudyX(g) * 100)} %</span>}
                   <span className="tiny muted">{DEPTH_HINT[d]}</span>
                 </button>
               );
             })}
           </div>
-        </div>
+        </div>}
         <div className="tiny dim row gap-6"><CalendarClock className="sc-ico-s" /> Then: business case · traffic rights · slots · brand · distribution · timetable on sale · campaign · station contracts · crew briefings · first flight.</div>
       </div>
     </Modal>
@@ -190,7 +198,12 @@ function CaseTable({ c }: { c: BusinessCase }) {
   ];
   return (
     <table className="nw-case">
-      <thead><tr><th /><th>Low</th><th>Likely</th><th>High</th></tr></thead>
+      <thead><tr><th className="nw-case-q"><Info title="Weak, likely and strong year">
+        <p>The study cannot know the market exactly, so it gives a range.</p>
+        <p><b>Likely</b> is its best estimate of the first 12 months.</p>
+        <p><b>Weak year</b>: only 1 year in 10 would be worse. <b>Strong year</b>: only 1 in 10 would be better.</p>
+        <p>A deeper study (or a network planner on the team) narrows the range.</p>
+      </Info></th><th>Weak year</th><th>Likely</th><th>Strong year</th></tr></thead>
       <tbody>
         {rows.map(([k, f]) => (
           <tr key={k}><td className="muted">{k}</td><td className="num">{f(c.p10)}</td><td className="num"><b>{f(c.p50)}</b></td><td className="num">{f(c.p90)}</td></tr>
@@ -235,8 +248,13 @@ function DraftEditor({ g, m, d, set }: { g: GameState; m: RouteMarket | undefine
         <Stepper value={d.out} min={0} max={DAY - 15} step={15} onChange={(v) => set({ ...d, out: v })} format={(v) => `${hhmm(v)} local`} />
       </div>
       <div className="nw-draft-row">
-        <span className="small muted">Nights at {m?.to ?? 'the destination'}</span>
-        <Stepper value={d.nights} min={0} max={6} onChange={(v) => set({ ...d, nights: v })} format={(v) => (v ? `${v}` : 'Same day')} />
+        <span className="small muted">Stays at {m?.to ?? 'the destination'} <Info title={`Stays at ${m?.to ?? 'the destination'}`}>
+          <p>How long the aircraft and its crew wait there before the flight back.</p>
+          <p><b>Same day</b>: it turns round and flies home; the crew work one long day (a third pilot comes along when it is over 13 hours).</p>
+          <p><b>1 night or more</b>: the same aircraft and the same crew stay, then fly it back. Leave on a Friday with 2 nights and it comes home on Sunday. We pay the crew's hotel and allowances; nobody goes home on another airline.</p>
+          <p>The aircraft cannot do other work while it waits.</p>
+        </Info></span>
+        <Stepper value={d.nights} min={0} max={6} onChange={(v) => set({ ...d, nights: v })} format={(v) => (v ? `${v} night${v > 1 ? 's' : ''}` : 'Same day')} />
       </div>
       <div className="nw-draft-row">
         <span className="small muted">Aircraft</span>
@@ -249,13 +267,105 @@ function DraftEditor({ g, m, d, set }: { g: GameState; m: RouteMarket | undefine
         <Seg<string> value={d.layout === 'all-economy' ? 'y' : 'jy'} onChange={(v) => set({ ...d, layout: v === 'y' ? 'all-economy' : 'two-class' })} options={[{ value: 'jy', label: 'Business + economy' }, { value: 'y', label: 'All economy' }]} />
       </div>
       <div className="nw-draft-row">
-        <span className="small muted">Fares</span>
+        <span className="small muted">Fares <Info title="Fares">
+          <p><b>Market</b>: what travellers usually pay on this route.</p>
+          <p><b>Low</b>: 12 % cheaper; about 14 % more people book.</p>
+          <p><b>High</b>: 12 % dearer; about 13 % fewer book. Worth it when the flights fill anyway.</p>
+        </Info></span>
         <Seg<FareLevel> value={d.fares} onChange={(v) => set({ ...d, fares: v })} options={(['low', 'market', 'high'] as FareLevel[]).map((v) => ({ value: v, label: FARE_WORD[v] }))} />
       </div>
       <div className="nw-draft-row">
-        <span className="small muted">Launch campaign</span>
+        <span className="small muted">Launch campaign <Info title="Launch campaign">
+          <p>Advertising before the first flight: radio, press, community associations, travel agents. It decides how many people know we fly the route.</p>
+          <p><b>Low</b> {money(BAL.v019.launch.campaign.cost.low)}: about a third of travellers know us; emptier flights.</p>
+          <p><b>Normal</b> {money(BAL.v019.launch.campaign.cost.normal)}: just over half know us.</p>
+          <p><b>High</b> {money(BAL.v019.launch.campaign.cost.high)}: about 7 in 10 know us; fuller flights from the start.</p>
+          <p>The same level then sets the monthly marketing that keeps it up ({money(BAL.v019.cost.marketing.low)}, {money(BAL.v019.cost.marketing.normal)} or {money(BAL.v019.cost.marketing.high)} a month).</p>
+        </Info></span>
         <Seg<MarketingLevel> value={d.marketing} onChange={(v) => set({ ...d, marketing: v })} options={(['low', 'normal', 'high'] as MarketingLevel[]).map((v) => ({ value: v, label: MKT_WORD[v] }))} />
       </div>
+    </div>
+  );
+}
+
+const TONE_ICON = { good: CircleCheck, warn: CircleAlert, bad: CircleX } as const;
+
+/** v0.21 "Worth it?" in one glance: the word, the two or three things behind it. */
+function VerdictCard({ c }: { c: EngineCase }) {
+  const v = c.verdict;
+  if (!v) return null;
+  const Icon = TONE_ICON[v.tone];
+  return (
+    <div className={`nv-verdict ${v.tone}`}>
+      <div className="nv-verdict-head"><Icon aria-hidden /><b>{v.word}</b><span className="small muted">first 12 months, likely case</span></div>
+      <ul className="small nv-verdict-why">{v.reasons.map((x) => <li key={x}>{x}</li>)}</ul>
+    </div>
+  );
+}
+
+/** v0.21 the stop of a route flown two ways, side by side, with the switch (report bmwbiobsokzf4). */
+export function StopCompareCard({ cmp, mode, onPick, from, to, studied }: { cmp: StopCompare; mode: 'stopover' | 'plain'; onPick?: (m: 'stopover' | 'plain') => void; from: string; to: string; studied: boolean }) {
+  const B = AIRPORT_BY_CODE[cmp.at]?.city ?? cmp.at;
+  const C = AIRPORT_BY_CODE[to]?.city ?? to;
+  const cols: { key: 'plain' | 'stopover'; title: string; sub: string; o: StopCompare['plain'] }[] = [
+    { key: 'plain', title: cmp.plain.label, sub: cmp.plain.mode === 'nonstop' ? 'no landing on the way' : `lands at ${cmp.at} for fuel, nobody gets on or off`, o: cmp.plain },
+    { key: 'stopover', title: 'Stopover', sub: `passengers get off and on at ${cmp.at}`, o: cmp.stopover },
+  ];
+  const any = cmp.odds.full + cmp.odds.limited;
+  return (
+    <div className="nv-stop">
+      <div className="row between gap-8"><b className="small">{B}: fuel stop or stopover?</b>
+        <Info title="Fuel stop or stopover">
+          <p><b>Fuel stop only</b>: the aircraft lands, refuels and goes on. Only {AIRPORT_BY_CODE[from]?.city ?? from}–{C} passengers are on board.</p>
+          <p><b>Stopover</b>: we also sell {AIRPORT_BY_CODE[from]?.city ?? from}–{B} seats. Those passengers get off at {B}; the others stay on. It takes a longer turn on the ground and a station there.</p>
+          <p>Selling {B}–{C} seats too needs <b>fifth-freedom rights</b> from both countries. {cmp.odds.why}</p>
+          <p>{studied ? 'These figures use the study and your plan.' : 'These are a first guess for a weekly flight; the study tells the real size.'}</p>
+        </Info>
+      </div>
+      <div className="nv-stop-cols">
+        {cols.map((x) => (
+          <button key={x.key} className={`nv-stop-col ${mode === x.key ? 'on' : ''}`} aria-pressed={mode === x.key} disabled={!onPick || !!x.o.cant} onClick={() => onPick?.(x.key)}>
+            <span className="row between gap-6"><b>{x.title}</b>{mode === x.key && <span className="nv-tag-on">Chosen</span>}</span>
+            <span className="tiny muted">{x.sub}</span>
+            {x.o.cant ? <span className="small warn">{x.o.cant}</span> : (
+              <>
+                <span className={`nv-stop-num num ${x.o.result >= 0 ? 'good' : 'bad'}`}>{moneyDelta(x.o.result)}<span className="tiny muted"> a year</span></span>
+                <span className="tiny muted num">margin {pct(x.o.margin)} · {pct(x.o.lf)} full · {x.o.hours.toFixed(1)} h each way</span>
+                {x.key === 'stopover' && cmp.withRights && <span className="tiny muted num">with {cmp.at}–{to} rights: <b className={cmp.withRights.result >= 0 ? 'good' : 'bad'}>{moneyDelta(cmp.withRights.result)}</b> ({Math.round(any * 100)} % chance)</span>}
+                {x.key === 'stopover' && !cmp.withRights && <span className="tiny muted">no {cmp.at}–{to} seats may be sold</span>}
+              </>
+            )}
+          </button>
+        ))}
+      </div>
+      {cmp.stopover.split && <SeatSplit a={from} b={cmp.at} c={to} split={(cmp.withRights && mode === 'stopover' ? cmp.stopover : cmp.stopover).split!} />}
+      <div className="nv-proscons small">
+        <ul className="nv-pros">{cmp.pros.map((x) => <li key={x}>{x}</li>)}</ul>
+        <ul className="nv-cons">{cmp.cons.map((x) => <li key={x}>{x}</li>)}</ul>
+      </div>
+    </div>
+  );
+}
+
+/** v0.21 the analyst's and the planner's suggestions, each applied with one tap. */
+function AdviceCard({ g, r, draft, apply }: { g: GameState; r: Route; draft: CaseDraft; apply: (a: Advice) => void }) {
+  const a = useMemo(() => caseAdvice(g, r.id, { ...draft }), [g.network?.rev, g.heads, r.id, draft]); // eslint-disable-line react-hooks/exhaustive-deps
+  const who = (x: Advice) => (x.who === 'analyst' ? a.analyst.name : a.planner.name)?.split(' ')[0] ?? (x.who === 'analyst' ? 'Analyst' : 'Planner');
+  const missing = [!a.analyst.hired ? 'a commercial analyst' : '', !a.planner.hired ? 'a network planner' : ''].filter(Boolean);
+  return (
+    <div className="nv-advice">
+      <div className="row between gap-8">
+        <span className="row gap-6"><LineChart className="sc-ico-s accent" aria-hidden /><b className="small">Advice from your team</b></span>
+        {missing.length > 0 && <button className="btn btn-ghost btn-sm" onClick={() => { store.closeModal(); store.navigate('company', { view: 'team', sel: { kind: 'head', id: a.analyst.hired ? 'netPlanner' : 'analyst' } }); }}>Hire {missing.join(' and ')}</button>}
+      </div>
+      {a.list.map((x) => (
+        <div key={x.key} className="nv-advice-row">
+          <span className="col grow"><span className="small"><b>{x.title}</b> <span className="tiny muted">· {who(x)}, {x.who === 'analyst' ? 'analyst' : 'planner'}</span></span><span className="tiny muted">{x.why}</span></span>
+          <button className="btn btn-sm" onClick={() => apply(x)}>Apply</button>
+        </div>
+      ))}
+      {(a.analyst.hired || a.planner.hired) && a.fine && <div className="small muted">Nothing to change: no single change to this plan would earn clearly more.</div>}
+      {!a.analyst.hired && !a.planner.hired && <div className="small muted">Nobody on the team advises on routes yet.</div>}
     </div>
   );
 }
@@ -264,10 +374,21 @@ function DraftEditor({ g, m, d, set }: { g: GameState; m: RouteMarket | undefine
 function CaseCard({ g, r }: { g: GameState; r: Route }) {
   const m = marketOf(r);
   const rec = useMemo(() => net.recommend(g, r.id), [g.network?.rev, r.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [draft, setDraft] = useState<CaseDraft | null>(() => net.defaultDraft(g, r.id) ?? (rec ? {
+  const first = (): CaseDraft | null => net.defaultDraft(g, r.id) ?? (rec ? {
     model: rec.model, days: rec.days, every: rec.every ?? 1, monthly: rec.monthly, out: rec.out, back: rec.back ?? 0, nights: rec.nights ?? m?.timetable.nights ?? 0, typeId: rec.typeId, fares: 'market', marketing: 'normal',
-  } : m ? { model: r.model, days: 1 << m.timetable.day, every: 1, monthly: m.timetable.pattern === 'monthly' ? { nth: 1, weekday: m.timetable.day } : undefined, out: m.timetable.out, back: m.timetable.back, nights: m.timetable.nights, typeId: 'b763', fares: 'market', marketing: 'normal' } : null));
-  const c = useMemo(() => (draft ? net.businessCase(g, r.id, draft) : null), [g.network?.rev, r.id, draft]); // eslint-disable-line react-hooks/exhaustive-deps
+  } : m ? { model: r.model, days: 1 << m.timetable.day, every: 1, monthly: m.timetable.pattern === 'monthly' ? { nth: 1, weekday: m.timetable.day } : undefined, out: m.timetable.out, back: m.timetable.back, nights: m.timetable.nights, typeId: 'b763', fares: 'market', marketing: 'normal' } : null);
+  const [draft, setDraft] = useState<CaseDraft | null>(first);
+  const c = useMemo(() => (draft ? (net.businessCase(g, r.id, draft) as EngineCase | null) : null), [g.network?.rev, r.id, draft]); // eslint-disable-line react-hooks/exhaustive-deps
+  const at = m ? sharedStop(m) : null;
+  const cmp = useMemo(() => {
+    if (!m || !at || !draft || !r.study?.est || draft.model === 'partner') return null;
+    const base = studyBase(g, r);
+    return stopoverCompare(g, m.from, m.to, at, draft.typeId, { r, plan: { ...draft }, x: base ? r.study.est.p50 / base : 1 });
+  }, [g.network?.rev, r.id, draft, at]); // eslint-disable-line react-hooks/exhaustive-deps
+  const others = useMemo(() => Object.values(g.network?.routes ?? {}).filter((x) => x.id !== r.id && x.status === 'operating').map((x) => {
+    const q = lastQuarters(x, g.now);
+    return q.months && q.cur.rev > 0 ? { name: routeName(x), margin: q.cur.result / q.cur.rev } : null;
+  }).filter((x): x is { name: string; margin: number } => !!x), [g.network?.rev, r.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const decide = (d: 'go' | 'shelve') => {
     const res = store.act((gg) => {
       const why = net.decide(gg, r.id, d, draft ?? undefined);
@@ -275,20 +396,66 @@ function CaseCard({ g, r }: { g: GameState; r: Route }) {
     });
     if (res.ok && d === 'shelve') store.closeModal();
   };
+  const switchStop = (mode: 'stopover' | 'fuel' | 'nonstop', stopAt?: string) => {
+    const res = store.act((gg) => {
+      const why = setStop(gg, r.id, mode, stopAt);
+      return why ? { ok: false, error: why } : { ok: true, msg: mode === 'stopover' ? 'Now a stopover: the figures follow' : mode === 'fuel' ? 'Now a fuel stop only' : 'Now nonstop' };
+    });
+    // The market changed under the plan: keep the player's knobs, the engine re-reads the study.
+    if (res.ok) setDraft((d) => (d ? { ...d } : d));
+  };
+  const apply = (a: Advice) => {
+    if (a.stop) return switchStop(a.stop.mode, a.stop.at);
+    if (a.patch && draft) {
+      const next = { ...draft, ...a.patch } as CaseDraft;
+      if ('monthly' in a.patch && !a.patch.monthly) delete next.monthly;
+      setDraft(next);
+    }
+  };
+  const partner = draft?.model === 'partner';
   return (
     <div className="col gap-12">
       {r.study?.est && (
-        <div className="nw-est small">Study ({r.study.depth === 'desk' ? 'desk' : r.study.depth === 'full' ? 'full' : 'full + survey'}): <b>{int(r.study.est.p50)}</b> travellers a week both ways, likely between {int(r.study.est.p10)} and {int(r.study.est.p90)}.</div>
+        <div className="nw-est small">Study ({r.study.depth === 'desk' ? 'desk' : r.study.depth === 'full' ? 'full' : 'full + survey'}): <b>{int(r.study.est.p50)}</b> travellers a week both ways, likely between {int(r.study.est.p10)} and {int(r.study.est.p90)}.{r.study.validUntil !== undefined && <span className="nw-valid tiny">Valid until {fmtDay(r.study.validUntil)}</span>}</div>
       )}
+      {c && <VerdictCard c={c} />}
       {rec && <RecommendationCard rec={rec} />}
-      {draft && m && <RouteMap from={m.from} to={m.to} via={m.via} viaBack={m.viaBack} typeId={draft.typeId} rivals={m.competitors} height={220} className="nw-case-map" />}
+      {draft && m && <RouteMap from={m.from} to={m.to} via={m.via} viaBack={m.viaBack} typeId={draft.typeId} rivals={m.competitors} height={200} className="nw-case-map" />}
       {draft && <DraftEditor g={g} m={m} d={draft} set={setDraft} />}
+      {draft && <AdviceCard g={g} r={r} draft={draft} apply={apply} />}
+      {cmp && m && <StopCompareCard cmp={cmp} mode={m.stopover ? 'stopover' : 'plain'} from={m.from} to={m.to} studied onPick={(k) => switchStop(k === 'stopover' ? 'stopover' : cmp.plain.mode)} />}
       {c ? (
-        <div className="col gap-8">
+        <div className="col gap-10">
           <div className="row between"><b className="small">First 12 months</b><span className="tiny muted">launch costs {money(c.launchCost)}</span></div>
+          <div className="nv-grid">
+            <div className="nv-panel">
+              <div className="row between gap-8"><span className="tiny dim upper">Where the money goes · likely year</span>
+                <Info title="Where the money goes">
+                  {fallRows(c.parts ?? ({} as never), partner).map((x) => <p key={x.key}><b>{x.label}</b> {x.kind === 'out' ? `−${money(x.value)}` : x.kind === 'sum' ? moneyDelta(x.value) : money(x.value)}: {x.hint}</p>)}
+                </Info>
+              </div>
+              {c.parts && <Waterfall parts={c.parts} partner={partner} />}
+            </div>
+            <div className="nv-panel col gap-12">
+              <LoadMeter lf={c.p50.lf} lo={c.p10.lf} hi={c.p90.lf} breakEven={c.breakEvenLf} />
+              <div className="col gap-4">
+                <div className="row between gap-8"><span className="tiny dim upper">Is this margin normal?</span>
+                  <Info title="Is this margin normal?">
+                    <p>Yes, scheduled flying is a thin business. Most airlines keep 3 to 8 cents of every dollar of tickets; fuel, airports, the aircraft and the crew take the rest.</p>
+                    <p>A route where we are the only airline, or one with strong family ties and the right size of aircraft, can keep 10 to 20 %. A crowded route or an aircraft too big for it loses money.</p>
+                    <p>These are the game's real numbers, not toned down. The figures already include the aircraft and the crew, which a block-hour (ACMI) price does not show.</p>
+                    {partner && <p>For a partner the margin is on our own fee: the fuel and airport costs it repays us are not counted, since we earn nothing on them.</p>}
+                    <p>The same hours on ACMI would leave about {moneyDelta(c.acmiResult ?? 0)} after aircraft and crew, when there is work for them.</p>
+                  </Info>
+                </div>
+                <MarginStrip lo={c.p10.margin} mid={c.p50.margin} hi={c.p90.margin} others={others} />
+              </div>
+              {c.stop && m && <SeatSplit a={m.from} b={c.stop.at} c={m.to} split={c.stop.split} />}
+            </div>
+          </div>
           <CaseTable c={c} />
-          <div className="small">Break-even at {pct(c.breakEvenLf)} full · {c.paybackWeeks ? `pays back the launch in about ${Math.round(c.paybackWeeks / 4.35)} months` : 'does not pay back the launch in a year'}</div>
-          <div className="tiny muted">The same aircraft on ACMI for those hours: about {money(c.acmi)}.</div>
+          <div className="small">Break-even at {pct(c.breakEvenLf)} full · {c.paybackWeeks ? `pays back the launch in about ${Math.max(1, Math.round(c.paybackWeeks / 4.35))} months` : 'does not pay back the launch'}</div>
+          {c.stop && <div className="small muted">{c.stop.decided ? `${c.stop.at} onward seats: ${c.stop.fifth === 'full' ? 'rights granted' : c.stop.fifth === 'limited' ? 'rights granted with a cap' : 'no rights'}.` : `${c.stop.at} onward seats are not counted: the rights are asked for after Go (${Math.round((c.stop.odds.full + c.stop.odds.limited) * 100)} % chance).`}</div>}
           {c.notes.length > 0 && <ul className="small nw-notes">{c.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
         </div>
       ) : (
@@ -297,7 +464,7 @@ function CaseCard({ g, r }: { g: GameState; r: Route }) {
       <div className="row gap-8 wrap nw-case-actions">
         <button className="btn btn-primary" onClick={() => decide('go')}><Rocket /> Go: start the launch</button>
         <button className="btn" onClick={() => decide('shelve')}>Shelve it</button>
-        <span className="tiny muted">A shelved study stays good for 12 months.</span>
+        <span className="tiny muted">A shelved study stays in Network › Studies until it runs out.</span>
       </div>
     </div>
   );

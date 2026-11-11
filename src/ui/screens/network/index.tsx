@@ -2,15 +2,18 @@
 // catalogue of markets. Secondary to ACMI: a calm list, one row a route. Loaded lazily with its own stylesheet.
 
 import '../../../styles/acmi/v019.css';
-import { ChevronRight, Compass, Globe2, Plane, PlusCircle, Route as RouteIcon } from 'lucide-react';
+import { ChevronRight, ClipboardList, Compass, Earth, Globe2, Plane, PlusCircle, Route as RouteIcon } from 'lucide-react';
 import { useMemo } from 'react';
 import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { flag } from '../../../data/countries';
 import { ROUTE_MARKETS, type RouteMarket } from '../../../data/routes';
+import { typeOf } from '../../../engine/core/perf';
+import { fmtDay } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
+import { marketById, reopenStudy, routeIdeas, studyList, validStudyFor, type StudyRow } from '../../../engine/network';
 import type { Route } from '../../../engine/network/types';
 import { Bar, Empty } from '../../components/ui';
-import { money, moneyDelta } from '../../format';
+import { int, money, moneyDelta, pct } from '../../format';
 import { store } from '../../store';
 import { LaunchProgress, StatusChip, TrendArrow } from './bits';
 import {
@@ -59,9 +62,104 @@ function RouteRow({ g, r }: { g: GameState; r: Route }) {
   );
 }
 
+const STUDY_WORD: Record<StudyRow['state'], [string, string]> = {
+  waiting: ['Waiting for you', 'warn'], running: ['Under way', 'info'], shelved: ['Shelved', 'info'], launched: ['Launched', 'good'], expired: ['Ran out', ''], stopped: ['Stopped', ''],
+};
+
+/** The name of a study's city pair. */
+function pairName(marketId: string): string {
+  const m = marketById(marketId);
+  if (!m) return marketId;
+  return `${AIRPORT_BY_CODE[m.from]?.city ?? m.from} – ${m.city}${m.stopover ? ` via ${AIRPORT_BY_CODE[m.stopover.at]?.city ?? m.stopover.at}` : ''}`;
+}
+
+/** v0.21 opens a shelved, still-good study at its business case (free), then its dialog. */
+export function showStudy(routeId: string): void {
+  const res = store.act((gg) => {
+    const why = reopenStudy(gg, routeId);
+    return why ? { ok: false, error: why } : { ok: true };
+  });
+  if (res.ok) store.openModal({ kind: 'routeLaunch', routeId });
+}
+
+/** v0.21 every market study in one place (report bmwbir591j4cw): under way, waiting, shelved and still good, used, run out. */
+function Studies({ g }: { g: GameState }) {
+  const rev = g.network?.rev ?? 0;
+  const day = Math.floor(g.now / 1440);
+  const list = useMemo(() => studyList(g), [g, rev, day]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!list.length) return null;
+  return (
+    <>
+      <div className="row between wrap gap-8 nw-open"><span className="upper dim row gap-6"><ClipboardList className="sc-ico-s" /> Studies</span></div>
+      <div className="card nw-studies">
+        {list.map((x) => {
+          const [word, tone] = STUDY_WORD[x.state];
+          const dead = x.state === 'expired' || x.state === 'stopped';
+          const open = () => (x.state === 'shelved' ? showStudy(x.routeId) : x.state === 'launched' && g.network?.routes[x.routeId]?.status !== 'launching' ? store.openModal({ kind: 'route', routeId: x.routeId }) : store.openModal({ kind: 'routeLaunch', routeId: x.routeId }));
+          return (
+            <button key={x.routeId} className="nw-study" disabled={dead} onClick={open} aria-label={`${pairName(x.marketId)}: ${x.state === 'shelved' ? 'show study' : word}`}>
+              <span className={`nw-chip ${tone}`}>{word}</span>
+              <span className="col grow">
+                <b className="ellipsis">{pairName(x.marketId)}</b>
+                <span className="tiny muted ellipsis">{x.est ? `${int(x.est.p50)} travellers a week (${int(x.est.p10)}–${int(x.est.p90)})` : x.due !== undefined ? `results by ${fmtDay(x.due)}` : ''}{x.done !== undefined ? ` · done ${fmtDay(x.done)}` : ''}</span>
+              </span>
+              {x.state === 'shelved' && x.validUntil !== undefined && <span className="nw-valid tiny">Valid until {fmtDay(x.validUntil)}</span>}
+              {x.state === 'expired' && x.validUntil !== undefined && <span className="tiny dim nowrap">ran out {fmtDay(x.validUntil)}</span>}
+              {x.state === 'shelved' && <span className="small accent nowrap">Show study</span>}
+              {!dead && <ChevronRight className="sc-ico-s dim" />}
+            </button>
+          );
+        })}
+      </div>
+    </>
+  );
+}
+
+/** v0.21 the network planner's shortlist of pairs worth a study (only with a planner on the team). */
+function Ideas({ g }: { g: GameState }) {
+  const h = g.heads?.netPlanner;
+  const month = Math.floor(g.now / (1440 * 30));
+  const ideas = useMemo(() => routeIdeas(g), [g.network?.rev, month, h?.hired?.since, h?.on, Object.keys(g.fleet).length]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!h?.hired || !h.on || !ideas.length) return null;
+  return (
+    <>
+      <div className="row between wrap gap-8 nw-open"><span className="upper dim row gap-6"><Earth className="sc-ico-s" /> Worth a study, says {h.hired.name.split(' ')[0]}</span></div>
+      <div className="card nw-studies">
+        {ideas.map((x) => (
+          <button key={x.marketId} className="nw-study" onClick={() => store.openModal({ kind: 'routeBuild', from: x.from, to: x.to })}>
+            <span className="nw-flag" aria-hidden>{flag(AIRPORT_BY_CODE[x.to]?.country ?? '')}</span>
+            <span className="col grow">
+              <b className="ellipsis">{AIRPORT_BY_CODE[x.from]?.city ?? x.from} – {AIRPORT_BY_CODE[x.to]?.city ?? x.to}</b>
+              <span className="tiny muted ellipsis">{x.why}</span>
+            </span>
+            <span className="small num nowrap">first guess {pct(x.margin)} <span className="tiny muted">on the {typeOf(x.typeId)?.short ?? x.typeId}</span></span>
+            <ChevronRight className="sc-ico-s dim" />
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
 function MarketRow({ g, m }: { g: GameState; m: RouteMarket }) {
   const block = marketBlock(g, m);
   const greyed = !!m.closed;
+  // v0.21 a shelved study of this market still good: show it, never sell a second one.
+  const kept = block ? undefined : validStudyFor(g, m.id);
+  if (kept) {
+    return (
+      <button className="nw-market" onClick={() => showStudy(kept.id)}>
+        <span className="nw-flag" aria-hidden>{flag(AIRPORT_BY_CODE[m.to]?.country ?? '')}</span>
+        <span className="col grow nw-market-text">
+          <span className="row gap-8"><b className="ellipsis">{m.city}</b><span className="mono tiny muted nowrap">{routeCode(m)}</span></span>
+          <span className="tiny muted nw-market-blurb">{m.blurb}</span>
+        </span>
+        <span className="nw-valid tiny">Valid until {fmtDay(kept.study?.validUntil ?? 0)}</span>
+        <span className="small accent nowrap">Show study</span>
+        <ChevronRight className="sc-ico-s dim" />
+      </button>
+    );
+  }
   return (
     <button className={`nw-market ${greyed ? 'off' : ''}`} disabled={greyed || !!block} onClick={() => store.openModal({ kind: 'routeLaunch', marketId: m.id })}>
       <span className="nw-flag" aria-hidden>{flag(AIRPORT_BY_CODE[m.to]?.country ?? '')}</span>
@@ -99,6 +197,8 @@ export default function NetworkView({ g }: { g: GameState }) {
           Fly your own weekly flights on an aircraft that would otherwise stand idle. Launching one takes months of planning; it earns a modest, steady margin.
         </Empty>
       )}
+      <Studies g={g} />
+      <Ideas g={g} />
       <div className="row between wrap gap-8 nw-open">
         <span className="upper dim row gap-6"><Globe2 className="sc-ico-s" /> Suggested markets, researched</span>
         <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'routeLaunch' })}><PlusCircle /> Open a new route</button>

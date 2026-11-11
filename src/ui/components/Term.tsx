@@ -11,7 +11,8 @@ import { toCss } from '../device';
 
 let closeOpen: (() => void) | null = null;
 
-function Popover({ id, anchor, onClose, extra, own }: { id: TermId; anchor: HTMLElement; onClose: () => void; extra?: string; own?: boolean }) {
+/** The one small popover (glossary terms and the "?" info taps): placed under its anchor, any tap elsewhere shuts it. */
+function Pop({ anchor, onClose, label, children }: { anchor: HTMLElement; onClose: () => void; label: string; children: ReactNode }) {
   const box = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   useLayoutEffect(() => {
@@ -34,13 +35,15 @@ function Popover({ id, anchor, onClose, extra, own }: { id: TermId; anchor: HTML
       onClose();
     };
     const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    // A scroll of the page behind shuts it; a scroll inside the popover itself (a long answer) does not.
+    const scroll = (e: Event) => { if (!box.current?.contains(e.target as Node | null)) onClose(); };
     document.addEventListener('pointerdown', down, true);
     window.addEventListener('keydown', esc, true);
-    window.addEventListener('scroll', onClose, true);
+    window.addEventListener('scroll', scroll, true);
     return () => {
       document.removeEventListener('pointerdown', down, true);
       window.removeEventListener('keydown', esc, true);
-      window.removeEventListener('scroll', onClose, true);
+      window.removeEventListener('scroll', scroll, true);
     };
   }, [anchor, onClose]);
   // A dialog the game opens (auto-pause, a card) or a tab change closes it: never left floating over the new view.
@@ -51,15 +54,54 @@ function Popover({ id, anchor, onClose, extra, own }: { id: TermId; anchor: HTML
     const off = store.subscribe(() => { if (store.modal !== m0 || store.nav !== n0) shut.current(); });
     return () => { off(); };
   }, []);
-  const e = GLOSSARY[id];
   return createPortal(
-    <div ref={box} className="term-pop" role="dialog" aria-label={e.term} style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: 'hidden' }}>
+    <div ref={box} className="term-pop" role="dialog" aria-label={label} style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: 'hidden' }}>
+      {children}
+    </div>,
+    document.body,
+  );
+}
+
+function Popover({ id, anchor, onClose, extra, own }: { id: TermId; anchor: HTMLElement; onClose: () => void; extra?: string; own?: boolean }) {
+  const e = GLOSSARY[id];
+  return (
+    <Pop anchor={anchor} onClose={onClose} label={e.term}>
       <b>{e.term}</b>
       {!(own && extra) && <span className="small">{e.short}</span>}
       {extra && <span className={`small ${own ? '' : 'muted'}`}>{extra}</span>}
       <button className="btn btn-sm btn-ghost term-more" onClick={() => { onClose(); store.openModal({ kind: 'glossary', term: id }); }}>Glossary ›</button>
-    </div>,
-    document.body,
+    </Pop>
+  );
+}
+
+/**
+ * v0.21 a small, quiet "?" beside a label (the player: "a small question mark I can press to see the info … never
+ * permanent visual clutter"). A tap opens the same popover as a glossary term with a title and a few plain lines; a
+ * tap elsewhere shuts it. One open at a time, shared with <Term>. It is a span, so it can sit inside a row or label.
+ */
+export function Info({ title, children, label, className }: { title: string; children: ReactNode; label?: string; className?: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLSpanElement>(null);
+  const close = () => {
+    setOpen(false);
+    if (closeOpen === close) closeOpen = null;
+  };
+  const toggle = (e: { stopPropagation: () => void; preventDefault?: () => void }) => {
+    e.stopPropagation();
+    e.preventDefault?.();
+    if (open) return close();
+    closeOpen?.();
+    closeOpen = close;
+    setOpen(true);
+  };
+  useEffect(() => () => { if (closeOpen === close) closeOpen = null; }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return (
+    <>
+      <span ref={ref} className={`info-dot ${open ? 'on' : ''} ${className ?? ''}`} role="button" tabIndex={0} aria-label={label ?? `${title}: what this means`} aria-expanded={open} onClick={toggle} onKeyDown={(k) => (k.key === 'Enter' || k.key === ' ') && toggle(k)}>
+        <i aria-hidden>?</i>
+      </span>
+      {open && ref.current && <Pop anchor={ref.current} onClose={close} label={title}><b>{title}</b><div className="info-body small">{children}</div></Pop>}
+    </>
   );
 }
 
