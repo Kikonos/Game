@@ -218,6 +218,9 @@ export const opsModule: SimModule = {
     loadHeads(g);
     loadAchievements(g);
     announceBackfill(g);
+    // v0.22 a save from before v0.21 with a market study already done: the network planner is earned on load, not at
+    // the next daily check (until then the business case offered to hire a head still shown as locked).
+    checkAchievements(g, { ids: ['firstStudy'] });
     loadOps(g);
     // v0.16 finance (credit line, loans, factoring) and the compliance post: defaults for an older save.
     loadTreasury(g);

@@ -12,7 +12,8 @@ import { Modal } from '../components/ui';
 import { money } from '../format';
 import { isPilotRole } from '../screens/screenLogic';
 import { store, useGame } from '../store';
-import { FAMILY_TICK } from './HireModal';
+import { EXTRA_TYPE_NOTE, FAMILY_TICK, JOIN_NOTE } from './HireModal';
+import { Help } from '../components/Help';
 import { lockOf } from '../../engine/scenario';
 import { LockNote } from '../components/Locked';
 
@@ -66,7 +67,10 @@ export function RoundUpModal({ family, target }: { family: RatingFamily; target:
         )}
         {cabin && fleetFams.length > 0 && (
           <div className="field">
-            <label>Cabin crew also hold <span className="dim">(up to 3 types; each extra type adds half the hiring cost and about 3 days)</span></label>
+            <label>Cabin crew also hold <Help title="Extra types">
+              <p>{EXTRA_TYPE_NOTE}</p>
+              <p>They count in the {plan.label} sets first. The other types only get them when the {plan.label} has more than it needs.</p>
+            </Help></label>
             <div className="hm-ticks" role="group" aria-label="Cabin crew types">
               {fleetFams.map((f) => {
                 const on = types.includes(f);
@@ -78,17 +82,15 @@ export function RoundUpModal({ family, target }: { family: RatingFamily; target:
                 );
               })}
             </div>
-            {types.length > 1 && <div className="tiny muted">They count in the {plan.label} sets first; the other types only get them when the {plan.label} has more than it needs.</div>}
           </div>
         )}
         {n > 0 && (
           <div className="cv-cost">
-            <div className="row between small"><span className="muted">Hiring cost (one-off)</span><b className="num">{money(q.cost)}</b></div>
+            <div className="row between small"><span className="muted">Hiring cost (one-off) <Help title="When they join">{JOIN_NOTE} They join at {g.company.homeBase}.</Help></span><b className="num">{money(q.cost)}</b></div>
             <div className="row between small"><span className="muted">Payroll change (salary + on-costs)</span><b className="num">+{money(q.payroll)} / month</b></div>
             <div className="row between small"><span className="muted">Cash after</span><b className={`num ${g.company.cash - q.cost < 0 ? 'bad' : ''}`}>{money(g.company.cash - q.cost)}</b></div>
           </div>
         )}
-        <div className="small dim">Cabin crew join in about a week; pilots take 5–9 weeks (notice periods, checks and line training). They join at {g.company.homeBase}.</div>
       </div>
     </Modal>
   );

@@ -107,7 +107,7 @@ export function DealsView({ g, sel }: { g: GameState; sel?: Ref | null }) {
     if (selId) document.querySelector(`.mk17-deal[data-deal="${selId}"], .mk17-deal[data-ac="${selId}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [selId]);
   if (!deals.length && !trans.length) {
-    return <div className="card sc-pad muted small">Nothing in progress. A letter of intent starts the lessor's credit check; once the lease is signed the aircraft goes through records, a check and paint before its ferry home.</div>;
+    return <div className="card sc-pad muted small">Nothing in progress.</div>;
   }
   return (
     <div className="mk-grid">

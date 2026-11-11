@@ -9,6 +9,7 @@ import type { GameState, Ref } from '../../engine/core/types';
 import { addReport, captureContext, exportFile, exportFileName, exportSelection, fixedHousekeeping, fixedLine, hasDurableStore, makeReport, markSent, reportStatus, reportStore, storageBytes, storageNote, summaryText, type BugContext, type BugPrefill, type BugReport, type BugReportMeta, type BugShot, type ReportStatus } from '../bugReports';
 import { deviceNow } from '../device';
 import { Modal } from '../components/ui';
+import { Help } from '../components/Help';
 import { store, useStore, type ModalSpec } from '../store';
 
 /** The entity an open dialog is about (its offer, flight, aircraft, crew member, client...). Pure. */
@@ -244,7 +245,11 @@ export function BugReportsModal() {
     );
   }
   return (
-    <Modal title="Bug reports" icon={<Bug className="accent" />} onClose={close} footer={
+    <Modal title={<>Bug reports <Help title="Bug reports">
+      <p>Each report keeps a screenshot and the game at that moment.</p>
+      <p>Export writes one file with your new reports and your current save; what you export is marked Sent.</p>
+      <p>Fixed reports are deleted 7 days after the update that fixed them.</p>
+    </Help></>} icon={<Bug className="accent" />} onClose={close} footer={
       <>
         <span className="small dim grow">{list ? `${list.length} report${list.length === 1 ? '' : 's'} · ${Math.round(storageBytes(list) / 1024 / 1024 * 10) / 10} MB` : ''}</span>
         <button className="btn" onClick={copy} disabled={!list?.length}><ClipboardCopy /> Copy summary</button>
@@ -252,7 +257,6 @@ export function BugReportsModal() {
       </>
     }>
       <div className="col gap-12">
-        <div className="small muted">Each report keeps a screenshot and the game at that moment. Export writes one file with your new reports and your current save; what you export is marked Sent. Fixed reports are deleted 7 days after the update that fixed them.</div>
         {note && <div className="small warn">{note}</div>}
         {list && list.length === 0 && <div className="small dim">No reports yet. To report a bug, tap the small bug button in the lower left corner.</div>}
         {(nSent > 0 || nFixed > 0) && (

@@ -14,6 +14,8 @@ import { BarChart, PairBars } from '../components/charts';
 import { ProblemCardView } from '../components/ProblemCard';
 import { Why } from '../components/Why';
 import { Card, Kpi } from '../components/ui';
+import { Help } from '../components/Help';
+import { MONTH_BOOKING_NOTE } from '../notes';
 import { money } from '../format';
 import { store, useGame } from '../store';
 import { Dot, ScreenHead, useRenderCount } from './common';
@@ -156,7 +158,7 @@ export function FinanceScreen() {
   const showLoss = loss && loss.subject.kind === 'lossMonth' && showLossMonth(g) && lossHidden !== loss.subject.ref.id;
   return (
     <div className="screen sc-finance">
-      <ScreenHead hint="finance" title="Finance" sub={`${fmtMonth(g.finance.current.month, false)} so far · revenue when invoiced (wet leases at month end), costs when incurred`} />
+      <ScreenHead hint="finance" title="Finance" sub={`${fmtMonth(g.finance.current.month, false)} so far`} />
       <ScreenHint id="finance" />
       {cash && <div className="fin-card"><ProblemCardView card={cash} g={g} /></div>}
       {showLoss && (
@@ -195,7 +197,7 @@ export function FinanceScreen() {
       <DebtPanel g={g} focus={store.nav.view === 'debt'} />
       {/* v0.16 the bank: credit line, loans, leaseback, factoring, interest on cash (ui/screens/finance/Financing.tsx). */}
       <Financing g={g} />
-      <Card title="Statement" className="mt-16">
+      <Card title={<>Statement <Help title="How a month is booked">{MONTH_BOOKING_NOTE.map((t) => <p key={t}>{t}</p>)}</Help></>} className="mt-16">
         <Statement g={g} earned={earned} />
       </Card>
     </div>

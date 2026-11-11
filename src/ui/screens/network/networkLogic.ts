@@ -221,7 +221,9 @@ export function pnlSum(r: Pick<Route, 'pnl'>, keys: MonthKey[]): RoutePnl {
   for (const k of keys) {
     const p = r.pnl[k];
     if (!p) continue;
-    for (const f of Object.keys(out) as (keyof RoutePnl)[]) out[f] += p[f] ?? 0;
+    for (const f of Object.keys(EMPTY_PNL) as (keyof RoutePnl)[]) out[f] = (out[f] ?? 0) + (p[f] ?? 0);
+    // v0.21 passengers on every sector (the load factor's top); a month from before v0.21 counted them once.
+    out.paxSec = (out.paxSec ?? 0) + (p.paxSec ?? p.pax);
   }
   return out;
 }
@@ -238,7 +240,7 @@ export function lastQuarters(r: Pick<Route, 'pnl'>, now: Minute): { cur: RoutePn
 /** Load factor, yield (ticket revenue a passenger) and margin of a sum. */
 export function ratios(p: RoutePnl): { lf: number; yieldPax: number; margin: number } {
   return {
-    lf: p.seats > 0 ? p.pax / p.seats : 0,
+    lf: p.seats > 0 ? (p.paxSec ?? p.pax) / p.seats : 0,
     yieldPax: p.pax > 0 ? p.tickets / p.pax : 0,
     margin: p.rev > 0 ? p.result / p.rev : 0,
   };
@@ -381,4 +383,13 @@ export function rightsWord(hard: number): string {
   if (hard <= 0.3) return 'Bilateral: a permit, two to four months';
   if (hard <= 0.5) return 'Hard: a permit, four to six months, may be refused';
   return 'Very hard: few permits for a newcomer';
+}
+
+/**
+ * v0.22 which column of the stop comparison the route really flies: the stopover; else, when the aircraft also reaches
+ * nonstop, the fuel stop it lands at anyway ('fuel': "Nonstop" is another choice, not the one made); else the plain
+ * way (the fuel stop it needs). Pure.
+ */
+export function stopChosen(cmp: { fuel: unknown | null }, stopover: boolean): 'stopover' | 'plain' | 'fuel' {
+  return stopover ? 'stopover' : cmp.fuel ? 'fuel' : 'plain';
 }

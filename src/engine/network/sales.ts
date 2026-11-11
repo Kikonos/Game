@@ -10,7 +10,9 @@ import { blockMinutes, maxSectorNm, runwayFit, takeoffRunwayM, typeOf } from '..
 import { distanceNm } from '../core/geo';
 import { DAY, fmtDay } from '../core/time';
 import type { GameState, Minute } from '../core/types';
-import { baseFare, chainOf, departureDemand, freqPerWeek, localMinute, localWeekday, marketOfRoute, monthOf, serviceHours, slotX, type Dir } from './model';
+import type { RouteMarket } from '../../data/routes';
+import { baseFare, chainOf, departureDemand, freqPerWeek, localMinute, localWeekday, marketOfRoute, monthOf, serviceHours, slotX, type DemandInput, type Dir } from './model';
+import { bcCapOf, fifthOf, gateBC, legMarkets, NO_PAX, shareSeats, type Pax } from './stopover';
 import { pushRouteNote } from './notes';
 import { netRoll } from './side';
 import type { Rotation, Route, RouteSeries, SectorLoad } from './types';
@@ -110,14 +112,11 @@ function dentsAt(route: Route, t: Minute): { j: number; all: number } {
   return { j, all };
 }
 
-/**
- * Expected final passengers of a rotation's direction (J who want business, Y), before seats cap them: the market,
- * our share and the route's state (fares, awareness, reputation, ramp, truth, the departure's weekday and time).
- */
-export function expectedPax(g: GameState, route: Route, rot: Rotation, dir: Dir): { j: number; y: number } {
+/** The demand inputs of a rotation's direction (the route's state at the departure), or null. */
+function demandCtx(g: GameState, route: Route, rot: Rotation, dir: Dir): { m: RouteMarket; s: RouteSeries; dep: Minute; first: SectorLoad | undefined; x: DemandInput } | null {
   const m = marketOfRoute(route);
   const s = seriesOf(route, rot);
-  if (!m || !s) return { j: 0, y: 0 };
+  if (!m || !s) return null;
   const idx = dirSectors(route, rot, dir);
   const first = rot.sectors[idx[0]];
   const f = first?.flightId ? g.flights[first.flightId] : undefined;
@@ -126,19 +125,49 @@ export function expectedPax(g: GameState, route: Route, rot: Rotation, dir: Dir)
   const freq = route.series.filter((x) => x.from <= dep && x.to >= dep).reduce((a, x) => a + freqPerWeek(x), 0) || freqPerWeek(s);
   const dents = dentsAt(route, dep);
   const sale = route.fares.saleUntil && route.fares.saleUntil > g.now ? BAL.v019.sales.sale.burst : 1;
-  const d = departureDemand(g, m, dep, dir, {
+  const x: DemandInput = {
     freqPerWeek: freq, fares: route.fares.level, awareness: route.awareness, reputation: route.reputation, hours: serviceHours(m, s.typeId, dir),
-    rivalCut: route.rivalCut && route.rivalCut.until > dep ? route.rivalCut.x : 0,
+    rivalCut: route.rivalCut && route.rivalCut.until > dep ? route.rivalCut.x : 0, ...(m.stopover ? { stop: true } : {}),
     truth: route.study?.truth ?? 1, slotX: slotX(localWeekday(ap, dep), localMinute(ap, dep)), rampX: rampOf(route, dep) * dents.all * sale, jDent: dents.j,
-  });
+  };
+  return { m, s, dep, first, x };
+}
+
+/**
+ * Expected final passengers of a rotation's direction (J who want business, Y), before seats cap them: the market,
+ * our share and the route's state (fares, awareness, reputation, ramp, truth, the departure's weekday and time).
+ * On a stopover route: the through (A–C) travellers.
+ */
+export function expectedPax(g: GameState, route: Route, rot: Rotation, dir: Dir): { j: number; y: number } {
+  const c = demandCtx(g, route, rot, dir);
+  if (!c) return { j: 0, y: 0 };
+  const d = departureDemand(g, c.m, c.dep, dir, c.x);
   // An all-economy cabin: most who want business go to a rival; some fly economy with us.
-  if (!first?.capJ) return { j: 0, y: d.y + d.j * BAL.v019.demand.jToY };
+  if (!c.first?.capJ) return { j: 0, y: d.y + d.j * BAL.v019.demand.jToY };
   return d;
 }
 
-/** A booking's fare (one way, net) in a class and bucket. */
-export function fareOf(route: Route, rot: Rotation, dir: Dir, cls: 'J' | 'Y', bucket: Bucket, sale = false): number {
-  const m = marketOfRoute(route);
+/**
+ * v0.21 a stopover route: the local travellers a direction's two sectors can expect (the first leg's and the second's,
+ * each its own market, nonstop on its leg). B–C locals only with fifth-freedom rights (none before the rights stage).
+ */
+export function expectedLocal(g: GameState, route: Route, rot: Rotation, dir: Dir): { s1: Pax; s2: Pax } {
+  const c = demandCtx(g, route, rot, dir);
+  const legs = c ? legMarkets(c.m, dir) : null;
+  if (!c || !legs) return { s1: NO_PAX, s2: NO_PAX };
+  const ch = chainOf(c.m, dir);
+  const h = (a: string, b: string) => blockMinutes(c.s.typeId, a, b) / 60;
+  const fifth = fifthOf(route);
+  const one = (leg: RouteMarket, a: string, b: string, bc: boolean): Pax => {
+    const d = departureDemand(g, leg, c.dep, dir, { ...c.x, stop: false, rivalCut: 0, hours: h(a, b) });
+    return bc ? gateBC(fifth, d) : d;
+  };
+  return { s1: one(legs.first, ch[0], ch[1], !legs.bcSecond), s2: one(legs.second, ch[1], ch[2], legs.bcSecond) };
+}
+
+/** A booking's fare (one way, net) in a class and bucket (v0.21 `leg`: a stopover's local market instead of the route's). */
+export function fareOf(route: Route, rot: Rotation, dir: Dir, cls: 'J' | 'Y', bucket: Bucket, sale = false, leg?: RouteMarket): number {
+  const m = leg ?? marketOfRoute(route);
   if (!m) return 0;
   const base = baseFare(m, cls, monthOf(rot.dep), dir, route.fares.level);
   if (cls === 'J') return base;
@@ -179,6 +208,11 @@ export function dailySales(g: GameState, route: Route): void {
     for (const dir of ['out', 'back'] as Dir[]) {
       const idx = dirSectors(route, rot, dir);
       if (!idx.length) continue;
+      // v0.21 a stopover direction: three markets share the two sectors' seats.
+      if (idx.length === 2 && marketOfRoute(route)?.stopover) {
+        stopoverSales(g, route, rot, dir, idx, acType, F, sale, own);
+        continue;
+      }
       const e = expectedPax(g, route, rot, dir);
       const nf = noiseOf(g, rot, dir);
       const cap = dirCap(route, rot, dir, acType);
@@ -233,6 +267,86 @@ export function dailySales(g: GameState, route: Route): void {
 }
 
 const sectorBlock = (typeId: string, s: SectorLoad) => blockMinutes(typeId, s.from, s.to);
+
+/** v0.21 the seats one sector can really sell: its cabin, capped by its own payload (bags in). */
+export function sectorCap(s: SectorLoad, typeId: string): Pax {
+  const paxMax = Math.floor(payloadMax(typeId, s.from, s.to) * 0.92 / BAL.v019.cargo.paxKg);
+  const j = Math.min(s.capJ, paxMax);
+  return { j, y: Math.max(0, Math.min(s.capY, paxMax - j)) };
+}
+
+/**
+ * v0.21 a stopover direction's daily bookings: through (A–C), first-leg and second-leg locals each book along the
+ * curve towards what they can expect, sharing the seats (stopover.shareSeats). Through ticket money is shared by block
+ * time over both sectors; a local's money belongs to its own sector.
+ */
+function stopoverSales(g: GameState, route: Route, rot: Rotation, dir: Dir, idx: number[], acType: string, F: number, sale: boolean, own: boolean): void {
+  const S = BAL.v019.sales;
+  const m = marketOfRoute(route)!;
+  const legs = legMarkets(m, dir)!;
+  const s1 = rot.sectors[idx[0]];
+  const s2 = rot.sectors[idx[1]];
+  const nf = noiseOf(g, rot, dir);
+  const e = expectedPax(g, route, rot, dir);
+  const loc = expectedLocal(g, route, rot, dir);
+  const ob = route.fares.overbook ? 1 + S.overbook : 1;
+  const k1 = sectorCap(s1, acType);
+  const k2 = sectorCap(s2, acType);
+  const c1 = { j: k1.j, y: Math.floor(k1.y * ob) };
+  const c2 = { j: k2.j, y: Math.floor(k2.y * ob) };
+  const at = (p: Pax): Pax => ({ j: p.j * nf * F, y: p.y * nf * F });
+  const bcSeats = legs.bcSecond ? k2.j + k2.y : k1.j + k1.y;
+  const a = shareSeats(at(e), at(loc.s1), at(loc.s2), c1, c2, legs.bcSecond, fifthOf(route) === 'limited' ? bcCapOf('limited', bcSeats) * F : Infinity);
+  const l1 = { j: s1.localJ ?? 0, y: s1.localY ?? 0 };
+  const l2 = { j: s2.localJ ?? 0, y: s2.localY ?? 0 };
+  const th = { j: Math.max(0, s1.bookedJ - l1.j), y: Math.max(0, s1.bookedY - l1.y) };
+  const more = (target: number, have: number) => Math.max(0, Math.round(target) - have);
+  const nT = { j: more(a.thr.j, th.j), y: more(a.thr.y, th.y) };
+  const n1 = { j: more(a.l1.j, l1.j), y: more(a.l1.y, l1.y) };
+  const n2 = { j: more(a.l2.j, l2.j), y: more(a.l2.y, l2.y) };
+  // Rounding never sells past a sector's seats.
+  const trim = (n: Pax, s: SectorLoad, c: Pax, alsoT: Pax) => {
+    n.j = Math.max(0, Math.min(n.j, c.j - s.bookedJ - alsoT.j));
+    n.y = Math.max(0, Math.min(n.y, c.y - s.bookedY - alsoT.y));
+  };
+  nT.j = Math.max(0, Math.min(nT.j, c1.j - s1.bookedJ, c2.j - s2.bookedJ));
+  nT.y = Math.max(0, Math.min(nT.y, c1.y - s1.bookedY, c2.y - s2.bookedY));
+  trim(n1, s1, c1, nT);
+  trim(n2, s2, c2, nT);
+  const total = nT.j + nT.y + n1.j + n1.y + n2.j + n2.y;
+  if (!total) return;
+  // Buckets on the fuller sector against the curve.
+  const lf = Math.max((s1.bookedJ + s1.bookedY) / Math.max(1, k1.j + k1.y), (s2.bookedJ + s2.bookedY) / Math.max(1, k2.j + k2.y));
+  const expd = Math.max((a.thr.j + a.thr.y + a.l1.j + a.l1.y) / Math.max(1, k1.j + k1.y), (a.thr.j + a.thr.y + a.l2.j + a.l2.y) / Math.max(1, k2.j + k2.y));
+  const d = (rot.dep - g.now) / DAY;
+  const b = (rot.buckets ??= { saver: true, classic: true });
+  if (lf > expd + S.classicAhead) { b.saver = false; b.classic = false; }
+  else if (lf > expd + S.saverAhead) b.saver = false;
+  if (d < S.reopenDays && lf < expd) { b.saver = true; b.classic = true; }
+  if (sale) b.saver = true;
+  const bucket = openBucket(route, rot);
+  const cashOf = (n: Pax, leg?: RouteMarket) => (own ? n.j * fareOf(route, rot, dir, 'J', bucket, false, leg) + n.y * fareOf(route, rot, dir, 'Y', bucket, sale, leg) : 0);
+  const cT = cashOf(nT);
+  const c1$ = cashOf(n1, legs.first);
+  const c2$ = cashOf(n2, legs.second);
+  const b1 = Math.max(1, sectorBlock(acType, s1));
+  const b2 = Math.max(1, sectorBlock(acType, s2));
+  s1.bookedJ += nT.j + n1.j;
+  s1.bookedY += nT.y + n1.y;
+  s2.bookedJ += nT.j + n2.j;
+  s2.bookedY += nT.y + n2.y;
+  if (n1.j || n1.y) { s1.localJ = l1.j + n1.j; s1.localY = l1.y + n1.y; }
+  if (n2.j || n2.y) { s2.localJ = l2.j + n2.j; s2.localY = l2.y + n2.y; }
+  const cash = cT + c1$ + c2$;
+  if (cash) {
+    s1.sold = Math.round((s1.sold ?? 0) + (cT * b1) / (b1 + b2) + c1$);
+    s2.sold = Math.round((s2.sold ?? 0) + (cT * b2) / (b1 + b2) + c2$);
+    const bsp = Math.round(cash * BAL.v019.sales.bspShare);
+    cashOnly(g, Math.round(cash) - bsp);
+    g.network!.bspDue = (g.network!.bspDue ?? 0) + bsp;
+    route.unearned = Math.round(route.unearned + cash);
+  }
+}
 
 /** §E.4 a sale: −25 % Saver for 10 days, $5k, at most once a month. Null when started, else why not. */
 export function saleBlock(g: GameState, routeId: string): string | null {

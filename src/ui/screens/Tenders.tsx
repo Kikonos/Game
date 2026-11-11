@@ -11,9 +11,15 @@ import { Empty } from '../components/ui';
 import { store } from '../store';
 import { lockOf } from '../../engine/scenario';
 import { LockedPanel } from '../components/Locked';
-import { BodyTag } from '../components/ShapeTags';
+import { BodyTag, KindTag } from '../components/ShapeTags';
+import { Help } from '../components/Help';
 
 const days = (t: number, now: number) => Math.max(0, Math.ceil((t - now) / DAY));
+/** v0.20.1 the contest in facts: who else bids, when bids close, when the airline decides. */
+export const tenderFacts = (t: Pick<TenderRow, 'rivals' | 'deadline' | 'resultAt' | 'status'>): string => {
+  const who = t.rivals ? `${t.rivals} other operator${t.rivals === 1 ? '' : 's'}` : 'No other operator';
+  return t.status === 'open' ? `${who} bidding · bids close ${fmtDay(t.deadline)} · award ${fmtDay(t.resultAt)}` : `${who} bid · award ${fmtDay(t.resultAt)}`;
+};
 // v0.14.1 the programme's days on the base's local calendar (it starts at local midnight: the evening before in UTC),
 // as the airline's own text says them.
 const span = (t: TenderRow) => `${fmtDayAt(t.base, t.start)} – ${fmtDayAt(t.base, t.end - 1)} ${toDate(toLocal(t.base, t.start)).getUTCFullYear()}`;
@@ -36,9 +42,11 @@ function Row({ g, t, kind }: { g: GameState; t: TenderRow; kind: 'open' | 'mine'
       <span className="col grow" style={{ minWidth: 0, gap: 2 }}>
         <span className="row gap-6 v14-tn-head" style={{ minWidth: 0, alignItems: 'center' }}>
           <b className="ellipsis">{flag(t.country)} {t.client}{t.invited && <span className="chip v14-chip">Invitation</span>}</b>
+          {kind === 'open' && <KindTag kind="tender" />}
           <BodyTag body={t.body} />
         </span>
         <span className="small muted ellipsis">{t.round !== roundName(t.roundKey) ? `${t.round} · ` : ''}{t.base}{t.kind === 'hajj' ? '–JED/MED' : ''} · {span(t)} · {t.wanted}</span>
+        {kind !== 'result' && <span className="small muted ellipsis v0201-facts">{tenderFacts(t)}</span>}
         {kind === 'result' && t.result && (
           <span className={`small ellipsis ${t.status === 'won' ? 'good' : 'warn'}`}>{t.status === 'won' ? `Won: ${t.result.why}` : `${t.result.winnerName}: ${t.result.why}`}</span>
         )}
@@ -48,7 +56,7 @@ function Row({ g, t, kind }: { g: GameState; t: TenderRow; kind: 'open' | 'mine'
       </span>
       <span className="right small nowrap">
         {kind === 'open' && <span className={`num ${left <= 3 ? 'warn' : 'muted'}`}>{left ? `closes in ${left} d` : 'closes today'}</span>}
-        {kind === 'mine' && <span className="muted">result about {fmtDay(t.resultAt)}</span>}
+        {kind === 'mine' && <span className="muted">award in {days(t.resultAt, g.now)} d</span>}
         {kind === 'result' && <span className={t.status === 'won' ? 'good' : t.status === 'lost' ? 'warn' : 'dim'}>{t.status === 'won' ? 'Won' : t.status === 'lost' ? 'Lost' : t.status === 'withdrawn' ? 'Withdrawn' : 'No bid'}</span>}
         {kind === 'open' && !t.bid && <span className="btn btn-primary v14-bid-btn">Bid</span>}
       </span>
@@ -65,12 +73,13 @@ export function TendersView({ g }: { g: GameState }) {
   if (lock) return <LockedPanel title="Tender board closed" why={lock}>No requests for proposals come in while the scenario runs.</LockedPanel>;
   return (
     <div className="col gap-12 v14-tenders">
-      <div className="small muted v14-season">{seasonLine(g.now)} Decided on price, reliability, relationship, aircraft age and fit.</div>
-      {none && (
-        <Empty icon={<FileSignature />} title="No tenders yet">
-          Airlines send requests for proposals for next summer from November to February. Your bid: a rate per block hour, an MGH, an aircraft, the crew and the dates. With Widebody operations and a widebody, widebody requests come too: Hajj and Umrah lift, long-haul leisure cover.
-        </Empty>
-      )}
+      {/* v0.22 the season line is a status and stays; how a tender works sits behind its '?'. */}
+      <div className="small muted v14-season">{seasonLine(g.now)} <Help title="Tenders">
+        <p>Airlines send requests for proposals: for next summer from November to February, for next winter from June to August.</p>
+        <p>Your bid: a rate per block hour, an MGH, an aircraft, the crew and the dates. The award is decided on price, reliability, relationship, aircraft age and fit.</p>
+        <p>With Widebody operations and a widebody, widebody requests come too: Hajj and Umrah lift, long-haul leisure cover.</p>
+      </Help></div>
+      {none && <Empty icon={<FileSignature />} title="No tenders yet" />}
       {b.open.length > 0 && (
         <section className="col gap-4">
           <div className="upper dim">Open requests</div>

@@ -8,6 +8,10 @@ import type { GameState } from '../../../engine/core/types';
 import { aocView } from '../../../engine/leasing';
 import { lockOf } from '../../../engine/scenario';
 import { Bar } from '../../components/ui';
+import { Term } from '../../components/Term';
+
+/** v0.22 one text for the AOC rule, under the glossary's meaning of a variation (this card and the Add a type dialog). */
+export const AOC_NOTE = 'Types in one family need no variation: the A320ceo, A321 and A320neo are all A320. Revenue flights on a family not on our AOC are refused at departure; delivery ferries and positioning may fly.';
 import { store } from '../../store';
 
 export function AocTypes({ g }: { g: GameState }) {
@@ -18,7 +22,7 @@ export function AocTypes({ g }: { g: GameState }) {
     <div className="card sc-pad aoc-types mt-12">
       <div className="row gap-8">
         <ClipboardCheck className="sc-ico accent" aria-hidden />
-        <b className="grow">Types on our AOC</b>
+        <b className="grow"><Term id="aocVariation" extra={AOC_NOTE}>Types on our AOC</Term></b>
         {!lock && <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'aoc' })}><Plus /> Add a type…</button>}
       </div>
       <div className="aoc-chips">
@@ -36,7 +40,6 @@ export function AocTypes({ g }: { g: GameState }) {
           </div>
         );
       })}
-      <span className="tiny dim">A new type family needs an AOC variation: about 90 days for a narrowbody, 120 for a widebody, and rated pilots before the grant.</span>
     </div>
   );
 }

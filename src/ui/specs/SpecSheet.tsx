@@ -21,6 +21,7 @@ import { discLandReady, discSvg, loadDiscLand } from './rangeDiscs';
 import { seatMap, seatMapSvg, type SeatMap } from './seatMap';
 import { cabinFigures, discCities, keyFigures, specData, type KeyFig, type SpecData, type SpecSubject } from './specLogic';
 import type { SpecTarget } from './SpecsLink';
+import { Help } from '../components/Help';
 import './seatmap.css';
 import './specs.css';
 
@@ -64,7 +65,9 @@ function RangeDiscs({ d }: { d: SpecData }) {
   const cities = discCities(g);
   return (
     <section className="sp-sec">
-      <h3 className="sp-h">Range from</h3>
+      <h3 className="sp-h">Range from <Help title="Range">
+        Full passenger payload with reserves, still air. A short or high runway takes range off (the city's longest runway counts).
+      </Help></h3>
       <div className="sp-discs">
         {cities.map((c) => {
           const a = AIRPORT_BY_CODE[c];
@@ -78,7 +81,6 @@ function RangeDiscs({ d }: { d: SpecData }) {
           );
         })}
       </div>
-      <div className="tiny dim">Full passenger payload with reserves, still air. A short or high runway takes range off (the city's longest runway counts).</div>
     </section>
   );
 }

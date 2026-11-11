@@ -19,6 +19,7 @@ import { longestDay, restOf, restShort, restText } from '../../engine/crew';
 import { longestDetail, restTerm } from '../components/RestLines';
 import { REST_FIT_LABEL } from '../screens/Fleet';
 import { Term } from '../components/Term';
+import { Help } from '../components/Help';
 import { Modal, Seg } from '../components/ui';
 import { money } from '../format';
 import { layoutLabel } from '../screens/screenLogic';
@@ -196,16 +197,15 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
                   );
                 })}
               </div>
-              <div className="small muted"><Term id="quickRefit">Quick reconfiguration</Term> (about 48 h): the seats we hold, moved rows and class divider, curtains. VIP is a full retrofit with new premium seats.</div>
+              <div className="small muted"><Term id="quickRefit" extra="VIP is a full retrofit with new premium seats.">Quick reconfiguration</Term> · about 48 h</div>
             </>
           ) : (
             <>
               <div className="small rf-now">
-                <span><Term id={restTerm(now.fc)}>Pilots rest</Term>: <b>{restText(now.fc, 'fc', ac.typeId)}</b></span>
+                <span><Term id={restTerm(now.fc)}>Pilots rest</Term>: <b>{restText(now.fc, 'fc', ac.typeId)}</b> <Help title="Seats used for crew rest">Curtained {ac.cabin.j >= 4 ? 'business' : 'economy'} seats come with the cabin: nothing to fit. They are blocked only on flights where someone rests in them; every other flight sells them.{ac.cabin.j >= 4 ? '' : ' A cabin with business seats gives class 2 rest.'}</Help></span>
                 <span><Term id={restTerm(now.cc)}>Cabin crew rest</Term>: <b>{restText(now.cc, 'cc', ac.typeId)}</b></span>
                 <span className="muted"><Term id="longestDay" extra={longestDetail(g, now, ac.typeId)} own>Longest day</Term>: {longestDay(g, now, ac.typeId).text.replace(/^Longest day: /, '')}</span>
               </div>
-              <div className="small muted">Curtained {ac.cabin.j >= 4 ? 'business' : 'economy'} seats come with the cabin: nothing to fit, and they are only blocked on flights where someone rests.{ac.cabin.j >= 4 ? '' : ' A cabin with business seats gives class 2 rest.'}</div>
               {restOffer ? (
                 <div className="rf-opts" role="group" aria-label="Crew rest refits">
                   {restOpts.map((o) => <RestOptionRow key={o.id} o={o} on={o.id === ropt?.id} onPick={() => { setOptId(o.id); reset(); setGrid(false); }} />)}
@@ -295,7 +295,6 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
             <div className="small dim">{viaCheck ? 'Paid with the check.' : 'Paid when the work starts. Free to cancel until then.'}</div>
           </div>
           {mode === 'cabin' && cheaper && <div className="small rf-why"><b>Only need business seats?</b> {cheaper.label} two-class: European business with the middle seat blocked, no new seats. {cheaper.days * 24} h, {money(cheaper.cost)}{need ? `, enough for ${need}` : ''}.</div>}
-          {mode === 'rest' && <div className="small muted">Seats used for crew rest are blocked only on flights where someone rests in them; every other flight sells them.</div>}
           {viaCheck && ropt?.ok && <div className="small"><span className="good">{ropt.opens}</span></div>}
           {!viaCheck && (q.opens.length > 0 || q.closes.length > 0) && (
             <div className="col gap-4 small">

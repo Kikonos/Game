@@ -127,7 +127,7 @@ export const HangarView = memo(function HangarView({ rows, k: key }: { rows: Han
             );
           })}
         </div>
-        <div className="tiny dim hg-foot row gap-8"><span className="hg-bar" aria-hidden />10 m · from above, to scale: real lengths and wingspans, {rows.length} aircraft. Tap one for its card.</div>
+        <div className="tiny dim hg-foot row gap-8"><span className="hg-bar" aria-hidden />10 m · to scale · {rows.length} aircraft</div>
       </div>
     );
   }
@@ -148,7 +148,7 @@ export const HangarView = memo(function HangarView({ rows, k: key }: { rows: Han
           </button>
         ))}
       </div>
-      <div className="tiny dim hg-foot">To scale: real lengths, {rows.length} aircraft. Tap one for its card.</div>
+      <div className="tiny dim hg-foot">To scale · {rows.length} aircraft</div>
     </div>
   );
 }, (a, b) => a.k === b.k);

@@ -7,6 +7,8 @@ import { DAY, fmtDay, fmtMonth, monthKey, monthStart, nextMonthStart } from '../
 import type { GameState } from '../../engine/core/types';
 import { marketOutlook, worldEvent, worldEvents, type MarketOutlook } from '../../engine/ops';
 import { Modal } from '../components/ui';
+import { Help } from '../components/Help';
+import { Term } from '../components/Term';
 import { money } from '../format';
 import { ArchIcon } from '../screens/common';
 import { ClientDetail } from '../screens/Clients';
@@ -155,22 +157,25 @@ export function OutlookModal() {
   const g = useGame();
   const o = marketOutlook(g);
   return (
-    <Modal title="Market outlook" icon={<TrendingUp className="accent" />} onClose={() => store.closeModal()} size="wide" className="v8-modal" footer={
+    <Modal title={<>Market outlook <Help title="Market outlook">
+      <p>The outlook changes once a month. Long contracts keep the rate they were signed at.</p>
+      <p>Aircraft supply: how hard each type is to lease now. Tight types cost more, come with fewer proposals and extend dearer.</p>
+    </Help></>} icon={<TrendingUp className="accent" />} onClose={() => store.closeModal()} size="wide" className="v8-modal" footer={
       <button className="btn btn-primary" onClick={() => store.closeModal()}>Done</button>
     }>
       <div className="col gap-12">
         <OutlookTiles o={o} now={g.now} big />
         <p className="muted v8-phase">{o.phaseText} {o.season.text}</p>
-        <div className="small dim">{o.offersText}. The outlook changes once a month; long contracts keep the rate they were signed at.</div>
+        <div className="small dim">{o.offersText}.</div>
         <div className="upper dim">Next 12 months</div>
         <Calendar g={g} o={o} />
-        <div className="small muted">Hajj: {o.hajj.map((h) => `${fmtDay(h.arafah)} ${new Date(Date.UTC(2000, 0, 1) + h.arafah * 60_000).getUTCFullYear()}`).join(' · ')} (Day of Arafah; about 11 days earlier every year)</div>
+        <div className="small muted"><Term id="arafah">Hajj</Term>: {o.hajj.map((h) => `${fmtDay(h.arafah)} ${new Date(Date.UTC(2000, 0, 1) + h.arafah * 60_000).getUTCFullYear()}`).join(' · ')}</div>
         {/* v0.17 aircraft supply (§A.4): the tightest and easiest types near us, with the month's trend. */}
         {o.supplyText && (
           <div className="col gap-4">
             <div className="upper dim">Aircraft supply</div>
             <div className="small">{o.supplyText}</div>
-            <div className="tiny dim">How hard each type is to lease now. Tight types cost more, come with fewer proposals and extend dearer. <button className="btn btn-ghost btn-sm" onClick={() => { store.closeModal(); store.navigate('fleet', { view: 'market' }); }}>Aircraft market</button></div>
+            <div><button className="btn btn-ghost btn-sm" onClick={() => { store.closeModal(); store.navigate('fleet', { view: 'market' }); }}>Aircraft market</button></div>
           </div>
         )}
         {o.shocks.length > 0 && (

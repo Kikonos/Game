@@ -10,6 +10,7 @@ import { typeOf } from '../../engine/core/perf';
 import { fromUTC, toDate } from '../../engine/core/time';
 import { askSpot, spotSources } from '../../engine/leasing';
 import { Modal, Seg, Stepper } from '../components/ui';
+import { Help } from '../components/Help';
 import { store, useGame } from '../store';
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -41,7 +42,11 @@ export function SpotModal({ family: wanted }: { family?: RatingFamily }) {
   };
   const blocker = !fam ? `Short-term aircraft need a family we already fly: airlines sublease ${spotFams.join(', ')}` : open ? 'A short-term request is already out' : !who.length ? `No airline has a spare ${fam} for ${months} months from then` : null;
   return (
-    <Modal title="Short-term aircraft" icon={<CalendarClock className="accent" />} onClose={close} footer={
+    <Modal title={<>Short-term aircraft <Help title="Short-term aircraft">
+      <p>Airlines sublease spare aircraft in their quiet season: quick to start, at a premium (rent 15–30 % over a normal lease), back on a fixed date.</p>
+      <p>No lessor credit check: the airline asks a deposit only.</p>
+      <p>They answer in 3–10 days with 0–2 offers. The aircraft goes back to the airline's base on the return date; late costs twice the daily rent.</p>
+    </Help></>} icon={<CalendarClock className="accent" />} onClose={close} footer={
       <>
         {blocker && <span className="grow small muted">{blocker}</span>}
         <button className="btn" onClick={close}>Cancel</button>
@@ -49,7 +54,6 @@ export function SpotModal({ family: wanted }: { family?: RatingFamily }) {
       </>
     }>
       <div className="rf-rows">
-        <div className="small muted">Airlines sublease spare aircraft in their quiet season: quick to start, at a premium (rent 15–30 % over a normal lease), back on a fixed date. No lessor credit check: the airline asks a deposit only.</div>
         {fams.length > 0 && (
           <div className="rf-row">
             <span className="upper dim">Family</span>
@@ -68,7 +72,7 @@ export function SpotModal({ family: wanted }: { family?: RatingFamily }) {
         </div>
         <div className="rf-box">
           <b className="small">{who.length ? `Airlines with spare ${fam === 'B737' ? '737' : fam}s in that window: ${who.join(', ')}` : 'No airline has a spare one in that window'}</b>
-          <span className="tiny dim">They answer in 3–10 days with 0–2 offers. The aircraft goes back to the airline's base on the return date; late costs twice the daily rent.</span>
+          <span className="tiny dim">Answer in 3–10 days · rent 15–30 % over a normal lease</span>
         </div>
       </div>
     </Modal>

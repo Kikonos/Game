@@ -152,7 +152,9 @@ export function routeMonthCosts(r: Route): Partial<Record<LedgerCat, number>> {
   if (!m) return {};
   const stops = new Set([...(m.via ?? []), ...(m.viaBack ?? [])]);
   let overhead = routeStation(m.to).overhead || C.overhead;
-  overhead += stops.size * C.techStopOverhead;
+  // v0.21 a stopover's station is a real one (a station manager, a sales desk), shared with the flight's other end.
+  const tag = m.stopover ? 1 : 0;
+  overhead += (stops.size - tag) * C.techStopOverhead + tag * Math.round((routeStation(m.stopover?.at ?? m.to).overhead || C.overhead) * BAL.v019.stop.overheadX);
   if (m.rights === 'perFlight') overhead += C.perOperation;
   return {
     routeSetup: Math.round(r.status === 'suspended' ? overhead * 0.5 : overhead),

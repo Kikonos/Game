@@ -80,7 +80,7 @@ describe('§5 unlocks and candidates', () => {
       expect(c.salary).toBe(Math.round((BAL.v09.heads.salary.opsControl * bands[i][2]) / 100) * 100);
       expect(c.name).toMatch(/^\S+ \S/);
     });
-    expect(headsView(g).length).toBe(7);
+    expect(headsView(g).length).toBe(8);
     // Deterministic per seed.
     expect(rollCandidates(fixtureGame(81), 'opsControl', 0)).toEqual(u.candidates);
     expect(rollCandidates(fixtureGame(82), 'opsControl', 0)).not.toEqual(u.candidates);

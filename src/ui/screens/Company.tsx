@@ -14,6 +14,7 @@ import { AircraftArt } from '../components/AircraftArt';
 import { ScenarioPanel } from '../modals/ScenarioModals';
 import { TailBadge } from '../components/Logo';
 import { Bar, Card, Seg, Stepper, Tabs, Toggle } from '../components/ui';
+import { Help } from '../components/Help';
 import { money } from '../format';
 import { store, useGame } from '../store';
 import { KV, ScreenHead, useRenderCount } from './common';
@@ -60,16 +61,15 @@ const OTHER = new Set(['iosa', 'dg']);
 function Reputation({ g }: { g: GameState }) {
   const r = g.company.reputation;
   const row = (label: string, v: number, tip: string) => (
-    <div className="sc-rep" data-tip={tip}>
-      <div className="row between"><b>{label}</b><span className="num">{Math.round(v)}</span></div>
+    <div className="sc-rep">
+      <div className="row between"><span className="row gap-8"><b>{label}</b><Help title={label}>{tip}</Help></span><span className="num">{Math.round(v)}</span></div>
       <Bar value={v / 100} tone={v >= 60 ? 'good' : v >= 40 ? 'warn' : 'bad'} />
-      <div className="tiny dim">{tip}</div>
     </div>
   );
   return (
     <div className="col gap-12">
-      {row('Reliable', r.reliable, 'On-time departures, completed programmes and legal crews raise it; AOGs, cancellations and sub-charters lower it.')}
-      {row('Clean', r.clean, 'Humanitarian and repatriation work raise it; deportation and other sensitive flying lower it.')}
+      {row('Reliable', r.reliable, 'On-time departures, completed programmes and legal crews raise it. AOGs, cancellations and sub-charters lower it.')}
+      {row('Clean', r.clean, 'Humanitarian and repatriation work raise it. Deportation and other sensitive flying lower it.')}
     </div>
   );
 }
@@ -157,8 +157,9 @@ const hotelMorale = (p: Policies) => {
 function PolicyForm({ g }: { g: GameState }) {
   const p = g.company.policies;
   const set = (patch: Partial<Policies>) => store.act((gg) => setPolicies(gg, patch), { toastOk: false });
-  const row = (label: string, desc: string, ctl: React.ReactNode, fx?: string) => (
-    <div className="set-row sc-policy"><div><b>{label}</b><div className="tiny dim">{desc}</div>{fx && <div className="tiny sc-policy-fx">{fx}</div>}</div>{ctl}</div>
+  // v0.22 `help`: the rule behind a policy sits behind a '?' by its name; the line under it stays a short fact.
+  const row = (label: string, desc: string, ctl: React.ReactNode, fx?: string, help?: string) => (
+    <div className="set-row sc-policy"><div><b>{label}</b>{help && <> <Help title={label}>{help}</Help></>}<div className="tiny dim">{desc}</div>{fx && <div className="tiny sc-policy-fx">{fx}</div>}</div>{ctl}</div>
   );
   const market = policyPreview(g, { perDiemPct: 100, rotationWeeks: 5, hotelTier: 4 });
   return (
@@ -167,14 +168,14 @@ function PolicyForm({ g }: { g: GameState }) {
       {row('Use tight duties', 'Allow duties within 30 min of a limit', <Toggle on={p.allowTight} onChange={(v) => set({ allowTight: v })} label="Tight duties" />)}
       {row('Auto deadhead', 'Buy deadhead tickets for crew automatically', <Toggle on={p.autoDeadhead} onChange={(v) => set({ autoDeadhead: v })} label="Auto deadhead" />)}
       {/* v0.12.1 day-off buy-back (crew/buyBack.ts) */}
-      {row('Buy back days off', "Ask crew held back only by a day off to work it: twice a day's pay, the day given back later. Never the rest rules, at most once a month each", <Seg<BuyBackMode> value={p.buyBack ?? 'auto'} onChange={(v) => set({ buyBack: v })} options={[{ value: 'auto', label: 'Automatically' }, { value: 'ask', label: 'Ask me' }, { value: 'never', label: 'Never' }]} />)}
+      {row('Buy back days off', "Twice a day's pay · the day is given back later", <Seg<BuyBackMode> value={p.buyBack ?? 'auto'} onChange={(v) => set({ buyBack: v })} options={[{ value: 'auto', label: 'Automatically' }, { value: 'ask', label: 'Ask me' }, { value: 'never', label: 'Never' }]} />, undefined, 'Crew held back only by a day off are asked to work it. Never against the rest rules, and at most once a month each.')}
       {row('Auto A-checks', 'Plan A-checks in free slots (C-checks need you)', <Toggle on={p.autoMaintenance} onChange={(v) => set({ autoMaintenance: v })} label="Auto A-checks" />)}
-      {row('Default extra cabin crew', 'Above the legal minimum; each aircraft and contract can set its own', <Stepper value={p.extraCabin} min={0} max={BAL.crewExtra.cabinMax} onChange={(v) => set({ extraCabin: v })} />)}
-      {row('Crew hotels', 'Better hotels lift morale and cost more (wet leases: client hotels)', <Seg<number> value={p.hotelTier} onChange={(v) => set({ hotelTier: v as Policies['hotelTier'] })} options={[3, 4, 5].map((v) => ({ value: v, label: `${v}★` }))} />, effect(g, { hotelTier: 4 }, { hotelTier: 5 }, 'At 5★', hotelMorale))}
+      {row('Default extra cabin crew', 'Above the legal minimum', <Stepper value={p.extraCabin} min={0} max={BAL.crewExtra.cabinMax} onChange={(v) => set({ extraCabin: v })} />)}
+      {row('Crew hotels', 'Wet leases: client hotels', <Seg<number> value={p.hotelTier} onChange={(v) => set({ hotelTier: v as Policies['hotelTier'] })} options={[3, 4, 5].map((v) => ({ value: v, label: `${v}★` }))} />, effect(g, { hotelTier: 4 }, { hotelTier: 5 }, 'At 5★', hotelMorale))}
       {row('Per diems', '100% is the market rate', <Stepper value={p.perDiemPct} min={80} max={150} step={10} onChange={(v) => set({ perDiemPct: v })} format={(v) => `${v}%`} />, effect(g, { perDiemPct: 100 }, { perDiemPct: 110 }, 'At 110%', () => null))}
       {row('Rotation', 'Weeks away before crews rotate home', <Seg<number> value={p.rotationWeeks} onChange={(v) => set({ rotationWeeks: v as Policies['rotationWeeks'] })} options={[4, 5, 6].map((v) => ({ value: v, label: `${v} wk` }))} />, effect(g, { rotationWeeks: 5 }, { rotationWeeks: 4 }, 'At 4 weeks', () => null))}
       <div className="set-row sc-policy sc-policy-sum">
-        <div><b>Crew morale target {market.targetNow}</b><div className="tiny dim">{market.target !== market.targetNow ? `${market.target} at market policies · ` : ''}Crew drift toward it; hotels, long tours and time back from leave move them day to day</div></div>
+        <div><b>Crew morale target {market.targetNow}</b> <Help title="Crew morale target">Crew drift toward it. Hotels, long tours and time back from leave move them day to day.</Help>{market.target !== market.targetNow && <div className="tiny dim">{market.target} at market policies</div>}</div>
         <span className="num muted small nowrap">{Object.keys(g.crew).length ? `now ${moraleSummary(g).avg}` : ''}</span>
       </div>
     </div>

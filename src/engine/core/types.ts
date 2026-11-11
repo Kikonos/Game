@@ -1946,7 +1946,7 @@ export interface StatsRoster09 {
 // v0.9 Department heads (ops/heads.ts) and achievements (ops/achievements.ts)
 // ======================================================================
 
-export type HeadId = 'opsControl' | 'maintPlanner' | 'crewDesk' | 'analyst' | 'credit' | 'fleetPlanner' | 'watch';
+export type HeadId = 'opsControl' | 'maintPlanner' | 'crewDesk' | 'analyst' | 'credit' | 'fleetPlanner' | 'watch' | /** v0.21 */ 'netPlanner';
 export interface HeadCandidate { name: string; years: number; skill: number; salary: number; blurb: string }
 export interface HeadLogLine { t: Minute; kind: 'done' | 'mistake' | 'proposal' | 'overridden'; text: string; ref?: Ref }
 export interface HeadProposal { id: string; t: Minute; kind: 'ferryHome' | 'position' | 'cSlot' | 'hire'; text: string; cost: number; expires: Minute; ref?: Ref; data: Record<string, string | number> }

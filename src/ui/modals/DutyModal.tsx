@@ -26,6 +26,7 @@ import { GaugeRow } from '../components/Gauge';
 import { ProblemCardView } from '../components/ProblemCard';
 import { ReasonLine } from '../components/ReasonIcon';
 import { Term } from '../components/Term';
+import { Help } from '../components/Help';
 import { flightType } from '../../engine/ops';
 import { money } from '../format';
 import { Dot } from '../screens/common';
@@ -36,6 +37,10 @@ import { store, useGame } from '../store';
 const LEVEL_TONE = { legal: 'good', tight: 'warn', illegal: 'bad' } as const;
 const LEVEL_LABEL = { legal: 'Legal', tight: 'Tight', illegal: 'Illegal' } as const;
 const PAGE = 30;
+/** v0.22 behind the '?' by the legality headline (it used to be a line under the seats). */
+const LOCK_NOTE = 'Seats you set are locked: the rolling re-plan keeps them, flagged red if they become illegal. Tap the open lock to hand a seat back to the auto-roster.';
+/** v0.22 on the 'Fly it with 4 pilots' word, under the glossary's meaning of an augmented crew. */
+const FOUR_NOTE = 'A 4th pilot allows a longer day and more rest each. Two pilots rest at a time, in pairs, 90 min and 2 h: that may fit where 3 pilots resting one by one do not.';
 
 /** 'LIS–CDG–LIS' for a duty's operated legs; 'deadhead' when the crew only rides on tickets. */
 export function dutyRoute(g: GameState, dutyId: string): string {
@@ -178,7 +183,7 @@ function Picker({ g, v, pick, setPick, back }: { g: GameState; v: DutyCrewView; 
       {/* v0.7.2 §2: captains for an FO seat in their own group, after the FOs (pay stays; morale dips past twice a month). */}
       {shown.some((c) => c.asFo) && (
         <div className="col">
-          <div className="upper dim sc-asfo-head"><Term id="asFo">Captain flying as {pick.role}</Term> <span className="tiny muted">same pay · morale dips past twice a month</span></div>
+          <div className="upper dim sc-asfo-head"><Term id="asFo" extra="Morale dips past twice a month for the same captain.">Captain flying as {pick.role}</Term></div>
           {shown.filter((c) => c.asFo).map((c) => (
             <Candidate key={c.crewId} c={c} seat={pick.role} confirm={confirm === c.crewId} swapWith={!!holder && c.codes.includes('overlap') && !!overlapDuty(g, v, c.crewId)} onTap={() => tap(c)} />
           ))}
@@ -274,8 +279,8 @@ function DayLength({ g, dutyId, ac }: { g: GameState; dutyId: string; ac?: strin
       {offer4 && (
         <div className="dm-aug">
           <span className="col grow">
-            <b className="small">Fly it with 4 pilots</b>
-            <span className="small muted">{reported ? 'The crew have reported: no change now.' : four ? 'Two pilots rest at a time; the roster finds the 4th pilot.' : plan?.code === 'tooShort' ? 'Pairs rest 90 min and 2 h: may fit where 3 pilots one by one do not.' : 'A 4th pilot allows a longer day and more rest each, for a 4th pilot’s pay and hotel.'}</span>
+            <b className="small"><Term id="augmented" extra={FOUR_NOTE}>Fly it with 4 pilots</Term></b>
+            <span className="small muted">{reported ? 'The crew have reported: no change now.' : four ? 'The roster finds the 4th pilot' : 'Costs a 4th pilot’s pay and hotel'}</span>
           </span>
           {!reported && <Toggle on={four} onChange={(v) => store.act((gg) => setDutyAugment(gg, d.id, v ? 2 : null))} label="Fly it with 4 pilots" />}
         </div>
@@ -380,12 +385,12 @@ export function DutyModal({ id }: { id: string }) {
         </div>
         {later ? (
           <div className="sc-legal later">
-            <div className="row gap-8"><Dot tone="off" /><b>Not rostered yet</b></div>
-            <div className="small muted">Crew are planned with the monthly roster ({rosterOutLine(g, d.report)}). You can still pick crew now; your choices are locked in.</div>
+            <div className="row gap-8"><Dot tone="off" /><b>Not rostered yet</b><Help title="Seats you set">{LOCK_NOTE} You can pick crew before the roster is out.</Help></div>
+            <div className="small muted">Planned with the monthly roster ({rosterOutLine(g, d.report)})</div>
           </div>
         ) : (
         <div className={`sc-legal ${legal.level}`}>
-          <div className="row gap-8"><Dot tone={LEVEL_TONE[legal.level]} /><b>{legal.level === 'legal' ? 'Legal: every seat filled, all limits kept' : legal.level === 'tight' ? 'Legal but tight' : 'Illegal: this duty cannot fly as rostered'}</b></div>
+          <div className="row gap-8"><Dot tone={LEVEL_TONE[legal.level]} /><b>{legal.level === 'legal' ? 'Legal: every seat filled, all limits kept' : legal.level === 'tight' ? 'Legal but tight' : 'Illegal: this duty cannot fly as rostered'}</b><Help title="Seats you set">{LOCK_NOTE}</Help></div>
           {legal.warnings.slice(0, 5).map((w, i) => (
             <div key={i} className={`small row gap-8 ${LEVEL_TONE[w.level]}`}><Dot tone={LEVEL_TONE[w.level]} /><span>{w.text}</span></div>
           ))}
@@ -414,7 +419,6 @@ export function DutyModal({ id }: { id: string }) {
               </div>
             ))}
             {clientCrew && <ClientCrewRow label={`${clientCrew.label} · not rostered by us`} roles={clientCrew.roles} />}
-            <div className="tiny dim">Seats you set are locked: the rolling re-plan keeps them (flagged red if they become illegal). Tap the open lock to hand a seat back to the auto-roster.</div>
           </div>
         )}
       </div>

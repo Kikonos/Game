@@ -18,6 +18,7 @@ import { normaliseLivery } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { LogoMark, TailBadge } from '../components/Logo';
 import { Seg } from '../components/ui';
+import { Help } from '../components/Help';
 import { money } from '../format';
 import { LiverySheet } from '../modals/LiveryModal';
 import { store } from '../store';
@@ -116,7 +117,7 @@ export function NewGame() {
                   </button>
                 ))}
               </div>
-              <div className="small muted ng-base-note">{setup.blurb} {DIFFICULTY_LABEL[setup.difficulty]}: {setup.why.toLowerCase()}.</div>
+              <div className="small muted ng-base-note">{DIFFICULTY_LABEL[setup.difficulty]}: {setup.why.toLowerCase()}.</div>
             </div>
             <div className="field">
               <label>Home base</label>
@@ -169,14 +170,13 @@ export function NewGame() {
               </div>
             </div>
             <div className="field ng-tail">
-              <label>Tail design</label>
+              <label>Tail design <Help title="Tail design">Customise livery: letter colours, logos and where the titles sit. You can change it later in Company.</Help></label>
               <div className="row gap-12 wrap">
                 <Seg<TailStyle | 'white'> value={livery.plain ? 'white' : livery.tail} onChange={(t) => setLivery(t === 'white' ? { ...livery, plain: true } : { ...livery, tail: t, plain: undefined })} options={[
                   { value: 'solid', label: 'Solid' }, { value: 'split', label: 'Split' }, { value: 'stripe', label: 'Stripe' }, { value: 'sweep', label: 'Sweep' }, { value: 'white', label: 'White' },
                 ]} />
                 <button className="btn" onClick={() => setEditing(true)}><Palette /> Customise livery…</button>
               </div>
-              <div className="small muted">Letter colours, logos and where the titles sit. You can change it later in Company.</div>
             </div>
           </div>
         </div>

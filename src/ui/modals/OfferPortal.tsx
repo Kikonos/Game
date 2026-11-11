@@ -23,7 +23,7 @@ import { offerDays } from '../screens/screenLogic';
 import { store, type ModalSpec } from '../store';
 import { toCss } from '../device';
 import { money } from '../format';
-import { clashTrips, offerGhosts, portalBlocks, portalWidth, subleaseGroups, type ClashTrip } from './offerPortalLogic';
+import { clashTrips, freeUpOf, offerGhosts, portalBlocks, portalWidth, subleaseGroups, type ClashTrip } from './offerPortalLogic';
 import { SUBLEASE_LINE } from './SubcharterModal';
 
 /** The portal's window: two days either side of the job, at most three weeks (a long base shows its first weeks). Pure. */
@@ -59,7 +59,7 @@ const clearHover = () => {
 };
 
 /** What a picked trip can do: move to another candidate aircraft, or be sub-leased (with the price, or why not). */
-function TripActions({ g, offerId, flightId, others, onClose, back }: { g: GameState; offerId: string; flightId: string; others: string[]; onClose: () => void; back?: ModalSpec }) {
+function TripActions({ g, offerId, flightId, others, onClose, back, alone }: { g: GameState; offerId: string; flightId: string; others: string[]; onClose: () => void; back?: ModalSpec; alone?: string | null }) {
   const trip = tripOf(g, flightId);
   const sub = subleaseTrip(g, flightId);
   const f = g.flights[flightId];
@@ -95,6 +95,8 @@ function TripActions({ g, offerId, flightId, others, onClose, back }: { g: GameS
         </button>
         <span className={`small v12-ta-why ${sub.ok ? 'muted' : 'warn'}`}>{sub.ok ? `${SUBLEASE_LINE} Best: ${sub.best!.rivalName}.` : sub.reason}</span>
       </div>
+      {/* v0.20.1 (bmwbb036sdk6l) said before anything is paid: this trip gone, the others still in the way. */}
+      {alone && <span className="small warn v12-ta-note">{alone}</span>}
     </div>
   );
 }
@@ -103,17 +105,24 @@ function TripActions({ g, offerId, flightId, others, onClose, back }: { g: GameS
 function ClashList({ g, o, r, trips, picked, onPick, others, back }: { g: GameState; o: ContractOffer; r: FeasibilityReport; trips: ClashTrip[]; picked: string | null; onPick: (id: string | null) => void; others: string[]; back?: ModalSpec }) {
   const progs = r.conflicts.programmes.map((id) => g.contracts[id]).filter((c) => !!c);
   const checks = r.conflicts.maintenance.map((id) => g.maintenance[id]).filter((m) => !!m);
-  if (!trips.length && !progs.length && !checks.length) return null;
   const groups = subleaseGroups(trips);
   const pickedTrip = picked ? trips.find((t) => t.legIds.includes(picked)) : undefined;
+  // v0.20.1 (bmwbb036sdk6l) every trip in the way gone: does the job then fit? (and the picked one alone, when not all)
+  // (freeUpOf keeps one answer per report.) The line under the heading says it when even all of them won't do.
+  const all = trips.length ? freeUpOf(g, o.id, r) : null;
+  const one = pickedTrip && trips.length > 1 && all?.fits ? freeUpOf(g, o.id, r, {}, pickedTrip) : null;
+  if (!trips.length && !progs.length && !checks.length) return null;
+  const rest = trips.length - 1;
+  const alone = one && !one.fits ? `This trip alone won't make room: ${rest === 1 ? 'the other trip is' : `the other ${rest} trips are`} in the way too.` : null;
   return (
     <div className="col gap-6 v12-clash">
       <div className="row gap-8 wrap v12-clash-head">
         <span className="small bad grow"><TriangleAlert /> In the way of this job{trips.length ? ` · ${trips.length} trip${trips.length > 1 ? 's' : ''}` : ''}</span>
-        {groups.length === 1 && groups[0].trips.length > 1 && (
+        {groups.length === 1 && groups[0].trips.length > 1 && all?.fits && (
           <button className="btn btn-sm v12-sublease" onClick={() => askSublease(o.id, groups[0].contractId, groups[0].flightIds, undefined, back)}><Handshake /> Sub-lease all {groups[0].trips.length}</button>
         )}
       </div>
+      {all && !all.fits && <div className="small warn v12-clash-nofit">Moving or sub-leasing {trips.length === 1 ? 'this trip' : 'these trips'} won't make room for this job: {all.still}.</div>}
       {trips.map((t) => (
         <div key={t.key} className="col">
           <button className={`v12-clash-row ${pickedTrip === t ? 'on' : ''}`} onClick={() => onPick(pickedTrip === t ? null : t.flightId)} aria-expanded={pickedTrip === t}>
@@ -125,18 +134,18 @@ function ClashList({ g, o, r, trips, picked, onPick, others, back }: { g: GameSt
             {/* v0.12 (player) one quiet 'more' mark instead of Move / Sub-lease tags: the row opens what it can do */}
             <span className="v12-clash-more" aria-hidden title={t.move.ok || t.sub.ok ? 'Move or sub-lease' : 'Fixed: it can\'t move or be sub-leased'}><Menu /></span>
           </button>
-          {pickedTrip === t && <TripActions g={g} offerId={o.id} flightId={t.flightId} others={others} onClose={() => onPick(null)} back={back} />}
+          {pickedTrip === t && <TripActions g={g} offerId={o.id} flightId={t.flightId} others={others} onClose={() => onPick(null)} back={back} alone={alone} />}
         </div>
       ))}
       {progs.map((c) => (
         <div key={c.id} className="small muted v12-clash-prog">
           {c.dry
-            ? <><b>{c.title}</b>: the aircraft is with the lessee then (a dry lease has no flights of ours to move or sub-lease); choose another aircraft or let this job go.</>
-            : <><b>{c.title}</b>: its later days have no flights yet (they are added day by day), so that part shows as one block. It can't be moved or sub-leased until its flights exist; choose another aircraft or let this job go.</>}
+            ? <><b>{c.title}</b>: the aircraft is with the lessee then. Choose another aircraft or let this job go.</>
+            : <><b>{c.title}</b>: its later days have no flights yet, so it can't be moved or sub-leased. Choose another aircraft or let this job go.</>}
         </div>
       ))}
       {checks.map((m) => (
-        <div key={m.id} className="small muted v12-clash-prog"><b>{m.kind === 'AOG' ? 'AOG' : m.kind === 'line' ? 'Inspection' : `${m.kind}-check`} at {m.at}</b> {fmtDay(m.start)}–{fmtDay(m.end)}: move it on the Schedule (hold and drag it along its row).</div>
+        <div key={m.id} className="small muted v12-clash-prog"><b>{m.kind === 'AOG' ? 'AOG' : m.kind === 'line' ? 'Inspection' : `${m.kind}-check`} at {m.at}</b> {fmtDay(m.start)}–{fmtDay(m.end)}: move it on the Schedule.</div>
       ))}
     </div>
   );

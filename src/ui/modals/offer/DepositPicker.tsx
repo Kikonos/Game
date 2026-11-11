@@ -5,6 +5,7 @@ import { BAL } from '../../../engine/core/balance';
 import type { ContractOffer, GameState } from '../../../engine/core/types';
 import { depositEffect } from '../../../engine/finance';
 import { Seg } from '../../components/ui';
+import { Help } from '../../components/Help';
 
 export function DepositPicker({ g, o, value, onChange, fixed }: { g: GameState; o: ContractOffer; value: number; onChange: (pct: number) => void; fixed?: boolean }) {
   if (o.product.kind !== 'charter') return null;
@@ -14,12 +15,12 @@ export function DepositPicker({ g, o, value, onChange, fixed }: { g: GameState; 
   return (
     <div className="dp-row">
       <div className="row between gap-8 wrap">
-        <span className="upper dim">Deposit on signing</span>
+        <span className="upper dim row gap-6" style={{ alignItems: 'center' }}>Deposit on signing{!fixed && <Help title="Deposit on signing">More deposit: cash sooner and less payment risk. Less: a keener client.</Help>}</span>
         {fixed
           ? <b className="num">{Math.round(value * 100)} %{o.depositAsk ? ' · sent with the counter' : ''}</b>
           : <Seg value={Math.round(value * 100)} options={choices.map((c) => ({ value: Math.round(c * 100), label: `${Math.round(c * 100)} %` }))} onChange={(v) => onChange(v / 100)} />}
       </div>
-      <div className={`small ${tone}`}>{eff.text}{!fixed ? ' More deposit: cash sooner and less payment risk. Less: a keener client.' : ''}</div>
+      <div className={`small ${tone}`}>{eff.text}</div>
     </div>
   );
 }

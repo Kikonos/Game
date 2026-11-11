@@ -53,6 +53,15 @@ export interface SectorTime {
 /** Ground time at a fuel stop for a type. */
 export const techStopMin = (typeId: string): number => (typeOf(typeId)?.maxSeats ?? 0) > 300 ? BAL.v019.ops.techStopBig : BAL.v019.ops.techStop;
 
+/** v0.21 ground time at a stop of a market: a stopover's turn (passengers off and on) or a fuel stop's. */
+export function stopMin(m: Pick<RouteMarket, 'stopover'>, typeId: string): number {
+  const tech = techStopMin(typeId);
+  if (!m.stopover) return tech;
+  // v0.22 a stopover's turn (passengers off and on, cleaning, catering) is never shorter than a fuel stop's: at least
+  // ten minutes more (a narrowbody's 55 min stood under the 60 min fuel stop while the side-by-side says "longer").
+  return Math.max(tech + 10, typeOf(typeId)?.body === 'wide' ? BAL.v019.stop.groundWide : BAL.v019.stop.groundNarrow);
+}
+
 /**
  * §D.1 one rotation's sectors from its first departure: out chain with fuel stops (turn at each), the night-stop or
  * turn at the destination, then the back chain from the series' local back time (never before a legal turn).
@@ -61,12 +70,14 @@ export function rotationTimes(m: RouteMarket, s: Pick<RouteSeries, 'back' | 'nig
   const out: SectorTime[] = [];
   const t = typeOf(s.typeId);
   const turn = t?.turnMin ?? 60;
-  const tech = techStopMin(s.typeId);
+  const tech = stopMin(m, s.typeId);
+  // v0.21 a stopover is no fuel stop: passengers get off and on there (revenue sectors both).
+  const fuel = !m.stopover;
   let at = dep;
   const oc = chainOf(m, 'out');
   for (let i = 1; i < oc.length; i++) {
     const blk = blockMinutes(s.typeId, oc[i - 1], oc[i]);
-    out.push({ from: oc[i - 1], to: oc[i], std: at, sta: at + blk, dir: 'out', tech: i < oc.length - 1 });
+    out.push({ from: oc[i - 1], to: oc[i], std: at, sta: at + blk, dir: 'out', tech: fuel && i < oc.length - 1 });
     at = at + blk + tech;
   }
   const arr = out[out.length - 1].sta;
@@ -78,7 +89,7 @@ export function rotationTimes(m: RouteMarket, s: Pick<RouteSeries, 'back' | 'nig
   const bc = chainOf(m, 'back');
   for (let i = 1; i < bc.length; i++) {
     const blk = blockMinutes(s.typeId, bc[i - 1], bc[i]);
-    out.push({ from: bc[i - 1], to: bc[i], std: at, sta: at + blk, dir: 'back', tech: i < bc.length - 1 });
+    out.push({ from: bc[i - 1], to: bc[i], std: at, sta: at + blk, dir: 'back', tech: fuel && i < bc.length - 1 });
     at = at + blk + tech;
   }
   return out;
@@ -132,12 +143,17 @@ export interface ShareInput {
   hours: number;
   /** Rival fare cut in force (0–1). */
   rivalCut?: number;
+  /** v0.21 a stopover's through service: a stop on the way (less pull than a nonstop, and slower than nonstop rivals). */
+  stop?: boolean;
 }
 
 /** §E.2 our share of the market's travellers (logit against the rivals; their seats cap what they take). */
 export function shareOf(m: RouteMarket, x: ShareInput): number {
   const B = BAL.v019.demand.beta;
-  const ours = -B.fare * (1 + (BAL.v019.fares.level[x.fares] ?? 0)) + B.nonstop * 1 + B.freq * Math.log(Math.max(0.25, x.freqPerWeek)) + B.rep * ((x.reputation - 60) / 40) + B.mkt * x.awareness;
+  // v0.21 a stopover's through passengers: same aircraft, but a stop and its time against the fastest nonstop rival.
+  const fastest = x.stop ? Math.min(Infinity, ...m.competitors.filter((c) => c.stops === 0).map((c) => c.hours)) : Infinity;
+  const slow = x.stop && Number.isFinite(fastest) ? B.hours * Math.max(0, x.hours - fastest) : 0;
+  const ours = -B.fare * (1 + (BAL.v019.fares.level[x.fares] ?? 0)) + B.nonstop * (x.stop ? BAL.v019.stop.nonstopX : 1) - slow + B.freq * Math.log(Math.max(0.25, x.freqPerWeek)) + B.rep * ((x.reputation - 60) / 40) + B.mkt * x.awareness;
   let sum = Math.exp(ours);
   for (const c of m.competitors) {
     const u = -B.fare * c.fareX * (1 - (x.rivalCut ?? 0)) + B.nonstop * (c.stops === 0 ? 1 : 0) + B.freq * Math.log(Math.max(0.25, c.perWeek)) - B.hours * Math.max(0, c.hours - x.hours);
@@ -158,7 +174,7 @@ export function serviceHours(m: RouteMarket, typeId: string, dir: Dir): number {
   const c = chainOf(m, dir);
   let min = 0;
   for (let i = 1; i < c.length; i++) min += blockMinutes(typeId, c[i - 1], c[i]);
-  min += (c.length - 2) * techStopMin(typeId);
+  min += (c.length - 2) * stopMin(m, typeId);
   return min / 60;
 }
 

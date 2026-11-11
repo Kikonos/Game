@@ -7,11 +7,16 @@ import { createPortal } from 'react-dom';
 import { GLOSSARY, type TermId } from '../../data/glossary';
 import { store } from '../store';
 import { termSegments } from './problemLogic';
-import { toCss } from '../device';
+import { toCss, uiZoomNow } from '../device';
+import { placePop, type Insets } from './popPlace';
 
 let closeOpen: (() => void) | null = null;
 
-function Popover({ id, anchor, onClose, extra, own }: { id: TermId; anchor: HTMLElement; onClose: () => void; extra?: string; own?: boolean }) {
+/**
+ * The small floating box under (or above) its anchor: closes on a tap elsewhere, Escape, a scroll, a dialog or a tab
+ * change. v0.20.1 shared by the glossary terms and the '?' notes (Help.tsx); kept clear of the bug button's corner.
+ */
+export function PopBox({ anchor, onClose, label, children }: { anchor: HTMLElement; onClose: () => void; label: string; children: ReactNode }) {
   const box = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   useLayoutEffect(() => {
@@ -19,13 +24,13 @@ function Popover({ id, anchor, onClose, extra, own }: { id: TermId; anchor: HTML
     if (!el) return;
     const r = anchor.getBoundingClientRect();
     const b = el.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const left = Math.min(vw - b.width - 8, Math.max(8, r.left + r.width / 2 - b.width / 2));
-    const below = r.bottom + 8;
-    const top = below + b.height <= vh - 8 ? below : Math.max(8, r.top - b.height - 8);
+    // v0.22 the placement is popPlace.ts: under the anchor or above it, whole on the screen, inside the device's safe
+    // area (a phone on its side: the camera island's strip and the home bar) and clear of the bug button, by where the
+    // button really is (a phone on its side moves it in by the safe area).
+    const bug = document.querySelector('.bug-corner')?.getBoundingClientRect() ?? null;
+    const { left, top: y } = placePop(r, b, window.innerWidth, window.innerHeight, safeInsets(), bug);
     // v0.12 rects are screen px; the popover is placed in the page's px (Settings › Size zooms the page).
-    setPos({ left: toCss(left), top: toCss(top) });
+    setPos({ left: toCss(left), top: toCss(y) });
   }, [anchor]);
   useEffect(() => {
     const down = (e: Event) => {
@@ -33,14 +38,21 @@ function Popover({ id, anchor, onClose, extra, own }: { id: TermId; anchor: HTML
       if (t && (box.current?.contains(t) || anchor.contains(t))) return;
       onClose();
     };
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    // Escape closes the box alone (not the dialog under it, nor the menu behind).
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      onClose();
+    };
+    // v0.21 a scroll of the page behind closes it; a scroll inside the box itself (a long answer) does not.
+    const scroll = (e: Event) => { if (!box.current?.contains(e.target as Node | null)) onClose(); };
     document.addEventListener('pointerdown', down, true);
     window.addEventListener('keydown', esc, true);
-    window.addEventListener('scroll', onClose, true);
+    window.addEventListener('scroll', scroll, true);
     return () => {
       document.removeEventListener('pointerdown', down, true);
       window.removeEventListener('keydown', esc, true);
-      window.removeEventListener('scroll', onClose, true);
+      window.removeEventListener('scroll', scroll, true);
     };
   }, [anchor, onClose]);
   // A dialog the game opens (auto-pause, a card) or a tab change closes it: never left floating over the new view.
@@ -51,25 +63,32 @@ function Popover({ id, anchor, onClose, extra, own }: { id: TermId; anchor: HTML
     const off = store.subscribe(() => { if (store.modal !== m0 || store.nav !== n0) shut.current(); });
     return () => { off(); };
   }, []);
-  const e = GLOSSARY[id];
   return createPortal(
-    <div ref={box} className="term-pop" role="dialog" aria-label={e.term} style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: 'hidden' }}>
-      <b>{e.term}</b>
-      {!(own && extra) && <span className="small">{e.short}</span>}
-      {extra && <span className={`small ${own ? '' : 'muted'}`}>{extra}</span>}
-      <button className="btn btn-sm btn-ghost term-more" onClick={() => { onClose(); store.openModal({ kind: 'glossary', term: id }); }}>Glossary ›</button>
+    <div ref={box} className="term-pop" role="dialog" aria-label={label} style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: 'hidden' }}>
+      {children}
     </div>,
     document.body,
   );
 }
+/** The device's safe-area insets in screen px (the page's own --safe-* lengths, read off a probe; 0 where none). */
+function safeInsets(): Insets {
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:var(--vp-safe-t,0px) var(--safe-r,0px) var(--vp-safe-b,0px) var(--safe-l,0px)';
+  document.body.appendChild(probe);
+  const cs = getComputedStyle(probe);
+  const z = uiZoomNow();
+  const px = (v: string) => (parseFloat(v) || 0) * z;
+  const out = { t: px(cs.paddingTop), r: px(cs.paddingRight), b: px(cs.paddingBottom), l: px(cs.paddingLeft) };
+  probe.remove();
+  return out;
+}
 
 /**
- * v0.7.4 `extra`: a line about this very thing under the glossary meaning (e.g. this aircraft's longest day).
- * v0.9 `own`: `extra` says it all, so it replaces the glossary meaning (no line said twice).
+ * One popover at a time: opening one closes the one that was open. Returns [open, toggle, close] for a component's
+ * own popover.
  */
-export function Term({ id, children, extra, own }: { id: TermId; children?: ReactNode; extra?: string; own?: boolean }) {
+export function usePopover(): [boolean, (e: { stopPropagation: () => void; preventDefault?: () => void }) => void, () => void] {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
   const close = () => {
     setOpen(false);
     if (closeOpen === close) closeOpen = null;
@@ -83,6 +102,28 @@ export function Term({ id, children, extra, own }: { id: TermId; children?: Reac
     setOpen(true);
   };
   useEffect(() => () => { if (closeOpen === close) closeOpen = null; }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return [open, toggle, close];
+}
+
+function Popover({ id, anchor, onClose, extra, own }: { id: TermId; anchor: HTMLElement; onClose: () => void; extra?: string; own?: boolean }) {
+  const e = GLOSSARY[id];
+  return (
+    <PopBox anchor={anchor} onClose={onClose} label={e.term}>
+      <b>{e.term}</b>
+      {!(own && extra) && <span className="small">{e.short}</span>}
+      {extra && <span className={`small ${own ? '' : 'muted'}`}>{extra}</span>}
+      <button className="btn btn-sm btn-ghost term-more" onClick={() => { onClose(); store.openModal({ kind: 'glossary', term: id }); }}>Glossary ›</button>
+    </PopBox>
+  );
+}
+
+/**
+ * v0.7.4 `extra`: a line about this very thing under the glossary meaning (e.g. this aircraft's longest day).
+ * v0.9 `own`: `extra` says it all, so it replaces the glossary meaning (no line said twice).
+ */
+export function Term({ id, children, extra, own }: { id: TermId; children?: ReactNode; extra?: string; own?: boolean }) {
+  const [open, toggle, close] = usePopover();
+  const ref = useRef<HTMLSpanElement>(null);
   const e = GLOSSARY[id];
   if (!e) return <>{children}</>;
   return (

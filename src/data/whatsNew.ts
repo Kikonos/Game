@@ -16,6 +16,72 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.22',
+    name: 'Cleaner screens',
+    features: [
+      'Explanations now sit behind a small "?". Tap it to read, tap anywhere to close. The screens keep the facts, the numbers and the warnings.',
+      'Long contracts keep their month letters: the duration strip shows one row a year, January under January.',
+    ],
+    improvements: [
+      'Tidier screens all over: Settings, Schedule, Crew, Company, Contracts, the aircraft market, Fleet, Finance, Inbox and Network lost their long notes.',
+      'Words with a glossary entry, such as Deposit, Credit check, Slots or sub-charter, open their meaning on tap.',
+      'Contract cards show the whole title, and the Crew screen keeps its head count on one line.',
+      'Route launch: the list of stages stays in view while you scroll the plan.',
+      'Phone held upright: no button hides under the bug button any more.',
+      'On a phone, a "?" note keeps clear of the camera island and the home bar, and opens beside its "?" when it is long.',
+    ],
+    fixes: [
+      'Finance › The bank: below zero the Credit line row now shows the secured line the bank really offers, not the bigger normal one.',
+      'The network planner is earned the moment your first study is done, not a day later.',
+      'Build your own route: a fuel stop the aircraft does not need is shown as its own choice beside Nonstop and Stopover.',
+    ],
+  },
+  {
+    version: 'v0.21',
+    name: 'Stopovers and route advice',
+    features: [
+      'Real stopovers. In Build your own route, a stop can now sell seats: some passengers get off there, others get on, others stay on to the end. Three markets share one aircraft.',
+      'Fuel stop only and Stopover are shown side by side, with the year\'s result, the pros and the cons. A long flight that has to land for fuel anyway can be turned into a stopover to see if it pays. There are good combinations and bad ones.',
+      'Selling seats between the stop and the far end needs fifth-freedom rights. They are asked for with the permits and are often refused or capped; inside the EU they are free, and a domestic leg in another country can never be sold.',
+      'Is it worth it? Every business case now opens with a clear answer (Worth it, Marginal or Not worth it) and the two or three reasons behind it.',
+      'New pictures in the business case: where the money goes from revenue down to the result, how full the flights are against the load they need to break even, the margin on a scale from Loss to Strong, and for a stopover who sits on which leg.',
+      'Your commercial analyst is back on routes: suggestions on how often to fly, fares, the campaign, the aircraft and the cabin, each with what it earns and an Apply button.',
+      'A new hire: the network planner, earned by your first finished market study (Company › Team). The planner narrows a study\'s range, says whether a route is better nonstop, with a fuel stop or with a stopover, and lists routes worth a study in Network.',
+      'Network › Studies: every market study in one place, under way, waiting for you, shelved, launched or run out. A market with a study that is still good shows "Show study" and "Valid until" instead of selling you a new one.',
+    ],
+    improvements: [
+      'Small "?" marks answer the questions in the launch dialog on tap: the weak, likely and strong year, what the campaign levels do, what "stays at the destination" means for the aircraft and the crew, where the money goes and whether a margin is normal. Nothing extra stays on screen.',
+      '"Nights at …" is now "Stays at …": the aircraft and its crew wait there and fly back together.',
+      'Margins checked against real airlines. A strong route with the right size of aircraft keeps about 10 to 20 %; a full flight to Luanda or north-east Brazil now pays a healthy margin; a crowded route or an aircraft too big for it loses money. For a partner the margin is shown on our own fee, not on the fuel and airport costs it repays.',
+      'The business case now counts a year\'s bad days (delays, a sub-charter, a rival\'s fare cut), crew hotel nights and a third pilot on a long day, so it promises less and matches what the route then earns.',
+      'Long-haul fares on routes you build yourself are more realistic: a far city nobody flies to nonstop is no longer a gold mine.',
+    ],
+    fixes: [
+      'A shelved study can be found again and reopened for free until it runs out: Maputo no longer offers a second paid study.',
+      'The load factor of a route with a stop counts passengers on every leg they sit on.',
+    ],
+  },
+  {
+    version: 'v0.20.1',
+    name: 'Measures, leads & durations',
+    features: [
+      'Crew › Utilisation has a new card, Measures in place: who is on unpaid leave, furlough or under notice, by rank and aircraft, until when, and how much it saves a month. Tap a row for the names.',
+      'Leads and tenders now look different. A tender is a contest: an "Open tender" tag, how many other operators are bidding, when bids close and when the airline decides.',
+      'A lead is yours alone: an "Exclusive" tag, who found it (a sales manager, or a broker with its commission), its stage, and the days until it goes cold (amber at 3 or fewer).',
+      'Offers and contracts that came from one carry a small "From tender" or "From lead" tag.',
+      'See how long a job runs at a glance: the offer and tender dialogs show the months ahead with the job filled in, each year named, and its length in days and in months with the dates.',
+      'Explanations sit behind a small "?" you can tap, instead of staying on the screen.',
+    ],
+    improvements: [
+      'Finance › The bank is tidier: one aligned list with a plain line under each name, the number on the right and details on tap.',
+      'Unpaid leave is not offered twice to the same crew before it starts, and crew about to go on it no longer count as spare.',
+    ],
+    fixes: [
+      'The offer dialog only suggests a sub-lease when it really makes room for the job. When something else still blocks the aircraft (other work, a lease, an approval), it says so plainly.',
+      'The sub-lease dialog warns you before you pay for a hand-over that will not make room on its own.',
+    ],
+  },
+  {
     version: 'v0.20',
     name: 'Finance at a glance',
     features: [

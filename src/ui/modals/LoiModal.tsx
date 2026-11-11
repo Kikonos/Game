@@ -19,6 +19,7 @@ import { AircraftArt } from '../components/AircraftArt';
 import { ProblemCardView, runAction } from '../components/ProblemCard';
 import { RestTwoLiner } from '../components/RestLines';
 import { Modal, Toggle } from '../components/ui';
+import { Term } from '../components/Term';
 import { money } from '../format';
 import { KV } from '../screens/common';
 import { dayIn, GateChip, offerRest } from '../screens/Market';
@@ -106,11 +107,11 @@ export function LoiModal({ offerId }: { offerId: string }) {
             ['Rent', `${money(o.rentPerMonth)} a month`],
             ['Why this rent', <span key="w" className="small">{whyText(o.why) || q.whyRent}</span>],
             ['Term', `${o.leaseMonths} months`],
-            ['Deposit', `${money(q.holding)} now · ${money(q.depositAtSign)} at signing${useLc ? ' (letter of credit)' : ''}`],
+            [<Term key="d" id="holdingDeposit" extra={`Walk away after approval: ${q.lessor} keeps it.`}>Deposit</Term>, `${money(q.holding)} now · ${money(q.depositAtSign)} at signing${useLc ? ' (letter of credit)' : ''}`],
             ...(q.reservesDeposit ? [['Reserves up front', `${money(q.reservesDeposit)} at signing, back at return`]] as [string, string][] : []),
             ['Reserves', q.reserves],
             ['Return', v.returnText ?? q.ret],
-            ['Credit check', `${q.lessor} answers in ${fmtSpan(q.committeeDays[0], q.committeeDays[1], 'days')} (our rating ${q.grade})`],
+            [<Term key="c" id="creditCheck">Credit check</Term>, `${q.lessor} answers in ${fmtSpan(q.committeeDays[0], q.committeeDays[1], 'days')} (our rating ${q.grade})`],
             ['Transition', `${money(q.transition)} at signing${q.techReps ? ` + tech reps ${money(q.techReps)}` : ''}${q.paint ? ` + paint ${money(q.paint)}` : ''}`],
             ['Cash after', `${money(q.cashAfter)} now · ${money(q.cashAfter - atSign)} after signing`],
           ]} />
@@ -154,7 +155,6 @@ export function LoiModal({ offerId }: { offerId: string }) {
         </div>
       </div>
       <div className="mt-12"><WhatItTakes g={g} typeId={o.typeId} /></div>
-      <div className="small muted mt-12">The holding deposit takes the aircraft off the market. Declined, or more security asked and you walk away: it comes back. Walk away after approval: {q.lessor} keeps it.</div>
       {warns.length > 0 && (
         <div className="col gap-4 mt-12">
           {warns.map((w, i) => <div key={i} className={`small row gap-8 cv-warn ${w.tone}`}><AlertTriangle className="sc-ico-s" /><span>{w.text}</span></div>)}

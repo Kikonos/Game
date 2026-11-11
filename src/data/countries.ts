@@ -190,6 +190,12 @@ export function countryName(code: string): string {
   return COUNTRIES[code]?.name ?? code;
 }
 
+/** v0.22 the name as it reads inside a sentence: 'the United States', 'the Netherlands', 'Portugal'. */
+export function countryNameThe(code: string): string {
+  const n = countryName(code);
+  return /^(United |Netherlands$|Philippines$|Bahamas$|Maldives$|Gambia$|Seychelles$|Comoros$)|Islands$|Republic\b|Emirates$/.test(n) ? `the ${n}` : n;
+}
+
 /** Converts an ISO-3166 alpha-2 code into its emoji flag. */
 export function flag(code: string): string {
   if (!/^[A-Z]{2}$/.test(code)) return '';

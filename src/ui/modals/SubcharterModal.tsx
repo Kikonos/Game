@@ -9,6 +9,7 @@ import { useMemo, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, fmtDateTime, fmtDay, fmtTime } from '../../engine/core/time';
 import { Modal, Toggle } from '../components/ui';
+import { Term } from '../components/Term';
 import { money } from '../format';
 import { KV } from '../screens/common';
 import { STYLE_NAME } from '../../engine/contracts';
@@ -18,6 +19,7 @@ import type { Flight } from '../../engine/core/types';
 import { rotationOf, SUB_LEAD, subcharter, subcharterable, subcharterQuotes, type SubcharterQuote } from '../../engine/ops';
 import { lockOf } from '../../engine/scenario';
 import { LockNote } from '../components/Locked';
+import { freeUpVerdict } from '../../engine/contracts/freeUp';
 
 const MAX_DAYS = 14;
 
@@ -78,6 +80,11 @@ export function SubcharterModal({ contractId, flightId, rivalId, flightIds, back
   const quotes = legs.length ? subcharterQuotes(g, legs.map((x) => x.id)) : [];
   // The chosen rival while it can fly them, else the cheapest available.
   const q = quotes.find((x) => x.rivalId === pickRival && x.available) ?? quotes.find((x) => x.available) ?? null;
+  // v0.20.1 (bmwbb036sdk6l) opened from an offer to make room for it: say before paying when this alone won't.
+  const offerId = back?.kind === 'offer' ? back.offerId : null;
+  const acId = legs[0]?.aircraftId ?? null;
+  const legKey = legs.map((x) => x.id).join(',');
+  const fit = useMemo(() => (offerId && acId && g.offers[offerId] && legs.length ? freeUpVerdict(g, offerId, acId, legs.map((x) => x.id)) : null), [g, offerId, acId, legKey, rev]); // eslint-disable-line react-hooks/exhaustive-deps
   const go = () => {
     if (!q) return;
     const r = store.act((gg) => subcharter(gg, q.flightIds, q.cost, q.rivalId));
@@ -98,8 +105,8 @@ export function SubcharterModal({ contractId, flightId, rivalId, flightIds, back
     }>
       <div className="col gap-12">
         <LockNote why={lockOf(g, 'subcharter')} />
-        <p className="sl-line"><b>{SUBLEASE_LINE}</b> <span className="muted">(a sub-charter)</span></p>
-        <p className="muted sc-blurb">A rival operator flies the legs with its own aircraft and crew. {g.clients[c.clientId]?.name ?? 'The client'} is billed by us as usual; we pay the rival. Empty positioning legs in the selection are dropped.</p>
+        {/* v0.22 how a sub-charter works: the glossary word, with this job's note (no paragraph under it). */}
+        <p className="sl-line"><b>{SUBLEASE_LINE}</b> <span className="muted">(a <Term id="subcharter" extra={`The rival flies with its own aircraft and crew. ${g.clients[c.clientId]?.name ?? 'The client'} is billed by us as usual; we pay the rival. Empty positioning legs in the selection are dropped.`}>sub-charter</Term>)</span></p>
         <div className="row gap-8 wrap">
           {flightIds && <button className={`chip ${mode === 'trip' ? 'active' : ''}`} onClick={() => setMode('trip')}>{nTrips > 1 ? `These trips (${trips.length} legs)` : `This trip (${trips.length} leg${trips.length === 1 ? '' : 's'})`}</button>}
           {rot.length > 0 && !flightIds && <button className={`chip ${mode === 'rotation' ? 'active' : ''}`} onClick={() => setMode('rotation')}>This rotation ({rot.length} leg{rot.length > 1 ? 's' : ''})</button>}
@@ -132,6 +139,8 @@ export function SubcharterModal({ contractId, flightId, rivalId, flightIds, back
             ))}
           </div>
         )}
+        {fit && !fit.fits && <div className="small warn sl-nofit">This alone won't make room for {g.offers[offerId!]?.title ?? 'the new job'}: {fit.still}.</div>}
+        {fit?.fits && <div className="small good sl-fit">This makes room for {g.offers[offerId!]?.title ?? 'the new job'} on {g.fleet[acId!]?.reg ?? 'the aircraft'}.</div>}
         {quotes.length > 0 && q && q.revenueLegs > 0 && <Quotes quotes={quotes} pick={q.rivalId} onPick={setPickRival} />}
         {legs.length > 0 && quotes.length > 0 && !q && <div className="small warn">No rival has an aircraft free for these legs.</div>}
         {q && q.revenueLegs > 0 ? (

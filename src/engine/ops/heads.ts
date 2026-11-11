@@ -86,7 +86,7 @@ const firstName = (h: Head) => h.hired?.name.split(' ')[0] ?? HEAD_DEFS[h.id].ti
 
 /** The achievement that earns each head. */
 const EARNED_BY: Record<HeadId, string> = {
-  opsControl: 'cleanSheet', maintPlanner: 'cOnTime', crewDesk: 'fullCover', analyst: 'fiveFlown', credit: 'paidInTheEnd', fleetPlanner: 'widebody', watch: 'reliable',
+  opsControl: 'cleanSheet', maintPlanner: 'cOnTime', crewDesk: 'fullCover', analyst: 'fiveFlown', credit: 'paidInTheEnd', fleetPlanner: 'widebody', watch: 'reliable', netPlanner: 'firstStudy',
 };
 
 /** Unlock progress (§5.1), null when unlocked. Pure. */
@@ -1072,13 +1072,14 @@ export function analystView(g: GameState, offerId: string): AnalystView | null {
   if (!h || !h.hired || !o || (o.status !== 'open' && o.status !== 'countered')) return null;
   let best: { id: string; margin: number; rev: number } | null = null;
   // An aircraft refused only for being busy on the dates (its margin if it were free): 'no aircraft free', not 'pass'.
-  let busy: { id: string; margin: number; rev: number } | null = null;
+  // v0.20.1 `booked`: by a programme's days without flights yet (nothing to move or hand over frees it).
+  let busy: { id: string; margin: number; rev: number; booked: boolean } | null = null;
   for (const r of quickReports(g, offerId)) {
     const id = r.aircraftId;
     if (r.estRevenue <= 0) continue;
     if (r.level === 'no') {
       const only = r.checks.filter((c) => c.level === 'no').every((c) => c.id === 'availability' || /busy/i.test(c.label));
-      if (only && (!busy || r.estMargin > busy.margin)) busy = { id, margin: r.estMargin, rev: r.estRevenue };
+      if (only && (!busy || r.estMargin > busy.margin)) busy = { id, margin: r.estMargin, rev: r.estRevenue, booked: r.conflicts.programmes.length > 0 };
       continue;
     }
     if (!best || r.estMargin > best.margin) best = { id, margin: r.estMargin, rev: r.estRevenue };
@@ -1101,7 +1102,7 @@ export function analystView(g: GameState, offerId: string): AnalystView | null {
   const busyPct = !best && busy ? Math.round((busy.margin / busy.rev) * (1 + err) * 100) : null;
   const verdict: AnalystView['verdict'] = !best && busyPct !== null && busyPct >= 0 ? 'busy' : !best || marginPct < 0 ? 'pass' : marginPct >= 15 || !counter ? 'take' : 'counter';
   const lines = [
-    verdict === 'busy' ? `No aircraft free on these dates (best: ${g.fleet[busy!.id].reg}, margin about ${busyPct} % if freed)`
+    verdict === 'busy' ? `No aircraft free on these dates (best: ${g.fleet[busy!.id].reg}, margin about ${busyPct} % ${busy!.booked ? 'were it free, but it is booked for other work' : 'if freed'})`
       : verdict === 'pass' ? 'Pass: no aircraft makes money on it'
       : verdict === 'take' ? `Take it on ${reg}: margin about ${Math.round(marginPct)} %`
       : `Counter at ${fmt(counter!)}: they usually accept within ${Math.round((ratio - 1) * 100)} % of asking`,

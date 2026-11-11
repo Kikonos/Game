@@ -19,6 +19,8 @@ import { AircraftArt } from '../components/AircraftArt';
 import { Why } from '../components/Why';
 import { restRows } from '../components/RestLines';
 import { Bar, Empty, Seg, Stepper, Toggle } from '../components/ui';
+import { Help } from '../components/Help';
+import { EXTRA_CREW_NOTE } from '../notes';
 import { money } from '../format';
 import { spanLabel } from './screenLogic';
 import { store, useGame } from '../store';
@@ -109,14 +111,14 @@ function CrewExtraRow({ g, ac }: { g: GameState; ac: Aircraft }) {
   return (
     <div className="sc-ac-crew">
       <div className="row between small">
-        <span><span className="upper dim">Crew</span> <span className="muted">Legal minimum {q.minimum.pilots} pilots + {q.minimum.cabin} cabin · {cabinCrewSeats(ac.typeId)} cabin crew seats</span></span>
+        <span><span className="upper dim">Crew</span> <Help title="Extra crew">{EXTRA_CREW_NOTE.map((t) => <p key={t}>{t}</p>)}</Help> <span className="muted">Legal minimum {q.minimum.pilots} pilots + {q.minimum.cabin} cabin · {cabinCrewSeats(ac.typeId)} cabin crew seats</span></span>
         {ac.crewExtra ? <button className="btn btn-sm btn-ghost" onClick={() => set(null)}>Reset</button> : <span className="tiny dim">company default</span>}
       </div>
       <div className="row gap-12 wrap">
         <span className="row gap-8"><span className="small">Extra cabin</span><Stepper value={Math.min(x.cabin, xMax)} min={0} max={xMax} onChange={(v) => set({ cabin: v, pilot: x.pilot })} /></span>
         <span className="row gap-8"><span className="small">Spare pilot</span><Toggle on={!!x.pilot} onChange={(v) => set({ cabin: x.cabin, pilot: v ? 1 : 0 })} label="Spare pilot" /></span>
       </div>
-      <div className="tiny muted">{extra ? `${what} → +${q.extraPeople} people over ${Math.round(q.extraPeople / Math.max(1, extra))} crew sets · ≈ ${money(q.perMonth)}/month · Morale +${q.service > 0 ? ` · Service ${q.service >= 0.4 ? '++' : '+'}` : ''}` : 'Legal minimum only. Extra crew cost salaries and per diems but lift morale and service; a spare on board covers a sick call away from base.'}</div>
+      <div className="tiny muted">{extra ? `${what} → +${q.extraPeople} people over ${Math.round(q.extraPeople / Math.max(1, extra))} crew sets · ≈ ${money(q.perMonth)}/month · Morale +${q.service > 0 ? ` · Service ${q.service >= 0.4 ? '++' : '+'}` : ''}` : 'No extra crew'}</div>
     </div>
   );
 }

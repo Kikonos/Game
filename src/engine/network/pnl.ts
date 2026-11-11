@@ -9,7 +9,9 @@ import type { GameState } from '../core/types';
 import { insuranceOf, rentOf } from '../ops/finance';
 import { rateMultiplier } from '../contracts/pricing';
 import { costTotal, routeMonthCosts, sectorCost, sectorOf, sectorPax } from './costs';
-import { marketOfRoute } from './model';
+import type { RouteMarket } from '../../data/routes';
+import { blockMinutes } from '../core/perf';
+import { chainOf, marketOfRoute, stopMin, type Dir } from './model';
 import { partnerFee, pnlOf } from './revenue';
 import { dirSectors, expectedPax, curveAt } from './sales';
 import type { Route } from './types';
@@ -34,6 +36,45 @@ export function aircraftCostBH(g: GameState, aircraftId: string | null | undefin
   return (rent + ins) / BAL.v019.pnl.utilBH;
 }
 
+/**
+ * v0.21 the crew's cost away from base on one rotation of a plan (pure): nights at the destination (hotel and per diem
+ * for the whole crew, who wait there and fly it back) and a long day flown with a third pilot (augmented: a day turn
+ * or a chain whose duty, report to release, runs past `crewAway.dutyMax`).
+ */
+export function crewAwayCost(g: GameState, m: RouteMarket, typeId: string, seats: number, nights: number): { hotel: number; extraPilot: number; longDay: boolean; dutyH: number } {
+  const t = typeOf(typeId);
+  if (!t) return { hotel: 0, extraPilot: 0, longDay: false, dutyH: 0 };
+  const A = BAL.v019.crewAway;
+  const roles = complement(typeId, seats);
+  const pol = g.company.policies;
+  const hotelN = BAL.hotelPerNight[pol.hotelTier] ?? 140;
+  const perDay = roles.reduce((a, r) => a + (BAL.perDiem[r] ?? 54), 0) * ((pol.perDiemPct ?? 100) / 100);
+  const hotel = nights > 0 ? Math.round(nights * (roles.length * hotelN + perDay)) : 0;
+  // Duties: each direction its own day after a night there; a day turn is one long day out and back.
+  const blk = (dir: Dir) => {
+    const c = chainOf(m, dir);
+    let x = 0;
+    for (let i = 1; i < c.length; i++) x += blockMinutes(typeId, c[i - 1], c[i]);
+    return { block: x, ground: (c.length - 2) * stopMin(m, typeId) };
+  };
+  const o = blk('out');
+  const b = blk('back');
+  const days = nights > 0 ? [o.block + o.ground, b.block + b.ground] : [o.block + o.ground + (t.turnMin ?? 60) + b.block + b.ground];
+  const blocks = nights > 0 ? [o.block, b.block] : [o.block + b.block];
+  let extraPilot = 0;
+  let longDay = false;
+  const wide = t.body === 'wide' ? 1 : 0;
+  const foBH = ((BAL.salary.FO?.[wide] ?? 6_000) * (1 + BAL.onCosts)) / BAL.v019.pnl.crewBH;
+  days.forEach((d, i) => {
+    if (d + A.reportMin + A.releaseMin > A.dutyMax) {
+      longDay = true;
+      extraPilot += Math.round((blocks[i] / 60) * foBH + (BAL.perDiem.FO ?? 76));
+    }
+  });
+  const dutyH = Math.max(...days.map((d) => d + A.reportMin + A.releaseMin)) / 60;
+  return { hotel, extraPilot, longDay, dutyH: Math.round(dutyH * 10) / 10 };
+}
+
 /** Month end (before ops closes the statement): the month's overheads and aircraft and crew time, the result. */
 export function closePnlMonth(g: GameState, route: Route): void {
   const p = pnlOf(route, g.now - 1);
@@ -45,6 +86,18 @@ export function closePnlMonth(g: GameState, route: Route): void {
   const typeId = recent?.aircraftId ? g.fleet[recent.aircraftId]?.typeId ?? s?.typeId ?? 'b763' : s?.typeId ?? 'b763';
   const seats = recent?.sectors[0] ? recent.sectors[0].capJ + recent.sectors[0].capY : 260;
   p.acTime = Math.round(p.bh * (aircraftCostBH(g, recent?.aircraftId, typeId) + crewCostBH(typeId, seats)));
+  // v0.21 the crew away from base: nights there and long days with a third pilot (the business case counts the same).
+  const m = marketOfRoute(route);
+  const mk = monthKey(g.now - 1);
+  if (m) {
+    for (const rot of route.rotations) {
+      if (rot.status !== 'flown' || rot.operatedBy || monthKey(rot.dep) !== mk) continue;
+      const sr = route.series.find((x) => x.id === rot.seriesId) ?? s;
+      const ac = rot.aircraftId ? g.fleet[rot.aircraftId] : undefined;
+      const w = crewAwayCost(g, m, ac?.typeId ?? sr?.typeId ?? typeId, ac?.cabin.total ?? seats, sr?.nights ?? 0);
+      p.acTime += w.hotel + w.extraPilot;
+    }
+  }
   p.result = Math.round(p.rev - p.direct - p.acTime);
 }
 

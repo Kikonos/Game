@@ -152,7 +152,7 @@ function LeasebackModal({ aircraftId, close }: { aircraftId: string; close: () =
           <Line k={`Rent over ${years} years`} v={money(q.totalRent)} tone="warn" />
           <Line k="Return" v={`by ${end}, half-life condition, ${BAL.leaseReturn.noticeDays ?? 120}-day notice`} />
         </div>
-        <div className="small dim">{ac.reg} keeps its registration, crews, contracts and livery; it is simply leased from {q.lessor} from today. Cash now and the debt off the books, against a higher monthly cost over the term and the return conditions.</div>
+        <div className="small dim">{ac.reg} keeps its registration, crews, contracts and livery; it is leased from {q.lessor} from today.</div>
         {q.why && <div className="small warn">{q.why}</div>}
       </div>
     </Modal>
@@ -231,7 +231,7 @@ function distressLines(g: ReturnType<typeof useGame>, id: DistressId, choice: nu
       return {
         head: ['Kept at each month end', money(q.perMonth)],
         lines: [{ k: `Crew pay deferred (${Math.round(q.share * 100)} %) and the heads' pay`, v: `${money(q.perMonth)} a month` }, { k: `Over ${q.months} month end${q.months === 1 ? '' : 's'}`, v: money(q.total), strong: true }, { k: `Repaid over ${D.salary.repayMonths} month ends from`, v: fmtD(q.repayFrom) }],
-        note: `Morale ${D.salary.morale} now and at each deferred month end: more sick calls and resignations while it runs. No premium: the crew lend us their pay.`, why: q.why,
+        note: 'No premium: the crew lend us their pay.', why: q.why,
       };
     }
     case 'furlough': {
@@ -240,7 +240,7 @@ function distressLines(g: ReturnType<typeof useGame>, id: DistressId, choice: nu
       return {
         head: ['Saved', money(q.total)],
         lines: [{ k: 'Crew on unpaid leave', v: `${q.crewIds.length}${names ? ` (${names}${q.crewIds.length > 4 ? '…' : ''})` : ''}` }, { k: 'From', v: `${fmtD(q.from)} to ${fmtD(q.until - 1)}` }, { k: 'Pay saved a month', v: money(q.saved) }, { k: `Over ${q.weeks} weeks`, v: money(q.total), strong: true }],
-        note: `Those with the least work ahead go first, a share of each role. Morale ${D.furlough.morale} for them and ${D.furlough.moraleOthers} for the rest; resignations follow. Their trips are re-crewed now: check the roster.`, why: q.why,
+        note: 'Those with the least work ahead go first, a share of each role. Their trips are re-crewed now: check the roster.', why: q.why,
       };
     }
     case 'checks': {

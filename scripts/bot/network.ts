@@ -19,8 +19,10 @@ const DIL = process.argv.includes('--routes=dil');
 const CUSTOM = (() => {
   const a = process.argv.find((x) => x === '--custom-route' || x.startsWith('--custom-route='));
   if (!a) return null;
-  const [from, to] = (a.split('=')[1] ?? 'LIS-LUX').split('-');
-  return customId({ from, to });
+  // v0.21 LIS-ATH@FCO: a stopover at FCO (seats sold there).
+  const [pair, stop] = (a.split('=')[1] ?? 'LIS-LUX').split('@');
+  const [from, to] = pair.split('-');
+  return customId(stop ? { from, to, stop } : { from, to });
 })();
 const k = (v: number) => `${Math.round(v / 1000)}k`;
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`;

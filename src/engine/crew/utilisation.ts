@@ -92,6 +92,9 @@ export function crewUtilisation(g: GameState): Utilisation {
   const people: UtilPerson[] = [];
   const ix = crewIx(g);
   const ahead = g.now + 28 * DAY;
+  // v0.20.1 unpaid leave or a furlough running or booked: not free to ask again (the leave starts in two days; the
+  // same people were offered it a second time) and no longer spare (their pay is off the payroll already).
+  const measured = new Set(Object.values(g.crew).filter((c) => c.blocks?.some((x) => x.furlough && x.to > g.now)).map((c) => c.id));
   for (const c of Object.values(g.crew)) {
     const away = c.status === 'joining' || c.status === 'sick' || c.status === 'leave' || c.status === 'training' || !!c.notice;
     const d28 = blockOf(c, g.now - 28 * DAY);
@@ -99,7 +102,7 @@ export function crewUtilisation(g: GameState): Utilisation {
     people.push({
       id: c.id, name: crewName(c), role: c.role, family: homes.get(c.id) ?? c.ratings[0], base: c.base,
       month: (c.blockMonths?.[mk] ?? 0) / 60, d28, y12, away,
-      free: !away && !(ix.pairingsOf.get(c.id) ?? []).some((p) => p.status !== 'done' && p.status !== 'broken' && p.start < ahead && (p.tour ? Math.max(p.end, p.tour.to) : p.end) > g.now),
+      free: !away && !measured.has(c.id) && !(ix.pairingsOf.get(c.id) ?? []).some((p) => p.status !== 'done' && p.status !== 'broken' && p.start < ahead && (p.tour ? Math.max(p.end, p.tour.to) : p.end) > g.now),
       idle: !away && g.now - c.hired >= 28 * DAY && d28 < UTIL_TYPICAL.idle28,
     });
   }
@@ -123,7 +126,8 @@ export function crewUtilisation(g: GameState): Utilisation {
   for (const p of crewPlan(g)) {
     for (const r of p.roles) {
       if (r.balance <= 0) continue;
-      const n = Math.min(r.balance, people.filter((x) => x.free && x.family === p.family && x.role === r.role).length);
+      const off = people.filter((x) => measured.has(x.id) && x.family === p.family && x.role === r.role).length;
+      const n = Math.min(r.balance - off, people.filter((x) => x.free && x.family === p.family && x.role === r.role).length);
       if (n <= 0) continue;
       const pay = Object.values(g.crew).filter((c) => c.role === r.role && homes.get(c.id) === p.family);
       const avg = pay.length ? pay.reduce((s, c) => s + c.salary, 0) / pay.length : 0;

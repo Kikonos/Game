@@ -8,6 +8,7 @@ import { fmtValue, METRICS, SCENARIOS, scenarioStart } from '../../engine/scenar
 import { LogoMark } from '../components/Logo';
 import { Stars } from '../modals/ScenarioModals';
 import { store, useStore } from '../store';
+import { Help } from '../components/Help';
 
 export function Scenarios() {
   const s = useStore();
@@ -20,7 +21,7 @@ export function Scenarios() {
           <LogoMark size={36} />
           <div className="grow">
             <div className="upper dim">Block Hours · scenarios</div>
-            <h2>Ten challenges. Up to three stars each.</h2>
+            <h2>Ten challenges. Up to three stars each. <Help title="Scenarios">Each scenario starts the same way every time. Best results stay on this device.</Help></h2>
           </div>
           <div className="sc-total" aria-label={`${total} of ${SCENARIOS.length * 3} stars`}><Stars n={1} size={14} label="" /> {total} / {SCENARIOS.length * 3}</div>
         </div>
@@ -53,7 +54,7 @@ export function Scenarios() {
       </div>
       <footer className="ng-foot">
         <button className="btn btn-ghost" onClick={() => store.setScreen('title')}><ArrowLeft /> Back to menu</button>
-        <div className="ng-foot-sum"><span className="small dim">Each scenario starts the same way every time. Best results stay on this device.</span></div>
+        <div className="ng-foot-sum" />
       </footer>
     </div>
   );
