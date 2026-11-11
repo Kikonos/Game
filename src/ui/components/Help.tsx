@@ -9,10 +9,11 @@ import { PopBox, usePopover } from './Term';
 /** `title`: the popover's heading (and what the button is about: "Open tender: what it means"). `children`: the text. */
 export function Help({ title, children, className }: { title: string; children: ReactNode; className?: string }) {
   const [open, toggle, close] = usePopover();
-  const ref = useRef<HTMLButtonElement>(null);
+  const ref = useRef<HTMLSpanElement>(null);
   return (
     <>
-      <button ref={ref} type="button" className={`help-q ${open ? 'on' : ''} ${className ?? ''}`} aria-label={`${title}: what it means`} aria-expanded={open} onClick={toggle}>?</button>
+      {/* A span, not a button: it also sits inside cards that are buttons themselves (its tap never opens the card). */}
+      <span ref={ref} role="button" tabIndex={0} className={`help-q ${open ? 'on' : ''} ${className ?? ''}`} aria-label={`${title}: what it means`} aria-expanded={open} onClick={toggle} onKeyDown={(k) => (k.key === 'Enter' || k.key === ' ') && toggle(k)}>?</span>
       {open && ref.current && (
         <PopBox anchor={ref.current} onClose={close} label={title}>
           <b>{title}</b>

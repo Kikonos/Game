@@ -7,9 +7,11 @@ import { useMemo, useState } from 'react';
 import { flag } from '../../data/countries';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { bidAircraft, bidQuote, offerWithBid, placeBid, TENDER, tenderById, tenderRow, withdrawBid } from '../../engine/commercial';
-import { DAY, fmtDay, fmtDayAt } from '../../engine/core/time';
+import { DAY, fmtDay, fmtDayAt, toLocal } from '../../engine/core/time';
 import { Modal, Seg, Stepper } from '../components/ui';
-import { BodyTag } from '../components/ShapeTags';
+import { BodyTag, KindTag } from '../components/ShapeTags';
+import { DurationStrip } from '../components/DurationStrip';
+import { tenderFacts } from '../screens/Tenders';
 import { store, useGame } from '../store';
 
 const pct = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : '±'}${Math.abs(Math.round(v * 100))} %`;
@@ -68,7 +70,12 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
           <b>{row.wanted.replace(/^a/, (m) => m.toUpperCase())} {p.kind === 'base' ? `based at ${city(row.base)}` : `from ${city(row.base)} to Jeddah and Madinah`}</b>
           {t.ask.title && <span className="small">{t.ask.title}</span>}
           <span className="small muted">{day(row.start)} – {day(row.end - 1)}{p.kind === 'base' ? ` · ${p.waves.length} wave${p.waves.length > 1 ? 's' : ''} a day to ${row.dests.map(city).slice(0, 5).join(', ')}${row.dests.length > 5 ? '…' : ''}` : ''}</span>
-          <span className="small muted">{row.status === 'open' ? `Bids close ${fmtDay(row.deadline)} · about ${row.rivals || 'no'} other operator${row.rivals === 1 ? '' : 's'} bidding` : `Award about ${fmtDay(row.resultAt)}`}{row.invited ? ' · they invited us' : ''}</span>
+          {/* v0.20.1 how long it runs (the dates as bid), then the contest in facts; what a tender is sits behind the '?'. */}
+          <DurationStrip now={g.now} first={toLocal(row.base, q ? start : t.bid?.start ?? row.start)} last={toLocal(row.base, (q ? end : t.bid?.end ?? row.end) - 1)} />
+          <span className="row gap-8 wrap v0201-kind-row">
+            {row.status === 'open' && <KindTag kind="tender" />}
+            <span className="small muted">{tenderFacts(row)}{row.invited ? ' · they invited us' : ''}</span>
+          </span>
         </div>
         {q && (
           <>

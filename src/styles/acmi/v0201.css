@@ -10,3 +10,33 @@
 .help-q.on { color: var(--accent); border-color: var(--accent); }
 .help-q:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) { .help-q:hover { color: var(--text); } }
+
+/* ---------- the duration strip (components/DurationStrip.tsx): one line, month cells then the length in words ---------- */
+.dur { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; min-width: 0; }
+.dur-strip { display: inline-flex; align-items: center; gap: 8px; flex: none; max-width: 100%; }
+.dur-year { display: inline-flex; align-items: center; gap: 1px; }
+/* The year, named at the first month of each year shown: plain to see when a job runs into the next one. */
+.dur-y { margin-right: 4px; font-size: 11px; font-weight: 650; line-height: 1; color: var(--text-2); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.dur-m { position: relative; display: grid; place-items: center; width: 15px; height: 16px; border-radius: 3px; background: rgba(var(--line-rgb), 0.1); overflow: hidden; }
+.dur-fill { position: absolute; top: 0; bottom: 0; min-width: 2px; background: rgba(var(--accent-rgb), 0.6); }
+.dur-now { position: absolute; top: 0; bottom: 0; z-index: 1; width: 2px; margin-left: -1px; background: var(--text); opacity: 0.75; }
+.dur-i { position: relative; font-size: 9px; font-weight: 600; line-height: 1; color: var(--text-3); }
+.dur-m.on .dur-i { color: var(--text); }
+.dur.dense .dur-m { width: 10px; }
+.dur.dense .dur-i { font-size: 7.5px; }
+.dur.dense .dur-year { gap: 1px; }
+.dur-more { font-size: 11px; color: var(--text-3); white-space: nowrap; }
+.dur-text { white-space: nowrap; }
+@media (max-width: 420px) { .dur-text { white-space: normal; } }
+
+/* ---------- leads vs tenders (components/ShapeTags.tsx KindTag / OriginTag) ---------- */
+/* A tender is a contest (amber), a lead is ours alone (green); what each means sits behind the '?'. */
+.kind-tags { gap: 5px; }
+.shape-tag.kind-tender { color: var(--text); border-color: rgba(var(--warn-rgb), 0.5); background: rgba(var(--warn-rgb), 0.1); }
+.shape-tag.kind-lead { color: var(--text); border-color: rgba(var(--good-rgb), 0.5); background: rgba(var(--good-rgb), 0.1); }
+.v0201-facts { min-width: 0; }
+.v0201-kind-row { align-items: center; }
+.of-dur { margin-top: 6px; }
+.v14-tender .dur { margin: 2px 0; }
+/* The sub-lease advice: what still blocks, said once where the trips are listed. */
+.v12-clash-nofit, .of-nofit, .sl-nofit, .sl-fit { line-height: 1.4; }

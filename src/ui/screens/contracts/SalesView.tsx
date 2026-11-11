@@ -7,7 +7,7 @@
 import { Briefcase, ChevronDown, ChevronRight, Handshake, Megaphone, Send, Users } from 'lucide-react';
 import { useEffect } from 'react';
 import { useMemo, useState } from 'react';
-import { salesRepsView } from '../../../engine/commercial';
+import { leadSourceLine, salesRepsView } from '../../../engine/commercial';
 import { DAY } from '../../../engine/core/time';
 import { flag } from '../../../data/countries';
 import {
@@ -18,7 +18,7 @@ import type { GameState } from '../../../engine/core/types';
 import { Bar, Empty } from '../../components/ui';
 import { money } from '../../format';
 import { store } from '../../store';
-import { BodyTag } from '../../components/ShapeTags';
+import { BodyTag, KindTag } from '../../components/ShapeTags';
 import { Seg } from '../../components/ui';
 
 const pct = (x: number) => `${Math.round(x * 1000) / 10} %`;
@@ -32,13 +32,17 @@ export const leadsUrgent = (g: GameState): number => (g.com?.leads ?? []).filter
 /** The right-hand words of a lead row: what happens next and when. */
 function nextLine(l: LeadView): { text: string; tone: string } {
   const d = l.daysLeft;
-  if (l.stage === 'lead') return { text: d <= 0 ? 'Goes cold today' : `Goes cold in ${d} day${d === 1 ? '' : 's'}`, tone: d <= 3 ? 'warn' : 'muted' };
-  if (l.stage === 'proposal') return { text: d <= 0 ? 'Answer due' : `Answer in ${d} d`, tone: 'muted' };
+  // v0.20.1 the day itself beside the count (a date is easier to hold on to than "in 5 days").
+  if (l.stage === 'lead') return { text: d <= 0 ? 'Goes cold today' : `Goes cold in ${d} day${d === 1 ? '' : 's'} (${fmtDay(l.expires)})`, tone: d <= 3 ? 'warn' : 'muted' };
+  if (l.stage === 'proposal') return { text: d <= 0 ? 'Answer due' : `Answer in ${d} day${d === 1 ? '' : 's'} (${fmtDay(l.expires)})`, tone: 'muted' };
   if (l.stage === 'negotiation') return { text: l.offerOpen ? `Answer by ${fmtDay(l.expires)}` : 'Offer closed', tone: 'accent' };
   return { text: fmtDay(l.moved), tone: 'dim' };
 }
 
-function LeadRow({ l, on }: { l: LeadView; on: boolean }) {
+/** v0.20.1 the stage in the player's words: a lead not yet worked is 'New'. */
+const STAGE_WORD: Partial<Record<LeadView['stage'], string>> = { lead: 'New', proposal: 'Proposal sent', negotiation: 'Their offer is in' };
+
+function LeadRow({ g, l, on }: { g: GameState; l: LeadView; on: boolean }) {
   const done = l.stage === 'signed' || l.stage === 'lost' || l.stage === 'cold';
   const next = nextLine(l);
   const drop = () => store.openModal({ kind: 'confirm', title: `Drop the ${l.clientName} lead?`, body: `${l.title ?? 'The job'}, about ${usdK(l.value)}. Nothing else is lost.`, confirm: 'Drop', danger: true, onConfirm: () => store.act((g) => dropLead(g, l.id)) });
@@ -46,11 +50,13 @@ function LeadRow({ l, on }: { l: LeadView; on: boolean }) {
     <div className={`v16s-row ${on ? 'on' : ''} ${done ? 'done' : ''}`} data-lead={l.id}>
       <span className="col grow" style={{ minWidth: 0, gap: 2 }}>
         <span className="row gap-6 v16s-head" style={{ minWidth: 0, alignItems: 'center' }}>
-          <b className="ellipsis">{flag(l.country)} {l.clientName} <span className={`chip v16s-chip ${l.stage === 'signed' ? 'good' : l.stage === 'negotiation' ? 'accent' : l.stage === 'lost' || l.stage === 'cold' ? 'warn' : ''}`}>{l.stageName}</span></b>
+          <b className="ellipsis">{flag(l.country)} {l.clientName} <span className={`chip v16s-chip ${l.stage === 'signed' ? 'good' : l.stage === 'negotiation' ? 'accent' : l.stage === 'lost' || l.stage === 'cold' ? 'warn' : ''}`}>{STAGE_WORD[l.stage] ?? l.stageName}</span></b>
+          {/* v0.20.1 a lead is ours alone (a tender is a contest): the tag, what it means behind its '?'. */}
+          {!done && <KindTag kind="lead" />}
           {l.shown && <BodyTag body={l.shown} />}
         </span>
-        <span className="small muted ellipsis">{l.title ?? 'A job'} · about {usdK(l.value)} · {l.sourceName}</span>
-        {done && l.why ? <span className="small dim ellipsis">{l.why}</span> : <span className={`small ${next.tone}`}>{next.text}</span>}
+        <span className="small muted ellipsis">{l.title ?? 'A job'} · about {usdK(l.value)}{done ? ` · ${l.sourceName}` : ''}</span>
+        {done && l.why ? <span className="small dim ellipsis">{l.why}</span> : <span className="small muted v0201-facts">{leadSourceLine(g, l)} · <span className={next.tone}>{next.text}</span></span>}
       </span>
       {!done && (
         <span className="v16s-acts">
@@ -230,11 +236,11 @@ export function LeadsView({ g }: { g: GameState }) {
             Register with a broker (below), go to a fair or visit a client (Markets tab), pitch an airline before the season. A lead waits 14 days for your proposal, then goes cold.
           </Empty>
         )}
-        {live.length > 0 && <div className="v16s-list">{live.map((l) => <LeadRow key={l.id} l={l} on={l.id === sel} />)}</div>}
+        {live.length > 0 && <div className="v16s-list">{live.map((l) => <LeadRow key={l.id} g={g} l={l} on={l.id === sel} />)}</div>}
         {past.length > 0 && (
           <>
             <div className="upper dim" style={{ marginTop: 4 }}>Closed lately</div>
-            <div className="v16s-list">{past.map((l) => <LeadRow key={l.id} l={l} on={l.id === sel} />)}</div>
+            <div className="v16s-list">{past.map((l) => <LeadRow key={l.id} g={g} l={l} on={l.id === sel} />)}</div>
           </>
         )}
       </section>
