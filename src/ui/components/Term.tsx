@@ -11,7 +11,11 @@ import { toCss } from '../device';
 
 let closeOpen: (() => void) | null = null;
 
-function Popover({ id, anchor, onClose, extra, own }: { id: TermId; anchor: HTMLElement; onClose: () => void; extra?: string; own?: boolean }) {
+/**
+ * The small floating box under (or above) its anchor: closes on a tap elsewhere, Escape, a scroll, a dialog or a tab
+ * change. v0.20.1 shared by the glossary terms and the '?' notes (Help.tsx); kept clear of the bug button's corner.
+ */
+export function PopBox({ anchor, onClose, label, children }: { anchor: HTMLElement; onClose: () => void; label: string; children: ReactNode }) {
   const box = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   useLayoutEffect(() => {
@@ -21,9 +25,11 @@ function Popover({ id, anchor, onClose, extra, own }: { id: TermId; anchor: HTML
     const b = el.getBoundingClientRect();
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    const left = Math.min(vw - b.width - 8, Math.max(8, r.left + r.width / 2 - b.width / 2));
+    let left = Math.min(vw - b.width - 8, Math.max(8, r.left + r.width / 2 - b.width / 2));
     const below = r.bottom + 8;
     const top = below + b.height <= vh - 8 ? below : Math.max(8, r.top - b.height - 8);
+    // The bug button lives in the lower left corner (above everything): the box starts to its right there.
+    if (left < BUG_ZONE && top + b.height > vh - BUG_ZONE) left = Math.min(BUG_ZONE, Math.max(8, vw - b.width - 8));
     // v0.12 rects are screen px; the popover is placed in the page's px (Settings › Size zooms the page).
     setPos({ left: toCss(left), top: toCss(top) });
   }, [anchor]);
@@ -51,25 +57,22 @@ function Popover({ id, anchor, onClose, extra, own }: { id: TermId; anchor: HTML
     const off = store.subscribe(() => { if (store.modal !== m0 || store.nav !== n0) shut.current(); });
     return () => { off(); };
   }, []);
-  const e = GLOSSARY[id];
   return createPortal(
-    <div ref={box} className="term-pop" role="dialog" aria-label={e.term} style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: 'hidden' }}>
-      <b>{e.term}</b>
-      {!(own && extra) && <span className="small">{e.short}</span>}
-      {extra && <span className={`small ${own ? '' : 'muted'}`}>{extra}</span>}
-      <button className="btn btn-sm btn-ghost term-more" onClick={() => { onClose(); store.openModal({ kind: 'glossary', term: id }); }}>Glossary ›</button>
+    <div ref={box} className="term-pop" role="dialog" aria-label={label} style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: 'hidden' }}>
+      {children}
     </div>,
     document.body,
   );
 }
+/** Screen px kept free around the lower left corner (the bug button and its gap, with a margin). */
+const BUG_ZONE = 48;
 
 /**
- * v0.7.4 `extra`: a line about this very thing under the glossary meaning (e.g. this aircraft's longest day).
- * v0.9 `own`: `extra` says it all, so it replaces the glossary meaning (no line said twice).
+ * One popover at a time: opening one closes the one that was open. Returns [open, toggle, close] for a component's
+ * own popover.
  */
-export function Term({ id, children, extra, own }: { id: TermId; children?: ReactNode; extra?: string; own?: boolean }) {
+export function usePopover(): [boolean, (e: { stopPropagation: () => void; preventDefault?: () => void }) => void, () => void] {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
   const close = () => {
     setOpen(false);
     if (closeOpen === close) closeOpen = null;
@@ -83,6 +86,28 @@ export function Term({ id, children, extra, own }: { id: TermId; children?: Reac
     setOpen(true);
   };
   useEffect(() => () => { if (closeOpen === close) closeOpen = null; }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return [open, toggle, close];
+}
+
+function Popover({ id, anchor, onClose, extra, own }: { id: TermId; anchor: HTMLElement; onClose: () => void; extra?: string; own?: boolean }) {
+  const e = GLOSSARY[id];
+  return (
+    <PopBox anchor={anchor} onClose={onClose} label={e.term}>
+      <b>{e.term}</b>
+      {!(own && extra) && <span className="small">{e.short}</span>}
+      {extra && <span className={`small ${own ? '' : 'muted'}`}>{extra}</span>}
+      <button className="btn btn-sm btn-ghost term-more" onClick={() => { onClose(); store.openModal({ kind: 'glossary', term: id }); }}>Glossary ›</button>
+    </PopBox>
+  );
+}
+
+/**
+ * v0.7.4 `extra`: a line about this very thing under the glossary meaning (e.g. this aircraft's longest day).
+ * v0.9 `own`: `extra` says it all, so it replaces the glossary meaning (no line said twice).
+ */
+export function Term({ id, children, extra, own }: { id: TermId; children?: ReactNode; extra?: string; own?: boolean }) {
+  const [open, toggle, close] = usePopover();
+  const ref = useRef<HTMLSpanElement>(null);
   const e = GLOSSARY[id];
   if (!e) return <>{children}</>;
   return (

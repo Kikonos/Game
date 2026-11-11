@@ -95,8 +95,8 @@ function TripActions({ g, offerId, flightId, others, onClose, back, alone }: { g
         </button>
         <span className={`small v12-ta-why ${sub.ok ? 'muted' : 'warn'}`}>{sub.ok ? `${SUBLEASE_LINE} Best: ${sub.best!.rivalName}.` : sub.reason}</span>
       </div>
-      {/* v0.20.1 (bmwbb036sdk6l) said before anything is paid: this trip gone, the job still won't fit. */}
-      {alone && <span className="small warn v12-ta-note">On its own this won't make room for this job: {alone}.</span>}
+      {/* v0.20.1 (bmwbb036sdk6l) said before anything is paid: this trip gone, the others still in the way. */}
+      {alone && <span className="small warn v12-ta-note">{alone}</span>}
     </div>
   );
 }
@@ -108,10 +108,12 @@ function ClashList({ g, o, r, trips, picked, onPick, others, back }: { g: GameSt
   const groups = subleaseGroups(trips);
   const pickedTrip = picked ? trips.find((t) => t.legIds.includes(picked)) : undefined;
   // v0.20.1 (bmwbb036sdk6l) every trip in the way gone: does the job then fit? (and the picked one alone, when not all)
-  const all = useMemo(() => (trips.length ? freeUpOf(g, o.id, r) : null), [g, o.id, r, trips]);
-  const one = useMemo(() => (pickedTrip && trips.length > 1 && all?.fits ? freeUpOf(g, o.id, r, {}, pickedTrip) : null), [g, o.id, r, pickedTrip, trips.length, all]);
+  // (freeUpOf keeps one answer per report.) The line under the heading says it when even all of them won't do.
+  const all = trips.length ? freeUpOf(g, o.id, r) : null;
+  const one = pickedTrip && trips.length > 1 && all?.fits ? freeUpOf(g, o.id, r, {}, pickedTrip) : null;
   if (!trips.length && !progs.length && !checks.length) return null;
-  const alone = all && !all.fits ? all.still : one && !one.fits ? `the other ${trips.length - 1 === 1 ? 'trip' : `${trips.length - 1} trips`} in the way too` : null;
+  const rest = trips.length - 1;
+  const alone = one && !one.fits ? `This trip alone won't make room: ${rest === 1 ? 'the other trip is' : `the other ${rest} trips are`} in the way too.` : null;
   return (
     <div className="col gap-6 v12-clash">
       <div className="row gap-8 wrap v12-clash-head">
