@@ -134,11 +134,11 @@ function Rules({ v }: { v: HeadView }) {
     case 'watch':
       return <AlertRules v={v} />;
     case 'analyst':
-      return <div className="small dim">No settings: it scores every open offer, suggests a counter, and advises on a route's business case.</div>;
+      return <div className="small dim">No settings.</div>;
     case 'netPlanner':
-      return <div className="small dim">No settings: it sharpens market studies, weighs fuel stop against stopover, and lists routes worth a study in Network.</div>;
+      return <div className="small dim">No settings.</div>;
     default:
-      return <div className="small dim">No settings: it works to the fleet's own plan.</div>;
+      return <div className="small dim">No settings.</div>;
   }
 }
 
