@@ -16,6 +16,7 @@ import type { Client, GameState, LedgerCat, Minute } from '../core/types';
 import { costTotal, passThrough, routeMonthCosts, sectorCost } from './costs';
 import { baseFare, cabinFor, chainOf, seasonCode, departureDemand, freqPerWeek, localToUtc, MARKET_BY_ID, marketOfRoute, serviceHours, slotX, usd, weeklyMarket, type Dir } from './model';
 import { pushRouteNote } from './notes';
+import { checkAchievements } from '../ops/achievements';
 import { acmiNetBH, aircraftCostBH, crewAwayCost, crewCostBH } from './pnl';
 import { bcCapOf, fifthOf, gateBC, legMarkets, shareSeats } from './stopover';
 import { payloadMax } from './sales';
@@ -963,6 +964,9 @@ export function stepLaunch(g: GameState, r: Route): void {
       cs.state = 'waiting';
       cs.start = g.now;
       pushRouteNote(g, r, 'warn', `Study done: ${m.city}`, `About ${p50} travellers a week both ways could fly with us (${r.study.est.p10}–${r.study.est.p90}). The business case waits for your answer.`, null);
+      // v0.22 the first finished study earns the network planner at once (the daily check ran before this handler: the
+      // business case's "Hire a network planner" led to a head still locked until the next day).
+      checkAchievements(g, { ids: ['firstStudy'] });
     }
     return;
   }

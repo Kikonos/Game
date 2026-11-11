@@ -7,7 +7,8 @@ import { createPortal } from 'react-dom';
 import { GLOSSARY, type TermId } from '../../data/glossary';
 import { store } from '../store';
 import { termSegments } from './problemLogic';
-import { toCss } from '../device';
+import { toCss, uiZoomNow } from '../device';
+import { placePop, type Insets } from './popPlace';
 
 let closeOpen: (() => void) | null = null;
 
@@ -23,20 +24,11 @@ export function PopBox({ anchor, onClose, label, children }: { anchor: HTMLEleme
     if (!el) return;
     const r = anchor.getBoundingClientRect();
     const b = el.getBoundingClientRect();
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    let left = Math.min(vw - b.width - 8, Math.max(8, r.left + r.width / 2 - b.width / 2));
-    const below = r.bottom + 8;
-    const top = below + b.height <= vh - 8 ? below : Math.max(8, r.top - b.height - 8);
-    // The bug button lives in the lower left corner (above everything): the box starts to its right there. v0.22 by
-    // where the button really is (a phone on its side moves it in by the safe area); with no room beside it, above it.
-    const bug = document.querySelector('.bug-corner')?.getBoundingClientRect();
-    const zone = bug && bug.width ? { right: bug.right + 8, top: bug.top - 8 } : { right: BUG_ZONE, top: vh - BUG_ZONE };
-    let y = top;
-    if (left < zone.right && y + b.height > zone.top) {
-      if (vw - b.width - 8 >= zone.right) left = zone.right;
-      else y = Math.max(8, zone.top - b.height);
-    }
+    // v0.22 the placement is popPlace.ts: under the anchor or above it, whole on the screen, inside the device's safe
+    // area (a phone on its side: the camera island's strip and the home bar) and clear of the bug button, by where the
+    // button really is (a phone on its side moves it in by the safe area).
+    const bug = document.querySelector('.bug-corner')?.getBoundingClientRect() ?? null;
+    const { left, top: y } = placePop(r, b, window.innerWidth, window.innerHeight, safeInsets(), bug);
     // v0.12 rects are screen px; the popover is placed in the page's px (Settings › Size zooms the page).
     setPos({ left: toCss(left), top: toCss(y) });
   }, [anchor]);
@@ -78,8 +70,18 @@ export function PopBox({ anchor, onClose, label, children }: { anchor: HTMLEleme
     document.body,
   );
 }
-/** Screen px kept free around the lower left corner (the bug button and its gap, with a margin). */
-const BUG_ZONE = 48;
+/** The device's safe-area insets in screen px (the page's own --safe-* lengths, read off a probe; 0 where none). */
+function safeInsets(): Insets {
+  const probe = document.createElement('div');
+  probe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0;visibility:hidden;pointer-events:none;padding:var(--vp-safe-t,0px) var(--safe-r,0px) var(--vp-safe-b,0px) var(--safe-l,0px)';
+  document.body.appendChild(probe);
+  const cs = getComputedStyle(probe);
+  const z = uiZoomNow();
+  const px = (v: string) => (parseFloat(v) || 0) * z;
+  const out = { t: px(cs.paddingTop), r: px(cs.paddingRight), b: px(cs.paddingBottom), l: px(cs.paddingLeft) };
+  probe.remove();
+  return out;
+}
 
 /**
  * One popover at a time: opening one closes the one that was open. Returns [open, toggle, close] for a component's

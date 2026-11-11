@@ -213,7 +213,8 @@ export function createChecker(opts: CheckerOpts = {}) {
           const sec = rot.sectors[i];
           if (sec.flownY !== undefined && sec.flownY + (sec.flownJ ?? 0) > sec.capJ + sec.capY + 1) err('route-load', g.now, `${r.marketId} ${rot.id}: ${sec.from}-${sec.to} flew ${sec.flownY + (sec.flownJ ?? 0)} on ${sec.capJ + sec.capY} seats`);
           if (!f || f.status === 'cancelled') continue;
-          if (f.from !== sec.from || f.to !== sec.to) err('route-chain', g.now, `${r.marketId} ${rot.id}: flight ${f.no} ${f.from}-${f.to} on sector ${sec.from}-${sec.to}`);
+          // v0.22 a leg that diverted en route landed at its alternate (f.div.to0 is where it was going): still this sector.
+          if (f.from !== sec.from || (f.div?.to0 ?? f.to) !== sec.to) err('route-chain', g.now, `${r.marketId} ${rot.id}: flight ${f.no} ${f.from}-${f.to} on sector ${sec.from}-${sec.to}`);
           const prev = fl[i - 1];
           if (prev && prev.status !== 'cancelled' && f.aircraftId && prev.aircraftId === f.aircraftId && f.status === 'scheduled' && prev.status === 'scheduled' && f.std < prev.sta + 30) err('route-turn', g.now, `${r.marketId} ${rot.id}: ${f.no} leaves ${f.std - prev.sta} min after ${prev.no} lands`);
         }

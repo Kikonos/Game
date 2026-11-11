@@ -11,13 +11,14 @@ import { BAL } from '../../../engine/core/balance';
 import { fmtDay } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
 import {
-  benchmarkRate, closeCreditLine, creditLimitFor, creditOpenWhy, creditView, drawCredit, ebitda12, loanPayoff, moneyMarketBalance, moneyMarketRate, netDebt, pct1, repayCredit, repayLoan, totalDebt,
+  benchmarkRate, closeCreditLine, creditView, drawCredit, ebitda12, loanPayoff, moneyMarketBalance, moneyMarketRate, netDebt, pct1, repayCredit, repayLoan, totalDebt,
 } from '../../../engine/finance';
 import { covenantBreachCard } from '../../../engine/problems/money';
 import { ProblemCardView } from '../../components/ProblemCard';
 import { Bar, Card, Stepper } from '../../components/ui';
 import { money } from '../../format';
 import { store } from '../../store';
+import { creditOfferWords } from './bankLogic';
 import { LessorRating } from './LessorRating';
 
 const F = BAL.v016.finance;
@@ -48,12 +49,14 @@ function CreditRow({ g, open, onToggle }: { g: GameState; open: boolean; onToggl
   const [draw, setDraw] = useState<number>(F.credit.drawStep);
   const [repay, setRepay] = useState<number>(F.credit.drawStep);
   if (!v) {
-    const why = creditOpenWhy(g);
-    const limit = creditLimitFor(g);
+    // v0.22 the row names the line the dialog offers (below zero: the smaller secured one), never the normal limit.
+    const { why, line, limit, secured } = creditOfferWords(g);
     return (
-      <BankRow icon={<Landmark />} name="Credit line" line={why ?? (limit ? `About ${money(limit)} on offer` : 'Draw and repay any time')} value="None" tone="dim" open={open} onToggle={onToggle}
+      <BankRow icon={<Landmark />} name="Credit line" line={line} value="None" tone="dim" open={open} onToggle={onToggle}
         action={<button className="btn btn-sm btn-primary" disabled={!!why} onClick={() => store.openModal({ kind: 'financing', what: 'credit' })}>Ask for one</button>}>
-        <p>A revolving line from the bank: draw and repay any time, interest only on what is drawn. The bank sizes it on your last six months' revenue and the owned fleet{limit ? `: about ${money(limit)} today` : ''}.</p>
+        {secured
+          ? <p>A revolving line from the bank: draw and repay any time, interest only on what is drawn. With cash below zero the bank lends only against security, unpaid invoices and owned aircraft{limit ? `: about ${money(limit)} today` : ''}.</p>
+          : <p>A revolving line from the bank: draw and repay any time, interest only on what is drawn. The bank sizes it on your last six months' revenue and the owned fleet{limit ? `: about ${money(limit)} today` : ''}.</p>}
       </BankRow>
     );
   }

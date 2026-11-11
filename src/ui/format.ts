@@ -28,8 +28,10 @@ export function compact(v: number): string {
   return `${Math.round(v)}`;
 }
 
+/** '51%', '−22%' (the same minus sign as money(); never '−0%'). */
 export function pct(v: number, digits = 0): string {
-  return `${(v * 100).toFixed(digits)}%`;
+  const a = (Math.abs(v) * 100).toFixed(digits);
+  return `${v < 0 && Number(a) !== 0 ? '−' : ''}${a}%`;
 }
 
 export function hours(h: number): string {

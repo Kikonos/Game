@@ -28,6 +28,12 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'Contract cards show the whole title, and the Crew screen keeps its head count on one line.',
       'Route launch: the list of stages stays in view while you scroll the plan.',
       'Phone held upright: no button hides under the bug button any more.',
+      'On a phone, a "?" note keeps clear of the camera island and the home bar, and opens beside its "?" when it is long.',
+    ],
+    fixes: [
+      'Finance › The bank: below zero the Credit line row now shows the secured line the bank really offers, not the bigger normal one.',
+      'The network planner is earned the moment your first study is done, not a day later.',
+      'Build your own route: a fuel stop the aircraft does not need is shown as its own choice beside Nonstop and Stopover.',
     ],
   },
   {

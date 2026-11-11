@@ -17,6 +17,9 @@ import { store } from '../store';
 import { lockOf } from '../../engine/scenario';
 
 const ROLE_PLURAL: Record<Role, string> = { CPT: 'Captains', FO: 'First officers', PUR: 'Pursers', CC: 'Cabin crew' };
+/** '+2', '−6': a signed whole number with the true minus sign. */
+const signedInt = (v: number): string => (v > 0 ? `+${v}` : v < 0 ? `−${Math.abs(v)}` : '0');
+
 const k = (v: number) => (v >= 1_000_000 ? `$${(v / 1_000_000).toFixed(2)}M` : `$${Math.round(v / 1000)}K`);
 const h = (v: number) => `${Math.round(v)} h`;
 
@@ -54,7 +57,7 @@ function SurplusRow({ g, s }: { g: GameState; s: UtilSurplus }) {
       {rq && (
         <div className="cu-quote small">
           <div className="cu-q-ctl"><span className="muted">Let go</span><Stepper value={Math.min(n, s.n)} min={1} max={Math.max(1, s.n)} onChange={setN} /></div>
-          <p className="muted">{rq.why ?? `The least flown, then the newest. ${rq.noticeDays} days' notice (they fly as rostered until ${fmtDay(rq.leaves - 1)}); severance ${k(rq.severance)} now, half a month's pay a year served; then ${k(rq.saved)} a month less. Morale ${REDUNDANCY.moraleGroup} for their colleagues, ${REDUNDANCY.moraleAll} for everyone else.`}</p>
+          <p className="muted">{rq.why ?? `The least flown, then the newest. ${rq.noticeDays} days' notice (they fly as rostered until ${fmtDay(rq.leaves - 1)}); severance ${k(rq.severance)} now, half a month's pay a year served; then ${k(rq.saved)} a month less. Morale ${signedInt(REDUNDANCY.moraleGroup)} for their colleagues, ${signedInt(REDUNDANCY.moraleAll)} for everyone else.`}</p>
           <button className="btn btn-sm btn-danger" disabled={!!rq.why} onClick={() => { store.act((gg) => makeRedundant(gg, fam, s.role, n)); setAct('none'); }}>Give notice</button>
         </div>
       )}

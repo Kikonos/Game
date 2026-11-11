@@ -82,3 +82,8 @@
 .mk17-deal b.ellipsis { white-space: normal; overflow: visible; }
 .mk17-deal .row.between { align-items: flex-start; }
 .mk17-deal .row.between > .badge { flex: none; }
+
+/* The stop comparison with three ways (nonstop, the fuel stop the route has, the stopover): three columns; a phone
+   upright stacks them (v019.css). */
+.nv-stop-cols.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 520px) { .nv-stop-cols.three { grid-template-columns: 1fr; } }

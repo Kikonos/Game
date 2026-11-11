@@ -21,9 +21,9 @@ import { Modal, Seg } from '../../components/ui';
 import { Help } from '../../components/Help';
 import { int, money } from '../../format';
 import { store, useGame } from '../../store';
-import { StopCompareCard } from './LaunchWizard';
+import { StopCompareCard, type StopPick } from './LaunchWizard';
 import { net } from './netApi';
-import { hhmm, MODEL_HINT, rightsWord, searchAirports } from './networkLogic';
+import { hhmm, MODEL_HINT, rightsWord, searchAirports, stopChosen } from './networkLogic';
 import { RouteMap } from './RouteMap';
 
 const DEPTHS: StudyDepth[] = ['desk', 'full', 'survey'];
@@ -166,6 +166,11 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
   const md = models.includes(model) ? model : models[0];
   const acc = studyAccuracy(depth, true, g);
   const cfg = BAL.v019.launch.study[depth];
+  // v0.22 a column of the side-by-side: the stopover, the fuel stop, or (when the aircraft reaches) nonstop: the stop goes.
+  const pickStop = (k: StopPick) => {
+    if (k === 'plain' && cmp?.plain.mode === 'nonstop') setStops({ via: [], viaBack: [] });
+    setSell(k === 'stopover');
+  };
   const pickTo = (c: string) => { setTo(c); setStops(null); setAddStop(false); setSell(false); };
   const pickFrom = (c: string) => { setFrom(c); setStops(null); setSell(false); };
   const go = () => {
@@ -256,11 +261,11 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
         </div>
       </div>
       {cat && <div className="small warn crb-cat">{cat.city} from {AIRPORT_BY_CODE[cat.from]?.city} is one of the suggested markets, already researched: open it there.</div>}
-      {cat && cmp && to && <div className="crb-below"><StopCompareCard cmp={cmp} mode="plain" from={from} to={to} studied={false} onPick={(k) => setSell(k === 'stopover')} /></div>}
+      {cat && cmp && to && <div className="crb-below"><StopCompareCard cmp={cmp} mode={stopChosen(cmp, false)} from={from} to={to} studied={false} onPick={pickStop} /></div>}
       {m && !cat && (
         <div className="crb-below">
           {block && <div className="small warn">{block}</div>}
-          {cmp && to && <StopCompareCard cmp={cmp} mode={stopover ? 'stopover' : 'plain'} from={from} to={to} studied={false} onPick={(k) => setSell(k === 'stopover')} />}
+          {cmp && to && <StopCompareCard cmp={cmp} mode={stopChosen(cmp, stopover)} from={from} to={to} studied={false} onPick={pickStop} />}
           <MarketPreview m={m} typeId={typeId} />
           {models.length > 1 && (
             <div className="col gap-6">

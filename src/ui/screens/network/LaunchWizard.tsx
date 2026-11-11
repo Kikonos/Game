@@ -20,7 +20,7 @@ import { int, money, moneyDelta, pct } from '../../format';
 import { store, useGame } from '../../store';
 import { LaunchProgress } from './bits';
 import { net, type BusinessCase, type CaseDraft, type Recommendation } from './netApi';
-import { DAY_SHORT, daysOf, hhmm, lastQuarters, marketBlock, marketOf, MODEL_HINT, routeCode, routeName, seriesWords, STAGE_LABEL } from './networkLogic';
+import { DAY_SHORT, daysOf, hhmm, lastQuarters, marketBlock, marketOf, MODEL_HINT, routeCode, routeName, seriesWords, STAGE_LABEL, stopChosen } from './networkLogic';
 import { RouteMap } from './RouteMap';
 
 const MODEL_WORD: Record<RouteModel, string> = { own: 'Own brand', partner: 'For a partner', tour: 'Holidays charter' };
@@ -305,11 +305,18 @@ function VerdictCard({ c }: { c: EngineCase }) {
 }
 
 /** v0.21 the stop of a route flown two ways, side by side, with the switch (report bmwbiobsokzf4). */
-export function StopCompareCard({ cmp, mode, onPick, from, to, studied }: { cmp: StopCompare; mode: 'stopover' | 'plain'; onPick?: (m: 'stopover' | 'plain') => void; from: string; to: string; studied: boolean }) {
+export type StopPick = 'stopover' | 'plain' | 'fuel';
+/**
+ * `mode`: how the route is flown now. v0.22 'fuel' is a fuel stop the aircraft does not need (it also reaches nonstop):
+ * the card then shows all three ways, and "Chosen" sits on the one the route really has (stopChosen).
+ */
+export function StopCompareCard({ cmp, mode, onPick, from, to, studied }: { cmp: StopCompare; mode: StopPick; onPick?: (m: StopPick) => void; from: string; to: string; studied: boolean }) {
   const B = AIRPORT_BY_CODE[cmp.at]?.city ?? cmp.at;
   const C = AIRPORT_BY_CODE[to]?.city ?? to;
-  const cols: { key: 'plain' | 'stopover'; title: string; sub: string; o: StopCompare['plain'] }[] = [
-    { key: 'plain', title: cmp.plain.label, sub: cmp.plain.mode === 'nonstop' ? 'no landing on the way' : `lands at ${cmp.at} for fuel, nobody gets on or off`, o: cmp.plain },
+  const fuelSub = `lands at ${cmp.at} for fuel, nobody gets on or off`;
+  const cols: { key: StopPick; title: string; sub: string; o: StopCompare['plain'] }[] = [
+    { key: 'plain', title: cmp.plain.label, sub: cmp.plain.mode === 'nonstop' ? 'no landing on the way' : fuelSub, o: cmp.plain },
+    ...(cmp.fuel ? [{ key: 'fuel' as const, title: cmp.fuel.label, sub: fuelSub, o: cmp.fuel }] : []),
     { key: 'stopover', title: 'Stopover', sub: `passengers get off and on at ${cmp.at}`, o: cmp.stopover },
   ];
   const any = cmp.odds.full + cmp.odds.limited;
@@ -323,7 +330,7 @@ export function StopCompareCard({ cmp, mode, onPick, from, to, studied }: { cmp:
           <p>{studied ? 'These figures use the study and your plan.' : 'These are a first guess for a weekly flight; the study tells the real size.'}</p>
         </Help>
       </div>
-      <div className="nv-stop-cols">
+      <div className={`nv-stop-cols ${cols.length > 2 ? 'three' : ''}`}>
         {cols.map((x) => (
           <button key={x.key} className={`nv-stop-col ${mode === x.key ? 'on' : ''}`} aria-pressed={mode === x.key} disabled={!onPick || !!x.o.cant} onClick={() => onPick?.(x.key)}>
             <span className="row between gap-6"><b>{x.title}</b>{mode === x.key && <span className="nv-tag-on">Chosen</span>}</span>
@@ -424,7 +431,7 @@ function CaseCard({ g, r }: { g: GameState; r: Route }) {
       {draft && m && <RouteMap from={m.from} to={m.to} via={m.via} viaBack={m.viaBack} typeId={draft.typeId} rivals={m.competitors} height={200} className="nw-case-map" />}
       {draft && <DraftEditor g={g} m={m} d={draft} set={setDraft} />}
       {draft && <AdviceCard g={g} r={r} draft={draft} apply={apply} />}
-      {cmp && m && <StopCompareCard cmp={cmp} mode={m.stopover ? 'stopover' : 'plain'} from={m.from} to={m.to} studied onPick={(k) => switchStop(k === 'stopover' ? 'stopover' : cmp.plain.mode)} />}
+      {cmp && m && <StopCompareCard cmp={cmp} mode={stopChosen(cmp, !!m.stopover)} from={m.from} to={m.to} studied onPick={(k) => switchStop(k === 'stopover' ? 'stopover' : k === 'fuel' ? 'fuel' : cmp.plain.mode)} />}
       {c ? (
         <div className="col gap-10">
           <div className="row between"><b className="small">First 12 months</b><span className="tiny muted">launch costs {money(c.launchCost)}</span></div>
