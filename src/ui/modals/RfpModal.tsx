@@ -93,7 +93,7 @@ export function RfpModal({ typeId: wanted }: { typeId?: string }) {
           <span className="upper dim">Lease</span>
           <div className="col gap-4" style={{ minWidth: 0 }}>
             <Seg<number> value={term} onChange={setMonths} options={TERMS.filter((m) => band !== 'new' || m >= minNew).map((m) => ({ value: m, label: `${m}` }))} />
-            <span className="tiny dim">Months. Lessors usually offer {bands.find((b) => b.value === band)?.usual} months on a {bands.find((b) => b.value === band)?.label.toLowerCase()} aircraft; shorter costs more.</span>
+            <span className="tiny dim">Months · usual {bands.find((b) => b.value === band)?.usual} · shorter costs more</span>
           </div>
         </div>
         <div className="rf-row">
@@ -113,7 +113,7 @@ export function RfpModal({ typeId: wanted }: { typeId?: string }) {
       </div>
       <div className="rf-box mt-12">
         <b className="small">{p.text || 'No lessor to ask'}</b>
-        {fromT === null && <span className="tiny dim">As soon as possible: only aircraft in storage can go, so fewer lessors have one. Asking four to six months ahead works best.</span>}
+        {fromT === null && <span className="tiny dim">As soon as possible: stored aircraft only, fewer lessors</span>}
         {p.lessors.length > 0 && (
           <div className="rf-lessors">
             {p.lessors.map((l) => <span key={l.id} className={`chip mk-chip ${l.ok ? 'good' : 'warn'}`} data-tip={l.why}>{l.ok ? `${l.name} ✓` : `${l.name}: ${l.why ?? 'not now'}`}</span>)}

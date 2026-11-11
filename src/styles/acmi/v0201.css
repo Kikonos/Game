@@ -10,6 +10,10 @@
 .help-q.on { color: var(--accent); border-color: var(--accent); }
 .help-q:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) { .help-q:hover { color: var(--text); } }
+/* v0.22 in a heading or a label set in capitals the '?' keeps its own shape. Its note also opens over the spec sheet's
+   layer (z 1400) and stays under the bug button (z 1500). */
+.help-q { letter-spacing: 0; text-transform: none; font-style: normal; }
+body > .term-pop { z-index: 1450; }
 
 /* ---------- the duration strip (components/DurationStrip.tsx): one line, month cells then the length in words ---------- */
 .dur { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; min-width: 0; }
