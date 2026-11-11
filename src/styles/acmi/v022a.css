@@ -7,4 +7,6 @@
 /* The popover never wider than the screen (a phone held upright). */
 .term-pop { max-width: calc(100vw - 16px); }
 /* The colour legends: the gestures block under the swatches. */
-.lg-pop { max-height: min(70vh, 560px); overflow-y: auto; overscroll-behavior: contain; }
+.lg-pop { overflow-y: auto; overscroll-behavior: contain; }
+/* Opened from the foot of a screen (the roster board): the box goes up, not below the screen's edge. */
+.lg-pop.up { top: auto; bottom: calc(100% + 8px); }

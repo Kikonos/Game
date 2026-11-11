@@ -86,8 +86,8 @@ export function ApprovalModal({ id }: { id: ApprovalId }) {
             ))}
           </div>
           {reqs.filter((r) => r.etops).map((r) => <EtopsBreakdown key={r.label} g={g} min={r.etops!} days={180} />)}
-          {reqs.some((r) => r.label === 'ETOPS maintenance programme') && <div className="small muted mt-8">ETOPS maintenance programme: {money(mx.cost)}, about {mx.days} days</div>}
-          <div className="small muted mt-8">{money(def.cost)} filing fee{def.grantCost ? ` + ${money(def.grantCost)} at the grant` : ''} · about {def.days} days <Help title="When it is granted">Granted only with pilots actually rated, no illegal crew duties and the technical reliability met.{reqs.some((r) => r.label === 'ETOPS maintenance programme') ? ' You can apply while the ETOPS maintenance programme is being set up; the grant waits for it.' : ''}</Help></div>
+          {reqs.some((r) => r.label === 'ETOPS maintenance programme' && !r.ok) && <div className="small muted mt-8">ETOPS maintenance programme: {money(mx.cost)}, about {mx.days} days</div>}
+          <div className="small muted mt-8">{money(def.cost)} filing fee{def.grantCost ? ` + ${money(def.grantCost)} at the grant` : ''} · about {def.days} days <Help title="When it is granted">Granted only with pilots actually rated, no illegal crew duties and the technical reliability met.{reqs.some((r) => r.label === 'ETOPS maintenance programme' && !r.ok) ? ' You can apply while the ETOPS maintenance programme is being set up; the grant waits for it.' : ''}</Help></div>
           <div className="small muted">An illegal crew duty while pending adds 30 days.</div>
         </>
       )}
