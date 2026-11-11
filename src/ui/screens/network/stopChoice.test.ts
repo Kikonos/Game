@@ -11,6 +11,7 @@ import { devAddType } from '../../../engine/dev';
 import { createGame } from '../../../engine/newGame';
 import { hireHead, unlockHead } from '../../../engine/ops/heads';
 import { caseAdvice, caseDraft, marketOfRoute, setStop, startStudy, stopoverCompare, studyBase } from '../../../engine/network';
+import { countryNameThe } from '../../../data/countries';
 import { stopChosen } from './networkLogic';
 
 const newGame = (seed = 5) => createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed });
@@ -28,6 +29,20 @@ function atCase(g: GameState, id: string): string {
   cs.start = g.now;
   return r.id;
 }
+
+describe('country names inside a sentence', () => {
+  it('"inside the United States", "the Netherlands", plain "Portugal"', () => {
+    expect(countryNameThe('US')).toBe('the United States');
+    expect(countryNameThe('GB')).toBe('the United Kingdom');
+    expect(countryNameThe('AE')).toBe('the United Arab Emirates');
+    expect(countryNameThe('NL')).toBe('the Netherlands');
+    expect(countryNameThe('DO')).toBe('the Dominican Republic');
+    expect(countryNameThe('PT')).toBe('Portugal');
+    expect(countryNameThe('BR')).toBe('Brazil');
+    const g = newGame(8);
+    expect(stopoverCompare(g, 'LIS', 'LAX', 'JFK', 'a320ceo')!.odds.why).toContain('inside the United States (cabotage)');
+  });
+});
 
 describe('the stop comparison names the way the route really flies', () => {
   it('an aircraft that reaches nonstop: nonstop, the fuel stop and the stopover are three ways; the fuel stop costs a landing', () => {

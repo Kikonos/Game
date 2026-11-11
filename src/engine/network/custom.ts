@@ -12,7 +12,7 @@
 import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../data/airports';
 import type { CarrierKind } from '../../data/carriers';
 import { CARRIERS, WORLD_HUBS } from '../../data/carriers';
-import { COUNTRIES, countryName } from '../../data/countries';
+import { COUNTRIES, countryName, countryNameThe } from '../../data/countries';
 import { CLOSED_COUNTRY, COUNTRY_RISK, EU_NEAR_OPEN, EU_OPEN, HARD_RIGHTS, TIE_HOTSPOTS, tieBetween } from '../../data/routeTies';
 import { ROUTE_MARKETS, stationFor, type RouteCompetitor, type RouteMarket } from '../../data/routes';
 import { BAL } from '../core/balance';
@@ -414,14 +414,14 @@ export function fifthOdds(from: string, stop: string, to: string): { full: numbe
   const S = BAL.v019.stop;
   const eu = (c: string) => EU_OPEN.has(c);
   if (eu(A.country) && eu(B.country) && eu(C.country)) return { full: 1, limited: 0, why: `Inside the EU: we may sell ${B.city}–${C.city} seats freely.` };
-  if (B.country === C.country) return { full: 0, limited: 0, why: `${B.city}–${C.city} is domestic flying inside ${countryName(B.country)} (cabotage): a foreign airline may not sell it. ${B.city} is a stop for our own ${A.city} passengers only.` };
+  if (B.country === C.country) return { full: 0, limited: 0, why: `${B.city}–${C.city} is domestic flying inside ${countryNameThe(B.country)} (cabotage): a foreign airline may not sell it. ${B.city} is a stop for our own ${A.city} passengers only.` };
   if (B.country === A.country) return { full: 0.9, limited: 0.05, why: `${B.city} is in our own country: ${B.city}–${C.city} needs only the usual rights, as a route of its own.` };
   const hard = Math.max(rightsHardness(B, C), HARD_RIGHTS[B.country] ?? 0, HARD_RIGHTS[C.country] ?? 0);
   const full = Math.max(S.fifthMin, Math.min(S.fifthBase, S.fifthBase - S.fifthHardX * hard + (eu(B.country) ? 0.1 : 0)));
   const limited = Math.min(1 - full, S.fifthLimited);
   return {
     full: Math.round(full * 100) / 100, limited: Math.round(limited * 100) / 100,
-    why: `Selling ${B.city}–${C.city} seats is fifth-freedom traffic: ${countryName(B.country)} and ${countryName(C.country)} must both agree. Often refused or capped${hard >= 0.3 ? ', and these are hard countries for rights' : ''}.`,
+    why: `Selling ${B.city}–${C.city} seats is fifth-freedom traffic: ${countryNameThe(B.country)} and ${countryNameThe(C.country)} must both agree. Often refused or capped${hard >= 0.3 ? ', and these are hard countries for rights' : ''}.`,
   };
 }
 
