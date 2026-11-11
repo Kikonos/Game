@@ -140,12 +140,12 @@ function ClashList({ g, o, r, trips, picked, onPick, others, back }: { g: GameSt
       {progs.map((c) => (
         <div key={c.id} className="small muted v12-clash-prog">
           {c.dry
-            ? <><b>{c.title}</b>: the aircraft is with the lessee then (a dry lease has no flights of ours to move or sub-lease); choose another aircraft or let this job go.</>
-            : <><b>{c.title}</b>: its later days have no flights yet (they are added day by day), so that part shows as one block. It can't be moved or sub-leased until its flights exist; choose another aircraft or let this job go.</>}
+            ? <><b>{c.title}</b>: the aircraft is with the lessee then. Choose another aircraft or let this job go.</>
+            : <><b>{c.title}</b>: its later days have no flights yet, so it can't be moved or sub-leased. Choose another aircraft or let this job go.</>}
         </div>
       ))}
       {checks.map((m) => (
-        <div key={m.id} className="small muted v12-clash-prog"><b>{m.kind === 'AOG' ? 'AOG' : m.kind === 'line' ? 'Inspection' : `${m.kind}-check`} at {m.at}</b> {fmtDay(m.start)}–{fmtDay(m.end)}: move it on the Schedule (hold and drag it along its row).</div>
+        <div key={m.id} className="small muted v12-clash-prog"><b>{m.kind === 'AOG' ? 'AOG' : m.kind === 'line' ? 'Inspection' : `${m.kind}-check`} at {m.at}</b> {fmtDay(m.start)}–{fmtDay(m.end)}: move it on the Schedule.</div>
       ))}
     </div>
   );

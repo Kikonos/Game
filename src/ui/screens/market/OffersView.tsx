@@ -124,7 +124,7 @@ export function OffersView({ g, sel }: { g: GameState; sel?: string | null }) {
         <div className="card sc-pad muted small">None of the {rows.length} offer{rows.length === 1 ? '' : 's'} fits this filter. <button className="btn btn-sm" onClick={() => setF('all')}>Show all</button></div>
       ) : (
         <div className="card sc-pad muted small row gap-12 mk17-empty">
-          <span className="grow">No aircraft on offer right now. Lessors call when an aircraft comes free; or ask them for the one you want.</span>
+          <span className="grow">No aircraft on offer right now.</span>
           {g.leasing && BAL.v017.on && <button className="btn btn-sm btn-primary" onClick={() => store.openModal({ kind: 'rfp' })}><FileSignature /> Ask lessors…</button>}
         </div>
       )}

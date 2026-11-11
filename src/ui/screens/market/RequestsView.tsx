@@ -22,7 +22,7 @@ export function RequestsView({ g, sel, onOffers }: { g: GameState; sel?: Ref | n
   if (!list.length) {
     return (
       <div className="card sc-pad muted small row gap-12 mk17-empty">
-        <span className="grow">No requests yet. Ask lessors for the aircraft you want: type, age, lease and start. They answer in one to three weeks with a proposal or a plain no. Short-term aircraft come from airlines in their quiet season.</span>
+        <span className="grow">No requests yet.</span>
         {!lock && <span className="row gap-8"><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'spot' })}><CalendarClock /> Short-term…</button><button className="btn btn-sm btn-primary" onClick={() => store.openModal({ kind: 'rfp' })}><FileSignature /> Ask lessors…</button></span>}
       </div>
     );

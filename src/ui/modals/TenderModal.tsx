@@ -12,6 +12,7 @@ import { Modal, Seg, Stepper } from '../components/ui';
 import { BodyTag, KindTag } from '../components/ShapeTags';
 import { DurationStrip } from '../components/DurationStrip';
 import { tenderFacts } from '../screens/Tenders';
+import { Help } from '../components/Help';
 import { store, useGame } from '../store';
 
 const pct = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : '±'}${Math.abs(Math.round(v * 100))} %`;
@@ -89,7 +90,9 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
               <Stepper value={mgh} min={q.mghMin} max={q.mghMax} step={10} onChange={setMgh} format={(v) => `${v} BH`} />
             </div>
             <div className="col gap-4">
-              <div className="upper dim">Aircraft</div>
+              <div className="upper dim row gap-6" style={{ alignItems: 'center' }}>Aircraft <Help title="The aircraft in a bid">
+                The aircraft is checked again at the award. If it can no longer fly the job then, you have {TENDER.signDays} days to sign it on another aircraft.
+              </Help></div>
               {fits.length === 0 && <div className="small warn">No {row.body === 'wide' ? 'widebody' : 'narrowbody'} in the fleet to bid.</div>}
               {fits.map((a) => (
                 <button key={a.id} className={`v8-row v14-tn-ac ${a.id === acId ? 'on' : ''}`} onClick={() => setAc(a.id)} aria-pressed={a.id === acId}>
@@ -105,7 +108,7 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
               <div><b>Crew</b><div className="tiny dim">{crew === 'ours' ? q.crewLabel : theirCabin ? `${theirCabin} of their cabin crew with our pilots and purser: −${usd(q.mixedCut)}/BH each, ${usd(netRate)}/BH to us` : `Their cabin crew with our pilots and purser (−${usd(q.mixedCut)}/BH each)`}{q.mixedPref ? ' · they like their own cabin crew on board' : ''}</div></div>
               <Seg<'ours' | 'mixed'> value={crew} onChange={setCrew} options={[{ value: 'ours', label: 'Our crew' }, { value: 'mixed', label: 'Mixed' }]} />
             </div>
-            {q.fixed && <div className="small muted">Dates fixed by the Hajj calendar: {day(t.ask.start)} – {day(t.ask.end - 1)}. The pilgrims fly in and home on these days, so the bid takes them as they are.</div>}
+            {q.fixed && <div className="small muted">Dates fixed by the Hajj calendar: {day(t.ask.start)} – {day(t.ask.end - 1)}</div>}
             {!q.fixed && <><div className="set-row v14-field">
               <div><b>Start</b><div className="tiny dim">They ask {day(t.ask.start)}{q.startRange[0] > t.ask.start + TENDER.startShift[0] * DAY ? ` · not before ${day(q.startRange[0])}: they decide ${fmtDay(row.resultAt)}` : ''}</div></div>
               <Stepper value={ds} min={Math.round((q.startRange[0] - t.ask.start) / DAY)} max={Math.round((q.startRange[1] - t.ask.start) / DAY)} step={7} onChange={setDs} format={(v) => day(t.ask.start + v * DAY)} />
@@ -115,7 +118,6 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
               <Stepper value={de} min={Math.round((q.endRange[0] - t.ask.end) / DAY)} max={Math.round((q.endRange[1] - t.ask.end) / DAY)} step={7} onChange={setDe} format={(v) => day(t.ask.end - 1 + v * DAY)} />
             </div></>}
             {ac?.level === 'no' && <div className="small bad">{ac.reg} cannot fly it on these dates{ac.note ? `: ${ac.note}` : ''}. Choose another aircraft or other dates.</div>}
-            {ac?.level !== 'no' && <div className="tiny dim">Checked again at the award: if {ac?.reg ?? 'the aircraft'} can no longer fly it then, you have {TENDER.signDays} days to sign it on another aircraft.</div>}
             {err && <div className="small bad">{err}</div>}
           </>
         )}
