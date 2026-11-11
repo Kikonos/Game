@@ -81,6 +81,8 @@ interface Rule {
   progress: (g: GameState) => Progress;
 }
 
+const studiesDone = (g: GameState): number => Object.values(g.network?.routes ?? {}).filter((r) => !!r.study?.est).length;
+
 const RULES: Record<AchievementId, Rule> = {
   cleanSheet: { earned: (g) => v9(g).legalStreak >= U().legalSectors, progress: (g) => count(v9(g).legalStreak, U().legalSectors, 'sectors') },
   clockwork: {
@@ -105,6 +107,8 @@ const RULES: Record<AchievementId, Rule> = {
   noOverdue: { earned: (g) => v9(g).lastOverdue !== undefined && days(g, v9(g).lastOverdue) >= 365, progress: (g) => count(days(g, v9(g).lastOverdue), 365, 'days') },
   // v0.9 round 4: the agreed plain count (every contract completed).
   fiveFlown: { earned: (g) => g.stats.contractsDone >= U().contracts, progress: (g) => count(g.stats.contractsDone, U().contracts, 'contracts') },
+  // v0.21 a market study finished (its estimate is in): earns the network planner.
+  firstStudy: { earned: (g) => studiesDone(g) >= 1, progress: (g) => once(studiesDone(g), 'Not yet') },
   paidInTheEnd: { earned: (g) => v9(g).lateGovPaid >= 1, progress: (g) => once(v9(g).lateGovPaid, 'Not yet') },
   partner: {
     earned: (g) => bestLevel(g) >= LEVEL_ORDER.indexOf('partner'),

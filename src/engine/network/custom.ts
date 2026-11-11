@@ -284,6 +284,22 @@ export function customMarket(d: MarketDraft): RouteMarket | null {
     }
     return sm;
   }
+  // v0.21 a researched (catalogue) pair flown with fuel stops: the researched market itself, its stops added.
+  const cat = catalogueOf(d.from, d.to);
+  if (cat && (d.via?.length || d.viaBack?.length)) {
+    const fx = BAL.v019.fares.marketX[cat.id] ?? 1;
+    const r10 = (v: number) => Math.max(10, Math.round(v / 10) * 10);
+    const { partner: _p, stopover: _s, ...b0 } = cat;
+    void _p; void _s;
+    const via = d.via ?? [];
+    const cm: RouteMarket = {
+      ...structuredClone(b0), id, via, viaBack: d.viaBack ?? [...via].reverse(), models: ['own'], model: 'own', custom: true,
+      fareY: [r10(cat.fareY[0] * fx), r10(cat.fareY[1] * fx)], fareJ: [r10(cat.fareJ[0] * fx), r10(cat.fareJ[1] * fx)],
+    };
+    if (marketCache.size > 400) marketCache.clear();
+    marketCache.set(id, cm);
+    return cm;
+  }
   const f = customFacts(d.from, d.to);
   if (!f) return null;
   const A = AIRPORT_BY_CODE[d.from];
@@ -320,12 +336,15 @@ export function customMarket(d: MarketDraft): RouteMarket | null {
   const nonstop = competitors.filter((c) => c.stops === 0);
   const f0 = nonstop.reduce((s, c) => s + c.perWeek, 0);
   // Fares (published, one way, as the catalogue's): by distance, the competition, the travellers' mix.
-  let yx = nonstop.length ? 1 / (1 + 0.006 * f0) : 1.2;
+  // v0.21 nobody nonstop: a premium for the only direct flight, small where one-stop rivals already sell the pair.
+  const oneStop = competitors.filter((c) => c.stops > 0).length;
+  let yx = nonstop.length ? 1 / (1 + 0.006 * f0) : oneStop >= 2 ? 1.02 : oneStop === 1 ? 1.1 : 1.2;
   if (nonstop.some((c) => c.fareX < 0.8)) yx *= 0.78;
   yx *= 1 + 0.4 * (bizS - 0.15);
   yx *= 1 - 0.2 * tourS;
   if (km > 7_000 && od < 20_000) yx *= 1.15;
-  const mid = (110 + 0.09 * km) * yx;
+  // v0.21 fares taper with distance (a long-haul kilometre sells for less than a short one).
+  const mid = (110 + 0.09 * Math.min(km, 5_500) + 0.06 * Math.max(0, km - 5_500)) * yx;
   const r10 = (v: number) => Math.max(10, Math.round(v / 10) * 10);
   const fareY: [number, number] = [r10(mid * 0.6), r10(mid * 1.4)];
   const fareJ: [number, number] = [r10(fareY[0] * 2.9), r10(fareY[1] * 2.4)];

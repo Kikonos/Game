@@ -34,7 +34,7 @@ function spend(g: GameState, r: Route, cat: LedgerCat, amount: number, stage?: L
   const a = Math.round(amount);
   if (!a) return;
   post(g, cat, -a);
-  const p = (r.pnl[monthKeyOf(g.now)] ??= { rev: 0, tickets: 0, cargo: 0, ancillary: 0, direct: 0, acTime: 0, result: 0, pax: 0, seats: 0, bh: 0, sectors: 0, onTime: 0, cargoKg: 0, launch: 0 });
+  const p = (r.pnl[monthKeyOf(g.now)] ??= { rev: 0, tickets: 0, cargo: 0, ancillary: 0, direct: 0, acTime: 0, result: 0, pax: 0, seats: 0, bh: 0, sectors: 0, onTime: 0, cargoKg: 0, launch: 0, paxSec: 0 });
   p.launch += a;
   if (stage) {
     const s = r.stages.find((x) => x.id === stage);
@@ -216,6 +216,8 @@ export interface MoneyParts {
   extras: number;
   /** A partner's fee and the costs it reimburses (partner model). */
   fee: number;
+  /** Of `fee`: the flying costs a partner repays at cost (fuel, airports, handling, catering, navigation). No profit in them. */
+  passed: number;
   fuel: number;
   /** Landing and passenger charges, ground handling, air navigation. */
   airport: number;
@@ -255,7 +257,7 @@ export interface Projection {
   split?: { thr: number; ab: number; bc: number; seats: number };
 }
 
-export const NO_PARTS: MoneyParts = { tickets: 0, cargo: 0, extras: 0, fee: 0, fuel: 0, airport: 0, service: 0, sales: 0, maint: 0, overheads: 0, aircraft: 0, crew: 0 };
+export const NO_PARTS: MoneyParts = { tickets: 0, cargo: 0, extras: 0, fee: 0, passed: 0, fuel: 0, airport: 0, service: 0, sales: 0, maint: 0, overheads: 0, aircraft: 0, crew: 0 };
 
 /** The plan's series (dates from `from`). */
 export function planSeries(p: RoutePlan, from: Minute, id = ''): import('./types').RouteSeries {
@@ -376,6 +378,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
       rev += (tickets + fee + cargo + anc) * deps;
       parts.tickets += tickets * deps;
       parts.fee += fee * deps;
+      parts.passed += pass * deps;
       parts.cargo += cargo * deps;
       parts.extras += anc * deps;
       for (let k = 1; k < c0.length; k++) {
@@ -476,7 +479,9 @@ export interface CaseBand { paxPerSector: number; lf: number; rev: number; cost:
 
 const bandOf = (x: Projection): CaseBand => ({
   paxPerSector: x.sectors ? Math.round(x.paxSec / Math.max(1, x.sectors)) : 0,
-  lf: x.seatSec ? x.paxSec / x.seatSec : 0, rev: Math.round(x.rev), cost: Math.round(x.cost), result: Math.round(x.result), margin: x.rev ? x.result / x.rev : 0,
+  lf: x.seatSec ? x.paxSec / x.seatSec : 0, rev: Math.round(x.rev), cost: Math.round(x.cost), result: Math.round(x.result),
+  // v0.21 a partner repays the flying costs at cost: the margin is on what we earn ourselves (the fee, our cargo share).
+  margin: x.rev - x.parts.passed > 0 ? x.result / (x.rev - x.parts.passed) : 0,
 });
 
 /** v0.21 the business case's plain verdict and the two or three things that drive it. */
@@ -555,7 +560,8 @@ export function businessCase(g: GameState, routeId: string, draft: RoutePlan): B
   const mid = P[1];
   const cost = launchCost(g, { ...r, model: draft.model }, draft);
   const perMonth = mid.result / 12;
-  const breakEvenLf = mid.rev > 0 && mid.seats > 0 ? Math.min(1.5, (mid.cost / mid.rev) * (mid.pax / mid.seats)) : 1;
+  // v0.21 the load factor counts passengers on every sector they sit on (a stopover's locals fly one of two).
+  const breakEvenLf = mid.rev > 0 && mid.seatSec > 0 ? Math.min(1.5, (mid.cost / mid.rev) * (mid.paxSec / mid.seatSec)) : 1;
   const acmi = Math.round(mid.bh * acmiNetBH(g, draft.typeId));
   const notes = deviationNotes(g, r, draft, start, x50);
   const m = marketOfRoute(r)!;
@@ -915,8 +921,14 @@ function startStage(g: GameState, r: Route, id: LaunchStageId): void {
 }
 
 /** The study's accuracy (± share at one sigma-ish) at a depth; a custom pair adds CUSTOM_STUDY_EXTRA. */
-export function studyAccuracy(depth: StudyDepth, custom: boolean): number {
-  return L().study[depth].accuracy + (custom ? CUSTOM_STUDY_EXTRA[depth] : 0);
+export function studyAccuracy(depth: StudyDepth, custom: boolean, g?: GameState): number {
+  return (L().study[depth].accuracy + (custom ? CUSTOM_STUDY_EXTRA[depth] : 0)) * (g ? plannerStudyX(g) : 1);
+}
+
+/** v0.21 a network planner on the team reads a study better: its spread shrinks with the planner's skill. */
+export function plannerStudyX(g: GameState): number {
+  const h = g.heads?.netPlanner;
+  return h?.hired && h.on ? 1 - BAL.v019.planner.studyGain * h.hired.skill : 1;
 }
 
 /** Daily: moves the route's launch stages along (durations, costs, setbacks), opens sales, reminds of decisions. */
@@ -930,7 +942,7 @@ export function stepLaunch(g: GameState, r: Route): void {
       st.state = 'done';
       const base = studyBase(g, r);
       // v0.19.2 an unresearched (custom) pair: a little less accurate at every depth.
-      const acc = studyAccuracy(r.study.depth, !!m.custom);
+      const acc = studyAccuracy(r.study.depth, !!m.custom, g);
       const err = 1 + gaussian(netSide(g, `studyErr:${r.id}`)) * acc * 0.6;
       const p50 = Math.max(10, Math.round(base * r.study.truth * err));
       r.study.est = { p10: Math.max(1, Math.round(p50 * (1 - 1.28 * acc))), p50, p90: Math.round(p50 * (1 + 1.28 * acc)) };
@@ -1078,7 +1090,8 @@ export function devLaunchRoute(g: GameState, marketId: string, aircraftId?: stri
   const base = studyBase(g, r);
   r.study!.est = { p10: Math.round(base * 0.8), p50: Math.round(base), p90: Math.round(base * 1.2) };
   r.status = 'case';
-  const p = caseDraft(g, r.id)!;
+  const p = caseDraft(g, r.id);
+  if (!p) return 'no plan';
   const ac = aircraftId ? g.fleet[aircraftId] : undefined;
   if (ac) {
     p.typeId = ac.typeId;

@@ -27,6 +27,7 @@ const SET: Record<AchievementId, (g: GameState) => void> = {
   cOnTime: (g) => { v09Stats(g).cOnTime = 1; },
   noOverdue: (g) => { v09Stats(g).lastOverdue = g.now - 366 * DAY; },
   fiveFlown: (g) => { g.stats.contractsDone = 5; },
+  firstStudy: (g) => { g.network!.routes.rt1 = { id: 'rt1', marketId: 'LIS-OXB', study: { depth: 'full', start: 0, truth: 1, est: { p10: 1, p50: 2, p90: 3 } }, stages: [], series: [], rotations: [], pnl: {}, contractIds: [], status: 'closed' } as never; },
   paidInTheEnd: (g) => { v09Stats(g).lateGovPaid = 1; },
   partner: (g) => { Object.values(g.clients)[0].level = 'partner'; },
   firstCall: (g) => { v09Stats(g).firstCall = 1; },
@@ -165,8 +166,8 @@ describe('§14.1 backfill and progress', () => {
     v09Stats(g).legalStreak = 18;
     expect(achievementProgress(g, 'cleanSheet')!.label).toBe('18 of 25 sectors');
     const v = achievementsView(g);
-    // v0.12.1 25 with Around the world.
-    expect(v.length).toBe(25);
+    // v0.12.1 25 with Around the world; v0.21 26 with the first market study.
+    expect(v.length).toBe(26);
     expect(v.find((x) => x.id === 'fiveFlown')!.progress!.have).toBe(3);
     SET.fiveFlown(g);
     checkAchievements(g);

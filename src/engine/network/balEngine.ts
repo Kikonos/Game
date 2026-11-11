@@ -123,7 +123,7 @@ export const NET_ENGINE_BAL = {
      * business-case projection with a 767-300ER: OXB own brand ~5 % after aircraft and crew time, DIL open sale ~0 %,
      * RAI a hard market (TAP daily), LAD high fares but kwanza risk, the Brazil routes full.
      */
-    marketX: { 'LIS-OXB': 1.05, 'LIS-DIL': 1.75, 'LIS-RAI': 1.05, 'LIS-BVC': 1.2, 'LIS-LAD': 0.7, 'LIS-MPM': 1.15, 'LIS-REC': 0.92, 'LIS-FOR': 0.93, 'OPO-RAI': 1.12, 'OPO-OXB': 1.05 } as Record<string, number>,
+    marketX: { 'LIS-OXB': 1.01, 'LIS-DIL': 1.75, 'LIS-RAI': 1.05, 'LIS-BVC': 1.2, 'LIS-LAD': 0.7, 'LIS-MPM': 1.15, 'LIS-REC': 0.92, 'LIS-FOR': 0.93, 'OPO-RAI': 1.12, 'OPO-OXB': 1.01 } as Record<string, number>,
     /** The business case's average economy bucket (the mix of Saver, Classic and Flex sold). */
     caseBucket: 0.8,
     level: { low: -0.12, market: 0, high: 0.12 } as Record<string, number>,
@@ -186,6 +186,9 @@ export const NET_ENGINE_BAL = {
     /** Report before the first departure and release after the last arrival (min). */
     reportMin: 60, releaseMin: 30,
   },
+
+  /** v0.21 the network planner (a head): a study's spread shrinks by this share × the planner's skill; route ideas shown. */
+  planner: { studyGain: 0.4, ideas: 5 },
 
   /** §J the route P&L: aircraft and crew time at cost. */
   pnl: {

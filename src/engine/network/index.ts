@@ -38,6 +38,7 @@ export * from './conflicts';
 export * from './notes';
 export * from './custom';
 export * from './stopover';
+export * from './advice';
 
 const emptyStats = (): NetworkState['stats'] => ({ launched: 0, rotations: 0, pax: 0, swaps: 0, subs: 0, moves: 0, cancels: 0, downgrades: 0 });
 

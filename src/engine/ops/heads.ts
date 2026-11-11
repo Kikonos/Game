@@ -86,7 +86,7 @@ const firstName = (h: Head) => h.hired?.name.split(' ')[0] ?? HEAD_DEFS[h.id].ti
 
 /** The achievement that earns each head. */
 const EARNED_BY: Record<HeadId, string> = {
-  opsControl: 'cleanSheet', maintPlanner: 'cOnTime', crewDesk: 'fullCover', analyst: 'fiveFlown', credit: 'paidInTheEnd', fleetPlanner: 'widebody', watch: 'reliable',
+  opsControl: 'cleanSheet', maintPlanner: 'cOnTime', crewDesk: 'fullCover', analyst: 'fiveFlown', credit: 'paidInTheEnd', fleetPlanner: 'widebody', watch: 'reliable', netPlanner: 'firstStudy',
 };
 
 /** Unlock progress (§5.1), null when unlocked. Pure. */

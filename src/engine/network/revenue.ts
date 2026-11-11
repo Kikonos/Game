@@ -225,8 +225,9 @@ export function onSectorDep(g: GameState, f: Flight, rot: Rotation, idx: number)
   const p = pnlOf(route, g.now);
   p.tickets += tickets;
   p.rev += tickets;
+  // v0.21 the load factor's top: passengers on this sector (a month whose flying began before v0.21 keeps `pax`).
+  if (p.paxSec === undefined && !p.seats) p.paxSec = 0;
   p.seats += s.capJ + s.capY;
-  // v0.21 the load factor's top: passengers on this sector (a month begun before v0.21 keeps `pax`).
   if (p.paxSec !== undefined) p.paxSec += (s.flownJ ?? 0) + (s.flownY ?? 0);
   if (route.status === 'onSale') {
     route.status = 'operating';
