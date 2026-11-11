@@ -12,8 +12,11 @@ export interface LegendItem {
   label: string;
 }
 
-/** v0.12 `hint`: the screen's folded first-time hint shows on top of the list. */
-export function ColourLegend({ title, items, align, hint }: { title: string; items: LegendItem[]; align?: 'left' | 'right'; hint?: ScreenHintId }) {
+/**
+ * v0.12 `hint`: the screen's folded first-time hint shows on top of the list.
+ * v0.22 `gestures`: what a tap, a hold and a pinch do on this screen (it used to be a line on the screen itself).
+ */
+export function ColourLegend({ title, items, align, hint, gestures }: { title: string; items: LegendItem[]; align?: 'left' | 'right'; hint?: ScreenHintId; gestures?: string[] }) {
   const [open, setOpen] = useState(false);
   return (
     <span className="sc-pop-wrap lg-wrap">
@@ -32,6 +35,12 @@ export function ColourLegend({ title, items, align, hint }: { title: string; ite
                 </div>
               ))}
             </div>
+            {gestures && gestures.length > 0 && (
+              <>
+                <b>Gestures</b>
+                <div className="lg-list">{gestures.map((t, i) => <div key={i} className="lg-item small"><span>{t}</span></div>)}</div>
+              </>
+            )}
           </div>
         </>
       )}

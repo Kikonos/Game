@@ -11,6 +11,8 @@ import { fmtDay, fmtDateTime } from '../../engine/core/time';
 import { acceptProposal, dismissProposal, fireHead, headsView, hireHead, setHeadOn, setHeadRules, type HeadView } from '../../engine/ops';
 import { NamedIcon } from '../components/NamedIcon';
 import { Bar, Seg, Stepper, Toggle } from '../components/ui';
+import { Help } from '../components/Help';
+import { SKILL_NOTE } from '../modals/HeadUnlockedModal';
 import { money } from '../format';
 import { store } from '../store';
 import { AwayLine } from './Markets';
@@ -45,8 +47,8 @@ function HeadRow({ v, on, onPick }: { v: HeadView; on: boolean; onPick: () => vo
 
 const setRules = (id: HeadId, r: Partial<HeadRules>) => store.act((g) => setHeadRules(g, id, r), { toastOk: false });
 
-function RuleRow({ label, desc, children }: { label: string; desc?: string; children: React.ReactNode }) {
-  return <div className="set-row v9-rule"><div><b>{label}</b>{desc && <div className="tiny dim">{desc}</div>}</div>{children}</div>;
+function RuleRow({ label, desc, help, children }: { label: string; desc?: string; help?: string; children: React.ReactNode }) {
+  return <div className="set-row v9-rule"><div><b>{label}</b>{help && <> <Help title={label}>{help}</Help></>}{desc && <div className="tiny dim">{desc}</div>}</div>{children}</div>;
 }
 
 const ALERT_LABEL: Record<AlertRuleKind, string> = {
@@ -97,7 +99,7 @@ function AlertRules({ v }: { v: HeadView }) {
         );
       })}
       {list.length < 8 && <button className="btn" onClick={add}><Plus /> Add a rule</button>}
-      {!list.length && <div className="small dim">No rules yet. Each rule fires once per subject, then waits until it clears.</div>}
+      {!list.length && <div className="small dim">No rules yet.</div>}
     </div>
   );
 }
@@ -109,7 +111,7 @@ function Rules({ v }: { v: HeadView }) {
       return (
         <>
           <RuleRow label="Longest delay it may take" desc="Longer ones come to you"><Seg<number> value={r.maxDelayMin ?? 120} onChange={(x) => setRules(v.id, { maxDelayMin: x as 60 | 120 | 180 })} options={[60, 120, 180].map((x) => ({ value: x, label: `${x / 60} h` }))} /></RuleRow>
-          <RuleRow label="Standby first" desc="Sick calls: calls in standby or free crew, never from a day off. Off: sick calls come to you"><Toggle on={r.standbyFirst ?? true} onChange={(x) => setRules(v.id, { standbyFirst: x })} label="Standby first" /></RuleRow>
+          <RuleRow label="Standby first" desc="Off: sick calls come to you" help="For a sick call it calls in standby or free crew, never anyone from a day off."><Toggle on={r.standbyFirst ?? true} onChange={(x) => setRules(v.id, { standbyFirst: x })} label="Standby first" /></RuleRow>
         </>
       );
     case 'crewDesk':
@@ -123,7 +125,7 @@ function Rules({ v }: { v: HeadView }) {
     case 'credit':
       return (
         <>
-          <RuleRow label="Waive for Trusted clients" desc="A late Trusted or Partner client is waived, not chased"><Toggle on={r.waiveTrusted ?? true} onChange={(x) => setRules(v.id, { waiveTrusted: x })} label="Waive for Trusted" /></RuleRow>
+          <RuleRow label="Waive for Trusted clients" help="A late Trusted or Partner client is waived, not chased."><Toggle on={r.waiveTrusted ?? true} onChange={(x) => setRules(v.id, { waiveTrusted: x })} label="Waive for Trusted" /></RuleRow>
           <RuleRow label="Deposits from slow payers" desc="30 % on new charters (governments 20 %)"><Toggle on={r.depositSlow ?? true} onChange={(x) => setRules(v.id, { depositSlow: x })} label="Deposits" /></RuleRow>
         </>
       );
@@ -195,9 +197,8 @@ function Detail({ v, g }: { v: HeadView; g: GameState }) {
       </div>
       {v.person && (
         <div className="col gap-4">
-          <div className="row between small"><span className="muted">Skill</span><span className="num">{pct(v.person.skill)}</span></div>
+          <div className="row between small"><span className="muted">Skill <Help title="Skill">{SKILL_NOTE}</Help></span><span className="num">{pct(v.person.skill)}</span></div>
           <Bar value={v.person.skill} size="thin" tone="good" />
-          <span className="tiny dim">Higher skill, fewer mistakes. It grows a little every three months.</span>
         </div>
       )}
       {!v.unlocked && realProgress(v.progress) && v.progress && (
@@ -211,7 +212,7 @@ function Detail({ v, g }: { v: HeadView; g: GameState }) {
         <div className="col gap-4"><div className="upper dim">Never does</div><ul className="v8-lines">{v.never.map((d) => <li key={d}>{d}</li>)}</ul></div>
       </div>
       {v.unlocked && !v.person && <div className="col gap-8"><div className="upper dim">Candidates</div><Candidates v={v} /></div>}
-      {v.person && <div className="col gap-4"><div className="upper dim">Rules</div><Rules v={v} /></div>}
+      {v.person && <div className="col gap-4"><div className="upper dim">Rules{v.id === 'watch' && <> <Help title="Watch desk rules">Each rule fires once per subject, then waits until it clears.</Help></>}</div><Rules v={v} /></div>}
       {v.proposals.length > 0 && (
         <div className="col gap-8">
           <div className="upper dim">Proposals</div>

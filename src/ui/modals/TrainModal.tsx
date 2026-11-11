@@ -8,6 +8,7 @@ import { DAY, dayStart, fmtDate } from '../../engine/core/time';
 import type { TrainingKind } from '../../engine/core/types';
 import { classOf, crewName, trainCrew } from '../../engine/crew';
 import { Modal, Seg } from '../components/ui';
+import { Help } from '../components/Help';
 import { money } from '../format';
 import { KV } from '../screens/common';
 import { ROLE_LABEL } from '../screens/screenLogic';
@@ -48,7 +49,11 @@ export function TrainModal({ crewId }: { crewId: string }) {
         {k && <div className="small warn">Booked on {k.no} ({fmtDate(k.start)} – {fmtDate(k.end - 1)}). Cancel it from the classes chip on the Crew screen.</div>}
         {kinds.length > 1 && <div className="sc-seg-wrap"><Seg<Kind> value={kind} onChange={setKind} options={kinds.map((x) => ({ value: x, label: KIND_LABEL[x] }))} /></div>}
         {kind === 'convert' ? (
-          <div className="small muted">A type conversion puts this person in a class on the new type, with the same rules and prices as a bulk conversion: pilots about 6 weeks, cabin crew about 8 days. Between the A320 and the A330 it is a CCQ: about {BAL.conv.pilotCcqDays} days for pilots, {BAL.conv.cabinCcqDays} for cabin crew, and they keep the old type. To convert several people at once, use Select on the Crew screen.</div>
+          <div className="small muted">Pilots about 6 weeks · cabin crew about 8 days <Help title="Type conversion">
+            <p>A type conversion puts this person in a class on the new type, with the same rules and prices as a bulk conversion.</p>
+            <p>Between the A320 and the A330 it is a CCQ: about {BAL.conv.pilotCcqDays} days for pilots, {BAL.conv.cabinCcqDays} for cabin crew, and they keep the old type.</p>
+            <p>To convert several people at once, use Select on the Crew screen.</p>
+          </Help></div>
         ) : (
           <>
             <KV rows={[

@@ -11,6 +11,7 @@ import { BAL } from '../../engine/core/balance';
 import { APPROVALS, applyApproval, atRiskLine, approvalBlocker, approvalReqs, CAUSE_TEXT, etopsMxBlocker, etopsRecord, joinRelProgramme, ladder, relProgBlocker, relProgState, setUpEtopsMx } from '../../engine/ops';
 import { AircraftArt } from '../components/AircraftArt';
 import { Bar, Modal } from '../components/ui';
+import { Help } from '../components/Help';
 import { money } from '../format';
 import { isCashReq, reqLabel } from '../screens/Ladder';
 import { store, useGame } from '../store';
@@ -78,16 +79,16 @@ export function ApprovalModal({ id }: { id: ApprovalId }) {
             {reqs.map((r) => (
               <div key={r.label} className={`ap-req ${r.ok ? 'ok' : 'no'}`}>
                 {r.ok ? <Check className="sc-ico-s good" /> : <X className="sc-ico-s bad" />}
-                <span className="grow small">{reqLabel(r)}</span>
+                <span className="grow small">{reqLabel(r)}{id === 'widebody' && / rated on /.test(r.label) && <> <Help title="Pilots for the widebody">Booked conversions count for filing; the grant needs them finished. Time the class to end near your first widebody’s handover: converted pilots fly only the new type.</Help></>}</span>
                 {(r.have || r.need) && <span className="small num nowrap">{r.have ?? ''}{r.need && r.have !== r.need ? <span className="dim"> / {r.need}</span> : null}</span>}
                 {r.action === 'etopsMx' && <button className="btn btn-sm" onClick={setUp} disabled={!!etopsMxBlocker(g)} title={etopsMxBlocker(g) ?? undefined}><Wrench /> Set up · {money(mx.cost)}</button>}
               </div>
             ))}
           </div>
           {reqs.filter((r) => r.etops).map((r) => <EtopsBreakdown key={r.label} g={g} min={r.etops!} days={180} />)}
-          {reqs.some((r) => r.label === 'ETOPS maintenance programme') && <div className="small muted mt-8">The ETOPS maintenance programme is a one-off: {money(mx.cost)}, about {mx.days} days. You can apply while it is being set up; the grant waits for it.</div>}
-          {id === 'widebody' && <div className="small muted mt-8">Booked conversions count for filing; the grant needs them finished. Time the class to end near your first widebody’s handover: converted pilots fly only the new type.</div>}
-          <div className="small muted mt-8">{money(def.cost)} filing fee{def.grantCost ? ` + ${money(def.grantCost)} at the grant` : ''} · about {def.days} days. Granted only with pilots actually rated, no illegal crew duties and the technical reliability met; an illegal crew duty while pending adds 30 days.</div>
+          {reqs.some((r) => r.label === 'ETOPS maintenance programme') && <div className="small muted mt-8">ETOPS maintenance programme: {money(mx.cost)}, about {mx.days} days</div>}
+          <div className="small muted mt-8">{money(def.cost)} filing fee{def.grantCost ? ` + ${money(def.grantCost)} at the grant` : ''} · about {def.days} days <Help title="When it is granted">Granted only with pilots actually rated, no illegal crew duties and the technical reliability met.{reqs.some((r) => r.label === 'ETOPS maintenance programme') ? ' You can apply while the ETOPS maintenance programme is being set up; the grant waits for it.' : ''}</Help></div>
+          <div className="small muted">An illegal crew duty while pending adds 30 days.</div>
         </>
       )}
       {node && (node.unlocksTypes.length > 0 || node.unlocksWork) && (

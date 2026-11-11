@@ -15,6 +15,7 @@ import { applyConvertOption, ccqKeeps, ccqPartners, conversionEarliest, conversi
 import { fmtDay } from '../../engine/core/time';
 import { approvalReqs, ratedPilots } from '../../engine/ops';
 import { Modal } from '../components/ui';
+import { Help } from '../components/Help';
 import { money } from '../format';
 import { baseDay, isPilotRole, needsConfirm } from '../screens/screenLogic';
 import { store, useGame } from '../store';
@@ -162,7 +163,11 @@ export function ConvertModal({ crewIds, family: fam0, onBooked, advice }: { crew
       )}
       {adv && (
         <section className="cv-adv" aria-label="Proposed">
-          <div className="upper dim">Proposed for {adv.want} of these {advice!.role === 'CC' ? 'cabin crew' : advice!.role === 'PUR' ? 'pursers' : advice!.role === 'CPT' ? 'captains' : 'first officers'}</div>
+          <div className="upper dim">Proposed for {adv.want} of these {advice!.role === 'CC' ? 'cabin crew' : advice!.role === 'PUR' ? 'pursers' : advice!.role === 'CPT' ? 'captains' : 'first officers'} <Help title="How the plans are made">
+            <p>The least busy go first. Classes of up to 8 pilots (simulator pairs) or 20 cabin crew.</p>
+            <p>Trips in the way go to crew a dry run of the roster finds legal for them.</p>
+            <p>Pick a plan, or change anything below and book by hand.</p>
+          </Help></div>
           <div className="cv-adv-targets">
             {adv.targets.slice(0, 4).map((t) => (
               <button key={t.family} className={`cv-adv-t ${t.family === (aim ?? adv.targets[0]?.family) ? 'on' : ''} ${t.short ? 'short' : ''}`} onClick={() => { setAim(t.family); setChosen(null); }} aria-pressed={t.family === (aim ?? adv.targets[0]?.family)}>
@@ -184,7 +189,6 @@ export function ConvertModal({ crewIds, family: fam0, onBooked, advice }: { crew
               );
             })}
           </div>
-          <div className="tiny dim">The least busy go first. Classes of up to 8 pilots (simulator pairs) or 20 cabin crew; trips in the way go to crew a dry run of the roster finds legal for them. Pick a plan, or change anything below and book by hand.</div>
         </section>
       )}
       <div className="cv-cols">
@@ -218,7 +222,11 @@ export function ConvertModal({ crewIds, family: fam0, onBooked, advice }: { crew
               End near {arriving.reg}’s arrival · {bd(arriving.at)}
             </button>
           )}
-          <div className="small dim">Pilots {pc.days} days (ground school, simulator, base and line training) · cabin crew {cc.days} days. Classes of up to 20; pilot classes start 14 days apart, two cabin classes at a time.</div>
+          <div className="small dim">Pilots {pc.days} days · cabin crew {cc.days} days <Help title="Courses and classes">
+            <p>Pilots: ground school, simulator, base and line training.</p>
+            <p>Classes of up to 20. Pilot classes start 14 days apart; two cabin classes run at a time.</p>
+            <p>{ccqPartners(family).length ? `Pilots rated on the ${ccqPartners(family).map(familyLabel).join(' or ')} take a ${courseOf('pilot', 'ccq', family).days}-day CCQ and keep both. ` : ''}Cabin crew keep their types, up to 3.</p>
+          </Help></div>
           {pilots.length > 0 && <div className="upper dim">Pilots ({pilots.length})</div>}
           {pilots.length > 0 && <div className="cv-people">{pilots.map(person)}</div>}
           {cabin.length > 0 && <div className="upper dim">Cabin crew ({cabin.length})</div>}
@@ -255,10 +263,9 @@ export function ConvertModal({ crewIds, family: fam0, onBooked, advice }: { crew
           <div className="cv-cost">
             {nP > 0 && <div className="row between small"><span className="muted">Pilots {nP} × {money(costP / nP)}</span><b className="num">{money(costP)}</b></div>}
             {nC > 0 && <div className="row between small"><span className="muted">Cabin {nC} × {money(costC / nC)}</span><b className="num">{money(costC)}</b></div>}
-            <div className="row between"><b>Total</b><b className="num">{money(plan.cost)}</b></div>
-            <div className="tiny dim">Charged once at booking. Full refund up to 14 days before a class, half after, none once it runs.</div>
+            <div className="row between"><b>Total <Help title="Paying and refunds">Charged once at booking. Full refund up to 14 days before a class, half after, none once it runs.</Help></b><b className="num">{money(plan.cost)}</b></div>
           </div>
-          {wbLine && <div className={`small row gap-8 cv-warn ${wbLine.ok ? 'good' : 'warn'}`}>{wbLine.ok ? <Check className="sc-ico-s" /> : <AlertTriangle className="sc-ico-s" />}<span>{wbLine.text} Booked conversions count for filing; time the class to end near the first {label}’s arrival.</span></div>}
+          {wbLine && <div className={`small row gap-8 cv-warn ${wbLine.ok ? 'good' : 'warn'}`}>{wbLine.ok ? <Check className="sc-ico-s" /> : <AlertTriangle className="sc-ico-s" />}<span>{wbLine.text}</span></div>}
           {plan.warnings.length > 0 && (
             <div className="col gap-4">
               {plan.warnings.map((w, i) => (
@@ -266,7 +273,7 @@ export function ConvertModal({ crewIds, family: fam0, onBooked, advice }: { crew
               ))}
             </div>
           )}
-          <div className="tiny dim">After the course pilots fly the {label} only{ccqPartners(family).length ? ` (pilots rated on the ${ccqPartners(family).map(familyLabel).join(' or ')} take a ${courseOf('pilot', 'ccq', family).days}-day CCQ and keep both)` : ''}; cabin crew keep their types, up to 3.</div>
+          <div className="tiny dim">Pilots then fly the {label} only</div>
           </>}
         </div>
       </div>

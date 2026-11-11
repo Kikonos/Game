@@ -8,6 +8,7 @@ import { ClientStars } from '../../components/ClientStars';
 import { DAY } from '../../../engine/core/time';
 import type { GameState, Prestige } from '../../../engine/core/types';
 import { Bar, Card } from '../../components/ui';
+import { Help } from '../../components/Help';
 
 /** Short names for the four rungs (the strip is narrow on a phone). */
 const RUNG: Record<Prestige, string> = { 1: 'Brochure work', 2: 'Charter market', 3: 'National carriers', 4: 'Majors & governments' };
@@ -18,7 +19,7 @@ export function PrestigeCard({ g }: { g: GameState }) {
   // The view moves daily, on a level-up and as visibility is earned (contracts completing).
   const v = useMemo(() => prestigeView(g), [g, day, p?.level, p?.visibility, g.company.approvals.length, g.company.pendingApprovals.length, g.stats.contractsDone]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <Card title="Prestige" icon={<Crown className="ico" />} sub={<><ClientStars n={PLAYER_STARS[v.level]} size={12} /> {v.name}</>} className="pr-card">
+    <Card title={<>Prestige <Help title="Prestige">Visibility comes from block hours flown, weighted by whom you fly for, and from contracts done. It never fades. A stretch offer is marked on its card.</Help></>} icon={<Crown className="ico" />} sub={<><ClientStars n={PLAYER_STARS[v.level]} size={12} /> {v.name}</>} className="pr-card">
       {/* v0.16.1 each rung with the stars it reaches (the engine's four levels behind). */}
       <div className="v8-tiers pr-tiers" role="img" aria-label={`Your rating: ${starsLabel(PLAYER_STARS[v.level])}, ${v.name}`}>
         {PRESTIGE_LEVELS.map((l) => (
@@ -45,7 +46,6 @@ export function PrestigeCard({ g }: { g: GameState }) {
       ) : (
         <div className="small mt-8">The top of the ladder: five stars, every client in the market calls.</div>
       )}
-      <div className="tiny dim mt-8">Visibility comes from block hours flown, weighted by whom you fly for, and from contracts done; it never fades. A stretch offer is marked on its card.</div>
     </Card>
   );
 }

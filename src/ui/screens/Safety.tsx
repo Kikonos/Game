@@ -9,6 +9,7 @@ import type { AuditFinding, GameState, RampCheck } from '../../engine/core/types
 import { auditRecord, authorityName, startAuditTask } from '../../engine/ops/audit';
 import { programmeAt } from '../../engine/ops/ramp';
 import { Card } from '../components/ui';
+import { Help } from '../components/Help';
 import { money } from '../format';
 import { store } from '../store';
 
@@ -88,9 +89,9 @@ export function SafetyCard({ g }: { g: GameState }) {
         <div className={`ops-gauge ${rec.tech.pct === null ? '' : tone(rec.tech.pct < 97, rec.tech.pct < 98)}`}><b>{rec.tech.pct === null ? '–' : `${rec.tech.pct}%`}</b><span className="tiny dim">technical reliability (97 % standard)</span></div>
         <div className={`ops-gauge ${tone(rec.grounded >= 10, rec.grounded > 0)}`}><b>{rec.grounded}</b><span className="tiny dim">days grounded, check overdue</span></div>
       </div>
-      <div className="row gap-8 mt-12"><ClipboardCheck className="sc-ico-s dim" /><b className="small">Audit findings</b><span className="tiny dim grow">{last ? `Last audit ${fmtDate(last[0])}: ${last[1] + last[2] ? `${last[1]} Level 1, ${last[2]} Level 2` : 'no findings'}` : 'No audit yet'}</span></div>
-      {findings.length ? findings.map((f) => <Finding key={f.id} g={g} f={f} />) : <div className="small dim mt-8">Nothing open. Level 1 findings must be fixed within 21 days, Level 2 within 30–90 days; a missed deadline suspends the Ladder.</div>}
-      <div className="row gap-8 mt-12"><b className="small">Ramp inspections</b><span className="tiny dim">{programmeAt(g, 'FRA') === 'SACA' ? 'SACA at European airports (we are an EU operator)' : 'SAFA at European airports (we are not an EU operator)'}, the local authority elsewhere</span></div>
+      <div className="row gap-8 mt-12"><ClipboardCheck className="sc-ico-s dim" /><b className="small">Audit findings</b><Help title="Audit findings">Level 1 findings must be fixed within 21 days, Level 2 within 30–90 days. A missed deadline suspends the Ladder.</Help><span className="tiny dim grow">{last ? `Last audit ${fmtDate(last[0])}: ${last[1] + last[2] ? `${last[1]} Level 1, ${last[2]} Level 2` : 'no findings'}` : 'No audit yet'}</span></div>
+      {findings.length ? findings.map((f) => <Finding key={f.id} g={g} f={f} />) : <div className="small dim mt-8">Nothing open.</div>}
+      <div className="row gap-8 mt-12"><b className="small">Ramp inspections</b><span className="tiny dim">{programmeAt(g, 'FRA')}</span><Help title="Ramp inspections">{programmeAt(g, 'FRA') === 'SACA' ? 'SACA at European airports: we are an EU operator.' : 'SAFA at European airports: we are not an EU operator.'} The local authority inspects elsewhere.</Help></div>
       <div className="ops-list">{ramps.length ? ramps.map((r) => <RampRow key={r.id} r={r} />) : <div className="small dim">None in the last 12 months.</div>}</div>
       <div className="small mt-12"><span className="muted">Disruptions this year:</span> {disruptionLine(g)}</div>
     </Card>

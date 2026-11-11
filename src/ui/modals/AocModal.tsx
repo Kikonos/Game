@@ -9,6 +9,8 @@ import { typeOf } from '../../engine/core/perf';
 import { fmtDay } from '../../engine/core/time';
 import { aocView, applyVariation, needsVariation, variationCrew, variationQuote } from '../../engine/leasing';
 import { Modal } from '../components/ui';
+import { Term } from '../components/Term';
+import { AOC_NOTE } from '../screens/company/AocTypes';
 import { money } from '../format';
 import { store, useGame } from '../store';
 
@@ -37,7 +39,7 @@ export function AocModal({ family: wanted }: { family?: RatingFamily }) {
   };
   const blocker = !fam ? 'Every family we could fly is on our AOC' : pending ? `Filed: due ${fmtDay(pending.done)}` : !q ? (view.withWidebody === fam ? 'Comes with Widebody operations' : 'No variation needed') : g.company.cash < q.cost ? `Needs ${money(q.cost)} · ${money(g.company.cash)} cash` : null;
   return (
-    <Modal title="Add a type to our AOC" icon={<ClipboardCheck className="accent" />} onClose={close} footer={
+    <Modal title={<Term id="aocVariation" extra={AOC_NOTE}>Add a type to our AOC</Term>} icon={<ClipboardCheck className="accent" />} onClose={close} footer={
       <>
         {blocker && <span className="grow small muted">{blocker}</span>}
         <button className="btn" onClick={close}>Cancel</button>
@@ -45,7 +47,7 @@ export function AocModal({ family: wanted }: { family?: RatingFamily }) {
       </>
     }>
       <div className="col gap-12">
-        <div className="small muted">On our AOC: {view.families.join(', ') || 'none yet'}. Types in one family need no variation (the A320ceo, A321 and A320neo are all A320).</div>
+        <div className="small muted">On our AOC: {view.families.join(', ') || 'none yet'}</div>
         {list.length > 0 && (
           <div className="ao-fam" role="group" aria-label="Family">
             {list.map((f) => <button key={f} className={`mk-filter ${fam === f ? 'on' : ''}`} aria-pressed={fam === f} onClick={() => setFam(f)}>{f}</button>)}
@@ -60,9 +62,8 @@ export function AocModal({ family: wanted }: { family?: RatingFamily }) {
           </div>
         )}
         {q && (q.missing.CPT > 0 || q.missing.FO > 0) && (
-          <div className="row gap-8"><span className="small muted grow">Pilot conversions take about 6 weeks: book them so the pilots are rated by the due date.</span><button className="btn btn-sm" onClick={() => { close(); store.navigate('crew'); }}><Users /> Book conversions</button></div>
+          <div className="row gap-8"><span className="small muted grow">Conversions take about 6 weeks</span><button className="btn btn-sm" onClick={() => { close(); store.navigate('crew'); }}><Users /> Book conversions</button></div>
         )}
-        <div className="small muted">Revenue flights on a family not on our AOC are refused at departure; delivery ferries and positioning may fly.</div>
       </div>
     </Modal>
   );

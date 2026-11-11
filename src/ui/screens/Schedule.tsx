@@ -747,7 +747,7 @@ export function ScheduleScreen() {
   const ticks = axisTicks(win[0], win[1], zoom, ppm);
   return (
     <div className="screen sc-schedule">
-      <ScreenHead title="Schedule" sub={<>Times in UTC · {base} local is {offLabel} · tap a flight for details · hold and drag it to move the trip, a route flight along its row to move its rotation, or a check or refit along its row · pinch to zoom</>}>
+      <ScreenHead title="Schedule" sub={<>Times in UTC · {base} local is {offLabel}</>}>
         <button className="btn" onClick={() => scrollTo(g.now)}><Crosshair /> Today</button>
         <Seg<ZoomDays> value={zoom} onChange={setZoom} options={ZOOMS.map((z) => ({ value: z, label: `${z} days` }))} />
         <ColourLegend title="Schedule colours" hint="schedule" items={[
@@ -760,6 +760,12 @@ export function ScheduleScreen() {
           { swatch: 'maint', label: 'Hatched grey: a check, repair or paint shop' },
           { swatch: 'idle', label: 'Dashed outline: idle 12 h or more (rent still runs)' },
           { swatch: 'grey', label: 'Faded: already flown' },
+        ]} gestures={[
+          'Tap a flight for its details.',
+          'Hold a flight and drag it to another aircraft: the whole trip moves.',
+          'Hold a route flight and slide it along its row: its rotation moves.',
+          'Hold a check or a refit and slide it along its row to move it.',
+          'Pinch to zoom.',
         ]} />
       </ScreenHead>
       <ScreenHint id="schedule" />

@@ -1,0 +1,10 @@
+/* v0.22 Cleaner screens (lane A): explanations behind the '?' note (components/Help.tsx). */
+
+/* A '?' at the far end of a row that is itself a button (the pause menu's Save game). */
+.help-end { margin-left: auto; }
+/* In a heading that is set in capitals or bold, the note's ring keeps its own quiet weight. */
+.upper .help-q, th .help-q, label .help-q { text-transform: none; letter-spacing: 0; }
+/* The popover never wider than the screen (a phone held upright). */
+.term-pop { max-width: calc(100vw - 16px); }
+/* The colour legends: the gestures block under the swatches. */
+.lg-pop { max-height: min(70vh, 560px); overflow-y: auto; overscroll-behavior: contain; }
