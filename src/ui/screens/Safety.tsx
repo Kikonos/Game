@@ -81,7 +81,7 @@ export function SafetyCard({ g }: { g: GameState }) {
   const tone = (bad: boolean, warn = false) => (bad ? 'bad' : warn ? 'warn' : 'good');
   return (
     <Card title="Safety & audit" icon={<ShieldAlert className="ico" />} className="ops-safety"
-      sub={a ? `${cap(auth)} audits us every year · next ${fmtDate(a.next)} (${Math.max(0, days(g, a.next))} days)${a.announced ? ' · announced' : ''}` : undefined}>
+      sub={a ? `${cap(auth)} audits us every year · next ${fmtDate(a.next)} (${Math.max(0, days(g, a.next))} day${Math.max(0, days(g, a.next)) === 1 ? '' : 's'})${a.announced ? ' · announced' : ''}` : undefined}>
       {a?.suspended && <div className="ops-susp small"><b>Approvals suspended</b> since {fmtDate(a.suspended)}: an audit finding is past its deadline. Nothing new is filed or granted on the Ladder until it is closed.</div>}
       <div className="ops-gauges">
         <div className={`ops-gauge ${tone(rec.illegal > 0)}`}><b>{rec.illegal}</b><span className="tiny dim">illegal duties, 12 months</span></div>

@@ -71,3 +71,8 @@
 }
 /* Crew › Planning: 'Have' and its '?' stay together. */
 .cp-table th:nth-child(2) { white-space: nowrap; }
+
+/* ---------- Aircraft market › In progress: a deal's title (registration, type, lessor) wraps instead of being cut ---------- */
+.mk17-deal b.ellipsis { white-space: normal; overflow: visible; }
+.mk17-deal .row.between { align-items: flex-start; }
+.mk17-deal .row.between > .badge { flex: none; }
