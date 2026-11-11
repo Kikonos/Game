@@ -29,9 +29,11 @@ const span = (a: number, b: number) => (fmtDay(a) === fmtDay(b) ? fmtDay(a) : `$
 /** Company › Team: one line, who is away (or nobody), linking to Contracts › Markets. */
 export function AwayLine({ g }: { g: GameState }) {
   const away = travellers(g).filter((t) => t.tripId);
-  const text = away.length
-    ? away.map((t) => `${t.who === 'ceo' ? 'You' : t.name.split(' ')[0]}: ${tripNow(g, g.com!.trips.find((x) => x.id === t.tripId)!)}`).join(' · ')
-    : 'Nobody is away';
+  const who = (t: (typeof away)[number]) => (t.who === 'ceo' ? 'You' : t.name.split(' ')[0]);
+  // v0.22 one trip: who and where it stands. More: the count and the names (the line was cut short; the rest is one tap away).
+  const text = away.length === 1
+    ? `${who(away[0])}: ${tripNow(g, g.com!.trips.find((x) => x.id === away[0].tripId)!)}`
+    : away.length ? `${away.length} trips booked: ${away.map(who).join(', ')}` : 'Nobody is away';
   return (
     <button className="v14-away-line" onClick={() => store.navigate('contracts', { view: 'markets' })} aria-label="Sales trips and fairs: Contracts, Markets">
       <Briefcase className="sc-ico-s" />

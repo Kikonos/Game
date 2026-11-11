@@ -240,7 +240,7 @@ export function LeadsView({ g }: { g: GameState }) {
             <p>A lead is a client asking us alone. Send a proposal; their offer comes back to sign: lead → proposal → offer → signed.</p>
             <p>A lead waits 14 days for your proposal, then goes cold.</p>
             <p>Leads come from brokers you are registered with (Sales desk, below), fairs and client visits (Markets tab), pre-season pitches and sales managers.</p>
-          </Help>{waiting ? <span className="small muted">· {waiting} waiting for a proposal</span> : null}</b>
+          </Help>{waiting ? <span className="small muted mh-waiting">{waiting} waiting for a proposal</span> : null}</b>
         </div>
         {!live.length && !past.length && (
           <Empty icon={<Handshake />} title="No leads yet">Register with a broker in the Sales desk below.</Empty>

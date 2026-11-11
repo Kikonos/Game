@@ -709,7 +709,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           <div>
             <b>{cl ? `${flag(cl.country)} ${cl.name}` : 'Client'}</b>
             {o.broker && <span className="chip sc-chip sc-broker">via {o.broker} (5%)</span>}
-            <div className="of-shape-head"><span className="small muted mono">{routeSummary(o.pattern)}</span><ShapeTags s={shapeOf(o)} /></div>
+            <div className="of-shape-head">{routeSummary(o.pattern) && <span className="small muted mono">{routeSummary(o.pattern)}</span>}<ShapeTags s={shapeOf(o)} /></div>
             {/* v0.20.1 how long the job runs, at a glance: the months ahead with its days filled in, then days and months. */}
             <DurationStrip now={g.now} first={offerDays(o)[0]} last={o.pattern.kind === 'base' ? offerDays(o)[1] : Math.max(o.start, o.end - 1)} className="of-dur" />
           </div>

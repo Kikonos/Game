@@ -77,7 +77,7 @@ function FamilyCard({ p, lock }: { p: FamilyPlan; lock?: string | null }) {
           {p.roles.map((r) => (
             <tr key={r.role}>
               <td><b>{r.role}</b> <span className="tiny muted">{ROLE_WORD[r.role]}</span></td>
-              <td className="num">{r.have}{r.shared ? <span className="tiny muted"> ({r.shared} shared)</span> : null}</td>
+              <td className="num">{r.have}{r.shared ? <span className="tiny muted cp-shared">{r.shared} shared</span> : null}</td>
               <td className="num">{r.need}</td>
               <td className="num">{r.joining || '–'}</td>
               <td className="num">{r.away || '–'}</td>

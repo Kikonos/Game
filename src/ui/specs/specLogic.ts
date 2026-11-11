@@ -312,8 +312,10 @@ export function cabinFigures(d: SpecData, cab: Cabin | CabinPreset): KeyFig[] {
   if (cab.w) out.push({ k: 'w', label: 'Premium economy', value: String(cab.w) });
   if (cab.y) out.push({ k: 'y', label: 'Economy', value: String(cab.y) });
   if (d.rest) {
-    out.push({ k: 'fc', label: 'Pilots rest', value: restShort(d.rest.fc), sub: d.rest.fc ? `class ${d.rest.fc.cls}` : undefined });
-    out.push({ k: 'cc', label: 'Cabin crew rest', value: restShort(d.rest.cc), sub: d.rest.cc ? `class ${d.rest.cc.cls}` : undefined });
+    // v0.22 the class is named once: under the words only when the words do not already say it.
+    const cls = (r: typeof d.rest.fc) => (r && !/class \d/.test(restShort(r)) ? `class ${r.cls}` : undefined);
+    out.push({ k: 'fc', label: 'Pilots rest', value: restShort(d.rest.fc), sub: cls(d.rest.fc) });
+    out.push({ k: 'cc', label: 'Cabin crew rest', value: restShort(d.rest.cc), sub: cls(d.rest.cc) });
   } else if (t.body === 'wide') {
     out.push({ k: 'fc', label: 'Crew bunks', value: t.rest.bunkShare >= 0.95 ? 'On every airframe' : t.rest.bunkShare > 0 ? `On ${Math.round(t.rest.bunkShare * 100)} % of airframes` : 'None', sub: 'class 1 rest' });
   }

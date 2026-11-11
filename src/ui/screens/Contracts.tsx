@@ -241,7 +241,7 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
   return (
     <div className={`card sc-contract ${sel ? 'selected' : ''} ${open ? '' : 'closed'}`} style={{ ['--kc' as string]: contractColor(c.color) }}>
       <div className="sc-contract-main">
-        <div className="row gap-8">
+        <div className="row gap-8 sc-contract-head">
           <ArchIcon a={c.archetype} />
           <b className="ellipsis">{c.title}</b>
           <span className={`badge ${c.status === 'active' ? 'good' : c.status === 'cancelled' ? 'bad' : ''}`}>{STATUS_LABEL[c.status]}</span>

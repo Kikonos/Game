@@ -84,7 +84,9 @@ function Overview({ g, r }: { g: GameState; r: Route }) {
       </div>
       <div className="col gap-6">
         <div className="row between"><span className="upper dim">Result by month</span>{spend > 0 && <span className="tiny muted">launch spend {money(spend)}</span>}</div>
-        <BarChart values={bars.result} labels={bars.keys.map((k) => fmtMonth(k))} height={150} format={(v) => money(v)} name="Result" />
+        {bars.result.some((v) => v !== 0)
+          ? <BarChart values={bars.result} labels={bars.keys.map((k) => fmtMonth(k))} height={150} format={(v) => money(v)} name="Result" />
+          : <span className="small muted">No flights flown yet.</span>}
       </div>
       {cmp && <div className="small nw-acmi"><TrendingUp className="sc-ico-s accent" /><span>{cmp}</span></div>}
       <div className="col gap-6">

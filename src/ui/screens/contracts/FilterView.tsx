@@ -24,12 +24,13 @@ import { marketOffers, offerDays, offerModal, productLine, routeSummary } from '
 const FAMILIES: RatingFamily[] = [...new Set(ACMI_TYPES_LIST.map((t) => t.family))];
 
 /** One section: a label line and its control. */
-function Row({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+function Row({ label, hint, help, children }: { label: string; hint?: string; help?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="flt-row">
       <div className="flt-row-head">
         <span className="small"><b>{label}</b></span>
         {hint && <span className="tiny dim">{hint}</span>}
+        {help && <Help title={label}>{help}</Help>}
       </div>
       {children}
     </div>
@@ -87,11 +88,10 @@ export function FilterView({ g }: { g: GameState }) {
           <Row label="Aircraft size" hint={f.bodies?.length ? 'only jobs for these' : 'none chosen: any'}>
             <ChipSet items={BODIES.map((b) => ({ id: b, label: BODY_LABEL[b] }))} selected={f.bodies ?? []} onToggle={(b: Body) => set({ bodies: toggleIn(f.bodies, b) })} />
           </Row>
-          <Row label="Distance" hint="by the longest leg">
+          <Row label="Distance" hint="by the longest leg" help={<>Short-haul {HAUL_RANGE.short} · medium {HAUL_RANGE.medium} · long {HAUL_RANGE.long} · ultra-long {HAUL_RANGE.ultra} of block time.</>}>
             <ChipSet items={HAULS.map((h) => ({ id: h, label: HAUL_LABEL[h] }))} selected={f.hauls ?? []} onToggle={(h: Haul) => set({ hauls: toggleIn(f.hauls, h) })} />
           </Row>
         </div>
-        <div className="tiny dim flt-haul-note">Short-haul {HAUL_RANGE.short} · medium {HAUL_RANGE.medium} · long {HAUL_RANGE.long} · ultra-long {HAUL_RANGE.ultra} of block time.</div>
         <div className="flt-two">
           <Row label="Minimum rate per block hour" hint="ACMI and wet leases">
             <Stepper value={f.minRatePerBH ?? 0} min={0} max={25_000} step={250} onChange={(v) => set({ minRatePerBH: v })} format={(v) => (v ? `$${v.toLocaleString('en-US')}` : 'Any')} />
