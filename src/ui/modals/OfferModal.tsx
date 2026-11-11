@@ -8,6 +8,8 @@ import { offerPrestigeLines } from '../../engine/contracts/prestige';
 import { ClientStars } from '../components/ClientStars';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Term } from '../components/Term';
+import { Help } from '../components/Help';
+import { EXTRA_CREW_NOTE } from '../notes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { flag } from '../../data/countries';
 import { artFor } from '../../data/acmiTypes';
@@ -235,11 +237,11 @@ function ExtraCrewCard({ o, x, onChange, fmtP, asking, max, seatsNote }: { o: Co
   return (
     <div className={`sc-extra-card ${on ? 'paid' : ''}`}>
       <div className="row between gap-8">
-        <span className="col"><b>Extra cabin crew</b><span className="tiny dim">{req ? `The client requires +${req}. ` : ''}Above the legal minimum: more salaries and per diems, better morale and service.{seatsNote ? ` ${seatsNote}` : ''}</span></span>
+        <span className="col"><b className="row gap-6" style={{ alignItems: 'center' }}>Extra cabin crew <Help title="Extra crew">{EXTRA_CREW_NOTE.map((t) => <p key={t}>{t}</p>)}</Help></b>{(req || seatsNote) ? <span className="tiny dim">{[req ? `The client requires +${req}.` : '', seatsNote ?? ''].filter(Boolean).join(' ')}</span> : null}</span>
         <Stepper value={x.cabin} min={req} max={Math.max(req, max, paid && x.cabin >= paid.n ? x.cabin : 0)} onChange={(v) => onChange({ cabin: v, pilot: x.pilot })} format={(v) => `+${v}`} />
       </div>
       <div className="row between gap-8">
-        <span className="col"><b className="small">Spare pilot</b><span className="tiny dim">Covers a sick call away from base; no extra duty time.</span></span>
+        <b className="small">Spare pilot</b>
         <Toggle on={!!x.pilot} onChange={(v) => onChange({ cabin: x.cabin, pilot: v ? 1 : 0 })} label="Spare pilot" />
       </div>
       {paid && (
@@ -432,7 +434,7 @@ function HajjPanel({ o }: { o: ContractOffer }) {
   return (
     <div className="v8-panel">
       <b>Hajj airlift</b>
-      {t.length >= 2 && <div className="small">In: {fmtDay(t[0][0])} – {fmtDay(t[0][1])} · home: {fmtDay(t[1][0])} – {fmtDay(t[1][1])}. The days around the Day of Arafah are free.</div>}
+      {t.length >= 2 && <div className="small">In: {fmtDay(t[0][0])} – {fmtDay(t[0][1])} · home: {fmtDay(t[1][0])} – {fmtDay(t[1][1])}. The days around the <Term id="arafah">Day of Arafah</Term> are free.</div>}
       <div className="small muted">{empty ? `${empty} of ${legs.length} legs fly empty` : 'Every other leg flies empty'}; the client pays those hours too. Max-seat cabin, no alcohol on board.</div>
     </div>
   );
@@ -707,7 +709,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           <div>
             <b>{cl ? `${flag(cl.country)} ${cl.name}` : 'Client'}</b>
             {o.broker && <span className="chip sc-chip sc-broker">via {o.broker} (5%)</span>}
-            <div className="of-shape-head"><span className="small muted mono">{routeSummary(o.pattern)}</span><ShapeTags s={shapeOf(o)} /></div>
+            <div className="of-shape-head">{routeSummary(o.pattern) && <span className="small muted mono">{routeSummary(o.pattern)}</span>}<ShapeTags s={shapeOf(o)} /></div>
             {/* v0.20.1 how long the job runs, at a glance: the months ahead with its days filled in, then days and months. */}
             <DurationStrip now={g.now} first={offerDays(o)[0]} last={o.pattern.kind === 'base' ? offerDays(o)[1] : Math.max(o.start, o.end - 1)} className="of-dur" />
           </div>
@@ -738,9 +740,13 @@ export function OfferModal({ offerId }: { offerId: string }) {
           </>}
         </div>
         <div className="sc-offer-right col gap-8">
-          <div className="upper dim">Choose an aircraft</div>
+          {/* v0.22 how to read the schedules under the aircraft: behind the '?' (it was a paragraph above them). */}
+          <div className="upper dim row gap-6" style={{ alignItems: 'center' }}>Choose an aircraft{reports.length > 0 && o.product.kind !== 'dry' && <Help title="The schedule under each aircraft">
+            <p>Under each aircraft, its schedule around this job, every flight on its own.</p>
+            <p>This job's flights are dashed outlines (not booked yet), or one shaded block while it has no flights yet. Red outlines are in the way.</p>
+            <p>Tap a trip to move it to another aircraft or sub-lease it, or hold and drag it onto another aircraft.</p>
+          </Help>}</div>
           {!reports.length && <div className="small muted">No aircraft in the fleet.</div>}
-          {reports.length > 0 && o.product.kind !== 'dry' && <div className="tiny dim v91-portal-hint">Under each aircraft, its schedule around this job, every flight on its own. This job's flights are dashed outlines (not booked yet), or one shaded block while it has no flights yet; red outlines are in the way. Tap a trip to move it to another aircraft or sub-lease it, or hold and drag it onto another aircraft.</div>}
           {reports.length > 0 && !shown.length && <div className="small muted">None of our aircraft is what {cl?.name ?? 'the client'} asked for.</div>}
           {shown.map((r) => (
             <AircraftRow key={r.aircraftId} g={g} r={r} on={sel?.aircraftId === r.aircraftId} onPick={() => setPick(r.aircraftId)} billBH={o.estBH} lift={lift / bizLift} offerId={o.id} long={!!restLine}

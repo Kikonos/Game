@@ -162,9 +162,7 @@ function Market({ g }: { g: GameState }) {
         {hiddenOffers(g).length ? (
           <Empty icon={<InboxIcon />} title="No offers fit your filter">Tap All above, or open the hidden ones below.</Empty>
         ) : (
-          <Empty icon={<InboxIcon />} title="No offers right now">
-            Brokers and clients send work every few days. Idle aircraft attract gap-fit offers.
-          </Empty>
+          <Empty icon={<InboxIcon />} title="No offers right now" />
         )}
         <HiddenOffersRow g={g} />
       </>
@@ -243,7 +241,7 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
   return (
     <div className={`card sc-contract ${sel ? 'selected' : ''} ${open ? '' : 'closed'}`} style={{ ['--kc' as string]: contractColor(c.color) }}>
       <div className="sc-contract-main">
-        <div className="row gap-8">
+        <div className="row gap-8 sc-contract-head">
           <ArchIcon a={c.archetype} />
           <b className="ellipsis">{c.title}</b>
           <span className={`badge ${c.status === 'active' ? 'good' : c.status === 'cancelled' ? 'bad' : ''}`}>{STATUS_LABEL[c.status]}</span>
@@ -325,9 +323,7 @@ function Active({ g, sel }: { g: GameState; sel: string | null }) {
   if (!open.length && !closed.length) {
     return (
       <>
-        <Empty icon={<FileSearch />} title="No contracts yet">
-          Accept an offer from the Market tab. Its flights appear on the Schedule straight away.
-        </Empty>
+        <Empty icon={<FileSearch />} title="No contracts yet">Accept an offer from the Market tab.</Empty>
         {routeLines}
       </>
     );
@@ -346,7 +342,7 @@ const MISSED_LABEL: Partial<Record<ContractOffer['status'], string>> = { lost: '
 
 function Missed({ g }: { g: GameState }) {
   const list = missedOffers(g);
-  if (!list.length) return <Empty icon={<InboxIcon />} title="Nothing missed">Offers that expire, go to a rival or that you decline stay here for two weeks.</Empty>;
+  if (!list.length) return <Empty icon={<InboxIcon />} title="Nothing missed">Kept here for two weeks.</Empty>;
   return (
     <div className="card sc-list">
       {list.map((o) => (
@@ -414,7 +410,7 @@ export function ContractsScreen() {
   const nClients = useMemo(() => clientList(g, 'working').length, [g, day, store.editCount]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="screen sc-contracts">
-      <ScreenHead hint="contracts" title="Contracts" sub="Offers from brokers and clients, and the work you have signed.">
+      <ScreenHead hint="contracts" title="Contracts">
         <Tabs<View> value={hub ? 'market' : view} onChange={(v) => store.navigate('contracts', { view: v })} tabs={[
           // v0.16.3 one Market tab: offers, the leads pipeline and the tender board as segments (Sales and Tenders were tabs).
           { id: 'market', label: 'Market', count: nMarket + nLeads + nTenders || undefined },

@@ -18,6 +18,7 @@ import {
 } from '../../../engine/network';
 import type { RouteModel, Segment, StudyDepth } from '../../../engine/network/types';
 import { Modal, Seg } from '../../components/ui';
+import { Help } from '../../components/Help';
 import { int, money } from '../../format';
 import { store, useGame } from '../../store';
 import { StopCompareCard } from './LaunchWizard';
@@ -91,9 +92,11 @@ function MarketPreview({ m, typeId }: { m: RouteMarket; typeId: string }) {
   return (
     <div className="col gap-10 crb-market">
       <div className="crb-size">
-        <span className="tiny dim upper">Travellers a year, both ways</span>
+        <span className="tiny dim upper row gap-6" style={{ alignItems: 'center' }}>Travellers a year, both ways <Help title="Travellers a year">
+          A first guess from the two airports and the ties between the places. A study narrows it.
+        </Help></span>
         <b className="num">about {int(r.mid)}</b>
-        <span className="small muted">a first guess from the airports and the ties: anywhere from {int(r.lo)} to {int(r.hi)}. A study narrows it.</span>
+        <span className="small muted">a first guess: {int(r.lo)} to {int(r.hi)}</span>
       </div>
       <p className="small nw-blurb">{m.blurb}</p>
       <div className="crb-segs" aria-label="Who travels">
@@ -211,15 +214,19 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
             )}
           </div>
           <div className="col gap-6">
-            <span className="upper dim">To</span>
+            <span className="upper dim row gap-6" style={{ alignItems: 'center' }}>To <Help title="Where to">
+              <p>Any airport in our list is a destination: search by city, code or country.</p>
+              <p>Most pairs nobody flies are thin; strong ones are where people are tied (family, work, holidays).</p>
+            </Help></span>
             <Picker label="Destination" value={to} exclude={[from]} onPick={pickTo} placeholder="city, airport code or country" />
           </div>
           <div className="col gap-6">
-            <span className="upper dim">Planned on</span>
+            <span className="upper dim row gap-6" style={{ alignItems: 'center' }}>Planned on <Help title="Planned on">
+              The type sets the range ring and the fuel stops here. The study tries every size.
+            </Help></span>
             <select className="nw-select" value={typeId} onChange={(e) => { setTypeId(e.target.value); setStops(null); }} aria-label="Aircraft type for the plan">
               {types.map((t) => <option key={t} value={t}>{tname(t)}</option>)}
             </select>
-            <span className="tiny muted">For the range ring and the fuel stops; the study tries every size.</span>
           </div>
           {to && (
             <div className="col gap-6">
@@ -248,7 +255,6 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
           <RouteMap from={from} to={to} via={via} viaBack={viaBack} typeId={typeId} rivals={m?.competitors} />
         </div>
       </div>
-      {!to && <p className="small muted crb-hint">Any airport in our list is a destination: search by city, code or country. Most pairs nobody flies are thin; strong ones are where people are tied (family, work, holidays).</p>}
       {cat && <div className="small warn crb-cat">{cat.city} from {AIRPORT_BY_CODE[cat.from]?.city} is one of the suggested markets, already researched: open it there.</div>}
       {cat && cmp && to && <div className="crb-below"><StopCompareCard cmp={cmp} mode="plain" from={from} to={to} studied={false} onPick={(k) => setSell(k === 'stopover')} /></div>}
       {m && !cat && (
@@ -264,7 +270,10 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
             </div>
           )}
           {!kept && <div className="col gap-6">
-            <span className="upper dim">Step 1 · Market study</span>
+            <span className="upper dim row gap-6" style={{ alignItems: 'center' }}>Step 1 · Market study <Help title="A study of your own route">
+              <p>Nobody has researched this pair, so every study is a little less sure than for the suggestions (±{Math.round(acc * 100)} % for this one).</p>
+              <p>Then the same launch: business case, rights, slots, brand, distribution, timetable on sale, campaign, stations, crew briefings and the first flight.</p>
+            </Help></span>
             <div className="nw-depths">
               {DEPTHS.map((d) => {
                 const c = BAL.v019.launch.study[d];
@@ -277,7 +286,6 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
                 );
               })}
             </div>
-            <span className="tiny muted">Nobody has researched this pair, so every study is a little less sure than for the suggestions (±{Math.round(acc * 100)} % for this one). Then the same launch: business case, rights, slots, brand, distribution, timetable on sale, campaign, stations, crew briefings and the first flight.</span>
           </div>}
         </div>
       )}

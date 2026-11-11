@@ -14,7 +14,7 @@ export function AchievementsView({ g }: { g: GameState }) {
   const got = list.filter((a) => a.at !== null).length;
   return (
     <div className="col gap-16 v9-ach">
-      <div className="small muted"><b className="v9-ach-count">{got} of {list.length}</b> earned · some bring a department head (Company › Team)</div>
+      <div className="small muted"><b className="v9-ach-count">{got} of {list.length}</b> earned</div>
       {ACHIEVEMENT_GROUPS.map((gr) => {
         const items = list.filter((a) => a.group === gr.id);
         if (!items.length) return null;

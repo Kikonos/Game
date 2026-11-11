@@ -178,7 +178,7 @@ function ProblemsNow({ g }: { g: GameState }) {
  * and at the home base; a tap opens what it was about, as the toast would have.
  */
 function PopupLog({ g, log }: { g: GameState; log: ToastLogEntry[] }) {
-  if (!log.length) return <Empty icon={<History />} title="No pop-ups yet">The notes that pop up at the lower right land here too, so you can read them again.</Empty>;
+  if (!log.length) return <Empty icon={<History />} title="No pop-ups yet" />;
   const home = g.company.homeBase;
   return (
     <div className="card sc-list">
@@ -252,7 +252,7 @@ export function InboxScreen() {
       </div>
       {cat === 'problems' && <ProblemsNow g={g} />}
       {cat === 'popups' ? <PopupLog g={g} log={st.toastLog} /> : !list.length ? (
-        cat === 'problems' && problems(g).length > 0 ? null : <Empty icon={<InboxIcon />} title={cat === 'problems' ? 'No problems' : 'No messages'}>{cat === 'problems' ? 'Open problems and the bad news of the last week land here with their story.' : 'Operations, crew, commercial and finance news land here.'}</Empty>
+        cat === 'problems' && problems(g).length > 0 ? null : <Empty icon={<InboxIcon />} title={cat === 'problems' ? 'No problems' : 'No messages'} />
       ) : (
         <div className="card sc-list">
           {shown.map((m) => {

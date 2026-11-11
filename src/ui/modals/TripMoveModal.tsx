@@ -8,6 +8,7 @@ import { typeOf } from '../../engine/core/perf';
 import { fmtDateTime, fmtDuration, fmtTime } from '../../engine/core/time';
 import { MONEY_LINES, moneyTotal, moveTrip, quoteTripMove, type TripMoney, type TripMoveQuote } from '../../engine/ops/tripMove';
 import { Modal } from '../components/ui';
+import { Help } from '../components/Help';
 import { subleaseTrip } from '../../engine/ops/sublease';
 import { money } from '../format';
 import { SUBLEASE_LINE } from './SubcharterModal';
@@ -50,7 +51,7 @@ function MoneyTable({ q }: { q: TripMoveQuote }) {
             <th />
             <th className="num">Before<span className="tm-th-reg">{q.sourceReg}</span></th>
             <th className="num">After<span className="tm-th-reg">{q.targetReg}</span></th>
-            <th className="num">Difference</th>
+            <th className="num">Difference <Help title="How it is worked out">Crew costs are an estimate from the new roster. The rest is at today's fuel price and the contract's rates.</Help></th>
           </tr>
         </thead>
         <tbody>
@@ -58,7 +59,6 @@ function MoneyTable({ q }: { q: TripMoveQuote }) {
           {row('net', 'Result', 'Revenue less the costs above', moneyTotal(q.before), moneyTotal(q.after), q.net)}
         </tbody>
       </table>
-      <div className="tiny dim tm-est">Crew costs are an estimate from the new roster; the rest at today's fuel price and the contract's rates.</div>
     </div>
   );
 }

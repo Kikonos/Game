@@ -16,6 +16,7 @@ import type { GameState, Ref } from '../../engine/core/types';
 import { restOfAc } from '../../engine/crew';
 import { marketView, type MarketOfferView } from '../../engine/ops';
 import { Seg, Toggle } from '../components/ui';
+import { Help } from '../components/Help';
 import { money } from '../format';
 import { store, useStore } from '../store';
 import { markMarketSeen, unseenOffers } from './screenLogic';
@@ -59,13 +60,14 @@ function MarketAlerts() {
   const st = s.settings;
   return (
     <div className="card mk-alerts">
-      <span className="row gap-8"><b className="small">Market alerts</b><Toggle on={st.marketAlerts} onChange={(v) => store.setSettings({ marketAlerts: v })} label="Market alerts" /></span>
+      <span className="row gap-8"><b className="small row gap-6" style={{ alignItems: 'center' }}>Market alerts <Help title="Market alerts">
+        A new aircraft offer brings an Inbox message, a quiet notice and a chip in the top bar.
+      </Help></b><Toggle on={st.marketAlerts} onChange={(v) => store.setSettings({ marketAlerts: v })} label="Market alerts" /></span>
       <span className={`row gap-8 ${st.marketAlerts ? '' : 'set-off'}`}>
         <b className="small">Pause on new offers</b>
         <span className={st.marketAlerts ? '' : 'set-disabled'}><Toggle on={st.marketAlerts && st.autoPause.marketOffer} onChange={(v) => st.marketAlerts && store.setSettings({ autoPause: { ...st.autoPause, marketOffer: v } })} label="Pause on new offers" /></span>
         {!st.marketAlerts && <span className="tiny dim">Needs market alerts on</span>}
       </span>
-      <span className="tiny dim grow mk-alerts-note">Alerts: an Inbox message, a quiet notice and a chip in the top bar.</span>
     </div>
   );
 }
@@ -117,7 +119,12 @@ export function MarketView({ g, sel, selRef }: { g: GameState; sel: string | nul
           { value: 'requests', label: `Requests (${n.requests})` },
           { value: 'progress', label: `In progress (${n.progress})` },
         ]} />
-        <span className="small muted grow mk17-intro">Lessors call when an aircraft comes free; or ask them for the one you want.</span>
+        {/* v0.22 how the market works, once, behind the '?' (it was a line here and a paragraph in each empty tab). */}
+        <Help title="The aircraft market">
+          <p><b>Offers.</b> Lessors call when an aircraft comes free.</p>
+          <p><b>Requests.</b> Or ask them for the one you want: type, age, lease and start. They answer in one to three weeks with a proposal or a plain no. Short-term aircraft come from airlines in their quiet season.</p>
+          <p><b>In progress.</b> A letter of intent starts the lessor's credit check. Once the lease is signed the aircraft goes through records, a check and paint before its ferry home.</p>
+        </Help>
       </div>
       {tab === 'offers' && <OffersView g={g} sel={sel} />}
       {tab === 'requests' && <RequestsView g={g} sel={selRef} onOffers={() => setTab('offers')} />}

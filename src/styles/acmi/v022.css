@@ -1,0 +1,84 @@
+/* v0.22 Cleaner screens: the game-wide visual pass (small, safe fixes on the existing tokens). */
+
+/* ---------- Contracts › Active ---------- */
+/* The card's title is no longer cut short while the row has room: the tags follow the status and wrap under it. */
+.sc-contract-head { flex-wrap: wrap; row-gap: 4px; }
+.sc-contract-head > b { max-width: 100%; }
+.sc-contract-head .sc-contract-shape { margin-left: 0; }
+
+/* ---------- Contracts › Leads ---------- */
+.mh-waiting { margin-left: 2px; font-weight: 400; }
+
+/* ---------- Crew: the head ---------- */
+/* '393 people · 25 on duty now' wrapped into four lines beside the tabs: it has its own line under the title row. */
+@media (min-width: 700px) and (min-height: 500px) {
+  .sc-crew > .sc-head { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 12px; align-items: center; }
+  .sc-crew > .sc-head > .grow { display: contents; }
+  .sc-crew > .sc-head h1 { grid-column: 1; grid-row: 1; }
+  .sc-crew > .sc-head .sc-head-tools { grid-column: 2; grid-row: 1; justify-content: flex-end; }
+  .sc-crew > .sc-head .subtitle { grid-column: 1 / -1; grid-row: 2; margin: 0; white-space: nowrap; }
+}
+
+/* ---------- Crew › Planning: the table ---------- */
+/* A rank stays on one line; the shared count sits under the number instead of wrapping beside it. */
+.cp-table td:first-child { white-space: nowrap; }
+.cp-table .cp-shared { display: block; white-space: nowrap; }
+
+/* ---------- Fleet cards ---------- */
+/* The dry-lease row is a button: it kept the card's large type. Same size as the lease and check rows beside it. */
+.v8-fleet-lease.small { font-size: 12px; }
+.fl-row.fl-dry { align-items: flex-start; padding: 10px 0; }
+.fl-row.fl-dry > .upper { padding-top: 2px; }
+/* Schedule, On map and Specs: one icon size across the row. */
+.fl-actions .btn.spec-link { gap: 8px; }
+.fl-actions .btn.spec-link svg { width: 18px; height: 18px; }
+/* The crew box's 'company default' keeps to one line. */
+.sc-ac-crew > .row.between { gap: 10px; align-items: flex-start; }
+.sc-ac-crew > .row.between > .tiny { flex: none; white-space: nowrap; padding-top: 2px; }
+
+/* ---------- Tender bid: the chosen aircraft ---------- */
+.v14-tn-ac { border-radius: 10px; }
+
+/* ---------- Route launch: the stage list stays in view while the plan scrolls ---------- */
+@media (min-width: 1000.02px) and (min-height: 740px) {
+  .nw-launch-grid > .nw-launch-time { position: sticky; top: 0; }
+}
+
+/* ---------- Inbox: a card fills its row ---------- */
+.sc-inbox .sc-list .sc-msg-wrap { display: flex; flex-direction: column; }
+.sc-inbox .sc-list .sc-msg-wrap > .sc-msg-line { flex: 1 1 auto; }
+
+/* ---------- Light theme ---------- */
+/* The pause button: its dark sign sat on the light theme's dark amber. White reads. */
+:root[data-theme='light'] .speed .sp-pause.on { color: #fff; }
+
+/* ---------- A phone held upright: rows that ran past their card ---------- */
+@media (max-width: 699.98px) {
+  /* Crew › Planning: the six-column table scrolls sideways inside its card. */
+  .cp-table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  /* Crew › Leave: a request stacks (who, dates, the two buttons); the month chips take two rows. */
+  .lv-req { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .lv-mchips { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  /* Network › Studies: 'Valid until' and 'Show study' wrap under the name. */
+  .nw-study { flex-wrap: wrap; }
+  /* Fleet card: the status badge wraps under the registration. */
+  .sc-ac-top .grow > .row { flex-wrap: wrap; row-gap: 4px; }
+  /* Contracts: the outlook tiles keep to the screen's width. */
+  .v8-head-strip > .v8-outlook-btn { width: 100%; }
+  .v8-head-strip .v8-tiles { width: 100%; }
+  .v8-head-strip .v8-tile { overflow: hidden; }
+  .v8-head-strip .v8-tile > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Network: a market with a study still good keeps its name; 'Valid until' and 'Show study' wrap under it. */
+  .nw-market { flex-wrap: wrap; row-gap: 4px; }
+  .nw-market > .nw-market-text { flex: 1 1 60%; min-width: 150px; }
+  /* Aircraft market: the empty list's buttons and a deal's findings badge wrap. */
+  .mk17-empty, .mk17-empty > .row { flex-wrap: wrap; }
+  .mk17-deal .row.between { flex-wrap: wrap; }
+}
+/* Crew › Planning: 'Have' and its '?' stay together. */
+.cp-table th:nth-child(2) { white-space: nowrap; }
+
+/* ---------- Aircraft market › In progress: a deal's title (registration, type, lessor) wraps instead of being cut ---------- */
+.mk17-deal b.ellipsis { white-space: normal; overflow: visible; }
+.mk17-deal .row.between { align-items: flex-start; }
+.mk17-deal .row.between > .badge { flex: none; }

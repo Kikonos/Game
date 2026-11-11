@@ -18,6 +18,7 @@ import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import { Seg } from '../components/ui';
 import { money } from '../format';
+import { Help } from '../components/Help';
 import { store } from '../store';
 import { lockOf } from '../../engine/scenario';
 import { LockedPanel } from '../components/Locked';
@@ -28,9 +29,11 @@ const span = (a: number, b: number) => (fmtDay(a) === fmtDay(b) ? fmtDay(a) : `$
 /** Company › Team: one line, who is away (or nobody), linking to Contracts › Markets. */
 export function AwayLine({ g }: { g: GameState }) {
   const away = travellers(g).filter((t) => t.tripId);
-  const text = away.length
-    ? away.map((t) => `${t.who === 'ceo' ? 'You' : t.name.split(' ')[0]}: ${tripNow(g, g.com!.trips.find((x) => x.id === t.tripId)!)}`).join(' · ')
-    : 'Nobody is away';
+  const who = (t: (typeof away)[number]) => (t.who === 'ceo' ? 'You' : t.name.split(' ')[0]);
+  // v0.22 one trip: who and where it stands. More: the count and the names (the line was cut short; the rest is one tap away).
+  const text = away.length === 1
+    ? `${who(away[0])}: ${tripNow(g, g.com!.trips.find((x) => x.id === away[0].tripId)!)}`
+    : away.length ? `${away.length} trips booked: ${away.map(who).join(', ')}` : 'Nobody is away';
   return (
     <button className="v14-away-line" onClick={() => store.navigate('contracts', { view: 'markets' })} aria-label="Sales trips and fairs: Contracts, Markets">
       <Briefcase className="sc-ico-s" />
@@ -94,7 +97,10 @@ function Presence({ g }: { g: GameState }) {
   const rows = useMemo(() => presenceView(g), [g, day, store.editCount]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <section className="card v14-mk-card">
-      <div className="v14-mk-head"><b>Where we’re known</b></div>
+      <div className="v14-mk-head"><b className="row gap-6" style={{ alignItems: 'center' }}>Where we’re known <Help title="Where we’re known">
+        <p>Most offers come from where we’re known. Fairs, visits, jobs flown there and happy clients build it; it fades slowly without them.</p>
+        <p>The number is our presence in that market, 0 to 100.</p>
+      </Help></b></div>
       {rows.map((r) => (
         <div key={r.id} className="v14-pres-row" title={`${r.name}: ${presenceWord(r.value)}. ${r.demand}`}>
           <span className="v14-pres-name ellipsis">
@@ -106,7 +112,6 @@ function Presence({ g }: { g: GameState }) {
           <span className={`v14-pres-season tiny ${r.season === 'Peak season' ? 'accent' : 'dim'}`}>{r.season === 'Peak season' ? 'Peak' : r.season ? 'Quiet' : ''}</span>
         </div>
       ))}
-      <span className="tiny dim v14-mk-foot">Most offers come from where we’re known. Fairs, visits, jobs flown there and happy clients build it; it fades slowly without them.</span>
     </section>
   );
 }
@@ -170,7 +175,9 @@ export function MarketsView({ g }: { g: GameState }) {
       <div className="col gap-12 v14-mk-side">
         <Presence g={g} />
         <section className="card v14-mk-card">
-          <div className="v14-mk-head"><b>Who travels</b></div>
+          <div className="v14-mk-head"><b className="row gap-6" style={{ alignItems: 'center' }}>Who travels{!g.heads?.analyst?.hired && <Help title="Who travels">
+            You go yourself. Hire a commercial analyst (Company › Team) to send a second person.
+          </Help>}</b></div>
           {people.map((p) => (
             <div key={p.who} className="row gap-8 v14-mk-person">
               <Users className="sc-ico-s dim" />
@@ -180,7 +187,7 @@ export function MarketsView({ g }: { g: GameState }) {
               </span>
             </div>
           ))}
-          {!g.heads?.analyst?.hired && <span className="tiny dim">Hire a commercial analyst (Company › Team) to send a second person.</span>}
+
         </section>
       </div>
       <div className="col gap-12 v14-mk-main">
@@ -223,7 +230,7 @@ export function MarketsView({ g }: { g: GameState }) {
         {free.length > 0 && (
           <section className="card v14-mk-card">
             <div className="set-row v14-field">
-              <div><b>Visit a client</b><div className="tiny dim">A day at their office: a better relation, maybe work</div></div>
+              <div><b className="row gap-6" style={{ alignItems: 'center' }}>Visit a client <Help title="Visit a client">A day at their office: a better relation, maybe work.</Help></b></div>
               <select className="select" value={pick?.clientId ?? ''} aria-label="Client to visit" onChange={(e) => setPick(e.target.value ? { clientId: e.target.value } : null)}>
                 <option value="">Choose…</option>
                 {clients.map((c) => <option key={c.id} value={c.id}>{flag(c.country)} {c.name} · {city(c.base)}</option>)}

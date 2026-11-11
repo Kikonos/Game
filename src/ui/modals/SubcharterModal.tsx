@@ -9,6 +9,7 @@ import { useMemo, useState } from 'react';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, fmtDateTime, fmtDay, fmtTime } from '../../engine/core/time';
 import { Modal, Toggle } from '../components/ui';
+import { Term } from '../components/Term';
 import { money } from '../format';
 import { KV } from '../screens/common';
 import { STYLE_NAME } from '../../engine/contracts';
@@ -104,8 +105,8 @@ export function SubcharterModal({ contractId, flightId, rivalId, flightIds, back
     }>
       <div className="col gap-12">
         <LockNote why={lockOf(g, 'subcharter')} />
-        <p className="sl-line"><b>{SUBLEASE_LINE}</b> <span className="muted">(a sub-charter)</span></p>
-        <p className="muted sc-blurb">A rival operator flies the legs with its own aircraft and crew. {g.clients[c.clientId]?.name ?? 'The client'} is billed by us as usual; we pay the rival. Empty positioning legs in the selection are dropped.</p>
+        {/* v0.22 how a sub-charter works: the glossary word, with this job's note (no paragraph under it). */}
+        <p className="sl-line"><b>{SUBLEASE_LINE}</b> <span className="muted">(a <Term id="subcharter" extra={`The rival flies with its own aircraft and crew. ${g.clients[c.clientId]?.name ?? 'The client'} is billed by us as usual; we pay the rival. Empty positioning legs in the selection are dropped.`}>sub-charter</Term>)</span></p>
         <div className="row gap-8 wrap">
           {flightIds && <button className={`chip ${mode === 'trip' ? 'active' : ''}`} onClick={() => setMode('trip')}>{nTrips > 1 ? `These trips (${trips.length} legs)` : `This trip (${trips.length} leg${trips.length === 1 ? '' : 's'})`}</button>}
           {rot.length > 0 && !flightIds && <button className={`chip ${mode === 'rotation' ? 'active' : ''}`} onClick={() => setMode('rotation')}>This rotation ({rot.length} leg{rot.length > 1 ? 's' : ''})</button>}

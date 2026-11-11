@@ -2,17 +2,16 @@
 // the joiners, a clean per-role table and one verdict line; Round up opens the hire flow pre-filled with exactly the
 // crew that complete the sets. The People view keeps a one-line summary per family that links here.
 
-import { CalendarClock, Check, Info, UserPlus } from 'lucide-react';
-import { useState } from 'react';
+import { CalendarClock, Check, UserPlus } from 'lucide-react';
 import type { RatingFamily } from '../../data/acmiTypes';
 import type { GameState } from '../../engine/core/types';
-import { BAL } from '../../engine/core/balance';
-import { awayOnDryLease, crewPeakCard, crewPlan, deploymentSets, familyName, peakForecast, peakGroups, peakId, roundTargets, SETS_DETACHED, SETS_WHY, setWords, type FamilyPlan } from '../../engine/crew';
+import { awayOnDryLease, crewPeakCard, crewPlan, deploymentSets, familyName, peakForecast, peakGroups, peakId, roundTargets, setWords, type FamilyPlan } from '../../engine/crew';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { fmtDay } from '../../engine/core/time';
 import { ProblemCardView, runAction } from '../components/ProblemCard';
 import { typeOf } from '../../engine/core/perf';
 import { Term } from '../components/Term';
+import { Help } from '../components/Help';
 import { store } from '../store';
 import { isPilotRole } from './screenLogic';
 import { planSentence, setsWhyLines } from './crewPlanLogic';
@@ -20,6 +19,8 @@ import { lockOf } from '../../engine/scenario';
 import { LockNote } from '../components/Locked';
 
 const ROLE_WORD: Record<string, string> = { CPT: 'Captains', FO: 'First officers', PUR: 'Pursers', CC: 'Cabin crew' };
+/** v0.22 the '?' on the Have column: where crew rated on two fleets are counted (it used to be a bracket on every line). */
+const DUAL_NOTE = 'They count once: in the fleet they were hired for, and as backup in the other. When their own fleet has all it needs, the spare ones count where they are needed.';
 
 /**
  * Crew types held with no aircraft of them flying (converted ahead, or left over): idle but paid. `leased`: every
@@ -46,21 +47,15 @@ function FamilyCard({ p, lock }: { p: FamilyPlan; lock?: string | null }) {
   const t = roundTargets(p);
   const short = p.setsComplete < p.setsNeeded;
   const pct = (n: number) => `${Math.min(100, (n / Math.max(1, p.setsNeeded)) * 100)}%`;
-  // v0.14 the "i": why N per aircraft, what limits them, who fills which seats (three short lines).
-  const [why, setWhy] = useState(false);
   return (
     <div className={`card cp-card ${short ? 'short' : ''}`}>
       <div className="row between gap-8 cp-head">
-        <span className="row gap-4"><b className="cp-name">{p.label}</b>
-          <button className={`btn btn-icon btn-ghost cp-info ${why ? 'on' : ''}`} onClick={() => setWhy(!why)} aria-expanded={why} aria-label={`How ${p.label} crew sets work`} title="How crew sets work"><Info /></button>
+        {/* v0.14 why N per aircraft, what limits them, who fills which seats (three short lines); v0.22 behind the '?'. */}
+        <span className="row gap-8"><b className="cp-name">{p.label}</b>
+          <Help title="How crew sets work">{setsWhyLines(p).map((l) => <p key={l}>{l}</p>)}</Help>
         </span>
         <span className="small muted">{p.types.map((x) => `${x.short} ×${x.aircraft}`).join(' · ')}</span>
       </div>
-      {why && (
-        <ul className="small muted cp-why">
-          {setsWhyLines(p).map((l) => <li key={l}>{l}</li>)}
-        </ul>
-      )}
       <div className="cp-sets">
         <div className="cp-num"><span className="tiny dim">Sets needed</span><b className="num">{p.setsNeeded}</b><span className="tiny muted">{p.setsPerAircraft} per aircraft</span></div>
         <div className="cp-num"><span className="tiny dim">Complete now</span><b className={`num ${p.setsNow < p.setsNeeded ? 'warn' : ''}`}>{p.setsNow}</b><span className="tiny muted">working today</span></div>
@@ -76,13 +71,13 @@ function FamilyCard({ p, lock }: { p: FamilyPlan; lock?: string | null }) {
       </div>
       <table className="cp-table">
         <thead>
-          <tr><th>Role</th><th>Have</th><th>Needed</th><th>Joining</th><th>Off now</th><th>Short / over</th></tr>
+          <tr><th>Role</th><th>Have{(p.alsoRated.length > 0 || p.backupFrom.length > 0) && <> <Help title="Crew rated on two fleets">{DUAL_NOTE}</Help></>}</th><th>Needed</th><th>Joining</th><th>Off now</th><th>Short / over</th></tr>
         </thead>
         <tbody>
           {p.roles.map((r) => (
             <tr key={r.role}>
               <td><b>{r.role}</b> <span className="tiny muted">{ROLE_WORD[r.role]}</span></td>
-              <td className="num">{r.have}{r.shared ? <span className="tiny muted"> ({r.shared} shared)</span> : null}</td>
+              <td className="num">{r.have}{r.shared ? <span className="tiny muted cp-shared">{r.shared} shared</span> : null}</td>
               <td className="num">{r.need}</td>
               <td className="num">{r.joining || '–'}</td>
               <td className="num">{r.away || '–'}</td>
@@ -95,16 +90,16 @@ function FamilyCard({ p, lock }: { p: FamilyPlan; lock?: string | null }) {
         </tbody>
       </table>
       {p.alsoRated.map((b) => b.spill ? (
-        <div key={`as${b.family}`} className="tiny muted cp-backup">{backupWho(b)} hired for the {b.label} also rated here <span className="dim">(counted here, where they are needed: the {b.label} has all it needs)</span></div>
+        <div key={`as${b.family}`} className="tiny muted cp-backup">{backupWho(b)} hired for the {b.label} also rated here · counted here</div>
       ) : (
-        <div key={`a${b.family}`} className="tiny muted cp-backup">{backupWho(b)} also rated on the {b.label} <span className="dim">(backup there; counted here, where they were hired)</span></div>
+        <div key={`a${b.family}`} className="tiny muted cp-backup">{backupWho(b)} also rated on the {b.label} · counted here</div>
       ))}
       {p.backupFrom.map((b) => b.spill ? (
-        <div key={`fs${b.family}`} className="tiny muted cp-backup">{backupWho(b)} hired here also rated on the {b.label} <span className="dim">(counted in the {b.label}, where they are needed: this family has all it needs)</span></div>
+        <div key={`fs${b.family}`} className="tiny muted cp-backup">{backupWho(b)} hired here also rated on the {b.label} · counted in the {b.label}</div>
       ) : (
-        <div key={`f${b.family}`} className="tiny muted cp-backup">{backupWho(b)} from the {b.label} also rated here <span className="dim">(backup; counted in the {b.label})</span></div>
+        <div key={`f${b.family}`} className="tiny muted cp-backup">{backupWho(b)} from the {b.label} also rated here · counted in the {b.label}</div>
       ))}
-      {p.clientCabin > 0 && <div className="tiny muted"><Term id="dampLease">Mixed crew</Term>: clients' own cabin crew fly about {p.clientCabin} of the cabin places in these sets; only ours are counted.</div>}
+      {p.clientCabin > 0 && <div className="tiny muted"><Term id="dampLease">Mixed crew</Term>: clients' crew fly about {p.clientCabin} cabin {p.clientCabin === 1 ? 'place' : 'places'}</div>}
       {p.dryLeased > 0 && <div className="tiny muted">Dry lease out: {p.dryLeased} more {p.dryLeased === 1 ? 'aircraft is' : 'aircraft are'} away with the lessee's crews; no sets until {p.dryLeased === 1 ? 'it comes' : 'they come'} back.</div>}
       {/* v0.15 a scenario's hiring allowance. */}
       <LockNote why={lock} />
@@ -172,9 +167,6 @@ export function CrewPlanView({ g }: { g: GameState }) {
   return (
     <div className="cp-view">
       <PeakHeadsUp g={g} />
-      <div className="small muted cp-intro">
-        {SETS_WHY}{plans.some((p) => p.setsPerAircraft !== BAL.crewSetsPerAircraft) || Object.values(g.deployments).some((d) => d.end > g.now) ? ` ${SETS_DETACHED}` : ''} The role you have fewest of decides how many sets are complete.
-      </div>
       {!plans.length && <div className="small muted">No aircraft in the fleet yet.</div>}
       <div className="cp-grid">
         {plans.map((p) => <FamilyCard key={p.family} p={p} lock={lockOf(g, 'hiring')} />)}
@@ -202,7 +194,7 @@ export function DeploymentStrip({ g }: { g: GameState }) {
   const regOf = (id: string) => g.fleet[g.deployments[id]?.aircraftId ?? '']?.reg;
   return (
     <div className="cp-deploy">
-      <div className="tiny dim">On station · crews rotate every {g.company.policies.rotationWeeks} weeks (days off at the hotel); a set stays to the end when the deployment ends within a week of its change.</div>
+      <div className="tiny dim">On station · crews rotate every {g.company.policies.rotationWeeks} weeks <Help title="Crews on station">Days off are spent at the hotel. A set stays to the end when the deployment ends within a week of its change.</Help></div>
       <div className="cp-strip">
         {lines.map((l) => {
           const city = AIRPORT_BY_CODE[l.base]?.city ?? l.base;

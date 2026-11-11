@@ -5,6 +5,7 @@
 import { CheckCircle2, CircleDashed, Sparkles } from 'lucide-react';
 import type { GameState } from '../../../engine/core/types';
 import { exoticPath } from '../../../engine/leasing';
+import { Help } from '../../components/Help';
 import { tName } from './marketLogic';
 
 export function WhatItTakes({ g, typeId, always }: { g: GameState; typeId: string; always?: boolean }) {
@@ -13,8 +14,9 @@ export function WhatItTakes({ g, typeId, always }: { g: GameState; typeId: strin
   if (!p.exotic && !always && !open) return null;
   return (
     <div className="rf-box rf-path">
-      <div className="row gap-8"><Sparkles className="sc-ico-s accent" /><b className="small">What it takes{p.exotic ? `: ${/^[AE8]|^11|^18/.test(tName(typeId)) ? 'an' : 'a'} ${tName(typeId)} is rare` : ''}</b></div>
-      {p.exotic && <div className="small muted">Hard and expensive, never impossible: rare types come from specialist lessors and airlines retiring them, or for sale.</div>}
+      <div className="row gap-8"><Sparkles className="sc-ico-s accent" /><b className="small">What it takes{p.exotic ? `: ${/^[AE8]|^11|^18/.test(tName(typeId)) ? 'an' : 'a'} ${tName(typeId)} is rare` : ''}</b>{p.exotic && <Help title="A rare type">
+        Hard and expensive, never impossible: rare types come from specialist lessors and airlines retiring them, or for sale.
+      </Help>}</div>
       <ul>
         {p.steps.map((s) => (
           <li key={s.key} className={`small ${s.ok ? 'ok' : 'no'}`}>

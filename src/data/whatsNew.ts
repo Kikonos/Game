@@ -16,6 +16,21 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.22',
+    name: 'Cleaner screens',
+    features: [
+      'Explanations now sit behind a small "?". Tap it to read, tap anywhere to close. The screens keep the facts, the numbers and the warnings.',
+      'Long contracts keep their month letters: the duration strip shows one row a year, January under January.',
+    ],
+    improvements: [
+      'Tidier screens all over: Settings, Schedule, Crew, Company, Contracts, the aircraft market, Fleet, Finance, Inbox and Network lost their long notes.',
+      'Words with a glossary entry, such as Deposit, Credit check, Slots or sub-charter, open their meaning on tap.',
+      'Contract cards show the whole title, and the Crew screen keeps its head count on one line.',
+      'Route launch: the list of stages stays in view while you scroll the plan.',
+      'Phone held upright: no button hides under the bug button any more.',
+    ],
+  },
+  {
     version: 'v0.21',
     name: 'Stopovers and route advice',
     features: [

@@ -189,7 +189,7 @@ export function CrewControlModal({ flightId, fix }: { flightId: string; fix?: Cr
   return (
     <Modal size="xwide" className="cc-modal" title={<>{title}<HintButton id="crewControl" align="left" /></>} icon={icon} onClose={close} footer={
       <>
-        <span className="small dim grow cc-foot-note" title={done ? `Applied: ${done[0]}` : undefined}>{done ? `Applied: ${done[0]}` : 'Tap a solution to see what it changes, then Apply.'}</span>
+        <span className="small dim grow cc-foot-note" title={done ? `Applied: ${done[0]}` : undefined}>{done ? `Applied: ${done[0]}` : ''}</span>
         <button className="btn" onClick={() => f.dutyId && store.openModal({ kind: 'duty', id: f.id })} disabled={!f.dutyId}><Users /> Adjust crew</button>
         <button className="btn btn-primary" onClick={close}>Close</button>
       </>

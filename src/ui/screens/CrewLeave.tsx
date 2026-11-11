@@ -9,12 +9,15 @@ import type { CrewMember, GameState, LeaveRequest, Role } from '../../engine/cor
 import { answerLeave, crewName, crewRev, dayIndex, decideBy, leaveBalance, leaveDaysFor, leavePolicy, leaveVerdict, setLeavePolicy } from '../../engine/crew';
 import { Seg, Stepper } from '../components/ui';
 import { RankMark } from '../components/RankMark';
+import { Help } from '../components/Help';
 import { store } from '../store';
 
 const MON = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D'];
 const MONTH = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const ROLES: Role[] = ['CPT', 'FO', 'PUR', 'CC'];
 const ROLE_PLURAL: Record<Role, string> = { CPT: 'Captains', FO: 'First officers', PUR: 'Pursers', CC: 'Cabin crew' };
+
+const REFUSAL_NOTE = 'A refusal costs a little morale.';
 
 const dayRange = (from: number, days: number) => `${fmtDay(from + 720)} – ${fmtDay(from + (days - 1) * DAY + 720)}`;
 
@@ -59,8 +62,16 @@ function Policy({ g }: { g: GameState }) {
   const days = leaveDaysFor(g.company.homeBase);
   return (
     <section className="card lv-policy">
-      <div className="lv-head"><Palmtree className="sc-ico" aria-hidden /><h3>Leave policy</h3></div>
-      <p className="small muted">Each crew member has {days} days a year at {g.company.homeBase} (pro rata in the year they join; up to 10 unused days carry over). They ask for it in blocks of up to two weeks, at least three weeks ahead, never in a month whose roster is out.</p>
+      <div className="lv-head"><Palmtree className="sc-ico" aria-hidden /><h3>Leave policy</h3>
+        <Help title="Leave policy">
+          <p>Each crew member has {days} days a year at {g.company.homeBase}, pro rata in the year they join. Up to 10 unused days carry over.</p>
+          <p>They ask for it in blocks of up to two weeks, at least three weeks ahead, never in a month whose roster is out.</p>
+          <p><b>By the rules:</b> crew planning approves or declines each request the day after it comes in.</p>
+          <p><b>By me:</b> you decide. What you leave open is decided by the rules when its month is planned (the 12th of the month before).</p>
+          <p>{REFUSAL_NOTE}</p>
+        </Help>
+        <span className="sub small muted">{days} days a year each</span>
+      </div>
       <div className="lv-rules">
         <div className="lv-rule">
           <span className="lv-k">Requests decided</span>
@@ -80,7 +91,7 @@ function Policy({ g }: { g: GameState }) {
           </div>
         </div>
       </div>
-      <p className="tiny dim">{pol.auto ? 'Crew planning approves or declines each request the day after it comes in.' : 'You decide. What you leave open is decided by the rules when its month is planned (the 12th of the month before).'} A refusal costs a little morale.</p>
+      {!pol.auto && <p className="tiny dim">{REFUSAL_NOTE}</p>}
     </section>
   );
 }
@@ -137,7 +148,7 @@ export function LeaveView({ g }: { g: GameState }) {
         <section className="card lv-list">
           <div className="lv-head"><h3>Requests</h3><span className="sub small muted">{open.length ? `${open.length} waiting` : 'none waiting'}</span></div>
           {shown.map((q) => <RequestRow key={q.id} g={g} q={q} c={g.crew[q.crewId]} />)}
-          {!open.length && <p className="small muted lv-empty">No requests waiting. Crew ask for leave through the year, a few months ahead.</p>}
+          {!open.length && <p className="small muted lv-empty">No requests waiting.</p>}
           {open.length > shown.length && <button className="btn btn-ghost" onClick={() => setShowAll(true)}>Show all {open.length}</button>}
           {done.length > 0 && (
             <details className="lv-decided">

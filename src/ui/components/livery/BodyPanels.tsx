@@ -162,7 +162,7 @@ export function TailEnginePanel({ lv, onTail, onBody }: { lv: Livery; onTail: (p
       </section>
       <section className="lv-section">
         <ColorPicker label="Engines" value={b?.engines} auto autoColor={b?.belly?.color ?? lv.primary} onChange={(c) => set({ engines: c })} />
-        <p className="lv-note small">Auto paints the cowls in the belly colour, or the tail colour without a belly. The exhaust stays bare metal.</p>
+        <p className="lv-note small">Auto: the belly colour, or the tail's</p>
         <div className="lv-textblock-head">
           <h4>Intake lips</h4>
           <Toggle on={!!b?.lip} onChange={(v) => set({ lip: v ? lv.secondary : undefined })}>{b?.lip ? 'Painted' : 'Bare metal'}</Toggle>

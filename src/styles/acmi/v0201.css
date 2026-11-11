@@ -10,6 +10,10 @@
 .help-q.on { color: var(--accent); border-color: var(--accent); }
 .help-q:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (hover: hover) and (pointer: fine) { .help-q:hover { color: var(--text); } }
+/* v0.22 in a heading or a label set in capitals the '?' keeps its own shape. Its note also opens over the spec sheet's
+   layer (z 1400) and stays under the bug button (z 1500). */
+.help-q { letter-spacing: 0; text-transform: none; font-style: normal; }
+body > .term-pop { z-index: 1450; }
 
 /* ---------- the duration strip (components/DurationStrip.tsx): one line, month cells then the length in words ---------- */
 .dur { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; min-width: 0; }
@@ -22,13 +26,11 @@
 .dur-now { position: absolute; top: 0; bottom: 0; width: 1.5px; margin-left: -0.75px; background: var(--text); opacity: 0.7; }
 .dur-i { position: relative; z-index: 1; font-size: 9px; font-weight: 600; line-height: 1; color: var(--text-3); }
 .dur-m.on .dur-i { color: var(--text); }
-.dur.dense .dur-m { width: 10px; }
-.dur.dense .dur-i { font-size: 7.5px; }
-.dur.dense .dur-year { gap: 1px; }
-/* Over two years: slim cells without initials (the year labels carry it). */
-.dur.tight .dur-m { width: 6px; border-radius: 2px; }
-.dur.tight .dur-i { display: none; }
-.dur.tight .dur-strip { gap: 6px; }
+/* v0.22 a long strip keeps its month letters: one row a year, the months in columns (January under January). */
+.dur.stack .dur-strip { display: inline-grid; justify-items: start; gap: 2px; }
+.dur.stack .dur-y { width: 30px; margin-right: 4px; }
+.dur-gap { flex: none; width: 15px; height: 16px; }
+.dur.stack .dur-more { margin-left: 34px; }
 .dur-more { font-size: 11px; color: var(--text-3); white-space: nowrap; }
 .dur-text { white-space: nowrap; }
 @media (max-width: 420px) { .dur-text { white-space: normal; } }
