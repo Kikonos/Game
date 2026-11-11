@@ -47,3 +47,7 @@
 /* ---------- Inbox: a card fills its row ---------- */
 .sc-inbox .sc-list .sc-msg-wrap { display: flex; flex-direction: column; }
 .sc-inbox .sc-list .sc-msg-wrap > .sc-msg-line { flex: 1 1 auto; }
+
+/* ---------- Light theme ---------- */
+/* The pause button: its dark sign sat on the light theme's dark amber. White reads. */
+:root[data-theme='light'] .speed .sp-pause.on { color: #fff; }
