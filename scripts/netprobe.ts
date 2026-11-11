@@ -9,7 +9,7 @@ import { devLaunchRoute } from '../src/engine/network';
 import { statementTotals } from '../src/engine/core/ledger';
 
 const [file = 'new', market = 'LIS-OXB', daysS = '120', reg] = process.argv.slice(2);
-const g = file === 'new' ? createGame({ seed: 1, companyName: 'Probe Air', homeBase: 'LIS' } as never) : deserialize(readFileSync(file, 'utf8'));
+const g = file === 'new' ? createGame({ name: 'Probe Air', code: 'PA', livery: { primary: '#000', secondary: '#fff', tail: 'sweep' }, base: 'LIS', seed: Number(process.env.SEED ?? 1) } as never) : deserialize(readFileSync(file, 'utf8'));
 const ac = reg ? Object.values(g.fleet).find((a) => a.reg === reg) : Object.values(g.fleet).filter((a) => a.status !== 'leasedOut').sort((a, b) => b.cabin.total - a.cabin.total)[0];
 console.log('start', fmtDate(g.now), 'aircraft', ac?.reg, ac?.typeId, ac?.cabin.label, 'cash', Math.round(g.company.cash));
 const t0 = Date.now();
