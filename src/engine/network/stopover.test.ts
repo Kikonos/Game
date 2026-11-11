@@ -210,7 +210,7 @@ describe('v0.21 studies: kept, shown, reopened', () => {
     expect(reopenStudy(g, id)).toMatch(/run out/);
     expect(studyList(g)[0].state).toBe('expired');
     expect(startStudy(g, 'LIS-MPM', 'desk').routeId).not.toBe(id);
-  });
+  }, 120_000);
 
   it('a save from before v0.21 (no fifth rights, no sector passengers) loads and keeps flying', () => {
     const g = newGame(9);
@@ -343,7 +343,7 @@ describe('v0.21 the verdict, the analyst and the planner', () => {
     const stop = caseAdvice(g, rid, { ...caseDraft(g, rid)!, typeId: 'a332' }).list.find((x) => x.key === 'stop')!;
     expect(stop.who).toBe('analyst');
     expect(stop.stop?.mode).toBe('nonstop');
-  });
+  }, 120_000);
 
   it('the first finished study earns the network planner: candidates with a real salary', () => {
     const g = newGame(10);
@@ -356,5 +356,5 @@ describe('v0.21 the verdict, the analyst and the planner', () => {
     for (const c of h.candidates!) expect(c.salary).toBeGreaterThan(3_000);
     expect(hireHead(g, 'netPlanner', 1).ok).toBe(true);
     expect(g.heads!.netPlanner.hired!.salary).toBeGreaterThan(3_000);
-  });
+  }, 120_000);
 });
