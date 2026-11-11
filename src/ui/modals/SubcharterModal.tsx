@@ -18,6 +18,7 @@ import type { Flight } from '../../engine/core/types';
 import { rotationOf, SUB_LEAD, subcharter, subcharterable, subcharterQuotes, type SubcharterQuote } from '../../engine/ops';
 import { lockOf } from '../../engine/scenario';
 import { LockNote } from '../components/Locked';
+import { freeUpVerdict } from '../../engine/contracts/freeUp';
 
 const MAX_DAYS = 14;
 
@@ -78,6 +79,11 @@ export function SubcharterModal({ contractId, flightId, rivalId, flightIds, back
   const quotes = legs.length ? subcharterQuotes(g, legs.map((x) => x.id)) : [];
   // The chosen rival while it can fly them, else the cheapest available.
   const q = quotes.find((x) => x.rivalId === pickRival && x.available) ?? quotes.find((x) => x.available) ?? null;
+  // v0.20.1 (bmwbb036sdk6l) opened from an offer to make room for it: say before paying when this alone won't.
+  const offerId = back?.kind === 'offer' ? back.offerId : null;
+  const acId = legs[0]?.aircraftId ?? null;
+  const legKey = legs.map((x) => x.id).join(',');
+  const fit = useMemo(() => (offerId && acId && g.offers[offerId] && legs.length ? freeUpVerdict(g, offerId, acId, legs.map((x) => x.id)) : null), [g, offerId, acId, legKey, rev]); // eslint-disable-line react-hooks/exhaustive-deps
   const go = () => {
     if (!q) return;
     const r = store.act((gg) => subcharter(gg, q.flightIds, q.cost, q.rivalId));
@@ -132,6 +138,8 @@ export function SubcharterModal({ contractId, flightId, rivalId, flightIds, back
             ))}
           </div>
         )}
+        {fit && !fit.fits && <div className="small warn sl-nofit">This alone won't make room for {g.offers[offerId!]?.title ?? 'the new job'}: {fit.still}.</div>}
+        {fit?.fits && <div className="small good sl-fit">This makes room for {g.offers[offerId!]?.title ?? 'the new job'} on {g.fleet[acId!]?.reg ?? 'the aircraft'}.</div>}
         {quotes.length > 0 && q && q.revenueLegs > 0 && <Quotes quotes={quotes} pick={q.rivalId} onPick={setPickRival} />}
         {legs.length > 0 && quotes.length > 0 && !q && <div className="small warn">No rival has an aircraft free for these legs.</div>}
         {q && q.revenueLegs > 0 ? (

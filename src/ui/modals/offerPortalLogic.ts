@@ -11,6 +11,7 @@ import type { ContractOffer, GameState, Minute } from '../../engine/core/types';
 import { programmeOf } from '../../engine/contracts/plan';
 import { tripOf, type TripView } from '../../engine/ops/tripMove';
 import { subleaseTrip, type SubleaseView } from '../../engine/ops/sublease';
+import { freeUpVerdict, type FreeUpVerdict } from '../../engine/contracts/freeUp';
 import { rowBlocks, type GanttBlock } from '../screens/scheduleLogic';
 
 /** A day is at least this wide (px): a 2 h leg is 10 px and an hour's turn 5 px, so flights never run together. */
@@ -93,6 +94,16 @@ export function clashTrips(g: GameState, r: ClashReport): ClashTrip[] {
 /** Every leg of the clashing trips (the red outlines). Pure. */
 export function clashLegs(g: GameState, r: ClashReport): Set<string> {
   return new Set(clashTrips(g, r).flatMap((t) => t.legIds));
+}
+
+/**
+ * v0.20.1 (bmwbb036sdk6l) the job on this aircraft with every trip in the way gone (handed over or moved): whether it
+ * then fits, and if not, what still blocks. `trip` narrows it to one trip's legs. Pure.
+ */
+export function freeUpOf(g: GameState, offerId: string, r: ClashReport & Pick<FeasibilityReport, 'aircraftId'>, opts: Parameters<typeof freeUpVerdict>[4] = {}, trip?: ClashTrip): FreeUpVerdict {
+  const trips = trip ? [trip] : clashTrips(g, r);
+  const ids = [...new Set(trips.flatMap((t) => [...t.legIds, ...t.sub.flightIds]))];
+  return freeUpVerdict(g, offerId, r.aircraftId, ids, opts);
 }
 
 /** The clashing trips that can be sub-leased now, grouped by contract (one hand-over each). Pure. */
