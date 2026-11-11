@@ -9,7 +9,7 @@ import { flag } from '../../../data/countries';
 import { ROUTE_MARKETS, type RouteMarket } from '../../../data/routes';
 import { BAL } from '../../../engine/core/balance';
 import { typeOf } from '../../../engine/core/perf';
-import { DAY, fmtDay, fmtDayRel, fmtSpan } from '../../../engine/core/time';
+import { DAY, fmtDate, fmtDayRel, fmtSpan } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
 import { caseAdvice, plannerStudyX, setStop, sharedStop, stopoverCompare, studyBase, validStudyFor, type Advice, type BusinessCase as EngineCase, type StopCompare } from '../../../engine/network';
 import type { FareLevel, MarketingLevel, Route, RouteModel, StudyDepth } from '../../../engine/network/types';
@@ -81,7 +81,7 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
                   <span className="row gap-8"><b>{x.city}</b><span className="mono tiny muted">{routeCode(x)}</span></span>
                   <span className="tiny muted nw-market-blurb">{block ?? x.blurb}</span>
                 </span>
-                {!block && validStudyFor(g, x.id)?.study?.validUntil !== undefined && <><span className="nw-valid tiny">Valid until {fmtDay(validStudyFor(g, x.id)!.study!.validUntil!)}</span><span className="small accent nowrap">Show study</span></>}
+                {!block && validStudyFor(g, x.id)?.study?.validUntil !== undefined && <><span className="nw-valid tiny">Valid until {fmtDate(validStudyFor(g, x.id)!.study!.validUntil!)}</span><span className="small accent nowrap">Show study</span></>}
                 {!block && <ChevronRight className="sc-ico-s dim" />}
               </button>
             );
@@ -113,7 +113,7 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
         {!marketId && <button className="btn btn-ghost" onClick={() => setMid(undefined)}><ArrowLeft /> Markets</button>}
         <span className="grow" />
         <button className="btn" onClick={close}>Not now</button>
-        {kept?.study?.validUntil !== undefined && <span className="nw-valid tiny">Valid until {fmtDay(kept.study.validUntil)}</span>}
+        {kept?.study?.validUntil !== undefined && <span className="nw-valid tiny">Valid until {fmtDate(kept.study.validUntil)}</span>}
         {kept ? <button className="btn btn-primary" disabled={!!block} onClick={go}><Eye /> Show study</button>
           : <button className="btn btn-primary" disabled={!!block} onClick={go}><Play /> Order the study{cfg ? ` · ${money(cfg.cost)}` : ''}</button>}
       </>
@@ -296,7 +296,7 @@ function VerdictCard({ c }: { c: EngineCase }) {
   if (!v) return null;
   const Icon = TONE_ICON[v.tone];
   return (
-    <div className={`nv-verdict ${v.tone}`}>
+    <div className={`nv-verdict v-${v.tone}`}>
       <div className="nv-verdict-head"><Icon aria-hidden /><b>{v.word}</b><span className="small muted">first 12 months, likely case</span></div>
       <ul className="small nv-verdict-why">{v.reasons.map((x) => <li key={x}>{x}</li>)}</ul>
     </div>
@@ -416,7 +416,7 @@ function CaseCard({ g, r }: { g: GameState; r: Route }) {
   return (
     <div className="col gap-12">
       {r.study?.est && (
-        <div className="nw-est small">Study ({r.study.depth === 'desk' ? 'desk' : r.study.depth === 'full' ? 'full' : 'full + survey'}): <b>{int(r.study.est.p50)}</b> travellers a week both ways, likely between {int(r.study.est.p10)} and {int(r.study.est.p90)}.{r.study.validUntil !== undefined && <span className="nw-valid tiny">Valid until {fmtDay(r.study.validUntil)}</span>}</div>
+        <div className="nw-est small">Study ({r.study.depth === 'desk' ? 'desk' : r.study.depth === 'full' ? 'full' : 'full + survey'}): <b>{int(r.study.est.p50)}</b> travellers a week both ways, likely between {int(r.study.est.p10)} and {int(r.study.est.p90)}.{r.study.validUntil !== undefined && <span className="nw-valid tiny">Valid until {fmtDate(r.study.validUntil)}</span>}</div>
       )}
       {c && <VerdictCard c={c} />}
       {rec && <RecommendationCard rec={rec} />}

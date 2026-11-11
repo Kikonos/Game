@@ -26,11 +26,12 @@ export function foldJ(p: Pax, capJ: number): Pax {
   return capJ > 0 ? p : { j: 0, y: p.y + p.j * BAL.v019.demand.jToY };
 }
 
-/** Through passengers sit on both sectors; each sector's locals fill what is left, all in proportion when it is short. */
+/**
+ * Through passengers sit on both sectors and are seated first (they pay for the whole way: revenue management keeps
+ * their seats); each sector's locals fill what is left.
+ */
 function split(t: number, a: number, b: number, c1: number, c2: number): { t: number; a: number; b: number } {
-  const k1 = t + a > c1 ? c1 / Math.max(1e-9, t + a) : 1;
-  const k2 = t + b > c2 ? c2 / Math.max(1e-9, t + b) : 1;
-  const tt = t * Math.min(k1, k2);
+  const tt = Math.max(0, Math.min(t, c1, c2));
   return { t: tt, a: Math.max(0, Math.min(a, c1 - tt)), b: Math.max(0, Math.min(b, c2 - tt)) };
 }
 

@@ -257,12 +257,12 @@
 .nv-verdict-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .nv-verdict-head svg { width: 22px; height: 22px; flex-shrink: 0; }
 .nv-verdict-head b { font-size: 18px; letter-spacing: -0.01em; }
-.nv-verdict.good { border-color: rgba(var(--good-rgb), 0.45); background: rgba(var(--good-rgb), 0.07); }
-.nv-verdict.warn { border-color: rgba(var(--warn-rgb), 0.45); background: rgba(var(--warn-rgb), 0.07); }
-.nv-verdict.bad { border-color: rgba(var(--bad-rgb), 0.45); background: rgba(var(--bad-rgb), 0.07); }
-.nv-verdict.good svg, .nv-verdict.good b { color: var(--good); }
-.nv-verdict.warn svg, .nv-verdict.warn b { color: var(--warn); }
-.nv-verdict.bad svg, .nv-verdict.bad b { color: var(--bad); }
+.nv-verdict.v-good { border-color: rgba(var(--good-rgb), 0.45); background: rgba(var(--good-rgb), 0.07); }
+.nv-verdict.v-warn { border-color: rgba(var(--warn-rgb), 0.45); background: rgba(var(--warn-rgb), 0.07); }
+.nv-verdict.v-bad { border-color: rgba(var(--bad-rgb), 0.45); background: rgba(var(--bad-rgb), 0.07); }
+.nv-verdict.v-good svg, .nv-verdict.v-good b { color: var(--good); }
+.nv-verdict.v-warn svg, .nv-verdict.v-warn b { color: var(--warn); }
+.nv-verdict.v-bad svg, .nv-verdict.v-bad b { color: var(--bad); }
 .nv-verdict-why { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 2px; line-height: 1.4; }
 
 /* Advice */
@@ -314,7 +314,9 @@
 .nv-load-range { position: absolute; top: -3px; bottom: -3px; border-radius: 4px; border: 1px solid var(--text-3); border-top-color: transparent; border-bottom-color: transparent; }
 .nv-load-be { position: absolute; top: -5px; bottom: -5px; width: 2px; margin-left: -1px; background: var(--text); border-radius: 1px; box-shadow: 0 0 0 2px var(--panel-solid); }
 .nv-load-scale { position: relative; display: flex; justify-content: space-between; margin-top: 6px; height: 14px; }
-.nv-load-be-label { position: absolute; transform: translateX(-50%); white-space: nowrap; color: var(--text-2); }
+.nv-load-be-label { position: absolute; white-space: nowrap; color: var(--text-2); }
+.nv-load-be-label.l { transform: translateX(-50%); }
+.nv-load-be-label.r { transform: translateX(-100%); }
 
 .nv-margin-track { position: relative; height: 12px; margin-top: 6px; }
 .nv-zone { position: absolute; top: 0; bottom: 0; background: rgba(var(--line-rgb), 0.12); box-shadow: inset -2px 0 0 var(--panel-solid); }

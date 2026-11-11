@@ -65,6 +65,8 @@ export function Waterfall({ parts, partner }: { parts: MoneyParts; partner: bool
   );
 }
 
+const pts = (v: number) => { const n = Math.max(0, Math.round(v * 100)); return n < 1 ? 'just' : `${n} point${n === 1 ? '' : 's'}`; };
+
 /** How full the flights are: the likely load, the weak-to-strong range and the load it needs to break even. */
 export function LoadMeter({ lf, lo, hi, breakEven }: { lf: number; lo: number; hi: number; breakEven: number }) {
   const c = (v: number) => Math.max(0, Math.min(1, v)) * 100;
@@ -72,13 +74,13 @@ export function LoadMeter({ lf, lo, hi, breakEven }: { lf: number; lo: number; h
   const over = breakEven > 1;
   return (
     <div className="nv-load" role="img" aria-label={`Flights about ${pct(lf)} full (${pct(lo)} to ${pct(hi)}); break-even at ${over ? 'more than 100 %' : pct(breakEven)}`}>
-      <div className="nv-load-head"><b className="num">{pct(lf)}</b><span className="small muted">of seats filled</span><span className={`small nv-load-word ${ok ? 'good' : 'bad'}`}>{ok ? `${Math.round((lf - breakEven) * 100)} points above break-even` : over ? 'cannot break even' : `${Math.round((breakEven - lf) * 100)} points short`}</span></div>
+      <div className="nv-load-head"><b className="num">{pct(lf)}</b><span className="small muted">of seats filled</span><span className={`small nv-load-word ${ok ? 'good' : 'bad'}`}>{ok ? `${pts(lf - breakEven)} above break-even` : over ? 'cannot break even' : `${pts(breakEven - lf)} short of break-even`}</span></div>
       <div className="nv-load-track">
         <i className="nv-load-range" style={{ left: `${c(lo)}%`, width: `${Math.max(1, c(hi) - c(lo))}%` }} />
         <i className="nv-load-fill" style={{ width: `${c(lf)}%` }} />
         {!over && <i className="nv-load-be" style={{ left: `${c(breakEven)}%` }} />}
       </div>
-      <div className="nv-load-scale tiny dim"><span>0</span>{!over && <span className="nv-load-be-label" style={{ left: `${c(breakEven)}%` }}>break-even {pct(breakEven)}</span>}<span>100 %</span></div>
+      <div className="nv-load-scale tiny dim"><span>{breakEven > 0.18 ? '0' : ''}</span>{!over && <span className={`nv-load-be-label ${breakEven > 0.6 ? 'r' : 'l'}`} style={{ left: `${c(breakEven)}%` }}>break-even {pct(breakEven)}</span>}<span>{over || breakEven < 0.86 ? '100 %' : ''}</span></div>
     </div>
   );
 }
@@ -113,7 +115,7 @@ export function SeatSplit({ a, b, c, split }: { a: string; b: string; c: string;
   );
 }
 
-const ZONES: [number, number, string][] = [[-0.1, 0, 'Loses money'], [0, 0.05, 'Thin'], [0.05, 0.12, 'Healthy'], [0.12, 0.3, 'Strong']];
+const ZONES: [number, number, string][] = [[-0.1, 0, 'Loss'], [0, 0.05, 'Thin'], [0.05, 0.12, 'Healthy'], [0.12, 0.3, 'Strong']];
 
 /** The margin on a scale of what scheduled routes earn, with the weak-to-strong range and our other routes. */
 export function MarginStrip({ lo, mid, hi, others }: { lo: number; mid: number; hi: number; others: { name: string; margin: number }[] }) {

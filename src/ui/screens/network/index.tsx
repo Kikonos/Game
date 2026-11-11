@@ -8,7 +8,7 @@ import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { flag } from '../../../data/countries';
 import { ROUTE_MARKETS, type RouteMarket } from '../../../data/routes';
 import { typeOf } from '../../../engine/core/perf';
-import { fmtDay } from '../../../engine/core/time';
+import { fmtDate, fmtDay } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
 import { marketById, reopenStudy, routeIdeas, studyList, validStudyFor, type StudyRow } from '../../../engine/network';
 import type { Route } from '../../../engine/network/types';
@@ -103,8 +103,8 @@ function Studies({ g }: { g: GameState }) {
                 <b className="ellipsis">{pairName(x.marketId)}</b>
                 <span className="tiny muted ellipsis">{x.est ? `${int(x.est.p50)} travellers a week (${int(x.est.p10)}–${int(x.est.p90)})` : x.due !== undefined ? `results by ${fmtDay(x.due)}` : ''}{x.done !== undefined ? ` · done ${fmtDay(x.done)}` : ''}</span>
               </span>
-              {x.state === 'shelved' && x.validUntil !== undefined && <span className="nw-valid tiny">Valid until {fmtDay(x.validUntil)}</span>}
-              {x.state === 'expired' && x.validUntil !== undefined && <span className="tiny dim nowrap">ran out {fmtDay(x.validUntil)}</span>}
+              {x.state === 'shelved' && x.validUntil !== undefined && <span className="nw-valid tiny">Valid until {fmtDate(x.validUntil)}</span>}
+              {x.state === 'expired' && x.validUntil !== undefined && <span className="tiny dim nowrap">ran out {fmtDate(x.validUntil)}</span>}
               {x.state === 'shelved' && <span className="small accent nowrap">Show study</span>}
               {!dead && <ChevronRight className="sc-ico-s dim" />}
             </button>
@@ -154,7 +154,7 @@ function MarketRow({ g, m }: { g: GameState; m: RouteMarket }) {
           <span className="row gap-8"><b className="ellipsis">{m.city}</b><span className="mono tiny muted nowrap">{routeCode(m)}</span></span>
           <span className="tiny muted nw-market-blurb">{m.blurb}</span>
         </span>
-        <span className="nw-valid tiny">Valid until {fmtDay(kept.study?.validUntil ?? 0)}</span>
+        <span className="nw-valid tiny">Valid until {fmtDate(kept.study?.validUntil ?? 0)}</span>
         <span className="small accent nowrap">Show study</span>
         <ChevronRight className="sc-ico-s dim" />
       </button>

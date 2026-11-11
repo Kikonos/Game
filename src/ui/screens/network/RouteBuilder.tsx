@@ -11,7 +11,7 @@ import { SEGMENT_LABEL, stationFor, type RouteMarket } from '../../../data/route
 import { BAL } from '../../../engine/core/balance';
 import { distance } from '../../../engine/core/geo';
 import { blockMinutes, etopsCap, typeOf } from '../../../engine/core/perf';
-import { fmtDay, fmtSpan } from '../../../engine/core/time';
+import { fmtDate, fmtSpan } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
 import {
   catalogueOf, chainProblem, customBlock, customId, customMarket, customRange, routeBases, stopoverCompare, studyAccuracy, studyBlock, suggestStops, validStudyFor,
@@ -189,7 +189,7 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
           <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'routeLaunch', marketId: cat.id })}><Rocket /> Open the researched market</button>
         ) : (
           <>
-            {kept?.study?.validUntil !== undefined && <span className="nw-valid tiny">Valid until {fmtDay(kept.study.validUntil)}</span>}
+            {kept?.study?.validUntil !== undefined && <span className="nw-valid tiny">Valid until {fmtDate(kept.study.validUntil)}</span>}
             {kept ? <button className="btn btn-primary" disabled={!m || !!block} onClick={go}><Eye /> Show study</button>
               : <button className="btn btn-primary" disabled={!m || !!block || !!fit} onClick={go}><Play /> Order the study{m ? ` · ${money(cfg.cost)}` : ''}</button>}
           </>

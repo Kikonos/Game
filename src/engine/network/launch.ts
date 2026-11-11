@@ -372,7 +372,11 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
       const blk = dir === 'out' ? blockOut : blockBack;
       let pass = 0;
       if (r.model === 'partner') for (let k2 = 1; k2 < c0.length; k2++) pass += passThrough(sectorCost(g, r, c0[k2 - 1], c0[k2], p.typeId, null, { j: 0, y: 0, cargoKg: 0, sold: 0 }));
-      const fee = r.model === 'partner' ? (r.partnerFeeBH ?? (t?.rateBH ?? 5_000) * BAL.v019.fares.partner.feeOfRate) * (blk / 60) + pass : 0;
+      // The partner's fee: a block-hour price, the flying costs at cost, and (as revenue.partnerFee) a share of the
+      // tickets above 70 % full on each sector.
+      const PF = BAL.v019.fares.partner;
+      const above = r.model === 'partner' ? secPax.reduce((a, q) => a + Math.max(0, q.j + q.y - Math.ceil(cab.total * PF.shareAbove)), 0) * baseFareOf(m, 'Y', month, 'out', p.fares) * PF.share : 0;
+      const fee = r.model === 'partner' ? (r.partnerFeeBH ?? (t?.rateBH ?? 5_000) * PF.feeOfRate) * (blk / 60) + pass + above : 0;
       const onBoard = Math.max(...secPax.map((q) => q.j + q.y));
       const cargoKg = Math.min(dir === 'out' ? m.cargo.south + (m.cargo.mail ?? 0) + (m.cargo.ngo ?? 0) + (m.cargo.avi ?? 0) : routeStation(m.to).euCargo ? m.cargo.north + (m.cargo.perish ?? 0) : 0, Math.max(0, payloadMax(p.typeId, m.from, m.to) - onBoard * BAL.v019.cargo.paxKg));
       const cargo = cargoKg * (dir === 'out' ? 2.1 : 1.6) * (r.model === 'partner' ? BAL.v019.fares.partner.cargoShare : 1);
