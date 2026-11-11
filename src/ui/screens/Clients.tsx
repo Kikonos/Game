@@ -17,6 +17,7 @@ import { problemFor } from '../../engine/problems';
 import { ProblemCardView } from '../components/ProblemCard';
 import { Empty, Seg } from '../components/ui';
 import { money } from '../format';
+import { Help } from '../components/Help';
 import { store } from '../store';
 import { offerModal, workDays } from './screenLogic';
 import { ArchIcon } from './common';
@@ -90,7 +91,7 @@ export function ClientDetail({ g, v, inModal }: { g: GameState; v: ClientView; i
         {v.next && v.next.level !== 'new' && v.next.level !== 'known' && (
           <div className="tiny dim mt-4">Then: {perkLines(v.next.level).slice(0, 3).join(' · ')}</div>
         )}
-        {!v.next && <div className="small good mt-8">Top level: keep it there by flying their work on time.</div>}
+        {!v.next && <div className="small good mt-8">Top level</div>}
       </div>
       {(v.active.length > 0 || v.offers.length > 0) && (
         <div className="col gap-4">
@@ -116,8 +117,10 @@ export function ClientDetail({ g, v, inModal }: { g: GameState; v: ClientView; i
         </div>
       )}
       <div className="col gap-4">
-        <div className="upper dim">Recent</div>
-        {!v.log.length && <div className="small dim">Nothing yet. On-time flying, favours and extra legs build it; cancellations and hand-overs to rivals hurt it.</div>}
+        <div className="upper dim row gap-6" style={{ alignItems: 'center' }}>Recent <Help title="The relation with a client">
+          On-time flying, favours and extra legs build it; cancellations and hand-overs to rivals hurt it.
+        </Help></div>
+        {!v.log.length && <div className="small dim">Nothing yet.</div>}
         {v.log.map((l, i) => (
           <div key={i} className="v8-log small">
             <span className="dim nowrap">{fmtDay(l.t)}</span>
@@ -170,11 +173,11 @@ export function ClientsView({ g }: { g: GameState }) {
             { value: 'unhappy', label: `Unhappy${nUnhappy ? ` ${nUnhappy}` : ''}` },
           ]} />
         </div>
-        {!list.length && <div className="small muted sc-pad">{filter === 'unhappy' ? 'No unhappy clients. Keep it that way: fly on time and say yes to favours.' : 'No clients yet. Sign an offer and its client appears here.'}</div>}
+        {!list.length && <div className="small muted sc-pad">{filter === 'unhappy' ? 'No unhappy clients.' : 'No clients yet.'}</div>}
         {list.map((c) => <ClientRow key={c.id} v={c} on={c.id === v?.id} prestige={clientPrestige(g.clients[c.id])} stars={clientStars(g.clients[c.id])} onPick={() => store.select({ kind: 'client', id: c.id })} />)}
       </div>
       <div className="card v8-pane v8-pane-r">
-        {v ? <ClientDetail g={g} v={v} /> : <Empty icon={<Briefcase />} title="Pick a client">Their level, what it brings and how to reach the next.</Empty>}
+        {v ? <ClientDetail g={g} v={v} /> : <Empty icon={<Briefcase />} title="Pick a client" />}
       </div>
     </div>
   );

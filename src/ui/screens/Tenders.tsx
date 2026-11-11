@@ -12,6 +12,7 @@ import { store } from '../store';
 import { lockOf } from '../../engine/scenario';
 import { LockedPanel } from '../components/Locked';
 import { BodyTag, KindTag } from '../components/ShapeTags';
+import { Help } from '../components/Help';
 
 const days = (t: number, now: number) => Math.max(0, Math.ceil((t - now) / DAY));
 /** v0.20.1 the contest in facts: who else bids, when bids close, when the airline decides. */
@@ -72,12 +73,13 @@ export function TendersView({ g }: { g: GameState }) {
   if (lock) return <LockedPanel title="Tender board closed" why={lock}>No requests for proposals come in while the scenario runs.</LockedPanel>;
   return (
     <div className="col gap-12 v14-tenders">
-      <div className="small muted v14-season">{seasonLine(g.now)} Decided on price, reliability, relationship, aircraft age and fit.</div>
-      {none && (
-        <Empty icon={<FileSignature />} title="No tenders yet">
-          Airlines send requests for proposals for next summer from November to February. Your bid: a rate per block hour, an MGH, an aircraft, the crew and the dates. With Widebody operations and a widebody, widebody requests come too: Hajj and Umrah lift, long-haul leisure cover.
-        </Empty>
-      )}
+      {/* v0.22 the season line is a status and stays; how a tender works sits behind its '?'. */}
+      <div className="small muted v14-season">{seasonLine(g.now)} <Help title="Tenders">
+        <p>Airlines send requests for proposals: for next summer from November to February, for next winter from June to August.</p>
+        <p>Your bid: a rate per block hour, an MGH, an aircraft, the crew and the dates. The award is decided on price, reliability, relationship, aircraft age and fit.</p>
+        <p>With Widebody operations and a widebody, widebody requests come too: Hajj and Umrah lift, long-haul leisure cover.</p>
+      </Help></div>
+      {none && <Empty icon={<FileSignature />} title="No tenders yet" />}
       {b.open.length > 0 && (
         <section className="col gap-4">
           <div className="upper dim">Open requests</div>

@@ -19,6 +19,7 @@ import { Bar, Empty } from '../../components/ui';
 import { money } from '../../format';
 import { store } from '../../store';
 import { BodyTag, KindTag } from '../../components/ShapeTags';
+import { Help } from '../../components/Help';
 import { Seg } from '../../components/ui';
 
 const pct = (x: number) => `${Math.round(x * 1000) / 10} %`;
@@ -107,12 +108,15 @@ function Pitches({ g }: { g: GameState }) {
   return (
     <section className="card v16s-card col gap-8">
       <div className="row between" style={{ alignItems: 'baseline' }}>
-        <b className="row gap-6" style={{ alignItems: 'center' }}><Megaphone className="sc-ico-s" /> Pre-season pitches</b>
+        <b className="row gap-6" style={{ alignItems: 'center' }}><Megaphone className="sc-ico-s" /> Pre-season pitches <Help title="Pre-season pitches">
+          <p>Airlines plan their seasons months ahead. Pitch them for summer cover from October to February, for winter cover from April to August.</p>
+          <p>A visit costs {money(1_500)}, free when we met them lately. The answer comes in 2–6 weeks.</p>
+        </Help></b>
         {w && <span className="small muted">{desk.pitches.used} of {desk.pitches.max} this season</span>}
       </div>
       {w ? (
         <>
-          <div className="small muted">Pitch an airline now for {w.label} cover (window closes {fmtDay(w.until - 1)}). A visit costs {money(1_500)}, free when we met them lately; the answer comes in 2–6 weeks.</div>
+          <div className="small muted">{w.label.charAt(0).toUpperCase() + w.label.slice(1)} cover · window closes {fmtDay(w.until - 1)}</div>
           {targets.length ? (
             <div className="v16s-pitch-form">
               <select className="select" value={chosen?.client.id ?? ''} aria-label="Airline to pitch" onChange={(e) => setPick(e.target.value)}>
@@ -130,7 +134,7 @@ function Pitches({ g }: { g: GameState }) {
           )}
         </>
       ) : (
-        <div className="small muted">Pitch airlines for summer cover from October to February, for winter cover from April to August. That is when they plan their seasons.</div>
+        <div className="small muted">No pitch window now</div>
       )}
       {made.length > 0 && (
         <div className="v16s-list">
@@ -175,8 +179,10 @@ function SalesDesk({ g, brokers }: { g: GameState; brokers: BrokerView[] }) {
           <div className="col gap-12">
             <section className="card v16s-card col gap-8">
               <div className="row between" style={{ alignItems: 'baseline' }}>
-                <b className="row gap-6" style={{ alignItems: 'center' }}><Briefcase className="sc-ico-s" /> Brokers</b>
-                <span className="small muted v16s-hint">leads on busy days; their cut on each deal</span>
+                <b className="row gap-6" style={{ alignItems: 'center' }}><Briefcase className="sc-ico-s" /> Brokers <Help title="Brokers">
+                  <p>A broker we are registered with sends leads, most on busy days, and takes a commission on each deal that comes of them.</p>
+                  <p>A visit lifts the relation: a better relation, more leads.</p>
+                </Help></b>
               </div>
               <div className="v16s-list">{brokers.map((b) => <BrokerRow key={b.id} b={b} />)}</div>
             </section>
@@ -185,7 +191,9 @@ function SalesDesk({ g, brokers }: { g: GameState; brokers: BrokerView[] }) {
             <Pitches g={g} />
             <section className="card v16s-card col gap-8">
               <div className="row between" style={{ alignItems: 'baseline' }}>
-                <b className="row gap-6" style={{ alignItems: 'center' }}><Users className="sc-ico-s" /> Sales managers</b>
+                <b className="row gap-6" style={{ alignItems: 'center' }}><Users className="sc-ico-s" /> Sales managers <Help title="Sales managers">
+                  A regional sales manager (hired in Company › Team) brings leads from their market and works more proposals at once.
+                </Help></b>
                 <button className="btn btn-sm" onClick={() => store.navigate('company', { view: 'team' })}>Team</button>
               </div>
               {reps.length ? (
@@ -198,7 +206,7 @@ function SalesDesk({ g, brokers }: { g: GameState; brokers: BrokerView[] }) {
                   </div>
                 ))}</div>
               ) : (
-                <div className="small muted">None yet. A regional sales manager (hired in Company › Team) brings leads from their market and works more proposals at once.</div>
+                <div className="small muted">None yet.</div>
               )}
             </section>
           </div>
@@ -228,13 +236,14 @@ export function LeadsView({ g }: { g: GameState }) {
     <div className="col gap-12 v16s-sales-wrap">
       <section className="card v16s-card col gap-8">
         <div className="row between" style={{ alignItems: 'baseline' }}>
-          <b className="row gap-6" style={{ alignItems: 'center' }}><Handshake className="sc-ico-s" /> Leads{waiting ? <span className="small muted">· {waiting} waiting for a proposal</span> : null}</b>
-          <span className="small muted v16s-hint">lead → proposal → offer → signed</span>
+          <b className="row gap-6" style={{ alignItems: 'center' }}><Handshake className="sc-ico-s" /> Leads <Help title="Leads">
+            <p>A lead is a client asking us alone. Send a proposal; their offer comes back to sign: lead → proposal → offer → signed.</p>
+            <p>A lead waits 14 days for your proposal, then goes cold.</p>
+            <p>Leads come from brokers you are registered with (Sales desk, below), fairs and client visits (Markets tab), pre-season pitches and sales managers.</p>
+          </Help>{waiting ? <span className="small muted">· {waiting} waiting for a proposal</span> : null}</b>
         </div>
         {!live.length && !past.length && (
-          <Empty icon={<Handshake />} title="No leads yet">
-            Register with a broker (below), go to a fair or visit a client (Markets tab), pitch an airline before the season. A lead waits 14 days for your proposal, then goes cold.
-          </Empty>
+          <Empty icon={<Handshake />} title="No leads yet">Register with a broker in the Sales desk below.</Empty>
         )}
         {live.length > 0 && <div className="v16s-list">{live.map((l) => <LeadRow key={l.id} g={g} l={l} on={l.id === sel} />)}</div>}
         {past.length > 0 && (
