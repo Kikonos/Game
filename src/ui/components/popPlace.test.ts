@@ -29,6 +29,24 @@ describe('the popover keeps on the screen, inside the safe area, clear of the bu
     expect(c.top + 137).toBeLessThanOrEqual(330 - 8);
   });
 
+  it('a note too tall for either side goes beside its anchor, not over it', () => {
+    const safe = { l: 59, r: 59, t: 0, b: 21 };
+    const tall = { width: 280, height: 210 };
+    // The player's phone, Crew › Planning "How crew sets work": the '?' at 251–269 × 173–191.
+    const anchor = rect(251, 173);
+    const a = placePop(anchor, tall, 852, 393, safe);
+    expect(a.left).toBe(anchor.right + 8);
+    expect(a.top).toBeGreaterThanOrEqual(8);
+    expect(a.top + tall.height).toBeLessThanOrEqual(393 - 21 - 8);
+    // Near the right edge: to its left.
+    const far = rect(700, 173);
+    const b = placePop(far, tall, 852, 393, safe);
+    expect(b.left + tall.width).toBe(far.left - 8);
+    // No room on either side (a phone upright, the box nearly as wide as the screen): it stays where it was, on screen.
+    const c = placePop(rect(180, 400), { width: 377, height: 800 }, 393, 852, { l: 0, r: 0, t: 59, b: 34 });
+    expect(c.left).toBe(8);
+  });
+
   it('a phone upright: not under the status bar; a tall note with no room either side stays whole on the screen', () => {
     const safe = { l: 0, r: 0, t: 59, b: 34 };
     const a = placePop(rect(300, 120), { width: 280, height: 420 }, 393, 852, safe);

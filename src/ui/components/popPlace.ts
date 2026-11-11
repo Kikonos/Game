@@ -20,6 +20,14 @@ export function placePop(anchor: Box, box: { width: number; height: number }, vw
   const above = anchor.top - box.height - GAP;
   // Under the anchor when it fits, else above it; when neither fits, the side with more room, kept on the screen.
   let top = below <= maxY ? below : above >= minY ? above : Math.min(maxY, Math.max(minY, vh - anchor.bottom > anchor.top ? below : above));
+  // A box too tall for either side (a long note on a phone held on its side) would lie over its own anchor: it goes
+  // beside it instead, right when there is room, else left, so the '?' stays in sight and can be tapped again.
+  if (top < anchor.bottom && top + box.height > anchor.top) {
+    const right = anchor.right + GAP;
+    const leftOf = anchor.left - GAP - box.width;
+    if (right <= maxX) left = right;
+    else if (leftOf >= minX) left = leftOf;
+  }
   // The bug button lives in the lower left corner, above everything: the box starts to its right there; with no room
   // beside it, above it.
   const zone = bug && bug.width ? { right: bug.right + GAP, top: bug.top - GAP } : { right: BUG_ZONE, top: vh - BUG_ZONE };
