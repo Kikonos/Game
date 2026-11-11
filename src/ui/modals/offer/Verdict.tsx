@@ -5,6 +5,7 @@
 import { AlertTriangle, CalendarClock, ChevronRight, CircleSlash, Wrench } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { sortChecks, type OfferVerdict } from '../../../engine/contracts/blockers';
+import type { FreeUpVerdict } from '../../../engine/contracts/freeUp';
 import { typeOf } from '../../../engine/core/perf';
 import type { GameState } from '../../../engine/core/types';
 import { store } from '../../store';
@@ -28,7 +29,7 @@ function fixButton(g: GameState, v: OfferVerdict, offerId: string): ReactNode {
  * `busyFix`: the move / sub-lease tools for the trips in the way (shown when the headline is flights in the way).
  * Nothing when the job can be flown as it stands.
  */
-export function OfferVerdictBox({ g, v, offerId, busyFix }: { g: GameState; v: OfferVerdict | null; offerId: string; busyFix?: ReactNode }) {
+export function OfferVerdictBox({ g, v, offerId, busyFix, freeUp }: { g: GameState; v: OfferVerdict | null; offerId: string; busyFix?: ReactNode; freeUp?: FreeUpVerdict | null }) {
   if (!v || v.rank === 4) return null;
   const reg = g.fleet[v.report.aircraftId]?.reg ?? '';
   const Icon = v.rank === 0 ? CircleSlash : v.rank === 2 ? CalendarClock : AlertTriangle;
@@ -37,7 +38,9 @@ export function OfferVerdictBox({ g, v, offerId, busyFix }: { g: GameState; v: O
   return (
     <div className={`of-verdict t${v.rank}`} role="status">
       <div className="of-verdict-head"><Icon /><b>{v.headline}</b></div>
-      {v.rank === 2 && <div className="small muted">Solvable: move {reg}’s red trips to another aircraft (tap one in its schedule below the aircraft name), or hand them to another operator.</div>}
+      {/* v0.20.1 (bmwbb036sdk6l) 'Solvable' only when moving or handing over the trips really makes room. */}
+      {v.rank === 2 && (!freeUp || freeUp.fits) && <div className="small muted">Solvable: move {reg}’s red trips to another aircraft (tap one in its schedule below the aircraft name), or hand them to another operator.</div>}
+      {v.rank === 2 && freeUp && !freeUp.fits && <div className="small warn of-nofit">Moving or sub-leasing {reg}’s red trips won’t make room on its own: {freeUp.still}.</div>}
       {fix && <div className="of-verdict-acts">{fix}</div>}
       {more.length > 0 && (
         <details>

@@ -28,10 +28,13 @@ const BUSY_RE = /^(Busy: |Can't be back for |Already leased out|Not planned: the
 
 /**
  * The blocking tier of a 'no' check (see the header). With its report: an aircraft booked by a programme that has no
- * flights yet (a base season, a dry lease out) has nothing to move or sub-lease, so it needs work (tier 1). Pure.
+ * flights yet (a base season, a dry lease out) has nothing to move or sub-lease, so it needs work (tier 1), whatever
+ * trips are in the way beside it. Pure.
  */
 export function blockTier(c: FeasibilityCheck, r?: FeasibilityReport): BlockTier {
-  if (BUSY_RE.test(c.label)) return r && !r.conflicts.flights.length && r.conflicts.programmes.length ? 1 : 2;
+  // v0.20.1 (bmwbb036sdk6l) a programme's days without flights in the way too: handing over or moving the trips leaves
+  // the aircraft booked, so it is other work, not flights in the way (contracts/freeUp.ts says what still blocks).
+  if (BUSY_RE.test(c.label)) return r && r.conflicts.programmes.length ? 1 : 2;
   switch (c.id) {
     case 'approvals': case 'etops': case 'body': case 'family': case 'seats': case 'range': case 'runway':
     case 'lease': case 'airspace': case 'mission': case 'warRisk': case 'clientCrew': case 'positioning': case 'crew':

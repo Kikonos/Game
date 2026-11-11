@@ -26,7 +26,8 @@ import { FilterView, HiddenOffersRow, OfferQuickChips } from './contracts/Filter
 import { hiddenOffers } from '../../engine/contracts/filter';
 import { clientStars, PRESTIGE_NAME, playerLevel, playerStars, starsLabel } from '../../engine/contracts/prestige';
 import { ClientStars } from '../components/ClientStars';
-import { ShapeTags } from '../components/ShapeTags';
+import { OriginTag, ShapeTags } from '../components/ShapeTags';
+import { contractOrigin, offerOrigin } from '../../engine/commercial';
 import { shapeOf } from '../../engine/contracts/shape';
 import { analystView } from '../../engine/ops';
 import { ScreenHint } from '../components/ScreenHint';
@@ -100,6 +101,8 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
         <span className="ellipsis">{cl ? `${flag(cl.country)} ${cl.name}` : 'Client'}</span>
         {cl && <ClientStars n={clientStars(cl)} size={11} />}
         {o.broker && <span className="chip sc-chip sc-broker">via {o.broker}</span>}
+        {/* v0.20.1 won in a tender or worked from a lead: a small tag (the story is in the offer). */}
+        <OriginTag v={offerOrigin(g, o)} />
       </div>
       {/* v0.18 body and haul at a glance, beside the route. */}
       <div className="sc-offer-route-row"><span className="sc-offer-route mono ellipsis">{routeSummary(o.pattern)}</span><ShapeTags s={shapeOf(o)} compact /></div>
@@ -245,6 +248,7 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
           <b className="ellipsis">{c.title}</b>
           <span className={`badge ${c.status === 'active' ? 'good' : c.status === 'cancelled' ? 'bad' : ''}`}>{STATUS_LABEL[c.status]}</span>
           <ShapeTags s={shapeOf(c, (id) => g.fleet[id]?.typeId)} compact className="sc-contract-shape" />
+          <OriginTag v={contractOrigin(g, c)} help />
         </div>
         {/* v0.14.1 (merge) a dry lease by its lease dates (fx-money UI-5); other work by the client's local days (fx-comm). */}
         <div className="small muted ellipsis">{cl?.name ?? 'Client'} · <span className="mono">{regs}</span> · {dry ? `${fmtDay(dry.lease[0])} – ${fmtDay(dry.lease[1])}` : offerDays(c).map(fmtDay).join(' – ')} · {productLine(c.product, c)}</div>

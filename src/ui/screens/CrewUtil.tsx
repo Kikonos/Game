@@ -2,13 +2,13 @@
 // duties, or really underused?"): block hours per person against what ACMI crew typically fly, idle crew by base, type
 // and rank, crew per aircraft, the monthly cost of crew beyond what the flying needs, and what to do about a surplus.
 
-import { Gauge, Users } from 'lucide-react';
+import { ChevronDown, ChevronRight, Gauge, ShieldCheck, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import type { RatingFamily } from '../../data/acmiTypes';
 import type { GameState, Role } from '../../engine/core/types';
 import { fmtDay } from '../../engine/core/time';
 import {
-  convertWhyNot, crewRev, crewUtilisation, makeRedundant, offerUnpaidLeave, redundancyQuote, REDUNDANCY, roleWords, unpaidQuote, UNPAID, UTIL_TYPICAL, type UtilSurplus,
+  convertWhyNot, crewMeasures, crewRev, familyName, crewUtilisation, makeRedundant, MEASURE_ROLES, type Measure, offerUnpaidLeave, redundancyQuote, REDUNDANCY, roleWords, unpaidQuote, UNPAID, UTIL_TYPICAL, type UtilSurplus,
 } from '../../engine/crew';
 import { Seg, Stepper } from '../components/ui';
 import { RankMark } from '../components/RankMark';
@@ -61,6 +61,102 @@ function SurplusRow({ g, s }: { g: GameState; s: UtilSurplus }) {
   );
 }
 
+const ROLE_SHORT: Record<Role, string> = { CPT: 'CPT', FO: 'FO', PUR: 'PUR', CC: 'CC' };
+
+/** v0.20.1 the dates a measure row shows: when it starts (if still to come) and when they are back (or leave). */
+function measureWhen(m: Measure): string {
+  const same = m.soonest === m.last;
+  const back = m.kind === 'notice' ? (same ? `Leave ${fmtDay(m.last - 1)}` : `First leave ${fmtDay(m.soonest - 1)}`)
+    : m.kind === 'convert' ? (same ? `Course ends ${fmtDay(m.last)}` : `First done ${fmtDay(m.soonest)}`)
+    : same ? `Back ${fmtDay(m.last)}` : `First back ${fmtDay(m.soonest)}`;
+  return m.running || m.kind === 'notice' ? back : `From ${fmtDay(m.starts)} · ${back.charAt(0).toLowerCase()}${back.slice(1)}`;
+}
+
+/** The money on a measure row: the saving a month, else what it cost. */
+function measureMoney(m: Measure): { v: string; sub: string; good: boolean } {
+  if (m.kind === 'convert') return { v: k(m.cost), sub: 'course fees', good: false };
+  return { v: k(m.monthly), sub: m.kind === 'notice' ? 'a month later' : 'a month', good: true };
+}
+
+/** One measure: a row (counts by rank, the saving, the dates); tapped, the names by rank and type with their dates. */
+function MeasureRow({ m }: { m: Measure }) {
+  const [open, setOpen] = useState(false);
+  const money = measureMoney(m);
+  const counts = MEASURE_ROLES.filter((r) => m.byRole[r] > 0).map((r) => `${m.byRole[r]} ${ROLE_SHORT[r]}`).join(' · ');
+  const until = (t: number) => (m.kind === 'notice' ? `leaves ${fmtDay(t - 1)}` : m.kind === 'convert' ? `done ${fmtDay(t)}` : `back ${fmtDay(t)}`);
+  return (
+    <div className={`cu-ms ${open ? 'open' : ''}`}>
+      <button className="cu-ms-row" onClick={() => setOpen(!open)} aria-expanded={open}>
+        {open ? <ChevronDown className="cu-ms-chev" aria-hidden /> : <ChevronRight className="cu-ms-chev" aria-hidden />}
+        <span className="cu-ms-what">
+          <b>{m.label}</b>
+          <span className="tiny muted">{counts}</span>
+        </span>
+        <span className={`num cu-ms-money ${money.good ? 'good' : ''}`}>{money.v}<span className="tiny dim"> {money.sub}</span></span>
+        <span className="tiny muted cu-ms-when">{measureWhen(m)}</span>
+      </button>
+      {open && (
+        <div className="cu-ms-detail small">
+          {m.groups.map((x) => {
+            // One date for the whole group: said once in its heading, the names in columns.
+            const one = x.people.every((p) => p.to === x.people[0].to);
+            return (
+              <div key={`${x.role}:${x.family}`} className="cu-ms-group">
+                <div className="cu-ms-gh tiny"><RankMark role={x.role} /><span className="upper dim">{ROLE_PLURAL[x.role]} · {familyName(x.family)} · {x.people.length}</span>{one && <span className="muted cu-ms-gdate">{until(x.people[0].to)}</span>}</div>
+                <div className={`cu-ms-people ${one ? 'cols' : ''}`}>
+                  {x.people.map((p) => (
+                    <button key={p.id} className="cu-ms-person" onClick={() => store.openPerson(p.id)}>
+                      <span className="ellipsis">{p.name}</span>
+                      {!one && <span className="num tiny muted">{until(p.to)}</span>}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })}
+          <ul className="cu-ms-notes tiny muted">
+            {(m.kind === 'unpaid' || m.kind === 'furlough') && m.total > 0 && <li>About {k(m.total)} saved over the whole {m.kind === 'unpaid' ? 'leave' : 'furlough'}, taken off the salaries at each month end.</li>}
+            {m.kind === 'notice' && <li>Severance {k(m.cost)} paid when notice was given. They fly as rostered until they leave; their pay stops then.</li>}
+            {m.kind === 'convert' && <li>Course fees paid at booking. They fly the new type when the course ends.</li>}
+            {m.morale && <li>{m.morale}.</li>}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** v0.20.1 report bmwba4v0r3aj: what is in place to cut crew cost, live, with what it saves and costs. */
+function MeasuresCard({ g }: { g: GameState }) {
+  const rev = crewRev(g);
+  const day = Math.floor(g.now / 1440);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const ms = useMemo(() => crewMeasures(g), [g, rev, day]);
+  const noticeN = ms.list.filter((m) => m.kind === 'notice').reduce((s, m) => s + m.people.length, 0);
+  return (
+    <section className="card cu-card cu-measures" aria-label="Measures in place">
+      <div className="lv-head">
+        <ShieldCheck className="sc-ico" aria-hidden />
+        <h3>Measures in place</h3>
+        {ms.monthly > 0 && <span className="sub cu-ms-total">Saving <b className="num good">{k(ms.monthly)}</b> a month</span>}
+      </div>
+      {ms.list.length ? (
+        <>
+          <div className="cu-ms-list">{ms.list.map((m) => <MeasureRow key={`${m.kind}:${m.label}`} m={m} />)}</div>
+          {(ms.later > 0 || ms.costs > 0) && (
+            <p className="tiny muted cu-ms-foot">
+              {ms.later > 0 && <>{k(ms.later)} a month more once the {noticeN} on notice leave. </>}
+              {ms.costs > 0 && <>Paid for these: {k(ms.costs)}.</>}
+            </p>
+          )}
+        </>
+      ) : (
+        <p className="small muted">Nothing in place. Unpaid leave, furlough or redundancy shows here with what it saves.</p>
+      )}
+    </section>
+  );
+}
+
 export function UtilisationView({ g }: { g: GameState }) {
   const rev = crewRev(g);
   const day = Math.floor(g.now / 1440);
@@ -83,12 +179,13 @@ export function UtilisationView({ g }: { g: GameState }) {
       </section>
       <p className="small muted cu-typical"><Gauge className="sc-ico-s" aria-hidden /> ACMI crew typically fly {UTIL_TYPICAL.monthLo}–{UTIL_TYPICAL.monthHi} h a month in season ({UTIL_TYPICAL.yearLo}–{UTIL_TYPICAL.yearHi} a year; the law allows 100 h in 28 days), with about 10–12 pilots per narrowbody. Fewer hours in winter are normal; idle all year is not. The crew desk holds hiring for a rank while it flies under {UTIL_TYPICAL.hold28} h in 28 days.</p>
       <div className="cu-cols">
-        <section className="card cu-card">
+        <MeasuresCard g={g} />
+        <section className="card cu-card cu-surplus">
           <div className="lv-head"><h3>More crew than the flying needs</h3></div>
           {u.surplus.length ? u.surplus.map((s) => <SurplusRow key={`${s.family}:${s.role}`} g={g} s={s} />) : <p className="small muted">None: every family has the crew its sets need and no more.</p>}
           <p className="tiny dim">Counted against the crew sets the flying needs (Planning), and only those with nothing on the roster for four weeks. Nobody leaves without your say: unpaid leave is asked for, furlough is the company-wide cut (Finance), redundancy comes with notice and severance.</p>
         </section>
-        <section className="card cu-card">
+        <section className="card cu-card cu-idle">
           <div className="lv-head"><h3>Idle crew</h3><span className="sub small muted">under {UTIL_TYPICAL.idle28} h in 28 days</span></div>
           <div className="lv-table cu-table" role="table">
             <div className="cu-tr lv-th tiny upper dim" role="row"><span>Base · type · rank</span><span className="num">People</span><span className="num">28 days</span><span className="num">Idle</span></div>
