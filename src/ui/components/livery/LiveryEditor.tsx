@@ -16,6 +16,7 @@ import { BodyPanel, BodyPresets, TailEnginePanel } from './BodyPanels';
 import { ColorPicker } from './ColorPicker';
 import { LiveryPreview } from './LiveryPreview';
 import { LogoPicker } from './LogoPicker';
+import { Help } from '../Help';
 
 export interface LiveryEditorProps {
   value: Livery;
@@ -367,7 +368,7 @@ export function LiveryEditor({ value, onChange, code, name, reg, acName, types, 
                 <ColorPicker label="Colour" value={lv.titles?.color} auto autoColor={titleBox ? stickerInk(typeId, lv, titleBox) : titleSide === 'fin' ? finInk : bodyInk} contrastWith={stickerGround(lv, titleSide, titleBox && { typeId, box: titleBox })} onChange={(c) => update({ titles: { ...lv.titles, color: c } })} />
               </TextBlock>
               <section className="lv-section">
-                <h4>Small markings</h4>
+                <h4>Small markings <Help title="Small markings">Painted small where real aircraft carry them: the registration on the rear fuselage by the last door (or on the fin), the type next to it, the fleet number at the top of the fin. Shown on big views only.</Help></h4>
                 <div className="lv-row-toggles">
                   <button type="button" className={`lv-btn small lv-toggle${!lv.reg?.hide ? ' on' : ''}`} aria-pressed={!lv.reg?.hide} onClick={() => update({ reg: lv.reg?.hide ? { ...lv.reg, hide: undefined } : { ...lv.reg, hide: true } })}>Registration</button>
                   <button type="button" className={`lv-btn small lv-toggle${!lv.reg?.noFlag ? ' on' : ''}`} aria-pressed={!lv.reg?.noFlag} disabled={!!lv.reg?.hide} onClick={() => update({ reg: lv.reg?.noFlag ? { ...lv.reg, noFlag: undefined } : { ...lv.reg, noFlag: true } })}>Flag</button>
@@ -382,7 +383,6 @@ export function LiveryEditor({ value, onChange, code, name, reg, acName, types, 
                     <button key={label} type="button" role="radio" aria-checked={(lv.model === 'rear' ? undefined : lv.model) === v} className={(lv.model === 'rear' ? undefined : lv.model) === v ? 'on' : ''} onClick={() => update({ model: v })}>{label}</button>
                   ))}
                 </div>
-                <p className="lv-note small">Painted small where real aircraft carry them: the registration on the rear fuselage by the last door (or on the fin), the type next to it, the fleet number at the top of the fin. Shown on big views only.</p>
               </section>
             </>
           ) : tab === 'logo' ? (
@@ -426,7 +426,7 @@ export function LiveryEditor({ value, onChange, code, name, reg, acName, types, 
                   <button type="button" className="lv-btn" onClick={() => resetSticker(sel.id)}>Reset {stickerName(sel).toLowerCase()}</button>
                 </div>
               )}
-              {!sel && <p className="lv-note small">Tap a sticker on the aircraft to move it. Anything dragged off the airframe is trimmed like a decal.</p>}
+              {!sel && <p className="lv-note small">Tap a sticker to move it</p>}
               {selBox?.kind === 'logo' && !lv.logo && <p className="lv-note small">Pick a logo in the Logo tab.</p>}
               <div className="lv-actions">
                 <button type="button" className="lv-btn" disabled={stickers.length >= MAX_STICKERS} onClick={() => addLogo('fin')}>Add logo to fin</button>

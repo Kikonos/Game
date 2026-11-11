@@ -205,7 +205,7 @@ function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit, hub0,
                 {lg.tickets.map((x) => (
                   <span key={`${x.no}${x.dep}`} className="row gap-8"><Ticket className="sc-ico-s" /><span className="muted">{x.crewIds.length} pilot{x.crewIds.length === 1 ? '' : 's'}</span> <span className="mono">{x.no}</span> {x.from}→{x.to} {fmtDay(x.dep)}{x.cost ? ` · ${money(x.cost)}` : ''}</span>
                 ))}
-                {!lg.tickets.length && <span className="muted">Airline tickets for the pilots are bought when the ferries are rostered (up to 14 days ahead).</span>}
+                {!lg.tickets.length && <span className="muted">Tickets are bought when the ferries are rostered</span>}
               </div>
             )}
             {!inWork && <div className="muted mt-4">Pick a hub and a window to move it.</div>}

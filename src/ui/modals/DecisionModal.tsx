@@ -59,7 +59,7 @@ export function DecisionModal({ decisionId }: { decisionId?: string }) {
       // 'Look first' in the footer: always in view, not below a long card on a phone.
       !closable ? (
         <>
-          <span className="small dim grow cc-foot-note">Check the map, schedule or crew first; tap the amber Paused badge to come back.</span>
+          <span className="grow" />
           <button className="btn" onClick={close}>Look first</button>
         </>
       ) : undefined
