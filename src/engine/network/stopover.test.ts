@@ -335,6 +335,16 @@ describe('v0.21 the verdict, the analyst and the planner', () => {
     expect([...ideas].sort((p, q) => q.result - p.result)).toEqual(ideas);
   }, 120_000);
 
+  it('with no planner yet, the analyst still weighs a stop the route already has', () => {
+    const g = newGame(12);
+    devAddType(g, 'a332');
+    const rid = atCase(g, 'X:LIS-LAX@JFK');
+    hire(g, 'analyst');
+    const stop = caseAdvice(g, rid, { ...caseDraft(g, rid)!, typeId: 'a332' }).list.find((x) => x.key === 'stop')!;
+    expect(stop.who).toBe('analyst');
+    expect(stop.stop?.mode).toBe('nonstop');
+  });
+
   it('the first finished study earns the network planner: candidates with a real salary', () => {
     const g = newGame(10);
     expect(g.heads!.netPlanner.unlockedAt).toBeNull();

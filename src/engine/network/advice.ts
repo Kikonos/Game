@@ -269,7 +269,9 @@ export function caseAdvice(g: GameState, routeId: string, draft: RoutePlan): Cas
     if (draft.nights > 0 && !crewAwayCost(g, m, draft.typeId, cab.total, 0).longDay) best('nights', [{ title: 'Back the same day', patch: { nights: 0 }, why: (gain) => `About ${k$(gain)} more a year: no hotel nights for the crew.` }]);
     else if (draft.nights === 0 && away.longDay) best('nights', [{ title: 'One night there', patch: { nights: 1 }, why: (gain) => `About ${k$(gain)} more a year: no third pilot for a ${away.dutyH} h day.` }]);
   }
-  if (pl && draft.model !== 'partner') {
+  // The stop: the planner's call; without one, the analyst still weighs a stop the route already has.
+  if (draft.model !== 'partner') {
+    const who: Advice['who'] = pl ? 'planner' : 'analyst';
     const at = sharedStop(m);
     const c = at ? stopoverCompare(g, m.from, m.to, at, draft.typeId, { r, plan: draft, x }) : null;
     if (c && at) {
@@ -279,14 +281,14 @@ export function caseAdvice(g: GameState, routeId: string, draft: RoutePlan): Cas
       const expect = c.withRights ? c.stopover.result + (c.withRights.result - c.stopover.result) * (odds.full + odds.limited * 0.35) : c.stopover.result;
       if (m.stopover) {
         const gain = Math.round(c.plain.result - (r.fifth !== undefined ? cur.result : expect));
-        if (!c.plain.cant && gain > floor) list.push({ key: 'stop', who: 'planner', title: c.plain.mode === 'nonstop' ? 'Fly it nonstop' : `Only refuel at ${city(at)}`, why: `About ${k$(gain)} more a year: the ${city(at)} seats do not pay for the turn there.`, gain, stop: { mode: c.plain.mode, at } });
+        if (!c.plain.cant && gain > floor) list.push({ key: 'stop', who, title: c.plain.mode === 'nonstop' ? 'Fly it nonstop' : `Only refuel at ${city(at)}`, why: `About ${k$(gain)} more a year: the ${city(at)} seats do not pay for the turn there.`, gain, stop: { mode: c.plain.mode, at } });
       } else {
         const sure = Math.round(c.stopover.result - cur.result);
         const hope = Math.round(expect - cur.result);
-        if (!c.stopover.cant && sure > floor) list.push({ key: 'stop', who: 'planner', title: `Sell seats at ${city(at)} (a stopover)`, why: `About ${k$(sure)} more a year even without ${city(at)}–${m.city} rights${c.withRights ? `; ${k$(c.withRights.result - cur.result)} with them (${Math.round(pAny * 100)} % chance)` : ''}.`, gain: sure, stop: { mode: 'stopover', at } });
-        else if (!c.stopover.cant && hope > floor && c.withRights) list.push({ key: 'stop', who: 'planner', title: `Try a stopover at ${city(at)}`, why: `A bet on the rights (${Math.round(pAny * 100)} % chance): ${k$(c.withRights.result - cur.result)} with them, ${k$(sure)} without.`, gain: hope, stop: { mode: 'stopover', at } });
+        if (!c.stopover.cant && sure > floor) list.push({ key: 'stop', who, title: `Sell seats at ${city(at)} (a stopover)`, why: `About ${k$(sure)} more a year even without ${city(at)}–${m.city} rights${c.withRights ? `; ${k$(c.withRights.result - cur.result)} with them (${Math.round(pAny * 100)} % chance)` : ''}.`, gain: sure, stop: { mode: 'stopover', at } });
+        else if (!c.stopover.cant && hope > floor && c.withRights) list.push({ key: 'stop', who, title: `Try a stopover at ${city(at)}`, why: `A bet on the rights (${Math.round(pAny * 100)} % chance): ${k$(c.withRights.result - cur.result)} with them, ${k$(sure)} without.`, gain: hope, stop: { mode: 'stopover', at } });
       }
-    } else if (!at && !(m.via?.length) && r.status === 'case') {
+    } else if (pl && !at && !(m.via?.length) && r.status === 'case') {
       const b = bestStop(g, r, draft, x, cur.result);
       if (b && b.gain > floor) list.push({ key: 'stop', who: 'planner', title: `Add a stopover at ${city(b.at)}`, why: b.why, gain: b.gain, stop: { mode: 'stopover', at: b.at } });
     }
