@@ -152,7 +152,7 @@ function LeasebackModal({ aircraftId, close }: { aircraftId: string; close: () =
           <Line k={`Rent over ${years} years`} v={money(q.totalRent)} tone="warn" />
           <Line k="Return" v={`by ${end}, half-life condition, ${BAL.leaseReturn.noticeDays ?? 120}-day notice`} />
         </div>
-        <div className="small dim">{ac.reg} keeps its registration, crews, contracts and livery; it is simply leased from {q.lessor} from today. Cash now and the debt off the books, against a higher monthly cost over the term and the return conditions.</div>
+        <div className="small dim">{ac.reg} keeps its registration, crews, contracts and livery; it is leased from {q.lessor} from today.</div>
         {q.why && <div className="small warn">{q.why}</div>}
       </div>
     </Modal>
