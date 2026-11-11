@@ -63,4 +63,16 @@ describe('v0.20.1 the duration strip', () => {
     expect(far.moreText).toBe('+3 months, to Mar 2032');
     expect(far.text).toBe('1096 days · 36 months (3 years) · 1 Apr 2029 – 31 Mar 2032');
   });
+
+  it('v0.22 a long strip is one row a year with the months in columns, so every cell keeps its letter', () => {
+    // Twelve to fourteen cells: one row.
+    const short = durationView(d(2029, 2, 18), d(2029, 3, 21), d(2029, 5, 26));
+    expect([short.count, short.stacked]).toEqual([12, false]);
+    expect(durationView(d(2029, 2, 18), d(2029, 3, 21), d(2030, 3, 5)).stacked).toBe(false);
+    // Longer: stacked; February is the first cell, so one blank column before it.
+    const long = durationView(d(2029, 2, 18), d(2029, 4, 1), d(2031, 3, 31));
+    expect([long.count, long.stacked, long.lead]).toEqual([26, true, 1]);
+    expect(long.years.map((y) => [y.year, y.cells.map((c) => c.initial).join('')])).toEqual([[2029, 'FMAMJJASOND'], [2030, 'JFMAMJJASOND'], [2031, 'JFM']]);
+    expect(durationView(d(2029, 1, 18), d(2029, 4, 1), d(2031, 3, 31)).lead).toBe(0);
+  });
 });

@@ -25,6 +25,10 @@ export interface DurationView {
   years: { year: number; cells: DurationCell[] }[];
   /** How many month cells in all (12–maxCells). */
   count: number;
+  /** v0.22 a long strip (over STACK_OVER cells) is drawn one row a year so every cell keeps its month letter. */
+  stacked: boolean;
+  /** Months of the first year before the first cell (0 = January): the blank columns that line the rows up. */
+  lead: number;
   /** Where today is in the first cell (0–1). */
   today: number;
   /** Months of the job after the last cell; 0 when it all fits. `moreText`: '+7 months, to Mar 2032' (the end year named). */
@@ -40,6 +44,9 @@ export interface DurationView {
   /** The same in a sentence, for screen readers. */
   aria: string;
 }
+
+/** More month cells than this: one row a year (a single row of full-size cells would not fit a phone). */
+export const STACK_OVER = 14;
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
@@ -105,5 +112,5 @@ export function durationView(now: Minute, first: Minute, last: Minute, maxCells 
   const y0 = toDate(first).getUTCFullYear(), y1 = toDate(end).getUTCFullYear();
   const aria = `Runs ${daysText}${monthsText ? `, ${monthsText}` : ''}: ${datesText.replace(' – ', ' to ').replace('–', ' to ')}${y0 !== y1 ? `, from ${y0} into ${y1}` : ''}.`;
   const moreText = more ? `+${plural(more, 'month')}, to ${MONTHS[kEnd % 12]} ${Math.floor(kEnd / 12)}` : null;
-  return { years, count, today, more, moreText, days, daysText, monthsText, datesText, text, aria };
+  return { years, count, stacked: count > STACK_OVER, lead: k0 % 12, today, more, moreText, days, daysText, monthsText, datesText, text, aria };
 }
