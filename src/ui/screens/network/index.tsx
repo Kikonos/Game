@@ -101,7 +101,7 @@ function Studies({ g }: { g: GameState }) {
               <span className={`nw-chip ${tone}`}>{word}</span>
               <span className="col grow">
                 <b className="ellipsis">{pairName(x.marketId)}</b>
-                <span className="tiny muted ellipsis">{x.est ? `${int(x.est.p50)} travellers a week (${int(x.est.p10)}–${int(x.est.p90)})` : x.due !== undefined ? `results by ${fmtDay(x.due)}` : ''}{x.done !== undefined ? ` · done ${fmtDay(x.done)}` : ''}</span>
+                <span className="tiny muted ellipsis">{x.est ? `${int(x.est.p50)} travellers a week (${int(x.est.p10)}–${int(x.est.p90)})` : x.state === 'stopped' ? 'stopped before the results came' : x.due !== undefined ? `results by ${fmtDay(x.due)}` : ''}{x.done !== undefined ? ` · done ${fmtDay(x.done)}` : ''}</span>
               </span>
               {x.state === 'shelved' && x.validUntil !== undefined && <span className="nw-valid tiny">Valid until {fmtDate(x.validUntil)}</span>}
               {x.state === 'expired' && x.validUntil !== undefined && <span className="tiny dim nowrap">ran out {fmtDate(x.validUntil)}</span>}

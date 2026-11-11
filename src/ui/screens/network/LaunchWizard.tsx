@@ -450,7 +450,7 @@ function CaseCard({ g, r }: { g: GameState; r: Route }) {
                 </div>
                 <MarginStrip lo={c.p10.margin} mid={c.p50.margin} hi={c.p90.margin} others={others} />
               </div>
-              {c.stop && m && <SeatSplit a={m.from} b={c.stop.at} c={m.to} split={c.stop.split} />}
+              {c.stop && m && !cmp && <SeatSplit a={m.from} b={c.stop.at} c={m.to} split={c.stop.split} />}
             </div>
           </div>
           <CaseTable c={c} />

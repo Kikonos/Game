@@ -156,7 +156,8 @@ export function stopoverCompare(g: GameState, from: string, to: string, at: stri
   if (!reach) pros.push(`The ${typeOf(typeId)?.short ?? 'aircraft'} must land at ${B} anyway.`);
   const dh = stopover.hours - plain.hours;
   if (dh >= 0.2) cons.push(`${dh.toFixed(1)} h longer door to door than ${reach ? 'nonstop' : 'a quick fuel stop'}: ${A}–${C} passengers prefer the faster flight.`);
-  if (sp && plain.split === undefined && sp.thr >= 0) cons.push(`${A}–${C} passengers a flight: about ${Math.round(sp.thr)} (their seats are shared with ${B}).`);
+  const plainPax = plain.lf * (sp?.seats ?? 0);
+  if (sp && !plain.cant && plainPax - sp.thr >= 3) cons.push(`About ${Math.round(plainPax - sp.thr)} fewer ${A}–${C} passengers a flight: the stop puts some off.`);
   cons.push(`A full turn at ${B}: landing, handling, catering and a station there.`);
   if (!can) cons.push(odds.why);
   else if (odds.full < 0.5) cons.push(`${B}–${C} seats need fifth-freedom rights: often refused or capped.`);
