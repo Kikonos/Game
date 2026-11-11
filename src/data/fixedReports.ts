@@ -30,6 +30,9 @@ export const FIXED_REPORTS: Record<string, FixedReport> = {
   bmw8fl4ddjfay: { version: 'v0.18.3', what: 'the spare captain and purser at a far base stand by at the hotel instead of flying, and a short day flies with two pilots; the flight sheet lists the flight crew first.' },
   bmw8gfbgud6o6: { version: 'v0.18.3', what: 'a delay that broke one flight\'s in-flight rest plan no longer raises "crew out of hours" on the set\'s later flights; the Details list stays inside its card.' },
   bmwalwl3kkqo9: { version: 'v0.19.5', what: 'the range circles are a globe again, zoomed to the range: the whole range fits inside the circle, with no blank band and no boundary running off the edge.' },
+  bmwbiobsokzf4: { version: 'v0.21', what: 'a stop can now be a real stopover: some passengers get off, others get on, others stay on. Build your own route shows "Fuel stop only" and "Stopover" side by side with the pros and cons, and a fuel stop can be turned into a stopover.' },
+  bmwbir591j4cw: { version: 'v0.21', what: 'Network › Studies lists every study (under way, shelved, launched, run out). A market with a study still good shows "Show study" and a grey "Valid until" instead of a new paid study.' },
+  bmwbjlg2n93bp: { version: 'v0.21', what: 'the business case opens with Worth it / Marginal / Not worth it and why, new pictures (money from revenue to result, load against break-even, margin scale), the analyst\'s suggestions with Apply, a network planner to hire, and small "?" marks that answer your questions on tap. Margins were checked against real airlines.' },
 };
 
 /** 'v0.17.2' → [0, 17, 2]. Pure. */

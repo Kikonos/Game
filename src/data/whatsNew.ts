@@ -16,6 +16,31 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.21',
+    name: 'Stopovers and route advice',
+    features: [
+      'Real stopovers. In Build your own route, a stop can now sell seats: some passengers get off there, others get on, others stay on to the end. Three markets share one aircraft.',
+      'Fuel stop only and Stopover are shown side by side, with the year\'s result, the pros and the cons. A long flight that has to land for fuel anyway can be turned into a stopover to see if it pays. There are good combinations and bad ones.',
+      'Selling seats between the stop and the far end needs fifth-freedom rights. They are asked for with the permits and are often refused or capped; inside the EU they are free, and a domestic leg in another country can never be sold.',
+      'Is it worth it? Every business case now opens with a clear answer (Worth it, Marginal or Not worth it) and the two or three reasons behind it.',
+      'New pictures in the business case: where the money goes from revenue down to the result, how full the flights are against the load they need to break even, the margin on a scale from Loss to Strong, and for a stopover who sits on which leg.',
+      'Your commercial analyst is back on routes: suggestions on how often to fly, fares, the campaign, the aircraft and the cabin, each with what it earns and an Apply button.',
+      'A new hire: the network planner, earned by your first finished market study (Company › Team). The planner narrows a study\'s range, says whether a route is better nonstop, with a fuel stop or with a stopover, and lists routes worth a study in Network.',
+      'Network › Studies: every market study in one place, under way, waiting for you, shelved, launched or run out. A market with a study that is still good shows "Show study" and "Valid until" instead of selling you a new one.',
+    ],
+    improvements: [
+      'Small "?" marks answer the questions in the launch dialog on tap: the weak, likely and strong year, what the campaign levels do, what "stays at the destination" means for the aircraft and the crew, where the money goes and whether a margin is normal. Nothing extra stays on screen.',
+      '"Nights at …" is now "Stays at …": the aircraft and its crew wait there and fly back together.',
+      'Margins checked against real airlines. A strong route with the right size of aircraft keeps about 10 to 20 %; a full flight to Luanda or north-east Brazil now pays a healthy margin; a crowded route or an aircraft too big for it loses money. For a partner the margin is shown on our own fee, not on the fuel and airport costs it repays.',
+      'The business case now counts a year\'s bad days (delays, a sub-charter, a rival\'s fare cut), crew hotel nights and a third pilot on a long day, so it promises less and matches what the route then earns.',
+      'Long-haul fares on routes you build yourself are more realistic: a far city nobody flies to nonstop is no longer a gold mine.',
+    ],
+    fixes: [
+      'A shelved study can be found again and reopened for free until it runs out: Maputo no longer offers a second paid study.',
+      'The load factor of a route with a stop counts passengers on every leg they sit on.',
+    ],
+  },
+  {
     version: 'v0.20',
     name: 'Finance at a glance',
     features: [
