@@ -17,7 +17,7 @@ import { dirSectors, fareFor, payloadMax } from './sales';
 import { netRoll } from './side';
 import type { Rotation, Route, RoutePnl, SectorLoad } from './types';
 
-const EMPTY: RoutePnl = { rev: 0, tickets: 0, cargo: 0, ancillary: 0, direct: 0, acTime: 0, result: 0, pax: 0, seats: 0, bh: 0, sectors: 0, onTime: 0, cargoKg: 0, launch: 0 };
+const EMPTY: RoutePnl = { rev: 0, tickets: 0, cargo: 0, ancillary: 0, direct: 0, acTime: 0, result: 0, pax: 0, seats: 0, bh: 0, sectors: 0, onTime: 0, cargoKg: 0, launch: 0, paxSec: 0 };
 export const pnlOf = (route: Route, t: number): RoutePnl => (route.pnl[monthKey(t)] ??= { ...EMPTY });
 
 /** The direction of a sector (out before the destination, back after). */
@@ -104,6 +104,8 @@ export function onSectorDep(g: GameState, f: Flight, rot: Rotation, idx: number)
   const dir = dirOf(route, rot, idx);
   const ids = dirSectors(route, rot, dir);
   const head = ids[0] === idx;
+  // v0.21 a stopover direction: the first sector's locals get off at the stop, the second sector's get on there.
+  const tag = !!m?.stopover && ids.length === 2;
   const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
   const P = BAL.v019.pax;
   let comp = 0;
@@ -139,11 +141,22 @@ export function onSectorDep(g: GameState, f: Flight, rot: Rotation, idx: number)
       comp += vol * P.volunteerVoucher + denied * (P.eu261[band] + BAL.v019.pax.change.reprotectFare[3]);
       if (denied) bumpRoute(g, route.id, -denied / 10, 'Passengers denied boarding');
     }
-    for (const i of ids) {
-      const x = rot.sectors[i];
-      x.flownJ = j;
-      x.flownY = y;
-      if (denied) x.denied = denied;
+    if (tag) {
+      // Through passengers: the same show-up as the sector's, out of those booked to fly on.
+      const tj = Math.max(0, s.bookedJ - (s.localJ ?? 0));
+      const ty = Math.max(0, s.bookedY - (s.localY ?? 0));
+      s.flownJ = j;
+      s.flownY = y;
+      s.thruJ = Math.min(j, Math.round(tj * (s.bookedJ ? j / s.bookedJ : 0)));
+      s.thruY = Math.min(y, Math.round(ty * (s.bookedY ? y / s.bookedY : 0)));
+      if (denied) s.denied = denied;
+    } else {
+      for (const i of ids) {
+        const x = rot.sectors[i];
+        x.flownJ = j;
+        x.flownY = y;
+        if (denied) x.denied = denied;
+      }
     }
     g.network!.stats.pax += j + y;
     // Cargo of the direction (carried on every sector of it; earned once).
@@ -169,6 +182,27 @@ export function onSectorDep(g: GameState, f: Flight, rot: Rotation, idx: number)
     p.direct += Math.round(comp);
     p.pax += j + y;
     p.cargoKg += cg.kg;
+  } else if (tag && s.flownJ === undefined) {
+    // v0.21 the second sector of a stopover: those who stayed on, and the locals who board here.
+    const h = rot.sectors[ids[0]];
+    const ns = (n: number, k: string) => Math.round(n * BAL.v019.sales.noShow * (0.6 + 0.8 * netRoll(g, `show:${rot.id}:${dir}:${k}2`)));
+    const lj = Math.max(0, (s.localJ ?? 0) - ns(s.localJ ?? 0, 'J'));
+    const ly = Math.max(0, (s.localY ?? 0) - ns(s.localY ?? 0, 'Y'));
+    const capJ = ac ? ac.cabin.j + ac.cabin.w : s.capJ;
+    const capY = ac ? ac.cabin.y : s.capY;
+    const thJ = h.thruJ ?? Math.max(0, (h.flownJ ?? 0) - (h.localJ ?? 0));
+    const thY = h.thruY ?? Math.max(0, (h.flownY ?? 0) - (h.localY ?? 0));
+    s.flownJ = Math.min(capJ, thJ + lj);
+    s.flownY = Math.min(capY, thY + ly);
+    const boarded = Math.max(0, s.flownJ - thJ) + Math.max(0, s.flownY - thY);
+    g.network!.stats.pax += boarded;
+    const anc = route.model === 'partner' ? 0 : Math.round(boarded * (m?.ancillary ?? 20));
+    if (anc) post(g, 'ancillaryRevenue', anc);
+    s.rev = (s.rev ?? 0) + anc;
+    const p = pnlOf(route, g.now);
+    p.ancillary += anc;
+    p.rev += anc;
+    p.pax += boarded;
   } else if (s.flownJ === undefined) {
     // A through sector whose first sector was missed (should not happen): take the booked numbers.
     s.flownJ = Math.min(s.bookedJ, s.capJ);
@@ -192,6 +226,8 @@ export function onSectorDep(g: GameState, f: Flight, rot: Rotation, idx: number)
   p.tickets += tickets;
   p.rev += tickets;
   p.seats += s.capJ + s.capY;
+  // v0.21 the load factor's top: passengers on this sector (a month begun before v0.21 keeps `pax`).
+  if (p.paxSec !== undefined) p.paxSec += (s.flownJ ?? 0) + (s.flownY ?? 0);
   if (route.status === 'onSale') {
     route.status = 'operating';
     route.firstFlight ??= f.std;
