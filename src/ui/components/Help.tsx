@@ -17,7 +17,8 @@ export function Help({ title, children, className }: { title: string; children: 
       {open && ref.current && (
         <PopBox anchor={ref.current} onClose={close} label={title}>
           <b>{title}</b>
-          <span className="small">{children}</span>
+          {/* v0.21 a block, so an answer can be a few short paragraphs; a long one scrolls inside the box. */}
+          <div className="small help-body">{children}</div>
         </PopBox>
       )}
     </>

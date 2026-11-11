@@ -7,7 +7,7 @@ export type AchievementId =
   | 'fullCover' | 'bunkTime' | 'slipCrew' | 'standby' | 'goodPlace'
   | 'cOnTime' | 'noOverdue'
   | 'fiveFlown' | 'paidInTheEnd' | 'partner' | 'firstCall' | 'hajj' | 'homeSafe' | 'blueIce' | /** v0.12.1 */ 'aroundWorld'
-  | 'widebody' | 'queen'
+  | 'widebody' | 'queen' | /** v0.21 */ 'firstStudy'
   | 'reliable' | 'cleanRecord' | 'inTheBlack' | 'rainyDay';
 
 export type AchievementGroup = 'ops' | 'crew' | 'tech' | 'commercial' | 'fleet' | 'company';
@@ -32,6 +32,7 @@ export const ACHIEVEMENTS: AchievementDef[] = [
   { id: 'cOnTime', group: 'tech', icon: 'Hammer', title: 'Heavy check, on time', text: 'A C-check completed before it was due', head: 'maintPlanner' },
   { id: 'noOverdue', group: 'tech', icon: 'ClipboardCheck', title: 'A year without an overdue check', text: '365 days with no check overdue' },
   { id: 'fiveFlown', group: 'commercial', icon: 'Briefcase', title: 'Five flown', text: '5 contracts completed', head: 'analyst' },
+  { id: 'firstStudy', group: 'commercial', icon: 'Route', title: 'Homework done', text: 'Your first market study finished', head: 'netPlanner' },
   { id: 'paidInTheEnd', group: 'commercial', icon: 'Landmark', title: 'They paid in the end', text: 'A late government payment collected', head: 'credit' },
   { id: 'partner', group: 'commercial', icon: 'Handshake', title: 'Partners', text: 'A client reaches Partner' },
   { id: 'firstCall', group: 'commercial', icon: 'Trophy', title: 'First call', text: 'Signed an offer a rival was bidding on' },

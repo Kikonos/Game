@@ -79,6 +79,8 @@ export function Modal({
         // sheet (ui/specs/SpecsLink.tsx): only the topmost layer's dialog closes.
         const top = document.querySelector('.bug-layer') ?? document.querySelector('.spec-layer');
         if (top && !top.contains(sheet.current)) return;
+        // v0.21 an open '?' note or glossary popover takes the Escape first (Term.tsx PopBox closes itself).
+        if (document.querySelector('.term-pop')) return;
         e.stopPropagation();
         onClose();
       }

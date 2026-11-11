@@ -45,13 +45,15 @@ export function PopBox({ anchor, onClose, label, children }: { anchor: HTMLEleme
       e.stopPropagation();
       onClose();
     };
+    // v0.21 a scroll of the page behind closes it; a scroll inside the box itself (a long answer) does not.
+    const scroll = (e: Event) => { if (!box.current?.contains(e.target as Node | null)) onClose(); };
     document.addEventListener('pointerdown', down, true);
     window.addEventListener('keydown', esc, true);
-    window.addEventListener('scroll', onClose, true);
+    window.addEventListener('scroll', scroll, true);
     return () => {
       document.removeEventListener('pointerdown', down, true);
       window.removeEventListener('keydown', esc, true);
-      window.removeEventListener('scroll', onClose, true);
+      window.removeEventListener('scroll', scroll, true);
     };
   }, [anchor, onClose]);
   // A dialog the game opens (auto-pause, a card) or a tab change closes it: never left floating over the new view.

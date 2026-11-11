@@ -17,7 +17,7 @@ export interface HeadDef {
   blurbs: string[];
 }
 
-export const HEAD_IDS: HeadId[] = ['opsControl', 'crewDesk', 'analyst', 'credit', 'fleetPlanner', 'maintPlanner', 'watch'];
+export const HEAD_IDS: HeadId[] = ['opsControl', 'crewDesk', 'analyst', 'netPlanner', 'credit', 'fleetPlanner', 'maintPlanner', 'watch'];
 
 export const HEAD_DEFS: Record<HeadId, HeadDef> = {
   opsControl: {
@@ -61,6 +61,14 @@ export const HEAD_DEFS: Record<HeadId, HeadDef> = {
     does: ['Proposes ferries home for idle aircraft', 'Proposes positioning the day before a contract', 'Plans fuel stops and crew changes for long positioning'],
     never: ['Sign, buy, lease or sell', 'Ferry above your limit'],
     blurbs: ['Ops engineer who planned ETOPS routes', 'Ex-charter planner, knows the fuel stops', 'Fleet planner from a cargo airline'],
+  },
+  // v0.21 (player report bmwbjlg2n93bp: "another member of the team … help me decide new routes and if they should have stopovers").
+  netPlanner: {
+    id: 'netPlanner', title: 'Network planner', icon: 'Earth',
+    unlockText: 'Your first market study finished', earnedText: 'Your first market study',
+    does: ['Reads market studies more sharply (a narrower low to high range)', 'Says whether a route is better nonstop, with a fuel stop or with a stopover', 'Finds new routes worth a study from our bases'],
+    never: ['Order a study, launch or close a route'],
+    blurbs: ['Network planner from a flag carrier; knows which city pairs pay', 'Ex-airport route development manager', 'Scheduler who built an African network from one aircraft'],
   },
   watch: {
     id: 'watch', title: 'Watch desk', icon: 'BellRing',

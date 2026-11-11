@@ -123,7 +123,7 @@ export const NET_ENGINE_BAL = {
      * business-case projection with a 767-300ER: OXB own brand ~5 % after aircraft and crew time, DIL open sale ~0 %,
      * RAI a hard market (TAP daily), LAD high fares but kwanza risk, the Brazil routes full.
      */
-    marketX: { 'LIS-OXB': 1.05, 'LIS-DIL': 1.75, 'LIS-RAI': 1.05, 'LIS-BVC': 1.2, 'LIS-LAD': 0.7, 'LIS-MPM': 1.15, 'LIS-REC': 0.92, 'LIS-FOR': 0.93, 'OPO-RAI': 1.12, 'OPO-OXB': 1.05 } as Record<string, number>,
+    marketX: { 'LIS-OXB': 1.05, 'LIS-DIL': 1.75, 'LIS-RAI': 1.05, 'LIS-BVC': 1.2, 'LIS-LAD': 0.78, 'LIS-MPM': 1.15, 'LIS-REC': 1.0, 'LIS-FOR': 1.0, 'OPO-RAI': 1.12, 'OPO-OXB': 1.05 } as Record<string, number>,
     /** The business case's average economy bucket (the mix of Saver, Classic and Flex sold). */
     caseBucket: 0.8,
     level: { low: -0.12, market: 0, high: 0.12 } as Record<string, number>,
@@ -162,11 +162,44 @@ export const NET_ENGINE_BAL = {
     words: [[40, 'Poor'], [55, 'Mixed'], [75, 'Good'], [101, 'Very good']] as [number, string][],
   },
 
+  /** v0.21 stopover (tag) routes A–B–C: the turn at B, the through product, fifth-freedom rights, the station. */
+  stop: {
+    /** Ground time at a stopover (min): passengers off and on, cabin clean, catering, fuel. Narrowbody / widebody. */
+    groundNarrow: 55, groundWide: 80,
+    /** Our through service against a nonstop: the same aircraft, but a stop on the way (× the nonstop pull). */
+    nonstopX: 0.6,
+    /**
+     * Fifth freedom (B–C local sales): the chance of full rights at hardness 0, less `fifthHardX` per point of the
+     * pair's hardness; a limited grant (a share of the seats on B–C) with `fifthLimited` [E: most states refuse or cap].
+     */
+    fifthBase: 0.55, fifthHardX: 0.9, fifthMin: 0.05, fifthLimited: 0.3, limitedShare: 0.25,
+    /** The fifth-freedom application at the rights stage: cost (USD) and extra days. */
+    fifthCost: 12_000, fifthDays: [14, 42] as [number, number],
+    /** The station at B: this share of an outstation's monthly overhead (station manager, sales desk), and its setup. */
+    overheadX: 0.6, setupX: 0.6,
+  },
+
+  /** v0.21 crew away from base on a route: nights there (hotel and per diem) and a long day (an extra pilot). */
+  crewAway: {
+    /** A duty longer than this (min, report to release) flies with a third pilot (augmented). */
+    dutyMax: 780,
+    /** Report before the first departure and release after the last arrival (min). */
+    reportMin: 60, releaseMin: 30,
+  },
+
+  /** v0.21 the network planner (a head): a study's spread shrinks by this share × the planner's skill; route ideas shown. */
+  planner: { studyGain: 0.4, ideas: 5 },
+
   /** §J the route P&L: aircraft and crew time at cost. */
   pnl: {
     /** Monthly block hours an aircraft's rent and insurance are spread over (route P&L only). */
     utilBH: 250,
     /** Block hours a month a crew member is paid for (salaries per BH). */
     crewBH: 75,
+    /**
+     * v0.21 the business case's allowance for the bad days a year brings (share of ticket, cargo and extras revenue):
+     * late flights and EU261, a sub-charter when the aircraft is away, a rival's fare cut after the launch [E 2–3 %].
+     */
+    caseDisruption: 0.025,
   },
 };

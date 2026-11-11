@@ -98,6 +98,21 @@ export interface RouteMarket {
   custom?: true;
   /** v0.19.2 how hard the traffic rights are for a newcomer (0 open skies … 0.7 very hard): longer, dearer, riskier. */
   rightsHard?: number;
+  /**
+   * v0.21 a stopover (tag) route A–B–C (player: "some passengers get off, others get on, others stay on"): the market's
+   * own numbers are the A–C through travellers; `ab` and `bc` are the local markets of the two legs. B–C local sales
+   * need fifth-freedom rights (odds below), rolled at the launch's rights stage.
+   */
+  stopover?: RouteStopover;
+}
+
+/** v0.21 the stop where we sell seats, its two local markets and the odds of B–C (fifth-freedom) rights. */
+export interface RouteStopover {
+  at: string;
+  ab: RouteMarket;
+  bc: RouteMarket;
+  /** Chances at the rights stage: full B–C sales, limited (a share of the seats), else none. */
+  fifth: { full: number; limited: number; why: string };
 }
 
 /** §G stations (767 reference). */

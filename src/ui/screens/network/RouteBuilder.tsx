@@ -3,7 +3,7 @@
 // chosen aircraft needs (suggested, editable) and a first look at the market with its honest spread; then order the
 // study and follow the same staged launch as the catalogue's routes (LaunchWizard).
 
-import { ArrowLeft, Compass, MapPin, Play, Plus, Rocket, Search, Sparkles, X } from 'lucide-react';
+import { ArrowLeft, Compass, Eye, MapPin, Play, Plus, Rocket, Search, Sparkles, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { countryName, flag } from '../../../data/countries';
@@ -11,15 +11,16 @@ import { SEGMENT_LABEL, stationFor, type RouteMarket } from '../../../data/route
 import { BAL } from '../../../engine/core/balance';
 import { distance } from '../../../engine/core/geo';
 import { blockMinutes, etopsCap, typeOf } from '../../../engine/core/perf';
-import { fmtSpan } from '../../../engine/core/time';
+import { fmtDate, fmtSpan } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
 import {
-  catalogueOf, chainProblem, customBlock, customId, customMarket, customRange, routeBases, studyAccuracy, studyBlock, suggestStops,
+  catalogueOf, chainProblem, customBlock, customId, customMarket, customRange, routeBases, stopoverCompare, studyAccuracy, studyBlock, suggestStops, validStudyFor,
 } from '../../../engine/network';
 import type { RouteModel, Segment, StudyDepth } from '../../../engine/network/types';
 import { Modal, Seg } from '../../components/ui';
 import { int, money } from '../../format';
 import { store, useGame } from '../../store';
+import { StopCompareCard } from './LaunchWizard';
 import { net } from './netApi';
 import { hhmm, MODEL_HINT, rightsWord, searchAirports } from './networkLogic';
 import { RouteMap } from './RouteMap';
@@ -122,6 +123,8 @@ function fleetTypes(g: GameState): string[] {
   return ids.sort((a, b) => range(b) - range(a));
 }
 
+const id0 = (d: Parameters<typeof customId>[0] | null): string => (d ? customId(d) : '');
+
 export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: string }) {
   const g = useGame();
   const bases = useMemo(() => routeBases(g), [g]);
@@ -134,6 +137,8 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
   const [typeId, setTypeId] = useState(types[0]);
   const [stops, setStops] = useState<{ via: string[]; viaBack: string[] } | null>(null);
   const [addStop, setAddStop] = useState(false);
+  // v0.21 the one stop both ways sells seats (a stopover) instead of only refuelling.
+  const [sell, setSell] = useState(false);
   const [depth, setDepth] = useState<StudyDepth>('full');
   const [model, setModel] = useState<RouteModel>('own');
   const close = () => store.closeModal();
@@ -142,19 +147,24 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
   const auto = useMemo(() => (to ? suggestStops(g, typeId, from, to) : null), [g, typeId, from, to]);
   const via = stops?.via ?? (auto && 'via' in auto ? auto.via : []);
   const viaBack = stops?.viaBack ?? (auto && 'via' in auto ? auto.viaBack : []);
-  const draft = to ? { from, to, via, viaBack } : null;
+  const one = via.length === 1 && viaBack.length === 1 && via[0] === viaBack[0] ? via[0] : null;
+  const stopover = sell && !!one;
+  const draft = to ? (stopover ? { from, to, via, viaBack, stop: one! } : { from, to, via, viaBack }) : null;
   const m = draft ? customMarket(draft) : null;
-  const cat = to ? catalogueOf(from, to) : undefined;
+  // A researched pair is opened from the suggestions, unless it gets a stopover (a new shape of it).
+  const cat = to && !stopover ? catalogueOf(from, to) : undefined;
+  const cmp = useMemo(() => (to && one ? stopoverCompare(g, from, to, one, typeId) : null), [g, from, to, one, typeId]);
+  const kept = id0(draft) ? validStudyFor(g, id0(draft)) : undefined;
   const id = draft ? customId(draft) : '';
   const block = draft ? customBlock(draft) ?? studyBlock(g, id) : null;
   const fit = m ? chainProblem(m, typeId, etopsCap(g.company.approvals, typeId)) : null;
   const autoWhy = auto && 'why' in auto ? auto.why : null;
   const models = m?.models ?? ['own'];
   const md = models.includes(model) ? model : models[0];
-  const acc = studyAccuracy(depth, true);
+  const acc = studyAccuracy(depth, true, g);
   const cfg = BAL.v019.launch.study[depth];
-  const pickTo = (c: string) => { setTo(c); setStops(null); setAddStop(false); };
-  const pickFrom = (c: string) => { setFrom(c); setStops(null); };
+  const pickTo = (c: string) => { setTo(c); setStops(null); setAddStop(false); setSell(false); };
+  const pickFrom = (c: string) => { setFrom(c); setStops(null); setSell(false); };
   const go = () => {
     if (!m) return;
     const res = store.act((gg) => {
@@ -178,7 +188,11 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
         {cat ? (
           <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'routeLaunch', marketId: cat.id })}><Rocket /> Open the researched market</button>
         ) : (
-          <button className="btn btn-primary" disabled={!m || !!block || !!fit} onClick={go}><Play /> Order the study{m ? ` · ${money(cfg.cost)}` : ''}</button>
+          <>
+            {kept?.study?.validUntil !== undefined && <span className="nw-valid tiny">Valid until {fmtDate(kept.study.validUntil)}</span>}
+            {kept ? <button className="btn btn-primary" disabled={!m || !!block} onClick={go}><Eye /> Show study</button>
+              : <button className="btn btn-primary" disabled={!m || !!block || !!fit} onClick={go}><Play /> Order the study{m ? ` · ${money(cfg.cost)}` : ''}</button>}
+          </>
         )}
       </>
     }>
@@ -209,7 +223,7 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
           </div>
           {to && (
             <div className="col gap-6">
-              <div className="row between"><span className="upper dim">Fuel stops</span>{stops && <button className="btn btn-ghost btn-sm" onClick={() => setStops(null)}><Sparkles /> Suggest</button>}</div>
+              <div className="row between"><span className="upper dim">Stops</span>{stops && <button className="btn btn-ghost btn-sm" onClick={() => setStops(null)}><Sparkles /> Suggest</button>}</div>
               <div className="crb-stops">
                 {via.length === 0 && viaBack.length === 0 && <span className="small muted">{autoWhy ?? 'None: nonstop both ways.'}</span>}
                 {via.map((s) => (
@@ -222,9 +236,10 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
                     <button aria-label={`Remove the stop at ${s}`} onClick={() => setStops({ via, viaBack: viaBack.filter((x) => x !== s) })}><X className="sc-ico-s" /></button>
                   </span>
                 ))}
-                {via.length + viaBack.length < 4 && !addStop && <button className="btn btn-ghost btn-sm" onClick={() => setAddStop(true)}><Plus /> Add a stop</button>}
+                {via.length + viaBack.length < 4 && !addStop && !stopover && <button className="btn btn-ghost btn-sm" onClick={() => setAddStop(true)}><Plus /> Add a stop</button>}
               </div>
-              {addStop && <Picker label="Fuel stop" exclude={[from, to, ...via]} onPick={(c) => { setStops({ via: [...via, c], viaBack: [c, ...viaBack] }); setAddStop(false); }} placeholder="a stop on the way" />}
+              {addStop && <Picker label="Stop" exclude={[from, to, ...via]} onPick={(c) => { setStops({ via: [...via, c], viaBack: [c, ...viaBack] }); setAddStop(false); }} placeholder="a stop on the way" />}
+              {one && <Seg<string> value={stopover ? 's' : 'f'} onChange={(v) => setSell(v === 's')} options={[{ value: 'f', label: 'Fuel stop only' }, { value: 's', label: 'Stopover: sell seats' }]} />}
               {fit && <span className="small warn">{fit}</span>}
             </div>
           )}
@@ -235,9 +250,11 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
       </div>
       {!to && <p className="small muted crb-hint">Any airport in our list is a destination: search by city, code or country. Most pairs nobody flies are thin; strong ones are where people are tied (family, work, holidays).</p>}
       {cat && <div className="small warn crb-cat">{cat.city} from {AIRPORT_BY_CODE[cat.from]?.city} is one of the suggested markets, already researched: open it there.</div>}
+      {cat && cmp && to && <div className="crb-below"><StopCompareCard cmp={cmp} mode="plain" from={from} to={to} studied={false} onPick={(k) => setSell(k === 'stopover')} /></div>}
       {m && !cat && (
         <div className="crb-below">
           {block && <div className="small warn">{block}</div>}
+          {cmp && to && <StopCompareCard cmp={cmp} mode={stopover ? 'stopover' : 'plain'} from={from} to={to} studied={false} onPick={(k) => setSell(k === 'stopover')} />}
           <MarketPreview m={m} typeId={typeId} />
           {models.length > 1 && (
             <div className="col gap-6">
@@ -246,7 +263,7 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
               <span className="tiny muted">{MODEL_HINT[md]}</span>
             </div>
           )}
-          <div className="col gap-6">
+          {!kept && <div className="col gap-6">
             <span className="upper dim">Step 1 · Market study</span>
             <div className="nw-depths">
               {DEPTHS.map((d) => {
@@ -255,13 +272,13 @@ export function RouteBuilder({ from: from0, to: to0 }: { from?: string; to?: str
                   <button key={d} className={`nw-depth ${depth === d ? 'on' : ''}`} onClick={() => setDepth(d)} aria-pressed={depth === d}>
                     <b>{DEPTH_WORD[d]}</b>
                     <span className="small num">{money(c.cost)} · {fmtSpan(Math.max(1, Math.round(c.days[0] / 7)), Math.max(1, Math.round(c.days[1] / 7)), 'weeks')}</span>
-                    <span className="tiny muted">estimate within ±{Math.round(studyAccuracy(d, true) * 100)} %</span>
+                    <span className="tiny muted">estimate within ±{Math.round(studyAccuracy(d, true, g) * 100)} %</span>
                   </button>
                 );
               })}
             </div>
             <span className="tiny muted">Nobody has researched this pair, so every study is a little less sure than for the suggestions (±{Math.round(acc * 100)} % for this one). Then the same launch: business case, rights, slots, brand, distribution, timetable on sale, campaign, stations, crew briefings and the first flight.</span>
-          </div>
+          </div>}
         </div>
       )}
     </Modal>
