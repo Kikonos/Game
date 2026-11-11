@@ -2,7 +2,7 @@
 // catalogue of markets. Secondary to ACMI: a calm list, one row a route. Loaded lazily with its own stylesheet.
 
 import '../../../styles/acmi/v019.css';
-import { ChevronRight, ClipboardList, Compass, Earth, Globe2, Plane, PlusCircle, Route as RouteIcon } from 'lucide-react';
+import { ChevronRight, ClipboardList, Compass, Earth, Globe2, PlusCircle, Route as RouteIcon } from 'lucide-react';
 import { useMemo } from 'react';
 import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { flag } from '../../../data/countries';
@@ -13,6 +13,7 @@ import type { GameState } from '../../../engine/core/types';
 import { marketById, reopenStudy, routeIdeas, studyList, validStudyFor, type StudyRow } from '../../../engine/network';
 import type { Route } from '../../../engine/network/types';
 import { Bar, Empty } from '../../components/ui';
+import { Help } from '../../components/Help';
 import { int, money, moneyDelta, pct } from '../../format';
 import { store } from '../../store';
 import { LaunchProgress, StatusChip, TrendArrow } from './bits';
@@ -193,23 +194,24 @@ export default function NetworkView({ g }: { g: GameState }) {
           <div className="nw-list">{routes.map((r) => <RouteRow key={r.id} g={g} r={r} />)}</div>
         </>
       ) : (
-        <Empty icon={<RouteIcon />} title="No scheduled routes">
-          Fly your own weekly flights on an aircraft that would otherwise stand idle. Launching one takes months of planning; it earns a modest, steady margin.
-        </Empty>
+        <Empty icon={<RouteIcon />} title="No scheduled routes" />
       )}
       <Studies g={g} />
       <Ideas g={g} />
       <div className="row between wrap gap-8 nw-open">
-        <span className="upper dim row gap-6"><Globe2 className="sc-ico-s" /> Suggested markets, researched</span>
+        <span className="upper dim row gap-6"><Globe2 className="sc-ico-s" /> Suggested markets, researched <Help title="Scheduled routes">
+          <p>Fly your own weekly flights on an aircraft that would otherwise stand idle. Launching one takes months of planning; it earns a modest, steady margin.</p>
+          <p>Route flights sit on the Schedule beside your ACMI work. When a job wants the aircraft, you choose: swap, sub-charter, move or cancel.</p>
+          <p>These markets are researched already. Your own route can go anywhere, with fuel stops where the aircraft needs them: its study tells how many would fly.</p>
+        </Help></span>
         <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'routeLaunch' })}><PlusCircle /> Open a new route</button>
       </div>
       <div className="card nw-markets">{markets.map((m) => <MarketRow key={m.id} g={g} m={m} />)}</div>
       <button className="card nw-build-card" onClick={() => store.openModal({ kind: 'routeBuild' })} aria-label="Build your own route to any destination">
         <Compass className="accent" aria-hidden />
-        <span className="col grow"><b>Build your own route</b><span className="small muted">Any destination in the world from one of our bases, with fuel stops where the aircraft needs them. Not researched: the study tells how many would fly.</span></span>
+        <span className="col grow"><b>Build your own route</b><span className="small muted">Any destination in the world, from one of our bases</span></span>
         <ChevronRight className="sc-ico-s dim" />
       </button>
-      <div className="tiny dim row gap-6 nw-foot"><Plane className="sc-ico-s" /> Route flights sit on the Schedule beside your ACMI work. When a job wants the aircraft, you choose: swap, sub-charter, move or cancel.</div>
     </div>
   );
 }

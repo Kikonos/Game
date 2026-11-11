@@ -17,6 +17,7 @@ import { money } from '../../format';
 import { store } from '../../store';
 import { ArchIcon } from '../common';
 import { ShapeTags } from '../../components/ShapeTags';
+import { Help } from '../../components/Help';
 import { BODIES, BODY_LABEL, HAUL_LABEL, HAUL_RANGE, HAULS, shapeOf, type Body, type Haul } from '../../../engine/contracts/shape';
 import { marketOffers, offerDays, offerModal, productLine, routeSummary } from '../screenLogic';
 
@@ -59,7 +60,12 @@ export function FilterView({ g }: { g: GameState }) {
   const empty = filterEmpty(g.filter);
   return (
     <div className="flt">
-      <Card title="Offer filter" icon={<Funnel className="ico" />} sub="What you tell your sales team and the brokers not to bring you." className="flt-card">
+      {/* v0.22 how the filter works sits behind the '?' by the title (no permanent lines). */}
+      <Card title={<>Offer filter <Help title="Offer filter">
+        <p>What you tell your sales team and the brokers not to bring you.</p>
+        <p>Hidden offers do not chime or write to you. They sit under one row on the Market tab until they lapse, so you can still open and sign them.</p>
+        <p>Humanitarian work, tenders you won, leads you worked and your own clients always come through.</p>
+      </Help></>} icon={<Funnel className="ico" />} className="flt-card">
         <div className="row between gap-12 flt-switch">
           <span className="row gap-12">
             <Toggle on={f.on} onChange={(on) => set({ on })} label="Filter on" />
@@ -67,8 +73,7 @@ export function FilterView({ g }: { g: GameState }) {
           </span>
           <span className={`small ${hidden ? 'warn' : 'dim'}`}>{f.on ? (hidden ? `${hidden} offer${hidden === 1 ? '' : 's'} hidden now` : empty ? 'Nothing set: every offer shows' : 'Nothing hidden right now') : 'Every offer shows'}</span>
         </div>
-        <div className="small muted">Hidden offers do not chime or write to you. They sit under one row on the Market tab until they lapse, so you can still open and sign them.</div>
-        <Row label="Do not bring me work from" hint="tap to switch a kind off">
+        <Row label="Do not bring me work from">
           <ChipSet items={FILTER_KINDS.map((k) => ({ id: k, label: KIND_LABEL[k] }))} selected={f.kindsOff} off onToggle={(k: ClientKind) => set({ kindsOff: toggleIn(f.kindsOff, k) })} />
         </Row>
         <Row label="Client stars" hint="only clients with this many stars or more">
@@ -101,10 +106,11 @@ export function FilterView({ g }: { g: GameState }) {
         <Row label="Only these markets" hint={f.markets?.length ? 'a job touching none of them is hidden' : 'none chosen: any'}>
           <ChipSet items={MARKETS.map((m) => ({ id: m.id, label: m.short }))} selected={(f.markets ?? []) as MarketId[]} onToggle={(m: MarketId) => set({ markets: toggleIn(f.markets, m) })} />
         </Row>
-        <div className="row between gap-12 wrap mt-8">
-          <span className="tiny dim">Humanitarian work, tenders you won, leads you worked and your own clients always come through.</span>
-          {g.filter && <button className="btn btn-sm btn-ghost" onClick={() => store.act((gg) => clearOfferFilter(gg), { toastOk: false })}><RotateCcw /> Reset</button>}
-        </div>
+        {g.filter && (
+          <div className="row gap-12 wrap mt-8" style={{ justifyContent: 'flex-end' }}>
+            <button className="btn btn-sm btn-ghost" onClick={() => store.act((gg) => clearOfferFilter(gg), { toastOk: false })}><RotateCcw /> Reset</button>
+          </div>
+        )}
       </Card>
     </div>
   );

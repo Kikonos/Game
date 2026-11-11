@@ -53,7 +53,7 @@ export function DebtPanel({ g, focus }: { g: GameState; focus: boolean }) {
   if (!debt && !com.length) return null;
   const since = g.finance.negSince ?? null;
   const sub = debt
-    ? `cash ${g.company.cash < 0 ? 'below zero' : 'back above zero'}${since !== null ? ` since ${fmtDay(since)}` : ''} · what each way gives, costs and brings, the gentlest first`
+    ? `cash ${g.company.cash < 0 ? 'below zero' : 'back above zero'}${since !== null ? ` since ${fmtDay(since)}` : ''}`
     : 'the commitments the way out left';
   return (
     <div ref={ref} id="debt-panel">

@@ -9,6 +9,8 @@ import type { GameState } from '../../../engine/core/types';
 import type { FareLevel, MarketingLevel, Rotation, Route } from '../../../engine/network/types';
 import { BarChart } from '../../components/charts';
 import { Bar, Modal, Seg, Toggle } from '../../components/ui';
+import { Help } from '../../components/Help';
+import { Term } from '../../components/Term';
 import { int, money, moneyDelta, pct } from '../../format';
 import { store, useGame } from '../../store';
 import { StatusChip, TrendArrow } from './bits';
@@ -150,9 +152,9 @@ function TimetableTab({ g, r }: { g: GameState; r: Route }) {
           // §D.5 the 80 % rule, on the dates gone by so far (a sub-charter counts as flown, a cancellation does not).
           const past = r.rotations.filter((x) => x.dep < g.now && (x.status === 'flown' || x.status === 'cancelled'));
           const flown = past.filter((x) => x.status === 'flown').length;
-          if (!past.length) return <div className="small muted">Slots: held for the season; fly at least 80 % of them to keep them.</div>;
+          if (!past.length) return <div className="small muted"><Term id="slotSeries">Slots</Term>: held for the season</div>;
           const share = flown / past.length;
-          return <div className={`small ${share < 0.8 ? 'warn' : 'muted'}`}>Slots: {flown} of {past.length} flown so far ({Math.round(share * 100)} %){share < 0.8 ? ': at risk (80 % keeps them)' : ''}</div>;
+          return <div className={`small ${share < 0.8 ? 'warn' : 'muted'}`}><Term id="slotSeries">Slots</Term>: {flown} of {past.length} flown so far ({Math.round(share * 100)} %){share < 0.8 ? ': at risk (80 % keeps them)' : ''}</div>;
         })()}
       </div>
       <div className="col gap-6">
@@ -178,7 +180,6 @@ function TimetableTab({ g, r }: { g: GameState; r: Route }) {
             </div>
           );
         })}
-        <span className="tiny dim">You can also hold a route flight on the Schedule and drag it: the whole rotation moves with it.</span>
       </div>
     </div>
   );
@@ -200,8 +201,10 @@ function SalesTab({ g, r }: { g: GameState; r: Route }) {
       {own && (
         <div className="nw-setgrid">
           <div className="nw-set"><div><b className="small"><Ticket className="sc-ico-s" /> Fares</b><div className="tiny muted">Cheaper fills more seats; dearer earns more a seat</div></div><Seg<FareLevel> value={r.fares.level} onChange={(v) => act((gg) => net.setFares(gg, r.id, v), 'Fares set')} options={(['low', 'market', 'high'] as FareLevel[]).map((v) => ({ value: v, label: FARE_WORD[v] }))} /></div>
-          <div className="nw-set"><div><b className="small"><Megaphone className="sc-ico-s" /> Marketing</b><div className="tiny muted">Keeps people aware of the flight ({money([3_000, 8_000, 15_000][['low', 'normal', 'high'].indexOf(r.marketing)])} a month)</div></div><Seg<MarketingLevel> value={r.marketing} onChange={(v) => act((gg) => net.setMarketing(gg, r.id, v), 'Marketing set')} options={(['low', 'normal', 'high'] as MarketingLevel[]).map((v) => ({ value: v, label: MKT_WORD[v] }))} /></div>
-          <div className="nw-set"><div><b className="small">Overbook 3 %</b><div className="tiny muted">Sells a few more seats than the cabin holds, for no-shows; anyone left behind is compensated and rebooked</div></div><Toggle on={!!r.fares.overbook} onChange={(v) => act((gg) => net.setOverbook(gg, r.id, v), v ? 'Overbooking on' : 'Overbooking off')} label="Overbook 3 %" /></div>
+          <div className="nw-set"><div><b className="small"><Megaphone className="sc-ico-s" /> Marketing</b><div className="tiny muted">{money([3_000, 8_000, 15_000][['low', 'normal', 'high'].indexOf(r.marketing)])} a month</div></div><Seg<MarketingLevel> value={r.marketing} onChange={(v) => act((gg) => net.setMarketing(gg, r.id, v), 'Marketing set')} options={(['low', 'normal', 'high'] as MarketingLevel[]).map((v) => ({ value: v, label: MKT_WORD[v] }))} /></div>
+          <div className="nw-set"><div><b className="small row gap-6" style={{ alignItems: 'center' }}>Overbook 3 % <Help title="Overbooking">
+            Sells a few more seats than the cabin holds, for no-shows. Anyone left behind is compensated and rebooked.
+          </Help></b></div><Toggle on={!!r.fares.overbook} onChange={(v) => act((gg) => net.setOverbook(gg, r.id, v), v ? 'Overbooking on' : 'Overbooking off')} label="Overbook 3 %" /></div>
           <div className="nw-set"><div><b className="small">Run a sale</b><div className="tiny muted">{saleOn ? `On until ${fmtDay(r.fares.saleUntil!)}` : block ?? 'Saver fares −25 % for 10 days, $5K of advertising; at most once a month'}</div></div><button className="btn btn-sm" disabled={!!saleOn || !!block} onClick={() => act((gg) => net.runSale(gg, r.id), 'Sale on')}>Start the sale</button></div>
         </div>
       )}
@@ -292,7 +295,7 @@ function CostsTab({ g, r }: { g: GameState; r: Route }) {
           );
         })}
       </div>
-      <div className="nw-set"><div><b className="small">Tanker fuel from Lisbon</b><div className="tiny muted">Carry the return fuel when it is cheaper at home; the extra weight burns some of the saving and takes payload</div></div><Toggle on={!!r.tanker} onChange={act} label="Tanker fuel" /></div>
+      <div className="nw-set"><div><b className="small"><Term id="tankering">Tanker fuel</Term> from Lisbon</b></div><Toggle on={!!r.tanker} onChange={act} label="Tanker fuel" /></div>
     </div>
   );
 }

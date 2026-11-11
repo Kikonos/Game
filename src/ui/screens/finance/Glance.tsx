@@ -16,6 +16,8 @@ import {
 import { glanceFacts } from '../../../engine/finance/glanceFacts';
 import { fitLabels, niceTicks } from '../../components/charts';
 import { Card } from '../../components/ui';
+import { Help } from '../../components/Help';
+import { MONTH_BOOKING_NOTE } from '../../notes';
 import { toCss } from '../../device';
 import { money, moneyDelta } from '../../format';
 import { store, type Tab } from '../../store';
@@ -382,7 +384,7 @@ export default function Glance({ g, forecast }: { g: GameState; forecast: { t: n
 
       <section className="card gl-verdict">
         <div className="gl-v-main">
-          <div className="gl-v-k muted small">{name}</div>
+          <div className="gl-v-k muted small">{name}{isCur && <> <Help title="How a month is booked">{MONTH_BOOKING_NOTE.map((t) => <p key={t}>{t}</p>)}</Help></>}</div>
           <div className={`gl-v-big ${tone}`}>{v.profit >= 0 ? 'You made ' : 'You lost '}<span className="num">{v.profit >= 0 ? moneyDelta(v.profit) : money(v.profit)}</span></div>
           <div className="gl-v-sub">
             Earned <b className="num">{money(v.revenue)}</b>, spent <b className="num">{money(v.costs)}</b>.
@@ -390,7 +392,6 @@ export default function Glance({ g, forecast }: { g: GameState; forecast: { t: n
               <> Without the one-offs ({LEDGER_LABEL[v.biggestOneOff.cat]?.toLowerCase() ?? 'one-offs'}{v.oneOffs > v.biggestOneOff.amount + 1 ? ' and others' : ''}, {money(v.oneOffs)}): <b className={`num ${v.underlying >= 0 ? 'good' : 'bad'}`}>{moneyDelta(v.underlying)}</b>.</>
             )}
           </div>
-          {isCur && <div className="tiny dim gl-v-note">Wet leases and salaries are booked at the month end, so a month looks odd until it closes.</div>}
         </div>
         <div className="gl-v-cash">
           <div className="gl-v-k muted small">Cash today</div>
@@ -423,7 +424,7 @@ export default function Glance({ g, forecast }: { g: GameState; forecast: { t: n
       {pick && <Detail key={pickKey(pick)} pick={pick} groups={view.groups} prev={view.prev} bh={view.st.bh} onClose={() => setPick(null)} />}
 
       <div className="gl-two">
-        <Card title="Each block hour" sub="what an hour of flying earns and costs">
+        <Card title="Each block hour">
           {view.hours ? <HourBars g={view.hours} pick={pick} onPick={setPick} /> : <div className="small muted">Too few block hours this month to say.</div>}
         </Card>
         <Card title="Tips" sub="from your numbers">
