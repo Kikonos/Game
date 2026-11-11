@@ -68,6 +68,12 @@
   .v8-head-strip .v8-tiles { width: 100%; }
   .v8-head-strip .v8-tile { overflow: hidden; }
   .v8-head-strip .v8-tile > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  /* Network: a market with a study still good keeps its name; 'Valid until' and 'Show study' wrap under it. */
+  .nw-market { flex-wrap: wrap; row-gap: 4px; }
+  .nw-market > .nw-market-text { flex: 1 1 60%; min-width: 150px; }
+  /* Aircraft market: the empty list's buttons and a deal's findings badge wrap. */
+  .mk17-empty, .mk17-empty > .row { flex-wrap: wrap; }
+  .mk17-deal .row.between { flex-wrap: wrap; }
 }
 /* Crew › Planning: 'Have' and its '?' stay together. */
 .cp-table th:nth-child(2) { white-space: nowrap; }
