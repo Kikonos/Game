@@ -65,7 +65,7 @@ export function RivalDetail({ v, inModal }: { v: RivalView; inModal?: boolean })
       {v.level && <div className="row gap-8 small"><span className="muted">As a client of ours:</span><LevelPill level={v.level} text={LEVEL_NAME[v.level]} /></div>}
       <div className="col gap-4">
         <div className="upper dim">Recent</div>
-        {!v.log.length && <div className="small dim">Nothing yet: fleet changes, jobs they take and hires show here.</div>}
+        {!v.log.length && <div className="small dim">Nothing yet.</div>}
         {v.log.map((l, i) => (
           <div key={i} className="v8-log v8-log2 small"><span className="dim nowrap">{fmtDay(l.t)}</span><span className="muted">{l.text}</span></div>
         ))}

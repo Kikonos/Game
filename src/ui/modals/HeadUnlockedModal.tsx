@@ -9,10 +9,13 @@ import type { HeadId } from '../../engine/core/types';
 import { headView, hireHead } from '../../engine/ops';
 import { NamedIcon } from '../components/NamedIcon';
 import { Modal } from '../components/ui';
+import { Help } from '../components/Help';
 import { money } from '../format';
 import { store, useGame } from '../store';
 
 const TIER = ['Junior', 'Experienced', 'Senior'];
+/** v0.22 one text for a head's skill (this card and Company › Team), behind the '?' by the word. */
+export const SKILL_NOTE = 'Higher skill means fewer mistakes. It grows a little every three months.';
 
 export function HeadUnlockedModal({ id, ids }: { id: HeadId; ids?: HeadId[] }) {
   const g = useGame();
@@ -66,7 +69,7 @@ export function HeadUnlockedModal({ id, ids }: { id: HeadId; ids?: HeadId[] }) {
               <b>{c.name}</b>
               <span className="small muted">{c.years} years</span>
               <div className="col gap-4">
-                <div className="row between tiny"><span className="dim">Skill</span><span className="num">{Math.round(c.skill * 100)}</span></div>
+                <div className="row between tiny"><span className="dim">Skill{i === 0 && <> <Help title="Skill">{SKILL_NOTE} You can switch a head off or let them go at any time.</Help></>}</span><span className="num">{Math.round(c.skill * 100)}</span></div>
                 <div className="bar thin good"><span style={{ width: `${Math.round(c.skill * 100)}%` }} /></div>
               </div>
               <span className="small"><b className="num">{money(c.salary)}</b><span className="muted"> a month</span></span>
@@ -76,7 +79,6 @@ export function HeadUnlockedModal({ id, ids }: { id: HeadId; ids?: HeadId[] }) {
           ))}
         </div>
       )}
-      <div className="tiny dim">Higher skill means fewer mistakes. You can switch them off or let them go at any time.</div>
     </Modal>
   );
 }

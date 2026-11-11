@@ -21,6 +21,7 @@ import { ProblemCardView } from '../components/ProblemCard';
 import { restSeatWord } from '../components/RestLines';
 import { RestTimeline } from '../components/RestTimeline';
 import { Term } from '../components/Term';
+import { Help } from '../components/Help';
 import { Modal, Stepper } from '../components/ui';
 import { money, plural } from '../format';
 import { Dot, KV } from '../screens/common';
@@ -176,7 +177,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   if (f.pax) rows.push(['Passengers', offload ? <span className="warn">{f.pax} booked · {(f.pax ?? 0) - offload} fly ({offload} offloaded at departure)</span> : String(f.pax)]);
   if (blocked && ac) rows.push(['Seats', <span className="warn">{ac.cabin.total} · {ac.cabin.total - blocked} sellable ({blocked} {restSeatWord(restOf(g, ac.id)) ?? 'seats'} blocked for crew rest)</span>]);
   if (type === 'ferry') rows.push(['Crew aboard', 'Pilots only · cabin crew travel separately']);
-  else if (type === 'positioning') rows.push(['Crew aboard', 'Pilots fly it · cabin crew ride along to their next job (no passengers, no cabin seats needed)']);
+  else if (type === 'positioning') rows.push(['Crew aboard', 'Pilots fly it · cabin crew ride along']);
   // v0.12.1 our crew riding a passenger flight: how many and the seats still free.
   const riding = ridersText(g, f);
   if (riding) rows.push(['Our crew riding', riding]);
@@ -247,7 +248,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
             view ? (
               <button className="btn" onClick={() => store.openModal({ kind: 'duty', id: f.id })}><Users /> Adjust crew</button>
             ) : (
-              <div className="small muted">No crew rostered yet: duties are planned up to 14 days ahead.</div>
+              <div className="small muted"><Term id="publishedRoster" extra="Duties are planned up to 14 days ahead.">No crew rostered yet</Term></div>
             )
           )}
         </div>
@@ -304,7 +305,7 @@ function PaintDetail({ g, m }: { g: GameState; m: MaintenanceEvent }) {
           <span className="sc-kdot" /><FileSignature /> <span className="ellipsis">{c.title}</span>
         </button>
       )}
-      <div className="small muted">Paint is part of the contract: it moves only if the contract is cancelled.</div>
+      <div className="small muted">Fixed by the contract</div>
     </div>
   );
 }
@@ -327,7 +328,6 @@ function MaintDetail({ g, m }: { g: GameState; m: MaintenanceEvent }) {
         ...(m.refit ? [['New cabin', m.refit.cabin.label] as [string, string]] : []),
         ...(m.leaseReturn ? [['Lease return', 'the aircraft leaves the fleet at the end'] as [string, string]] : []),
       ]} />
-      {(refit || canEdit) && <div className="small muted">Tip: on the Schedule, hold this block and slide it along the row to move it.</div>}
       {refit && <button className="btn btn-danger" onClick={() => { const r = store.act((gg) => cancelCheck(gg, m.id)); if (r.ok) store.closeModal(); }}><Trash2 /> Cancel refit</button>}
       {canEdit && (
         <div className="row gap-8">
@@ -421,7 +421,7 @@ export function BlockSheet({ refs, idle }: { refs: Ref[]; idle?: { aircraftId: s
   const lease = refs.find((r) => r.kind === 'contract' && g.contracts[r.id]?.dry);
   if (lease) {
     return (
-      <Modal title={`Dry lease · ${g.clients[g.contracts[lease.id].clientId]?.name ?? 'lessee'}`} icon={<CalendarClock className="accent" />} onClose={() => store.closeModal()}>
+      <Modal className="bs-sheet" title={`Dry lease · ${g.clients[g.contracts[lease.id].clientId]?.name ?? 'lessee'}`} icon={<CalendarClock className="accent" />} onClose={() => store.closeModal()}>
         <DryLeaseDetail g={g} contractId={lease.id} />
       </Modal>
     );
@@ -436,10 +436,10 @@ function SheetBody({ g, refs, idle }: { g: GameState; refs: Ref[]; idle?: { airc
   if (idle && !live.length) {
     const ac = g.fleet[idle.aircraftId];
     return (
-      <Modal title={`Idle ${durLabel(idle.to - idle.from)}`} icon={<Search className="accent" />} onClose={close} footer={
+      <Modal title={<>Idle {durLabel(idle.to - idle.from)} <Help title="Idle aircraft">Idle aircraft cost rent and insurance every day. Brokers send gap-fit offers for windows like this.</Help></>} icon={<Search className="accent" />} onClose={close} footer={
         <button className="btn btn-primary" onClick={() => store.navigate('contracts', { view: 'market' })}><Search /> Find work</button>
       }>
-        <p className="muted">{ac?.reg} is free at {idle.at || ac?.at} from {fmtDateTime(idle.from)} to {fmtDateTime(idle.to)} UTC. Idle aircraft cost rent and insurance every day; brokers send gap-fit offers for windows like this.</p>
+        <p className="muted">{ac?.reg} is free at {idle.at || ac?.at} from {fmtDateTime(idle.from)} to {fmtDateTime(idle.to)} UTC.</p>
         {ac && <GapActions g={g} idle={idle} />}
       </Modal>
     );
@@ -450,14 +450,14 @@ function SheetBody({ g, refs, idle }: { g: GameState; refs: Ref[]; idle?: { airc
     const f = cur.kind === 'flight' ? g.flights[cur.id] : undefined;
     const m = cur.kind === 'maint' ? g.maintenance[cur.id] : undefined;
     return (
-      <Modal title={titleOf(g, cur)} icon={m ? (m.kind === 'paint' ? <Palette className="accent" /> : <Wrench className="accent" />) : undefined} onClose={close} footer={live.length > 1 ? <button className="btn btn-ghost" onClick={() => setOpen(null)}><ChevronLeft /> All {live.length}</button> : undefined}>
+      <Modal className="bs-sheet" title={titleOf(g, cur)} icon={m ? (m.kind === 'paint' ? <Palette className="accent" /> : <Wrench className="accent" />) : undefined} onClose={close} footer={live.length > 1 ? <button className="btn btn-ghost" onClick={() => setOpen(null)}><ChevronLeft /> All {live.length}</button> : undefined}>
         {f && <FlightDetail g={g} f={f} />}
         {m && <MaintDetail g={g} m={m} />}
       </Modal>
     );
   }
   return (
-    <Modal title={plural(live.length, 'item')} onClose={close}>
+    <Modal className="bs-sheet" title={plural(live.length, 'item')} onClose={close}>
       <div className="col gap-8">
         {live.map((r) => {
           const f = r.kind === 'flight' ? g.flights[r.id] : undefined;

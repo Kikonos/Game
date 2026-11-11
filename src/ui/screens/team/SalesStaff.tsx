@@ -8,6 +8,7 @@ import { fireSalesRep, hireSalesRep, repCandidates, repRehireDays, salesRepsView
 import { BAL } from '../../../engine/core/balance';
 import type { GameState } from '../../../engine/core/types';
 import { Bar } from '../../components/ui';
+import { Help } from '../../components/Help';
 import { money } from '../../format';
 import { store } from '../../store';
 
@@ -51,7 +52,7 @@ function Hire({ g, taken }: { g: GameState; taken: Set<string> }) {
             </select>
             <button className="btn btn-ghost" onClick={() => setOpen(false)}>Close</button>
           </div>
-          <div className="tiny dim">One manager per market, up to {R.max}. About {R.leadsPerMonth} leads a month × skill in their market, +{R.pitches} pitches a season, {BAL.v016.sales.lead.workedPerRep} more proposals in work. Joins in {R.joinDays} days.</div>
+          <div className="tiny dim">Joins in {R.joinDays} days</div>
           {wait > 0 ? <div className="small muted">New candidates in {wait} day{wait === 1 ? '' : 's'}.</div> : cands.map((c, i) => (
             <div key={`${c.name}-${i}`} className="v8-box v9-cand-row">
               <div className="row gap-12">
@@ -76,9 +77,12 @@ export function SalesStaff({ g }: { g: GameState }) {
   const taken = new Set(reps.map((r) => r.market));
   return (
     <div className="v16s-team">
-      <div className="v16s-team-head small muted row gap-6" style={{ alignItems: 'center' }}><Users className="sc-ico-s" /> Sales managers · {reps.length} of {R.max}</div>
+      <div className="v16s-team-head small muted row gap-6" style={{ alignItems: 'center' }}><Users className="sc-ico-s" /> Sales managers · {reps.length} of {R.max} <Help title="Sales managers">
+        <p>A regional sales manager finds leads in one market and adds a pair of hands to the desk. One manager per market.</p>
+        <p>Each brings about {R.leadsPerMonth} leads a month × skill in their market, +{R.pitches} pitches a season and {BAL.v016.sales.lead.workedPerRep} more proposals in work.</p>
+      </Help></div>
       {reps.map((r) => <RepRow key={r.id} r={r} on={r.id === sel} />)}
-      {!reps.length && <div className="small dim" style={{ padding: '0 12px 6px' }}>Nobody yet. A regional sales manager finds leads in one market and adds a pair of hands to the desk.</div>}
+      {!reps.length && <div className="small dim" style={{ padding: '0 12px 6px' }}>Nobody yet.</div>}
       {reps.length < R.max && <Hire g={g} taken={taken} />}
     </div>
   );

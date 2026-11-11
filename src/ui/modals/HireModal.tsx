@@ -9,6 +9,7 @@ import { DAY, fmtDate, fmtDay } from '../../engine/core/time';
 import type { GameState, Role } from '../../engine/core/types';
 import { hireCrew, hireQuote, type HireRequest, payFor, staffing } from '../../engine/crew';
 import { Modal, Seg, Stepper } from '../components/ui';
+import { Help } from '../components/Help';
 import { money } from '../format';
 import { KV } from '../screens/common';
 import { isPilotRole, ROLE_LABEL, ROLES } from '../screens/screenLogic';
@@ -36,6 +37,9 @@ export const FAMILY_TICK: Record<RatingFamily, string> = {
 /** Short names for a quote line: 'A320 + A330'. */
 const famShort = (f: RatingFamily) => FAMILY_TICK[f].replace(' family', '').replace('/A340', '');
 const MAX_TYPES = 3;
+/** v0.22 the '?' notes of the hire and round-up dialogs: one text each (they used to be lines at the foot of both). */
+export const JOIN_NOTE = 'Cabin crew join in about a week. Pilots take 5–9 weeks: notice periods, checks and line training.';
+export const EXTRA_TYPE_NOTE = 'Cabin crew can hold up to 3 types. Each extra type adds half the hiring cost and about 3 days of training.';
 
 export function HireModal({ role: role0, family: fam0, base: base0, count: count0 }: { role?: Role; family?: RatingFamily; base?: string; count?: number }) {
   const g = useGame();
@@ -97,7 +101,7 @@ export function HireModal({ role: role0, family: fam0, base: base0, count: count
         ) : (
           <>
             <div className="field">
-              <label>Aircraft types <span className="dim">({ticked.length} of {MAX_TYPES})</span></label>
+              <label>Aircraft types <span className="dim">({ticked.length} of {MAX_TYPES})</span> <Help title="Aircraft types">{EXTRA_TYPE_NOTE}</Help></label>
               <div className="hm-ticks" role="group" aria-label="Aircraft types">
                 {fams.map((f) => {
                   const on = ticked.includes(f);
@@ -109,7 +113,7 @@ export function HireModal({ role: role0, family: fam0, base: base0, count: count
                   );
                 })}
               </div>
-              <div className="tiny dim">{ticked.length >= MAX_TYPES ? 'Up to 3 types: untick one to pick another.' : 'Each extra type adds half the hiring cost and about 3 days of training.'}</div>
+              {ticked.length >= MAX_TYPES && <div className="tiny dim">Up to 3 types: untick one to pick another.</div>}
             </div>
           </>
         )}
@@ -130,17 +134,16 @@ export function HireModal({ role: role0, family: fam0, base: base0, count: count
         {pilot ? (
           <KV rows={[
             ['Hiring cost', money(q.cost)],
-            ['Ready to fly', `${fmtDate(q.readyAt)} (about ${days} day${days === 1 ? '' : 's'})`],
+            [<>Ready to fly <Help title="When they join">{JOIN_NOTE} They join at {base}.</Help></>, `${fmtDate(q.readyAt)} (about ${days} day${days === 1 ? '' : 's'})`],
             ['Salary', `${money(salary)} / month each`],
           ]} />
         ) : (
           <div className="hm-quote">
-            <b>{who} · {ticked.map(famShort).join(' + ')} · {money(q.cost)} · join {fmtDay(q.readyAt)} (about {days} day{days === 1 ? '' : 's'})</b>
+            <b>{who} · {ticked.map(famShort).join(' + ')} · {money(q.cost)} · join {fmtDay(q.readyAt)} (about {days} day{days === 1 ? '' : 's'}) <Help title="When they join">{JOIN_NOTE} They join at {base}.</Help></b>
             <div className="small muted">Salary {money(salary)} / month each</div>
           </div>
         )}
         {q.beyondPool > 0 && <div className="small warn">The market has few rated {req.family} {role} free: {q.beyondPool} of these come through an agency (+{money(q.fee)} fee) and take longer to join.</div>}
-        <div className="small dim">Cabin crew join in about a week; pilots take 5–9 weeks (notice periods, checks and line training). They join at {base}.</div>
       </div>
     </Modal>
   );

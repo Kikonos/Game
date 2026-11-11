@@ -154,7 +154,7 @@ export function LadderCard({ g }: { g: GameState }) {
   }, [sig]);
   const held = nodes.filter((n) => n.state === 'held').length;
   return (
-    <Card className="ld-card" title="The Ladder" icon={<TrendingUp className="ico" />} sub={`${held} of ${nodes.length} approvals held · each opens bigger aircraft and work`}>
+    <Card className="ld-card" title="The Ladder" icon={<TrendingUp className="ico" />} sub={`${held} of ${nodes.length} approvals held`}>
       {/* v0.15 a scenario that needs no new approvals: the Ladder shows where the airline stands, closed for filing. */}
       <LockNote why={lockOf(g, 'approvals')} className="mb-8" />
       <div className="ld-grid" ref={box}>

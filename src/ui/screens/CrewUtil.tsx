@@ -12,6 +12,7 @@ import {
 } from '../../engine/crew';
 import { Seg, Stepper } from '../components/ui';
 import { RankMark } from '../components/RankMark';
+import { Help } from '../components/Help';
 import { store } from '../store';
 import { lockOf } from '../../engine/scenario';
 
@@ -151,7 +152,7 @@ function MeasuresCard({ g }: { g: GameState }) {
           )}
         </>
       ) : (
-        <p className="small muted">Nothing in place. Unpaid leave, furlough or redundancy shows here with what it saves.</p>
+        <p className="small muted">Nothing in place.</p>
       )}
     </section>
   );
@@ -177,13 +178,21 @@ export function UtilisationView({ g }: { g: GameState }) {
         <div className="card cu-tile"><span className="tiny upper dim">Per aircraft</span><b className="num">{u.perAircraft.pilots.toFixed(1)} <span className="cu-unit">pilots</span></b><span className="tiny muted">{u.perAircraft.cabin.toFixed(1)} cabin crew · {u.aircraft} aircraft</span></div>
         <div className="card cu-tile"><span className="tiny upper dim">Surplus</span><b className={`num ${u.surplusCost ? 'warn' : 'good'}`}>{u.surplusCost ? k(u.surplusCost) : 'None'}</b><span className="tiny muted">{u.surplusCost ? `a month · ${u.surplus.reduce((s, x) => s + x.n, 0)} people` : 'crew match the sets needed'}</span></div>
       </section>
-      <p className="small muted cu-typical"><Gauge className="sc-ico-s" aria-hidden /> ACMI crew typically fly {UTIL_TYPICAL.monthLo}–{UTIL_TYPICAL.monthHi} h a month in season ({UTIL_TYPICAL.yearLo}–{UTIL_TYPICAL.yearHi} a year; the law allows 100 h in 28 days), with about 10–12 pilots per narrowbody. Fewer hours in winter are normal; idle all year is not. The crew desk holds hiring for a rank while it flies under {UTIL_TYPICAL.hold28} h in 28 days.</p>
+      <p className="small muted cu-typical"><Gauge className="sc-ico-s" aria-hidden /> ACMI crew typically fly {UTIL_TYPICAL.monthLo}–{UTIL_TYPICAL.monthHi} h a month in season <Help title="How much crew fly">
+        <p>{UTIL_TYPICAL.yearLo}–{UTIL_TYPICAL.yearHi} h a year is typical; the law allows 100 h in 28 days. A narrowbody takes about 10–12 pilots.</p>
+        <p>Fewer hours in winter are normal; idle all year is not.</p>
+        <p>The crew desk holds hiring for a rank while it flies under {UTIL_TYPICAL.hold28} h in 28 days.</p>
+      </Help></p>
       <div className="cu-cols">
         <MeasuresCard g={g} />
         <section className="card cu-card cu-surplus">
-          <div className="lv-head"><h3>More crew than the flying needs</h3></div>
-          {u.surplus.length ? u.surplus.map((s) => <SurplusRow key={`${s.family}:${s.role}`} g={g} s={s} />) : <p className="small muted">None: every family has the crew its sets need and no more.</p>}
-          <p className="tiny dim">Counted against the crew sets the flying needs (Planning), and only those with nothing on the roster for four weeks. Nobody leaves without your say: unpaid leave is asked for, furlough is the company-wide cut (Finance), redundancy comes with notice and severance.</p>
+          <div className="lv-head"><h3>More crew than the flying needs</h3>
+            <Help title="How the surplus is counted">
+              <p>Counted against the crew sets the flying needs (Planning), and only those with nothing on the roster for four weeks.</p>
+              <p>Nobody leaves without your say: unpaid leave is asked for, furlough is the company-wide cut (Finance), redundancy comes with notice and severance.</p>
+            </Help>
+          </div>
+          {u.surplus.length ? u.surplus.map((s) => <SurplusRow key={`${s.family}:${s.role}`} g={g} s={s} />) : <p className="small muted">None.</p>}
         </section>
         <section className="card cu-card cu-idle">
           <div className="lv-head"><h3>Idle crew</h3><span className="sub small muted">under {UTIL_TYPICAL.idle28} h in 28 days</span></div>
