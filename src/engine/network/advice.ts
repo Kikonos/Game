@@ -93,6 +93,8 @@ export interface StopCompare {
   typeId: string;
   /** Nonstop when the type reaches, else the fuel stop; then the stopover without B–C rights. */
   plain: StopOption;
+  /** v0.22 the fuel stop at `at` when the type also reaches nonstop (a stop it does not need), else null: `plain` is it. */
+  fuel: StopOption | null;
   stopover: StopOption;
   /** The stopover with full B–C rights (null when they are impossible). */
   withRights: StopOption | null;
@@ -141,6 +143,7 @@ export function stopoverCompare(g: GameState, from: string, to: string, at: stri
   const start = on ? firstFlightOf(g, on.r, plan) : g.now + 120 * DAY;
   const x = on?.x ?? 1;
   const plain = optionOf(g, pm, reach ? 'nonstop' : 'fuel', plan, start, x, on?.r);
+  const fuelOpt = reach ? optionOf(g, fuel, 'fuel', plan, start, x, on?.r) : null;
   const stopover = optionOf(g, sm, 'stopover', plan, start, x, on?.r, 'none');
   const odds = sm.stopover.fifth;
   const can = odds.full + odds.limited > 0;
@@ -161,7 +164,7 @@ export function stopoverCompare(g: GameState, from: string, to: string, at: stri
   cons.push(`A full turn at ${B}: landing, handling, catering and a station there.`);
   if (!can) cons.push(odds.why);
   else if (odds.full < 0.5) cons.push(`${B}–${C} seats need fifth-freedom rights: often refused or capped.`);
-  return { at, typeId, plain, stopover, withRights, odds, pros: pros.slice(0, 3), cons: cons.slice(0, 4) };
+  return { at, typeId, plain, fuel: fuelOpt, stopover, withRights, odds, pros: pros.slice(0, 3), cons: cons.slice(0, 4) };
 }
 
 // ---------- the analyst and the planner on a business case ----------
@@ -283,6 +286,9 @@ export function caseAdvice(g: GameState, routeId: string, draft: RoutePlan): Cas
         const gain = Math.round(c.plain.result - (r.fifth !== undefined ? cur.result : expect));
         if (!c.plain.cant && gain > floor) list.push({ key: 'stop', who, title: c.plain.mode === 'nonstop' ? 'Fly it nonstop' : `Only refuel at ${city(at)}`, why: `About ${k$(gain)} more a year: the ${city(at)} seats do not pay for the turn there.`, gain, stop: { mode: c.plain.mode, at } });
       } else {
+        // v0.22 a fuel stop the aircraft does not need: flying it nonstop saves the landing.
+        const direct = c.fuel && !c.plain.cant ? Math.round(c.plain.result - cur.result) : 0;
+        if (direct > floor) list.push({ key: 'stop', who, title: 'Fly it nonstop', why: `About ${k$(direct)} more a year: the ${typeOf(draft.typeId)?.short ?? 'aircraft'} reaches ${m.city} without landing at ${city(at)}.`, gain: direct, stop: { mode: 'nonstop' } });
         const sure = Math.round(c.stopover.result - cur.result);
         const hope = Math.round(expect - cur.result);
         if (!c.stopover.cant && sure > floor) list.push({ key: 'stop', who, title: `Sell seats at ${city(at)} (a stopover)`, why: `About ${k$(sure)} more a year even without ${city(at)}–${m.city} rights${c.withRights ? `; ${k$(c.withRights.result - cur.result)} with them (${Math.round(pAny * 100)} % chance)` : ''}.`, gain: sure, stop: { mode: 'stopover', at } });

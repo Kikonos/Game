@@ -384,3 +384,12 @@ export function rightsWord(hard: number): string {
   if (hard <= 0.5) return 'Hard: a permit, four to six months, may be refused';
   return 'Very hard: few permits for a newcomer';
 }
+
+/**
+ * v0.22 which column of the stop comparison the route really flies: the stopover; else, when the aircraft also reaches
+ * nonstop, the fuel stop it lands at anyway ('fuel': "Nonstop" is another choice, not the one made); else the plain
+ * way (the fuel stop it needs). Pure.
+ */
+export function stopChosen(cmp: { fuel: unknown | null }, stopover: boolean): 'stopover' | 'plain' | 'fuel' {
+  return stopover ? 'stopover' : cmp.fuel ? 'fuel' : 'plain';
+}
