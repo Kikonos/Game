@@ -123,7 +123,7 @@ export const NET_ENGINE_BAL = {
      * business-case projection with a 767-300ER: OXB own brand ~5 % after aircraft and crew time, DIL open sale ~0 %,
      * RAI a hard market (TAP daily), LAD high fares but kwanza risk, the Brazil routes full.
      */
-    marketX: { 'LIS-OXB': 1.01, 'LIS-DIL': 1.75, 'LIS-RAI': 1.05, 'LIS-BVC': 1.2, 'LIS-LAD': 0.7, 'LIS-MPM': 1.15, 'LIS-REC': 0.92, 'LIS-FOR': 0.93, 'OPO-RAI': 1.12, 'OPO-OXB': 1.01 } as Record<string, number>,
+    marketX: { 'LIS-OXB': 1.05, 'LIS-DIL': 1.75, 'LIS-RAI': 1.05, 'LIS-BVC': 1.2, 'LIS-LAD': 0.78, 'LIS-MPM': 1.15, 'LIS-REC': 1.0, 'LIS-FOR': 1.0, 'OPO-RAI': 1.12, 'OPO-OXB': 1.05 } as Record<string, number>,
     /** The business case's average economy bucket (the mix of Saver, Classic and Flex sold). */
     caseBucket: 0.8,
     level: { low: -0.12, market: 0, high: 0.12 } as Record<string, number>,
@@ -196,5 +196,10 @@ export const NET_ENGINE_BAL = {
     utilBH: 250,
     /** Block hours a month a crew member is paid for (salaries per BH). */
     crewBH: 75,
+    /**
+     * v0.21 the business case's allowance for the bad days a year brings (share of ticket, cargo and extras revenue):
+     * late flights and EU261, a sub-charter when the aircraft is away, a rival's fare cut after the launch [E 2–3 %].
+     */
+    caseDisruption: 0.025,
   },
 };

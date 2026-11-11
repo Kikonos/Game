@@ -21,6 +21,7 @@ export function fallRows(p: MoneyParts, partner: boolean): FallRow[] {
     ['airport', 'Airports', p.airport, 'Landing and passenger charges, ground handling and air navigation.'],
     ['service', 'On board', p.service, 'Meals and drinks, the booking system, passenger insurance and the lounge.'],
     ['sales', 'Selling', p.sales, 'Travel agents’ commission, booking-system fees and card fees.'],
+    ['disruption', 'Bad days', p.disruption, 'An allowance for what a year brings: late flights and passenger compensation, a sub-charter when the aircraft is away, a rival cutting fares after our launch.'],
     ['maint', 'Maintenance', p.maint, 'Maintenance for the hours flown, and the reserves a lessor asks.'],
     ['overheads', 'Station', p.overheads, 'The station at the far end (a manager, a sales desk), the booking set-up and the monthly marketing.'],
     ['aircraft', 'Aircraft', p.aircraft, 'The aircraft’s lease and insurance for the hours this route takes.'],

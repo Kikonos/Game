@@ -225,6 +225,8 @@ export interface MoneyParts {
   service: number;
   /** Ticket selling: agents' commission, booking systems, card fees. */
   sales: number;
+  /** An allowance for the year's bad days: delays and passenger compensation, a sub-charter, a rival's fare cut. */
+  disruption: number;
   maint: number;
   /** The month's fixed costs: the station, marketing, the sales office. */
   overheads: number;
@@ -257,7 +259,7 @@ export interface Projection {
   split?: { thr: number; ab: number; bc: number; seats: number };
 }
 
-export const NO_PARTS: MoneyParts = { tickets: 0, cargo: 0, extras: 0, fee: 0, passed: 0, fuel: 0, airport: 0, service: 0, sales: 0, maint: 0, overheads: 0, aircraft: 0, crew: 0 };
+export const NO_PARTS: MoneyParts = { tickets: 0, cargo: 0, extras: 0, fee: 0, passed: 0, fuel: 0, airport: 0, service: 0, sales: 0, disruption: 0, maint: 0, overheads: 0, aircraft: 0, crew: 0 };
 
 /** The plan's series (dates from `from`). */
 export function planSeries(p: RoutePlan, from: Minute, id = ''): import('./types').RouteSeries {
@@ -376,6 +378,10 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
       const cargo = cargoKg * (dir === 'out' ? 2.1 : 1.6) * (r.model === 'partner' ? BAL.v019.fares.partner.cargoShare : 1);
       const anc = r.model === 'partner' ? 0 : boarded * m.ancillary;
       rev += (tickets + fee + cargo + anc) * deps;
+      // v0.21 the bad days of a year (we carry them on our own tickets; a partner carries its own).
+      const bad = r.model === 'partner' ? 0 : (tickets + cargo + anc) * BAL.v019.pnl.caseDisruption;
+      cost += bad * deps;
+      parts.disruption += bad * deps;
       parts.tickets += tickets * deps;
       parts.fee += fee * deps;
       parts.passed += pass * deps;
