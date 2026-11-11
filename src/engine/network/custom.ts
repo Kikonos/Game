@@ -38,12 +38,16 @@ export interface MarketDraft {
   /** Fuel stops out (in order) and back (in order; absent = the out stops reversed). */
   via?: string[];
   viaBack?: string[];
+  /** v0.21 a stopover both ways where we sell seats (id 'X:LIS-LAX@JFK'); no fuel stops beside it. */
+  stop?: string;
 }
 
 export const isCustomId = (id: string): boolean => id.startsWith(CUSTOM_PREFIX);
 
 /** The draft of a custom id (null when it is not one). Pure. */
 export function parseCustomId(id: string): MarketDraft | null {
+  const st = /^X:([A-Z0-9]{3})-([A-Z0-9]{3})@([A-Z0-9]{3})$/.exec(id);
+  if (st) return { from: st[1], to: st[2], via: [st[3]], viaBack: [st[3]], stop: st[3] };
   const x = /^X:([A-Z0-9]{3})-([A-Z0-9]{3})(?:~([A-Z0-9.]+))?(?:\/([A-Z0-9.]*))?$/.exec(id);
   if (!x) return null;
   const via = x[3] ? x[3].split('.') : [];
@@ -52,6 +56,7 @@ export function parseCustomId(id: string): MarketDraft | null {
 
 /** The id of a draft. Pure. */
 export function customId(d: MarketDraft): string {
+  if (d.stop) return `${CUSTOM_PREFIX}${d.from}-${d.to}@${d.stop}`;
   const via = d.via ?? [];
   const back = d.viaBack ?? [...via].reverse();
   const same = back.join('.') === [...via].reverse().join('.');
@@ -271,6 +276,14 @@ export function customMarket(d: MarketDraft): RouteMarket | null {
   const id = customId(d);
   const hit = marketCache.get(id);
   if (hit) return hit;
+  if (d.stop) {
+    const sm = stopoverMarket(d.from, d.to, d.stop);
+    if (sm) {
+      if (marketCache.size > 400) marketCache.clear();
+      marketCache.set(id, sm);
+    }
+    return sm;
+  }
   const f = customFacts(d.from, d.to);
   if (!f) return null;
   const A = AIRPORT_BY_CODE[d.from];
@@ -359,6 +372,78 @@ function blurbOf(f: CustomFacts, nonstop: RouteCompetitor[], all: RouteCompetito
   return `${kind}; ${rival}.${thin}`;
 }
 
+// ---------- v0.21 stopover (tag) routes ----------
+
+/** A leg's market for a stopover: the catalogue's when researched (its fare multiple kept), else the model's. */
+function legMarket(from: string, to: string): RouteMarket | null {
+  const cat = catalogueOf(from, to);
+  if (cat) return cat;
+  return customMarket({ from, to });
+}
+
+/**
+ * v0.21 how likely B–C local sales are on a stopover A–B–C (fifth freedom: a third country's traffic on our flight).
+ * Inside the EU's single market: free. B and C in the same country: domestic flying (cabotage), never. B in our own
+ * country: our own rights (third and fourth freedom), as a route of its own. Else both states must agree: often
+ * refused or capped, harder where the rights regime is hard. Pure.
+ */
+export function fifthOdds(from: string, stop: string, to: string): { full: number; limited: number; why: string } {
+  const A = AIRPORT_BY_CODE[from];
+  const B = AIRPORT_BY_CODE[stop];
+  const C = AIRPORT_BY_CODE[to];
+  if (!A || !B || !C) return { full: 0, limited: 0, why: 'Unknown airport.' };
+  const S = BAL.v019.stop;
+  const eu = (c: string) => EU_OPEN.has(c);
+  if (eu(A.country) && eu(B.country) && eu(C.country)) return { full: 1, limited: 0, why: `Inside the EU: we may sell ${B.city}–${C.city} seats freely.` };
+  if (B.country === C.country) return { full: 0, limited: 0, why: `${B.city}–${C.city} is domestic flying inside ${countryName(B.country)} (cabotage): a foreign airline may not sell it. ${B.city} is a stop for our own ${A.city} passengers only.` };
+  if (B.country === A.country) return { full: 0.9, limited: 0.05, why: `${B.city} is in our own country: ${B.city}–${C.city} needs only the usual rights, as a route of its own.` };
+  const hard = Math.max(rightsHardness(B, C), HARD_RIGHTS[B.country] ?? 0, HARD_RIGHTS[C.country] ?? 0);
+  const full = Math.max(S.fifthMin, Math.min(S.fifthBase, S.fifthBase - S.fifthHardX * hard + (eu(B.country) ? 0.1 : 0)));
+  const limited = Math.min(1 - full, S.fifthLimited);
+  return {
+    full: Math.round(full * 100) / 100, limited: Math.round(limited * 100) / 100,
+    why: `Selling ${B.city}–${C.city} seats is fifth-freedom traffic: ${countryName(B.country)} and ${countryName(C.country)} must both agree. Often refused or capped${hard >= 0.3 ? ', and these are hard countries for rights' : ''}.`,
+  };
+}
+
+/**
+ * v0.21 the market of a stopover route A–B–C: the A–C through travellers (the catalogue's researched market when
+ * there is one, its fares at their realised level) with the stop at B both ways, the two legs' local markets and the
+ * odds of B–C rights. Own brand only. Null when a piece has no market. Pure.
+ */
+function stopoverMarket(from: string, to: string, stop: string): RouteMarket | null {
+  const B = AIRPORT_BY_CODE[stop];
+  if (!usable(B) || stop === from || stop === to) return null;
+  const cat = catalogueOf(from, to);
+  const base = cat ?? customMarket({ from, to });
+  const ab = legMarket(from, stop);
+  const bc = legMarket(stop, to);
+  if (!base || !ab || !bc) return null;
+  const fx = cat ? BAL.v019.fares.marketX[cat.id] ?? 1 : 1;
+  const r10 = (v: number) => Math.max(10, Math.round(v / 10) * 10);
+  const A = AIRPORT_BY_CODE[from];
+  const C = AIRPORT_BY_CODE[to];
+  const hard = Math.max(base.rightsHard ?? (cat ? (cat.rights === 'open' ? 0 : 0.2) : 0), ab.rightsHard ?? 0);
+  const odds = fifthOdds(from, stop, to);
+  const strip = (x: RouteMarket): RouteMarket => {
+    const { stopover: _s, partner: _p, ...rest } = x;
+    void _s; void _p;
+    return { ...rest, models: ['own'], model: 'own' };
+  };
+  const closed = base.closed ?? ab.closed ?? bc.closed ?? CLOSED_COUNTRY[B.country];
+  const { partner: _p, stopover: _s, ...b0 } = base;
+  void _p; void _s;
+  const m: RouteMarket = {
+    ...structuredClone(b0),
+    id: customId({ from, to, stop }), via: [stop], viaBack: [stop], models: ['own'], model: 'own',
+    fareY: [r10(base.fareY[0] * fx), r10(base.fareY[1] * fx)], fareJ: [r10(base.fareJ[0] * fx), r10(base.fareJ[1] * fx)],
+    rights: 'bilateral', custom: true, rightsHard: hard, ...(closed ? { closed } : {}),
+    blurb: `A stopover at ${B.city}: ${A?.city ?? from}–${C?.city ?? to} passengers stay on; ${A?.city ?? from}–${B.city} passengers get off and on there${odds.full + odds.limited > 0 ? `; ${B.city}–${C?.city ?? to} seats need fifth-freedom rights` : ''}.`,
+    stopover: { at: stop, ab: strip(ab), bc: strip(bc), fifth: odds },
+  };
+  return m;
+}
+
 /** The size range shown before a study (travellers a year, P10–P90 of the model's guess). Pure. */
 export function customRange(m: RouteMarket): { lo: number; mid: number; hi: number } {
   const r = (v: number) => (v >= 10_000 ? Math.round(v / 1_000) * 1_000 : Math.round(v / 100) * 100);
@@ -429,6 +514,12 @@ export function customBlock(d: MarketDraft): string | null {
   if (d.from === d.to) return 'Pick a different destination.';
   if (B.enroute || B.ice) return `${B.city} is a fuel stop, not a market.`;
   if (distance(d.from, d.to) < 250) return 'Too short for an airliner: road and rail win.';
+  if (d.stop) {
+    const S = AIRPORT_BY_CODE[d.stop];
+    if (!S) return 'Pick a stop.';
+    if (S.enroute || S.ice) return `${S.city} is a fuel stop, not a market: no passengers to sell there.`;
+    if (distance(d.from, d.stop) < 250 || distance(d.stop, d.to) < 250) return `${S.city} is too close to one end for a stop with passengers.`;
+  }
   const m = customMarket(d);
   if (!m) return 'No market there.';
   return m.closed ?? null;

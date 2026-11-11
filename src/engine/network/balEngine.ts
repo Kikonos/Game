@@ -162,6 +162,31 @@ export const NET_ENGINE_BAL = {
     words: [[40, 'Poor'], [55, 'Mixed'], [75, 'Good'], [101, 'Very good']] as [number, string][],
   },
 
+  /** v0.21 stopover (tag) routes A–B–C: the turn at B, the through product, fifth-freedom rights, the station. */
+  stop: {
+    /** Ground time at a stopover (min): passengers off and on, cabin clean, catering, fuel. Narrowbody / widebody. */
+    groundNarrow: 55, groundWide: 80,
+    /** Our through service against a nonstop: the same aircraft, but a stop on the way (× the nonstop pull). */
+    nonstopX: 0.6,
+    /**
+     * Fifth freedom (B–C local sales): the chance of full rights at hardness 0, less `fifthHardX` per point of the
+     * pair's hardness; a limited grant (a share of the seats on B–C) with `fifthLimited` [E: most states refuse or cap].
+     */
+    fifthBase: 0.55, fifthHardX: 0.9, fifthMin: 0.05, fifthLimited: 0.3, limitedShare: 0.25,
+    /** The fifth-freedom application at the rights stage: cost (USD) and extra days. */
+    fifthCost: 12_000, fifthDays: [14, 42] as [number, number],
+    /** The station at B: this share of an outstation's monthly overhead (station manager, sales desk), and its setup. */
+    overheadX: 0.6, setupX: 0.6,
+  },
+
+  /** v0.21 crew away from base on a route: nights there (hotel and per diem) and a long day (an extra pilot). */
+  crewAway: {
+    /** A duty longer than this (min, report to release) flies with a third pilot (augmented). */
+    dutyMax: 780,
+    /** Report before the first departure and release after the last arrival (min). */
+    reportMin: 60, releaseMin: 30,
+  },
+
   /** §J the route P&L: aircraft and crew time at cost. */
   pnl: {
     /** Monthly block hours an aircraft's rent and insurance are spread over (route P&L only). */

@@ -101,6 +101,12 @@ export interface SectorLoad {
   voided?: true;
   /** What a rival charged to fly this sector for us (USD; counted in the sector's cost at arrival). */
   subCost?: number;
+  /** v0.21 a stopover route: the local passengers booked on this sector alone (A–B on the first, B–C on the second; the rest fly through). */
+  localJ?: number;
+  localY?: number;
+  /** v0.21 a stopover route's first sector of a direction: the through passengers who flew it (they stay on at the stop). */
+  thruJ?: number;
+  thruY?: number;
 }
 
 export type RotationStatus = 'planned' | 'flights' | 'flown' | 'cancelled';
@@ -147,6 +153,8 @@ export interface RoutePnl {
   cargoKg: number;
   /** Launch spend booked this month. */
   launch: number;
+  /** v0.21 passengers counted on every sector they sit on (the load factor's top; `seats` is per sector). Absent before v0.21: `pax`. */
+  paxSec?: number;
 }
 
 /** §E.4 the player's fare stance. */
@@ -202,7 +210,12 @@ export interface Route {
   consistent?: number;
   /** Ticket refunds and passenger costs this month (route P&L), and the month's launch spend. */
   monthPax?: number;
+  /** v0.21 a stopover route: the B–C (fifth-freedom) rights won at the rights stage (absent before it). */
+  fifth?: FifthRights;
 }
+
+/** v0.21 fifth-freedom rights at a stopover: sell B–C seats freely, a limited share of them, or not at all. */
+export type FifthRights = 'full' | 'limited' | 'none';
 
 /** The plan the player drafts in the business case (and the launch files): pattern, times, aircraft, fares. */
 export interface RoutePlan {
