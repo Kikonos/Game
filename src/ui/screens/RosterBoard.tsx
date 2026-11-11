@@ -879,7 +879,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
         {!items.length && <div className="small muted sc-pad rb-empty">Nobody matches these filters.</div>}
       </div>
       <div className="rb-foot">
-        {legend.map((k) => <span key={k} className="row gap-4 tiny muted"><span className={`sc-cal-sw k-${k}`} aria-hidden />{BOARD_LEGEND[k] ?? CAL_KEY_LABEL[k]}</span>)}
+        {/* v0.22 the '?' first: on a phone the foot scrolls sideways and the '?' was out of sight at its far end. */}
         <ColourLegend title="Roster board colours" align="left" items={[
           { swatch: <span className="sc-cal-sw k-operating" aria-hidden />, label: 'A duty: flights with passengers (in the contract colour)' },
           { swatch: <span className="sc-cal-sw k-positioning" aria-hidden />, label: 'Positioning or ferry: flying empty' },
@@ -899,6 +899,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
           { swatch: <span className="rb-mark">+1h</span>, label: '+1h: a planned extension (at most twice a week each)' },
           { swatch: <span className="rb-mark">SPLIT</span>, label: 'SPLIT: a split duty, a long wait on the ground adds to the day' },
         ]} gestures={['Tap a duty to change its crew.', 'Long-press a duty and drag it to someone else.']} />
+        {legend.map((k) => <span key={k} className="row gap-4 tiny muted"><span className={`sc-cal-sw k-${k}`} aria-hidden />{BOARD_LEGEND[k] ?? CAL_KEY_LABEL[k]}</span>)}
         <span className="grow" />
         {drag && <span className="tiny dim">Drop on a green or amber row · red asks first · grey can’t take it</span>}
       </div>

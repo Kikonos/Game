@@ -7,6 +7,6 @@
 /* The popover never wider than the screen (a phone held upright). */
 .term-pop { max-width: calc(100vw - 16px); }
 /* The colour legends: the gestures block under the swatches. */
-.lg-pop { overflow-y: auto; overscroll-behavior: contain; }
-/* Opened from the foot of a screen (the roster board): the box goes up, not below the screen's edge. */
-.lg-pop.up { top: auto; bottom: calc(100% + 8px); }
+/* The colour legends (components/ColourLegend.tsx): placed on the page by the component, above or below its '?',
+   capped to the screen's box, the list scrolling inside. */
+.lg-pop.lg-fixed { position: fixed; top: auto; right: auto; bottom: auto; overflow-y: auto; overscroll-behavior: contain; }
