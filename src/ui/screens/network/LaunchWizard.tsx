@@ -64,11 +64,12 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
   const close = () => store.closeModal();
   if (!m) {
     return (
-      <Modal title="Open a new route" icon={<Rocket className="accent" />} onClose={close} size="wide" className="nw-modal">
-        <p className="small muted">Pick a market. A route takes four to six months from the study to the first flight, longer with setbacks.</p>
+      <Modal title={<>Open a new route <Help title="Opening a route">
+        A route takes four to six months from the study to the first flight, longer with setbacks.
+      </Help></>} icon={<Rocket className="accent" />} onClose={close} size="wide" className="nw-modal">
         <button className="nw-market nw-build" onClick={() => store.openModal({ kind: 'routeBuild' })}>
           <span className="nw-flag" aria-hidden><Compass className="sc-ico-s accent" /></span>
-          <span className="col grow nw-market-text"><b>Build your own route</b><span className="tiny muted nw-market-blurb">Any destination in the world, from any of our bases. Not researched yet: the study tells.</span></span>
+          <span className="col grow nw-market-text"><b>Build your own route</b><span className="tiny muted nw-market-blurb">Any destination in the world, from any of our bases</span></span>
           <ChevronRight className="sc-ico-s dim" />
         </button>
         <div className="nw-markets nw-pick">
@@ -525,7 +526,6 @@ function RouteLaunch({ g, routeId }: { g: GameState; routeId: string }) {
                 <Building2 className="accent" />
                 <div>
                   <b>Now: {r.stages.filter((s) => s.state === 'running' || s.state === 'delayed').map((s) => STAGE_LABEL[s.id]).join(' · ') || 'getting ready'}</b>
-                  <div className="small muted">Stages run in game time; setbacks arrive in the Inbox.</div>
                 </div>
               </div>
               <div className="nw-facts">
