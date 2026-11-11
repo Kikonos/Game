@@ -28,10 +28,17 @@ export function PopBox({ anchor, onClose, label, children }: { anchor: HTMLEleme
     let left = Math.min(vw - b.width - 8, Math.max(8, r.left + r.width / 2 - b.width / 2));
     const below = r.bottom + 8;
     const top = below + b.height <= vh - 8 ? below : Math.max(8, r.top - b.height - 8);
-    // The bug button lives in the lower left corner (above everything): the box starts to its right there.
-    if (left < BUG_ZONE && top + b.height > vh - BUG_ZONE) left = Math.min(BUG_ZONE, Math.max(8, vw - b.width - 8));
+    // The bug button lives in the lower left corner (above everything): the box starts to its right there. v0.22 by
+    // where the button really is (a phone on its side moves it in by the safe area); with no room beside it, above it.
+    const bug = document.querySelector('.bug-corner')?.getBoundingClientRect();
+    const zone = bug && bug.width ? { right: bug.right + 8, top: bug.top - 8 } : { right: BUG_ZONE, top: vh - BUG_ZONE };
+    let y = top;
+    if (left < zone.right && y + b.height > zone.top) {
+      if (vw - b.width - 8 >= zone.right) left = zone.right;
+      else y = Math.max(8, zone.top - b.height);
+    }
     // v0.12 rects are screen px; the popover is placed in the page's px (Settings › Size zooms the page).
-    setPos({ left: toCss(left), top: toCss(top) });
+    setPos({ left: toCss(left), top: toCss(y) });
   }, [anchor]);
   useEffect(() => {
     const down = (e: Event) => {
