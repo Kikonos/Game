@@ -10,3 +10,9 @@
 /* The colour legends (components/ColourLegend.tsx): placed on the page by the component, above or below its '?',
    capped to the screen's box, the list scrolling inside. */
 .lg-pop.lg-fixed { position: fixed; top: auto; right: auto; bottom: auto; overflow-y: auto; overscroll-behavior: contain; }
+/* A phone held upright: a bottom sheet with no footer runs to the lower left corner, where the bug button sits. The
+   pause menu's last row and a flight sheet's last buttons end above it. */
+@media (max-width: 699.98px) {
+  .modal .menu-list { margin-bottom: var(--bug-inset); }
+  .modal.bs-sheet:not(:has(> .modal-foot)) > .modal-body { padding-bottom: calc(18px + var(--bug-inset)); }
+}

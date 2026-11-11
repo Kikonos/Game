@@ -421,7 +421,7 @@ export function BlockSheet({ refs, idle }: { refs: Ref[]; idle?: { aircraftId: s
   const lease = refs.find((r) => r.kind === 'contract' && g.contracts[r.id]?.dry);
   if (lease) {
     return (
-      <Modal title={`Dry lease · ${g.clients[g.contracts[lease.id].clientId]?.name ?? 'lessee'}`} icon={<CalendarClock className="accent" />} onClose={() => store.closeModal()}>
+      <Modal className="bs-sheet" title={`Dry lease · ${g.clients[g.contracts[lease.id].clientId]?.name ?? 'lessee'}`} icon={<CalendarClock className="accent" />} onClose={() => store.closeModal()}>
         <DryLeaseDetail g={g} contractId={lease.id} />
       </Modal>
     );
@@ -450,14 +450,14 @@ function SheetBody({ g, refs, idle }: { g: GameState; refs: Ref[]; idle?: { airc
     const f = cur.kind === 'flight' ? g.flights[cur.id] : undefined;
     const m = cur.kind === 'maint' ? g.maintenance[cur.id] : undefined;
     return (
-      <Modal title={titleOf(g, cur)} icon={m ? (m.kind === 'paint' ? <Palette className="accent" /> : <Wrench className="accent" />) : undefined} onClose={close} footer={live.length > 1 ? <button className="btn btn-ghost" onClick={() => setOpen(null)}><ChevronLeft /> All {live.length}</button> : undefined}>
+      <Modal className="bs-sheet" title={titleOf(g, cur)} icon={m ? (m.kind === 'paint' ? <Palette className="accent" /> : <Wrench className="accent" />) : undefined} onClose={close} footer={live.length > 1 ? <button className="btn btn-ghost" onClick={() => setOpen(null)}><ChevronLeft /> All {live.length}</button> : undefined}>
         {f && <FlightDetail g={g} f={f} />}
         {m && <MaintDetail g={g} m={m} />}
       </Modal>
     );
   }
   return (
-    <Modal title={plural(live.length, 'item')} onClose={close}>
+    <Modal className="bs-sheet" title={plural(live.length, 'item')} onClose={close}>
       <div className="col gap-8">
         {live.map((r) => {
           const f = r.kind === 'flight' ? g.flights[r.id] : undefined;
