@@ -42,6 +42,11 @@ export interface RouteStudy {
   est?: { p10: number; p50: number; p90: number };
   truth: number;
   validUntil?: Minute;
+  /**
+   * v0.22 the estimate as the study gave it, for the market it was made on: kept once the stop is changed at the
+   * business case (advice.ts setStop), so every re-reading starts from it (going back gives the same numbers).
+   */
+  ref?: { marketId: string; custom?: import('../../data/routes').RouteMarket; model: RouteModel; est: { p10: number; p50: number; p90: number } };
 }
 
 /** §E demand segments. */

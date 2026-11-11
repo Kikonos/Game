@@ -55,8 +55,11 @@ export const techStopMin = (typeId: string): number => (typeOf(typeId)?.maxSeats
 
 /** v0.21 ground time at a stop of a market: a stopover's turn (passengers off and on) or a fuel stop's. */
 export function stopMin(m: Pick<RouteMarket, 'stopover'>, typeId: string): number {
-  if (!m.stopover) return techStopMin(typeId);
-  return typeOf(typeId)?.body === 'wide' ? BAL.v019.stop.groundWide : BAL.v019.stop.groundNarrow;
+  const tech = techStopMin(typeId);
+  if (!m.stopover) return tech;
+  // v0.22 a stopover's turn (passengers off and on, cleaning, catering) is never shorter than a fuel stop's: at least
+  // ten minutes more (a narrowbody's 55 min stood under the 60 min fuel stop while the side-by-side says "longer").
+  return Math.max(tech + 10, typeOf(typeId)?.body === 'wide' ? BAL.v019.stop.groundWide : BAL.v019.stop.groundNarrow);
 }
 
 /**

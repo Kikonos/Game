@@ -53,7 +53,9 @@ export function setStop(g: GameState, routeId: string, mode: StopMode, at?: stri
   if (t.closed) return t.closed;
   if (t.id === m.id) return null;
   const est = r.study?.est;
-  const b0 = est ? studyBase(g, r) : 0;
+  // v0.22 the study's own estimate and market are kept: each re-reading scales from them, never from the last
+  // rounded numbers (stopover, nonstop and back used to drift by a traveller a step).
+  const ref = est && r.study ? (r.study.ref ??= { marketId: r.marketId, ...(r.custom ? { custom: structuredClone(r.custom) } : {}), model: r.model, est: { ...est } }) : undefined;
   r.marketId = t.id;
   if (t.custom) r.custom = structuredClone(t);
   else delete r.custom;
@@ -63,9 +65,17 @@ export function setStop(g: GameState, routeId: string, mode: StopMode, at?: stri
   }
   delete r.plan;
   delete r.fifth;
-  if (est && r.study && b0 > 0) {
-    const k = studyBase(g, r) / b0;
-    if (k > 0) r.study.est = { p10: Math.max(1, Math.round(est.p10 * k)), p50: Math.max(1, Math.round(est.p50 * k)), p90: Math.max(1, Math.round(est.p90 * k)) };
+  if (ref && r.study) {
+    if (ref.marketId === r.marketId) {
+      r.study.est = { ...ref.est };
+      delete r.study.ref;
+    } else {
+      const asRef: Route = { ...r, marketId: ref.marketId, model: ref.model, custom: ref.custom };
+      if (!ref.custom) delete asRef.custom;
+      const b0 = studyBase(g, asRef);
+      const k = b0 > 0 ? studyBase(g, r) / b0 : 0;
+      if (k > 0) r.study.est = { p10: Math.max(1, Math.round(ref.est.p10 * k)), p50: Math.max(1, Math.round(ref.est.p50 * k)), p90: Math.max(1, Math.round(ref.est.p90 * k)) };
+    }
   }
   g.network!.rev = (g.network!.rev ?? 0) + 1;
   return null;

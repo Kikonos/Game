@@ -11,6 +11,8 @@ import { devAddType } from '../../../engine/dev';
 import { createGame } from '../../../engine/newGame';
 import { hireHead, unlockHead } from '../../../engine/ops/heads';
 import { caseAdvice, caseDraft, marketOfRoute, setStop, startStudy, stopoverCompare, studyBase } from '../../../engine/network';
+import { stopMin } from '../../../engine/network/model';
+import { typeOf } from '../../../engine/core/perf';
 import { countryNameThe } from '../../../data/countries';
 import { stopChosen } from './networkLogic';
 
@@ -58,6 +60,38 @@ describe('the stop comparison names the way the route really flies', () => {
     // The route built with the stop is the fuel stop, not "Nonstop"; with seats sold there, the stopover.
     expect(stopChosen(c, false)).toBe('fuel');
     expect(stopChosen(c, true)).toBe('stopover');
+  }, 120_000);
+
+  it('a stopover takes longer on the ground than a fuel stop, on every type', () => {
+    for (const t of ['a320ceo', 'a321ceo', 'b763', 'a332', 'a333', 'a343', 'b77w']) {
+      if (!typeOf(t)) continue;
+      expect(stopMin({ stopover: { at: 'JFK' } as never }, t)).toBeGreaterThanOrEqual(stopMin({}, t) + 10);
+    }
+    const g = newGame(8);
+    const c = stopoverCompare(g, 'LIS', 'LAX', 'JFK', 'a320ceo')!;
+    expect(c.stopover.hours).toBeGreaterThan(c.plain.hours);
+  }, 120_000);
+
+  it('switching the stop back and forth never drifts the study: the same shape gives the same numbers', () => {
+    const g = newGame(7);
+    devAddType(g, 'a332');
+    const rid = atCase(g, 'X:LIS-LAX@JFK');
+    const r = g.network!.routes[rid];
+    const est0 = { ...r.study!.est! };
+    const seen: Record<string, string> = {};
+    const key = () => JSON.stringify(r.study!.est);
+    for (let i = 0; i < 6; i++) {
+      for (const mode of ['nonstop', 'stopover', 'fuel', 'stopover', 'nonstop', 'fuel'] as const) {
+        expect(setStop(g, rid, mode, 'JFK')).toBeNull();
+        // Each shape reads the same every time it is chosen.
+        if (seen[r.marketId]) expect(key()).toBe(seen[r.marketId]);
+        seen[r.marketId] = key();
+      }
+      expect(setStop(g, rid, 'stopover', 'JFK')).toBeNull();
+      expect(r.study!.est).toEqual(est0);
+      expect(r.study!.ref).toBeUndefined();
+    }
+    expect(Object.keys(seen).sort()).toEqual(['X:LIS-LAX', 'X:LIS-LAX@JFK', 'X:LIS-LAX~JFK']);
   }, 120_000);
 
   it('an aircraft that needs the stop: two ways as before, the fuel stop is the plain one', () => {
