@@ -13,14 +13,17 @@ export function LessorRating({ g }: { g: GameState }) {
   const r = rating(g);
   const lc = lcInUse(g);
   const line = g.treasury?.credit;
+  // v0.20.1 a bank row like the others (Financing.tsx BankRow): name and a plain line, the grade on the right.
   return (
-    <button className="fb-lessor row gap-8 small" onClick={() => store.navigate('fleet', { view: 'market' })} data-tip={gradeWords(r.grade)}>
-      <ShieldCheck className="sc-ico-s accent" aria-hidden />
-      <span className="grow">
-        <b>Lessor rating {r.grade} ({r.score})</b>
-        <span className="muted"> · {lc > 0 ? `letters of credit ${money(lc)}${line ? ` of the ${money(line.limit)} line` : ''}` : line && !line.frozen && (r.grade === 'A' || r.grade === 'B') ? 'deposits can be letters of credit on the line' : 'lessors set our deposits by it'}</span>
-      </span>
-      <ChevronRight className="sc-ico-s dim" aria-hidden />
-    </button>
+    <div className="fb-row">
+      <div className="fb-line">
+        <button className="fb-tap fb-lessor" onClick={() => store.navigate('fleet', { view: 'market' })} data-tip={gradeWords(r.grade)}>
+          <span className="fb-ico" aria-hidden><ShieldCheck /></span>
+          <span className="fb-name"><b>Lessor rating</b><span className="small muted">{lc > 0 ? `Letters of credit ${money(lc)}${line ? ` of the ${money(line.limit)} line` : ''}` : line && !line.frozen && (r.grade === 'A' || r.grade === 'B') ? 'Deposits can be letters of credit on the line' : 'Lessors set our deposits by it'}</span></span>
+          <span className="num fb-val">{r.grade} <span className="dim">({r.score})</span></span>
+          <ChevronRight className="fb-chev" aria-hidden />
+        </button>
+      </div>
+    </div>
   );
 }
