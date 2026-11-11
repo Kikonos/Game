@@ -26,8 +26,10 @@ export function ColourLegend({ title, items, align, hint, gestures }: { title: s
   useLayoutEffect(() => {
     if (!open || !btn.current) return setFit(null);
     const r = btn.current.getBoundingClientRect();
-    const below = window.innerHeight - r.bottom - 20;
-    const above = r.top - 20;
+    // The room inside the screen's own box (the top bar and the tab bar sit over what is outside it).
+    const s = btn.current.closest('.screen')?.getBoundingClientRect();
+    const below = Math.min(window.innerHeight, s?.bottom ?? Infinity) - r.bottom - 20;
+    const above = r.top - Math.max(0, s?.top ?? 0) - 20;
     const up = below < 360 && above > below;
     setFit({ up, max: Math.max(160, toCss(up ? above : below)) });
   }, [open]);
