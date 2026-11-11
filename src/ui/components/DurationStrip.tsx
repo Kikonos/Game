@@ -9,7 +9,7 @@ import { durationView } from './durationLogic';
 export function DurationStrip({ now, first, last, className = '' }: { now: Minute; first: Minute; last: Minute; className?: string }) {
   const v = durationView(now, first, last);
   return (
-    <div className={`dur ${v.count > 14 ? 'dense' : ''} ${className}`} role="img" aria-label={v.aria}>
+    <div className={`dur ${v.count > 24 ? 'tight' : v.count > 14 ? 'dense' : ''} ${className}`} role="img" aria-label={v.aria}>
       <span className="dur-strip" aria-hidden="true">
         {v.years.map((y, yi) => (
           <span key={y.year} className="dur-year">
@@ -23,7 +23,7 @@ export function DurationStrip({ now, first, last, className = '' }: { now: Minut
             ))}
           </span>
         ))}
-        {v.more > 0 && <span className="dur-more">+{v.more} months</span>}
+        {v.moreText && <span className="dur-more">{v.moreText}</span>}
       </span>
       <span className="dur-text small muted" aria-hidden="true">{v.text}</span>
     </div>

@@ -27,13 +27,21 @@ export function leadSourceLine(g: GameState, l: Pick<Lead, 'source' | 'brokerId'
   return l.repId ? `${name}, sales manager` : name;
 }
 
+/** ' through Air Charter Service', ' found by Marta Silva', ' from a trade fair'; '' when nobody is on record. */
+function leadFrom(g: GameState, l: Lead | undefined, brokerId: Lead['brokerId']): string {
+  const broker = l?.brokerId ?? brokerId;
+  if (broker) return ` through ${brokerName(broker)}`;
+  if (!l) return '';
+  if (l.repId) return ` found by ${leadSourceName(g, l)}`;
+  return l.source === 'fair' ? ' from a trade fair' : l.source === 'visit' ? ' from a client visit' : l.source === 'pitch' ? ' from our pre-season pitch' : '';
+}
+
 function leadNote(g: GameState, leadId: string, brokerId: Lead['brokerId'], signed: boolean): string {
-  const l = leadOf(g, leadId);
-  const who = l ? leadSourceName(g, l) : brokerId ? brokerName(brokerId) : 'the sales desk';
+  const from = leadFrom(g, leadOf(g, leadId), brokerId);
   const fee = brokerId ? ` ${brokerName(brokerId)} takes ${Math.round(commissionOf(brokerId) * 1000) / 10} % commission${signed ? '' : ' if we sign'}.` : '';
   return signed
-    ? `This job came from a lead (${who}): we sent a proposal and the client said yes. Nobody else was asked.${fee}`
-    : `This offer answers our proposal on a lead (${who}). It is ours alone: no other operator is quoting.${fee}`;
+    ? `This job came from a lead${from}: we sent a proposal and the client said yes. Nobody else was asked.${fee}`
+    : `This offer answers our proposal on a lead${from}. It is ours alone: no other operator is quoting.${fee}`;
 }
 
 /** Where an offer came from (null: the open market, a call-out, a repeat). Pure. */

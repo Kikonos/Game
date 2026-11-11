@@ -48,14 +48,19 @@ describe('v0.20.1 the duration strip', () => {
     expect(c.to - c.from).toBeCloseTo(2 / 31);
   });
 
-  it('a long job grows the strip to its last month, to 24 cells at most, then says how many months follow', () => {
+  it('a long job grows the strip to its last month, to 36 cells at most, then says how many months follow and to when', () => {
     const v = durationView(d(2029, 1, 18), d(2029, 11, 1), d(2030, 12, 30));
     expect(v.count).toBe(24);
     expect(v.years.map((y) => [y.year, y.cells.length])).toEqual([[2029, 12], [2030, 12]]);
     expect(v.more).toBe(0);
+    // Into a third year: every year it touches is named.
+    const three = durationView(d(2029, 1, 18), d(2029, 11, 7), d(2031, 1, 5));
+    expect(three.years.map((y) => [y.year, y.cells.length])).toEqual([[2029, 12], [2030, 12], [2031, 1]]);
+    expect(three.moreText).toBeNull();
     const far = durationView(d(2029, 1, 18), d(2029, 4, 1), d(2032, 3, 31));
-    expect(far.count).toBe(24);
-    expect(far.more).toBe(15);
+    expect(far.count).toBe(36);
+    expect(far.more).toBe(3);
+    expect(far.moreText).toBe('+3 months, to Mar 2032');
     expect(far.text).toBe('1096 days · 36 months (3 years) · 1 Apr 2029 – 31 Mar 2032');
   });
 });

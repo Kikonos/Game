@@ -19,12 +19,16 @@
 .dur-y { margin-right: 4px; font-size: 11px; font-weight: 650; line-height: 1; color: var(--text-2); font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
 .dur-m { position: relative; display: grid; place-items: center; width: 15px; height: 16px; border-radius: 3px; background: rgba(var(--line-rgb), 0.1); overflow: hidden; }
 .dur-fill { position: absolute; top: 0; bottom: 0; min-width: 2px; background: rgba(var(--accent-rgb), 0.6); }
-.dur-now { position: absolute; top: 0; bottom: 0; z-index: 1; width: 2px; margin-left: -1px; background: var(--text); opacity: 0.75; }
-.dur-i { position: relative; font-size: 9px; font-weight: 600; line-height: 1; color: var(--text-3); }
+.dur-now { position: absolute; top: 0; bottom: 0; width: 1.5px; margin-left: -0.75px; background: var(--text); opacity: 0.7; }
+.dur-i { position: relative; z-index: 1; font-size: 9px; font-weight: 600; line-height: 1; color: var(--text-3); }
 .dur-m.on .dur-i { color: var(--text); }
 .dur.dense .dur-m { width: 10px; }
 .dur.dense .dur-i { font-size: 7.5px; }
 .dur.dense .dur-year { gap: 1px; }
+/* Over two years: slim cells without initials (the year labels carry it). */
+.dur.tight .dur-m { width: 6px; border-radius: 2px; }
+.dur.tight .dur-i { display: none; }
+.dur.tight .dur-strip { gap: 6px; }
 .dur-more { font-size: 11px; color: var(--text-3); white-space: nowrap; }
 .dur-text { white-space: nowrap; }
 @media (max-width: 420px) { .dur-text { white-space: normal; } }

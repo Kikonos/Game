@@ -27,8 +27,9 @@ export interface DurationView {
   count: number;
   /** Where today is in the first cell (0–1). */
   today: number;
-  /** Months of the job after the last cell ('+7 months'); 0 when it all fits. */
+  /** Months of the job after the last cell; 0 when it all fits. `moreText`: '+7 months, to Mar 2032' (the end year named). */
   more: number;
+  moreText: string | null;
   /** Calendar days, first to last, both counted. */
   days: number;
   /** '67 days', '14 months (1 year 2 months)' … the parts of the line, and the line itself. */
@@ -77,9 +78,9 @@ export function spanLength(first: Minute, last: Minute): { days: number; daysTex
 
 /**
  * The strip for a job from `first` to `last` (any minute of its first and of its last day, on the calendar it is read
- * in), seen from `now`. Twelve month cells at least, more when the job runs on, `maxCells` at most. Pure.
+ * in), seen from `now`. Twelve month cells at least, more when the job runs on, `maxCells` (three years) at most. Pure.
  */
-export function durationView(now: Minute, first: Minute, last: Minute, maxCells = 24): DurationView {
+export function durationView(now: Minute, first: Minute, last: Minute, maxCells = 36): DurationView {
   const end = Math.max(first, last);
   const k0 = monthKey(now);
   const kEnd = monthKey(end);
@@ -103,5 +104,6 @@ export function durationView(now: Minute, first: Minute, last: Minute, maxCells 
   const more = Math.max(0, kEnd - (k0 + count - 1));
   const y0 = toDate(first).getUTCFullYear(), y1 = toDate(end).getUTCFullYear();
   const aria = `Runs ${daysText}${monthsText ? `, ${monthsText}` : ''}: ${datesText.replace(' – ', ' to ').replace('–', ' to ')}${y0 !== y1 ? `, from ${y0} into ${y1}` : ''}.`;
-  return { years, count, today, more, days, daysText, monthsText, datesText, text, aria };
+  const moreText = more ? `+${plural(more, 'month')}, to ${MONTHS[kEnd % 12]} ${Math.floor(kEnd / 12)}` : null;
+  return { years, count, today, more, moreText, days, daysText, monthsText, datesText, text, aria };
 }

@@ -39,7 +39,12 @@ export function PopBox({ anchor, onClose, label, children }: { anchor: HTMLEleme
       if (t && (box.current?.contains(t) || anchor.contains(t))) return;
       onClose();
     };
-    const esc = (e: KeyboardEvent) => e.key === 'Escape' && onClose();
+    // Escape closes the box alone (not the dialog under it, nor the menu behind).
+    const esc = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      e.stopPropagation();
+      onClose();
+    };
     document.addEventListener('pointerdown', down, true);
     window.addEventListener('keydown', esc, true);
     window.addEventListener('scroll', onClose, true);

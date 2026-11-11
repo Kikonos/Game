@@ -69,7 +69,8 @@ export function TenderModal({ tenderId }: { tenderId: string }) {
         <div className="v8-box col gap-4">
           <b>{row.wanted.replace(/^a/, (m) => m.toUpperCase())} {p.kind === 'base' ? `based at ${city(row.base)}` : `from ${city(row.base)} to Jeddah and Madinah`}</b>
           {t.ask.title && <span className="small">{t.ask.title}</span>}
-          <span className="small muted">{day(row.start)} – {day(row.end - 1)}{p.kind === 'base' ? ` · ${p.waves.length} wave${p.waves.length > 1 ? 's' : ''} a day to ${row.dests.map(city).slice(0, 5).join(', ')}${row.dests.length > 5 ? '…' : ''}` : ''}</span>
+          {/* v0.20.1 the dates are on the strip below (with the days and months they make). */}
+          {p.kind === 'base' && <span className="small muted">{p.waves.length} wave{p.waves.length > 1 ? 's' : ''} a day to {row.dests.map(city).slice(0, 5).join(', ')}{row.dests.length > 5 ? '…' : ''}</span>}
           {/* v0.20.1 how long it runs (the dates as bid), then the contest in facts; what a tender is sits behind the '?'. */}
           <DurationStrip now={g.now} first={toLocal(row.base, q ? start : t.bid?.start ?? row.start)} last={toLocal(row.base, (q ? end : t.bid?.end ?? row.end) - 1)} />
           <span className="row gap-8 wrap v0201-kind-row">
