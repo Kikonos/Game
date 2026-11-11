@@ -2,7 +2,7 @@
 // positioning, crew capacity, profit) on the right; Decline / Counter / Accept. DESIGN.md §6.3.
 
 import { askSublease, SchedulePortal } from './OfferPortal';
-import { clashTrips, subleaseGroups } from './offerPortalLogic';
+import { clashTrips, freeUpOf, subleaseGroups } from './offerPortalLogic';
 import { BedDouble, Check, ChevronRight, CircleSlash, Handshake, LineChart, Palette, Scale, Sofa, Swords, Users, X } from 'lucide-react';
 import { offerPrestigeLines } from '../../engine/contracts/prestige';
 import { ClientStars } from '../components/ClientStars';
@@ -42,7 +42,9 @@ import { DepositPicker } from './offer/DepositPicker';
 import { OfferVerdictBox } from './offer/Verdict';
 import { bestByRank, offerVerdict, sortChecks, topBlocker } from '../../engine/contracts/blockers';
 import { shapeOf } from '../../engine/contracts/shape';
-import { ShapeTags } from '../components/ShapeTags';
+import { OriginTag, ShapeTags } from '../components/ShapeTags';
+import { DurationStrip } from '../components/DurationStrip';
+import { offerOrigin } from '../../engine/commercial';
 import { depositNorm } from '../../engine/finance';
 import { archLabel, counterSteps, expiryLabel, offerCrewLine, pctLabel, reqChips, riskChips, routeSummary, offerDays, v09Chips, type Chip } from '../screens/screenLogic';
 import { analystView } from '../../engine/ops';
@@ -643,7 +645,9 @@ export function OfferModal({ offerId }: { offerId: string }) {
   // v0.18 the verdict (contracts/blockers.ts): the chosen aircraft's most important reason, the rest folded beneath;
   // with none of ours the kind the client asked for, the reason on the ones left off.
   const verdict = live ? offerVerdict(g, shown.length ? shown : reports, sel?.aircraftId ?? null) : null;
-  const busyFix = verdict?.rank === 2 && subleaseGroups(clashTrips(g, verdict.report)).length ? <SubleaseButtons g={g} r={verdict.report} offerId={o.id} long /> : null;
+  // v0.20.1 (bmwbb036sdk6l) the trips in the way handed over or moved: does the job then fit? Only then the buttons.
+  const freeUp = verdict?.rank === 2 ? freeUpOf(g, o.id, verdict.report, opts) : null;
+  const busyFix = verdict?.rank === 2 && freeUp?.fits && subleaseGroups(clashTrips(g, verdict.report)).length ? <SubleaseButtons g={g} r={verdict.report} offerId={o.id} long /> : null;
   // v0.7.3 §2.9: what a long job needs ('Longest day 15:40 · needs 3 pilots + bunks, or 4 pilots + business seats').
   const restLine = offerRestLine(g, o.id);
 
@@ -692,6 +696,8 @@ export function OfferModal({ offerId }: { offerId: string }) {
             <span className="upper dim">{archLabel(o)}</span>
             {o.urgency !== 'normal' && <span className={`badge ${o.urgency === 'urgent' ? 'bad' : 'warn'}`}>{o.urgency === 'urgent' ? 'Urgent' : 'Short notice'}</span>}
             {o.exotic && <span className="badge info" title="An overseas rotation with a stop and a crew change on the way; it pays more">Far route</span>}
+            {/* v0.20.1 won in a tender or worked from a lead; the story behind its '?'. */}
+            <OriginTag v={offerOrigin(g, o)} help />
             {cv?.state === 'pending' ? (
               <span className="small accent">Clock paused · reply by {fmtDay(cv.replyBy ?? g.now)} {fmtTime(cv.replyBy ?? g.now)} UTC</span>
             ) : (
@@ -702,9 +708,11 @@ export function OfferModal({ offerId }: { offerId: string }) {
             <b>{cl ? `${flag(cl.country)} ${cl.name}` : 'Client'}</b>
             {o.broker && <span className="chip sc-chip sc-broker">via {o.broker} (5%)</span>}
             <div className="of-shape-head"><span className="small muted mono">{routeSummary(o.pattern)}</span><ShapeTags s={shapeOf(o)} /></div>
+            {/* v0.20.1 how long the job runs, at a glance: the months ahead with its days filled in, then days and months. */}
+            <DurationStrip now={g.now} first={offerDays(o)[0]} last={o.pattern.kind === 'base' ? offerDays(o)[1] : Math.max(o.start, o.end - 1)} className="of-dur" />
           </div>
           {/* v0.18 what stands between us and this job, the most important reason first; no four-line card here. */}
-          <OfferVerdictBox g={g} v={verdict} offerId={o.id} busyFix={busyFix} />
+          <OfferVerdictBox g={g} v={verdict} offerId={o.id} busyFix={busyFix} freeUp={freeUp} />
           {/* v0.19 our scheduled flights on the chosen aircraft: swap, sub-charter, move or cancel each (§H.2). */}
           {live && sel && g.network && <RouteConflicts g={g} aircraftId={sel.aircraftId} from={o.start - 720} to={o.end + 720} value={routeChoices} onChange={setRouteChoices} earns={o.estValue} />}
           <p className="muted sc-blurb">{blurbOf(o)}</p>

@@ -41,6 +41,26 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     ],
   },
   {
+    version: 'v0.20.1',
+    name: 'Measures, leads & durations',
+    features: [
+      'Crew › Utilisation has a new card, Measures in place: who is on unpaid leave, furlough or under notice, by rank and aircraft, until when, and how much it saves a month. Tap a row for the names.',
+      'Leads and tenders now look different. A tender is a contest: an "Open tender" tag, how many other operators are bidding, when bids close and when the airline decides.',
+      'A lead is yours alone: an "Exclusive" tag, who found it (a sales manager, or a broker with its commission), its stage, and the days until it goes cold (amber at 3 or fewer).',
+      'Offers and contracts that came from one carry a small "From tender" or "From lead" tag.',
+      'See how long a job runs at a glance: the offer and tender dialogs show the months ahead with the job filled in, each year named, and its length in days and in months with the dates.',
+      'Explanations sit behind a small "?" you can tap, instead of staying on the screen.',
+    ],
+    improvements: [
+      'Finance › The bank is tidier: one aligned list with a plain line under each name, the number on the right and details on tap.',
+      'Unpaid leave is not offered twice to the same crew before it starts, and crew about to go on it no longer count as spare.',
+    ],
+    fixes: [
+      'The offer dialog only suggests a sub-lease when it really makes room for the job. When something else still blocks the aircraft (other work, a lease, an approval), it says so plainly.',
+      'The sub-lease dialog warns you before you pay for a hand-over that will not make room on its own.',
+    ],
+  },
+  {
     version: 'v0.20',
     name: 'Finance at a glance',
     features: [

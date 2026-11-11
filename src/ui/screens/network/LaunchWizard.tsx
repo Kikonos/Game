@@ -13,7 +13,7 @@ import { DAY, fmtDate, fmtDayRel, fmtSpan } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
 import { caseAdvice, plannerStudyX, setStop, sharedStop, stopoverCompare, studyBase, validStudyFor, type Advice, type BusinessCase as EngineCase, type StopCompare } from '../../../engine/network';
 import type { FareLevel, MarketingLevel, Route, RouteModel, StudyDepth } from '../../../engine/network/types';
-import { Info } from '../../components/Term';
+import { Help } from '../../components/Help';
 import { Modal, Seg, Stepper } from '../../components/ui';
 import { fallRows, LoadMeter, MarginStrip, SeatSplit, Waterfall } from './caseViz';
 import { int, money, moneyDelta, pct } from '../../format';
@@ -198,12 +198,12 @@ function CaseTable({ c }: { c: BusinessCase }) {
   ];
   return (
     <table className="nw-case">
-      <thead><tr><th className="nw-case-q"><Info title="Weak, likely and strong year">
+      <thead><tr><th className="nw-case-q"><Help title="Weak, likely and strong year">
         <p>The study cannot know the market exactly, so it gives a range.</p>
         <p><b>Likely</b> is its best estimate of the first 12 months.</p>
         <p><b>Weak year</b>: only 1 year in 10 would be worse. <b>Strong year</b>: only 1 in 10 would be better.</p>
         <p>A deeper study (or a network planner on the team) narrows the range.</p>
-      </Info></th><th>Weak year</th><th>Likely</th><th>Strong year</th></tr></thead>
+      </Help></th><th>Weak year</th><th>Likely</th><th>Strong year</th></tr></thead>
       <tbody>
         {rows.map(([k, f]) => (
           <tr key={k}><td className="muted">{k}</td><td className="num">{f(c.p10)}</td><td className="num"><b>{f(c.p50)}</b></td><td className="num">{f(c.p90)}</td></tr>
@@ -248,12 +248,12 @@ function DraftEditor({ g, m, d, set }: { g: GameState; m: RouteMarket | undefine
         <Stepper value={d.out} min={0} max={DAY - 15} step={15} onChange={(v) => set({ ...d, out: v })} format={(v) => `${hhmm(v)} local`} />
       </div>
       <div className="nw-draft-row">
-        <span className="small muted">Stays at {m?.to ?? 'the destination'} <Info title={`Stays at ${m?.to ?? 'the destination'}`}>
+        <span className="small muted">Stays at {m?.to ?? 'the destination'} <Help title={`Stays at ${m?.to ?? 'the destination'}`}>
           <p>How long the aircraft and its crew wait there before the flight back.</p>
           <p><b>Same day</b>: it turns round and flies home; the crew work one long day (a third pilot comes along when it is over 13 hours).</p>
           <p><b>1 night or more</b>: the same aircraft and the same crew stay, then fly it back. Leave on a Friday with 2 nights and it comes home on Sunday. We pay the crew's hotel and allowances; nobody goes home on another airline.</p>
           <p>The aircraft cannot do other work while it waits.</p>
-        </Info></span>
+        </Help></span>
         <Stepper value={d.nights} min={0} max={6} onChange={(v) => set({ ...d, nights: v })} format={(v) => (v ? `${v} night${v > 1 ? 's' : ''}` : 'Same day')} />
       </div>
       <div className="nw-draft-row">
@@ -267,21 +267,21 @@ function DraftEditor({ g, m, d, set }: { g: GameState; m: RouteMarket | undefine
         <Seg<string> value={d.layout === 'all-economy' ? 'y' : 'jy'} onChange={(v) => set({ ...d, layout: v === 'y' ? 'all-economy' : 'two-class' })} options={[{ value: 'jy', label: 'Business + economy' }, { value: 'y', label: 'All economy' }]} />
       </div>
       <div className="nw-draft-row">
-        <span className="small muted">Fares <Info title="Fares">
+        <span className="small muted">Fares <Help title="Fares">
           <p><b>Market</b>: what travellers usually pay on this route.</p>
           <p><b>Low</b>: 12 % cheaper; about 14 % more people book.</p>
           <p><b>High</b>: 12 % dearer; about 13 % fewer book. Worth it when the flights fill anyway.</p>
-        </Info></span>
+        </Help></span>
         <Seg<FareLevel> value={d.fares} onChange={(v) => set({ ...d, fares: v })} options={(['low', 'market', 'high'] as FareLevel[]).map((v) => ({ value: v, label: FARE_WORD[v] }))} />
       </div>
       <div className="nw-draft-row">
-        <span className="small muted">Launch campaign <Info title="Launch campaign">
+        <span className="small muted">Launch campaign <Help title="Launch campaign">
           <p>Advertising before the first flight: radio, press, community associations, travel agents. It decides how many people know we fly the route.</p>
           <p><b>Low</b> {money(BAL.v019.launch.campaign.cost.low)}: about a third of travellers know us; emptier flights.</p>
           <p><b>Normal</b> {money(BAL.v019.launch.campaign.cost.normal)}: just over half know us.</p>
           <p><b>High</b> {money(BAL.v019.launch.campaign.cost.high)}: about 7 in 10 know us; fuller flights from the start.</p>
           <p>The same level then sets the monthly marketing that keeps it up ({money(BAL.v019.cost.marketing.low)}, {money(BAL.v019.cost.marketing.normal)} or {money(BAL.v019.cost.marketing.high)} a month).</p>
-        </Info></span>
+        </Help></span>
         <Seg<MarketingLevel> value={d.marketing} onChange={(v) => set({ ...d, marketing: v })} options={(['low', 'normal', 'high'] as MarketingLevel[]).map((v) => ({ value: v, label: MKT_WORD[v] }))} />
       </div>
     </div>
@@ -315,12 +315,12 @@ export function StopCompareCard({ cmp, mode, onPick, from, to, studied }: { cmp:
   return (
     <div className="nv-stop">
       <div className="row between gap-8"><b className="small">{B}: fuel stop or stopover?</b>
-        <Info title="Fuel stop or stopover">
+        <Help title="Fuel stop or stopover">
           <p><b>Fuel stop only</b>: the aircraft lands, refuels and goes on. Only {AIRPORT_BY_CODE[from]?.city ?? from}–{C} passengers are on board.</p>
           <p><b>Stopover</b>: we also sell {AIRPORT_BY_CODE[from]?.city ?? from}–{B} seats. Those passengers get off at {B}; the others stay on. It takes a longer turn on the ground and a station there.</p>
           <p>Selling {B}–{C} seats too needs <b>fifth-freedom rights</b> from both countries. {cmp.odds.why}</p>
           <p>{studied ? 'These figures use the study and your plan.' : 'These are a first guess for a weekly flight; the study tells the real size.'}</p>
-        </Info>
+        </Help>
       </div>
       <div className="nv-stop-cols">
         {cols.map((x) => (
@@ -430,9 +430,9 @@ function CaseCard({ g, r }: { g: GameState; r: Route }) {
           <div className="nv-grid">
             <div className="nv-panel">
               <div className="row between gap-8"><span className="tiny dim upper">Where the money goes · likely year</span>
-                <Info title="Where the money goes">
+                <Help title="Where the money goes">
                   {fallRows(c.parts ?? ({} as never), partner).map((x) => <p key={x.key}><b>{x.label}</b> {x.kind === 'out' ? `−${money(x.value)}` : x.kind === 'sum' ? moneyDelta(x.value) : money(x.value)}: {x.hint}</p>)}
-                </Info>
+                </Help>
               </div>
               {c.parts && <Waterfall parts={c.parts} partner={partner} />}
             </div>
@@ -440,13 +440,13 @@ function CaseCard({ g, r }: { g: GameState; r: Route }) {
               <LoadMeter lf={c.p50.lf} lo={c.p10.lf} hi={c.p90.lf} breakEven={c.breakEvenLf} />
               <div className="col gap-4">
                 <div className="row between gap-8"><span className="tiny dim upper">Is this margin normal?</span>
-                  <Info title="Is this margin normal?">
+                  <Help title="Is this margin normal?">
                     <p>Yes, scheduled flying is a thin business. Most airlines keep 3 to 8 cents of every dollar of tickets; fuel, airports, the aircraft and the crew take the rest.</p>
                     <p>A route where we are the only airline, or one with strong family ties and the right size of aircraft, can keep 10 to 20 %. A crowded route or an aircraft too big for it loses money.</p>
                     <p>These are the game's real numbers, not toned down. The figures already include the aircraft and the crew, which a block-hour (ACMI) price does not show.</p>
                     {partner && <p>For a partner the margin is on our own fee: the fuel and airport costs it repays us are not counted, since we earn nothing on them.</p>}
                     <p>The same hours on ACMI would leave about {moneyDelta(c.acmiResult ?? 0)} after aircraft and crew, when there is work for them.</p>
-                  </Info>
+                  </Help>
                 </div>
                 <MarginStrip lo={c.p10.margin} mid={c.p50.margin} hi={c.p90.margin} others={others} />
               </div>

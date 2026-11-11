@@ -2,6 +2,8 @@
 // contracts and before crew. Its state is g.com (optional; old saves get the defaults on load).
 
 import { fairLead } from './sales';
+// v0.20.1 where a job came from (a tender we won, a lead we worked): the tags on offers and contracts.
+export { LEAD_NOTE, ORIGIN_LABEL, TENDER_NOTE, contractOrigin, leadSourceLine, offerOrigin, type Origin, type OriginView } from './origin';
 import type { SimModule } from '../core/module';
 import type { GameState } from '../core/types';
 import { setTravelHook } from '../ops/commercial';

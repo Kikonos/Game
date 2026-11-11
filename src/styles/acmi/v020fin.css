@@ -113,3 +113,39 @@
   .gl-donut-svg { align-self: center; }
   .gl-leg-name { white-space: normal; }
 }
+
+/* v0.20.1 Finance › The bank (report bmwb9xd836zep): one aligned list; a row = icon, name + plain line, number, chevron;
+   details on tap. Same rhythm as At a glance (thin dividers, tabular numbers on the right). */
+.fin-bank .fb-body { display: flex; flex-direction: column; gap: 10px; }
+.fb-list { display: flex; flex-direction: column; }
+.fb-row { border-top: 1px solid rgba(var(--line-rgb), 0.12); }
+.fb-row:first-child { border-top: 0; }
+.fb-line { display: flex; align-items: center; gap: 10px; }
+.fb-tap { flex: 1; min-width: 0; display: grid; grid-template-columns: 22px minmax(0, 1fr) auto 16px; gap: 12px; align-items: center;
+  min-height: 52px; padding: 8px 0; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.fb-ico svg { width: 18px; height: 18px; color: var(--accent); display: block; }
+.fb-name { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.fb-name b { font-weight: 600; font-size: 14px; }
+.fb-name .small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fb-val { font-weight: 600; font-size: 15px; text-align: right; white-space: nowrap; }
+.fb-val.dim { color: var(--text-3); font-weight: 500; }
+.fb-val.good { color: var(--good); }
+.fb-val.warn { color: var(--warn); }
+.fb-val.bad { color: var(--bad); }
+.fb-chev { width: 16px; height: 16px; color: var(--text-3); }
+.fb-act { flex-shrink: 0; }
+.fb-detail { display: flex; flex-direction: column; gap: 8px; padding: 0 28px 14px 34px; line-height: 1.45; color: var(--text-2); }
+.fb-detail p { margin: 0; }
+.fb-terms { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 3px; }
+.fb-terms .bad { color: var(--bad); }
+.fb-terms .warn { color: var(--warn); }
+.fb-op-l { min-width: 48px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; }
+.fb-loan { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid rgba(var(--line-rgb), 0.08); }
+.fb-loan:first-child { border-top: 0; padding-top: 0; }
+.fb-loan-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; color: var(--text); }
+.fb-loan-v { margin-left: auto; }
+.fb-status.good { color: var(--good); }
+@media (max-width: 699.98px), (max-height: 499.98px) {
+  .fb-tap { gap: 10px; min-height: 48px; }
+  .fb-detail { padding: 0 0 12px 32px; }
+}
