@@ -432,7 +432,7 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
       break;
     }
   }
-  const other = otherTrip(g, c, p, segs[0].start, segs[segs.length - 1].end, existing, leaving, also, guest);
+  const other = otherTrip(g, c, p, segs[0].start, segs[segs.length - 1].end, existing, leaving, also, guest, segs);
   if (other) issues.push({ code: 'overlap', level: 'illegal', text: `On another ${other.tour ? 'tour' : 'trip'} until ${fmtDay(other.end)}`, dutyId: first.id });
   issues.push(...statusIssues(c, segs[0].start, segs[segs.length - 1].end, typeOf(typeIdOf(g, p)).family, duties));
   // v0.9 new work on a planned day off (UPDATE-0.9.md §R.3): the roster never takes one; a player change confirms it.
@@ -458,6 +458,14 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
     // duty once the crew has reported (tight); before report the crew is re-planned like any other limit (v0.9 fix:
     // the 168 h is never planned past).
     for (const i of ftl) if (i.code === 'recovery' && i.level === 'illegal' && i.dutyId && (g.duties[i.dutyId]?.report ?? Infinity) <= g.now) i.level = 'tight';
+    // Crew alarm round (Nov 2026, the player's EW6000): the rest before a LATER trip's work (its ticket out, its duty) is
+    // that trip's problem: its own re-check flags its seat and the roster re-crews it ("only the earlier pairing wins").
+    // It read as this duty's: "Beatriz Ribeiro is short of rest" on EW6000, whose own rest before was 18:50.
+    for (const i of ftl) {
+      if (i.next === undefined || i.level !== 'illegal' || !i.next) continue;
+      const q = g.pairings[g.duties[i.next]?.pairingId ?? ''];
+      if (q && q.id !== p.id && (q.start > p.start || (q.start === p.start && q.id > p.id))) i.level = 'legal';
+    }
   }
   // v0.12.1 a later trip's ticket out, not flown yet, from where the crew are now: this trip takes them elsewhere, so that
   // ticket is bought again from where they will be (S1027: a rested captain in Goma refused for "Lisbon, not Goma",
@@ -627,7 +635,7 @@ function nextFrom(segs: Seg[], t: Minute): string {
  * off (manual swap), which no longer counts. `also`: trips c was seated on in this roster run (not in the index yet).
  * `guest`: c is (or would be) a guest on p.
  */
-export function otherTrip(g: GameState, c: CrewMember, p: Pairing, from: Minute, to: Minute, existing: boolean, leaving?: string, also?: Pairing[], guest = guestOn(p, c.id)): Pairing | null {
+export function otherTrip(g: GameState, c: CrewMember, p: Pairing, from: Minute, to: Minute, existing: boolean, leaving?: string, also?: Pairing[], guest = guestOn(p, c.id), own?: readonly Seg[]): Pairing | null {
   const held = crewIx(g).pairingsOf.get(c.id) ?? [];
   const list = also?.length ? [...held, ...also.filter((x) => !held.includes(x))] : held;
   const member = !!p.tour && !guest;
@@ -640,8 +648,16 @@ export function otherTrip(g: GameState, c: CrewMember, p: Pairing, from: Minute,
     // Re-checking a held seat: only the earlier pairing wins (the later one is flagged and re-rostered).
     if (existing && (q.start > p.start || (q.start === p.start && q.id > p.id))) continue;
     const open = q.status === 'done' ? [] : openDuties(g, q);
-    if (dutyClash(open, from, to) >= 0) return q;
+    // Crew alarm round (Nov 2026, the player's XY3060 and U27060): with the plan's own work at hand (`own`: its tickets
+    // and duties), another trip's duty clashes only with that work, never with the gap between a ticket out and the
+    // first duty (Rui Ribeiro flew out the day before, worked a guest duty of the same tour on the way, then this one:
+    // "On another tour until 18 Jul", while every rest and place held). The timeline (evalSegs) judges the gaps.
+    if (own?.length ? own.some((s) => s.kind !== 'log' && s.kind !== 'sby' && dutyClash(open, s.start, s.end) >= 0) : dutyClash(open, from, to) >= 0) return q;
     if (qGuest) continue;
+    // Crew alarm round (Nov 2026, the player's FR2040): a held seat is re-checked on real clashes only. The two holds
+    // below are the planner's choices when it seats someone (a set's rotation not known yet, two rotations at once),
+    // not limits: a seat already taken (by the player, here) whose every duty is legal is no crew alarm.
+    if (existing) continue;
     const span = tourSpan(g, q);
     const dep = span && q.deploymentId ? g.deployments[q.deploymentId] : undefined;
     // Crew bug round (the alarm self-check, s0501 AT1002): a finished part of another set's tour at the same station no
