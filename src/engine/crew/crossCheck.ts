@@ -291,7 +291,8 @@ export function crossCheck(g: GameState, flightId: string, kind?: AlarmKind): Cr
         if (gc && plan && !acceptable(g, plan)) {
           const why = rootReason(g, plan.issues, gc, p0);
           planner = why ? `${why.code}: ${why.text}` : 'refused';
-          if (why && !['busy', 'place', 'rest', 'fdp'].includes(why.code)) unsure.push(`the planner's rule: ${why.text}`);
+          // (The rest rules after a late finish or a time-zone change are not read here either.)
+          if (why && (!['busy', 'place', 'rest', 'fdp'].includes(why.code) || /time zones|local night/.test(why.text))) unsure.push(`the planner's rule: ${why.text}`);
         }
         return {
           seat: { role: seat.role, crewId: c.id, name: nameOf(c), at, out: out ? `${rideText(out)}${sameDay ? ' (same day)' : ' (rests there first)'}` : '', back, unsure, planner },
