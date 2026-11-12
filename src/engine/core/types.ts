@@ -918,6 +918,10 @@ export interface Flight {
   crewAlert?: 'amber' | 'red';
   /** Alarm self-check: the evidence the last confirmed crew alarm on this flight was checked with ("Checked ✓"). */
   crewChecked?: string[];
+  /** v0.22.1 an empty leg short of crew: when the wait for its crew was last looked for (crew/control.ts waitForCrew; again every 6 h). */
+  waitTried?: Minute;
+  /** v0.22.1 an empty leg re-timed to wait for its crew: its departure before the first wait (it never waits more than a day and a half past it). */
+  waitFrom?: Minute;
   /** Crew-planning round: the early heads-up (beyond the 48 h amber stage) was given for this leg's trip; once. */
   crewEarly?: true;
   /**
@@ -1228,6 +1232,8 @@ export interface CrewSlot {
     /** v0.14.1 (merge) when it was bought and its notice (taken back with it when given back the same minute); absent on older saves. */
     at?: Minute; msgId?: string;
   };
+  /** v0.22.1 a side trip flown from a tour station between the set's own duties: the station they go back to after it (crew/tours.ts homeOf). Cleared with the seat. */
+  backTo?: string;
 }
 
 /** v0.9 the legal limit a crew member reached (UPDATE-0.9.md §T.1). */
@@ -1491,6 +1497,23 @@ export interface SelfCheckRecord {
   evidence: string[];
 }
 
+/**
+ * v0.22.1 one crew alarm that reached the player (confirmed by the self-check): kept until the UI files it, quietly, into
+ * Bug reports with a snapshot, so every alarm can be cross-checked later (scripts/crewcheck.ts).
+ */
+export interface CrewAlarmRecord {
+  t: Minute;
+  kind: 'short' | 'hours' | 'early' | 'takenOff' | 'rest';
+  flightId: string;
+  no: string;
+  /** 'JED–LGW 4 May 10:15'. */
+  leg: string;
+  /** The alarm's title as the Inbox shows it. */
+  title: string;
+  /** The planner's evidence (the self-check's "Checked ✓" lines). */
+  evidence: string[];
+}
+
 export interface SelfCheckState {
   confirmed: number;
   withheld: number;
@@ -1498,6 +1521,8 @@ export interface SelfCheckState {
   log: SelfCheckRecord[];
   /** Withheld ones still to be filed into Bug reports by the UI (takeSelfCheckRecords). */
   pending: SelfCheckRecord[];
+  /** v0.22.1 confirmed alarms still to be filed into Bug reports by the UI (takeCrewAlarmRecords); at most 40 wait. */
+  alarms?: CrewAlarmRecord[];
 }
 
 export interface DecisionOption {
@@ -1557,7 +1582,9 @@ export type LedgerCat =
   /** v0.19 scheduled routes (engine/network, UPDATE-0.19.md §N.1): revenue lines. */
   | 'ticketRevenue' | 'cargoRevenue' | 'ancillaryRevenue'
   /** v0.19 scheduled routes: cost lines. */
-  | 'handling' | 'catering' | 'paxServices' | 'navCharges' | 'distribution' | 'marketing' | 'paxComp' | 'routeSetup';
+  | 'handling' | 'catering' | 'paxServices' | 'navCharges' | 'distribution' | 'marketing' | 'paxComp' | 'routeSetup'
+  /** v0.22.1 money given back for a game error (crew/planRefund.ts: the crew-planning error behind CVE166); revenue, a one-off. */
+  | 'refund';
 
 export interface MonthStatement {
   month: MonthKey;
@@ -1783,6 +1810,12 @@ export interface Stats {
   bodyAsked?: boolean;
   /** v0.16.4 open narrowbody wet asks (an A320-size base, cover, capacity lease, sub-charter) given body 'narrow' once on load. */
   narrowAsked?: boolean;
+  /** v0.22.1 empty legs re-timed to wait for their crew (crew/control.ts waitForCrew). */
+  emptyWaits?: number;
+  /** v0.22.1 flights marked short of crew by an older build were rostered again once on load (crew/control.ts redoShortOnLoad). */
+  sideTripRedo?: boolean;
+  /** v0.22.1 the one-off refund for the crew-planning error (crew/planRefund.ts): the amount given back (0: nothing to refund); absent on an older save until it loads. */
+  planRefund?: number;
   /** v0.16.4 aircraft told stuck away from base (awayIdle card), with when that stay began (told once a stay). */
   awayTold?: Record<string, Minute>;
   /** Peak-staffing round: busy-month gaps already told in the Inbox ('<month key>|<family>|<role>'; past months pruned). */

@@ -16,6 +16,25 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.22.1',
+    name: 'Crew alarms you can check',
+    features: [
+      'Every crew alarm is now kept, quietly, in Menu › Bug reports under "Crew alarms", with the game as it stood at that minute. Export sends them along, so each one can be checked afterwards: was the alarm right?',
+      'A ferry flight with no pilots simply waits. The game moves it to the first time pilots can be there and tells you in the Inbox: no alarm, no pause, no penalty. It is a problem only when the aircraft would miss its next job or a check; the card then names it.',
+    ],
+    improvements: [
+      'Finance: approvals and audits have their own slice, and so have bank fees and interest. War-risk cover sits with the insurance.',
+      'Bug reports: your own reports stay on top; the crew alarms are folded into one line under them.',
+    ],
+    fixes: [
+      'Crew staying at a station can fly another flight from there between their own duties and go back after it. Before, the game called them busy for their whole stay and raised "no crew" alarms with crew sitting right there (CVE166 at Jeddah).',
+      'A flight that error left without crew is crewed when you load your game.',
+      'If that error cost you money in the game you load, you get it back once: sub-charter costs and compensation, with the reliability and the client\'s relation. Look for "Refund: crew planning error" in the Inbox and in Finance.',
+      'After annual leave nobody is flown out days early to a tour that has not begun, only to fly home again the same day (Pedro Sousa: Lisbon to New York and back).',
+      'A dangerous goods application no longer shows under Office & sales.',
+    ],
+  },
+  {
     version: 'v0.22',
     name: 'Cleaner screens',
     features: [

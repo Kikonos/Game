@@ -32,7 +32,9 @@ export const REVENUE_CATS: readonly LedgerCat[] = ['acmiRevenue', 'charterRevenu
   // v0.16 interest on spare cash (engine/finance).
   'interestIncome',
   // v0.19 scheduled routes (engine/network): tickets, cargo and mail, ancillaries.
-  'ticketRevenue', 'cargoRevenue', 'ancillaryRevenue'];
+  'ticketRevenue', 'cargoRevenue', 'ancillaryRevenue',
+  // v0.22.1 money given back for a game error (crew/planRefund.ts).
+  'refund'];
 
 /** v0.12.1 the statement's cost lines, in the Finance screen's order. */
 export const COST_CATS: readonly LedgerCat[] = [

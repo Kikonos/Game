@@ -257,6 +257,8 @@ export const LEDGER_LABEL: Record<LedgerCat, string> = {
   ticketRevenue: 'Passenger tickets', cargoRevenue: 'Cargo and mail', ancillaryRevenue: 'Bags, seats and onboard',
   handling: 'Ground handling', catering: 'Catering', paxServices: 'Passenger services', navCharges: 'Navigation charges',
   distribution: 'Distribution (GDS, BSP, cards)', marketing: 'Marketing and research', paxComp: 'Passenger compensation', routeSetup: 'Route set-up and stations',
+  // v0.22.1
+  refund: 'Refund: crew planning error',
 };
 
 /**

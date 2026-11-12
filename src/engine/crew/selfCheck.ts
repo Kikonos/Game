@@ -15,7 +15,7 @@ import { cabinMinimum, isPilot, reportMinutes, typeOf } from '../core/perf';
 import { isolatePauses } from '../core/pause';
 import { DAY, fmtDateTime } from '../core/time';
 import { deadheadFlights } from '../core/entities';
-import type { CrewMember, Duty, Flight, GameState, Minute, OohLimit, Pairing, SelfCheckRecord, SelfCheckState } from '../core/types';
+import type { CrewAlarmRecord, CrewMember, Duty, Flight, GameState, Minute, OohLimit, Pairing, SelfCheckRecord, SelfCheckState } from '../core/types';
 import { BAL } from '../core/balance';
 import { cabinInflightRest, offsetAt } from './rules';
 import { restOf } from './restPlan';
@@ -407,6 +407,15 @@ export function noteVerdict(g: GameState, kind: AlarmKind, f: Flight | undefined
   const s = selfCheckState(g);
   if (v.confirmed) {
     s.confirmed++;
+    // v0.22.1 every alarm that reaches the player is kept for the Bug reports (filed quietly by the UI) and for the
+    // cross-check (scripts/crewcheck.ts; the bot reads them through the spy).
+    if (f) {
+      const rec: CrewAlarmRecord = { t: g.now, kind, flightId: f.id, no: f.no, leg: `${f.from}–${f.to} ${fmtDateTime(f.std + (f.delay ?? 0))}`, title, evidence: v.evidence.slice(0, 8) };
+      const q = (s.alarms ??= []);
+      q.push(rec);
+      if (q.length > 40) q.splice(0, q.length - 40);
+      alarmSpy?.(g, rec);
+    }
     return;
   }
   s.withheld++;
@@ -415,6 +424,21 @@ export function noteVerdict(g: GameState, kind: AlarmKind, f: Flight | undefined
   if (s.log.length > 20) s.log.length = 20;
   s.pending.push(rec);
   if (s.pending.length > 20) s.pending.splice(0, s.pending.length - 20);
+}
+
+let alarmSpy: ((g: GameState, rec: CrewAlarmRecord) => void) | null = null;
+/** v0.22.1 a tool (the bot's cross-check) watches every confirmed alarm as it fires. Never saved, never read by the engine. */
+export function setAlarmSpy(f: typeof alarmSpy): void {
+  alarmSpy = f;
+}
+
+/** v0.22.1 the UI takes the confirmed alarms still to be filed into Bug reports (and clears them). */
+export function takeCrewAlarmRecords(g: GameState): CrewAlarmRecord[] {
+  const s = g.selfCheck;
+  if (!s?.alarms?.length) return [];
+  const out = s.alarms;
+  s.alarms = [];
+  return out;
 }
 
 /** The UI takes the records still to be filed into Bug reports (and clears them). */
