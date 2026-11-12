@@ -7,6 +7,8 @@ import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
 import { createGame } from '../newGame';
 import { advanceTo } from '../sim';
+import { deserialize, serialize } from '../save';
+import { cabinFor } from './model';
 import { cabinQuote, devLaunchRoute, routeCabin, setRouteCabin, setSeries } from '.';
 
 const newGame = (seed = 13) => createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed });
@@ -127,6 +129,58 @@ describe('v0.23.1 a route cabin: business and economy, or economy only', () => {
       expect(s.capJ).toBe(0);
       expect(s.bookedJ).toBe(0);
     }
+  });
+
+  it('final debug round: a departure another operator flies keeps its cabin and is not refunded; the quote counts the refund and the cash after', () => {
+    const { g, id } = twoClassRoute();
+    const r = g.network!.routes[id];
+    const sub = live(g, id).find((x) => x.sectors.some((s) => s.bookedJ > 0))!;
+    sub.operatedBy = 'rv1';
+    const subJ = JSON.stringify(sub.sectors.map((s) => [s.capJ, s.capY, s.bookedJ, s.bookedY, s.sold]));
+    const q = cabinQuote(g, id, 'all-economy')!;
+    expect(q.departures).toBe(live(g, id).length - 1);
+    expect(q.cashAfter).toBe(Math.round(g.company.cash - q.refund));
+    const cash0 = g.company.cash;
+    expect(setRouteCabin(g, id, 'all-economy')).toBeNull();
+    expect(cash0 - g.company.cash).toBe(q.refund);
+    expect(JSON.stringify(sub.sectors.map((s) => [s.capJ, s.capY, s.bookedJ, s.bookedY, s.sold]))).toBe(subJ);
+    expect(routeCabin(g, r)).toBe('all-economy');
+  });
+
+  it('final debug round: a save whose timetable sells economy only but whose departures still sell business is switched at load', () => {
+    const { g, id } = twoClassRoute();
+    const r = g.network!.routes[id];
+    // (Before v0.23.1 the timetable's cabin changed alone.)
+    for (const s of r.series) s.layout = 'all-economy';
+    expect(routeCabin(g, r)).toBe('two-class');
+    const h = deserialize(serialize(g));
+    const r2 = h.network!.routes[id];
+    expect(routeCabin(h, r2)).toBe('all-economy');
+    for (const x of live(h, id)) for (const s of x.sectors) expect(s.capJ + s.bookedJ).toBe(0);
+    expect(h.company.cash).toBeLessThan(g.company.cash);
+  });
+
+  it('final debug round: economy only on an aircraft with business seats boards economy into every seat (no denied boarding)', () => {
+    const g = newGame();
+    const ac = biggest(g);
+    const two = cabinFor(ac.typeId, 'two-class');
+    ac.cabin = { ...ac.cabin, j: two.j, w: 0, y: two.y, total: two.total, label: two.label, layout: 'two-class' };
+    const id = devLaunchRoute(g, 'LIS-OXB', ac.id);
+    const r = g.network!.routes[id];
+    run(g, 3);
+    expect(setRouteCabin(g, id, 'all-economy')).toBeNull();
+    const rot = r.rotations.find((x) => x.dep > g.now + DAY && x.sectors.every((s) => !s.accrued) && x.aircraftId === ac.id)!;
+    for (const s of rot.sectors) {
+      expect(s.capY).toBe(ac.cabin.total);
+      const add = s.capY - s.bookedY;
+      s.bookedY = s.capY;
+      s.sold = (s.sold ?? 0) + add * 150;
+      r.unearned += add * 150;
+    }
+    const end = rot.dep + 2 * DAY;
+    while (g.now < end) advanceTo(g, Math.min(end, g.now + 120), new Set());
+    expect(rot.sectors.every((s) => !s.denied)).toBe(true);
+    expect(rot.sectors[0].flownY).toBeGreaterThan(ac.cabin.y);
   });
 
   it('a partner route: the partner sells the seats (no quote, refused)', () => {

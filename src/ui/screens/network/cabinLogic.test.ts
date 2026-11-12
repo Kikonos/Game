@@ -29,4 +29,14 @@ describe('v0.23.1 the cabin comparison', () => {
     // Without downgrades on either side the row is left out.
     expect(cabinRows({ from: side({ downgrades: 0 }), to: b }, 'week').some((r) => r.k.includes('downgrades'))).toBe(false);
   });
+
+  it('final debug round: the refunds paid now are a row of their own and the first year counts them', () => {
+    const a = side({ downgrades: 0, result: 2_376_000 });
+    const b = side({ cabin: 'all-economy', seatsJ: 0, paxJ: 0, downgrades: 0, result: 2_489_000 });
+    const rows = cabinRows({ from: a, to: b, refund: 580_000 }, 'month');
+    expect(rows.find((r) => r.k === 'Profit / loss')).toMatchObject({ d: '+$9.4K', total: false });
+    expect(rows.find((r) => r.k === 'Refunds now (once)')).toMatchObject({ b: '−$580K', tone: 'bad' });
+    expect(rows.at(-1)).toMatchObject({ k: 'First 12 months, with the refunds', d: '−$467K', tone: 'bad', total: true });
+    expect(cabinRows({ from: a, to: b, refund: 0 }, 'month').some((r) => r.k.startsWith('Refunds'))).toBe(false);
+  });
 });

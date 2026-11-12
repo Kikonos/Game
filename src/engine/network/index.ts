@@ -16,6 +16,7 @@ import { fadeReputation } from './reputation';
 import { onSectorArr, onSectorDep, pnlOf } from './revenue';
 import { dailySales } from './sales';
 import { materialise } from './timetable';
+import { repairRouteCabins } from './cabin';
 import type { NetworkState, Route, Rotation, SectorLoad } from './types';
 import { netHooks } from '../core/netHooks';
 import { marketOfRoute, usd } from './model';
@@ -55,6 +56,7 @@ export function loadNetwork(g: GameState): void {
     r.pnl ??= {};
     r.contractIds ??= [];
   }
+  repairRouteCabins(g);
 }
 
 /** Bumps the network revision (the cards' and the UI's cache key). */

@@ -5,6 +5,7 @@
 // The change takes effect at once on every departure on sale that has not left: business sales close (or open), and
 // passengers already booked in business are moved to economy now, told in advance, with the EU261 Art. 10 refund
 // (30 / 50 / 75 % of the fare by distance) but no voucher and no dent in business bookings (it was not on the day).
+// A departure another operator flies for us keeps its cabin (the rival's aircraft is unchanged).
 
 import type { CabinLayout } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
@@ -57,11 +58,15 @@ export interface CabinQuote {
   noJSeats: boolean;
   /** The type the comparison flies. */
   typeId: string;
+  /** Cash once the refunds are paid (USD). */
+  cashAfter: number;
+  /** Seats the departures on sale get in the new cabin (their own aircraft's), fewest and most; absent with none. */
+  liveSeats?: { min: number; max: number };
 }
 
 /** The cabin a route sells now: business on any departure on sale (else the timetable's). Pure. */
 export function routeCabin(g: GameState, r: Route): RouteCabin {
-  const live = liveRotations(g, r);
+  const live = ownLive(g, r);
   if (live.length) return live.some((rot) => rot.sectors.some((s) => s.capJ > 0)) ? 'two-class' : 'all-economy';
   return (r.series[0]?.layout ?? r.plan?.layout) === 'all-economy' ? 'all-economy' : 'two-class';
 }
@@ -70,6 +75,14 @@ export function routeCabin(g: GameState, r: Route): RouteCabin {
 function liveRotations(g: GameState, r: Route): Rotation[] {
   return r.rotations.filter((rot) => (rot.status === 'planned' || rot.status === 'flights') && rot.dep > g.now
     && !rot.sectors.some((s) => s.accrued || (s.flightId && g.flights[s.flightId] && g.flights[s.flightId].status !== 'scheduled')));
+}
+
+/**
+ * Final debug round: the departures on sale we fly ourselves. One another operator flies for us (sub-charter) keeps
+ * its own cabin: its business passengers fly business, so a change neither re-seats nor refunds them.
+ */
+function ownLive(g: GameState, r: Route): Rotation[] {
+  return liveRotations(g, r).filter((rot) => !rot.operatedBy);
 }
 
 /** The aircraft that fly it: the series' pinned tail, else the fleet's aircraft of its type. */
@@ -147,15 +160,20 @@ export function cabinQuote(g: GameState, routeId: string, to: RouteCabin): Cabin
   const noJ = noJOnBoard(g, r);
   const from = sideOf(g, r, fromCabin, project(g, r, pf, start, x), noJ);
   const toSide = sideOf(g, r, to, project(g, r, pt, start, x), noJ);
-  const live = liveRotations(g, r);
+  const live = ownLive(g, r);
   let bookedJ = 0;
   let refund = 0;
   if (to === 'all-economy') for (const rot of live) {
     const q = refundOf(g, r, rot);
     bookedJ += q.n;
-    refund += q.usd;
+    // (As setRouteCabin pays it: never more than the ticket cash the departure holds.)
+    refund += Math.min(q.usd, Math.round(rot.sectors.reduce((a, x) => a + (x.sold ?? 0), 0)));
   }
-  return { from, to: toSide, departures: live.length, ...(live.length ? { first: Math.min(...live.map((x) => x.dep)) } : {}), bookedJ, refund, noJSeats: noJ, typeId: pf.typeId };
+  const seats = live.map((rot) => { const x = seatsFor(g, r, rot, to); return x.j + x.y; });
+  return {
+    from, to: toSide, departures: live.length, ...(live.length ? { first: Math.min(...live.map((x) => x.dep)) } : {}), bookedJ, refund, noJSeats: noJ, typeId: pf.typeId,
+    cashAfter: Math.round(g.company.cash - refund), ...(seats.length ? { liveSeats: { min: Math.min(...seats), max: Math.max(...seats) } } : {}),
+  };
 }
 
 /** Seats a departure sells in a cabin: its aircraft's own when it has one (business seats sold as economy), else the type's. */
@@ -178,7 +196,7 @@ export function setRouteCabin(g: GameState, routeId: string, to: RouteCabin): st
   if (!r) return 'This route no longer exists.';
   if (r.model === 'partner') return 'The partner sells the seats on this route.';
   // Already so (seats, bookings and the timetable): nothing to do.
-  const pending = liveRotations(g, r).some((rot) => rot.sectors.some((s) => (to === 'all-economy' ? s.capJ > 0 || s.bookedJ > 0 : s.capJ === 0)));
+  const pending = ownLive(g, r).some((rot) => rot.sectors.some((s) => (to === 'all-economy' ? s.capJ > 0 || s.bookedJ > 0 : s.capJ === 0)));
   if (!pending && r.series.every((s) => s.layout === to)) return null;
   const layout: CabinLayout = to;
   for (const s of r.series) s.layout = layout;
@@ -186,7 +204,7 @@ export function setRouteCabin(g: GameState, routeId: string, to: RouteCabin): st
   let moved = 0;
   let refunded = 0;
   let deps = 0;
-  for (const rot of liveRotations(g, r)) {
+  for (const rot of ownLive(g, r)) {
     deps++;
     if (to === 'all-economy') {
       const q = refundOf(g, r, rot);
@@ -228,4 +246,16 @@ export function setRouteCabin(g: GameState, routeId: string, to: RouteCabin): st
     pushRouteNote(g, r, 'info', `${name}: business class on sale`, `${deps ? `${deps} departure${deps === 1 ? '' : 's'} on sale now sell business seats too.` : 'New departures sell business seats too.'}${noJOnBoard(g, r) ? ' The aircraft flying it has no business seats: business passengers are moved to economy on the day.' : ''}`, null, 'silent');
   }
   return null;
+}
+
+/**
+ * Final debug round, at load: a route whose timetable sells economy only but whose departures on sale still sell
+ * business (the timetable changed before v0.23.1 re-filed them; the player's Lisbon–Bissau) is switched for real now,
+ * so the Cabin row, the route's header and the departures agree and no business passenger is downgraded on the day.
+ */
+export function repairRouteCabins(g: GameState): void {
+  for (const r of Object.values(g.network?.routes ?? {})) {
+    if (r.status === 'closed' || r.model === 'partner' || !r.series.length || !r.series.every((s) => s.layout === 'all-economy')) continue;
+    if (ownLive(g, r).some((rot) => rot.sectors.some((s) => s.capJ > 0))) setRouteCabin(g, r.id, 'all-economy');
+  }
 }

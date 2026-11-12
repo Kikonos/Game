@@ -12,7 +12,7 @@ export function perPeriod(v: number, side: Pick<CabinSide, 'flights'>, per: Per)
 }
 
 /** The rows of the comparison: label, now, after, the change (formatted). Pure. */
-export function cabinRows(q: Pick<CabinQuote, 'from' | 'to'>, per: Per): { k: string; a: string; b: string; d: string; tone?: 'good' | 'bad'; total?: boolean }[] {
+export function cabinRows(q: Pick<CabinQuote, 'from' | 'to'> & Partial<Pick<CabinQuote, 'refund'>>, per: Per): { k: string; a: string; b: string; d: string; tone?: 'good' | 'bad'; total?: boolean }[] {
   const { from: a, to: b } = q;
   const signed = (n: number, f: (x: number) => string) => (Math.round(n) === 0 ? '—' : `${n > 0 ? '+' : '−'}${f(Math.abs(n))}`);
   const pp = (x: number) => `${Math.round(x * 100)} %`;
@@ -28,7 +28,15 @@ export function cabinRows(q: Pick<CabinQuote, 'from' | 'to'>, per: Per): { k: st
   rows.push({ k: 'Costs', a: money(m(a.cost, a)), b: money(m(b.cost, b)), d: signed(m(b.cost, b) - m(a.cost, a), money) });
   const ra = m(a.result, a);
   const rb = m(b.result, b);
-  rows.push({ k: 'Profit / loss', a: moneyDelta(Math.round(ra)), b: moneyDelta(Math.round(rb)), d: signed(rb - ra, money), tone: rb - ra >= 0 ? 'good' : 'bad', total: true });
+  const refund = q.refund ?? 0;
+  rows.push({ k: 'Profit / loss', a: moneyDelta(Math.round(ra)), b: moneyDelta(Math.round(rb)), d: signed(rb - ra, money), tone: rb - ra >= 0 ? 'good' : 'bad', total: !refund });
+  // Final debug round: the refunds paid now are a one-off cost of the switch, so the first year is shown with them.
+  if (refund > 0) {
+    const ya = a.result;
+    const yb = b.result - refund;
+    rows.push({ k: 'Refunds now (once)', a: '—', b: `−${money(refund)}`, d: `−${money(refund)}`, tone: 'bad' });
+    rows.push({ k: 'First 12 months, with the refunds', a: moneyDelta(Math.round(ya)), b: moneyDelta(Math.round(yb)), d: signed(yb - ya, money), tone: yb - ya >= 0 ? 'good' : 'bad', total: true });
+  }
   return rows;
 }
 

@@ -59,6 +59,8 @@ function Compare({ g, r, to, onDone }: { g: GameState; r: Route; to: RouteCabin;
       <div className="col gap-4 small">
         <span>{q.departures ? `Takes effect now on ${q.departures} departure${q.departures === 1 ? '' : 's'} on sale${q.first ? `, the first ${fmtDay(q.first)}` : ''}.` : 'Takes effect now; new departures sell this way.'}</span>
         {q.bookedJ > 0 && <span className="warn">{int(q.bookedJ)} business passenger{q.bookedJ === 1 ? '' : 's'} already booked move to economy now: {money(q.refund)} refunded.</span>}
+        {q.refund > 0 && <span className={q.cashAfter < 0 ? 'bad' : 'muted'}>Cash after the refunds: {money(q.cashAfter)}{q.cashAfter < 0 ? ', below zero' : ''}.</span>}
+        {q.liveSeats && (q.liveSeats.min !== q.to.seats || q.liveSeats.max !== q.to.seats) && <span className="muted">Figures for a {typeName} with {int(q.to.seats)} seats. The departures on sale keep their own aircraft: {q.liveSeats.min === q.liveSeats.max ? int(q.liveSeats.min) : `${int(q.liveSeats.min)}–${int(q.liveSeats.max)}`} seats.</span>}
         {to === 'two-class' && q.noJSeats && <span className="warn">The {typeName} has no business seats: business passengers are moved down on the day.</span>}
       </div>
       <div className="row gap-8 wrap">

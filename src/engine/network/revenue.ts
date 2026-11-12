@@ -93,6 +93,15 @@ export function partnerFee(g: GameState, route: Route, s: SectorLoad, f: Flight,
 }
 
 /**
+ * Final debug round: economy seats a sector boards. Sold as economy only (no business on sale), every seat on board is
+ * an economy seat, business ones included; else the aircraft's economy cabin (or the seats on sale with no aircraft).
+ */
+function boardY(ac: { cabin: { y: number; total: number } } | undefined, s: SectorLoad): number {
+  if (!ac) return s.capY;
+  return s.capJ === 0 ? ac.cabin.total : ac.cabin.y;
+}
+
+/**
  * 'flight.dep' of a route sector (ops departed it): product check, flown passengers, revenue accrued. Once per
  * sector (a sub-chartered one comes here from its arrival).
  */
@@ -112,7 +121,7 @@ export function onSectorDep(g: GameState, f: Flight, rot: Rotation, idx: number)
   if (head) {
     // §H.3 the cabin flown against what was sold.
     const capJ = ac ? ac.cabin.j + ac.cabin.w : s.capJ;
-    const capY = ac ? ac.cabin.y : s.capY;
+    const capY = boardY(ac, s);
     const noShowJ = Math.round(s.bookedJ * BAL.v019.sales.noShow * (0.6 + 0.8 * netRoll(g, `show:${rot.id}:${dir}:J`)));
     const noShowY = Math.round(s.bookedY * BAL.v019.sales.noShow * (0.6 + 0.8 * netRoll(g, `show:${rot.id}:${dir}:Y`)));
     let j = s.bookedJ - noShowJ;
@@ -189,7 +198,7 @@ export function onSectorDep(g: GameState, f: Flight, rot: Rotation, idx: number)
     const lj = Math.max(0, (s.localJ ?? 0) - ns(s.localJ ?? 0, 'J'));
     const ly = Math.max(0, (s.localY ?? 0) - ns(s.localY ?? 0, 'Y'));
     const capJ = ac ? ac.cabin.j + ac.cabin.w : s.capJ;
-    const capY = ac ? ac.cabin.y : s.capY;
+    const capY = boardY(ac, s);
     const thJ = h.thruJ ?? Math.max(0, (h.flownJ ?? 0) - (h.localJ ?? 0));
     const thY = h.thruY ?? Math.max(0, (h.flownY ?? 0) - (h.localY ?? 0));
     s.flownJ = Math.min(capJ, thJ + lj);
