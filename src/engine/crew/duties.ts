@@ -17,7 +17,7 @@ import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
 import { farBase, farTourBase, patternSets, reserveCarrier, reserveRoles } from './farBase';
 import { bestSlip } from './slip';
 import { dropStandby } from './standby';
-import { aboard, cabinEarly, cabinEarlyOf, crewCount, crewIx, ctxOf, dhBlock, dutyBlock, dutyFlights, dutySegs, onBlocks, planHome, segsOf, touchCrew } from './timeline';
+import { aboard, cabinEarly, cabinEarlyOf, crewCount, crewIx, ctxOf, dhBlock, dutyBlock, dutyFlights, dutySegs, onBlocks, outExtra, planHome, segsOf, touchCrew } from './timeline';
 import { mergeSegs, openDuties } from './check';
 import { homeOf } from './tours';
 import { isSeatRest, pilotsOnlyTrip, planRest, restOf, restWords, type RestLeg, type RestPlan } from './restPlan';
@@ -1152,7 +1152,7 @@ function ownTrailOk(g: GameState, p: Pairing, c: CrewMember, upto: Duty): boolea
     if (f && f.status !== 'cancelled' && aboard(f, c.id) && f.sta <= first.report) out = f;
   }
   const homeAt = homeOf(g, c, p);
-  const home = last.restAt !== homeAt ? planHome(last, homeAt, cabinEarly(g, p)) : null;
+  const home = last.restAt !== homeAt ? planHome(last, homeAt, cabinEarly(g, p) + outExtra(out, duties)) : null;
   const own: Seg[] = [];
   for (const d of duties) own.push(...dutySegs(g, c, p, d, d === first ? out : null, d === last ? home : null, true));
   const before = segsOf(g, c, p.id).filter((s) => s.end <= first.report);

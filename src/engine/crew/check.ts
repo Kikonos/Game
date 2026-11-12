@@ -8,7 +8,7 @@ import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } f
 import { dayFloorIssue, eveFloorIssue, monthFloorIssue, offIssue, offMovable } from './dayPlan';
 import { evalSegs, EXT_REST, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { flightsRev } from '../core/entities';
-import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outMerges, outTicket, planHome, posSeg, planHomeAfter, planOut, reserveSeat, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
+import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outExtra, outTicket, planHome, posSeg, planHomeAfter, planOut, reserveSeat, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 import { guestOn, homeOf, lastPart, sameTour, tourHomePlan, tourSpan, tourStationFor } from './tours';
 import { dutyClash } from './avail';
 import { leaveBackFor } from './leaveTrips';
@@ -467,16 +467,6 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
   return { level: levelOf(issues), issues, out, home, segs, drop: dropped.length ? dropped : undefined, ...(retick.length ? { retick, retickCost } : {}), ...(leaveBack ? { leaveBack } : {}), ...(backTo ? { backTo } : {}), ...(guest ? { guest: true as const } : {}) };
 }
 
-/**
- * Rotations round: on a one-duty trip whose ticket out joins the duty's day (it lands too close to the report to rest),
- * the day runs from the ticket's check-in: the rest the ticket home waits for is measured from there (planHome's
- * `early`). Before, the ticket home left 11:30 after a 12:30 day and the whole plan read illegal. Pure.
- */
-function outExtra(out: TicketPlan | null, duties: Duty[]): number {
-  if (!out || duties.length !== 1 || out.rideId) return 0;
-  const first = duties[0];
-  return outMerges(out, first.report) ? Math.max(0, first.report - (out.std - BAL.deadheadCheckIn)) : 0;
-}
 
 /**
  * v0.9.1: c's stand-alone ticket (no duty holds it) out of the last duty's rest airport, the first work after that
