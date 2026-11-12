@@ -6,7 +6,7 @@
 import { BAL } from '../core/balance';
 import { inCurfew } from '../core/curfew';
 import { addFlight, liveFlightsOf, nextId, removeFlights, retimeFlight, touchFlights } from '../core/entities';
-import { cashOnly, post } from '../core/ledger';
+import { accrue, cashOnly, post } from '../core/ledger';
 import { maxSectorNm, typeOf } from '../core/perf';
 import { distanceNm } from '../core/geo';
 import { schedule } from '../core/queue';
@@ -264,8 +264,10 @@ export function subcharterRotation(g: GameState, route: Route, rot: Rotation, ri
   }
   rot.operatedBy = rv;
   rot.status = 'flights';
-  post(g, 'subcharter', -cost);
-  noteRouteSub(g, rot.sectors.map((x) => (x.flightId ? g.flights[x.flightId] : undefined)).filter((x): x is Flight => !!x), cost);
+  // (Paid now; the route's share is booked as each sector flies: noteRouteSub.)
+  const pre = noteRouteSub(g, rot.sectors.map((x) => (x.flightId ? g.flights[x.flightId] : undefined)).filter((x): x is Flight => !!x), cost);
+  post(g, 'subcharter', -(cost - pre));
+  cashOnly(g, -pre);
   g.network!.stats.subs++;
   const name = g.rivals.find((r) => r.id === rv)?.name ?? 'another operator';
   pushRouteNote(g, route, 'info', `${name} flies ${fmtDay(rot.dep)} for us`, `Sub-chartered for ${usd(cost)}: the passengers keep their tickets, no penalty.`, null);
@@ -394,6 +396,17 @@ export interface CancelQuote {
   /** Ticket money paid back. */
   refunds: number;
   pax: number;
+  /** Final debug round: another operator flies it for us: its price back (less its fee by notice), and the fee. */
+  subBack?: number;
+  subFee?: number;
+}
+
+/** Final debug round: a sub-chartered rotation cancelled: the rival's price back less its fee by notice (USD). Pure. */
+function subRefund(g: GameState, rot: Rotation): { back: number; fee: number } {
+  if (!rot.operatedBy) return { back: 0, fee: 0 };
+  const paid = rot.sectors.reduce((a, s) => a + (s.accrued || s.voided ? 0 : s.subCost ?? 0), 0);
+  const fee = Math.round(paid * (BAL.v019.pax.change.subCancelFee[noticeBand(g, rot.dep)] ?? 1));
+  return { back: Math.max(0, paid - fee), fee };
 }
 
 /** §H.5 what cancelling a rotation costs (pure). */
@@ -410,7 +423,8 @@ export function quoteCancelRotation(g: GameState, rotId: string): CancelQuote {
   const P = BAL.v019.pax.change;
   const refunds = Math.round(rot.sectors.reduce((a, s) => a + (s.accrued ? 0 : s.sold ?? 0), 0));
   const cost = Math.round(pax * P.cancel[band] + pax * P.reprotect[band] * P.reprotectFare[band]);
-  return { ok: true, cost, refunds, pax };
+  const sub = subRefund(g, rot);
+  return { ok: true, cost, refunds, pax, ...(rot.operatedBy ? { subBack: sub.back, subFee: sub.fee } : {}) };
 }
 
 /** §H.5 cancels one rotation: refunds, re-protection, flights removed. False when refused. */
@@ -427,6 +441,19 @@ export function cancelRotation(g: GameState, rotId: string, why = 'Cancelled by 
     s.sold = 0;
   }
   if (q.cost) post(g, 'paxComp', -q.cost);
+  // Final debug round: another operator was to fly it: its price comes back less its fee (cash), and the statement ends
+  // with the fee alone (a price not yet booked, subPre, books only the fee; one already booked is credited back).
+  if (rot.operatedBy) {
+    const share = BAL.v019.pax.change.subCancelFee[band] ?? 1;
+    for (const s of rot.sectors) {
+      if (s.accrued || s.voided || !s.subCost) continue;
+      const fee = Math.round(s.subCost * share);
+      cashOnly(g, s.subCost - fee);
+      accrue(g, 'subcharter', s.subCost - (s.subPre ?? 0) - fee);
+      delete s.subPre;
+      s.subCost = 0;
+    }
+  }
   const P = BAL.v019.pax.change;
   rot.reprotect = { ours: 0, rival: Math.round(q.pax * P.reprotect[band]), refunded: q.pax - Math.round(q.pax * P.reprotect[band]) };
   const ids = rot.sectors.map((s) => s.flightId).filter((x): x is string => !!x && g.flights[x]?.status === 'scheduled');

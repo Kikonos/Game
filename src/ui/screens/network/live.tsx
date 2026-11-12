@@ -128,7 +128,7 @@ export function confirmCancelRotation(g: GameState, r: Route, rot: Rotation) {
   const days = Math.max(0, Math.round((rot.dep - g.now) / DAY));
   store.openModal({
     kind: 'confirm', danger: true, title: `Cancel ${routeCode(marketOf(r))} on ${fmtDay(rot.dep)}?`, confirm: 'Cancel the rotation',
-    body: `${pax ? `${int(pax)} booked passengers are refunded or rebooked` : 'No one is booked yet'}${q ? `; it costs about ${money(q.cost)}` : ''}${days < 14 ? ` (${days} days' notice: more than with 14 days or more)` : ''}. A cancelled flight counts against the slot rule.`,
+    body: `${pax ? `${int(pax)} booked passengers are refunded or rebooked` : 'No one is booked yet'}${q ? `; it costs about ${money(q.cost)}` : ''}${days < 14 ? ` (${days} days' notice: more than with 14 days or more)` : ''}.${q?.subBack !== undefined ? ` Another operator was to fly it: ${money(q.subBack)} of its price comes back, it keeps ${money(q.subFee ?? 0)}.` : ''} A cancelled flight counts against the slot rule.`,
     onConfirm: () => store.act((gg) => (net.cancel(gg, rot.id) ? { ok: true, msg: 'Rotation cancelled' } : { ok: false, error: 'Could not cancel it' })),
   });
 }

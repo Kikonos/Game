@@ -46,6 +46,8 @@ export const NET_OPS_BAL = {
       reprotect: [0, 0, 0.3, 0.5] as number[],
       reprotectFare: [0, 0, 350, 450] as number[],
       rep: [0, -0.5, -1, -2] as number[],
+      /** Final debug round: a rotation another operator flies for us, cancelled: its fee (share of the price kept) by notice. */
+      subCancelFee: [0.1, 0.25, 0.5, 1] as number[],
     },
     /** EU261 Art. 10 downgrade refund by distance (≤1,500 km, ≤3,500 km, more). */
     downgrade: [0.3, 0.5, 0.75] as number[],

@@ -106,6 +106,8 @@ export interface SectorLoad {
   voided?: true;
   /** What a rival charged to fly this sector for us (USD; counted in the sector's cost at arrival). */
   subCost?: number;
+  /** Final debug round: of `subCost`, paid at hand-over but not yet in the statement (booked when the sector flies). */
+  subPre?: number;
   /** v0.21 a stopover route: the local passengers booked on this sector alone (A–B on the first, B–C on the second; the rest fly through). */
   localJ?: number;
   localY?: number;

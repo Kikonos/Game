@@ -170,18 +170,29 @@ export function routeCancelLoss(g: GameState, f: Flight): number {
   return Math.round((at.s.sold ?? 0) + routeDisruptionCost(g, f, 'cancel', 0));
 }
 
-/** A rival flies route sectors for us: its price is shared over them by block time (the sectors' cost at arrival). */
-export function noteRouteSub(g: GameState, legs: Flight[], cost: number): void {
+/**
+ * A rival flies route sectors for us: its price is shared over them by block time (the sectors' cost at arrival).
+ * Final debug round: that share is paid now but booked in the statement when each sector flies (`subPre`, as ticket
+ * cash is held until then), so the hand-over month shows no cost for flying months later. Returns the route's share
+ * (the caller moves it as cash only and books the rest of the price at once).
+ */
+export function noteRouteSub(g: GameState, legs: Flight[], cost: number): number {
   const route = legs.filter((f) => f.sched);
   const blk = route.reduce((a, f) => a + Math.max(1, f.block), 0);
-  if (!route.length || !cost) return;
+  if (!route.length || !cost) return 0;
   // The legs' share of the whole price (non-route legs in the same hand-over keep theirs).
   const all = legs.reduce((a, f) => a + Math.max(1, f.block), 0);
   const mine = (cost * blk) / Math.max(1, all);
+  let pre = 0;
   for (const f of route) {
     const at = sectorOf(g, f);
-    if (at) at.s.subCost = Math.round((at.s.subCost ?? 0) + (mine * Math.max(1, f.block)) / blk);
+    if (!at) continue;
+    const part = Math.round((mine * Math.max(1, f.block)) / blk);
+    at.s.subCost = (at.s.subCost ?? 0) + part;
+    at.s.subPre = (at.s.subPre ?? 0) + part;
+    pre += part;
   }
+  return Math.min(cost, pre);
 }
 
 /** What a partner reimburses at cost on top of its block-hour fee: fuel, airport charges, handling, catering, navigation. */
