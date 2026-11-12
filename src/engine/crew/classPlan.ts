@@ -51,8 +51,8 @@ export const CLASS_PLAN = {
   /** The smallest class worth running, by stop (a request for fewer people runs as one class all the same). */
   min: { cabin: [8, 6, 4, 3, 2], pilot: [4, 4, 2, 2, 2] } as Record<Group, number[]>,
   stops: 5,
-  /** The price of one class, of one rostered duty moved and of one day waited, in people, by stop. */
-  klass: [10, 7, 5, 3, 1.5],
+  /** By stop, in people: the price of one class (a share of a full class), of one rostered duty moved and of one day waited. */
+  klass: [0.6, 0.45, 0.3, 0.2, 0.1],
   duty: [0.02, 0.1, 0.25, 0.5, 1000],
   wait: [0.06, 0.04, 0.03, 0.02, 0.01],
   maxClasses: 10,
@@ -298,6 +298,10 @@ interface Search {
   lastEnd: Minute;
   weeks: Week[];
   fleets: Map<RatingFamily, { fc: { now: number; changes: FleetChange[] }; per: Partial<Record<Role, number>>; have: Partial<Record<Role, number>> }>;
+  /** Per fleet and rank ('B737:PUR'): the people counted there with the days they are away anyway, and the number its sets need at work. */
+  floors: Map<string, { here: Int16Array; need: number }>;
+  /** Days looked at from `earliest` (the floors' arrays). */
+  nDays: number;
   /** Duties the dry run found nobody for, per person. */
   open: Map<string, Set<string>>;
   banned: Set<string>;
@@ -313,32 +317,74 @@ function inWay(p: Person, start: Minute, len: number): string[] {
 
 const blockedAt = (p: Person, start: Minute, len: number): boolean => p.blocks.some(([a, b]) => a < start + len && b > start - DAY);
 
-/** May this person join a class at `start`: null, or why not (in plain words, for the left-out list). */
-function refuse(s: Search, p: Person, start: Minute, slots: Slot[], extra: string[]): string | null {
+/** What the people in the plan take from their fleets: heads per day, crew-days per forecast week, ratings given up for good. */
+interface Usage { day: Map<string, Int16Array>; week: Map<string, Float64Array>; lost: Map<string, number> }
+
+const newUsage = (): Usage => ({ day: new Map(), week: new Map(), lost: new Map() });
+const copyUsage = (u: Usage): Usage => ({ day: new Map([...u.day].map(([k, v]) => [k, v.slice()])), week: new Map([...u.week].map(([k, v]) => [k, v.slice()])), lost: new Map(u.lost) });
+const dayIx = (s: Search, t: Minute) => Math.max(0, Math.round((t - s.earliest) / DAY));
+
+/** Adds a person's class at `start` to the usage. */
+function addUse(s: Search, u: Usage, p: Person, start: Minute): void {
+  const len = p.days * DAY;
+  if (p.home) {
+    const key = `${p.home}:${p.role}`;
+    let d = u.day.get(key);
+    if (!d) u.day.set(key, (d = new Int16Array(s.nDays)));
+    const d0 = dayIx(s, start);
+    for (let i = d0; i < Math.min(s.nDays, d0 + p.days); i++) d[i]++;
+    let w = u.week.get(key);
+    if (!w) u.week.set(key, (w = new Float64Array(s.weeks.length)));
+    const to = p.lost.includes(p.home) ? Infinity : start + len;
+    for (let j = 0; j < s.weeks.length; j++) w[j] += (overlap(s.weeks[j].from, s.weeks[j].to, start, to) / DAY) * WORK_SHARE;
+  }
+  for (const f of p.lost) u.lost.set(`${f}:${p.role}`, (u.lost.get(`${f}:${p.role}`) ?? 0) + 1);
+}
+
+/** The usage of every class placed so far. */
+function usageOf(s: Search, slots: Slot[]): Usage {
+  const u = newUsage();
+  for (const k of slots) for (const id of k.ids) addUse(s, u, s.people.get(id)!, k.start);
+  return u;
+}
+
+/** May this person join a class at `start` beside the people in `u`: null, or why not (in plain words, for the left-out list). */
+function refuse(s: Search, p: Person, start: Minute, u: Usage): string | null {
   const len = p.days * DAY;
   if (blockedAt(p, start, len)) return 'On leave or off sick in the class dates';
   const openIds = s.open.get(p.id);
   if (openIds && inWay(p, start, len).some((id) => openIds.has(id))) return 'Nobody free to take over their flights';
-  // Everyone in the plan at this moment, with this person added.
-  const mates = slots.flatMap((k) => k.ids.map((id) => ({ p: s.people.get(id)!, start: k.start }))).concat(extra.map((id) => ({ p: s.people.get(id)!, start })));
-  // The forecast beyond the published roster: the weeks this class takes them out of their fleet (for good when the rating goes).
   if (p.home) {
-    const forGood = p.lost.includes(p.home);
-    const from = start;
-    const to = forGood ? Infinity : start + len;
-    for (const w of s.weeks) {
-      if (w.to <= s.rosterEnd || w.to <= from || w.from >= to) continue;
-      const key = `${p.home}:${p.role}`;
-      let used = (overlap(w.from, w.to, from, to) / DAY) * WORK_SHARE;
-      for (const m of mates) {
-        if (m.p.home !== p.home || m.p.role !== p.role) continue;
-        const mTo = m.p.lost.includes(p.home) ? Infinity : m.start + m.p.days * DAY;
-        used += (overlap(w.from, w.to, m.start, mTo) / DAY) * WORK_SHARE;
+    const key = `${p.home}:${p.role}`;
+    // Every day of the class, their fleet keeps the crew its sets need at work (people on leave or in a class are not).
+    const fl = s.floors.get(key);
+    if (fl && fl.need > 0) {
+      const cc = `${p.home}:CC`;
+      const pur = `${p.home}:PUR`;
+      const fCC = s.floors.get(cc);
+      const fPUR = s.floors.get(pur);
+      const d0 = dayIx(s, start);
+      for (let i = d0; i < Math.min(s.nDays, d0 + p.days); i++) {
+        const here = (k: string, f: { here: Int16Array } | undefined) => (f ? f.here[i] - (u.day.get(k)?.[i] ?? 0) - (k === key ? 1 : 0) : 0);
+        if (p.role === 'CC' || p.role === 'PUR') {
+          // Pursers beyond their own need fill cabin crew seats (as the sets).
+          const hp = here(pur, fPUR);
+          const hc = here(cc, fCC);
+          if (hp < (fPUR?.need ?? 0) || hc + Math.max(0, hp - (fPUR?.need ?? 0)) < (fCC?.need ?? 0)) return `The ${familyLabel(p.home)} keeps ${nRole(fl.need, p.role)} at work`;
+        } else if (here(key, fl) < fl.need) return `The ${familyLabel(p.home)} keeps ${nRole(fl.need, p.role)} at work`;
       }
+    }
+    // The forecast beyond the published roster: the weeks this class takes them out of their fleet (for good when the rating goes).
+    const to = p.lost.includes(p.home) ? Infinity : start + len;
+    const used = u.week.get(key);
+    const usedPur = p.role === 'CC' ? u.week.get(`${p.home}:PUR`) : undefined;
+    for (let j = 0; j < s.weeks.length; j++) {
+      const w = s.weeks[j];
+      if (w.to <= s.rosterEnd || w.to <= start || w.from >= to) continue;
+      const mine = (overlap(w.from, w.to, start, to) / DAY) * WORK_SHARE;
       let margin = w.margin.get(key) ?? 0;
-      // Spare pursers fill cabin crew seats (as the forecast and the sets).
-      if (p.role === 'CC') margin += Math.max(0, w.margin.get(`${p.home}:PUR`) ?? 0);
-      if (used > margin + 1e-6) return `The ${familyLabel(p.home)} needs its ${ROLE_PL[p.role]} in the week of ${fmtDayAt(s.g.company.homeBase, w.from)}`;
+      if (p.role === 'CC') margin += Math.max(0, (w.margin.get(`${p.home}:PUR`) ?? 0) - (usedPur?.[j] ?? 0));
+      if ((used?.[j] ?? 0) + mine > margin + 1e-6) return `The ${familyLabel(p.home)} needs its ${ROLE_PL[p.role]} in the week of ${fmtDayAt(s.g.company.homeBase, w.from)}`;
     }
   }
   // A rating given up for good: the fleet's need of it over the next year.
@@ -347,7 +393,7 @@ function refuse(s: Search, p: Person, start: Minute, slots: Slot[], extra: strin
     const fl = s.fleets.get(f);
     if (!fl) continue;
     const { need, why } = needFrom(f, p.role, lossAt, fl.fc, fl.per);
-    const leaving = mates.filter((m) => m.p.role === p.role && m.p.lost.includes(f)).length + 1;
+    const leaving = (u.lost.get(`${f}:${p.role}`) ?? 0) + 1;
     if ((fl.have[p.role] ?? 0) - leaving < need) return `The ${familyLabel(f)} needs ${nRole(need, p.role)}${why ? ` ${why.delta > 0 ? 'from' : 'until'} ${fmtDay(why.at)} (${why.reg} ${why.what})` : ''}`;
   }
   return null;
@@ -412,14 +458,20 @@ function place(s: Search): Slot[] {
   }
   const asked = all.length;
   const minSize = Math.min(CLASS_PLAN.min[s.group][st], asked);
+  // The fees are paid at booking: the plan stays within the cash on hand.
+  const feeOf = (c: Course) => courseOf(s.group, c, s.req.family).cost;
+  const spent = () => slots.reduce((n, k) => n + k.ids.length * feeOf(k.course), 0);
   // Phase 1: new classes, evenly filled (the player's own classes count as started); phase 2: seats still free in them.
   const seeds = new Set(slots);
   for (let phase = 1; phase <= 2; phase++) {
     for (let guard = 0; guard < 200 && left.size; guard++) {
       let best: { v: number; k: Slot | null; start: Minute; len: number; course: Course; add: string[] } | null = null;
+      const base = usageOf(s, slots);
+      const cash = s.g.company.cash - spent();
       for (const [course, { len, starts }] of daysOf) {
         const pool = [...left].map((id) => s.people.get(id)!).filter((p) => p.course === course);
-        if (!pool.length) continue;
+        const afford = Math.floor(cash / feeOf(course) + 1e-9);
+        if (!pool.length || afford < 1) continue;
         // The size a class takes of those still to place: as few classes as the room allows, evenly filled.
         const even = Math.ceil(pool.length / Math.ceil(pool.length / max));
         for (const start of starts) {
@@ -427,7 +479,7 @@ function place(s: Search): Slot[] {
           if (phase === 1 && k && !seeds.has(k)) continue;
           if (phase === 2 && !k) continue;
           if (!k && (slots.length >= CLASS_PLAN.maxClasses || !slotFree(s, start, len, slots))) continue;
-          const room = k ? (phase === 1 ? Math.max(even, 1) : max) - k.ids.length : even;
+          const room = Math.min(afford, k ? (phase === 1 ? Math.max(even, 1) : max) - k.ids.length : even);
           if (room <= 0) continue;
           const ranked = pool
             .filter((p) => !blockedAt(p, start, len))
@@ -435,15 +487,17 @@ function place(s: Search): Slot[] {
             .sort((a, b) => a.n - b.n || a.p.order - b.p.order);
           const add: string[] = [];
           let moved = 0;
+          const u = copyUsage(base);
           for (const x of ranked) {
             if (add.length >= room) break;
             if (x.n * CLASS_PLAN.duty[st] >= 1) break;
-            if (refuse(s, x.p, start, slots, add)) continue;
+            if (refuse(s, x.p, start, u)) continue;
+            addUse(s, u, x.p, start);
             add.push(x.p.id);
             moved += x.n;
           }
           if (!add.length || (!k && add.length < minSize)) continue;
-          const v = add.length - (k ? 0 : CLASS_PLAN.klass[st]) - moved * CLASS_PLAN.duty[st] - (k ? 0 : (CLASS_PLAN.wait[st] * (start - s.earliest)) / DAY);
+          const v = add.length - (k ? 0 : CLASS_PLAN.klass[st] * max) - moved * CLASS_PLAN.duty[st] - (k ? 0 : (CLASS_PLAN.wait[st] * (start - s.earliest)) / DAY);
           if (!best || v > best.v + 1e-9) best = { v, k, start, len, course, add };
         }
       }
@@ -463,13 +517,19 @@ function place(s: Search): Slot[] {
     const d = daysOf.get(p.course)!;
     let why = '';
     const free = d.starts.filter((t) => !blockedAt(p, t, d.len));
-    if (!free.length) why = s.req.by ? `On leave or off sick until too late for ${fmtDay(s.req.by)}` : 'On leave or off sick in every class date';
+    if (s.g.company.cash - spent() < feeOf(p.course)) why = 'Not enough cash for their course';
+    else if (!free.length) why = s.req.by ? `On leave or off sick until too late for ${fmtDay(s.req.by)}` : 'On leave or off sick in every class date';
     else {
-      const reasons = free.map((t) => refuse(s, p, t, slots, [])).filter((x): x is string => !!x);
-      const st0 = slots.find((k) => k.course === p.course && !blockedAt(p, k.start, k.len) && k.ids.length < max);
-      why = reasons.length === free.length ? reasons[0]
-        : st0 && inWay(p, st0.start, st0.len).length ? `${inWay(p, st0.start, st0.len).length} duties in the way of every class`
-          : `Would need a class of their own${minSize > 1 ? ` (${minSize} make a class here)` : ''}`;
+      const u = usageOf(s, slots);
+      const reasons = free.map((t) => refuse(s, p, t, u));
+      const okDays = free.filter((_, i) => !reasons[i]);
+      const seat = slots.find((k) => k.course === p.course && k.ids.length < max && okDays.includes(k.start));
+      if (!okDays.length) why = reasons.find((x): x is string => !!x) ?? 'No class fits';
+      else if (seat) {
+        const n = inWay(p, seat.start, seat.len).length;
+        why = n ? `${n === 1 ? 'A duty' : `${n} duties`} in the way of every class` : 'No class fits';
+      } else if (!okDays.some((t) => slotFree(s, t, d.len, slots))) why = 'No room at the training centre in time';
+      else why = 'Would need a small class of their own';
     }
     s.why.set(id, why);
   }
@@ -549,6 +609,8 @@ interface Prep {
   by: Minute | null;
   lastEnd: Minute;
   fleets: Search['fleets'];
+  floors: Search['floors'];
+  nDays: number;
   weeks: Week[];
   before: Set<string>;
 }
@@ -571,13 +633,30 @@ function prepare(g: GameState, req: Omit<ClassPlanRequest, 'balance'>): Prep {
     fleets.set(f, { fc: fleetChanges(g, f), per: perAircraft(g, f), have });
   }
   const weeks = map.size ? weekMargins(g, earliest, Math.ceil((BAL.conv.maxAheadDays + longest + 14) / 7)) : [];
-  return { ids, map, skipped, earliest, rosterEnd, horizon, by, lastEnd, fleets, weeks, before: shortFlights(g, rosterEnd) };
+  // Who is at work in each fleet and rank, day by day: everyone the Planning view counts there, less leave, sickness,
+  // joiners still to come and classes already booked.
+  const floors: Search['floors'] = new Map();
+  const { lines, homeOf } = staffingAssign(g);
+  const nDays = BAL.conv.maxAheadDays + longest + 14;
+  for (const l of lines) floors.set(`${l.family}:${l.role}`, { here: new Int16Array(nDays), need: l.need });
+  for (const c of Object.values(g.crew)) {
+    const f = homeOf.get(c.id)?.[0];
+    const fl = f ? floors.get(`${f}:${c.role}`) : undefined;
+    if (!fl) continue;
+    const joins = c.status === 'joining' ? g.hires.find((x) => x.crewId === c.id)?.ready ?? c.hired : null;
+    const away: [Minute, Minute][] = [...(c.blocks ?? []).map((b) => [b.from, b.to] as [Minute, Minute]), ...(joins && joins > g.now ? [[g.now, joins] as [Minute, Minute]] : []), ...(c.notice ? [[c.notice.leaves, Infinity] as [Minute, Minute]] : [])];
+    for (let i = 0; i < nDays; i++) {
+      const at = earliest + i * DAY + DAY / 2;
+      if (!away.some(([a, b]) => a <= at && b > at)) fl.here[i]++;
+    }
+  }
+  return { ids, map, skipped, earliest, rosterEnd, horizon, by, lastEnd, fleets, floors, nDays, weeks, before: shortFlights(g, rosterEnd) };
 }
 
 /** One stop's own plan: the search at its prices, then the dry run until no flight is left short. */
 function solve(g: GameState, req: ClassPlanRequest, prep: Prep): ClassProposal {
   const { ids, map, skipped, earliest, rosterEnd, horizon, by, lastEnd, fleets, before } = prep;
-  const s: Search = { g, req, group: req.group, people: map, earliest, rosterEnd, lastEnd, weeks: prep.weeks, fleets, open: new Map(), banned: new Set(), why: new Map() };
+  const s: Search = { g, req, group: req.group, people: map, earliest, rosterEnd, lastEnd, weeks: prep.weeks, fleets, floors: prep.floors, nDays: prep.nDays, open: new Map(), banned: new Set(), why: new Map() };
   let slots: Slot[] = [];
   let run: Booked | null = null;
   let newShort: string[] = [];
@@ -703,7 +782,7 @@ function solve(g: GameState, req: ClassPlanRequest, prep: Prep): ClassProposal {
 /** What a plan costs at a stop's prices (people trained count for one each; a flight left short rules a plan out). */
 function priceAt(stop: number, p: ClassProposal): number {
   const waited = p.finish !== null ? (p.finish - p.earliest) / DAY : 0;
-  return CLASS_PLAN.klass[stop] * p.classes.length + Math.min(1, CLASS_PLAN.duty[stop]) * p.duties + CLASS_PLAN.wait[stop] * waited - p.trained + 1000 * p.short.length;
+  return CLASS_PLAN.klass[stop] * CLASS_PLAN.max[p.group] * p.classes.length + Math.min(1, CLASS_PLAN.duty[stop]) * p.duties + CLASS_PLAN.wait[stop] * waited - p.trained + 1000 * p.short.length;
 }
 
 /**
@@ -760,7 +839,7 @@ export interface RemoveRatingPlan {
   /** Who loses it, and what they keep. */
   people: { crewId: string; keeps: RatingFamily[]; trips: number; pay: number }[];
   skipped: { crewId: string; why: string }[];
-  /** The type's cabin crew after: rated, needed. */
+  /** The type's cabin crew: rated on it now and after, and the number its sets need. */
   coverage: { role: Role; have: number; after: number; need: number }[];
   /** Rostered trips on the type they come off. */
   trips: number;
@@ -827,8 +906,9 @@ export function removeRatingPlan(g: GameState, crewIds: string[], family: Rating
   const before = shortFlights(g, until);
   const h = previewCopy(g);
   if (ids.length) dropRating(h, ids, family);
-  const after = staffing(h).filter((l) => l.family === family && !isPilot(l.role));
-  const coverage = lines.map((l) => ({ role: l.role, have: l.have, after: after.find((x) => x.role === l.role)?.have ?? 0, need: l.need }));
+  // Everyone rated on the type (people on two types count on both: the Planning view shares them out).
+  const rated = (x: GameState, r: Role) => Object.values(x.crew).filter((c) => c.role === r && !c.notice && c.ratings.includes(family)).length;
+  const coverage = lines.map((l) => ({ role: l.role, have: rated(g, l.role), after: rated(h, l.role), need: l.need }));
   const short = [...shortFlights(h, until)].filter((id) => !before.has(id)).map((id) => h.flights[id]).sort((a, b) => a.std - b.std).map((f) => `${f.no} ${fmtDay(f.std)}`);
   const warnings: RemoveRatingPlan['warnings'] = [];
   // Pursers beyond their own need fill cabin crew seats (as Planning counts them).
