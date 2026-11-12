@@ -123,9 +123,17 @@ export function workOf(g: GameState, c: CrewMember, t: Minute, skipDuty?: string
     }
   }
   // v0.19.3 a trip home or back inside annual leave: where they are, nothing more (no duty, no rest, never a clash).
+  // Player bot round: ... and any other ticket they hold that no trip still open lists (the way back of a trip already
+  // flown): positioning is duty and owes its rest (the check read "free" a first officer landing at Riyadh 9:15 before
+  // his report, on the ticket of a finished trip; the planner rightly refused him).
   for (const tk of deadheadFlights(g)) {
-    if (!tk.leaveTrip || tk.status === 'cancelled' || tk.sta < from || tk.std > to || !tk.crewIds.includes(c.id)) continue;
-    out.push({ start: tk.std - H, end: tk.sta, block: 0, aug: false, ext: false, dep: tk.from, arr: tk.to, kind: 'leave', weight: 0 });
+    if (tk.status === 'cancelled' || tk.sta < from || tk.std > to || !tk.crewIds.includes(c.id)) continue;
+    if (tk.leaveTrip) {
+      out.push({ start: tk.std - H, end: tk.sta, block: 0, aug: false, ext: false, dep: tk.from, arr: tk.to, kind: 'leave', weight: 0 });
+      continue;
+    }
+    const t: Span = { start: tk.std - H, end: tk.sta, block: 0, aug: false, ext: false, dep: tk.from, arr: tk.to, kind: 'ticket', weight: 1 };
+    if (!logged(t) && !out.some((x) => x.kind === 'ticket' && x.start === t.start && x.end === t.end && x.dep === t.dep)) out.push(t);
   }
   for (const w of c.standby ?? []) {
     if (w.to < from || w.from > to) continue;

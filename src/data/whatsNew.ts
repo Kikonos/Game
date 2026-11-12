@@ -27,6 +27,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'A short delay on a day that began with a flight out could take the whole crew off a legal day. Their flight home now moves to after the longer rest instead.',
       'Crew waiting at a station for their flight out to their tour can fly a trip in between and go back there for it.',
       'A seat emptied halfway through a duty (a sick call) is no longer filled by someone at another airport.',
+      'The crew alarm check in Bug reports now counts a flight home still to come from a finished trip, and its rest.',
     ],
   },
   {
