@@ -53,7 +53,7 @@ import { devLaunchRoute } from '../engine/network/launch';
 
 export type { GameSpeed } from '../engine/core/time';
 export type AppScreen = 'loading' | 'title' | 'newgame' | 'game' | /** v0.12 */ 'scenarios';
-export type Tab = 'map' | 'contracts' | 'schedule' | 'crew' | 'fleet' | 'finance' | 'company' | 'inbox';
+export type Tab = 'map' | 'contracts' | /** v0.23.1 scheduled routes, their own screen (was Contracts › Network) */ 'network' | 'schedule' | 'crew' | 'fleet' | 'finance' | 'company' | 'inbox';
 
 /** v0.14.1 (merge) game minutes between the frame loop's fallback copies. */
 const FRAME_SNAP_MIN = 6 * 60;
@@ -116,7 +116,7 @@ const DEFAULT_SETTINGS: Settings = {
   sound: true,
   volume: 0.6,
   autosave: true,
-  autoPause: { decision: true, urgentOffer: true, aog: true, monthEnd: false, contractStart: false, crewShortage: true, marketOffer: false, crewHours: true, rule: true },
+  autoPause: { decision: true, urgentOffer: true, aog: true, monthEnd: false, contractStart: false, crewShortage: true, marketOffer: false, crewHours: true, rule: true, network: true },
   mapAnimations: true,
   mapTilt: true,
   topGap: 'auto',
@@ -223,6 +223,8 @@ export type ModalSpec =
   | { kind: 'offerCall'; offerId: string; /** v0.14 the aircraft picked on the call; set when coming back to it (no second ring) */ aircraftId?: string }
   /** v0.9.1 an aircraft handed over: the celebration card, then 'Follow the delivery flight?'. */
   | { kind: 'delivered'; aircraftId: string }
+  /** v0.23.1 a route study done or a route launched (its pop-up). */
+  | { kind: 'routeNews'; routeId: string; what: 'study' | 'launched'; title: string; body: string }
   /** v0.14 a tender's bid form (Contracts › Tenders). */
   | { kind: 'tender'; tenderId: string }
   | { kind: 'followDelivery'; aircraftId: string }
@@ -416,6 +418,15 @@ class GameStore {
       }
       // v0.12 the welcome card: once per handover, never for the fleet a new game starts with (deliveryCardFor). Its
       // chime rings when the card opens (flushLadder), not while another dialog (a phone call) still has the screen.
+      // v0.23.1 network news: its pop-up is the note (and the chime rings as it opens); the clock stops by the engine's
+      // 'network' pause (Settings). A cue about no route we have falls through to the usual toast.
+      if ((e.cue === 'routeStudy' || e.cue === 'routeLaunched') && e.ref?.kind === 'route' && this.game?.network?.routes[e.ref.id]) {
+        this.queuePop({ kind: 'routeNews', routeId: e.ref.id, what: e.cue === 'routeStudy' ? 'study' : 'launched', title: e.title, body: e.body ?? '' }, true);
+        if (e.msgId) this.cueToasted.add(e.msgId);
+        if (sound.audible(e.cue)) sound.event(e.cue);
+        shown++;
+        continue;
+      }
       if (e.cue === 'delivered') {
         const id = this.game ? deliveryCardFor(this.game, e, this.welcomed) : null;
         if (id) {
@@ -933,6 +944,7 @@ class GameStore {
       // Gone meanwhile (answered on the offer card, the aircraft sold): nothing to show.
       if (m.kind === 'counterReply' && !(m.offerId ? this.game.offers[m.offerId] : this.game.contracts[m.contractId ?? ''])) return this.flushLadder();
       if ((m.kind === 'delivered' || m.kind === 'followDelivery') && !this.game.fleet[m.aircraftId]) return this.flushLadder();
+      if (m.kind === 'routeNews' && !this.game.network?.routes[m.routeId]) return this.flushLadder();
       // answered on the offer card, lapsed or taken meanwhile: no call
       if (m.kind === 'offerCall' && !(this.game.offers[m.offerId]?.status === 'open' && this.game.offers[m.offerId].expires > this.game.now)) return this.flushLadder();
       this.modal = m;
@@ -1137,6 +1149,8 @@ class GameStore {
   navigate(tab: Tab, extra: Omit<Nav, 'tab'> = {}) {
     // v0.11 Clients moved from Company to Contracts; older links still land there.
     if (tab === 'company' && extra.view === 'clients') tab = 'contracts';
+    // v0.23.1 the Network has its own screen (report bmwdolc94ctrb); older links to Contracts › Network land there.
+    if (tab === 'contracts' && extra.view === 'network') { tab = 'network'; extra = { ...extra, view: undefined }; }
     this.nav = { tab, ...extra };
     this.emit();
     document.querySelector('.main')?.scrollTo({ top: 0 });

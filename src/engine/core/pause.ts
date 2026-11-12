@@ -5,10 +5,12 @@ import { muteCues, restoreCues, saveCues, unmuteCues } from './cues';
 /** v0.7 'marketOffer': a new aircraft market offer (UI honours it only with market alerts on). */
 export type PauseReason = 'decision' | 'urgentOffer' | 'aog' | 'monthEnd' | 'contractStart' | 'crewShortage' | 'marketOffer'
   /** v0.9 crew out of hours (red stage); a watch-desk rule. */
-  | 'crewHours' | 'rule';
+  | 'crewHours' | 'rule'
+  /** v0.23.1 a route study done, a route launched (tickets on sale): report bmwdo5trhi3sl. */
+  | 'network';
 
 /** Priority when several honoured reasons arrive in the same event (first wins for the tooltip). */
-export const PAUSE_ORDER: PauseReason[] = ['aog', 'decision', 'urgentOffer', 'crewHours', 'crewShortage', 'rule', 'contractStart', 'monthEnd', 'marketOffer'];
+export const PAUSE_ORDER: PauseReason[] = ['aog', 'decision', 'urgentOffer', 'crewHours', 'crewShortage', 'rule', 'network', 'contractStart', 'monthEnd', 'marketOffer'];
 
 const pending = new Set<PauseReason>();
 

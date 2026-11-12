@@ -388,9 +388,9 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     // v0.8: a client / rival opens its pane on Company; a world event its pin on the map.
     case 'client':
       return { tab: 'contracts', view: 'clients', sel: ref };
-    // v0.19 a scheduled route: Contracts › Network.
+    // v0.19 a scheduled route: v0.23.1 the Network screen.
     case 'route':
-      return { tab: 'contracts', view: 'network', sel: ref };
+      return { tab: 'network', sel: ref };
     case 'rival':
       return { tab: 'company', view: 'rivals', sel: ref };
     case 'event':

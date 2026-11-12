@@ -19,6 +19,7 @@ import { noteRouteSub } from './costs';
 import { cabinFor, localToUtc, localWeekday, marketOfRoute, rotationTimes, seasonCode, usd } from './model';
 import { bumpRoute } from './reputation';
 import { pushRouteNote } from './notes';
+import { setRouteCabin } from './cabin';
 import type { Rotation, Route, RouteSeries, SectorLoad } from './types';
 
 const HORIZON = () => BAL.v019.ops.horizonDays * DAY;
@@ -480,6 +481,9 @@ export function setSeries(g: GameState, routeId: string, series: RouteSeries): s
   else route.series.push(s);
   if (old) reconcile(g, route, old, s);
   fileRotations(g, route);
+  // v0.23.1 a cabin with or without business: the whole route's departures on sale follow (cabin.ts: seats re-filed,
+  // business passengers moved to economy now with their refund).
+  if (old && (old.layout === 'all-economy') !== (s.layout === 'all-economy')) setRouteCabin(g, route.id, s.layout === 'all-economy' ? 'all-economy' : 'two-class');
   touchNet(g);
   return null;
 }

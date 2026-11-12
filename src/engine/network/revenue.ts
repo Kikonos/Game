@@ -26,7 +26,7 @@ export function dirOf(route: Route, rot: Rotation, idx: number): Dir {
 }
 
 /** EU261 Art. 10 downgrade refund share by the route's distance band. */
-const downgradeShare = (route: Route) => (marketOfRoute(route)?.eu261 === 'long' ? BAL.v019.pax.downgrade[2] : BAL.v019.pax.downgrade[1]);
+export const downgradeShare = (route: Route) => (marketOfRoute(route)?.eu261 === 'long' ? BAL.v019.pax.downgrade[2] : BAL.v019.pax.downgrade[1]);
 
 /**
  * §F.1 the cargo a direction carries on a rotation (kg): general, mail, perishables, NGO supplies and live animals,

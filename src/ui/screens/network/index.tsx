@@ -1,4 +1,4 @@
-// v0.19 "Scheduled routes" (docs/UPDATE-0.19.md §K): Contracts › Network, the list of our scheduled routes and the
+// v0.19 "Scheduled routes" (docs/UPDATE-0.19.md §K): the Network screen (v0.23.1; was Contracts › Network), the list of our scheduled routes and the
 // catalogue of markets. Secondary to ACMI: a calm list, one row a route. Loaded lazily with its own stylesheet.
 
 import '../../../styles/acmi/v019.css';

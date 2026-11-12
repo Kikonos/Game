@@ -17,7 +17,7 @@ export interface WhatsNewEntry {
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
     version: 'v0.23.1',
-    name: 'Class planner step two, and stacked work',
+    name: 'Planner step two, stacked work, later report times, tidy bug reports, Network screen',
     features: [
       'Cabin crew already on three types now go into the plan. Each gives one type up when the course ends: by default one with no aircraft, one being phased out, or the one they fly least.',
       'The class\'s people list says which type each gives up ("drops A320"). Tap it to pick another. Their trips on that type after the class go to other crew, tried on a copy of the roster first.',
@@ -28,6 +28,10 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'It can come out later: a crew member reports it, or the authority\'s audit finds it. That means a fine and an audit finding.',
       'Fixed bug reports clear themselves. When the game opens after an update, the reports it fixed are deleted. A short note says how many; Bug reports › Cleared says what each fix was.',
       'Every crew alarm in Bug reports now keeps the game at that minute, not only the newest 12. Each keeps just what changed since the one before, so they take little room.',
+      'Network has its own screen on the left, between Contracts and Schedule.',
+      'Change a route\'s cabin while it flies: Sales › Cabin, business and economy or economy only. First you see seats, passengers, load, ticket revenue a passenger and the profit, a flight, a week or a month.',
+      'Going economy only moves people booked in business to economy now, with part of their fare back. Before, it happened on the day, with a voucher too.',
+      'A finished market study and a route going on sale now pop up and pause the game. Settings › Pause for network news turns the pause off.',
     ],
     improvements: [
       'The planner works out its proposals faster and the screen stays live while it does. Going back to a choice you had is instant.',

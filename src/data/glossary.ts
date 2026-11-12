@@ -35,7 +35,7 @@ export interface GlossaryEntry {
   /** One line, player words. */
   short: string;
   /** Where the term shows up (the Glossary screen's "Show me"): a UI tab and an optional view inside it (crew: 'board' | 'people'; VIEW_LABEL names it). */
-  where?: { tab: 'map' | 'contracts' | 'schedule' | 'crew' | 'fleet' | 'finance' | 'company' | 'inbox'; view?: string };
+  where?: { tab: 'map' | 'contracts' | 'network' | 'schedule' | 'crew' | 'fleet' | 'finance' | 'company' | 'inbox'; view?: string };
 }
 
 /** Player words for a view id (the "Show me" button). */
