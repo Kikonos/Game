@@ -23,6 +23,7 @@ import { crewAlarmEntry } from './selfCheckFiler';
 const raw = (): GameState => {
   const data = JSON.parse(fixture('v022-cve166')) as { state: GameState };
   data.state.stats.sideTripRedo = true;
+  data.state.stats.perCrewRedo = true;
   data.state.stats.planRefund = 0;
   return deserialize(JSON.stringify(data));
 };

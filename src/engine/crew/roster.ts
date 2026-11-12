@@ -2353,6 +2353,8 @@ export function fillAll(g: GameState, ps: Pairing[], res: RosterResult, exclude?
     // v0.23 crew planned person by person: a seat still empty is covered run by run by whoever is free for those duties.
     for (const part of parts) {
       let cur: Pairing | null = part;
+      // (A part the split above made shorter is tried again as it now stands: someone free for its duties alone.)
+      if (parts.length > 1 && part !== parts[parts.length - 1] && g.pairings[part.id] && requiredEmpty(part)) fillPairing(g, ctx, part, res, exclude);
       for (let n = 0; cur && n < COVER_PASSES && g.pairings[cur.id] && requiredEmpty(cur); n++) {
         const r = coverRun(g, ctx, cur, exclude);
         if (!r) break;

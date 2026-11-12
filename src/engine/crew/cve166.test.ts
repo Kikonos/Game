@@ -25,6 +25,7 @@ const raw = (): GameState => {
   const text = fixture('v022-cve166');
   const data = JSON.parse(text) as { state: GameState };
   data.state.stats.sideTripRedo = true;
+  data.state.stats.perCrewRedo = true;
   data.state.stats.planRefund = 0;
   return deserialize(JSON.stringify(data));
 };

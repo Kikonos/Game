@@ -770,6 +770,7 @@ export const crewModule: SimModule = {
     // The same defaults load sets (a fresh game and a reloaded one serialise alike).
     g.stats.crewFixes ??= {};
     g.stats.sideTripRedo = true;
+    g.stats.perCrewRedo = true;
     g.stats.planRefund = 0;
     g.company.policies.buyBack ??= 'auto';
     for (const c of Object.values(g.crew)) c.twoDays ??= { 0: monthKey(g.now) };

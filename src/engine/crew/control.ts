@@ -789,8 +789,10 @@ setShortHook((g) => escalateShortages(g));
  * marks of the ones crewed are cleared. Nothing on a save made by this version (Stats.sideTripRedo; a new game sets it).
  */
 export function redoShortOnLoad(g: GameState): void {
-  if (g.stats.sideTripRedo) return;
+  // v0.23 once more for crew planned person by person (anyone legal and free covers one duty of another set's tour).
+  if (g.stats.sideTripRedo && g.stats.perCrewRedo) return;
   g.stats.sideTripRedo = true;
+  g.stats.perCrewRedo = true;
   if (!g.company.policies.autoRoster) return;
   const done = new Set<string>();
   const short = Object.values(g.flights)

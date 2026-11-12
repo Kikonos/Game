@@ -15,6 +15,7 @@ import { rootReason, type Reason } from './reasons';
 import { emptyResult, fillAll, placeCrew, recheckPairing, releaseCrew } from './roster';
 import { levelOf, worst, type IssueCode } from './rules';
 import { block28, freshReport, locAt, segsOf, standsBy, ticketPrice, touchCrew, typeIdOf, viaText } from './timeline';
+import { coversOther } from './tours';
 
 const LEVEL_RANK: Record<Legality, number> = { legal: 0, tight: 1, illegal: 2 };
 const hm = (m: number) => `${Math.floor(m / 60)}:${String(Math.round(m % 60)).padStart(2, '0')}`;
@@ -92,7 +93,7 @@ export function dutyCrew(g: GameState, dutyOrFlightId: string): DutyCrewView | n
     return {
       index, role: s.role, crewId: s.crewId, name: c ? crewName(c) : null, locked: !!s.locked, extra: !!s.extra, above: !!s.above, ...(s.reserve ? { reserve: true as const } : {}), level,
       ...(c && standsBy(g, p, d, c.id) ? { standby: true as const } : {}),
-      ...(c && s.guest && p.tour ? { guest: true as const } : {}),
+      ...(c && coversOther(g, p, c.id) ? { guest: true as const } : {}),
     };
   });
   return {

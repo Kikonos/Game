@@ -29,6 +29,15 @@ export function tourSpan(g: GameState, p: Pairing): { from: Minute; to: Minute }
  */
 export { guestOn };
 
+/**
+ * v0.23 crewId covers a seat of ANOTHER set on p (for the Crew views: 'Covering'). One of the set's own members who
+ * flies an earlier part of their own tour again holds it as a guest too (this part's duties, no ticket home after it),
+ * and is no visitor.
+ */
+export function coversOther(g: GameState, p: Pairing, crewId: string): boolean {
+  return !!p.tour && guestOn(p, crewId) && !memberTours(g, crewId).some((q) => sameTour(p, q));
+}
+
 /** v0.23 the tour pairings crewId is a member of (seated, not as a guest; not broken). */
 export function memberTours(g: GameState, crewId: string): Pairing[] {
   const out: Pairing[] = [];

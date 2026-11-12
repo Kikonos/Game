@@ -1820,6 +1820,8 @@ export interface Stats {
   emptyWaits?: number;
   /** v0.22.1 flights marked short of crew by an older build were rostered again once on load (crew/control.ts redoShortOnLoad). */
   sideTripRedo?: boolean;
+  /** v0.23 the same once more for crew planned person by person: flights an older build left short are rostered again once on load. */
+  perCrewRedo?: boolean;
   /** v0.22.1 the one-off refund for the crew-planning error (crew/planRefund.ts): the amount given back (0: nothing to refund); absent on an older save until it loads. */
   planRefund?: number;
   /** v0.16.4 aircraft told stuck away from base (awayIdle card), with when that stay began (told once a stay). */

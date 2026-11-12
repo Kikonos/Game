@@ -14,7 +14,7 @@ import { rosterOf } from './roster';
 import { dayIndex, midnight, offOn, publishDayOf, rosterHorizon } from './dayPlan';
 import { offsetAt, tzDeltaH } from './rules';
 import { crewIx, dutyFlights, reserveStation, revenueRide, segsOf, standsBy } from './timeline';
-import { guestOn } from './avail';
+import { coversOther } from './tours';
 
 export type CalKind = 'duty' | 'positioning' | 'deadhead' | 'sick' | 'joining' | 'training' | 'leave' | 'off' | 'standby' | 'rest';
 
@@ -218,7 +218,7 @@ export function crewCalendar(g: GameState, crewId: string, from: Minute, to: Min
     if (!p || !standsBy(g, p, d, crewId)) {
       const b = dutyBlock(g, d);
       // v0.23 one duty (or a few) flown for another set: theirs like any duty, and said plainly.
-      if (p?.tour && guestOn(p, crewId)) {
+      if (p?.tour && coversOther(g, p, crewId)) {
         const dep = p.deploymentId ? g.deployments[p.deploymentId] : undefined;
         b.detail = `Covering a seat of set ${p.tour.set + 1}${dep ? ` at ${dep.base}` : ''} · ${b.detail ?? ''}`;
       }
