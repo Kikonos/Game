@@ -83,6 +83,9 @@ describe('v0.12.1 day-off buy-back', () => {
     // (A minute later: given back the same minute, nothing is said at all: buyBackSameMinute.test.ts.)
     advanceTo(g, g.now + 1, new Set());
     const sal0 = g.finance.current.lines.salaries ?? 0;
+    // (v0.22.1 an empty leg short of a pilot now waits for one, and a leg moved off the day gives the day off back
+    // unpaid: this test is about the pay at the report, so the wait is held off for it.)
+    g.flights[d.flightIds[0]].waitTried = d.report + DAY;
     releaseCrew(g, p, a.id);
     expect(a.off).toContain(dayA);
     expect(a.boughtOff ?? []).toEqual([]);
@@ -117,7 +120,9 @@ describe('v0.12.1 day-off buy-back', () => {
         const r = applyCrewFix(g, flightId, 'buyBack', { confirmed: true });
         expect(r.ok, r.ok ? '' : r.error).toBe(true);
         expect(crewOn(g, dutyId).filter((id) => id && here.includes(id)).length).toBe(2);
-        expect(g.messages[0].body).toMatch(/works the day off/);
+        // (v0.22.1 the empty leg may have been re-timed to wait for pilots: an early report the next morning only cuts
+        // the day off short, 'ends the day off … early'.)
+        expect(g.messages[0].body).toMatch(/(works|ends) the day off/);
       }
     }
   });
