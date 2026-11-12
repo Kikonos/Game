@@ -918,6 +918,8 @@ export interface Flight {
   crewAlert?: 'amber' | 'red';
   /** Alarm self-check: the evidence the last confirmed crew alarm on this flight was checked with ("Checked ✓"). */
   crewChecked?: string[];
+  /** v0.22.1 an empty leg short of crew: when the wait for its crew was last looked for (crew/control.ts waitForCrew; again every 6 h). */
+  waitTried?: Minute;
   /** Crew-planning round: the early heads-up (beyond the 48 h amber stage) was given for this leg's trip; once. */
   crewEarly?: true;
   /**
@@ -1806,6 +1808,8 @@ export interface Stats {
   bodyAsked?: boolean;
   /** v0.16.4 open narrowbody wet asks (an A320-size base, cover, capacity lease, sub-charter) given body 'narrow' once on load. */
   narrowAsked?: boolean;
+  /** v0.22.1 empty legs re-timed to wait for their crew (crew/control.ts waitForCrew). */
+  emptyWaits?: number;
   /** v0.22.1 flights marked short of crew by an older build were rostered again once on load (crew/control.ts redoShortOnLoad). */
   sideTripRedo?: boolean;
   /** v0.22.1 the one-off refund for the crew-planning error (crew/planRefund.ts): the amount given back (0: nothing to refund); absent on an older save until it loads. */

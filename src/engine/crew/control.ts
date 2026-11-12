@@ -12,7 +12,7 @@ import { pushMessage } from '../core/messages';
 import { isolatePauses, requestPause } from '../core/pause';
 import { canFill, isPilot, reportMinutes, typeOf } from '../core/perf';
 import { DAY, fmtDateTime, fmtDay, fmtDuration, fmtTime } from '../core/time';
-import type { ActionResult, Aircraft, CrewFix, CrewMember, Duty, Flight, GameState, JetClass, Legality, Minute, Pairing, Role, StandbyKind } from '../core/types';
+import type { ActionResult, Aircraft, CrewFix, CrewMember, Duty, Flight, GameState, JetClass, Legality, Minute, Pairing, Ref, Role, StandbyKind } from '../core/types';
 import { hashUnit } from '../core/util';
 import { relinkPositioning } from '../contracts/schedule';
 import { commercialItinerary, itinerary, itineraryText } from '../ops/commercial';
@@ -21,7 +21,7 @@ import { cancelCost, cancelLegs, clearRestMarks, delayChain, liveOver, underClos
 import { clearOfCurfews } from '../core/curfew';
 import { latePenalty } from '../ops/latePolicy';
 import { rotationOf, subcharter, subcharterQuote } from '../ops/subcharter';
-import { contractOf, isRevenue, stats, usd } from '../ops/util';
+import { contractOf, isRevenue, stats, turnOf, usd } from '../ops/util';
 import { closedAirport, closedUntil, closureCause, eventsOf, permitOf, setClosureTicketHook } from '../ops/world';
 import { hurtProse, mkHurt, type GaugeSpec, type ProblemCard, type ReachSpec, hm, limitTone } from '../problems/types';
 import { atomic, previewCopy } from './atomic';
@@ -269,6 +269,130 @@ function whatLine(x: Ctx): string {
   return `${f.no} is missing ${seatsText(x.need)}`;
 }
 
+// ---------- v0.22.1 an empty leg waits for its crew ----------
+// The player: "after performing some flights and when ferrying back home, sometimes it doesn't have pilots, and it gives
+// me the option to cancel or subcharter with reliability and relation costs, which doesn't make sense because it's just
+// a ferry flight home. If there's no need for the aircraft to be in Lisbon, it can always be delayed until pilots get
+// there." An empty leg (a move home, a hop to the next job) is no problem of its own: it waits until legal pilots can
+// take it, and the aircraft is parked until then. It is a problem only when the wait makes the aircraft late for what
+// comes after it (a job's flights, a check, a hand-back), and then the card names that.
+
+/** An empty leg that may wait (a delivery ferry has its own wait at the site). */
+export const isEmptyLeg = (f: Flight): boolean => (f.kind === 'positioning' || f.kind === 'ferry') && f.purpose !== 'delivery';
+
+/** A free empty leg: no purpose of its own (a check, a hand-back) and no passengers in its unit (a move home, a hop days before the next job). Pure. */
+export function freeEmptyLeg(g: GameState, f: Flight): boolean {
+  if (!isEmptyLeg(f) || f.purpose || !f.aircraftId) return false;
+  const ac = g.fleet[f.aircraftId];
+  return !!ac && !unitOf(g, ac, f).some(isRevenue);
+}
+
+export interface EmptyTie {
+  /** When the aircraft is due (the flight's departure, the check's start). */
+  at: Minute;
+  /** The latest the empty leg (or a direct move from where the aircraft is) can leave and still make it. */
+  latest: Minute;
+  /** 'U27040 London–Palma on 8 May', 'the C-check at Lisbon on 3 Jun'. */
+  what: string;
+  ref: Ref;
+}
+
+/**
+ * What the aircraft is due for after free empty leg f: its next flight with passengers or a purpose (a check ferry, a
+ * hand-back), or its next planned check, whichever comes first, with the latest moment the aircraft can still leave
+ * for it from where it is. Null: nothing waits for it. Pure.
+ */
+export function emptyLegTie(g: GameState, f: Flight): EmptyTie | null {
+  const ac = f.aircraftId ? g.fleet[f.aircraftId] : undefined;
+  if (!ac) return null;
+  const lead = (to: string) => (to === f.from ? 0 : (to === f.to ? f.block : dhBlock(f.from, to)) + turnOf(ac));
+  let best: EmptyTie | null = null;
+  for (const y of liveFlightsOf(g, ac.id)) {
+    if (y === f || y.status !== 'scheduled' || y.std <= f.std || !(isRevenue(y) || (y.purpose && y.purpose !== 'delivery'))) continue;
+    best = { at: y.std, latest: y.std - lead(y.from), what: `${y.no} ${city(y.from)}–${city(y.to)} on ${fmtDay(y.std)}`, ref: { kind: 'flight', id: y.id } };
+    break;
+  }
+  for (const m of Object.values(g.maintenance)) {
+    if (m.aircraftId !== ac.id || m.status !== 'planned' || m.start <= f.std) continue;
+    if (!best || m.start < best.at) best = { at: m.start, latest: m.start - lead(m.at), what: `the ${m.kind === 'refit' ? 'refit' : m.kind === 'line' ? 'line check' : `${m.kind}-check`} at ${city(m.at)} on ${fmtDay(m.start)}`, ref: { kind: 'maint', id: m.id } };
+  }
+  return best;
+}
+
+/** What a wait of the empty leg must not touch: the aircraft's flights with passengers or a purpose, and its planned checks. */
+function tiesOf(g: GameState, aircraftId: string, but: string): Map<string, Minute> {
+  const out = new Map<string, Minute>();
+  for (const y of liveFlightsOf(g, aircraftId)) if (y.id !== but && y.status === 'scheduled' && !y.operatedBy && (isRevenue(y) || y.purpose)) out.set(y.id, y.std + y.delay);
+  for (const m of Object.values(g.maintenance)) if (m.aircraftId === aircraftId && m.status === 'planned') out.set(m.id, m.start);
+  return out;
+}
+
+/** True when everything in `before` is still there on h, and no later. */
+function tiesKept(h: GameState, before: Map<string, Minute>): boolean {
+  for (const [id, t] of before) {
+    const y = h.flights[id];
+    const m = h.maintenance[id];
+    if (y ? y.status !== 'scheduled' || !!y.operatedBy || y.std + y.delay > t : !m || m.status !== 'planned' || m.start > t) return false;
+  }
+  return true;
+}
+
+/** How often the wait is looked for again for one leg (each look runs the roster on copies). */
+const WAIT_RETRY = 6 * 60;
+
+/**
+ * An empty leg short of crew waits for them: the first departure at which the roster itself crews it (delayPlan, tried
+ * on copies) is taken when nothing after it moves (the aircraft's flights with passengers or a purpose and its checks
+ * keep their times, no other flight goes short). The leg is re-timed, the crew seated and ticketed, one quiet Inbox
+ * line. False when no such wait exists (the ladder then reads the leg as it always did). Looked for again every 6 h.
+ */
+export function waitForCrew(g: GameState, f: Flight): boolean {
+  if (!isEmptyLeg(f) || f.status !== 'scheduled' || !f.aircraftId || f.std + f.delay <= g.now) return false;
+  if (f.waitTried !== undefined && f.waitTried > g.now - WAIT_RETRY) return false;
+  f.waitTried = g.now;
+  const x = ctxOf(g, f.id);
+  if (!x || !x.missing.length || !x.d) return false;
+  const plan = delayPlan(g, x);
+  if (!plan) return false;
+  const before = tiesOf(g, f.aircraftId, f.id);
+  const short = new Set(shortFlights(g).map((s) => s.flightId));
+  const harmless = (h: GameState): boolean => tiesKept(h, before) && shortFlights(h).every((s) => short.has(s.flightId));
+  const h = previewCopy(g);
+  previewing++;
+  let ok = false;
+  try {
+    ok = isolatePauses(() => tryDelay(h, f.id, plan.at)) && harmless(h);
+  } catch {
+    ok = false;
+  } finally {
+    previewing--;
+  }
+  if (!ok) return false;
+  const was = f.std + f.delay;
+  const no = f.no;
+  const need = seatsText(x.need);
+  previewing++;
+  try {
+    if (!tryDelay(g, f.id, plan.at)) return false;
+  } finally {
+    previewing--;
+  }
+  const now = g.flights[f.id];
+  if (!now) return false;
+  delete now.crewAlert;
+  delete now.crewWarned;
+  touchFlights(g);
+  const names = now.crewIds.map((id) => g.crew[id]).filter(Boolean).map((c) => crewName(c)).join(' and ');
+  stats(g).emptyWaits = (stats(g).emptyWaits ?? 0) + 1;
+  pushMessage(g, {
+    tone: 'info', cat: 'crew', cue: null,
+    title: `${no} waits for its pilots: leaves ${at(now.std, g.now)}`,
+    body: `The empty leg ${city(now.from)}–${city(now.to)} was missing ${need} for ${fmtDateTime(was)} UTC. It now leaves ${fmtDateTime(now.std)} UTC${names ? ` with ${names}` : ''}; the aircraft is parked until then. Nothing after it is late.`,
+    ref: { kind: 'flight', id: now.id },
+  });
+  return true;
+}
+
 // ---------- the ladder (§2) ----------
 
 /** A positioning leg the planner left beside a crewed scheduled leg of the same aircraft and route (same half day): a phantom, not a shortage. */
@@ -292,7 +416,15 @@ export function shortFlights(g: GameState): { flightId: string; stage: 'amber' |
       if (f.dutyId && dutyStale(g, g.duties[f.dutyId])) continue;
       const cs = flightCrewStatus(g, f.id, { live: false });
       if (cs.level !== 'missing' && cs.level !== 'illegal') continue;
-      const hoursLeft = Math.max(0, Math.round(((f.std - g.now) / 60) * 10) / 10);
+      // v0.22.1 a free empty leg (a move home, a hop days before the next job) short of crew waits for them: it is a
+      // problem only when the aircraft would be late for what comes after it, and from the time that is at stake.
+      let due = f.std;
+      if (cs.level === 'missing' && freeEmptyLeg(g, f)) {
+        const tie = emptyLegTie(g, f);
+        if (!tie || tie.latest > until) continue;
+        due = Math.max(f.std, tie.latest);
+      }
+      const hoursLeft = Math.max(0, Math.round(((due - g.now) / 60) * 10) / 10);
       // v0.9 crew out of hours (a named crew member at a legal limit) or a shortage (UPDATE-0.9.md §T.2).
       const kind: CrewAlertKind = cs.level === 'illegal' || p_hasOoh(g, f) ? crewAlertKind(g, f.id) ?? 'short' : 'short';
       out.push({ flightId: f.id, stage: hoursLeft <= CC().redH ? 'red' : 'amber', hoursLeft, kind, std: f.std });
@@ -398,6 +530,8 @@ function earlyShort(g: GameState, reroster: boolean): Flight[] {
       if (f.status !== 'scheduled' || f.aircraftId !== id || f.std <= from || f.std > until || f.crewEarly || f.crewAlert || !f.dutyId || phantomLeg(f, legs)) continue;
       const cs = flightCrewStatus(g, f.id, { live: false });
       if (cs.level !== 'missing') continue;
+      // v0.22.1 a free empty leg waits for its crew (waitForCrew, nearer the day): no heads-up for it.
+      if (freeEmptyLeg(g, f)) continue;
       // Each duty is read once every 6 h at most; the time is saved on the duty (Duty.earlyRead), so a reloaded game
       // reads (and re-plans) when the original would: a runtime map, empty after a load, gave the heads-up hours apart.
       const d = g.duties[f.dutyId];
@@ -508,6 +642,15 @@ function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
       if (BAD(flightCrewStatus(g, f.id, { live: false }).level)) standbyCallOut(g, f.id);
     }
     list = shortFlights(g);
+  }
+  // v0.22.1 an empty leg short of crew waits for them when nothing after it is late (waitForCrew): no warning, no pause.
+  if (freeFix) {
+    let waited = false;
+    for (const x of list) {
+      const f = g.flights[x.flightId];
+      if (f && x.kind === 'short' && isEmptyLeg(f) && waitForCrew(g, f)) waited = true;
+    }
+    if (waited) list = shortFlights(g);
   }
   // v0.16.1 a mark on a flight whose crew is complete and legal again (a fix, a re-cut duty) is cleared: the alarm, the
   // Schedule's red mark and the sheet's "Crew legal" must agree, and a new shortage later rings again.
@@ -723,7 +866,12 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
   const delayMin = Math.max(0, ready - f.std);
   const perDelay = crewWaitPenalty(g, f, ready);
   // v0.12.1 (Goma) a closure keeps crew out of the departure (or bars the leg): force majeure, no penalty to show.
-  const hurt = mkHurt({ money: closureCause(g, f) ? 0 : cancelCost(g, x.unit) + perDelay, pax: x.pax, delayMin, legs: x.revLegs, what: 'penalty', empty: !x.revLegs });
+  // v0.22.1 a free empty leg costs nothing by waiting: it hurts only when the aircraft would miss what comes after it.
+  const free = x.missing.length > 0 && freeEmptyLeg(g, f);
+  const tie = free ? emptyLegTie(g, f) : null;
+  const hurt = free
+    ? mkHurt({ empty: true, extra: tie ? `${ac.reg} would miss ${tie.what} unless it leaves by ${at(tie.latest, g.now)}` : 'the aircraft waits for pilots, parking only' })
+    : mkHurt({ money: closureCause(g, f) ? 0 : cancelCost(g, x.unit) + perDelay, pax: x.pax, delayMin, legs: x.revLegs, what: 'penalty', empty: !x.revLegs });
   const what = whatLine(x);
   const visuals: ProblemCard['visuals'] = {};
   const details: string[] = [];
@@ -884,7 +1032,7 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
   const repAt = d0?.from ?? x.dep;
   if (d) details.push(`${d.report <= g.now ? 'Reported' : 'Report'} ${fmtDateTime(d.report)} UTC at ${repAt}${repAt !== x.dep ? `; ${f.no} leaves ${x.dep} ${fmtDateTime(f.std + f.delay)} UTC` : ''}; missing ${seatsText(x.need)}${x.cs.level === 'illegal' ? '; crew flagged illegal' : ''}`);
   details.push(`A legal crew could take it from ${fmtDateTime(ready)} UTC${delayMin ? ` (${fmtDuration(delayMin)} late)` : ''}`);
-  const sev = (f.std - g.now) / 60 <= CC().redH ? 'red' : 'amber';
+  const sev = free ? (tie && (tie.latest - g.now) / 60 <= CC().redH ? 'red' : 'amber') : (f.std - g.now) / 60 <= CC().redH ? 'red' : 'amber';
   return {
     subject: { kind: x.missing.length ? 'crewShort' : 'crewIllegal', ref: { kind: 'flight', id: f.id } },
     severity: sev, title: what, what, why, hurt,
@@ -2329,6 +2477,20 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
       if (x.pax) s.chips.push(`${x.pax} pax`);
       s.confirm = true;
       out.push(run(s));
+    }
+  }
+  // v0.22.1 an empty leg whose wait for a crew costs nothing (no late leg, no penalty): handing flights to a rival or
+  // cancelling them, with their penalties and the client's notice, is no answer to it and is not offered. A free empty
+  // leg (nothing with passengers in its unit) has nothing to hand over or to pay for either way.
+  if (isEmptyLeg(f) && x.missing.length) {
+    const wait = out.find((s) => s.id === 'delay' && s.available && !s.cost && !(s.preview.extraCost ?? 0));
+    const freeLeg = freeEmptyLeg(g, f);
+    if (wait || freeLeg) {
+      const why = wait ? 'Not needed: the empty leg waits for its crew and nothing after it is late' : 'Not needed: an empty leg waits for its crew; nothing is lost while it does';
+      for (let i = 0; i < out.length; i++) {
+        const s = out[i];
+        if ((s.id === 'subcharter' || s.id === 'cancel') && s.available && (wait || s.cost > 0 || s.id === 'subcharter')) out[i] = no({ ...s, cost: 0, chips: [], consequences: [], confirm: false }, why);
+      }
     }
   }
   // v0.12.1 an evacuation or repatriation: any fix that gets a legal crew within a day (a delay too) ranks above

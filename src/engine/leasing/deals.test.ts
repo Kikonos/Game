@@ -95,7 +95,7 @@ describe('v0.17 letter of intent to lease (§F)', () => {
     expect(g.leasing!.quiet[`carlyle:${o.typeId}`]).toBeGreaterThan(g.now);
   });
 
-  it('approved with automatic signing off: the sign card; walking away then forfeits the holding deposit as rent', () => {
+  it('approved with automatic signing off: the sign card; walking away then forfeits the holding deposit (a lease transition cost)', () => {
     const g = newGame(25);
     g.company.cash = 20_000_000;
     const o = v17Offer(g);
@@ -106,10 +106,13 @@ describe('v0.17 letter of intent to lease (§F)', () => {
     expect(d.stage).toBe('approved');
     expect(problems(g).some((c) => c.subject.kind === 'leaseSign')).toBe(true);
     const rent0 = g.finance.current.lines.rent ?? 0;
+    const tr0 = g.finance.current.lines.transition ?? 0;
     const cash = g.company.cash;
     walkAway(g, d.id);
     expect(g.company.cash).toBe(cash);
-    expect((g.finance.current.lines.rent ?? 0) - rent0).toBe(-d.holding);
+    // v0.22.1 a cost of the lease deal that fell through ('Lease transitions'), not aircraft rent.
+    expect((g.finance.current.lines.transition ?? 0) - tr0).toBe(-d.holding);
+    expect((g.finance.current.lines.rent ?? 0) - rent0).toBe(0);
     expect(g.leasing!.stats.forfeited).toBe(d.holding);
   });
 

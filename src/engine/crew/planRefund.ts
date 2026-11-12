@@ -13,7 +13,7 @@
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
-import { DAY, fmtDay } from '../core/time';
+import { DAY, fmtDay, fromUTC, yearOf } from '../core/time';
 import type { Contract, GameState, Message, Minute } from '../core/types';
 import { bumpReliable } from '../ops/util';
 import { bumpClient } from '../contracts/relations';
@@ -57,12 +57,12 @@ function usdIn(text: string, re: RegExp): number {
 function heldDaysOn(m: Message): boolean {
   const re = /is busy on [^;.]*? on (\d{1,2}) ([A-Z][a-z]{2}) until/g;
   const day = Math.floor(m.t / DAY);
-  const y = new Date(m.t * 60_000).getUTCFullYear();
+  const y = yearOf(m.t);
   for (let x = re.exec(m.body); x; x = re.exec(m.body)) {
     const mon = MONTHS.indexOf(x[2]);
     if (mon < 0) continue;
     for (const yy of [y, y + 1]) {
-      const d = Math.floor(Date.UTC(yy, mon, Number(x[1])) / 86_400_000);
+      const d = Math.floor(fromUTC(yy, mon + 1, Number(x[1])) / DAY);
       if (d >= day + 2 && d < day + 60) return true;
     }
   }
