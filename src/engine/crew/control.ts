@@ -166,7 +166,7 @@ const FIX_DESC: Record<CrewFix, string> = {
   subcharter: 'A rival airline flies it; we still bill the client.',
   cancel: 'Compensation to the client and a reliability hit.',
   buyBack: "Paid at twice a day's pay; the day off is given back later in the month.",
-  logLater: 'The roster shows the crew reporting later than they did, so the limit reads as kept. Costs morale; it may come out later.',
+  logLater: 'The roster shows a later check-in. Costs morale; it may be found later.',
 };
 
 // ---------- the unit, seats and words ----------

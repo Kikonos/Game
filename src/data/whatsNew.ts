@@ -23,6 +23,9 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'The class\'s people list says which type each gives up ("drops A320"). Tap it to pick another. Their trips on that type after the class go to other crew, tried on a copy of the roster first.',
       'Select people on the Crew screen and tap Plan classes: the planner opens with exactly them.',
       'A long phase-out goes in instalments. Classes more than 120 days ahead show as Next, with the day you can book them. The Inbox tells you when that day comes.',
+      'New choice when a crew member is a little out of hours: Log a later report time. The roster shows them checking in later, so a short rest or a long day reads as legal.',
+      'Only for a short rest or a long day, by at most an hour, once per duty. It costs crew morale, most for the person it covers. Twice in 28 days and they refuse.',
+      'It can come out later: a crew member reports it, or the authority\'s audit finds it. That means a fine and an audit finding.',
     ],
     improvements: [
       'The planner works out its proposals faster and the screen stays live while it does. Going back to a choice you had is instant.',
@@ -35,6 +38,10 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'Crew waiting at a station for their flight out to their tour can fly a trip in between and go back there for it.',
       'A seat emptied halfway through a duty (a sick call) is no longer filled by someone at another airport.',
       'The crew alarm check in Bug reports now counts a flight home still to come from a finished trip, and its rest.',
+      'Crew are no longer called busy for a duty of another trip that fits between their flight out and their own first duty.',
+      'A seat you gave someone is no longer flagged for a crew plan rule that is only a planning choice.',
+      'A short rest before someone\'s next trip is now that trip\'s alarm, not the flight before it.',
+      'Before a flight out to work away from base, crew need 10 hours of rest, not 12.',
     ],
   },
   {
