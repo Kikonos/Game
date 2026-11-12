@@ -308,9 +308,17 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
     // v0.23 "back to where they need to be": away from base with their next work (a duty, or the ticket out to their
     // next tour) starting from where they are now, they come back there after this trip, not home (bots: crew waiting at
     // Nantes for a ticket to their next station were refused for one duty elsewhere, "due in Nantes for their ticket").
-    if (!station && !leaveNext && !tour && loc !== c.base) {
+    // Or their next work starts at a station the timeline does not take them to yet (home on leave from there, the trip
+    // back out on the leave's last day not bought yet): straight there after this trip ("in Lisbon, not Barcelona").
+    if (!station && !leaveNext && !tour) {
       const nx = nextWork(base, last.release);
-      if (nx && nx.from === loc && !(nx.kind === 'pos' && nx.at === c.base)) station = loc;
+      // (A ticket, alone or merged into its duty, that only takes them home or to where this trip ends is no reason to
+      // go back for it: the old rule re-buys it from where they will be, `retick` below.)
+      const dest = nx ? (nx.kind === 'pos' ? nx.at : nx.out?.to) : undefined;
+      if (nx && nx.from && nx.from !== c.base && (dest === undefined || (dest !== c.base && dest !== last.restAt))) {
+        if (nx.from === loc) station = loc;
+        else if (nx.from !== last.restAt && locAt(c, base, nx.start) !== nx.from) station = nx.from;
+      }
     }
     if (station) homeAt = backTo = station;
     // v0.23 ... and a ticket home they hold from where they are is no tie: this trip takes them away and brings them
