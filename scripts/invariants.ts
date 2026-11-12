@@ -72,6 +72,8 @@ interface FlightRec {
   unrated?: string[];
   /** v0.19.4 diverted en route: the destination it was dispatched to (the ETOPS check is on the dispatched sector). */
   planned?: string;
+  /** Player bot round: minutes it left after its schedule (an unforeseen delay). */
+  late?: number;
   /** v0.19.3 a trip home or back inside annual leave (travel on a leave day). */
   leaveTrip?: 'home' | 'back';
 }
@@ -305,6 +307,8 @@ export function createChecker(opts: CheckerOpts = {}) {
           id: f.id, seats: f.aircraftId ? g.fleet[f.aircraftId]?.cabin.total : undefined, no: f.no, kind: f.kind, from: f.from, to: f.to, atd: f.atd ?? f.std, ata: f.ata ?? f.sta, aircraftId: f.aircraftId, contractId: f.contractId,
           crewIds: [...f.crewIds], riders: [...(f.riders ?? [])], purpose: f.purpose, operatedBy: f.operatedBy, reducedCabin: f.reducedCabin, leaveTrip: f.leaveTrip,
           ...(f.div?.to0 ? { planned: f.div.to0 } : {}),
+          // Player bot round: how late it left against its schedule (an unforeseen delay).
+          late: Math.max(0, (f.atd ?? f.std) - (f.schedStd ?? f.std)),
           unrated: f.kind !== 'deadhead' && f.aircraftId && g.fleet[f.aircraftId] ? f.crewIds.filter((id) => g.crew[id] && !g.crew[id].ratings.includes(typeOf(g.fleet[f.aircraftId!].typeId).family)) : [],
         });
         for (const id of new Set([...f.crewIds, ...(f.riders ?? [])])) if (g.crew[id] || crew.has(id)) (g.crew[id] ? hist(g, id) : crew.get(id)!).flights.push(f.id);
@@ -634,7 +638,14 @@ export function createChecker(opts: CheckerOpts = {}) {
         if (s > cur && cur > -Infinity) {
           const gapEnd = Math.min(s, g.now);
           if (gapEnd - cur >= 36 * H && localNights(h.base, cur, gapEnd) >= 2) {
-            if (lastErr !== null && cur - lastErr > 168 * H + 1 && cur > h.t0 + 8 * DAY) err('recovery', cur, `${h.name}: ${hm(cur - lastErr)} between recovery rests (from ${fmtDateTime(lastErr)} to ${fmtDateTime(cur)}; limit 168 h)`);
+            if (lastErr !== null && cur - lastErr > 168 * H + 1 && cur > h.t0 + 8 * DAY) {
+              // Player bot round: a duty that ran past the limit only by a delay after its crew reported (ORO.FTL.205(f),
+              // unforeseen: the engine keeps reported crew on it, check.ts) is a warning; a plan past it is an error.
+              const over = cur - lastErr - 168 * H;
+              const slipped = h.flights.some((id) => { const f = flights.get(id); return !!f && f.ata <= cur && f.ata > cur - DAY && (f.late ?? 0) >= over; });
+              if (slipped) warn('recovery-slip', cur, `${h.name}: ${hm(cur - lastErr)} between recovery rests (from ${fmtDateTime(lastErr)} to ${fmtDateTime(cur)}): over 168 h by a delay after report`);
+              else err('recovery', cur, `${h.name}: ${hm(cur - lastErr)} between recovery rests (from ${fmtDateTime(lastErr)} to ${fmtDateTime(cur)}; limit 168 h)`);
+            }
             lastErr = gapEnd;
           }
         }
