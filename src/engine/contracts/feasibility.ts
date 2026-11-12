@@ -9,7 +9,7 @@ import { distanceNm } from '../core/geo';
 import { blockMinutes, complement, etopsCap, etopsNeeded, maxSectorNm, planSector, rangeFromNm, reportMinutes, runwayFit, typeOf, usableRangeNm } from '../core/perf';
 import { DAY, fmtDate, fmtDateTime, fmtDay, fmtDuration, fmtTime, toDate, fmtDayRange } from '../core/time';
 import type { AcRest, Aircraft, ApprovalId, ContractOffer, CrewExtra, Flight, GameState, Minute, RestRefitId, Role } from '../core/types';
-import { crewAvailability, offerExtra, type Availability } from '../crew';
+import { crewAvailability, hireQuote, offerExtra, type Availability } from '../crew';
 import { dutyNeed, type ChainShape, type DutyNeed } from '../crew/duties';
 import { restOf } from '../crew/restPlan';
 import { minRest, tzDeltaH } from '../crew/rules';
@@ -750,7 +750,12 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   else if (soon) add('crew', 'warn', soon, 'Nobody is there and the first airline seat lands too late to rest: the seats would start empty. Ask for a later start, or pass.');
   else if (shorts.length) {
     const what = shorts.map(([role, r]) => `${r.short} ${role}`).join(', ');
-    add('crew', 'warn', `Short of crew: ${what}${rep.crew.firstShort ? ` from ${fmtDay(rep.crew.firstShort)}` : ''}`, 'Hire, or the roster will deadhead crew from other work; sets may run tight.');
+    // Player bot round: when hires for it would join (the player signs stacked work and hires on this line): in time for
+    // the first short day, or too late for it.
+    const joins = Math.max(...shorts.map(([role, r]) => hireQuote(g, { role: role as Role, family: t.family, base: home, count: r.short }).readyAt));
+    const first = rep.crew.firstShort;
+    const when = first === null ? '' : joins <= first ? ` · hires join by ${fmtDay(joins)}` : ` · hires join ${fmtDay(joins)}, too late for the first days`;
+    add('crew', 'warn', `Short of crew: ${what}${first ? ` from ${fmtDay(first)}` : ''}${when}`, 'Hire, or the roster will deadhead crew from other work; sets may run tight.');
   } else if (!rep.crew.setsNeeded && !Object.keys(rep.crew.byRole).length) { if (flyable) add('crew', 'warn', 'Crew capacity not checked yet'); }
   else add('crew', 'ok', `Needs ${rep.crew.setsNeeded} crew set${rep.crew.setsNeeded === 1 ? '' : 's'}, ${rep.crew.setsAvailable >= rep.crew.setsNeeded ? `${rep.crew.setsAvailable} free` : 'enough free in each role'}`);
   if (far) {

@@ -105,6 +105,7 @@ import { createTicketLog } from './ticketlog';
 import { createChecker } from './invariants';
 import { watchAlarms } from './bot/alarms';
 import { crossCheck, crossPlanLines } from '../src/engine/crew/crossCheck';
+import { heldDuties } from '../src/engine/crew/avail';
 import type { AlarmKind } from '../src/engine/crew/selfCheck';
 import { SETUP_BY_ID, type SetupId } from '../src/data/setups';
 import { createScenario, METRICS, SCENARIO_BY_ID, fmtValue, reliability, scenarioOutcome, scenarioView } from '../src/engine/scenario';
@@ -174,8 +175,18 @@ const ALARMS_ARG = process.argv.find((a) => a === '--alarms' || a.startsWith('--
 /** v0.22.1 --crewcheck: each alarm is cross-checked as it fires (src/engine/crew/crossCheck.ts: RIGHT / WRONG / UNSURE). */
 const CREWCHECK = process.argv.includes('--crewcheck');
 const ALARMS = ALARMS_ARG || CREWCHECK
-  ? watchAlarms(CREWCHECK ? { also: noteAlarm, judge: (g, rec) => { const r = crossCheck(g, rec.flightId, rec.kind as AlarmKind); return { verdict: r.verdict, plan: `${r.why}${r.plan.length ? ` :: ${crossPlanLines(r).join(' || ')}` : ''}` }; } } : { also: noteAlarm })
+  ? watchAlarms(CREWCHECK ? { also: noteAlarm, judge: (g, rec) => { const r = crossCheck(g, rec.flightId, rec.kind as AlarmKind); return { verdict: r.verdict, plan: `${r.why}${reserveNote(g, r)}${r.plan.length ? ` :: ${crossPlanLines(r).join(' || ')}` : ''}` }; } } : { also: noteAlarm })
   : null;
+/** Player bot round: a cross-check plan that takes someone standing by for their own set (a far base's reserve, a relief pilot). */
+function reserveNote(g: GameState, r: ReturnType<typeof crossCheck>): string {
+  const f = g.flights[r.flightId];
+  if (!f || r.verdict === 'RIGHT') return '';
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const from = d?.report ?? f.std;
+  const to = d?.release ?? f.sta;
+  const held = r.plan.filter((x) => { const c = g.crew[x.crewId]; return !!c && heldDuties(g, c, Object.values(g.pairings)).some((h) => h.standsBy && h.start < to && h.end > from); });
+  return held.length ? ` [standing by for their own set: ${held.map((x) => x.name).join(', ')}]` : '';
+}
 /** v0.12 --setup=<id>: another New Game start setup (data/setups.ts: boeing, leisure, newtech, mixed, veterans, shoestring). */
 const SETUP = process.argv.find((a) => a.startsWith('--setup='))?.slice(8) as SetupId | undefined;
 
