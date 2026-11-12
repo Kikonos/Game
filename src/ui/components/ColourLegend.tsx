@@ -28,22 +28,22 @@ export function ColourLegend({ title, items, hint, gestures }: { title: string; 
       <button ref={btn} className={`btn btn-icon lg-btn ${open ? 'btn-on' : ''}`} onClick={toggle} aria-label={`${title}: what the colours mean`} aria-expanded={open}><HelpCircle /></button>
       {open && btn.current && (
         <PopBox anchor={btn.current} onClose={close} label={title} className="lg-pop">
-            {hint && <HintNote id={hint} />}
-            <b>{title}</b>
-            <div className="lg-list">
-              {items.map((it, i) => (
-                <div key={i} className="lg-item small">
-                  {typeof it.swatch === 'string' ? <span className={`lg-sw ${it.swatch}`} aria-hidden /> : it.swatch}
-                  <span>{it.label}</span>
-                </div>
-              ))}
-            </div>
-            {gestures && gestures.length > 0 && (
-              <>
-                <b>Gestures</b>
-                <div className="lg-list">{gestures.map((t, i) => <div key={i} className="lg-item small"><span>{t}</span></div>)}</div>
-              </>
-            )}
+          {hint && <HintNote id={hint} />}
+          <b>{title}</b>
+          <div className="lg-list">
+            {items.map((it, i) => (
+              <div key={i} className="lg-item small">
+                {typeof it.swatch === 'string' ? <span className={`lg-sw ${it.swatch}`} aria-hidden /> : it.swatch}
+                <span>{it.label}</span>
+              </div>
+            ))}
+          </div>
+          {gestures && gestures.length > 0 && (
+            <>
+              <b>Gestures</b>
+              <div className="lg-list">{gestures.map((t, i) => <div key={i} className="lg-item small"><span>{t}</span></div>)}</div>
+            </>
+          )}
         </PopBox>
       )}
     </span>
