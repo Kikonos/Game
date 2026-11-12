@@ -345,6 +345,27 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
       } else home = tour && !leaveNext ? tourHomePlan(g, p, last, c.base, cabinEarly(g, p)) : planHome(last, homeAt, cabinEarly(g, p) + outExtra(out, duties));
     }
   }
+  // Player bot round: a duty already under way (its first leg gone) is joined where its next leg leaves, by someone
+  // there when it leaves: the crew who flew the legs before are at that airport, a joiner may not be (bot --player seed
+  // 1: a cabin crew member at Palma seated on 2W7103 out of Budapest after 2W7102 had left without her, "teleport").
+  const leg0 = g.flights[first.flightIds[0]];
+  if (leg0 && leg0.status !== 'scheduled' && leg0.status !== 'cancelled' && first.report <= g.now) {
+    let flew = false;
+    let next: Flight | undefined;
+    for (const id of first.flightIds) {
+      const f = g.flights[id];
+      if (!f || f.status === 'cancelled') continue;
+      if (f.status === 'scheduled') {
+        next ??= f;
+        continue;
+      }
+      if (f.crewIds.includes(c.id) || aboard(f, c.id)) flew = true;
+    }
+    if (next && !flew) {
+      const w = locAt(c, base, next.std);
+      if (w !== next.from) issues.push({ code: 'location', level: 'illegal', text: `At ${w}, not ${next.from}`, dutyId: first.id });
+    }
+  }
   let segs = buildSegs(g, c, p, duties, out, home);
   // v0.9 round 4 speed: one context for the evaluations below (evalSegs reads it).
   const ctx = { ...ctxOf(g, c), slack };
