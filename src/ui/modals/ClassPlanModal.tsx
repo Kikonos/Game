@@ -13,7 +13,7 @@ import { typeOf } from '../../engine/core/perf';
 import { DAY } from '../../engine/core/time';
 import type { GameState, Minute, Role } from '../../engine/core/types';
 import {
-  bookClassPlan, CLASS_PLAN, classCandidates, classPlanNeed, classPlanSteps, conversionEarliest, courseOf, crewName, crewRev, dropChoices, familyWord, previewCopy, removeRating, removeRatingPlan,
+  bookClassPlan, CLASS_PLAN, classCandidates, classPlanDefaultBy, classPlanNeed, classPlanSteps, conversionEarliest, courseOf, crewName, crewRev, dropChoices, familyWord, previewCopy, removeRating, removeRatingPlan,
   type ClassProposal, type PlannedClass,
 } from '../../engine/crew';
 import { lockOf } from '../../engine/scenario';
@@ -40,6 +40,88 @@ function keepDone(g: GameState, key: string, plans: ClassProposal[]): void {
   if (!m) done.set(g, (m = new Map()));
   if (m.size >= DONE_KEPT) m.delete(m.keys().next().value!);
   m.set(key, plans);
+}
+
+/** The request's key (the dialog's memo and the warm-up's: the same request, the same key). */
+function planKey(g: GameState, r: { family: RatingFamily; group: Group; by: Minute | null; ids: string[]; pins: Record<string, Minute | 'out'>; drops: Record<string, RatingFamily> }): string {
+  return `${r.family}|${r.group}|${r.by}|${r.ids.join()}|${JSON.stringify(r.pins)}|${JSON.stringify(r.drops)}|${Math.floor(g.now / DAY)}|${crewRev(g)}|${Object.keys(g.classes ?? {}).length}`;
+}
+
+type Steps = Generator<void, ClassProposal[], void>;
+/**
+ * v0.23.1 the one proposal being worked out a step at a time: the dialog's, or the Planning screen's warm-up. The
+ * dialog takes the warm-up over when it asks for the same request (no step is done twice).
+ */
+let running: { g: GameState; key: string; it: Steps; timer: number; warm: boolean } | null = null;
+function stopRunning(): void {
+  if (running) clearTimeout(running.timer);
+  running = null;
+}
+/** The steps for a request: the warm-up's when it is on the same one, else new (a running game is read from a copy). */
+function stepsFor(g: GameState, key: string, req: Parameters<typeof classPlanSteps>[1]): Steps {
+  if (running && running.g === g && running.key === key) {
+    const it = running.it;
+    stopRunning();
+    return it;
+  }
+  stopRunning();
+  return classPlanSteps(store.paused ? g : previewCopy(g), req);
+}
+
+/** The type card most likely opened on Crew › Planning: one short of crew, else one with a phase-out to plan. */
+function warmTarget(g: GameState, fams: RatingFamily[]): RatingFamily | null {
+  for (const f of fams) if (classPlanNeed(g, f, defaultGroup(g, f)).roles.some((r) => r.short > 0)) return f;
+  for (const f of fams) if (classPlanDefaultBy(g, f, 'pilot') === null && classCandidates(g, f, 'pilot').length) return f;
+  return null;
+}
+
+/**
+ * v0.23.1 while Crew › Planning is on screen: the planner for its likeliest card is worked out in idle time, a step at a
+ * time, exactly as the dialog would open it (the same request, so the same result), and kept for the dialog. Stopped
+ * and let go when the screen closes.
+ */
+export function useClassPlanWarmup(g: GameState, fams: RatingFamily[], off: boolean): void {
+  const when = `${Math.floor(g.now / DAY)}|${crewRev(g)}|${Object.keys(g.classes ?? {}).length}|${fams.join()}|${off}`;
+  useEffect(() => {
+    if (off) return;
+    let mine: Steps | null = null;
+    const idle = (fn: () => void) => {
+      const ric = (window as unknown as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+      return ric ? ric(fn, { timeout: 400 }) : window.setTimeout(fn, 40);
+    };
+    const start = window.setTimeout(() => {
+      const family = warmTarget(g, fams);
+      if (!family) return;
+      const group = defaultGroup(g, family);
+      const ids = classCandidates(g, family, group);
+      const by = classPlanDefaultBy(g, family, group);
+      const key = planKey(g, { family, group, by, ids, pins: {}, drops: {} });
+      if (doneFor(g, key) || running) return;
+      const it = stepsFor(g, key, { family, group, crewIds: ids, by, pins: {}, drops: {} });
+      mine = it;
+      running = { g, key, it, timer: 0, warm: true };
+      const step = () => {
+        if (!running || running.it !== it) return;
+        const r = it.next();
+        if (r.done) {
+          keepDone(g, key, r.value);
+          running = null;
+          return;
+        }
+        running.timer = idle(step);
+      };
+      running.timer = idle(step);
+    }, 300);
+    return () => {
+      clearTimeout(start);
+      // Not taken over by the dialog: let it go.
+      if (running && running.it === mine) {
+        const cic = (window as unknown as { cancelIdleCallback?: (h: number) => void }).cancelIdleCallback;
+        if (cic) cic(running.timer);
+        stopRunning();
+      }
+    };
+  }, [when]); // eslint-disable-line react-hooks/exhaustive-deps
 }
 
 /** Families flown or on their way first, then the rest of the catalogue. */
@@ -123,7 +205,8 @@ export function ClassPlanModal({ family: fam0, group: group0, crewIds: seed, onB
   const need = useMemo(() => classPlanNeed(g, family, group), [g, family, group]);
   const everyone = useMemo(() => (picked ? picked.filter((id) => isPilotRole(g.crew[id].role) === (group === 'pilot')) : classCandidates(g, family, group)), [g, family, group, picked, crewRev(g)]); // eslint-disable-line react-hooks/exhaustive-deps
   const [rank, setRank] = useState<Role | 'all'>('all');
-  const [by, setBy] = useState<Minute | null>(() => classPlanNeed(g, family, group).arrival?.at ?? null);
+  // v0.23.1 the arrival of the type's next aircraft; no date for a phase-out in instalments (the whole plan shows).
+  const [by, setBy] = useState<Minute | null>(() => classPlanDefaultBy(g, family, group, picked?.filter((id) => isPilotRole(g.crew[id].role) === (group === 'pilot'))));
   const [balance, setBalance] = useState(2);
   const [pins, setPins] = useState<Record<string, Minute | 'out'>>({});
   const [open, setOpen] = useState<string | null>(null);
@@ -137,13 +220,13 @@ export function ClassPlanModal({ family: fam0, group: group0, crewIds: seed, onB
     setDrops({});
     setOpen(null);
     setReview(false);
-    setBy(classPlanNeed(g, f, gr).arrival?.at ?? null);
+    setBy(classPlanDefaultBy(g, f, gr, picked?.filter((id) => isPilotRole(g.crew[id].role) === (gr === 'pilot'))));
   };
   const setFamily = (f: RatingFamily) => { setFamilyRaw(f); reset(f, group); };
   const setGroup = (gr: Group) => { setGroupRaw(gr); reset(family, gr); };
   const ids = useMemo(() => everyone.filter((id) => rank === 'all' || g.crew[id]?.role === rank), [everyone, rank, g]);
   // The proposals for all five stops: worked out once per request (a dry run each), after the dialog has painted.
-  const key = `${family}|${group}|${by}|${ids.join()}|${JSON.stringify(pins)}|${JSON.stringify(drops)}|${Math.floor(g.now / DAY)}|${crewRev(g)}|${Object.keys(g.classes ?? {}).length}`;
+  const key = planKey(g, { family, group, by, ids, pins, drops });
   const [made, setMade] = useState<{ key: string; plans: ClassProposal[] } | null>(() => {
     const plans = doneFor(g, key);
     return plans ? { key, plans } : null;
@@ -154,8 +237,8 @@ export function ClassPlanModal({ family: fam0, group: group0, crewIds: seed, onB
       setMade({ key, plans: hit });
       return;
     }
-    // A step at a time between frames (a dry run each), so the dialog stays live; a running game is read from a copy.
-    const it = classPlanSteps(store.paused ? g : previewCopy(g), { family, group, crewIds: ids, by, pins, drops });
+    // A step at a time between frames (a dry run each), so the dialog stays live (the warm-up's steps when it was on it).
+    const it = stepsFor(g, key, { family, group, crewIds: ids, by, pins, drops });
     let t = 0;
     const step = () => {
       const until = performance.now() + 30;

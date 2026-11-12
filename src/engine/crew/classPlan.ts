@@ -220,6 +220,21 @@ export function classPlanNeed(g: GameState, family: RatingFamily, group: Group):
   return { roles, arrival: nextArrival(g, family), text };
 }
 
+/**
+ * v0.23.1 the planner's first finish date: the target's next aircraft (it should have its crew by then), but none when
+ * the plan is a phase-out in instalments (pilots of a type whose aircraft leave within the year, or a booked plan's next
+ * instalment still to come): then the whole plan shows. Pure.
+ */
+export function classPlanDefaultBy(g: GameState, family: RatingFamily, group: Group, crewIds?: string[]): Minute | null {
+  if (g.classNext?.some((x) => x.family === family && x.group === group)) return null;
+  if (group === 'pilot') {
+    const held = new Set<RatingFamily>();
+    for (const id of crewIds ?? classCandidates(g, family, group)) for (const f of g.crew[id]?.ratings ?? []) if (f !== family) held.add(f);
+    for (const f of held) if (fleetChanges(g, f).changes.some((c) => c.delta < 0)) return null;
+  }
+  return nextArrival(g, family)?.at ?? null;
+}
+
 // ---------- facts the search reads ----------
 
 interface Person {
@@ -1091,7 +1106,7 @@ export function dailyClassReminders(g: GameState): void {
     pushMessage(g, {
       tone: 'info', cat: 'crew', title: `Next ${label} classes can be booked`,
       body: `${who} still to train. Plan classes on the ${label} card in Crew › Planning.`,
-      ref: { kind: 'crew', id: `classes:${x.family}` },
+      ref: { kind: 'crew', id: `classes:${x.family}:${x.group}` },
     });
   }
   if (keep.length) g.classNext = keep;

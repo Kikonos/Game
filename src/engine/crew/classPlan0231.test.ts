@@ -12,7 +12,7 @@ import { fixture } from '../fixtures/compatKit';
 import { hireHead, monthlyHeads, rollCandidates, setHeadRules, unlockHead } from '../ops/heads';
 import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
-import { bookClassPlan, classPlanSteps, classProposals, dailyClassReminders } from './classPlan';
+import { bookClassPlan, classPlanDefaultBy, classPlanSteps, classProposals, dailyClassReminders } from './classPlan';
 import { classOf, dropChoices, dropDefaultFor, startConversion } from './conversion';
 import { rosterHorizon } from './dayPlan';
 import { flightCrewStatus, rosterOf } from './roster';
@@ -152,6 +152,20 @@ describe('classes beyond the 120-day booking window: the next instalment', () =>
     expect(classProposals(g, { family: F, group: 'cabin', by: null })[2].next).toEqual([]);
   });
 
+  it('the first finish date: the new type\'s next aircraft, but none for a pilot phase-out or an instalment still to come', () => {
+    const g = load();
+    const arrival = classPlanDefaultBy(g, F, 'cabin');
+    expect(arrival).not.toBeNull();
+    // No 737 leaving: pilots too get the 757's arrival.
+    expect(classPlanDefaultBy(g, F, 'pilot')).toBe(arrival);
+    const h = phaseOut();
+    expect(classPlanDefaultBy(h, F, 'pilot')).toBeNull();
+    // Cabin crew keep the 737: the arrival, until a booked plan has a next instalment for them.
+    expect(classPlanDefaultBy(h, F, 'cabin')).toBe(arrival);
+    h.classNext = [{ family: F, group: 'cabin', at: h.now + 30 * DAY, crewIds: ['c10'] }];
+    expect(classPlanDefaultBy(h, F, 'cabin')).toBeNull();
+  });
+
   it('booked, the Inbox says when the next instalment can be booked (once, and only for people still to train)', () => {
     const g = phaseOut();
     const p = classProposals(g, { family: F, group: 'pilot', by: null })[2];
@@ -168,7 +182,7 @@ describe('classes beyond the 120-day booking window: the next instalment', () =>
     dailyClassReminders(g);
     expect(lines(g)).toHaveLength(1);
     expect(lines(g)[0].body).toBe('16 pilots still to train. Plan classes on the 757/767 card in Crew › Planning.');
-    expect(lines(g)[0].ref).toEqual({ kind: 'crew', id: 'classes:B757/767' });
+    expect(lines(g)[0].ref).toEqual({ kind: 'crew', id: 'classes:B757/767:pilot' });
     expect(g.classNext).toBeUndefined();
     dailyClassReminders(g);
     expect(lines(g)).toHaveLength(1);
