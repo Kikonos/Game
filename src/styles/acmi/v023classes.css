@@ -4,9 +4,16 @@
 .kp-controls .select { width: auto; flex: 1 1 150px; min-width: 0; }
 .kp-controls .seg { flex: none; }
 
-.kp-balance { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px 8px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--border); }
-.kp-end { color: var(--text-3); transition: color 0.15s; }
-.kp-end.on { color: var(--text); font-weight: 600; }
+.kp-balance { display: flex; flex-direction: column; gap: 2px; padding: 4px 12px 6px 14px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--border); }
+/* One row: the two ends beside the slider, the '?' last; on a narrow screen the ends sit above it. */
+.kp-bal-row { display: grid; grid-template-columns: auto minmax(120px, 1fr) auto auto; align-items: center; gap: 4px 12px; }
+.kp-end { font-size: 13px; color: var(--text-3); transition: color 0.15s; white-space: nowrap; }
+.kp-end.on { color: var(--text); }
+@media (max-width: 640px) {
+  .kp-bal-row { grid-template-columns: 1fr auto auto; }
+  .kp-bal-row input { grid-row: 2; grid-column: 1 / -1; }
+  .kp-end.l { grid-column: 1; }
+}
 .kp-wait { display: grid; place-items: center; min-height: 120px; text-align: center; }
 .kp-stale { opacity: 0.55; transition: opacity 0.12s; }
 

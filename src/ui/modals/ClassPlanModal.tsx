@@ -117,6 +117,10 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
   const plans = made?.plans ?? null;
   const stale = !made || made.key !== key;
   const p = plans ? plans[balance] : null;
+  // A class opened from the strip comes into view (on a phone it sits below the fold).
+  useEffect(() => {
+    if (open) document.getElementById(`kp-${open}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [open]);
   const close = () => store.closeModal();
   const lock = lockOf(g, 'training');
   const label = familyWord(family);
@@ -134,7 +138,6 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
     setPins(next);
     setReview(false);
   };
-  const whoWord = group === 'cabin' ? 'cabin crew' : 'pilots';
   const byList = byChoices(g.company.homeBase, g.now, conversionEarliest(g), course.days);
   const byValue = by === null ? '' : String(by);
   const same = plans ? samePlan(plans) : false;
@@ -179,8 +182,8 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
             {fams.map((f) => <option key={f} value={f}>Onto the {familyWord(f)}</option>)}
           </select>
           <select className="select" value={rank} onChange={(e) => { setRank(e.target.value as Role | 'all'); setPins({}); }} aria-label="Who">
-            <option value="all">All {everyone.length} {whoWord}</option>
-            {RANKS[group].map((r) => <option key={r.role} value={r.role}>{r.label} only ({everyone.filter((id) => g.crew[id]?.role === r.role).length})</option>)}
+            <option value="all">Everyone ({everyone.length})</option>
+            {RANKS[group].map((r) => <option key={r.role} value={r.role}>{r.label} ({everyone.filter((id) => g.crew[id]?.role === r.role).length})</option>)}
           </select>
           <select className="select" value={byValue} onChange={(e) => setBy(e.target.value === '' ? null : Number(e.target.value))} aria-label="Finish by">
             <option value="">No finish date</option>
@@ -193,8 +196,10 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
         </div>
 
         <div className="kp-balance">
-          <div className="row between small">
-            <span className={balance <= 1 ? 'kp-end on' : 'kp-end'}>Fewer, bigger classes</span>
+          <div className="kp-bal-row">
+            <span className={`kp-end l ${balance <= 1 ? 'on' : ''}`}>Fewer, bigger classes</span>
+            <input type="range" min={0} max={CLASS_PLAN.stops - 1} step={1} value={balance} onChange={(e) => { setBalance(Number(e.target.value)); setReview(false); }} aria-label="Balance: fewer, bigger classes to least roster disruption" style={{ ['--fill' as string]: `${(balance / (CLASS_PLAN.stops - 1)) * 100}%` }} />
+            <span className={`kp-end r ${balance >= 3 ? 'on' : ''}`}>Least roster disruption</span>
             <Help title="How the plan is made">
               <p>Left: as few classes as the room allows, as full as they can be, even if rostered duties must go to others. Right: nobody’s roster is touched, even if that takes smaller classes or leaves someone out.</p>
               <p>At every setting each flight stays crewed: the plan is first tried on a copy of the roster. Leave is never moved, and each type keeps the crew its sets need at work.</p>
@@ -203,9 +208,7 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
                 : `Pilots: ${course.days} days (ground school, simulator, base and line training), up to ${CLASS_PLAN.max.pilot} in a class in simulator pairs, classes ${BAL.conv.pilotStaggerDays} days apart, ${money(course.cost)} each. A pilot leaves the old type when the course starts, so nobody goes before its aircraft can spare them.`}</p>
               <p>Paid at booking. Full refund up to {BAL.conv.refundFull} days before a class, half after.</p>
             </Help>
-            <span className={balance >= 3 ? 'kp-end on' : 'kp-end'}>Least roster disruption</span>
           </div>
-          <input type="range" min={0} max={CLASS_PLAN.stops - 1} step={1} value={balance} onChange={(e) => { setBalance(Number(e.target.value)); setReview(false); }} aria-label="Balance: fewer, bigger classes to least roster disruption" style={{ ['--fill' as string]: `${(balance / (CLASS_PLAN.stops - 1)) * 100}%` }} />
           {same && p && p.classes.length > 0 && <div className="tiny muted">One plan is best at every setting here{p.duties === 0 ? ': nothing on the roster is in the way' : ''}.</div>}
         </div>
 
@@ -230,7 +233,7 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
               {p.classes.map((k) => {
                 const on = open === k.no;
                 return (
-                  <div key={k.no} className={`kp-class ${on ? 'on' : ''}`}>
+                  <div key={k.no} id={`kp-${k.no}`} className={`kp-class ${on ? 'on' : ''}`}>
                     <button className="kp-class-head" onClick={() => setOpen(on ? null : k.no)} aria-expanded={on}>
                       <b>{k.no}</b>
                       <span className="small muted grow ellipsis">{baseDay(g, k.start)} – {baseDay(g, k.end - 1)} · {k.crewIds.length} {group === 'pilot' ? 'pilots' : 'people'}{k.course === 'ccq' ? ' · CCQ' : ''}{k.duties ? ` · ${k.duties} ${k.duties === 1 ? 'duty' : 'duties'} to re-crew` : ''}</span>
