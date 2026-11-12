@@ -19,7 +19,8 @@ import { acceptable, planCrew } from './check';
 import { crossCheck } from './crossCheck';
 import { dutyCrew } from './rosterActions';
 import { segsOf } from './timeline';
-import { coversOther } from './tours';
+import { dutyClash, guestOn, heldDuties } from './avail';
+import { coversOther, deploymentSets, memberTours, tourHolding } from './tours';
 
 const load = (): GameState => deserialize(fixture('v0221-riyadh'));
 /** The save as v0.22.1 left it: the once-on-load re-rosters switched off. */
@@ -72,6 +73,43 @@ describe('v0.23 the Riyadh base: crew on station cover single duties of another 
     // A second load changes nothing (the repair runs once).
     const again = deserialize(JSON.stringify({ format: 'contrail-acmi-save', meta: {}, state: JSON.parse(JSON.stringify(g)) }));
     expect(leg(again, 'XY3120', 29).crewIds).toEqual(leg(g, 'XY3120', 29).crewIds);
+  });
+
+  it('a guest is no member of the set they cover: no tour hold from it, not counted in the set, their own duties still theirs', () => {
+    const before = raw();
+    const g = load();
+    const f = leg(g, 'XY3102', 4);
+    const p = g.pairings[g.duties[f.dutyId!].pairingId];
+    const seat = p.slots.find((s) => s.guest && s.crewId)!;
+    const c = g.crew[seat.crewId!];
+    // Held on station by their own set's tour, never by the part they cover.
+    const hold = tourHolding(g, c);
+    expect(hold).not.toBeNull();
+    expect(guestOn(hold!, c.id)).toBe(false);
+    expect(memberTours(g, c.id).includes(p)).toBe(false);
+    // The sets on station count the same people as before the covers.
+    const count = (x: GameState) => deploymentSets(x).map((l) => `${l.base}:${l.set}:${l.crew}`).sort();
+    expect(count(g)).toEqual(count(before));
+    // Busy means their own duties: nothing they hold overlaps the duty they cover, and they hold it.
+    const mine = heldDuties(g, c, Object.values(g.pairings));
+    const d = g.duties[f.dutyId!];
+    expect(mine.some((x) => x.duty.id === d.id)).toBe(true);
+    expect(mine.filter((x) => x.duty.id !== d.id && x.start < d.release && x.end > d.report)).toEqual([]);
+    expect(dutyClash(mine.filter((x) => x.duty.id !== d.id).map((x) => x.duty), d.report, d.release)).toBe(-1);
+  });
+
+  it('the cross-check reads days off on its own: a published day off is not free unless the company buys them back itself', () => {
+    const g = raw();
+    const f = leg(g, 'XY3120', 29);
+    const auto = crossCheck(g, f.id, 'short');
+    expect(auto.verdict).toBe('WRONG');
+    // With buy-backs left to the player, nobody on a published day off is offered as a crew that existed.
+    g.company.policies.buyBack = 'ask';
+    const ask = crossCheck(g, f.id, 'short');
+    for (const s of ask.plan) expect(s.back).not.toMatch(/bought back/);
+    expect(Object.keys(ask.refused).some((k) => /published day off/.test(k))).toBe(true);
+    // (Four crew on station with no day off still make the alarm wrong.)
+    expect(ask.verdict).not.toBe('UNSURE');
   });
 
   it('the duty sheet says who is covering for another set, and only them', () => {

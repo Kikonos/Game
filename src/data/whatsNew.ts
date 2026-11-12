@@ -16,6 +16,26 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.23',
+    name: 'Crew planned person by person',
+    features: [
+      'Every crew member now has their own roster. Whoever is legal, rested and free on the day takes an open seat, even one flight in the middle of another crew set\'s stay, and then goes back to their own flights.',
+      'Crew sets still stay together where they can. A set is no longer a lock: a seat stays empty only when nobody at all can legally fly that day.',
+    ],
+    improvements: [
+      'Far fewer "no crew" alarms, and the ones left are real. Our test games had about a fifth of the alarms and half the red ones.',
+      'Someone helping another set shows "Covering" on that flight. On their own roster it is simply their duty.',
+      'Crew waiting at a station for their next job go back there after helping elsewhere, not home to base first.',
+      'The crew alarm check behind Bug reports now also reads days off, the weekly rest and rest after time-zone trips.',
+    ],
+    fixes: [
+      'XY3120 at Riyadh had no cabin crew while four rested cabin crew sat in Riyadh, and the card said one of them was "in Lisbon". They fly it now and stay in Riyadh.',
+      'XY3102 was short of a purser because the seat also covered a flight three days later. Each flight now gets whoever is free for it.',
+      'Flights that error left short are crewed when you load your game.',
+      'A flight moved to an earlier time could leave without its crew ever reporting, and one of them was then ticketed from the wrong city.',
+    ],
+  },
+  {
     version: 'v0.22.1',
     name: 'Crew alarms you can check',
     features: [
