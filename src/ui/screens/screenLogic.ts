@@ -370,7 +370,8 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     }
     case 'crew':
       // Peak-staffing round: a busy-month heads-up opens Crew › Planning.
-      if (ref.id.startsWith('peak:')) return { tab: 'crew', view: 'plan' };
+      // v0.23.1 the next instalment of classes can be booked: Crew › Planning (the type's card has Plan classes).
+      if (ref.id.startsWith('peak:') || ref.id.startsWith('classes:')) return { tab: 'crew', view: 'plan' };
       return g.crew[ref.id] ? { tab: 'crew', sel: ref } : { tab: 'crew' };
     case 'maint': {
       const m = g.maintenance[ref.id];

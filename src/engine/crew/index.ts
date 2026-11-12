@@ -8,6 +8,7 @@ import { schedule } from '../core/queue';
 import { DAY, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Pairing, SimEvent } from '../core/types';
 import { cancelConversion, classOf, dailyClasses, restoreCcqRatings } from './conversion';
+import { dailyClassReminders } from './classPlan';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { afterDiversion, deletePairing, resizeDeployments, dutyLegality as dutyLevel, pairingSeats, planAircraft, refreshPairing, syncDuty } from './duties';
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
@@ -50,13 +51,13 @@ export { paidShare, salaryBill } from './costs';
 export { crewRev, rideRoom, rideSeats, ridersText, ridesAllowed, revenueRide, ticketPrice } from './timeline';
 export { dropTargets, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from './board';
 export {
-  cancelConversion, ccqKeeps, ccqPartner, ccqPartners, classOf, classPhases, conversionClasses, conversionEarliest, conversionPlan, courseOf, courseText, familyLabel, ratingsLost, refundShare, startConversion,
+  cancelConversion, ccqKeeps, ccqPartner, ccqPartners, classOf, classPhases, conversionClasses, conversionEarliest, conversionPlan, courseOf, courseText, dropChoices, dropDefaultFor, familyLabel, ratingsLost, refundShare, startConversion,
   type ConversionClassPlan, type ConversionPlan, type ConversionRequest,
 } from './conversion';
 // v0.23 the class planner and Remove type rating (crew/classPlan.ts).
 export {
-  bookClassPlan, CLASS_PLAN, classCandidates, classPlanNeed, classProposal, classProposals, fleetChanges, nextArrival, removeRating, removeRatingPlan,
-  type ClassPlanNeed, type ClassPlanRequest, type ClassProposal, type FleetChange, type PlannedClass, type RemoveRatingPlan,
+  bookClassPlan, CLASS_PLAN, classCandidates, classPlanDefaultBy, classPlanNeed, classPlanSteps, classProposal, classProposals, dailyClassReminders, fleetChanges, nextArrival, removeRating, removeRatingPlan,
+  type ClassPlanNeed, type ClassPlanRequest, type ClassProposal, type FleetChange, type NextClass, type PlannedClass, type RemoveRatingPlan,
 } from './classPlan';
 // v0.18.3 Convert surplus crew (Crew › Utilisation).
 export {
@@ -644,6 +645,7 @@ function prune(g: GameState): void {
 
 function daily(g: GameState) {
   dailyClasses(g);
+  dailyClassReminders(g);
   refreshStatuses(g);
   prune(g);
   dailyCrewCosts(g);

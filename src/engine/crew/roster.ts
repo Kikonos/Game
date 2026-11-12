@@ -296,6 +296,36 @@ function seatAs(seat: CrewSlot, plan: CrewPlan): void {
 let ownRelease: string | null = null;
 
 /**
+ * v0.23.1 cabin crew giving a type up at the end of a booked course (a class's `drop`): per person, the day before the
+ * class starts. They are not rostered on that type for a trip that ends later (their trips on it went back to the
+ * roster at booking). Empty for most games.
+ */
+export function droppingAt(g: GameState, family: RatingFamily): Map<string, Minute> | null {
+  let out: Map<string, Minute> | null = null;
+  for (const k of Object.values(g.classes ?? {})) {
+    if ((k.status !== 'planned' && k.status !== 'running') || !k.drop) continue;
+    for (const [id, f] of Object.entries(k.drop)) if (f === family) (out ??= new Map()).set(id, k.start - DAY);
+  }
+  return out;
+}
+
+/** True when `c` gives `family` up at a course before the trip [.., end) ends (droppingAt). */
+const goingOff = (drops: Map<string, Minute> | null, c: CrewMember, end: Minute): boolean => !!drops && drops.has(c.id) && end > drops.get(c.id)!;
+
+/**
+ * v0.23.1 a cabin crew member's trips on a type from `from` on go back to the roster (a type they give up at the end of
+ * a course: conversion.ts), the seats re-crewed. Returns the trips touched.
+ */
+export function releaseTrips(g: GameState, crewId: string, family: RatingFamily, from: Minute, why: string): number {
+  const hit = (crewIx(g).pairingsOf.get(crewId) ?? []).filter((p) => p.status !== 'done' && p.status !== 'broken' && p.start >= from && p.aircraftId && typeOf(typeIdOf(g, p)).family === family);
+  if (!hit.length) return 0;
+  for (const p of hit) releaseCrew(g, p, crewId, why);
+  fillAll(g, hit, emptyResult(), new Set([crewId]));
+  for (const p of hit) if (g.pairings[p.id]) recheckPairing(g, p);
+  return hit.length;
+}
+
+/**
  * Rotations round: what a crew ticket is for, in plain words (Flight.why): a tour's own change, a replacement for someone
  * who left a seat early (the seat remembers whom and why: CrewSlot.left), or a trip's own positioning.
  */
@@ -2069,8 +2099,9 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   for (const r of SLOT_ORDER) for (const i of order) if (canFill(p.slots[i].role, r)) fitRoles.add(r);
   const price = new Map<string, number>();
   const pool: { c: CrewMember; score: number; rank: number }[] = [];
+  const drops = droppingAt(g, family);
   for (const c of ctx.crew) {
-    if (!fitRoles.has(c.role) || !c.ratings.includes(family) || inP.has(c.id) || exclude?.has(c.id) || c.morale < refuseBelow) continue;
+    if (!fitRoles.has(c.role) || !c.ratings.includes(family) || inP.has(c.id) || exclude?.has(c.id) || c.morale < refuseBelow || goingOff(drops, c, p.end)) continue;
     // v0.9 round 3 speed: crew planCrew would refuse at once (on leave, sick, in training or joining during the trip;
     // still resting at its report) are not planned at all: they were refused anyway, one full timeline check each.
     // Debug round (26 Oct 2026): until they are home again (a trip ending away: its rest and the ticket home), so leave
@@ -2421,7 +2452,8 @@ function splitTourGap(g: GameState, ctx: Ctx, p: Pairing, exclude?: Set<string>)
   const family = typeOf(typeIdOf(g, p)).family;
   const inP = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
   const end = open[open.length - 1].release;
-  const pool = ctx.crew.filter((c) => !inP.has(c.id) && !exclude?.has(c.id) && c.ratings.includes(family) && roles.some((r) => canFill(r, c.role)));
+  const drops = droppingAt(g, family);
+  const pool = ctx.crew.filter((c) => !inP.has(c.id) && !exclude?.has(c.id) && c.ratings.includes(family) && roles.some((r) => canFill(r, c.role)) && !goingOff(drops, c, p.end));
   const horizon = rosterHorizon(g);
   for (let k = 1; k < open.length; k++) {
     const d = open[k];
@@ -2469,7 +2501,8 @@ function coverRun(g: GameState, ctx: Ctx, p: Pairing, exclude?: Set<string>): { 
   const family = typeOf(typeIdOf(g, p)).family;
   const inP = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
   const until = g.now + COVER_AHEAD;
-  const pool = ctx.crew.filter((c) => !inP.has(c.id) && !exclude?.has(c.id) && c.ratings.includes(family) && roles.some((r) => canFill(r, c.role)));
+  const drops = droppingAt(g, family);
+  const pool = ctx.crew.filter((c) => !inP.has(c.id) && !exclude?.has(c.id) && c.ratings.includes(family) && roles.some((r) => canFill(r, c.role)) && !goingOff(drops, c, p.end));
   if (!pool.length) return none();
   /** Who of `from` can fly duties [k, m) as a part of their own (a guest on a tour when duties follow it). */
   const can = (from: CrewMember[], k: number, m: number): CrewMember[] => {
