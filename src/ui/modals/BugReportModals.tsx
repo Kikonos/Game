@@ -248,7 +248,7 @@ export function BugReportsModal() {
           <div className="small muted">Written {when(open.createdAt)} · game {c.gameTime}{c.gameTimeLocal ? ` · ${c.gameTimeLocal}` : ''} · {c.version}</div>
           {open.shot ? <img className="bug-shot" src={open.shot} alt="Screenshot" /> : isCrewAlarm(open) ? null : <div className="small dim">No screenshot</div>}
           {open.what && (isCrewAlarm(open) ? <pre>{open.what}</pre> : <div><b className="small">What happened</b><div>{open.what}</div></div>)}
-          {open.expected && <div><b className="small">Expected</b><div>{open.expected}</div></div>}
+          {open.expected && (isCrewAlarm(open) ? <div className="small muted">{open.expected}</div> : <div><b className="small">Expected</b><div>{open.expected}</div></div>)}
           <div className="small muted">Screen {c.screen.tab}{c.screen.view ? ` › ${c.screen.view}` : ''}{c.screen.modal ? ` · dialog ${c.screen.modal}` : ''}{c.screen.sel ? ` · ${c.screen.sel.kind} ${c.screen.sel.id}` : ''}</div>
           {c.entity && <pre>{[c.entity.label, ...c.entity.lines].join('\n')}</pre>}
           {c.inbox.length > 0 && <pre>{c.inbox.join('\n')}</pre>}
