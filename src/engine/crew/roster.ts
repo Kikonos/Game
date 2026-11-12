@@ -2,7 +2,7 @@
 
 import type { RatingFamily } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
-import { addDeadhead, deadheadFlights, flightsOf, markFlightsChanged, removeFlights, retimeFlight, touchTickets } from '../core/entities';
+import { addDeadhead, deadheadFlights, flightsOf, flightsRev, markFlightsChanged, removeFlights, retimeFlight, touchTickets } from '../core/entities';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
@@ -1952,7 +1952,10 @@ class Ctx {
    * rotation for a tour, that refused everything else inside it for the rest of the run.
    */
   mine = new Map<string, Pairing[]>();
+  /** Seats taken in this run so far (coverRun's "nobody" memo holds only while nothing was). */
+  n = 0;
   take(id: string, p: Pairing): void {
+    this.n++;
     const l = this.mine.get(id);
     if (l) {
       if (!l.includes(p)) l.push(p);
@@ -2455,11 +2458,19 @@ function coverRun(g: GameState, ctx: Ctx, p: Pairing, exclude?: Set<string>): { 
   if (!roles.length || open.length < 2) return null;
   // A world tour is sold with one crew travelling round with the aircraft (a held job): never cut into runs.
   if (heldJobOf(g, p)) return null;
+  // Speed: a part nobody could cover is not searched again in the same minute while nothing changed (the shortage
+  // ladder and Crew Control ask again and again; a search that finds nobody changes nothing).
+  const rev = `${crewRev(g)}:${flightsRev(g)}:${g.now}:${open.length}:${ctx.n}`;
+  if (noCover.get(p) === rev) return null;
+  const none = (): null => {
+    if (!exclude?.size) noCover.set(p, rev);
+    return null;
+  };
   const family = typeOf(typeIdOf(g, p)).family;
   const inP = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
   const until = g.now + COVER_AHEAD;
   const pool = ctx.crew.filter((c) => !inP.has(c.id) && !exclude?.has(c.id) && c.ratings.includes(family) && roles.some((r) => canFill(r, c.role)));
-  if (!pool.length) return null;
+  if (!pool.length) return none();
   /** Who of `from` can fly duties [k, m) as a part of their own (a guest on a tour when duties follow it). */
   const can = (from: CrewMember[], k: number, m: number): CrewMember[] => {
     const ds = open.slice(k, m);
@@ -2474,7 +2485,7 @@ function coverRun(g: GameState, ctx: Ctx, p: Pairing, exclude?: Set<string>): { 
     });
   };
   for (let k = 0; k < open.length; k++) {
-    if (open[k].report > until) return null;
+    if (open[k].report > until) return none();
     const who = can(pool, k, k + 1);
     if (!who.length) continue;
     // Per open role with someone for duty k: the longest run one person can fly; the run is the shortest of them, so
@@ -2500,8 +2511,10 @@ function coverRun(g: GameState, ctx: Ctx, p: Pairing, exclude?: Set<string>): { 
     const rest = k + len < open.length ? splitPairing(g, run, open[k + len].report) : null;
     return { run, rest };
   }
-  return null;
+  return none();
 }
+/** v0.23 parts coverRun found nobody for, by the state they were searched in (runtime only). */
+const noCover = new WeakMap<Pairing, string>();
 
 /**
  * Greedy auto-roster: rebuild open pairings of the aircraft, then fill every open slot of pairings starting in
