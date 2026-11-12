@@ -2527,7 +2527,7 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
       const before = adjustedRecently(g.crew[first.crewId], g.now);
       const m = logLaterMorale(o.min, before);
       s.label = logLaterLabel(o.min);
-      s.chips = ['Free', `Morale ${m}${o.who.length > 1 ? ' each' : ''}`, `Crew ${BAL.logLater.morale.others}`, 'Risk: fine'];
+      s.chips = [`Morale ${m}${o.who.length > 1 ? ' each' : ''}`, `Crew ${BAL.logLater.morale.others}`, 'Risk: fine'];
       const names = o.who.map((y) => y.name.split(' ')[0]);
       s.consequences = [`${names.length > 2 ? `${names.slice(0, 2).join(', ')} and ${names.length - 2} more` : names.join(' and ')}: ${o.limit === 'rest' ? 'rest' : 'day'} legal on paper, ${o.min} min ${o.limit === 'rest' ? 'short' : 'over'} in reality`];
       s.confirm = true;
