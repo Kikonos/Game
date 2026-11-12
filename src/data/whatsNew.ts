@@ -23,6 +23,10 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'The class\'s people list says which type each gives up ("drops A320"). Tap it to pick another. Their trips on that type after the class go to other crew, tried on a copy of the roster first.',
       'Select people on the Crew screen and tap Plan classes: the planner opens with exactly them.',
       'A long phase-out goes in instalments. Classes more than 120 days ahead show as Next, with the day you can book them. The Inbox tells you when that day comes.',
+      'Network has its own screen on the left, between Contracts and Schedule.',
+      'Change a route\'s cabin while it flies: Sales › Cabin, business and economy or economy only. First you see seats, passengers, load, ticket revenue a passenger and the profit, a flight, a week or a month.',
+      'Going economy only moves people booked in business to economy now, with part of their fare back. Before, it happened on the day, with a voucher too.',
+      'A finished market study and a route going on sale now pop up and pause the game. Settings › Pause for network news turns the pause off.',
     ],
     improvements: [
       'The planner works out its proposals faster and the screen stays live while it does. Going back to a choice you had is instant.',

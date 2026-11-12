@@ -357,3 +357,12 @@
   .nv-proscons { grid-template-columns: 1fr; gap: 6px; }
 }
 @media (max-width: 520px) { .nv-stop-cols { grid-template-columns: 1fr; } }
+
+/* v0.23.1 the cabin comparison (Sales tab): four columns that fit an iPhone on its side. */
+.nw-cabin-cmp { display: flex; flex-direction: column; gap: 12px; padding: 14px; margin: 4px 0 8px; }
+.nw-cabin-grid { display: flex; flex-direction: column; }
+.nw-cabin-r { display: grid; grid-template-columns: minmax(0, 1.6fr) repeat(3, minmax(0, 1fr)); gap: 10px; padding: 6px 0; border-top: 1px solid rgba(var(--line-rgb), 0.08); align-items: baseline; }
+.nw-cabin-r.head { border-top: 0; padding-top: 0; }
+.nw-cabin-r > span:not(:first-child) { text-align: right; white-space: nowrap; }
+.nw-cabin-r.total { border-top: 1px solid rgba(var(--line-rgb), 0.25); font-weight: 700; }
+@media (max-width: 699.98px), (max-height: 499.98px) { .nw-cabin-r { gap: 6px; } .nw-cabin-cmp { padding: 10px; } }
