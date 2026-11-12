@@ -16,6 +16,22 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.23',
+    name: 'Plan your classes',
+    features: [
+      'Plan classes: on Crew › Planning each type has a "Plan classes" button. Pick cabin crew or pilots and a finish date, and the game proposes the classes: when each runs and who is in it. One slider goes from fewer, bigger classes to least roster disruption. You see how many people are trained, how many duties go to others, the finish date and the cost, and you book it all in one tap.',
+      'The planner works around leave and the published roster, tries the plan on a copy of the roster first, and keeps every flight crewed. Tap a class to see its people, move someone to another class or take them out.',
+      'Phasing out a type: pilots only leave the old type when its aircraft can spare them, so the planner paces the classes by aircraft leaving and arriving.',
+      'Cabin crew can give up a type rating. It frees one of their three places for another type. For one person: Train › Remove a type. For many: Select on the Crew screen, then Remove rating. The game shows who loses which type and warns if that leaves the type short.',
+    ],
+    improvements: [
+      'Aircraft spec sheet: every tile has its figures in the middle of its square. Engine makers and the crew rest class moved under the main line, so no tile towers over the rest.',
+    ],
+    fixes: [
+      'The busy-months forecast counted the days of a class twice, so a big class made a month look shorter of crew than it was.',
+    ],
+  },
+  {
     version: 'v0.22.1',
     name: 'Crew alarms you can check',
     features: [
