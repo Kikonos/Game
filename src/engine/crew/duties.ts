@@ -1029,6 +1029,7 @@ function absorbTrailing(g: GameState, acId: string, from: Minute): void {
     }
     if (!add.length) continue;
     const before = [...d.flightIds];
+    const ev0 = d.flightsEv;
     d.flightIds = [...before, ...add.map((f) => f.id)];
     syncDuty(g, d, p);
     touchCrew(g);
@@ -1041,6 +1042,12 @@ function absorbTrailing(g: GameState, acId: string, from: Minute): void {
     if (!ok) {
       d.flightIds = before;
       syncDuty(g, d, p);
+      // v0.23 the trial is no re-sync: a leg of the duty retimed and still waiting for the flight-change pass keeps
+      // waiting for it (that pass re-queues the report and release and moves the tickets). Bot seed 2 with routes: a
+      // leg moved 30 h earlier was measured here, the pass then read the duty as up to date, the report was never
+      // queued again and the crew flew it without ever reporting (the trip stayed 'planned', a cabin crew member was
+      // then ticketed from where the plan still read her).
+      d.flightsEv = ev0;
       touchCrew(g);
       continue;
     }
