@@ -559,20 +559,23 @@ export function otherTrip(g: GameState, c: CrewMember, p: Pairing, from: Minute,
     // A tour under way holds its crew at the station between duties too (a side trip would leave them elsewhere).
     const qs = q.tour ? Math.min(open[0].report, q.start) : open[0].report;
     const qe = open[open.length - 1].release;
-    if (qs < to && qe > from) return q;
+    // v0.22.1 as for a tour on station: a side trip that fits between the duties of a trip of several days is no clash
+    // (planCrew plans the way back to where that trip goes on; its rest and place are evalSegs's).
+    if (qs < to && qe > from && !sideTripFits(g, c, p, null, open, from, to)) return q;
   }
   return null;
 }
 
 /**
- * v0.22.1 a tour's hold gives way to side trip p for crew member c: p is no tour, c is on the tour's station (a
- * candidate) or was planned onto p from there (the seat's `backTo`), no known tour duty of theirs overlaps [from, to)
- * and the trip lies inside the schedule horizon (the tour's flying over it is known). Pure.
+ * v0.22.1 a tour's hold (or a trip of several days': `station` null) gives way to side trip p for crew member c: p is
+ * no tour, c is on the tour's station (a candidate) or was planned onto p from there (the seat's `backTo`), no known
+ * duty of theirs on it overlaps [from, to) and the trip lies inside the schedule horizon (the flying over it is known). Pure.
  */
-function sideTripFits(g: GameState, c: CrewMember, p: Pairing, station: string, open: Duty[], from: Minute, to: Minute): boolean {
+function sideTripFits(g: GameState, c: CrewMember, p: Pairing, station: string | null, open: Duty[], from: Minute, to: Minute): boolean {
   if (p.tour || to > g.now + (BAL.scheduleHorizonDays - 1) * DAY) return false;
   const seat = p.slots.find((s) => s.crewId === c.id);
-  if (seat ? seat.backTo !== station : c.loc !== station) return false;
+  // (A trip of several days, `station` null: where they go on from is read on the timeline.)
+  if (station !== null && (seat ? seat.backTo !== station : c.loc !== station)) return false;
   for (const d of open) if (d.report < to && d.release > from) return false;
   return true;
 }

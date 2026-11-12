@@ -70,7 +70,20 @@ export function tourStationFor(g: GameState, c: CrewMember, p: Pairing, from: Mi
     if (!dep || !span || dep.base !== at || span.from > from || span.to <= to) continue;
     if (!tourEndKnown(g, q) || q.dutyIds.some((id) => { const d = g.duties[id]; return !!d && !d.done && d.report >= to; })) return dep.base;
   }
-  return null;
+  // The same between the duties of a trip of several days away from base (the cross-check on bot games: crew at an
+  // outstation with two days to their trip's next duty read "busy" for a flight from there): back to where that next
+  // duty leaves from, when that is where they are.
+  if (at === c.base) return null;
+  let next: { report: Minute; from: string } | null = null;
+  for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
+    if (q.tour || q.status === 'broken' || q.status === 'done' || q.id === p.id) continue;
+    for (const id of q.dutyIds) {
+      const d = g.duties[id];
+      if (!d || d.done || d.report < to || (next && next.report <= d.report)) continue;
+      next = { report: d.report, from: g.flights[d.flightIds[0]]?.from ?? '' };
+    }
+  }
+  return next && next.from === at ? at : null;
 }
 
 /**

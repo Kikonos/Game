@@ -386,7 +386,7 @@ export function waitForCrew(g: GameState, f: Flight): boolean {
   delete now.crewAlert;
   delete now.crewWarned;
   touchFlights(g);
-  const names = now.crewIds.map((id) => g.crew[id]).filter(Boolean).map((c) => crewName(c)).join(' and ');
+  const names = now.crewIds.map((id) => g.crew[id]).filter((c) => !!c && isPilot(c.role)).map((c) => crewName(c)).join(' and ');
   stats(g).emptyWaits = (stats(g).emptyWaits ?? 0) + 1;
   pushMessage(g, {
     tone: 'info', cat: 'crew', cue: null,
@@ -653,6 +653,15 @@ function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
     for (const x of list) {
       const f = g.flights[x.flightId];
       if (f && x.kind === 'short' && isEmptyLeg(f) && waitForCrew(g, f)) waited = true;
+    }
+    // (And the free empty legs the list leaves out: short of crew inside the amber window, nothing waiting on them.)
+    const until = g.now + CC().amberH * 60;
+    const listed = new Set(list.map((x) => x.flightId));
+    for (const id of Object.keys(g.fleet)) {
+      for (const f of liveFlightsOf(g, id)) {
+        if (f.status !== 'scheduled' || f.std > until || f.std + f.delay <= g.now || listed.has(f.id) || !isEmptyLeg(f) || f.purpose || !f.dutyId || dutyStale(g, g.duties[f.dutyId])) continue;
+        if (flightCrewStatus(g, f.id, { live: false }).level === 'missing' && waitForCrew(g, f)) waited = true;
+      }
     }
     if (waited) list = shortFlights(g);
   }
