@@ -18,7 +18,7 @@ import { buildDuties } from './duties';
 import { addCrew, fixtureContract, fixtureGame } from './fixtures';
 import { logLaterMorale, logLaterOffer, writeLogLater } from './logLater';
 import { autoRoster, recheckPairing, releaseCrew, setFlightsCrew } from './roster';
-import { touchCrewState } from './timeline';
+import { segsOf, touchCrewState } from './timeline';
 
 /** A rostered out-and-back from LIS two days out; its captain (outOfHours.test.ts's trip). */
 function trip(seed = 21) {
@@ -146,6 +146,19 @@ describe('log a later report time: applied', () => {
     expect(g.messages.some((x) => /AW910 crewed: Log a later report time/.test(x.title))).toBe(true);
     const again = logLaterOffer(g, f.id);
     expect(again.ok).toBe(false);
+  });
+
+  it('only the crew whose limit it hides start later on record: the others are planned from the real report', () => {
+    // (Final debug round: a cabin crew member on the same duty was given a home standby ending 12 h before the logged
+    // report, 11:20 before the real one.)
+    const { g, f, d, p, cpt } = trip();
+    shortRest(g, cpt, d.report, 40);
+    recheckPairing(g, p);
+    const before = new Map(p.slots.filter((s) => s.crewId).map((s) => [s.crewId!, segsOf(g, g.crew[s.crewId!]).find((x) => x.kind === 'duty' && x.dutyId === d.id)!.start]));
+    expect(applyCrewFix(g, f.id, 'logLater', { confirmed: true }).ok).toBe(true);
+    const start = (id: string) => segsOf(g, g.crew[id]).find((x) => x.kind === 'duty' && x.dutyId === d.id)!.start;
+    expect(start(cpt)).toBe(before.get(cpt)! + 40);
+    for (const [id, s0] of before) if (id !== cpt) expect(start(id), g.crew[id].last).toBe(s0);
   });
 
   it('save and load keep the logged report, and the legality reads the same', () => {

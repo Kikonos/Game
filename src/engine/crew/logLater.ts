@@ -7,7 +7,8 @@
 // BAL.logLater.capMin minutes. Never anything else (missing crew, a rating, leave, sickness, training, the wrong place,
 // days off or the weekly rest), never twice on one duty, and never for a crew member whose roster was already changed
 // twice in the last 28 days (they refuse to sign it). The duty keeps both times (Duty.logged: the real report and the
-// minutes added); the roster, the crew logs and every legality check read the logged one, so the flight then operates
+// minutes added); the roster, the crew logs and every legality check read the logged one for the crew whose limit it
+// hides (the others are planned from their real report: no rest of theirs is fitted to it), so the flight then operates
 // as normal. It costs morale (most for the crew whose limit it hides, more when it happens to them again), a little
 // fatigue, and carries a risk: a crew report or the authority's audit may find it later (decided on the day on a side
 // stream, ops/audit.ts logLaterFound: a fine and an audit finding). scripts/invariants.ts counts these duties apart.

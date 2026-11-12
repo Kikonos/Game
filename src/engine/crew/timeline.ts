@@ -704,7 +704,7 @@ function fillKey(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPl
   KEY[i++] = c.base; KEY[i++] = p.base; KEY[i++] = d.restAt; KEY[i++] = f0?.from ?? ''; KEY[i++] = f0?.status ?? ''; KEY[i++] = p.aircraftId ?? '';
   KEY[i++] = d.ev; KEY[i++] = d.flightsEv; KEY[i++] = d.report; KEY[i++] = d.release; KEY[i++] = d.fdp; KEY[i++] = d.maxFdp; KEY[i++] = d.discretion ?? 0; KEY[i++] = d.cabinEarly ?? -1;
   KEY[i++] = d.augment; KEY[i++] = d.sectors; KEY[i++] = d.flightIds.length; KEY[i++] = p.start; KEY[i++] = rest?.fc?.cls ?? 0; KEY[i++] = rest?.cc?.cls ?? 0;
-  KEY[i++] = joinedAt(g, p, c.id, d); KEY[i++] = d.logged?.min ?? 0;
+  KEY[i++] = joinedAt(g, p, c.id, d); KEY[i++] = d.logged && loggedFor(d, c.id) ? d.logged.min : 0;
   KEY[i++] = o ? o.id ?? '' : '-'; KEY[i++] = o?.from ?? ''; KEY[i++] = o?.to ?? ''; KEY[i++] = o?.status ?? ''; KEY[i++] = o?.std ?? -1; KEY[i++] = o?.sta ?? -1;
   KEY[i++] = h ? h.id ?? '' : '-'; KEY[i++] = h?.from ?? ''; KEY[i++] = h?.to ?? ''; KEY[i++] = h?.status ?? ''; KEY[i++] = h?.std ?? -1; KEY[i++] = h?.sta ?? -1;
   return i;
@@ -839,6 +839,9 @@ function reserveSegs(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: Tick
   return segs;
 }
 
+/** v0.23.1 whether crew member `id` starts duty d on record at its later logged report (crew/logLater.ts): the crew whose limit it hides. */
+export const loggedFor = (d: Duty, id: string): boolean => !!d.logged && (!d.logged.crewIds || d.logged.crewIds.includes(id));
+
 function dutySegsRaw(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPlan | null, home: TicketPlan | null, fresh: boolean): Seg[] {
   if (standsBy(g, p, d, c.id)) return reserveSegs(g, c, p, d, out, home, fresh);
   const segs: Seg[] = [];
@@ -849,9 +852,10 @@ function dutySegsRaw(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: Tick
   const own = rep - d.report;
   // v0.23.1 a later report time logged on the roster (crew/logLater.ts): d.fdp is the day on record (from the logged
   // report); the crew aboard from the report start their day on record that much later (rest before it, the log), a
-  // crew member who joined later keeps their own report.
+  // crew member who joined later keeps their own report. (Final debug round: only the crew whose limit it hides; the
+  // others on the duty are planned from their real report, so no standby or rest of theirs is fitted to the logged one.)
   const logged = d.logged?.min ?? 0;
-  const adj = own ? 0 : logged;
+  const adj = own || !loggedFor(d, c.id) ? 0 : logged;
   let start = rep - early;
   let fdp = d.fdp + logged - own + early;
   let max = (own ? fdpLimitAt(g, p, d, dep, rep).max : d.maxFdp) + (d.discretion ?? 0) + early;
