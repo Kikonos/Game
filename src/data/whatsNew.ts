@@ -23,7 +23,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'Crew sets still stay together where they can. A set is no longer a lock: a seat stays empty only when nobody at all can legally fly that day.',
     ],
     improvements: [
-      'Far fewer "no crew" alarms, and the ones left are real. Our test games had about a fifth of the alarms and half the red ones.',
+      'Far fewer "no crew" alarms, and the ones left are real: about a quarter as many in our test games, and a fifth of the red ones.',
       'Someone helping another set shows "Covering" on that flight. On their own roster it is simply their duty.',
       'Crew waiting at a station for their next job go back there after helping elsewhere, not home to base first.',
       'The crew alarm check behind Bug reports now also reads days off, the weekly rest and rest after time-zone trips.',
