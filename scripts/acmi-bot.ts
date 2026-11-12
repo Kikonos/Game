@@ -1860,14 +1860,14 @@ function play(g: GameState, t: Tally, end: number, onStep?: () => void): void {
   while (g.now < end && !g.gameOver) {
     const grid = g.started + (Math.floor((g.now - g.started) / STEP) + 1) * STEP;
     // Debugging (STOPAT=<minute>,<file>): the save one minute before that instant, then exit.
+    // (Player bot round: through the pauses as the run takes them, each with its policy step, so the save is the run's.)
     const stopAt = process.env.STOPAT?.split(',');
-    if (stopAt && g.now < +stopAt[0] && +stopAt[0] <= Math.min(end, grid)) {
-      advanceTo(g, +stopAt[0] - 1);
+    const trips0 = safetyTrips.length;
+    const r = advanceTo(g, Math.min(end, grid, stopAt && g.now < +stopAt[0] - 1 ? +stopAt[0] - 1 : Infinity));
+    if (stopAt && g.now >= +stopAt[0] - 1) {
       writeFileSync(stopAt[1], serialize(g));
       process.exit(0);
     }
-    const trips0 = safetyTrips.length;
-    const r = advanceTo(g, Math.min(end, grid));
     // Debugging (TRIPINFO=1): the legs of the aircraft a safety-net trip names, when it trips.
     if (process.env.TRIPINFO && safetyTrips.length > trips0) {
       for (const x of safetyTrips.slice(trips0)) {

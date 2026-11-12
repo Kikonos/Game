@@ -315,7 +315,12 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
       // (A ticket, alone or merged into its duty, that only takes them home or to where this trip ends is no reason to
       // go back for it: the old rule re-buys it from where they will be, `retick` below.)
       const dest = nx ? (nx.kind === 'pos' ? nx.at : nx.out?.to) : undefined;
-      if (nx && nx.from && nx.from !== c.base && (dest === undefined || (dest !== c.base && dest !== last.restAt))) {
+      // Player bot round: ... unless that ticket is a set member's way out to their tour, which is never bought again
+      // (the re-ticket below is for planned trips): then they go back for it (bot seed 1: a captain waiting at
+      // Kangerlussuaq for his ticket out to the Riyadh base was refused a trip ending at Riyadh, "due in Kangerlussuaq").
+      const qn = nx?.dutyId ? g.pairings[g.duties[nx.dutyId]?.pairingId ?? ''] : undefined;
+      const rebought = !qn || (qn.status === 'planned' && (!qn.tour || guestOn(qn, c.id)));
+      if (nx && nx.from && nx.from !== c.base && (dest === undefined || (dest !== c.base && (dest !== last.restAt || !rebought)))) {
         if (nx.from === loc) station = loc;
         else if (nx.from !== last.restAt && locAt(c, base, nx.start) !== nx.from) station = nx.from;
       }
