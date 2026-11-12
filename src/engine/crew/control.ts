@@ -375,7 +375,7 @@ export function waitForCrew(g: GameState, f: Flight): boolean {
   const tie = emptyLegTie(g, f);
   if (tie && plan.at > tie.latest) return false;
   // Nor for days: a leg that has already slipped a day and a half from its first time is a problem to look at.
-  if (plan.at - (f.schedStd ?? f.std) > WAIT_MAX) return false;
+  if (plan.at - (f.waitFrom ?? f.schedStd ?? f.std) > WAIT_MAX) return false;
   const before = tiesOf(g, f.aircraftId, f.id);
   const short = new Set(shortFlights(g).map((s) => s.flightId));
   const chained = planChains(g, f.aircraftId);
@@ -392,6 +392,7 @@ export function waitForCrew(g: GameState, f: Flight): boolean {
   }
   if (!ok) return false;
   const was = f.std + f.delay;
+  f.waitFrom ??= f.schedStd ?? f.std;
   const no = f.no;
   const need = seatsText(x.need);
   previewing++;

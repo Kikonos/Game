@@ -920,6 +920,8 @@ export interface Flight {
   crewChecked?: string[];
   /** v0.22.1 an empty leg short of crew: when the wait for its crew was last looked for (crew/control.ts waitForCrew; again every 6 h). */
   waitTried?: Minute;
+  /** v0.22.1 an empty leg re-timed to wait for its crew: its departure before the first wait (it never waits more than a day and a half past it). */
+  waitFrom?: Minute;
   /** Crew-planning round: the early heads-up (beyond the 48 h amber stage) was given for this leg's trip; once. */
   crewEarly?: true;
   /**
