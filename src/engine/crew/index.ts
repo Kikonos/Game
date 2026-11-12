@@ -34,7 +34,7 @@ export {
   acclimState, referenceTime, type Acclim, type CrewWindows, type FdpInput, type IssueCode, type LegalityIssue, type LegalityReport, type RestInput,
 } from './ftl';
 export { crewName, crewPay, makeCrewMember, payFor, salaryFor } from './generate';
-export { crewPeakCard, gapWords, hireLeadDays, monthPlan, PEAK, peakForecast, peakGroups, peakId, peakLine, warnDays, type PeakForecast, type PeakGap, type PeakMonth } from './forecast';
+export { crewPeakCard, familyWord, gapWords, hireLeadDays, monthPlan, PEAK, peakForecast, peakGroups, peakId, peakLine, warnDays, type PeakForecast, type PeakGap, type PeakMonth } from './forecast';
 export { crewAvailability, hireBatch, hireCrew, hireFamilies, hireQuote, ratedMarket, staffing, staffingAssign, trainCrew, type Availability, type HireRequest, type RatedMarket, type RoleCapacity, type StaffingLine } from './hr';
 export {
   applyDiscretion, autoRoster, discretionCheck, discretionMax, plannedFdpOf, boardCrew, dropStraySpares, promoteSpares, buildDuties, flightCrewStatus, guardDuty, onFlightsChanged, removeCrew, replaceCrew, rerosterFrom, rosterOf, seatRiders, setClosedWaitHook, setRestDelayHook,
@@ -50,9 +50,14 @@ export { paidShare, salaryBill } from './costs';
 export { crewRev, rideRoom, rideSeats, ridersText, ridesAllowed, revenueRide, ticketPrice } from './timeline';
 export { dropTargets, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from './board';
 export {
-  cancelConversion, ccqKeeps, ccqPartner, ccqPartners, classOf, conversionClasses, conversionEarliest, conversionPlan, courseOf, courseText, familyLabel, ratingsLost, refundShare, startConversion,
+  cancelConversion, ccqKeeps, ccqPartner, ccqPartners, classOf, classPhases, conversionClasses, conversionEarliest, conversionPlan, courseOf, courseText, familyLabel, ratingsLost, refundShare, startConversion,
   type ConversionClassPlan, type ConversionPlan, type ConversionRequest,
 } from './conversion';
+// v0.23 the class planner and Remove type rating (crew/classPlan.ts).
+export {
+  bookClassPlan, CLASS_PLAN, classCandidates, classPlanNeed, classProposal, classProposals, fleetChanges, nextArrival, removeRating, removeRatingPlan,
+  type ClassPlanNeed, type ClassPlanRequest, type ClassProposal, type FleetChange, type PlannedClass, type RemoveRatingPlan,
+} from './classPlan';
 // v0.18.3 Convert surplus crew (Crew › Utilisation).
 export {
   applyConvertOption, CONVERT, convertAdvice, convertCandidates, convertOptions, convertTargets, convertWhyNot,

@@ -243,8 +243,12 @@ function supplyDays(g: GameState, c: GameState['crew'][string], family: RatingFa
   if (b <= a) return 0;
   let blocked = 0;
   let leave = 0;
+  // v0.23 a class's days are counted once: its training block is the class below (they were taken off twice, so a
+  // big class made the month look shorter of crew than it was).
+  const inClass = conversionClasses(g).filter((k) => k.crewIds.includes(c.id) && k.family !== family);
   for (const x of c.blocks ?? []) {
     if (x.why === 'joining') continue;
+    if (x.why === 'training' && inClass.some((k) => k.start === x.from && k.end === x.to)) continue;
     const d = overlapDays(x.from, x.to, a, b);
     if (x.why === 'leave') leave += d;
     else blocked += d;

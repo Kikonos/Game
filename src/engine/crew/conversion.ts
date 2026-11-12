@@ -75,6 +75,11 @@ const PHASES: Record<`${Group}:${Course}`, [string, number, number][]> = {
   'cabin:ccq': [['Differences course', 1, 3]],
 };
 
+/** v0.23 the phases of a class with their dates (the class planner's strip). Pure. */
+export function classPhases(k: Pick<TrainingClass, 'group' | 'course' | 'start'>): { label: string; from: Minute; to: Minute }[] {
+  return PHASES[`${k.group}:${k.course}`].map(([label, a, b]) => ({ label, from: k.start + (a - 1) * DAY, to: k.start + b * DAY }));
+}
+
 /**
  * Common-type partners of a family (Airbus CCQ A320 ↔ A330/340 ↔ A350, Boeing 777 ↔ 787). v0.12.1 a family may have
  * two (the A330/340: the A320 and the A350).

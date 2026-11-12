@@ -52,13 +52,23 @@ describe("v0.9 What's new catch-up (UPDATE-0.9.md §X)", () => {
     expect(v(whatsNewToShow('v0.7.4', false))).toEqual(['v0.23', 'v0.22.1', 'v0.22', 'v0.21', 'v0.20.1', 'v0.20', 'v0.19.5', 'v0.19.4', 'v0.19.3', 'v0.19.2', 'v0.19.1', 'v0.19', 'v0.18.3', 'v0.18.2', 'v0.18.1', 'v0.18', 'v0.17.2', 'v0.17.1', 'v0.17', 'v0.16.4', 'v0.16.3', 'v0.16.2', 'v0.16.1', 'v0.16', 'v0.15', 'v0.14.1', 'v0.14', 'v0.13', 'v0.12', 'v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1', 'v0.10', 'v0.9.1', 'v0.9', 'v0.8', 'v0.7.4']);
   });
   it('v0.23 crew planned person by person on top, in short plain lines', () => {
-    expect(`${WHATS_NEW[0].version} ${WHATS_NEW[0].name}`).toBe('v0.23 Crew planned person by person');
+    expect(`${WHATS_NEW[0].version} ${WHATS_NEW[0].name}`).toBe('v0.23 Crew person by person, and a class planner');
     const lines = [...WHATS_NEW[0].features, ...WHATS_NEW[0].improvements, ...(WHATS_NEW[0].fixes ?? [])];
     const txt = lines.join('\n');
     for (const w of ['their own roster', 'A set is no longer a lock', 'Covering', 'XY3120 at Riyadh', 'XY3102', 'when you load your game']) expect(txt).toContain(w);
     for (const l of lines) expect(l.length).toBeLessThanOrEqual(240);
   });
 
+  it('v0.23 plan your classes on top, in short plain lines', () => {
+    expect(`${WHATS_NEW[0].version} ${WHATS_NEW[0].name}`).toContain('v0.23');
+    const lines = [...WHATS_NEW[0].features, ...WHATS_NEW[0].improvements, ...(WHATS_NEW[0].fixes ?? [])];
+    const txt = lines.join('\n');
+    expect(txt).toMatch(/Plan classes/);
+    expect(txt).toMatch(/fewer, bigger classes to least roster disruption/);
+    expect(txt).toMatch(/give up a type rating/);
+    expect(txt).toMatch(/spec sheet/);
+    for (const l of lines) expect(l.length).toBeLessThanOrEqual(260);
+  });
   it('v0.22.1 crew alarms you can check below it, in short plain lines', () => {
     expect(`${WHATS_NEW[1].version} ${WHATS_NEW[1].name}`).toBe('v0.22.1 Crew alarms you can check');
     const lines = [...WHATS_NEW[1].features, ...WHATS_NEW[1].improvements, ...(WHATS_NEW[1].fixes ?? [])];
