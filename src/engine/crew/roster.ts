@@ -425,16 +425,7 @@ function retimeTickets(g: GameState, p: Pairing, d: Duty, moved: Set<string>): v
       else if (f.from === d.restAt && f.std - d.release >= 600) {
         // v0.5.2: a ticket home after rest (planHome) leaves once the rest is over again: a later release
         // would otherwise put its check-in inside the rest and the whole crew off the duty at the gate.
-        // v0.23.1 a one-duty trip's ticket out that joins the day (outExtra) counts, as crewIssuesFor counts it.
-        const duties = openDuties(g, p);
-        let extra = 0;
-        if (duties.length === 1 && duties[0] === d) {
-          for (const id of f.crewIds) {
-            const o = d.deadheadIds.map((x) => g.flights[x]).find((t) => !!t && t.status !== 'cancelled' && t.sta <= d.report && aboard(t, id));
-            extra = Math.max(extra, outExtra(o ?? null, duties));
-          }
-        }
-        const rest = minRest({ dutyMin: d.release - d.report + cabinEarly(g, p) + extra, atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(f.to, f.from, d.release), extended: !!d.ext });
+        const rest = minRest({ dutyMin: d.release - d.report + cabinEarly(g, p), atHome: false, augmented: d.augment > 0, tzShift: tzDeltaH(f.to, f.from, d.release), extended: !!d.ext });
         const need = snapDeparture(f.from, f.to, Math.ceil((d.release + rest + BAL.deadheadCheckIn) / 60) * 60);
         if (f.std < need) std = need;
       }
