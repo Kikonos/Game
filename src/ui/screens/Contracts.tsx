@@ -38,7 +38,6 @@ import { MarketsView } from './Markets';
 import { cancelWarning, lockOf, rulesOf } from '../../engine/scenario';
 import { LockedPanel, LockNote, lockedProps } from '../components/Locked';
 import { isRouteContract, routeName, seasonWord } from './network/networkLogic';
-// v0.19 Contracts › Network (scheduled routes) in its own chunk with its stylesheet.
 
 type View = 'market' | 'active' | 'tenders' | 'missed' | 'clients' | 'markets' | /** v0.16.3 the Market hub's Leads segment (was the Sales tab) */ 'leads' | 'filter';
 /** v0.16.3 the Market hub's segments; 'sales' (old links) opens Leads. */
