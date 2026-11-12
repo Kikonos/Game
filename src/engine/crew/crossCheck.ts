@@ -29,7 +29,7 @@ import type { CrewMember, Duty, Flight, GameState, Minute, Role } from '../core/
 import { fullDeparture, nextDeparture, prevDeparture, ticketBlock } from '../ops/commercial';
 import { heldDuties } from './avail';
 import { planCrew } from './check';
-import { dayIndex, midnight, publishedTo } from './dayPlan';
+import { dayIndex, firstDayOf, midnight, monthOfDay, publishedTo } from './dayPlan';
 import { rootReason } from './reasons';
 import { offsetAt } from './rules';
 import { wouldSeat } from './roster';
@@ -138,6 +138,9 @@ function over(r: ReturnType<typeof judgePerson>, place = true): string[] {
 
 interface Cand { seat: CrossSeat; clean: boolean }
 
+/** The planner's issue codes this check reads on its own (the others make a seat UNSURE when the planner names them). */
+const READ = new Set(['overlap', 'location', 'rest', 'fdp', 'status', 'rating', 'daysOff', 'recovery', 'tzRest', 'lateEarly']);
+
 // ---------- v0.23 the rules read on their own: days off, the weekly rest, late finishes and time zones ----------
 
 const OFF = () => BAL.v09.roster.off;
@@ -215,8 +218,8 @@ function dayOffRule(g: GameState, c: CrewMember, first: Minute, end: Minute, bus
   const a = dayIndex(c.base, first - OFF().morningFree);
   const b = dayIndex(c.base, end - 1);
   const hits = c.off.filter((k) => k >= a && k <= b);
-  const monthOf = (k: number) => { const dt = new Date(k * DAY * 60_000); return dt.getUTCFullYear() * 12 + dt.getUTCMonth(); };
-  const firstOf = (mk: number) => Math.floor(Date.UTC(Math.floor(mk / 12), mk % 12, 1) / 60_000 / DAY);
+  const monthOf = monthOfDay;
+  const firstOf = firstDayOf;
   const blocked = (k: number) => !!c.blocks?.some((x) => x.from < midnight(c.base, k + 1) && x.to > midnight(c.base, k));
   const freeDay = (k: number) => !c.off!.includes(k) && !busy.has(k) && !blocked(k);
   // Free days later in the month a day off can move to.
@@ -430,7 +433,12 @@ export function crossCheck(g: GameState, flightId: string, kind?: AlarmKind): Cr
           planner = why ? `${why.code}: ${why.text}` : 'refused';
           // A rule this check does not read (the year's flying, two-day weekends, standby, night sectors …), or one it
           // reads more simply than the planner (days off, the weekly rest, time zones): UNSURE, not WRONG.
+          const hid = plan.issues.find((i) => i.level === 'illegal' && !READ.has(i.code));
           if (why && (!['busy', 'place', 'rest', 'fdp'].includes(why.code) || /time zones|local night/.test(why.text))) unsure.push(`the planner's rule: ${why.text}`);
+          // (The reason named can stand in front of one this check does not read: standby and the day together, night sectors …)
+          else if (hid) unsure.push(`the planner's rule: ${hid.text}`);
+          // ... or the rest after a standby they stood (hotel or airport), which this check reads as a call-out.
+          else if (why?.code === 'rest' && spans.some((x) => x.kind === 'standby' && x.end <= first && x.end > first - 14 * H)) unsure.push('the rest after a standby the planner counts');
         }
         return {
           seat: { role: seat.role, crewId: c.id, name: nameOf(c), at, out: out ? `${rideText(out)}${sameDay ? ' (same day)' : ' (rests there first)'}` : '', back: notes.length ? `${back} (${notes.join('; ')})` : back, unsure, planner },

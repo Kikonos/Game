@@ -148,6 +148,8 @@ export function homeOf(g: GameState, c: CrewMember, p: Pairing): string {
     if ((q.tour && !guestOn(q, c.id)) || q.id === p.id || q.status === 'broken' || q.status === 'done') continue;
     if (q.dutyIds.some((id) => { const d = g.duties[id]; return !!d && !d.done && g.flights[d.flightIds[0]]?.from === st; })) return st;
   }
+  // (v0.23 or a ticket of theirs that leaves from there later: the way out to their next station.)
+  for (const f of crewIx(g).tickets.get(c.id) ?? []) if (f.status === 'scheduled' && f.from === st && f.to !== c.base && f.std > g.now) return st;
   return c.base;
 }
 

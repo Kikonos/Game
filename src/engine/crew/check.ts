@@ -188,7 +188,7 @@ function planCrewRaw(g: GameState, c: CrewMember, p: Pairing, base: Seg[], exist
   // Only what a guest plan can cure (not who they are: sick, on leave, not rated), and only inside the cover window.
   if (!member.issues.some((i) => i.level === 'illegal' && i.code !== 'status' && i.code !== 'rating')) return member;
   const open = openDuties(g, p);
-  if (!open.length || open[open.length - 1].release > g.now + COVER_AHEAD) return member;
+  if (!open.length || open[open.length - 1].report > g.now + COVER_AHEAD) return member;
   const guest = planOne(g, c, p, base, existing, slack, true, leaving, ride, also);
   // (Refused both ways: the plan with less in the way is the one the day-off fallbacks and the reasons read.)
   const hard = (x: CrewPlan) => x.issues.filter((i) => i.level === 'illegal' && i.code !== 'daysOff').length;
@@ -304,8 +304,25 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
     const leaveNext = leaveBefore(c, base, last.release, g.now + (BAL.scheduleHorizonDays - 1) * DAY);
     forLeave = leaveNext && last.restAt !== c.base;
     // v0.22.1 a set on station flying a side trip between its own tour duties goes back to the station after it.
-    const station = leaveNext ? null : tourStationFor(g, c, p, first.report, last.release, loc, guest, also);
+    let station = leaveNext ? null : tourStationFor(g, c, p, first.report, last.release, loc, guest, also);
+    // v0.23 "back to where they need to be": away from base with their next work (a duty, or the ticket out to their
+    // next tour) starting from where they are now, they come back there after this trip, not home (bots: crew waiting at
+    // Nantes for a ticket to their next station were refused for one duty elsewhere, "due in Nantes for their ticket").
+    if (!station && !leaveNext && !tour && loc !== c.base) {
+      const nx = nextWork(base, last.release);
+      if (nx && nx.from === loc && !(nx.kind === 'pos' && nx.at === c.base)) station = loc;
+    }
     if (station) homeAt = backTo = station;
+    // v0.23 ... and a ticket home they hold from where they are is no tie: this trip takes them away and brings them
+    // home itself, so that ticket goes (it read "in Lisbon, not Kangerlussuaq" and refused them).
+    if (out && loc !== c.base && homeAt !== loc) {
+      const gone: string[] = [];
+      for (const x of base) if (x.kind === 'pos' && x.ticketId && x.from === loc && x.at === c.base && x.start >= out.std && !x.leave) gone.push(x.ticketId);
+      if (gone.length) {
+        base = withoutTickets(base, gone);
+        dropped.push(...gone);
+      }
+    }
     if (last.restAt !== homeAt && (leaveNext || nextFrom(base, last.release) !== last.restAt)) {
       const back = tour || leaveNext ? [] : droppableOut(g, c, base, last.restAt, last.release);
       const stay = back.length ? withoutTickets(base, back) : base;
@@ -558,6 +575,12 @@ export function leaveBefore(c: CrewMember, segs: Seg[], t: Minute, until: Minute
     break;
   }
   return !!c.blocks?.some((b) => b.why === 'training' && b.from >= t && b.from < next);
+}
+
+/** The crew member's next planned work (a duty or a ticket; not standby) starting at or after t. */
+function nextWork(segs: Seg[], t: Minute): Seg | null {
+  for (const s of segs) if (s.kind !== 'log' && s.kind !== 'sby' && s.start >= t) return s;
+  return null;
 }
 
 function nextFrom(segs: Seg[], t: Minute): string {

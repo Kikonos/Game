@@ -2453,6 +2453,8 @@ function coverRun(g: GameState, ctx: Ctx, p: Pairing, exclude?: Set<string>): { 
   const open = openDuties(g, p);
   const roles = [...new Set(p.slots.filter((s) => !s.crewId && !s.above).map((s) => s.role))];
   if (!roles.length || open.length < 2) return null;
+  // A world tour is sold with one crew travelling round with the aircraft (a held job): never cut into runs.
+  if (heldJobOf(g, p)) return null;
   const family = typeOf(typeIdOf(g, p)).family;
   const inP = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
   const until = g.now + COVER_AHEAD;
