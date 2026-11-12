@@ -55,7 +55,7 @@ export {
 } from './conversion';
 // v0.23 the class planner and Remove type rating (crew/classPlan.ts).
 export {
-  bookClassPlan, CLASS_PLAN, classCandidates, classPlanNeed, classProposal, classProposals, fleetChanges, nextArrival, removeRating, removeRatingPlan,
+  bookClassPlan, CLASS_PLAN, classCandidates, classPlanNeed, classPlanSteps, classProposal, classProposals, fleetChanges, nextArrival, removeRating, removeRatingPlan,
   type ClassPlanNeed, type ClassPlanRequest, type ClassProposal, type FleetChange, type PlannedClass, type RemoveRatingPlan,
 } from './classPlan';
 // v0.18.3 Convert surplus crew (Crew › Utilisation).

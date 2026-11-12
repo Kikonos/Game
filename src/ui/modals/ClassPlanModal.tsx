@@ -13,7 +13,7 @@ import { typeOf } from '../../engine/core/perf';
 import { DAY } from '../../engine/core/time';
 import type { GameState, Minute, Role } from '../../engine/core/types';
 import {
-  bookClassPlan, CLASS_PLAN, classCandidates, classPlanNeed, classProposals, conversionEarliest, courseOf, crewName, crewRev, familyWord, removeRating, removeRatingPlan,
+  bookClassPlan, CLASS_PLAN, classCandidates, classPlanNeed, classPlanSteps, conversionEarliest, courseOf, crewName, crewRev, familyWord, previewCopy, removeRating, removeRatingPlan,
   type ClassProposal, type PlannedClass,
 } from '../../engine/crew';
 import { lockOf } from '../../engine/scenario';
@@ -30,6 +30,17 @@ const RANKS: Record<Group, { role: Role; label: string }[]> = {
   cabin: [{ role: 'PUR', label: 'Pursers' }, { role: 'CC', label: 'Cabin crew' }],
   pilot: [{ role: 'CPT', label: 'Captains' }, { role: 'FO', label: 'First officers' }],
 };
+
+/** Proposals worked out for this game, by request (the player moving a choice back finds them at once). */
+const DONE_KEPT = 12;
+const done = new WeakMap<GameState, Map<string, ClassProposal[]>>();
+const doneFor = (g: GameState, key: string): ClassProposal[] | undefined => done.get(g)?.get(key);
+function keepDone(g: GameState, key: string, plans: ClassProposal[]): void {
+  let m = done.get(g);
+  if (!m) done.set(g, (m = new Map()));
+  if (m.size >= DONE_KEPT) m.delete(m.keys().next().value!);
+  m.set(key, plans);
+}
 
 /** Families flown or on their way first, then the rest of the catalogue. */
 function familyList(g: GameState): RatingFamily[] {
@@ -109,9 +120,33 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
   const ids = useMemo(() => everyone.filter((id) => rank === 'all' || g.crew[id]?.role === rank), [everyone, rank, g]);
   // The proposals for all five stops: worked out once per request (a dry run each), after the dialog has painted.
   const key = `${family}|${group}|${by}|${ids.join()}|${JSON.stringify(pins)}|${Math.floor(g.now / DAY)}|${crewRev(g)}|${Object.keys(g.classes ?? {}).length}`;
-  const [made, setMade] = useState<{ key: string; plans: ClassProposal[] } | null>(null);
+  const [made, setMade] = useState<{ key: string; plans: ClassProposal[] } | null>(() => {
+    const plans = doneFor(g, key);
+    return plans ? { key, plans } : null;
+  });
   useEffect(() => {
-    const t = setTimeout(() => setMade({ key, plans: classProposals(g, { family, group, crewIds: ids, by, pins }) }), 20);
+    const hit = doneFor(g, key);
+    if (hit) {
+      setMade({ key, plans: hit });
+      return;
+    }
+    // A step at a time between frames (a dry run each), so the dialog stays live; a running game is read from a copy.
+    const it = classPlanSteps(store.paused ? g : previewCopy(g), { family, group, crewIds: ids, by, pins });
+    let t = 0;
+    const step = () => {
+      const until = performance.now() + 30;
+      for (;;) {
+        const r = it.next();
+        if (r.done) {
+          keepDone(g, key, r.value);
+          setMade({ key, plans: r.value });
+          return;
+        }
+        if (performance.now() > until) break;
+      }
+      t = window.setTimeout(step, 0);
+    };
+    t = window.setTimeout(step, 20);
     return () => clearTimeout(t);
   }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
   const plans = made?.plans ?? null;

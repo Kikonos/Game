@@ -257,7 +257,7 @@ const usd = (v: number) => (Math.abs(v) >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `
 const span = (g: GameState, a: Minute, b: Minute) => `${fmtDayAt(g.company.homeBase, a)} – ${fmtDayAt(g.company.homeBase, b - 1)}`;
 
 /** Plan a conversion without booking it: classes, dates, cost, skipped crew and fleet-short warnings. Pure. */
-export function conversionPlan(g: GameState, r: ConversionRequest): ConversionPlan {
+export function conversionPlan(g: GameState, r: ConversionRequest, opts?: { quick?: true }): ConversionPlan {
   const earliest = conversionEarliest(g);
   const start = localDay(g, Math.max(earliest, r.start) + 6 * 60);
   const skipped: ConversionPlan['skipped'] = [];
@@ -326,7 +326,9 @@ export function conversionPlan(g: GameState, r: ConversionRequest): ConversionPl
   const inFleet = Object.values(g.fleet).some((a) => typeOf(a.typeId).family === r.family);
   if (!inFleet && out.length) warnings.push({ level: 'warn', text: `No ${familyLabel(r.family)} in the fleet or on order` });
   const included = out.flatMap((k) => k.crewIds);
-  for (const l of staffing(g)) {
+  // `quick`: the classes, who is skipped and the drops alone (booking reads only whether it can go ahead and its first
+  // red warning, which come before these).
+  for (const l of opts?.quick ? [] : staffing(g)) {
     const during = included.filter((id) => g.crew[id].role === l.role && g.crew[id].ratings.includes(l.family)).length;
     if (during) {
       const have = l.have - during;
@@ -339,7 +341,7 @@ export function conversionPlan(g: GameState, r: ConversionRequest): ConversionPl
     }
   }
   let dutiesAffected = 0;
-  for (const k of out) for (const id of k.crewIds) dutiesAffected += rosterOf(g, id, k.start, k.end).filter((d) => !d.done).length;
+  if (!opts?.quick) for (const k of out) for (const id of k.crewIds) dutiesAffected += rosterOf(g, id, k.start, k.end).filter((d) => !d.done).length;
   if (dutiesAffected) warnings.push({ level: 'warn', text: `${dutiesAffected} rostered dut${dutiesAffected === 1 ? 'y loses' : 'ies lose'} crew; the auto-roster will re-crew ${dutiesAffected === 1 ? 'it' : 'them'}` });
   warnings.sort((a, b) => (a.level === b.level ? 0 : a.level === 'bad' ? -1 : 1));
   const ok = out.length > 0 && total <= g.company.cash && !tooFar;
@@ -355,7 +357,7 @@ export function startConversion(g: GameState, r: ConversionRequest): ActionResul
   const lk = lockOf(g, 'training');
   if (lk) return { ok: false, error: lk };
   if (!ACMI_TYPES_LIST.some((t) => t.family === r.family)) return { ok: false, error: 'Unknown type family' };
-  const plan = conversionPlan(g, r);
+  const plan = conversionPlan(g, r, { quick: true });
   if (!plan.classes.length) {
     const s = plan.skipped[0];
     const c = s ? g.crew[s.crewId] : undefined;
