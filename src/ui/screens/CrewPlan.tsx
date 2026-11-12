@@ -5,7 +5,7 @@
 import { CalendarClock, Check, GraduationCap, UserPlus } from 'lucide-react';
 import type { RatingFamily } from '../../data/acmiTypes';
 import type { GameState } from '../../engine/core/types';
-import { awayOnDryLease, crewPeakCard, crewPlan, deploymentSets, familyName, peakForecast, peakGroups, peakId, roundTargets, setWords, type FamilyPlan } from '../../engine/crew';
+import { awayOnDryLease, conversionClasses, crewPeakCard, crewPlan, deploymentSets, familyName, peakForecast, peakGroups, peakId, roundTargets, setWords, type FamilyPlan } from '../../engine/crew';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { fmtDay } from '../../engine/core/time';
 import { ProblemCardView, runAction } from '../components/ProblemCard';
@@ -13,7 +13,7 @@ import { typeOf } from '../../engine/core/perf';
 import { Term } from '../components/Term';
 import { Help } from '../components/Help';
 import { store } from '../store';
-import { isPilotRole } from './screenLogic';
+import { baseDay, isPilotRole } from './screenLogic';
 import { planSentence, setsWhyLines } from './crewPlanLogic';
 import { lockOf } from '../../engine/scenario';
 import { LockNote } from '../components/Locked';
@@ -43,7 +43,16 @@ function idleTypes(g: GameState, plans: FamilyPlan[]): { family: RatingFamily; p
 }
 
 /** One family: sets, the verdict, the role table and the round-up buttons. */
-function FamilyCard({ p, lock, trainLock }: { p: FamilyPlan; lock?: string | null; trainLock?: string | null }) {
+/** v0.23 people booked on classes onto a type, in a line for its card: '39 in classes for this type (10 PUR, 29 CC) · last one ends 19 Jul'. */
+function bookedLine(g: GameState, family: RatingFamily): string | null {
+  const ks = conversionClasses(g).filter((k) => k.family === family);
+  const ids = ks.flatMap((k) => k.crewIds).filter((id) => g.crew[id]);
+  if (!ids.length) return null;
+  const by = ['CPT', 'FO', 'PUR', 'CC'].map((r) => [r, ids.filter((id) => g.crew[id].role === r).length] as const).filter(([, n]) => n > 0);
+  return `${ids.length} in classes for this type (${by.map(([r, n]) => `${n} ${r}`).join(', ')}) · last one ends ${baseDay(g, Math.max(...ks.map((k) => k.end)) - 1)}`;
+}
+
+function FamilyCard({ p, lock, trainLock, booked }: { p: FamilyPlan; lock?: string | null; trainLock?: string | null; booked?: string | null }) {
   const t = roundTargets(p);
   const short = p.setsComplete < p.setsNeeded;
   const pct = (n: number) => `${Math.min(100, (n / Math.max(1, p.setsNeeded)) * 100)}%`;
@@ -99,6 +108,7 @@ function FamilyCard({ p, lock, trainLock }: { p: FamilyPlan; lock?: string | nul
       ) : (
         <div key={`f${b.family}`} className="tiny muted cp-backup">{backupWho(b)} from the {b.label} also rated here · counted in the {b.label}</div>
       ))}
+      {booked && <div className="tiny good cp-backup">{booked}</div>}
       {p.clientCabin > 0 && <div className="tiny muted"><Term id="dampLease">Mixed crew</Term>: clients' crew fly about {p.clientCabin} cabin {p.clientCabin === 1 ? 'place' : 'places'}</div>}
       {p.dryLeased > 0 && <div className="tiny muted">Dry lease out: {p.dryLeased} more {p.dryLeased === 1 ? 'aircraft is' : 'aircraft are'} away with the lessee's crews; no sets until {p.dryLeased === 1 ? 'it comes' : 'they come'} back.</div>}
       {/* v0.15 a scenario's hiring allowance. */}
@@ -171,7 +181,7 @@ export function CrewPlanView({ g }: { g: GameState }) {
       <PeakHeadsUp g={g} />
       {!plans.length && <div className="small muted">No aircraft in the fleet yet.</div>}
       <div className="cp-grid">
-        {plans.map((p) => <FamilyCard key={p.family} p={p} lock={lockOf(g, 'hiring')} trainLock={lockOf(g, 'training')} />)}
+        {plans.map((p) => <FamilyCard key={p.family} p={p} lock={lockOf(g, 'hiring')} trainLock={lockOf(g, 'training')} booked={bookedLine(g, p.family)} />)}
       </div>
       {idle.length > 0 && (
         <div className="small muted cp-idle">
