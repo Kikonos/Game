@@ -640,7 +640,15 @@ export function createChecker(opts: CheckerOpts = {}) {
           if (it.e < h.t0 + days * DAY) continue;
           const from = it.e - days * DAY;
           const sum = items.reduce((s, x) => s + Math.max(0, Math.min(it.e, x.e) - Math.max(from, x.s)) * (x.e > x.s ? x.duty / (x.e - x.s) : 0), 0);
-          if (sum > lim * H + 1) err('cumulative', it.e, `${h.name}: ${hm(Math.round(sum))} duty in ${days} days to ${fmtDateTime(it.e)} (limit ${lim} h, ${key})`, `cum|${h.id}|${key}`);
+          if (sum > lim * H + 1) {
+            // Crew alarm round (Nov 2026), as the recovery-slip above: a window over its limit only by a delay of the day
+            // that ends it (a leg of theirs that left that late, the crew already rostered and the plan within the limit:
+            // the player bot's SY2061, 59:59 of 60:00 planned, 60:06 flown) is a warning; a plan past it stays an error.
+            const over = sum - lim * H;
+            const slipped = h.flights.some((id) => { const f = flights.get(id); return !!f && f.ata <= it.e && f.ata > it.e - DAY && (f.late ?? 0) >= over; });
+            if (slipped) warn('cumulative-slip', it.e, `${h.name}: ${hm(Math.round(sum))} duty in ${days} days to ${fmtDateTime(it.e)} (limit ${lim} h, ${key}): over by a delay on the day`, `cum|${h.id}|${key}`);
+            else err('cumulative', it.e, `${h.name}: ${hm(Math.round(sum))} duty in ${days} days to ${fmtDateTime(it.e)} (limit ${lim} h, ${key})`, `cum|${h.id}|${key}`);
+          }
         }
         if (it.e >= obsFrom) {
           const from = it.e - 28 * DAY;

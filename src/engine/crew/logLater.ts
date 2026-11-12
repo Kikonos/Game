@@ -21,6 +21,7 @@ import { crewIssuesFor } from './check';
 import { crewName } from './generate';
 import { moraleShock } from './morale';
 import { infoOf, outOfHours, type OohInfo } from './outOfHours';
+import { flightCrewStatus } from './roster';
 import { touchCrew } from './timeline';
 
 const L = () => BAL.logLater;
@@ -54,6 +55,8 @@ export function logLaterOffer(g: GameState, flightId: string): LogLaterCheck {
   const p = d ? g.pairings[d.pairingId] : undefined;
   if (!f || !d || !p || d.done || f.status !== 'scheduled') return { ok: false, why: 'No crew plan for this flight yet' };
   if (d.logged) return { ok: false, why: `The report time was already logged ${d.logged.min} min later once on this duty` };
+  const lv = flightCrewStatus(g, flightId, { live: false }).level;
+  if (lv !== 'missing' && lv !== 'illegal') return { ok: false, why: 'Only for a short rest or a day over its limit' };
   const list = outOfHours(g, flightId);
   if (!list.length) return { ok: false, why: 'Only for a short rest or a day over its limit' };
   // Every reason the crew can't fly must be one of the two limits, with a number (a rule in its own words is not).
