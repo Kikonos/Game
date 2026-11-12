@@ -2,11 +2,11 @@
 // one corner button on every screen (ui/BugCorner.tsx) with the screenshot it took; storage and the file format:
 // ui/bugReports.ts.
 
-import { Bug, Check, ClipboardCopy, Download, ImageOff, Trash2 } from 'lucide-react';
+import { Bug, Check, ChevronDown, ChevronRight, ClipboardCopy, Download, ImageOff, Trash2 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { fmtDateTime } from '../../engine/core/time';
 import type { GameState, Ref } from '../../engine/core/types';
-import { addReport, captureContext, exportFile, exportFileName, exportSelection, fixedHousekeeping, fixedLine, hasDurableStore, makeReport, markSent, reportStatus, reportStore, storageBytes, storageNote, summaryText, type BugContext, type BugPrefill, type BugReport, type BugReportMeta, type BugShot, type ReportStatus } from '../bugReports';
+import { addReport, captureContext, exportFile, exportFileName, exportSelection, fixedHousekeeping, fixedLine, hasDurableStore, isCrewAlarm, makeReport, markSent, reportStatus, reportStore, storageBytes, storageNote, summaryText, type BugContext, type BugPrefill, type BugReport, type BugReportMeta, type BugShot, type ReportStatus } from '../bugReports';
 import { deviceNow } from '../device';
 import { Modal } from '../components/ui';
 import { Help } from '../components/Help';
@@ -150,6 +150,8 @@ export function BugReportsModal() {
   const [busy, setBusy] = useState(false);
   // v0.17.2 Export all takes the new reports; this also takes those already sent.
   const [withSent, setWithSent] = useState(false);
+  // v0.22.1 the crew alarms the game files itself: one folded line under the player's own reports.
+  const [showAlarms, setShowAlarms] = useState(false);
   // v0.17.2 on opening: fixed reports get the day they were first seen fixed, and go 7 days after it.
   const refresh = async () => {
     try {
@@ -219,7 +221,18 @@ export function BugReportsModal() {
       store.openModal({ kind: 'bugReports' });
     } });
   };
-  const groups: { st: ReportStatus; label: string; rows: BugReportMeta[] }[] = (['new', 'sent', 'fixed'] as ReportStatus[]).map((st) => ({ st, label: st === 'new' ? 'New' : st === 'sent' ? 'Sent' : 'Fixed', rows: (list ?? []).filter((r) => reportStatus(r) === st) }));
+  // v0.22.1 the player's own reports first, as before; the game's crew alarms apart (never among them).
+  const own = (list ?? []).filter((r) => !isCrewAlarm(r));
+  const alarms = (list ?? []).filter(isCrewAlarm);
+  const alarmsNew = alarms.filter((r) => reportStatus(r) === 'new').length;
+  const delAlarms = () => {
+    if (!alarms.length) return;
+    store.openModal({ kind: 'confirm', title: `Delete ${alarms.length} crew alarm${alarms.length === 1 ? '' : 's'}?`, confirm: 'Delete', danger: true, body: 'The records the game filed and their snapshots are deleted from this device. Your own reports stay.', onConfirm: async () => {
+      for (const r of alarms) await reportStore().remove(r.id);
+      store.openModal({ kind: 'bugReports' });
+    } });
+  };
+  const groups: { st: ReportStatus; label: string; rows: BugReportMeta[] }[] = (['new', 'sent', 'fixed'] as ReportStatus[]).map((st) => ({ st, label: st === 'new' ? 'New' : st === 'sent' ? 'Sent' : 'Fixed', rows: own.filter((r) => reportStatus(r) === st) }));
   const nFixed = groups[2].rows.length;
   const nSent = groups[1].rows.length;
   if (open) {
@@ -233,13 +246,13 @@ export function BugReportsModal() {
       }>
         <div className="bug-view">
           <div className="small muted">Written {when(open.createdAt)} · game {c.gameTime}{c.gameTimeLocal ? ` · ${c.gameTimeLocal}` : ''} · {c.version}</div>
-          {open.shot ? <img className="bug-shot" src={open.shot} alt="Screenshot" /> : <div className="small dim">No screenshot</div>}
-          {open.what && <div><b className="small">What happened</b><div>{open.what}</div></div>}
+          {open.shot ? <img className="bug-shot" src={open.shot} alt="Screenshot" /> : isCrewAlarm(open) ? null : <div className="small dim">No screenshot</div>}
+          {open.what && (isCrewAlarm(open) ? <pre>{open.what}</pre> : <div><b className="small">What happened</b><div>{open.what}</div></div>)}
           {open.expected && <div><b className="small">Expected</b><div>{open.expected}</div></div>}
           <div className="small muted">Screen {c.screen.tab}{c.screen.view ? ` › ${c.screen.view}` : ''}{c.screen.modal ? ` · dialog ${c.screen.modal}` : ''}{c.screen.sel ? ` · ${c.screen.sel.kind} ${c.screen.sel.id}` : ''}</div>
           {c.entity && <pre>{[c.entity.label, ...c.entity.lines].join('\n')}</pre>}
           {c.inbox.length > 0 && <pre>{c.inbox.join('\n')}</pre>}
-          <div className="tiny dim">{open.size ? `Snapshot ${Math.round((open.size * 2) / 1024)} KB` : 'No game snapshot'}{open.shotBytes ? ` · screenshot ${Math.round(open.shotBytes / 1024)} KB` : ''} · {[c.device.kind, c.device.form, c.device.standalone ? 'home-screen app' : '', c.device.viewport].filter(Boolean).join(' · ')}</div>
+          <div className="tiny dim">{open.size ? `Snapshot ${Math.round((open.size * 2) / 1024)} KB` : open.snapOf ? 'Shares a snapshot with another alarm of the same minute' : 'No game snapshot'}{open.shotBytes ? ` · screenshot ${Math.round(open.shotBytes / 1024)} KB` : ''} · {[c.device.kind, c.device.form, c.device.standalone ? 'home-screen app' : '', c.device.viewport].filter(Boolean).join(' · ')}</div>
         </div>
       </Modal>
     );
@@ -249,16 +262,17 @@ export function BugReportsModal() {
       <p>Each report keeps a screenshot and the game at that moment.</p>
       <p>Export writes one file with your new reports and your current save; what you export is marked Sent.</p>
       <p>Fixed reports are deleted 7 days after the update that fixed them.</p>
+      <p>Crew alarms: the game files every crew alarm here by itself, with the game at that minute, so it can be checked later whether the alarm was right. They go out with Export; only the newest keep a snapshot.</p>
     </Help></>} icon={<Bug className="accent" />} onClose={close} footer={
       <>
-        <span className="small dim grow">{list ? `${list.length} report${list.length === 1 ? '' : 's'} · ${Math.round(storageBytes(list) / 1024 / 1024 * 10) / 10} MB` : ''}</span>
+        <span className="small dim grow">{list ? `${own.length} report${own.length === 1 ? '' : 's'}${alarms.length ? ` · ${alarms.length} crew alarm${alarms.length === 1 ? '' : 's'}` : ''} · ${Math.round(storageBytes(list) / 1024 / 1024 * 10) / 10} MB` : ''}</span>
         <button className="btn" onClick={copy} disabled={!list?.length}><ClipboardCopy /> Copy summary</button>
         <button className="btn btn-primary" onClick={exportAll} disabled={busy || (!sel.take.length && !g)}><Download /> Export {sel.take.length ? `${sel.take.length} ` : ''}{withSent ? 'new and sent' : 'new'}</button>
       </>
     }>
       <div className="col gap-12">
         {note && <div className="small warn">{note}</div>}
-        {list && list.length === 0 && <div className="small dim">No reports yet. To report a bug, tap the small bug button in the lower left corner.</div>}
+        {list && own.length === 0 && <div className="small dim">No reports yet. To report a bug, tap the small bug button in the lower left corner.</div>}
         {(nSent > 0 || nFixed > 0) && (
           <div className="row between wrap gap-8">
             {nSent > 0 ? (
@@ -286,6 +300,29 @@ export function BugReportsModal() {
             </div>
           </div>
         ))}
+        {alarms.length > 0 && (
+          <div className="col gap-6">
+            <div className="row between gap-8">
+              <button className="bug-fold upper dim" aria-expanded={showAlarms} onClick={() => setShowAlarms(!showAlarms)}>
+                {showAlarms ? <ChevronDown aria-hidden /> : <ChevronRight aria-hidden />} Crew alarms · {alarms.length}{alarmsNew && alarmsNew !== alarms.length ? ` · ${alarmsNew} new` : ''}
+              </button>
+              {showAlarms && <button className="btn btn-sm" onClick={delAlarms}><Trash2 /> Delete all</button>}
+            </div>
+            {showAlarms && (
+              <div className="bug-list">
+                {alarms.map((r) => (
+                  <div key={r.id} className={`bug-row bug-alarm bug-${reportStatus(r)}`}>
+                    <button className="bug-row-main" onClick={() => view(r.id)}>
+                      <b className="ellipsis">{r.alarm?.title ?? r.title}</b>
+                      <div className="small muted ellipsis">game {r.context.gameTime}{r.alarm ? ` · ${r.alarm.no} ${r.alarm.leg}` : ''}{reportStatus(r) === 'sent' ? ' · sent' : ''}</div>
+                    </button>
+                    <button className="btn btn-ghost btn-icon" onClick={() => del(r)} aria-label={`Delete crew alarm ${r.title}`}><Trash2 /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <div className="tiny dim">Game time {g ? fmtDateTime(g.now) : '—'} UTC. Reports are kept on this device only.</div>
       </div>
     </Modal>

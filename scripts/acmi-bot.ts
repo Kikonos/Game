@@ -104,6 +104,8 @@ import { offsetAt } from '../src/engine/crew/rules';
 import { createTicketLog } from './ticketlog';
 import { createChecker } from './invariants';
 import { watchAlarms } from './bot/alarms';
+import { crossCheck, crossPlanLines } from '../src/engine/crew/crossCheck';
+import type { AlarmKind } from '../src/engine/crew/selfCheck';
 import { SETUP_BY_ID, type SetupId } from '../src/data/setups';
 import { createScenario, METRICS, SCENARIO_BY_ID, fmtValue, reliability, scenarioOutcome, scenarioView } from '../src/engine/scenario';
 import { fleetWords } from '../src/engine/newGame';
@@ -160,7 +162,11 @@ const TLOG_FILE = process.argv.find((a) => a.startsWith('--ticketlog='))?.slice(
 const TLOG = TLOG_FILE ? createTicketLog() : null;
 /** v0.22.1 --alarms[=file]: every crew alarm that reaches the player, with its leg, its card's hurt and (--crewcheck) the cross-check's verdict. */
 const ALARMS_ARG = process.argv.find((a) => a === '--alarms' || a.startsWith('--alarms='));
-const ALARMS = ALARMS_ARG ? watchAlarms() : null;
+/** v0.22.1 --crewcheck: each alarm is cross-checked as it fires (src/engine/crew/crossCheck.ts: RIGHT / WRONG / UNSURE). */
+const CREWCHECK = process.argv.includes('--crewcheck');
+const ALARMS = ALARMS_ARG || CREWCHECK
+  ? watchAlarms(CREWCHECK ? { judge: (g, rec) => { const r = crossCheck(g, rec.flightId, rec.kind as AlarmKind); return { verdict: r.verdict, plan: `${r.why}${r.plan.length ? ` :: ${crossPlanLines(r).join(' || ')}` : ''}` }; } } : {})
+  : null;
 /** v0.12 --setup=<id>: another New Game start setup (data/setups.ts: boeing, leisure, newtech, mixed, veterans, shoestring). */
 const SETUP = process.argv.find((a) => a.startsWith('--setup='))?.slice(8) as SetupId | undefined;
 
@@ -2482,7 +2488,7 @@ if (TLOG && TLOG_FILE) {
 }
 if (ALARMS) {
   for (const l of ALARMS.report()) console.log(l);
-  const file = ALARMS_ARG!.includes('=') ? ALARMS_ARG!.slice(9) : '';
+  const file = ALARMS_ARG?.includes('=') ? ALARMS_ARG.slice(9) : '';
   if (file) {
     ALARMS.save(file);
     console.log(`crew alarms written to ${file}`);

@@ -347,13 +347,17 @@ const WAIT_RETRY = 6 * 60;
  * line. False when no such wait exists (the ladder then reads the leg as it always did). Looked for again every 6 h.
  */
 export function waitForCrew(g: GameState, f: Flight): boolean {
-  if (!isEmptyLeg(f) || f.status !== 'scheduled' || !f.aircraftId || f.std + f.delay <= g.now) return false;
+  // (A ferry with a purpose, to a check, a refit or a hand-back, has a slot to make: it keeps its alarm.)
+  if (!isEmptyLeg(f) || f.purpose || f.status !== 'scheduled' || !f.aircraftId || f.std + f.delay <= g.now) return false;
   if (f.waitTried !== undefined && f.waitTried > g.now - WAIT_RETRY) return false;
   f.waitTried = g.now;
   const x = ctxOf(g, f.id);
   if (!x || !x.missing.length || !x.d) return false;
   const plan = delayPlan(g, x);
   if (!plan) return false;
+  // Never past the moment the aircraft must leave for what comes after (its next flight with passengers, its check).
+  const tie = emptyLegTie(g, f);
+  if (tie && plan.at > tie.latest) return false;
   const before = tiesOf(g, f.aircraftId, f.id);
   const short = new Set(shortFlights(g).map((s) => s.flightId));
   const harmless = (h: GameState): boolean => tiesKept(h, before) && shortFlights(h).every((s) => short.has(s.flightId));
@@ -765,6 +769,21 @@ export function redoShortOnLoad(g: GameState): void {
     .sort((a, b) => a.std - b.std || (a.id < b.id ? -1 : 1));
   for (const f of short) {
     if (done.has(f.aircraftId!) || flightCrewStatus(g, f.id, { live: false }).level !== 'missing') continue;
+    // Only when the run crews the flight (tried on a copy first): a save where it would not is left exactly as it was.
+    const h = previewCopy(g);
+    let ok = false;
+    previewing++;
+    try {
+      ok = isolatePauses(() => {
+        planNow(h, h.flights[f.id]);
+        return !!h.flights[f.id] && !BAD(flightCrewStatus(h, f.id, { live: false }).level);
+      });
+    } catch {
+      ok = false;
+    } finally {
+      previewing--;
+    }
+    if (!ok) continue;
     done.add(f.aircraftId!);
     planNow(g, f);
   }
@@ -2477,20 +2496,6 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
       if (x.pax) s.chips.push(`${x.pax} pax`);
       s.confirm = true;
       out.push(run(s));
-    }
-  }
-  // v0.22.1 an empty leg whose wait for a crew costs nothing (no late leg, no penalty): handing flights to a rival or
-  // cancelling them, with their penalties and the client's notice, is no answer to it and is not offered. A free empty
-  // leg (nothing with passengers in its unit) has nothing to hand over or to pay for either way.
-  if (isEmptyLeg(f) && x.missing.length) {
-    const wait = out.find((s) => s.id === 'delay' && s.available && !s.cost && !(s.preview.extraCost ?? 0));
-    const freeLeg = freeEmptyLeg(g, f);
-    if (wait || freeLeg) {
-      const why = wait ? 'Not needed: the empty leg waits for its crew and nothing after it is late' : 'Not needed: an empty leg waits for its crew; nothing is lost while it does';
-      for (let i = 0; i < out.length; i++) {
-        const s = out[i];
-        if ((s.id === 'subcharter' || s.id === 'cancel') && s.available && (wait || s.cost > 0 || s.id === 'subcharter')) out[i] = no({ ...s, cost: 0, chips: [], consequences: [], confirm: false }, why);
-      }
     }
   }
   // v0.12.1 an evacuation or repatriation: any fix that gets a legal crew within a day (a delay too) ranks above

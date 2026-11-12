@@ -31,7 +31,7 @@ import { createGame, type NewGameOptions } from '../engine/newGame';
 import { autosaveSlot, saveToSlot, serialize } from '../engine/save';
 import { createScenario, scenarioOutcome } from '../engine/scenario';
 import { advanceTo, settle } from '../engine/sim';
-import { fileSelfChecks } from './selfCheckFiler';
+import { fileCrewAlarms, fileSelfChecks } from './selfCheckFiler';
 import { guarded, previewCopy, restoreState } from '../engine/crew/atomic';
 import { asStep, touchUi } from '../engine/core/uiRev';
 import { prepareAsyncSave, saveTextAsync, supersedeAsyncSave } from './asyncSave';
@@ -724,6 +724,8 @@ class GameStore {
       const hour = res.hourChanged;
       // Alarm self-check: withheld crew alarms go quietly into Bug reports.
       if (g.selfCheck?.pending.length) fileSelfChecks(g);
+      // v0.22.1 and every alarm that did reach the player, as quietly (for the cross-check).
+      if (g.selfCheck?.alarms?.length) fileCrewAlarms(g);
       if (res.pause) this.autoPause(res.pause);
       if (monthKey(g.now) !== month) this.scheduleAutosave();
       const fresh = this.surfaceMessages();

@@ -11,3 +11,9 @@
 .bug-toggle.on { border-color: rgba(var(--accent-rgb), 0.55); }
 .bug-fixed { white-space: normal; margin-top: 2px; }
 .bug-row.bug-sent .bug-row-main b { opacity: 0.85; }
+
+/* v0.22.1 Bug reports: the crew alarms the game files itself, one folded line under the player's own reports. */
+.bug-fold { display: inline-flex; align-items: center; gap: 6px; min-height: 44px; padding: 0 4px; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; text-transform: uppercase; letter-spacing: 0.06em; font-size: 12px; }
+.bug-fold svg { width: 16px; height: 16px; flex-shrink: 0; }
+.bug-row.bug-alarm { min-height: 44px; padding: 6px 12px; }
+.bug-row.bug-alarm .bug-row-main b { font-weight: 600; }
