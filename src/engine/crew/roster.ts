@@ -24,7 +24,7 @@ import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, emptyLegsOnly, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
 import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, freshReport, locAt, noteRiders, OUT_CONNECT, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, standsBy, slotAfter, snapDeparture, takeLostRides, takeSkippedFull, ticketPrice, touchCrew, touchCrewState, typeIdOf, withoutTickets } from './timeline';
-import { deploymentOf, tourDay, tourHolding, tourHomePlan, tourSpan } from './tours';
+import { deploymentOf, homeOf, tourDay, tourHolding, tourHomePlan, tourSpan } from './tours';
 import { isAnnual, leaveBackPlan, leaveBackTaken, leaveHomePlan, leaveHomeTrip, leaveHorizon, leaveTicketsOf, LEAVE_BACK_BUFFER, LEAVE_BACK_GAP } from './leaveTrips';
 
 export { buildDuties } from './duties';
@@ -248,6 +248,12 @@ function dropPlanned(g: GameState, crewId: string, ids: string[]): void {
 export function buyTickets(g: GameState, p: Pairing, plans: Map<string, CrewPlan>, res: RosterResult): void {
   const duties = openDuties(g, p);
   for (const [id, plan] of plans) if (plan.drop) dropPlanned(g, id, plan.drop);
+  // v0.22.1 a side trip from a tour station: the seat remembers the station they go back to (crew/tours.ts homeOf).
+  for (const [id, plan] of plans) {
+    const seat = p.slots.find((s) => s.crewId === id);
+    if (seat && plan.backTo) seat.backTo = plan.backTo;
+    else if (seat && plan.segs.length) delete seat.backTo;
+  }
   if (!duties.length) return;
   const first = duties[0];
   const last = duties[duties.length - 1];
@@ -301,6 +307,8 @@ function ticketWhy(g: GameState, p: Pairing, crewId: string, out: boolean, t?: T
     return out ? `Back to ${where} after ${what}` : `Home for ${what} from ${fmtDay(blk.from + 720)}`;
   }
   if (p.tour) return `${out ? 'Tour out' : 'Tour home'}: set ${p.tour.set + 1}${dep ? ` at ${dep.base}` : ''}`;
+  // v0.22.1 a side trip flown from a tour station: the way back to the set there.
+  if (!out && t && seat?.backTo && t.to === seat.backTo) return `Back to the set at ${seat.backTo} after the trip`;
   return out ? 'Trip out' : 'Trip home';
 }
 
@@ -314,6 +322,7 @@ export function releaseCrew(g: GameState, p: Pairing, crewId: string, why?: stri
     s.crewId = null;
     delete s.locked;
     delete s.from;
+    delete s.backTo;
     // Rotations round: the seat remembers who left it and why (the replacement's ticket and the inbox say so).
     if (why) s.left = { crewId, why, at: g.now };
     else delete s.left;
@@ -1322,9 +1331,17 @@ function leaveBack(g: GameState, c: CrewMember, b: LeaveBlock): boolean {
   const segs = withoutTickets(segsOf(g, c), have.map((f) => f.id));
   if (home) {
     const next = segs.find((s) => s.kind !== 'log' && s.kind !== 'sby' && !s.leave && s.start >= home.sta);
-    // (A tour's next duty, whenever it comes: the set lives on station.)
-    const tourOf = (x: Seg | undefined) => !!x?.dutyId && !!g.pairings[g.duties[x.dutyId]?.pairingId ?? '']?.tour;
-    const soon = (x: Seg) => x.start < b.to + LEAVE_BACK_GAP || tourOf(x) || tourOf(segs.find((y) => y.kind === 'duty' && y.start >= x.end));
+    // (A tour's next duty, whenever it comes: the set lives on station. v0.22.1 only where it does: the tour's period
+    // under way when the leave ends, and the trip back landing at the deployment's own station; Pedro Sousa was flown to
+    // the slip station eight days before a tour period not yet begun, and home again eight hours later.)
+    const place = (x: Seg): string => (x.kind === 'duty' ? (x.out?.id ? x.out.to : x.from) : x.ticketId && x.from === c.base ? x.at : x.from) ?? '';
+    const tourOf = (x: Seg | undefined, at: string) => {
+      const q = x?.dutyId ? g.pairings[g.duties[x.dutyId]?.pairingId ?? ''] : undefined;
+      const span = q ? tourSpan(g, q) : null;
+      const dep = q ? deploymentOf(g, q) : undefined;
+      return !!span && !!dep && span.from <= b.to && dep.base === at;
+    };
+    const soon = (x: Seg) => x.start < b.to + LEAVE_BACK_GAP || tourOf(x, place(x)) || tourOf(segs.find((y) => y.kind === 'duty' && y.start >= x.end), place(x));
     if (next && next.start >= b.to - DAY && soon(next)) {
       const d = next.dutyId ? g.duties[next.dutyId] : undefined;
       if (next.kind === 'duty' && next.out?.id && next.out.to !== c.base && d) {
@@ -2872,7 +2889,8 @@ setCrewTrailOkHook((g, p, c) => {
     const f = g.flights[fid];
     if (f && f.status !== 'cancelled' && aboard(f, c.id) && f.sta <= duties[0].report) out = f;
   }
-  const home = last.restAt !== c.base ? planHome(last, c.base, cabinEarly(g, p)) : null;
+  const homeAt = homeOf(g, c, p);
+  const home = last.restAt !== homeAt ? planHome(last, homeAt, cabinEarly(g, p)) : null;
   const own: Seg[] = [];
   for (const d of duties) own.push(...dutySegs(g, c, p, d, d === duties[0] ? out : null, d === last ? home : null, true));
   return !evalSegs({ ...ctxOf(g, c), slack: BAL.rosterSlack }, mergeSegs(segsOf(g, c, p.id), own)).some((i) => i.level === 'illegal' && i.code !== 'fdp');
@@ -2887,7 +2905,8 @@ function rehome(g: GameState, p: Pairing, only?: Set<string>): void {
   for (const s of p.slots) {
     const c = s.crewId && (!only || only.has(s.crewId)) ? g.crew[s.crewId] : undefined;
     if (!c) continue;
-    const home = last.restAt !== c.base ? (p.tour ? tourHomePlan(g, p, last, c.base, cabinEarly(g, p)) : planHome(last, c.base, cabinEarly(g, p))) : null;
+    const homeAt = homeOf(g, c, p);
+    const home = last.restAt !== homeAt ? (p.tour ? tourHomePlan(g, p, last, c.base, cabinEarly(g, p)) : planHome(last, homeAt, cabinEarly(g, p))) : null;
     // Rotations round: the ticket home that only moves is re-timed (moveHome), not bought again.
     if (home && moveHome(g, p, c, home)) continue;
     for (const d of duties) {

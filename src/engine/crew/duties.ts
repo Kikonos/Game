@@ -19,6 +19,7 @@ import { bestSlip } from './slip';
 import { dropStandby } from './standby';
 import { aboard, cabinEarly, cabinEarlyOf, crewCount, crewIx, ctxOf, dhBlock, dutyBlock, dutyFlights, dutySegs, onBlocks, planHome, segsOf, touchCrew } from './timeline';
 import { mergeSegs, openDuties } from './check';
+import { homeOf } from './tours';
 import { isSeatRest, pilotsOnlyTrip, planRest, restOf, restWords, type RestLeg, type RestPlan } from './restPlan';
 
 // ---------- duty measures ----------
@@ -636,6 +637,7 @@ export function refreshPairing(g: GameState, p: Pairing): string[] {
         if (old[i].locked) slot.locked = true;
         // v0.12.1 (review) a day-off buy-back still to be paid goes with the crew member to the new seat.
         if (old[i].buyBack) slot.buyBack = old[i].buyBack;
+        if (old[i].backTo) slot.backTo = old[i].backTo;
         next[j] = slot;
       });
     }
@@ -670,6 +672,7 @@ export function dropGoneCrew(g: GameState, p: Pairing): boolean {
     delete s.locked;
     delete s.from;
     delete s.buyBack;
+    delete s.backTo;
   }
   if (p.slots.some((s) => s.extra && !s.crewId)) p.slots = p.slots.filter((s) => !(s.extra && !s.crewId));
   unboardGone(g, gone);
@@ -1139,7 +1142,8 @@ function ownTrailOk(g: GameState, p: Pairing, c: CrewMember, upto: Duty): boolea
     const f = g.flights[fid];
     if (f && f.status !== 'cancelled' && aboard(f, c.id) && f.sta <= first.report) out = f;
   }
-  const home = last.restAt !== c.base ? planHome(last, c.base, cabinEarly(g, p)) : null;
+  const homeAt = homeOf(g, c, p);
+  const home = last.restAt !== homeAt ? planHome(last, homeAt, cabinEarly(g, p)) : null;
   const own: Seg[] = [];
   for (const d of duties) own.push(...dutySegs(g, c, p, d, d === first ? out : null, d === last ? home : null, true));
   const before = segsOf(g, c, p.id).filter((s) => s.end <= first.report);

@@ -8,7 +8,7 @@ import { COST_CATS, REVENUE_CATS, statementTotals } from '../core/ledger';
 import { DAY, monthStart } from '../core/time';
 import type { LedgerCat, Minute, MonthKey, MonthStatement } from '../core/types';
 
-export type CostGroupId = 'crew' | 'crewTravel' | 'aircraft' | 'mx' | 'flying' | 'overhead' | 'oneOff' | 'other';
+export type CostGroupId = 'crew' | 'crewTravel' | 'aircraft' | 'mx' | 'flying' | 'overhead' | 'oneOff' | 'permits' | 'bank' | 'other';
 export type RevGroupId = 'acmi' | 'charter' | 'routes' | 'leases' | 'other';
 
 export interface GroupDef<Id extends string> {
@@ -24,20 +24,26 @@ export interface GroupDef<Id extends string> {
  * size). 'Other' is last and grey. A cost line under no group falls into 'Other'.
  */
 export const COST_GROUPS: readonly GroupDef<CostGroupId>[] = [
-  { id: 'crew', label: 'Crew pay', cats: ['salaries', 'training', 'hiring'],
+  { id: 'crew', label: 'Crew pay & training', cats: ['salaries', 'training', 'hiring'],
     about: 'Salaries of pilots, cabin crew and office staff, with the employer\'s social charges on top, plus training and hiring. Paid at the month end whether the crew fly or not.' },
   { id: 'crewTravel', label: 'Crew travel & hotels', cats: ['perDiem', 'hotels', 'deadhead', 'crewJet'],
     about: 'What crew cost while away: daily allowances (per diems), hotel nights, airline tickets to and from the aircraft, and the odd private jet.' },
-  { id: 'aircraft', label: 'Aircraft rent & insurance', cats: ['rent', 'insurance', 'consent'],
-    about: 'Monthly rent to the lessors who own the aircraft, and the hull and liability insurance. Fixed: it comes every month, flying or parked.' },
+  { id: 'aircraft', label: 'Aircraft rent & insurance', cats: ['rent', 'insurance', 'consent', 'warRisk'],
+    about: 'Monthly rent to the lessors who own the aircraft, and the hull and liability insurance. Fixed: it comes every month, flying or parked. War-risk cover for landings in risky places is here too.' },
   { id: 'mx', label: 'Maintenance & reserves', cats: ['maintenance', 'checks', 'reserves'],
     about: 'Fixing and checking the aircraft (line work, A- and C-checks) and the maintenance reserves: money paid to the lessor for every hour flown, saved for the big checks later.' },
-  { id: 'flying', label: 'Fuel & airports', cats: ['fuel', 'airportFees', 'navCharges', 'handling', 'catering', 'paxServices', 'warRisk'],
+  { id: 'flying', label: 'Fuel & airports', cats: ['fuel', 'airportFees', 'navCharges', 'handling', 'catering', 'paxServices'],
     about: 'Costs of flying itself when we pay them: fuel, landing and handling fees, air navigation charges, catering. On ACMI the client pays most of these.' },
-  { id: 'overhead', label: 'Office & sales', cats: ['overhead', 'sales', 'marketing', 'distribution', 'commission', 'compliance', 'approvals', 'bankFees', 'interest'],
-    about: 'Running the company: the office, IT, sales trips and fairs, brokers\' commission, approvals, bank fees and interest.' },
+  { id: 'overhead', label: 'Office & sales', cats: ['overhead', 'sales', 'marketing', 'distribution', 'commission'],
+    about: 'Running the company: the office, IT, sales trips and fairs, marketing and brokers\' commission.' },
   { id: 'oneOff', label: 'One-offs', cats: ['leaseReturn', 'transition', 'refit', 'capex', 'paint', 'delivery', 'routeSetup', 'badDebt', 'distress'],
     about: 'Big costs that do not come every month: handing an aircraft back to its lessor, bringing a new one in, cabin refits, paint, buying an aircraft, unpaid invoices written off.' },
+  // v0.22.1 (the player's report: a dangerous goods application read as 'Office & sales') fees to the authority and
+  // the bank's money have their own groups, after the older ones so every group keeps its colour.
+  { id: 'permits', label: 'Approvals & audits', cats: ['approvals', 'compliance'],
+    about: 'Fees to the aviation authority and auditors: applications for approvals (dangerous goods, ETOPS, new aircraft types on the certificate), safety audits and the fixes they ask for.' },
+  { id: 'bank', label: 'Bank & interest', cats: ['interest', 'bankFees'],
+    about: 'What borrowing costs: interest on the credit line and loans, and the bank\'s fees.' },
   { id: 'other', label: 'Other', cats: ['subcharter', 'penalties', 'disruption', 'paxComp'],
     about: 'Paying other airlines to fly our flights (sub-charter), contract penalties, diversions and passenger compensation.' },
 ];
@@ -51,8 +57,8 @@ export const REV_GROUPS: readonly GroupDef<RevGroupId>[] = [
     about: 'Tickets, cargo and extras on the routes we fly under our own name.' },
   { id: 'leases', label: 'Leases out', cats: ['leaseIncome'],
     about: 'Rent and reserves from airlines flying our aircraft with their own crew (a dry lease out).' },
-  { id: 'other', label: 'Other', cats: ['otherRevenue', 'interestIncome', 'assetSale'],
-    about: 'Everything else: fuel and fees passed on to clients, interest on cash, aircraft sold.' },
+  { id: 'other', label: 'Other', cats: ['otherRevenue', 'interestIncome', 'assetSale', 'refund'],
+    about: 'Everything else: fuel and fees passed on to clients, interest on cash, aircraft sold, money given back.' },
 ];
 
 const COST_OF = new Map<LedgerCat, CostGroupId>(COST_GROUPS.flatMap((g) => g.cats.map((c) => [c, g.id] as const)));

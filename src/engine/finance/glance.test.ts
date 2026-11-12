@@ -23,6 +23,20 @@ describe('v0.20 finance at a glance: plain groups', () => {
     expect(costGroupOf('reserves')).toBe('mx');
     expect(costGroupOf('leaseReturn')).toBe('oneOff');
     expect(revGroupOf('ticketRevenue')).toBe('routes');
+    // v0.22.1 (the player's report: "I filed for dangerous goods approval and it says under Office"): fees to the
+    // authority and auditors, and the bank's money, are groups of their own; war-risk cover sits with the insurance.
+    expect(costGroupOf('approvals')).toBe('permits');
+    expect(costGroupOf('compliance')).toBe('permits');
+    expect(costGroupOf('interest')).toBe('bank');
+    expect(costGroupOf('bankFees')).toBe('bank');
+    expect(costGroupOf('warRisk')).toBe('aircraft');
+    expect(COST_GROUPS.find((g) => g.id === 'overhead')!.cats).toEqual(['overhead', 'sales', 'marketing', 'distribution', 'commission']);
+    expect(COST_GROUPS.find((g) => g.id === 'permits')!.label).toBe('Approvals & audits');
+    const dg = groupMonth({ approvals: -60_000 });
+    expect(dg.costs.filter((x) => x.amount > 0).map((x) => [x.label, x.amount])).toEqual([['Approvals & audits', 60_000]]);
+    // v0.22.1 a refund for a game error is revenue ('Other'), never a cost line.
+    expect(revGroupOf('refund')).toBe('other');
+    expect(statementTotals({ refund: 1000, subcharter: -5000 })).toEqual({ revenue: 1000, costs: -5000, profit: -4000 });
     // Fixed order, 'Other' last in both.
     expect(COST_GROUPS[COST_GROUPS.length - 1].id).toBe('other');
     expect(REV_GROUPS[REV_GROUPS.length - 1].id).toBe('other');
@@ -76,7 +90,7 @@ describe('v0.20 verdict, per block hour and changes', () => {
   it('the three biggest changes, cost up is bad, revenue up good', () => {
     const ch = biggestChanges(DEC, NOV);
     expect(ch.map((c) => `${c.label} ${Math.round(c.delta / 1000)} ${c.good ? 'good' : 'bad'}`)).toEqual([
-      'One-offs 5425 bad', 'Charters -957 bad', 'Fuel & airports -571 good',
+      'One-offs 5425 bad', 'Charters -957 bad', 'Fuel & airports -542 good',
     ]);
     expect(biggestChanges(NOV, NOV)).toEqual([]);
   });

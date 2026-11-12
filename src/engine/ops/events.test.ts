@@ -376,10 +376,13 @@ describe('late payment and rescue', () => {
     expect(factorQuote(g, r.id, true)!.why).toMatch(/overdue/);
     const cash = g.company.cash;
     const interest = line(g, 'interest');
+    const bankFees = line(g, 'bankFees');
     resolveDecision(g, d.id, 'factor');
     const fee = Math.round(r.amount * BAL.factorDiscount);
     expect(g.company.cash).toBe(cash + r.amount - fee);
-    expect(line(g, 'interest')).toBe(interest - fee);
+    // v0.22.1 a factoring fee is a bank fee (as the bank's own factoring books it), not interest.
+    expect(line(g, 'bankFees')).toBe(bankFees - fee);
+    expect(line(g, 'interest')).toBe(interest);
     expect(r.paid).toBe(g.now);
     expect(r.factored).toBe(true);
   });

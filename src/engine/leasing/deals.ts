@@ -397,7 +397,8 @@ function end(g: GameState, d: LeaseDeal, stage: 'walked' | 'declined', forfeit: 
   if (why) d.why = why;
   cashOnly(g, d.holding);
   if (forfeit) {
-    post(g, 'rent', -d.holding);
+    // v0.22.1 a forfeited holding deposit is a cost of the lease deal that fell through (was booked as aircraft rent).
+    post(g, 'transition', -d.holding);
     L.stats.forfeited += d.holding;
   }
   releaseLc(g, d.id);

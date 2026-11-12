@@ -91,10 +91,17 @@ const backSegOf = (segs: Seg[], c: CrewMember, b: Block): Seg | undefined =>
  * (its trip home is in the timeline) ends within LEAVE_BACK_GAP before it (any time before, on a tour) with no other
  * work between, a seat from base
  * on the leave's last day (else the day before) landing LEAVE_BACK_BUFFER before the report. Null otherwise. Pure.
+ * v0.22.1 `tour`: the tour's period and station (TourStay). "Any time before" holds only where the set lives: the
+ * period under way when the leave ends, and the duty leaving from the deployment's own station. (The player's Pedro
+ * Sousa: flown Lisbon–New York on the last day of his leave for a tour whose period began eight days later, from the
+ * slip station; nothing kept him there, and he was flown home eight hours after landing.)
  */
-export function leaveBackFor(g: GameState, c: CrewMember, segs: Seg[], report: Minute, dep: string, tour = false): TicketPlan | null {
+export type TourStay = boolean | { from: Minute; station: string };
+export const livesThere = (tour: TourStay, leaveEnd: Minute, place: string): boolean => tour === true || (!!tour && tour.from <= leaveEnd && tour.station === place);
+
+export function leaveBackFor(g: GameState, c: CrewMember, segs: Seg[], report: Minute, dep: string, tour: TourStay = false): TicketPlan | null {
   if (!dep || dep === c.base || !c.blocks?.length) return null;
-  const b = c.blocks.find((x) => isAnnual(x) && x.to <= report && (tour || report < x.to + LEAVE_BACK_GAP) && x.to > g.now);
+  const b = c.blocks.find((x) => isAnnual(x) && x.to <= report && (livesThere(tour, x.to, dep) || report < x.to + LEAVE_BACK_GAP) && x.to > g.now);
   if (!b) return null;
   const home = leaveHomeTrip(g, c, b);
   if (!home || backSegOf(segs, c, b) || leaveBackTaken(g, c, b)) return null;

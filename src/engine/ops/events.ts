@@ -685,7 +685,8 @@ function resolveLatePayment(g: GameState, d: Decision, opt: string): ActionResul
     if (fq && !fq.why) return factorInvoice(g, r.id, true);
     const fee = Math.round(r.amount * BAL.factorDiscount);
     cashOnly(g, r.amount);
-    post(g, 'interest', -fee);
+    // v0.22.1 a factoring fee is a bank fee (as the bank's own factoring books it), not interest.
+    post(g, 'bankFees', -fee);
     r.paid = g.now;
     r.factored = true;
     return { ok: true, msg: `Invoice sold: ${usd(r.amount - fee)} in` };

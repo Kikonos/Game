@@ -28,6 +28,8 @@ export const LUMP_CATS: readonly LedgerCat[] = [
   'badDebt', 'sales', 'interest', 'consent',
   // v0.16.3 deferral premiums, plan fees, discounts and write-offs come in lumps.
   'distress',
+  // v0.22.1 a one-off refund for a game error.
+  'refund',
   // v0.14.1 (M5) the month-end lines booked before the month end are an aircraft leaving (its part-month rent,
   // insurance and overhead) or a leaver's pay, severance or a bought-back day off: once each, while the month-end bill
   // no longer counts them.

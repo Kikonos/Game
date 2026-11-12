@@ -204,6 +204,16 @@ describe('v0.19.3 annual leave that begins away', () => {
     // A next duty days later (not a tour): planned as a normal trip out, not on the leave.
     expect(leaveBackFor(g, c, segs, report + 5 * DAY, 'DXB')).toBeNull();
     expect(leaveBackFor(g, c, segs, report + 5 * DAY, 'DXB', true)?.to).toBe('DXB');
+    // v0.22.1 (the player's Pedro Sousa: flown Lisbon–New York on the last day of his leave for a tour eight days on,
+    // and home again eight hours after landing): "whenever it comes" only where the set lives. A tour whose period is
+    // under way when the leave ends, leaving from its own station: yes.
+    expect(leaveBackFor(g, c, segs, report + 5 * DAY, 'DXB', { from: b.to - 10 * DAY, station: 'DXB' })?.to).toBe('DXB');
+    // A tour period that begins after the leave (the set is not on station yet): they stay home, and fly out with the set.
+    expect(leaveBackFor(g, c, segs, report + 5 * DAY, 'DXB', { from: b.to + 4 * DAY, station: 'DXB' })).toBeNull();
+    // A duty leaving from a slip station (New York on a Zurich deployment): nobody is kept there for days.
+    expect(leaveBackFor(g, c, segs, report + 5 * DAY, 'JFK', { from: b.to - 10 * DAY, station: 'ZRH' })).toBeNull();
+    // Inside two days of the leave's end it is the trip back on the last day, tour or not, station or not.
+    expect(leaveBackFor(g, c, segs, report, 'JFK', { from: b.to + DAY, station: 'ZRH' })?.to).toBe('JFK');
   });
 
   it('an older save\'s trip home before the leave (bug 1108b) becomes the leave\'s own trips on load', () => {

@@ -35,7 +35,7 @@
   --neg: #e66767;
   /* v0.20 Finance at a glance: the categorical order (colour follows the group, never its size; validated for
      colour-blind separation on adjacent pairs, the donut's wrap included). Slot 8 is the grey 'Other'. */
-  --cat-1: #3987e5; --cat-2: #d95926; --cat-3: #199e70; --cat-4: #c98500; --cat-5: #d55181; --cat-6: #008300; --cat-7: #9085e9; --cat-other: #585f6e;
+  --cat-1: #3987e5; --cat-2: #d95926; --cat-3: #199e70; --cat-4: #c98500; --cat-5: #d55181; --cat-6: #008300; --cat-7: #9085e9; --cat-8: #17a8bd; --cat-9: #b06a3b; --cat-other: #585f6e;
   --shadow: 0 10px 40px rgba(0, 0, 0, 0.45);
   --shadow-sm: 0 4px 14px rgba(0, 0, 0, 0.35);
   /* Ink on coloured fills (status pips, white knobs) — the same in both themes. */
@@ -289,7 +289,7 @@
   --series-2: #c2410c;
   --pos: #2563eb;
   --neg: #c62828;
-  --cat-1: #2563eb; --cat-2: #c2410c; --cat-3: #1baf7a; --cat-4: #eda100; --cat-5: #e87ba4; --cat-6: #008300; --cat-7: #6250d6; --cat-other: #8b919c;
+  --cat-1: #2563eb; --cat-2: #c2410c; --cat-3: #1baf7a; --cat-4: #eda100; --cat-5: #e87ba4; --cat-6: #008300; --cat-7: #6250d6; --cat-8: #0e8ea1; --cat-9: #9a5a2e; --cat-other: #8b919c;
   --shadow: 0 10px 32px rgba(15, 23, 42, 0.14);
   --shadow-sm: 0 3px 10px rgba(15, 23, 42, 0.1);
   --on-color: #ffffff;

@@ -69,6 +69,135 @@ export interface BugReportMeta {
   sentAt?: number;
   /** v0.17.2 real time the version installed first listed it as fixed (deleted 7 days later). */
   fixedSeenAt?: number;
+  /** v0.22.1 filed by the game itself, quietly: a crew alarm that reached the player (kept apart from the player's own reports). */
+  auto?: 'crew-alarm';
+  /** v0.22.1 the alarm as it fired (auto 'crew-alarm'). */
+  alarm?: CrewAlarmEntry;
+  /** v0.22.1 the report whose snapshot this one shares (alarms of the same game minute keep one snapshot between them). */
+  snapOf?: string;
+}
+
+// ---------- crew alarms filed by the game (v0.22.1) ----------
+
+/**
+ * One crew alarm that reached the player, as it fired: when, which flight, which kind, the card's words (what, why,
+ * does it hurt), the Inbox line, the planner's evidence and the self-check's verdict. With the snapshot of the game at
+ * that minute (its own or a shared one), scripts/crewcheck.ts judges later whether the alarm was right.
+ */
+export interface CrewAlarmEntry {
+  t: Minute;
+  /** 'short' | 'hours' | 'early' | 'takenOff' | 'rest'. */
+  kind: string;
+  flightId: string;
+  no: string;
+  /** 'JED–LGW 4 May 10:15'. */
+  leg: string;
+  /** The alarm's title as the Inbox shows it. */
+  title: string;
+  /** The problem card's lines at that moment (absent when the card was already gone). */
+  what?: string;
+  why?: string;
+  hurt?: string;
+  /** The Inbox line's body. */
+  body?: string;
+  /** The planner's evidence (the self-check's "Checked ✓" lines). */
+  evidence: string[];
+  verdict: 'confirmed';
+}
+
+/** At most this many crew-alarm records are kept (the oldest go first). */
+export const CREW_ALARM_KEEP = 60;
+/** At most this many of them keep a snapshot (the newest), within CREW_ALARM_SNAP_CHARS characters in all; never fewer than 3. */
+export const CREW_ALARM_SNAPS = 12;
+export const CREW_ALARM_SNAP_CHARS = 1_200_000;
+
+export const isCrewAlarm = (r: Pick<BugReportMeta, 'auto'>): boolean => r.auto === 'crew-alarm';
+
+/** What makes two alarms on one flight the same alarm: the kind and its words (title, why, evidence). Pure. */
+export const crewAlarmSig = (a: CrewAlarmEntry): string => [a.kind, a.title.replace(/ in \d+ h$/, ''), a.why ?? '', a.evidence.join('|')].join('¦');
+
+/**
+ * The alarms of a batch worth filing: the same flight and kind is filed only once unless its wording or evidence
+ * changed since the last one filed for it (and never twice in one batch). Pure.
+ */
+export function newCrewAlarms(existing: readonly BugReportMeta[], batch: readonly CrewAlarmEntry[]): CrewAlarmEntry[] {
+  const last = new Map<string, string>();
+  for (const r of [...existing].sort((a, b) => a.createdAt - b.createdAt)) if (r.alarm && isCrewAlarm(r)) last.set(`${r.alarm.flightId}|${r.alarm.kind}`, crewAlarmSig(r.alarm));
+  const out: CrewAlarmEntry[] = [];
+  for (const a of batch) {
+    const k = `${a.flightId}|${a.kind}`;
+    const sig = crewAlarmSig(a);
+    if (last.get(k) === sig) continue;
+    last.set(k, sig);
+    out.push(a);
+  }
+  return out;
+}
+
+/**
+ * Keeps the crew-alarm records small: beyond CREW_ALARM_KEEP the oldest are removed; of the rest only the newest
+ * CREW_ALARM_SNAPS snapshots stay, within CREW_ALARM_SNAP_CHARS characters (at least 3), the older ones are stripped
+ * (the record's words stay). The player's own reports are never touched. Pure.
+ */
+export function crewAlarmHousekeeping(list: readonly BugReportMeta[]): { remove: string[]; strip: string[] } {
+  const mine = list.filter(isCrewAlarm).sort((a, b) => b.createdAt - a.createdAt);
+  const remove = mine.slice(CREW_ALARM_KEEP).map((r) => r.id);
+  const strip: string[] = [];
+  let n = 0;
+  let chars = 0;
+  for (const r of mine.slice(0, CREW_ALARM_KEEP)) {
+    if (!r.size) continue;
+    n++;
+    chars += r.size;
+    if (n > 3 && (n > CREW_ALARM_SNAPS || chars > CREW_ALARM_SNAP_CHARS)) strip.push(r.id);
+  }
+  return { remove, strip };
+}
+
+/** The words of a crew-alarm report (the list and the report view read them). Pure. */
+export function crewAlarmWords(a: CrewAlarmEntry, gameTime: string): { title: string; what: string; expected: string } {
+  const lines = [
+    `${gameTime} UTC · ${a.no} ${a.leg} · ${a.kind}`,
+    a.what ? `What: ${a.what}` : '',
+    a.why ? `Why: ${a.why}` : '',
+    a.hurt ? `Does it hurt: ${a.hurt}` : '',
+    !a.why && a.body ? a.body : '',
+    a.evidence.length ? `Checked: ${a.evidence.join('; ')}` : '',
+  ].filter(Boolean);
+  return { title: `Crew alarm: ${a.title}`, what: lines.join('\n'), expected: 'Filed by the game, quietly: every crew alarm is kept so it can be checked later whether it was right.' };
+}
+
+/**
+ * Files a batch of crew alarms (the same game minute): the new ones only (newCrewAlarms), one snapshot between them
+ * (the first carries it, the others point to it; an earlier report of the same game minute is reused), then the
+ * housekeeping. Returns the reports written. `snapshot`: the game at that minute, compressed (snapshotOf).
+ */
+export async function addCrewAlarms(batch: readonly CrewAlarmEntry[], context: (a: CrewAlarmEntry) => BugContext, snapshot: () => string, gameTime: (t: Minute) => string, store: ReportStore = reportStore(), now = Date.now()): Promise<BugReport[]> {
+  const list = await store.list();
+  const fresh = newCrewAlarms(list, batch);
+  if (!fresh.length) return [];
+  const out: BugReport[] = [];
+  let holder = list.find((r) => isCrewAlarm(r) && r.size > 0 && r.alarm?.t === fresh[0].t)?.id;
+  fresh.forEach((a, i) => {
+    const snap = holder ? '' : snapshot();
+    const r: BugReport = { id: newId(), createdAt: now + i, ...crewAlarmWords(a, gameTime(a.t)), context: context(a), size: snap.length, snapshot: snap, auto: 'crew-alarm', alarm: a, ...(holder ? { snapOf: holder } : {}) };
+    holder ??= r.id;
+    out.push(r);
+  });
+  for (const r of out) await store.put(r);
+  const hk = crewAlarmHousekeeping(await store.list());
+  for (const id of hk.remove) await store.remove(id);
+  for (const id of hk.strip) {
+    const r = await store.get(id);
+    if (r) await store.put({ ...r, snapshot: '', size: 0 });
+  }
+  return out;
+}
+
+/** The snapshot a report can be replayed from: its own, else the one it shares (`all`: the reports of the export or the store). Pure. */
+export function snapshotFor(r: BugReport, all: readonly BugReport[]): string {
+  if (r.snapshot) return r.snapshot;
+  return r.snapOf ? all.find((x) => x.id === r.snapOf)?.snapshot ?? '' : '';
 }
 
 // ---------- status (v0.17.2) ----------
@@ -145,8 +274,11 @@ export interface BugShot {
 
 /** The game as a save, compressed. Pure. */
 export function snapshotOf(g: GameState): string {
-  return LZ_MARK + LZString.compressToUTF16(serialize(g, 'bug'));
+  return packSnapshot(serialize(g, 'bug'));
 }
+
+/** v0.22.1 a save's text as a snapshot (compressed). Pure. */
+export const packSnapshot = (saveText: string): string => LZ_MARK + LZString.compressToUTF16(saveText);
 
 /** The save text of a snapshot (plain JSON). Pure. */
 export function snapshotText(s: string): string {

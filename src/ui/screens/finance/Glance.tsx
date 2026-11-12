@@ -31,7 +31,7 @@ const longName = (k: MonthKey) => LONG[k % 12];
 
 /** Group colours by fixed slot (theme tokens --cat-N, both themes); 'Other' is grey. */
 const COST_COLOR: Record<CostGroupId, string> = {
-  crew: 'var(--cat-1)', crewTravel: 'var(--cat-2)', aircraft: 'var(--cat-3)', mx: 'var(--cat-4)', flying: 'var(--cat-5)', overhead: 'var(--cat-6)', oneOff: 'var(--cat-7)', other: 'var(--cat-other)',
+  crew: 'var(--cat-1)', crewTravel: 'var(--cat-2)', aircraft: 'var(--cat-3)', mx: 'var(--cat-4)', flying: 'var(--cat-5)', overhead: 'var(--cat-6)', oneOff: 'var(--cat-7)', permits: 'var(--cat-8)', bank: 'var(--cat-9)', other: 'var(--cat-other)',
 };
 const REV_COLOR: Record<RevGroupId, string> = { acmi: 'var(--cat-1)', charter: 'var(--cat-2)', routes: 'var(--cat-3)', leases: 'var(--cat-4)', other: 'var(--cat-other)' };
 const ABOUT = new Map<string, string>([...COST_GROUPS.map((d) => [`cost:${d.id}`, d.about] as const), ...REV_GROUPS.map((d) => [`revenue:${d.id}`, d.about] as const)]);
