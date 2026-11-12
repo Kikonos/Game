@@ -43,13 +43,15 @@ function idleTypes(g: GameState, plans: FamilyPlan[]): { family: RatingFamily; p
 }
 
 /** One family: sets, the verdict, the role table and the round-up buttons. */
-/** v0.23 people booked on classes onto a type, in a line for its card: '39 in classes for this type (10 PUR, 29 CC) · last one ends 19 Jul'. */
+/**
+ * v0.23 the classes booked onto a type, in a line for its card: 'Classes for this type: 39 people · last one ends 19 Jul'.
+ * (The Joining column counts those of them the type they fly today can spare, marked 'in class'.)
+ */
 function bookedLine(g: GameState, family: RatingFamily): string | null {
   const ks = conversionClasses(g).filter((k) => k.family === family);
-  const ids = ks.flatMap((k) => k.crewIds).filter((id) => g.crew[id]);
-  if (!ids.length) return null;
-  const by = ['CPT', 'FO', 'PUR', 'CC'].map((r) => [r, ids.filter((id) => g.crew[id].role === r).length] as const).filter(([, n]) => n > 0);
-  return `${ids.length} in classes for this type (${by.map(([r, n]) => `${n} ${r}`).join(', ')}) · last one ends ${baseDay(g, Math.max(...ks.map((k) => k.end)) - 1)}`;
+  const n = ks.flatMap((k) => k.crewIds).filter((id) => g.crew[id]).length;
+  if (!n) return null;
+  return `Classes for this type: ${n} ${n === 1 ? 'person' : 'people'} · last one ends ${baseDay(g, Math.max(...ks.map((k) => k.end)) - 1)}`;
 }
 
 function FamilyCard({ p, lock, trainLock, booked }: { p: FamilyPlan; lock?: string | null; trainLock?: string | null; booked?: string | null }) {
@@ -88,7 +90,7 @@ function FamilyCard({ p, lock, trainLock, booked }: { p: FamilyPlan; lock?: stri
               <td><b>{r.role}</b> <span className="tiny muted">{ROLE_WORD[r.role]}</span></td>
               <td className="num">{r.have}{r.shared ? <span className="tiny muted cp-shared">{r.shared} shared</span> : null}</td>
               <td className="num">{r.need}</td>
-              <td className="num">{r.joining || '–'}</td>
+              <td className="num">{r.joining || '–'}{r.inClass ? <span className="tiny muted cp-shared">{r.inClass} in class</span> : null}</td>
               <td className="num">{r.away || '–'}</td>
               <td className={`num ${r.balance < 0 ? 'warn' : r.balance > 0 ? 'muted' : 'good'}`}>
                 {r.balance < 0 ? `short ${-r.balance}` : r.balance > 0 ? `+${r.balance}` : 'exact'}
@@ -108,7 +110,7 @@ function FamilyCard({ p, lock, trainLock, booked }: { p: FamilyPlan; lock?: stri
       ) : (
         <div key={`f${b.family}`} className="tiny muted cp-backup">{backupWho(b)} from the {b.label} also rated here · counted in the {b.label}</div>
       ))}
-      {booked && <div className="tiny good cp-backup">{booked}</div>}
+      {booked && <div className="tiny muted cp-backup">{booked}</div>}
       {p.clientCabin > 0 && <div className="tiny muted"><Term id="dampLease">Mixed crew</Term>: clients' crew fly about {p.clientCabin} cabin {p.clientCabin === 1 ? 'place' : 'places'}</div>}
       {p.dryLeased > 0 && <div className="tiny muted">Dry lease out: {p.dryLeased} more {p.dryLeased === 1 ? 'aircraft is' : 'aircraft are'} away with the lessee's crews; no sets until {p.dryLeased === 1 ? 'it comes' : 'they come'} back.</div>}
       {/* v0.15 a scenario's hiring allowance. */}

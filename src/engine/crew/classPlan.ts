@@ -187,20 +187,21 @@ export function nextArrival(g: GameState, family: RatingFamily): { at: Minute; r
 }
 
 export interface ClassPlanNeed {
-  /** Per rank of the group: rated on the target (with those already booked onto it), needed, short. */
+  /** Per rank of the group: counted on the target (rated, joining or in a class onto it), booked onto it, needed, short. */
   roles: { role: Role; have: number; booked: number; need: number; short: number }[];
   arrival: { at: Minute; reg: string } | null;
   /** 'Short 3 pursers and 20 cabin crew' / 'None short'. */
   text: string;
 }
 
-/** What the target type is short of in this group (the Planning card's numbers, less people already booked onto it). Pure. */
+/** What the target type is short of in this group (the Planning card's numbers; people already booked onto it count as joiners). Pure. */
 export function classPlanNeed(g: GameState, family: RatingFamily, group: Group): ClassPlanNeed {
   const lines = staffing(g).filter((l) => l.family === family && (isPilot(l.role) ? 'pilot' : 'cabin') === group);
   const booked = (r: Role) => conversionClasses(g).filter((k) => k.family === family).reduce((n, k) => n + k.crewIds.filter((id) => g.crew[id]?.role === r).length, 0);
   const roles = lines.map((l) => {
     const b = booked(l.role);
-    return { role: l.role, have: l.have, booked: b, need: l.need, short: Math.max(0, l.need - l.have - (l.covered ?? 0) - b) };
+    // (People booked onto the type the old type can spare are in `have` already, as joiners: sets.ts crewSupply.)
+    return { role: l.role, have: l.have, booked: b, need: l.need, short: Math.max(0, l.need - l.have - (l.covered ?? 0)) };
   });
   const short = roles.filter((r) => r.short > 0);
   const text = short.length ? `Short ${short.map((r) => nRole(r.short, r.role)).join(' and ')}` : roles.length ? 'None short' : 'No aircraft of this type';

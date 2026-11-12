@@ -120,7 +120,8 @@ export function convertTargets(g: GameState, from: RatingFamily, role: Role): Co
   for (const f of families()) {
     if (f === from || !arr.has(f)) continue;
     const l = lines.find((x) => x.family === f && x.role === role);
-    const setsShort = l ? Math.max(0, l.need - l.have - (l.covered ?? 0) - booked(f)) : 0;
+    // (v0.23 people booked onto the type are in its `have` already, as joiners: sets.ts crewSupply.)
+    const setsShort = l ? Math.max(0, l.need - l.have - (l.covered ?? 0)) : 0;
     const gap = gaps.filter((x) => x.family === f).sort((a, b) => b.short - a.short || a.start - b.start)[0];
     const fcShort = gap ? Math.max(0, gap.short - booked(f)) : 0;
     const next = arr.get(f) ?? null;

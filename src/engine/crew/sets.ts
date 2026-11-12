@@ -114,8 +114,10 @@ export interface SetRole {
   need: number;
   /** On the books for this family and staying (incl. joining, sick, on leave, training); each person counted once. */
   have: number;
-  /** Of `have`: hired, not yet joined. */
+  /** Of `have`: hired, not yet joined; v0.23 and people in a class onto this family (`inClass` of them). */
   joining: number;
+  /** v0.23 of `joining`: in a booked or running class onto this family (they fly it when the course ends). */
+  inClass: number;
   /** Of `have`: sick, on leave or in training now. */
   away: number;
   /** Of `have`: cabin crew (or pilots) who also hold another fleet type, counted here once. */
@@ -416,13 +418,26 @@ export function crewSupply(g: GameState, fams: Map<RatingFamily, { need: Partial
       if (lost.length) losing.set(id, [...(losing.get(id) ?? []), ...lost]);
     }
   }
-  type Cell = { have: number; joining: number; away: number; shared: number };
+  // v0.23 the reverse, for the gain: a person in a booked or running class onto a family counts as its supply, as a
+  // joiner does (in `have` and `joining`, and `inClass`), so the sets, Round up and the crew desk do not hire for a
+  // seat that is already in training. Home first as for any second type: only those their own family can spare
+  // count on the new one. `homes` stays the family they work in today (a type they hold).
+  const gaining = new Map<string, RatingFamily[]>();
+  for (const k of conversionClasses(g)) {
+    if (!fams.has(k.family)) continue;
+    for (const id of k.crewIds) {
+      const c = g.crew[id];
+      if (!c || c.ratings.includes(k.family) || gaining.get(id)?.includes(k.family)) continue;
+      gaining.set(id, [...(gaining.get(id) ?? []), k.family]);
+    }
+  }
+  type Cell = { have: number; joining: number; away: number; shared: number; inClass: number };
   const out = new Map<string, Cell>();
   const homes: CrewHomes = new Map();
   const cell = (f: RatingFamily, r: Role) => {
     const k = `${f}:${r}`;
     let x = out.get(k);
-    if (!x) out.set(k, (x = { have: 0, joining: 0, away: 0, shared: 0 }));
+    if (!x) out.set(k, (x = { have: 0, joining: 0, away: 0, shared: 0, inClass: 0 }));
     return x;
   };
   const backups = new Map<RatingFamily, Map<string, Backup>>();
@@ -435,9 +450,18 @@ export function crewSupply(g: GameState, fams: Map<RatingFamily, { need: Partial
     else b.cabin++;
     m.set(key, b);
   };
-  const add = (f: RatingFamily, c: GameState['crew'][string], fs: RatingFamily[]) => {
+  const add = (f: RatingFamily, c: GameState['crew'][string], all: RatingFamily[]) => {
     const x = cell(f, c.role);
     x.have++;
+    // The types held today (the ones still to come from a class are no backup yet).
+    const fs = all.filter((o) => c.ratings.includes(o));
+    if (!c.ratings.includes(f)) {
+      // Counted on the type they are in class for: joining it. They work on a type they hold until then.
+      x.joining++;
+      x.inClass++;
+      if (fs.length) homes.set(c.id, fs[0]);
+      return;
+    }
     homes.set(c.id, f);
     if (c.status === 'joining') x.joining++;
     else if (c.status === 'sick' || c.status === 'leave' || c.status === 'training') x.away++;
@@ -457,7 +481,7 @@ export function crewSupply(g: GameState, fams: Map<RatingFamily, { need: Partial
   const multi: { c: GameState['crew'][string]; fs: RatingFamily[] }[] = [];
   for (const c of Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1))) {
     if (c.notice) continue;
-    const fs = c.ratings.filter((f) => fams.has(f) && !losing.get(c.id)?.includes(f));
+    const fs = [...c.ratings.filter((f) => fams.has(f) && !losing.get(c.id)?.includes(f)), ...(gaining.get(c.id) ?? [])];
     if (!fs.length) continue;
     if (fs.length === 1) add(fs[0], c, fs);
     else multi.push({ c, fs });
@@ -470,11 +494,19 @@ export function crewSupply(g: GameState, fams: Map<RatingFamily, { need: Partial
     if (gap(m.fs[0], m.c.role) > 0) add(m.fs[0], m.c, m.fs);
     else spill.push(m);
   }
+  // v0.23 a spare senior also counts for the junior seats nobody fills yet (a purser in a cabin crew seat), at home
+  // first: three pursers beyond the 737's need sat there as spare while the 757/767 they were also booked onto read
+  // 'short 3 cabin crew'.
+  const junior = (r: Role): Role | undefined => SET_ROLES.find((j) => SENIOR[j] === r);
+  const want = (f: RatingFamily, r: Role) => {
+    const j = junior(r);
+    return Math.max(0, gap(f, r)) + (j ? Math.max(0, gap(f, j)) : 0);
+  };
   for (const { c, fs } of spill) {
     let best = fs[0];
-    let most = 0;
+    let most = want(fs[0], c.role);
     for (const f of fs.slice(1)) {
-      const d = gap(f, c.role);
+      const d = want(f, c.role);
       if (d > most) {
         most = d;
         best = f;
@@ -555,7 +587,7 @@ export function crewPlan(g: GameState): FamilyPlan[] {
     const { moved } = leftover(perSet, have, f.sets);
     const roles: SetRole[] = [];
     for (const r of SET_ROLES) {
-      const x = sup.get(`${family}:${r}`) ?? { have: 0, joining: 0, away: 0, shared: 0 };
+      const x = sup.get(`${family}:${r}`) ?? { have: 0, joining: 0, away: 0, shared: 0, inClass: 0 };
       const need = Math.ceil((f.need[r] ?? 0) - 1e-9);
       if (!need && !x.have) continue;
       const short = miss.find((m) => m.role === r)!.count;
@@ -563,7 +595,7 @@ export function crewPlan(g: GameState): FamilyPlan[] {
       // complete card with 2 spare pursers).
       const inSeats = moved[r] ?? 0;
       const lent = r === 'PUR' ? moved.CC ?? 0 : 0;
-      roles.push({ role: r, perSet: perSet[r] ?? 0, need, have: x.have, joining: x.joining, away: x.away, shared: x.shared, balance: short ? -short : x.have + inSeats - need, covered: inSeats || lent, perSetAll: perAll[r] ?? perSet[r] ?? 0 });
+      roles.push({ role: r, perSet: perSet[r] ?? 0, need, have: x.have, joining: x.joining, inClass: x.inClass, away: x.away, shared: x.shared, balance: short ? -short : x.have + inSeats - need, covered: inSeats || lent, perSetAll: perAll[r] ?? perSet[r] ?? 0 });
     }
     // The role that runs out first (the fewest whole sets with the seniors filling its seats). v0.11.2 fix: was each
     // role on its own, so 'limited by cabin crew' showed when spare pursers covered them and another role ran out.

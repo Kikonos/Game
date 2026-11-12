@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { FamilyPlan, SetRole } from '../../engine/crew';
 import { fleetShort, planSentence, ratingLine, roleCount, setsWhyLines } from './crewPlanLogic';
 
-const role = (r: SetRole['role'], balance: number): SetRole => ({ role: r, perSet: 1, need: 5, have: 5 + balance, joining: 0, away: 0, shared: 0, balance, covered: 0, perSetAll: 1 });
+const role = (r: SetRole['role'], balance: number): SetRole => ({ role: r, perSet: 1, need: 5, have: 5 + balance, joining: 0, inClass: 0, away: 0, shared: 0, balance, covered: 0, perSetAll: 1 });
 const plan = (o: Partial<FamilyPlan>): FamilyPlan => ({
   family: 'A320', label: 'A320 family', aircraft: 1, types: [{ typeId: 'a320ceo', short: 'A320', aircraft: 1, set: {} }], setsPerAircraft: 5, setsNeeded: 5, setsNow: 5, setsComplete: 5,
   limiting: null, augmented: false, clientCabin: 0, dryLeased: 0, roles: [], verdict: '', alsoRated: [], backupFrom: [], ...o,

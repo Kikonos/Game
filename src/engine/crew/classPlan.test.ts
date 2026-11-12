@@ -11,7 +11,10 @@ import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
 import { bookClassPlan, CLASS_PLAN, classCandidates, classPlanNeed, classProposal, classProposals, fleetChanges, removeRating, removeRatingPlan } from './classPlan';
 import { rosterHorizon } from './dayPlan';
-import { staffing } from './hr';
+import { staffing, staffingAssign } from './hr';
+import { cancelConversion } from './conversion';
+import { crewPlan, roundTargets, roundUpQuote, roundUpRoles } from './sets';
+import { hireHead, monthlyHeads, rollCandidates, setHeadRules, unlockHead } from '../ops/heads';
 import { flightCrewStatus, rosterOf } from './roster';
 
 const F = 'B757/767' as const;
@@ -90,6 +93,83 @@ describe('class planner: cabin crew onto the 757/767 (the player\'s save)', () =
     expect(cash - h.company.cash).toBe(p.fees + p.extra);
     // The 757/767 is no longer short once they are booked.
     expect(classPlanNeed(h, F, 'cabin').text).toBe('None short');
+  });
+});
+
+describe('booked classes count as crew on the way (no double hiring)', () => {
+  const cabin = (g: GameState) => crewPlan(g).find((x) => x.family === F)!;
+  const g = load();
+  const p = classProposal(g, { family: F, group: 'cabin', by: null, balance: 2 });
+
+  it('before booking the 757/767 asks for hires: 3 pursers and 20 cabin crew to complete its sets', () => {
+    const plan = cabin(g);
+    expect(roundTargets(plan).complete).toBe(5);
+    expect(roundUpRoles(plan, 5).filter((m) => m.count > 0)).toEqual([{ role: 'PUR', count: 3 }, { role: 'CC', count: 20 }]);
+  });
+
+  it('with the 3 classes booked, the people in them count as joiners: nothing left to hire or round up for the cabin', () => {
+    const h = load();
+    const homes = staffingAssign(h).homeOf;
+    const onBooks = (x: GameState) => crewPlan(x).reduce((n, f) => n + f.roles.reduce((m, r) => m + r.have, 0), 0);
+    const total = onBooks(h);
+    expect(bookClassPlan(h, p).ok).toBe(true);
+    const plan = cabin(h);
+    expect(plan.setsComplete).toBe(plan.setsNeeded);
+    // Nobody flies it yet: the sets are complete with the joiners, not today.
+    expect(plan.setsNow).toBe(0);
+    expect(roundTargets(plan).complete).toBeNull();
+    expect(roundUpRoles(plan, plan.setsNeeded).filter((m) => m.count > 0)).toEqual([]);
+    const pur = plan.roles.find((r) => r.role === 'PUR')!;
+    const cc = plan.roles.find((r) => r.role === 'CC')!;
+    // The 737 keeps the 4 pursers and 12 cabin crew its own sets need; the other 6 and 17 count on the 757/767, where
+    // the 3 pursers beyond its 5 fill the last 3 cabin crew seats.
+    expect(pur).toMatchObject({ have: 8, inClass: 6, joining: 8, need: 5, balance: 3 });
+    expect(cc).toMatchObject({ have: 17, inClass: 17, joining: 17, need: 20, balance: 0 });
+    const b737 = crewPlan(h).find((x) => x.family === 'B737')!;
+    expect(b737.setsComplete).toBeGreaterThanOrEqual(b737.setsNeeded);
+    expect(b737.roles.find((r) => r.role === 'CC')).toMatchObject({ have: 12, inClass: 0 });
+    expect(b737.roles.find((r) => r.role === 'PUR')).toMatchObject({ have: 4, inClass: 0 });
+    // Everyone still counted once, and still at home on the type they fly today.
+    expect(onBooks(h)).toBe(total);
+    for (const id of p.classes.flatMap((k) => k.crewIds)) expect(staffingAssign(h).homeOf.get(id)).toEqual(homes.get(id));
+    expect(staffing(h).filter((l) => l.family === F && (l.role === 'PUR' || l.role === 'CC')).every((l) => l.have + (l.covered ?? 0) >= l.need)).toBe(true);
+    // The round-up quote the Hire button and the crew desk read: no cabin line.
+    expect(roundUpQuote(h, plan, plan.setsNeeded).lines.filter((l) => l.req.role === 'PUR' || l.req.role === 'CC')).toEqual([]);
+  });
+
+  it('a cancelled class gives the need back', () => {
+    const h = load();
+    const r = bookClassPlan(h, p);
+    if (!r.ok) throw new Error(r.error);
+    for (const id of r.data!.classIds) expect(cancelConversion(h, id).ok).toBe(true);
+    expect(roundUpRoles(cabin(h), 5).filter((m) => m.count > 0)).toEqual([{ role: 'PUR', count: 3 }, { role: 'CC', count: 20 }]);
+  });
+
+  it('the crew desk proposes the cabin hires without the classes, and none with them (nor hires by itself)', () => {
+    const desk = (x: GameState, auto: boolean) => {
+      unlockHead(x, 'crewDesk');
+      const head = x.heads!.crewDesk;
+      if (!head.hired) {
+        if (!head.candidates?.length) head.candidates = rollCandidates(x, 'crewDesk', 0);
+        const r = hireHead(x, 'crewDesk', 0);
+        if (!r.ok) throw new Error(r.error);
+      }
+      setHeadRules(x, 'crewDesk', { autoHire: auto });
+      const crew = Object.keys(x.crew).length;
+      monthlyHeads(x);
+      return { hire: x.heads!.crewDesk.proposals.filter((q) => q.kind === 'hire' && q.data.family === F), hired: Object.keys(x.crew).length - crew };
+    };
+    const without = desk(load(), false);
+    expect(without.hire).toHaveLength(1);
+    expect(without.hire[0].text).toMatch(/Hire 3 PUR, 20 CC to complete 5 757\/767 sets/);
+    expect(desk(load(), true).hired).toBe(4);
+    for (const auto of [false, true]) {
+      const h = load();
+      expect(bookClassPlan(h, p).ok).toBe(true);
+      const withPlan = desk(h, auto);
+      expect(withPlan.hire).toEqual([]);
+      expect(withPlan.hired).toBe(0);
+    }
   });
 });
 
