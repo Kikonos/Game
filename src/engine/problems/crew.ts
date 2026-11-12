@@ -357,7 +357,7 @@ export function oohWhy(g: GameState, x: OohInfo, d?: Duty): string {
       const late = d ? Math.max(0, (g.flights[d.flightIds[0]]?.delay ?? 0)) : 0;
       return x.value ? `${who}'s day would run ${hmm(x.value)}${late ? ` after the ${hmm(late)} delay` : ''}; the limit is ${hmm(x.max)}.` : x.overMin ? `${who}'s day would run ${hmm(x.overMin)} over its limit.` : `${who}'s day would run over its limit.`;
     }
-    case 'rest': return x.overMin ? `${who}'s rest would be ${hmm(x.overMin)} short of the minimum before report.` : `${who} has not had the minimum rest before report.`;
+    case 'rest': return x.overMin ? `${who}'s rest would be ${hmm(x.overMin)} short of the minimum.` : `${who} has not had the minimum rest.`;
     case 'recovery': return `${who} would go over 7 days without a 36 h rest.`;
     case 'daysOff': return `${who}'s ${MONTHS[new Date(Date.UTC(2000, 0, 1) + g.now * 60_000).getUTCMonth()]} days off would fall below 7.`;
     case 'inflightRest': return `${who}'s rest plan no longer works after the delay: the cabin crew cannot all rest in this cruise.`;
