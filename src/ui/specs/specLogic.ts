@@ -280,6 +280,38 @@ function lessorOf(g: GameState, id: string | null, name: string): SpecData['less
 
 export interface KeyFig { k: string; label: string; value: string; sub?: string }
 
+/** Engine makers named before a model ('Rolls-Royce RB211-535'); 'GE90', 'GEnx' and 'CFM56' are model names and stay. */
+const MAKERS = ['Rolls-Royce', 'Pratt & Whitney', 'Engine Alliance', 'IAE', 'GE', 'CFM'];
+
+/**
+ * v0.23 the Engines tile: the models as the value ('2 × RB211-535 or PW2000'), their makers and the thrust under it
+ * ('Rolls-Royce / Pratt & Whitney · 178–185 kN each'), so a long engine line no longer makes one tile tower over the
+ * rest (it wrapped to five lines). Nothing is left out. Pure.
+ */
+export function engineFig(n: number, engines: string, thrust?: string): KeyFig {
+  const makers: string[] = [];
+  let models = engines.replace(/ \(four\)$/, '');
+  for (const m of MAKERS) {
+    const re = new RegExp(`(^|, | or )${m.replace(/[&]/g, '\\$&')} (?=\\S)`, 'g');
+    if (re.test(models)) {
+      makers.push(m);
+      models = models.replace(re, '$1');
+    }
+  }
+  // In the order they are named.
+  makers.sort((a, b) => engines.indexOf(a) - engines.indexOf(b));
+  const sub = [makers.join(' / '), thrust].filter(Boolean).join(' · ');
+  return { k: 'engines', label: 'Engines', value: `${n} × ${models}`, sub: sub || undefined };
+}
+
+/** v0.23 a rest facility as a tile: 'Economy seats' with 'class 3' under it (it was one long line, 'economy seats (class 3)'). Pure. */
+export function restFig(k: 'fc' | 'cc', label: string, r: Parameters<typeof restShort>[0]): KeyFig {
+  const words = restShort(r);
+  const m = /^(.*) \((class \d)\)$/.exec(words);
+  const v = m ? m[1] : words;
+  return { k, label, value: v.charAt(0).toUpperCase() + v.slice(1), sub: m ? m[2] : r ? `class ${r.cls}` : undefined };
+}
+
 /** The icon row: the type's figures and this airframe's own. Pure. */
 export function keyFigures(g: GameState, d: SpecData): KeyFig[] {
   const t = d.t;
@@ -293,7 +325,7 @@ export function keyFigures(g: GameState, d: SpecData): KeyFig[] {
     { k: 'cruise', label: 'Cruise', value: `${Math.round(t.cruiseKt * 1.852)} km/h`, sub: `${t.cruiseKt} kt` },
     ...(c ? [{ k: 'mtow', label: 'Max take-off weight', value: `${Math.round(c.mtow * 1000).toLocaleString('en-US')} kg`, sub: sp ? `landing ${sp.mlwKg.toLocaleString('en-US')} kg` : undefined }] : []),
     ...(sp ? [{ k: 'cargo', label: 'Cargo hold', value: `${sp.cargoM3} m³`, sub: `${Math.round(sp.cargoM3 * 35.315).toLocaleString('en-US')} cu ft` }] : []),
-    { k: 'engines', label: 'Engines', value: `${t.engines} × ${enginesOf(t.id, d.variant).replace(/ \(four\)$/, '')}`, sub: sp ? `${sp.thrustKN[0] === sp.thrustKN[1] ? sp.thrustKN[0] : `${sp.thrustKN[0]}–${sp.thrustKN[1]}`} kN each` : undefined },
+    engineFig(t.engines, enginesOf(t.id, d.variant), sp ? `${sp.thrustKN[0] === sp.thrustKN[1] ? sp.thrustKN[0] : `${sp.thrustKN[0]}–${sp.thrustKN[1]}`} kN each` : undefined),
     ...(sp ? [{ k: 'fuel', label: 'Fuel', value: `${sp.fuelL.toLocaleString('en-US')} L`, sub: `${t.fuelTBH} t a block hour` }] : []),
     { k: 'etops', label: 'ETOPS', value: d.etops.replace(/ \(this airframe\)$/, ''), sub: d.etops.includes('airframe') ? 'this airframe' : undefined },
     { k: 'runway', label: 'Runway', value: `${t.minRunwayM.toLocaleString('en-US')} m`, sub: 'at full payload, sea level' },
@@ -312,10 +344,9 @@ export function cabinFigures(d: SpecData, cab: Cabin | CabinPreset): KeyFig[] {
   if (cab.w) out.push({ k: 'w', label: 'Premium economy', value: String(cab.w) });
   if (cab.y) out.push({ k: 'y', label: 'Economy', value: String(cab.y) });
   if (d.rest) {
-    // v0.22 the class is named once: under the words only when the words do not already say it.
-    const cls = (r: typeof d.rest.fc) => (r && !/class \d/.test(restShort(r)) ? `class ${r.cls}` : undefined);
-    out.push({ k: 'fc', label: 'Pilots rest', value: restShort(d.rest.fc), sub: cls(d.rest.fc) });
-    out.push({ k: 'cc', label: 'Cabin crew rest', value: restShort(d.rest.cc), sub: cls(d.rest.cc) });
+    // v0.22 the class is named once; v0.23 under the words ('Economy seats' / 'class 3'), so the tile stays short.
+    out.push(restFig('fc', 'Pilots rest', d.rest.fc));
+    out.push(restFig('cc', 'Cabin crew rest', d.rest.cc));
   } else if (t.body === 'wide') {
     out.push({ k: 'fc', label: 'Crew bunks', value: t.rest.bunkShare >= 0.95 ? 'On every airframe' : t.rest.bunkShare > 0 ? `On ${Math.round(t.rest.bunkShare * 100)} % of airframes` : 'None', sub: 'class 1 rest' });
   }
