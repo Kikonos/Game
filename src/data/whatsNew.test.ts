@@ -70,6 +70,12 @@ describe("v0.9 What's new catch-up (UPDATE-0.9.md §X)", () => {
     const txt = [...WHATS_NEW[0].features, ...WHATS_NEW[0].improvements, ...(WHATS_NEW[0].fixes ?? [])].join('\n');
     for (const w of ['its own screen', 'between Contracts and Schedule', 'Sales › Cabin', 'economy only', 'a flight, a week or a month', 'part of their fare back', 'Pause for network news']) expect(txt).toContain(w);
   });
+  it('v0.23.1 the final debug round, in short plain lines', () => {
+    const lines = [...WHATS_NEW[0].features, ...WHATS_NEW[0].improvements, ...(WHATS_NEW[0].fixes ?? [])];
+    const txt = lines.join('\n');
+    for (const w of ['refunds paid at once', 'your cash after', 'counted in the month it flies', 'less a fee', 'into their rest', 'the others on that duty', 'each person\'s morale cost', 'uses every seat', 'keep their cabin', 'Lisbon–Bissau', 'once your game is open', 'until you export them', '1,445']) expect(txt).toContain(w);
+    for (const l of lines) expect(l.length).toBeLessThanOrEqual(240);
+  });
   it('v0.23 crew planned person by person below it, in short plain lines', () => {
     expect(`${WHATS_NEW[1].version} ${WHATS_NEW[1].name}`).toBe('v0.23 Crew person by person, and a class planner');
     const lines = [...WHATS_NEW[1].features, ...WHATS_NEW[1].improvements, ...(WHATS_NEW[1].fixes ?? [])];
