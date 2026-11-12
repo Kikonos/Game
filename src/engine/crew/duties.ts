@@ -638,6 +638,7 @@ export function refreshPairing(g: GameState, p: Pairing): string[] {
         // v0.12.1 (review) a day-off buy-back still to be paid goes with the crew member to the new seat.
         if (old[i].buyBack) slot.buyBack = old[i].buyBack;
         if (old[i].backTo) slot.backTo = old[i].backTo;
+        if (old[i].guest) slot.guest = true;
         next[j] = slot;
       });
     }
@@ -673,6 +674,7 @@ export function dropGoneCrew(g: GameState, p: Pairing): boolean {
     delete s.from;
     delete s.buyBack;
     delete s.backTo;
+    delete s.guest;
   }
   if (p.slots.some((s) => s.extra && !s.crewId)) p.slots = p.slots.filter((s) => !(s.extra && !s.crewId));
   unboardGone(g, gone);
@@ -1418,9 +1420,15 @@ function chainer(g: GameState, dep: Deployment, crewOk: (p: Pairing, d: Duty) =>
   const mf = BAL.v09.roster.off.morningFree;
   const daysOf = (d: Duty): number[] => (sizing ? [...new Set([dayOf(d.report - mf), dayOf(d.report)])] : [dayOf(d.report)]);
   const tours = new Map<string, TourState>();
+  // v0.23 the part of a tour that takes its new duties: its latest part (by start; was: the last listed, which a split
+  // in the middle is), and one seated by the set's own members before one a guest covers (a guest's seat never grows:
+  // chainDeployment gives the new duties a part of their own when every part has a guest).
+  const guests = (p: Pairing) => p.slots.some((x) => x.guest && x.crewId);
   for (const pid of dep.pairingIds) {
     const p = g.pairings[pid];
     if (!p?.tour) continue;
+    const was = tours.get(`${p.tour.set}:${p.tour.from}`)?.pairing;
+    if (was && (guests(p) !== guests(was) ? guests(p) : p.start < was.start)) continue;
     const duties = p.dutyIds.map((id) => g.duties[id]).filter((d): d is Duty => !!d);
     tours.set(`${p.tour.set}:${p.tour.from}`, {
       set: p.tour.set, from: p.tour.from, to: p.tour.to, pairing: p, duties,
@@ -1725,16 +1733,45 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
   }
   for (const st of ch.tours.values()) {
     if (st.pairing) {
-      const p = st.pairing;
+      let p = st.pairing;
       const fresh = st.duties.filter((d) => !p.dutyIds.includes(d.id));
       if (!fresh.length) continue;
       const [from, to] = [p.start, p.end];
+      // v0.23 a part a guest covers (crew planned person by person) never grows: the guest holds its duties only. The
+      // new duties are a part of their own with the set's members in their seats and the guest's seat open (the roster
+      // fills it: the member back from their days off, or whoever is free then).
+      if (p.slots.some((x) => x.guest && x.crewId)) {
+        const old = p;
+        const np: Pairing = {
+          id: nextId(g, 'p'), aircraftId: old.aircraftId, contractId: old.contractId, deploymentId: old.deploymentId, base: old.base,
+          start: fresh[0].report, end: fresh[fresh.length - 1].release, dutyIds: [],
+          slots: old.slots.filter((x) => !x.extra).map((x) => ({ role: x.role, crewId: x.guest ? null : x.crewId, ...(x.above ? { above: true as const } : {}), ...(x.reserve ? { reserve: true as const } : {}), ...(x.locked && !x.guest ? { locked: true as const } : {}) })),
+          status: 'planned', legality: 'legal', tour: { ...old.tour! },
+        };
+        g.pairings[np.id] = np;
+        dep.pairingIds.push(np.id);
+        // The members' tickets home (after the old part's last duty) go with them to the new last duty.
+        const lastOld = old.dutyIds.map((id) => g.duties[id]).filter((d): d is Duty => !!d && !d.done).sort((a, b) => a.report - b.report).pop();
+        const lastNew = [...fresh].sort((a, b) => a.report - b.report).pop()!;
+        if (lastOld && lastNew.report > lastOld.report) {
+          const members = new Set(np.slots.filter((x) => x.crewId).map((x) => x.crewId!));
+          for (const fid of [...lastOld.deadheadIds]) {
+            const f = g.flights[fid];
+            if (!f || f.status !== 'scheduled' || f.std < lastOld.release || f.std <= g.now) continue;
+            const on = f.kind === 'deadhead' ? f.crewIds : f.riders ?? [];
+            if (!on.length || !on.every((id) => members.has(id))) continue;
+            lastOld.deadheadIds = lastOld.deadheadIds.filter((x) => x !== fid);
+            lastNew.deadheadIds.push(fid);
+          }
+        }
+        p = np;
+      }
       for (const d of fresh) d.pairingId = p.id;
       p.dutyIds.push(...fresh.map((d) => d.id));
       // v0.14 a finished tour that grows again is live again: the roster, the re-checks, sickness and leaving all
       // skip a 'done' pairing (seeds 3 and 4: it flew three weeks on with a crew member who had left in its seat).
       if (p.status === 'done' || p.status === 'broken') p.status = p.dutyIds.some((id) => g.duties[id]?.done) ? 'active' : 'planned';
-      refreshPairing(g, p);
+      for (const id of refreshPairing(g, p)) if (p !== st.pairing) releaseHook(g, p, id);
       if (crewCount(p) > 0) {
         for (const d of fresh) queueDuty(g, d);
         // v0.12.1 the tour's crew take its new days: a standby planned on one gives way (seed 6: a whole crew at Riyadh
@@ -1744,7 +1781,7 @@ function chainDeployment(g: GameState, c: Contract, acId: string, duties: Duty[]
           if (c?.standby?.length) for (const d of fresh) dropStandby(g, c, d.report - 60, d.release);
         }
         // Duties past the old ends: the crew stay on (tickets out/home move with the tour).
-        if (fresh.some((d) => d.report < from || d.release > to)) retickHook(g, p);
+        if (p !== st.pairing || fresh.some((d) => d.report < from || d.release > to)) retickHook(g, p);
       }
       continue;
     }

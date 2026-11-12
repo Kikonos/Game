@@ -1234,6 +1234,12 @@ export interface CrewSlot {
   };
   /** v0.22.1 a side trip flown from a tour station between the set's own duties: the station they go back to after it (crew/tours.ts homeOf). Cleared with the seat. */
   backTo?: string;
+  /**
+   * v0.23 crew planned person by person: this seat on a tour part is held by a guest, who flies this part's duties only
+   * and then goes back to where they need to be (their own station `backTo`, else home). Not a member of the set: no
+   * tour hold, no ticket home at the rotation's end (crew/tours.ts guestOn). Cleared with the seat.
+   */
+  guest?: true;
 }
 
 /** v0.9 the legal limit a crew member reached (UPDATE-0.9.md §T.1). */

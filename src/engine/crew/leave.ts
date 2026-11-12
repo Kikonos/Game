@@ -19,6 +19,7 @@ import {
 } from './dayPlan';
 import { moraleShock } from './morale';
 import { crewIx, segsOf, touchCrewState } from './timeline';
+import { guestOn } from './avail';
 
 const L = () => BAL.v09.roster.leave;
 const ROLE_WORD: Record<string, [string, string]> = {
@@ -165,9 +166,11 @@ export function leaveVerdict(g: GameState, c: CrewMember, from: Minute, days: nu
   // tour is planned after the leave; the one under way is never cut.
   for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
     if (q.status === 'broken' || q.status === 'done' || movableTour(g, q)) continue;
-    const end = q.tour ? Math.max(q.end, q.tour.to) : q.end;
-    const start = q.tour ? Math.min(q.start, q.tour.from) : q.start;
-    if (start < midnight(c.base, k + days) && end > midnight(c.base, k)) return { ok: false, hard: true, why: q.tour ? 'On a rotation then' : 'Rostered to fly then' };
+    // (v0.23 a guest on a part of another set's tour is rostered for its duties only, not for the rotation.)
+    const rot = q.tour && !guestOn(q, c.id) ? q.tour : undefined;
+    const end = rot ? Math.max(q.end, rot.to) : q.end;
+    const start = rot ? Math.min(q.start, rot.from) : q.start;
+    if (start < midnight(c.base, k + days) && end > midnight(c.base, k)) return { ok: false, hard: true, why: rot ? 'On a rotation then' : 'Rostered to fly then' };
   }
   for (let d = k; d < k + days; d++) if (blockedOn(c, d)) return { ok: false, hard: true, why: 'Already away then (leave, a course or sick)' };
   const peak = [...new Set(Array.from({ length: days }, (_, i) => monthOfDay(k + i) % 12))].filter((m) => pol.blackout.includes(m));
@@ -273,8 +276,9 @@ export function askLeave(g: GameState): LeaveRequest[] {
     const tours: [number, number][] = [];
     for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
       if (q.status === 'broken' || q.status === 'done') continue;
-      const a = q.tour ? Math.min(q.start, q.tour.from) : q.start;
-      const z = q.tour ? Math.max(q.end, q.tour.to) : q.end;
+      const rot = q.tour && !guestOn(q, c.id) ? q.tour : undefined;
+      const a = rot ? Math.min(q.start, rot.from) : q.start;
+      const z = rot ? Math.max(q.end, rot.to) : q.end;
       if (z > g.now) tours.push([dayIndex(c.base, a) - 1, dayIndex(c.base, z - 1) + 2]);
     }
     const keys = groupsOf(c);
@@ -381,8 +385,9 @@ function approve(g: GameState, q: LeaveRequest, by: 'rules' | 'you'): void {
   const a = midnight(c.base, k);
   const z = midnight(c.base, k + q.days);
   for (const p of [...(crewIx(g).pairingsOf.get(c.id) ?? [])]) {
-    const end = p.tour ? Math.max(p.end, p.tour.to) : p.end;
-    const start = p.tour ? Math.min(p.start, p.tour.from) : p.start;
+    const rot = p.tour && !guestOn(p, c.id) ? p.tour : undefined;
+    const end = rot ? Math.max(p.end, rot.to) : p.end;
+    const start = rot ? Math.min(p.start, rot.from) : p.start;
     if (start < z && end > a && movableTour(g, p)) offTourHook(g, c.id, p.id, `Annual leave from ${fmtDay(a + 720)}`);
   }
   touchCrewState(g);
