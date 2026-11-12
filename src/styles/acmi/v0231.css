@@ -1,0 +1,9 @@
+/* v0.23.1 every '?' box opens on the page itself (Term.tsx PopBox): whole on the screen, a long one scrolls inside.
+   The screen tips, the colour legends and the map's Up next legend keep their own width and look. */
+body > .term-pop { max-height: calc(100dvh / var(--ui-zoom, 1) - 16px - var(--vp-safe-t, 0px) - var(--vp-safe-b, 0px)); overflow-y: auto; overscroll-behavior: contain; }
+body > .term-pop.v12-hint-pop { width: 340px; gap: 10px; padding: 14px; }
+body > .term-pop.lg-pop { width: 300px; gap: 10px; padding: 14px; position: fixed; top: auto; right: auto; }
+body > .term-pop.ops-help-pop {
+  position: fixed; top: auto; right: auto; width: 344px; padding: 8px 12px 12px; gap: 6px;
+  --op-bg: rgba(var(--surface-rgb), 0.97); --op-air: var(--c-fg-7dd3fc);
+}

@@ -23,18 +23,23 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'The class\'s people list says which type each gives up ("drops A320"). Tap it to pick another. Their trips on that type after the class go to other crew, tried on a copy of the roster first.',
       'Select people on the Crew screen and tap Plan classes: the planner opens with exactly them.',
       'A long phase-out goes in instalments. Classes more than 120 days ahead show as Next, with the day you can book them. The Inbox tells you when that day comes.',
+      'Fixed bug reports clear themselves. When the game opens after an update, the reports it fixed are deleted. A short note says how many; Bug reports › Cleared says what each fix was.',
+      'Every crew alarm in Bug reports now keeps the game at that minute, not only the newest 12. Each keeps just what changed since the one before, so they take little room.',
     ],
     improvements: [
       'The planner works out its proposals faster and the screen stays live while it does. Going back to a choice you had is instant.',
       'Pilots booked to leave a type after one of its aircraft goes no longer make Crew › Planning or the crew desk ask you to hire replacements.',
       'An offer that is short of crew now says when new hires would join: in time for its first short day, or too late.',
       'The hiring hold only holds when crew have nothing on their roster. Crew on tours and trips who fly few hours no longer stop the round-up while flights go short.',
+      'Finance: "Where the money went" is now Expenses and "Where the money came from" is Income. Both list the biggest first.',
+      'Every "?" opens its box whole on the screen: under it, or above or beside it when there is no room.',
     ],
     fixes: [
       'A short delay on a day that began with a flight out could take the whole crew off a legal day. Their flight home now moves to after the longer rest instead.',
       'Crew waiting at a station for their flight out to their tour can fly a trip in between and go back there for it.',
       'A seat emptied halfway through a duty (a sick call) is no longer filled by someone at another airport.',
       'The crew alarm check in Bug reports now counts a flight home still to come from a finished trip, and its rest.',
+      'The Crew "?" tip opened off the left edge of the screen, and the Up next "?" was cut off by its panel.',
     ],
   },
   {
