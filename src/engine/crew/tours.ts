@@ -99,6 +99,11 @@ export function homeOf(g: GameState, c: CrewMember, p: Pairing): string {
     const span = tourSpan(g, q);
     if (dep && span && dep.base === st && span.to > g.now) return st;
   }
+  // (Or a trip of several days that goes on from there.)
+  for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
+    if (q.tour || q.id === p.id || q.status === 'broken' || q.status === 'done') continue;
+    if (q.dutyIds.some((id) => { const d = g.duties[id]; return !!d && !d.done && g.flights[d.flightIds[0]]?.from === st; })) return st;
+  }
   return c.base;
 }
 
