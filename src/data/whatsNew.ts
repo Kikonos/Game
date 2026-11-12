@@ -16,6 +16,35 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.23',
+    name: 'Crew person by person, and a class planner',
+    features: [
+      'Every crew member now has their own roster. Whoever is legal, rested and free on the day takes an open seat, even one flight in the middle of another crew set\'s stay, and then goes back to their own flights.',
+      'Crew sets still stay together where they can. A set is no longer a lock: a seat stays empty only when nobody at all can legally fly that day.',
+      'Plan classes: each type on Crew › Planning has a "Plan classes" button. Pick cabin crew or pilots and a finish date. The game proposes the classes: when each runs and who is in it.',
+      'One slider goes from fewer, bigger classes to least roster disruption. You see people trained, duties that go to others, the finish date and the cost. Book it all in one tap.',
+      'The planner works around leave and the published roster. It tries the plan on a copy of the roster first, so every flight stays crewed.',
+      'Tap a class to see its people. Move someone to another class or take them out.',
+      'Phasing out a type: pilots leave the old type only when its aircraft can spare them. The planner paces the classes by aircraft leaving and arriving.',
+      'Cabin crew can give up a type rating, which frees one of their three places. One person: Train › Remove a type. Many: Select on the Crew screen, then Remove rating. You see who loses which type, and a warning if it leaves the type short.',
+    ],
+    improvements: [
+      'Far fewer "no crew" alarms, and the ones left are real: about a quarter as many in our test games, and a sixth of the red ones.',
+      'Someone helping another set shows "Covering" on that flight. On their own roster it is simply their duty.',
+      'Crew waiting at a station for their next job go back there after helping elsewhere, not home to base first.',
+      'The crew alarm check behind Bug reports now also reads days off, the weekly rest and rest after time-zone trips.',
+      'Aircraft spec sheet: every tile has its figures in the middle of its square. Engine makers and the crew rest class sit under the main line, so no tile towers over the rest.',
+      'Booked classes count as crew for their new type, so Crew › Planning and the crew desk no longer ask you to hire the people already in training.',
+    ],
+    fixes: [
+      'XY3120 at Riyadh had no cabin crew while four rested cabin crew sat in Riyadh, and the card said one of them was "in Lisbon". They fly it now and stay in Riyadh.',
+      'XY3102 was short of a purser because the seat also covered a flight three days later. Each flight now gets whoever is free for it.',
+      'Flights that error left short are crewed when you load your game.',
+      'A flight moved to an earlier time could leave without its crew ever reporting, and one of them was then ticketed from the wrong city.',
+      'The busy-months forecast counted the days of a class twice, so a big class made a month look shorter of crew than it was.',
+    ],
+  },
+  {
     version: 'v0.22.1',
     name: 'Crew alarms you can check',
     features: [

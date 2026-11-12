@@ -13,6 +13,12 @@
 // Verdicts: RIGHT (no legal crew existed), WRONG (a legal crew plan the planner missed: who, how they get there, how
 // they get back), UNSURE (a plan exists only by rules this check does not read: a planned day off, the weekly recovery
 // rest, a captain in the first officer's seat …; or the alarm is about something it cannot judge).
+// v0.23 it also reads, on its own terms, the rules it used to leave UNSURE: planned days off (one not published yet
+// moves when its month has a free day; a published one is the crew member's, taken only by the game's own short-notice
+// swap or an automatic buy-back, else that person is not available), the weekly recovery rest (36 h with two local
+// nights inside any 168 h; 60 h read as certain) and the rest after a late finish or a trip across time zones.
+// What a person holds (their duties still to fly) is read through crew/avail.ts, the one reading the planner shares;
+// the limits stay this file's and selfCheck.ts's own (never rules.ts evalSegs).
 // Pure for `g` (it works on a structured copy). Used by scripts/crewcheck.ts and the bot (`--crewcheck`).
 
 import { BAL } from '../core/balance';
@@ -21,11 +27,13 @@ import { isolatePauses } from '../core/pause';
 import { DAY, fmtDateTime } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Role } from '../core/types';
 import { fullDeparture, nextDeparture, prevDeparture, ticketBlock } from '../ops/commercial';
-import { acceptable, planCrew } from './check';
-import { dayIndex } from './dayPlan';
+import { heldDuties } from './avail';
+import { planCrew } from './check';
+import { dayIndex, firstDayOf, midnight, monthOfDay, publishedTo } from './dayPlan';
 import { rootReason } from './reasons';
 import { offsetAt } from './rules';
-import { inflightFits, judgePerson, restNeed, table2, type AlarmKind } from './selfCheck';
+import { wouldSeat } from './roster';
+import { inflightFits, judgePerson, restNeed, table2, workOf, type AlarmKind, type Span } from './selfCheck';
 import { segsOf, standsBy } from './timeline';
 
 export type CrossVerdict = 'RIGHT' | 'WRONG' | 'UNSURE';
@@ -73,15 +81,12 @@ interface Work { start: Minute; end: Minute; from: string; to: string; kind: 'du
 /** Planned work of c still to come (duties of the trips they hold, tickets and rides they are booked on), in time order. */
 function workAhead(g: GameState, c: CrewMember, but: string): Work[] {
   const out: Work[] = [];
-  for (const p of Object.values(g.pairings)) {
-    if (p.id === but || p.status === 'done' || p.status === 'broken' || !p.slots.some((s) => s.crewId === c.id)) continue;
-    for (const id of p.dutyIds) {
-      const d = g.duties[id];
-      if (!d || d.done || standsBy(g, p, d, c.id)) continue;
-      const fl = d.flightIds.map((x) => g.flights[x]).filter((f): f is Flight => !!f && f.status !== 'cancelled');
-      if (!fl.length) continue;
-      out.push({ start: d.report, end: d.release, from: fl[0].from, to: fl[fl.length - 1].to, kind: 'duty', what: `${fl[0].no} ${fmtDateTime(fl[0].std)}` });
-    }
+  // v0.23 what they hold: crew/avail.ts, the reading the planner's "busy" shares (standing by for a duty is not flying it).
+  for (const x of heldDuties(g, c, Object.values(g.pairings), but)) {
+    if (x.standsBy) continue;
+    const fl = x.duty.flightIds.map((id) => g.flights[id]).filter((f): f is Flight => !!f && f.status !== 'cancelled');
+    if (!fl.length) continue;
+    out.push({ start: x.start, end: x.end, from: fl[0].from, to: fl[fl.length - 1].to, kind: 'duty', what: `${fl[0].no} ${fmtDateTime(fl[0].std)}` });
   }
   for (const f of Object.values(g.flights)) {
     if (f.status !== 'scheduled' || f.leaveTrip) continue;
@@ -133,6 +138,124 @@ function over(r: ReturnType<typeof judgePerson>, place = true): string[] {
 
 interface Cand { seat: CrossSeat; clean: boolean }
 
+/** The planner's issue codes this check reads on its own (the others make a seat UNSURE when the planner names them). */
+const READ = new Set(['overlap', 'location', 'rest', 'fdp', 'status', 'rating', 'daysOff', 'recovery', 'tzRest', 'lateEarly']);
+
+// ---------- v0.23 the rules read on their own: days off, the weekly rest, late finishes and time zones ----------
+
+const OFF = () => BAL.v09.roster.off;
+
+/** Whole local nights at `base` inside [from, to]: 8 h between 22:00 and 08:00 (ORO.FTL.105). */
+function localNights(base: string, from: Minute, to: Minute): number {
+  if (to <= from) return 0;
+  const off = offsetAt(base, from);
+  const a = from + off;
+  const b = to + off;
+  let n = 0;
+  for (let day = Math.floor(a / DAY) - 1; day * DAY + 22 * H < b; day++) {
+    const lo = Math.max(a, day * DAY + 22 * H);
+    const hi = Math.min(b, day * DAY + 32 * H);
+    if (hi - lo >= 8 * H) n++;
+  }
+  return n;
+}
+
+const localMinute = (base: string, t: Minute): number => (((t + offsetAt(base, t)) % DAY) + DAY) % DAY;
+
+/**
+ * The weekly recovery rest (ORO.FTL.235(d)) for work ending at `end`: 'ok' when a rest of 60 h with two local nights
+ * (or the logged one) ends inside the 168 h before it, 'soft' when only a rest of 36–60 h does (60 h is owed after four
+ * disruptive duties, which this reading does not count), 'due' when none does. `spans`: selfCheck.ts workOf.
+ */
+function weeklyRest(c: CrewMember, spans: Span[], end: Minute, now: Minute): 'ok' | 'soft' | 'due' {
+  const work = spans.filter((x) => x.kind !== 'leave' && !(x.kind === 'standby' && x.start > now)).sort((a, b) => a.start - b.start || a.end - b.end);
+  let firm = c.lastRecovery;
+  let soft = c.lastRecovery;
+  let free = -Infinity;
+  for (const x of work) {
+    if (x.start >= end) break;
+    if (free > -Infinity && x.start - free >= 36 * H && localNights(c.base, free, x.start) >= 2) {
+      soft = Math.max(soft, x.start);
+      if (x.start - free >= 60 * H) firm = Math.max(firm, x.start);
+    }
+    free = Math.max(free, x.end);
+  }
+  // (Nothing on record before the first work: time off since the last recovery counts as one.)
+  if (!work.length || work[0].start >= end) return 'ok';
+  if (end <= firm + 168 * H) return 'ok';
+  return end <= soft + 168 * H ? 'soft' : 'due';
+}
+
+/** The rest rules after a late finish or a trip across time zones, for work starting at `start` from `dep`: the reason, or ''. */
+function nightRules(c: CrewMember, spans: Span[], start: Minute, dep: string): string {
+  // CS FTL.1.235(b)(3): local nights at home after a rotation four or more zones away.
+  if (c.tzBack && start >= c.tzBack.back && localNights(c.base, c.tzBack.back, start) < c.tzBack.nights) return 'back from a trip across time zones';
+  // A late finish (23:00–01:59) or a night duty, then an early start (05:00–05:59) from home base: a whole local night between.
+  const s = localMinute(c.base, start);
+  if (dep !== c.base || s < 5 * H || s >= 6 * H) return '';
+  const prev = spans.filter((x) => (x.kind === 'duty' || x.kind === 'log') && x.end <= start).pop();
+  if (!prev || start - prev.end >= 2 * DAY) return '';
+  const e = localMinute(c.base, prev.end);
+  const late = e >= 23 * H || e < 2 * H;
+  const night = (() => {
+    for (let t = prev.start; t < prev.end; t += 30) { const m = localMinute(c.base, t); if (m >= 2 * H && m < 5 * H) return true; }
+    return false;
+  })();
+  return (late || night) && localNights(c.base, prev.end, start) < 1 ? 'finished late before an early start' : '';
+}
+
+/**
+ * Planned days off, read on their own for work over [first, end) (the game's own rules, crew/dayPlan.ts and buyBack.ts,
+ * in this file's words): the days the work touches (and the eve of a start before 06:00). None: free ('' note). One not
+ * published yet moves when its month has a free day for it. A published one is the crew member's: the roster takes it
+ * only at short notice, by their agreement to swap it or by an automatic buy-back; otherwise they are not available
+ * (the player can still buy the day back on the card: the alarm is right to ask). And a month must keep its 7.
+ * `busy`: base-local days with work of theirs (this trip included).
+ */
+function dayOffRule(g: GameState, c: CrewMember, first: Minute, end: Minute, busy: Set<number>): { ok: boolean; note: string } {
+  if (!g.dayPlan || !c.off) return { ok: true, note: '' };
+  const today = dayIndex(c.base, g.now);
+  const a = dayIndex(c.base, first - OFF().morningFree);
+  const b = dayIndex(c.base, end - 1);
+  const hits = c.off.filter((k) => k >= a && k <= b);
+  const monthOf = monthOfDay;
+  const firstOf = firstDayOf;
+  const blocked = (k: number) => !!c.blocks?.some((x) => x.from < midnight(c.base, k + 1) && x.to > midnight(c.base, k));
+  const freeDay = (k: number) => !c.off!.includes(k) && !busy.has(k) && !blocked(k);
+  // Free days later in the month a day off can move to.
+  const room = (mk: number) => { let n = 0; for (let k = Math.max(today + 2, firstOf(mk)); k < firstOf(mk + 1); k++) if (freeDay(k)) n++; return n; };
+  if (!hits.length) {
+    // The month's legal 7: its days off, plus the free days the planner has not reached yet.
+    const open = g.dayPlan.planned !== undefined ? dayIndex(c.base, g.dayPlan.planned) : today + 1;
+    for (const mk of new Set([monthOf(dayIndex(c.base, first)), monthOf(b)])) {
+      const m0 = firstOf(mk);
+      const m1 = firstOf(mk + 1);
+      if (m0 < dayIndex(c.base, g.dayPlan.from) || midnight(c.base, m0) < c.hired || m1 <= today) continue;
+      let n = c.off.filter((k) => k >= m0 && k < m1).length;
+      for (let k = Math.max(m0, today + 1, open); k < m1 && n < OFF().legalMonth; k++) if (freeDay(k)) n++;
+      // (A month partly on leave or sick owes fewer: not judged here.)
+      if (n < OFF().legalMonth && !c.blocks?.some((x) => x.from < midnight(c.base, m1) && x.to > midnight(c.base, m0))) return { ok: false, note: 'the month would fall below its 7 days off' };
+    }
+    return { ok: true, note: '' };
+  }
+  const pub = dayIndex(c.base, publishedTo(g));
+  const byMonth = new Map<number, number>();
+  for (const k of hits) byMonth.set(monthOf(k), (byMonth.get(monthOf(k)) ?? 0) + 1);
+  const movable = [...byMonth].every(([mk, n]) => room(mk) >= n || c.off!.filter((k) => k >= firstOf(mk) && k < firstOf(mk + 1)).length - (n - room(mk)) >= OFF().minMonth);
+  if (hits.every((k) => k >= pub)) return movable ? { ok: true, note: 'a day off not published yet moves within its month' } : { ok: false, note: 'on a planned day off its month has no free day for' };
+  const soon = first <= g.now + BAL.v09.roster.swap.horizonH * 60;
+  const settled = c.status !== 'joining' && !c.notice;
+  const S = BAL.v09.roster.swap;
+  if (soon && settled && movable && c.morale >= S.minMorale && (c.offSwapAt === undefined || g.now - c.offSwapAt >= S.everyDays * DAY) && midnight(c.base, hits[0]) >= g.now + S.noticeH * 60) {
+    return { ok: true, note: 'a published day off swapped by agreement (short notice)' };
+  }
+  const B = BAL.v09.roster.buyBack;
+  if ((g.company.policies.buyBack ?? 'auto') === 'auto' && first <= g.now + B.horizonH * 60 && settled && c.morale >= B.minMorale && !c.boughtOff?.includes(monthOf(hits[0]))) {
+    return { ok: true, note: 'a published day off bought back (the company buys them automatically)' };
+  }
+  return { ok: false, note: 'on a published day off (only the player can buy it back)' };
+}
+
 /**
  * Cross-checks the crew alarm on a flight. `kind`: the alarm's kind when known (a 'rest' alarm is read as in-flight rest
  * at the gate; the others as seats to fill).
@@ -174,6 +297,12 @@ export function crossCheck(g: GameState, flightId: string, kind?: AlarmKind): Cr
       if (!c) open.push({ i, role: s.role });
       else if (!standsBy(h, p, d, c.id)) {
         const bad = over(judgePerson(h, c, d, p));
+        // v0.23 ... and on the weekly rest and the late-finish / time-zone rest, read on their own.
+        const sp = workOf(h, c, d.release);
+        const me0 = Math.min(d.report, legs[0].std + (legs[0].delay ?? 0) - rm.report) - (isPilot(c.role) ? 0 : d.cabinEarly ?? 0);
+        if (weeklyRest(c, sp, d.release, h.now) === 'due') bad.push('weekly rest due');
+        const nr = nightRules(c, sp.filter((x) => x.end <= me0), me0, dep);
+        if (nr) bad.push(nr);
         if (bad.length) open.push({ i, role: s.role, holder: c, why: bad.join(', ') });
       }
     });
@@ -278,24 +407,41 @@ export function crossCheck(g: GameState, flightId: string, kind?: AlarmKind): Cr
             }
           }
         }
-        // Rules this check does not read make the seat UNSURE, not WRONG.
         const first = out ? out.std - CHECKIN() : myStart;
-        for (let k = dayIndex(c.base, first); k <= dayIndex(c.base, end); k++) if (c.off?.includes(k)) { unsure.push('a planned day off'); break; }
         if (c.blocks?.some((b) => b.from < end && b.to > first)) return no('sick, on leave, in training or not joined yet');
+        // v0.23 the weekly rest, the late-finish and time-zone rest and the planned days off, each read on its own.
+        const spans = workOf(h, c, end);
+        const wk = weeklyRest(c, spans, end, h.now);
+        if (wk === 'due') return no('due a weekly rest (36 h with two local nights in 168 h)');
+        if (wk === 'soft') unsure.push('the weekly rest holds only if 36 h is enough (60 h is owed after four early, late or night duties)');
+        const nr = nightRules(c, spans.filter((x) => x.end <= first), first, out ? out.from : dep);
+        if (nr) return no(nr);
+        const busyDays = new Set<number>();
+        for (const w of [...ahead, { start: first, end }]) for (let k = dayIndex(c.base, w.start); k <= dayIndex(c.base, w.end - 1); k++) busyDays.add(k);
+        const off = dayOffRule(h, c, first, end, busyDays);
+        if (!off.ok) return no(off.note);
+        const notes: string[] = off.note ? [off.note] : [];
         if (seat.role === 'FO' && c.role === 'CPT') unsure.push('a captain in the first officer\'s seat');
         if (seat.role === 'CC' && c.role === 'PUR') unsure.push('a purser in a cabin crew seat');
         // What the planner itself says about this person (on the game as it is).
         let planner = '';
         const gc = g.crew[c.id];
         const plan = gc ? planCrew(g, gc, p0, segsOf(g, gc), false, BAL.rosterSlack) : null;
-        if (gc && plan && !acceptable(g, plan)) {
+        // (What the roster does with the plan: accepted as it is, or by a day off moved, swapped or bought back.)
+        if (gc && plan && !wouldSeat(g, gc, plan)) {
           const why = rootReason(g, plan.issues, gc, p0);
           planner = why ? `${why.code}: ${why.text}` : 'refused';
-          // (The rest rules after a late finish or a time-zone change are not read here either.)
+          // A rule this check does not read (the year's flying, two-day weekends, standby, night sectors …), or one it
+          // reads more simply than the planner (days off, the weekly rest, time zones): UNSURE, not WRONG.
+          const hid = plan.issues.find((i) => i.level === 'illegal' && !READ.has(i.code));
           if (why && (!['busy', 'place', 'rest', 'fdp'].includes(why.code) || /time zones|local night/.test(why.text))) unsure.push(`the planner's rule: ${why.text}`);
+          // (The reason named can stand in front of one this check does not read: standby and the day together, night sectors …)
+          else if (hid) unsure.push(`the planner's rule: ${hid.text}`);
+          // ... or the rest after a standby they stood (hotel or airport), which this check reads as a call-out.
+          else if (why?.code === 'rest' && spans.some((x) => x.kind === 'standby' && x.end <= first && x.end > first - 14 * H)) unsure.push('the rest after a standby the planner counts');
         }
         return {
-          seat: { role: seat.role, crewId: c.id, name: nameOf(c), at, out: out ? `${rideText(out)}${sameDay ? ' (same day)' : ' (rests there first)'}` : '', back, unsure, planner },
+          seat: { role: seat.role, crewId: c.id, name: nameOf(c), at, out: out ? `${rideText(out)}${sameDay ? ' (same day)' : ' (rests there first)'}` : '', back: notes.length ? `${back} (${notes.join('; ')})` : back, unsure, planner },
           clean: !unsure.length,
         };
       } finally {

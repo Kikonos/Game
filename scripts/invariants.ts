@@ -517,10 +517,13 @@ export function createChecker(opts: CheckerOpts = {}) {
       const sby = [...h.sby.values()].sort((a, b) => a.from - b.from);
       // Where the crew rested after work ending at t: the last leg they were on that landed inside it; unknown (null)
       // when no leg of theirs is on record for it (history from before the checker started).
+      // v0.23 a leg of theirs that left inside the work counts even when it landed after the logged end: a ride back to
+      // their own station merged into the duty (crew covering one duty for another set) that ran a few minutes late left
+      // them read as resting where the duty's last operated leg ended (Delhi, 14 h) while they slept at Riyadh.
       const restAt = (s: Minute, t: Minute): string | null => {
         let at: string | null = null;
         for (const f of fl) {
-          if (f.ata > t + 1) break;
+          if (f.atd > t + 1) break;
           if (f.ata >= s - 1) at = f.to;
         }
         return at;

@@ -76,7 +76,7 @@ export function augMax(augment: 1 | 2, fcCls: 1 | 2 | 3, ccCls: 1 | 2 | 3 | null
   return base + (sectors <= 2 && longestBlock > 9 * H ? H : 0);
 }
 
-interface Span { start: Minute; end: Minute; block: number; aug: boolean; ext: boolean; dep: string; arr: string; kind: 'duty' | 'ticket' | 'standby' | 'log' | 'leave'; weight: number; /** A ticket of the duty being judged (positioning into it: part of its day, no rest before it). */ own?: true }
+export interface Span { start: Minute; end: Minute; block: number; aug: boolean; ext: boolean; dep: string; arr: string; kind: 'duty' | 'ticket' | 'standby' | 'log' | 'leave'; weight: number; /** A ticket of the duty being judged (positioning into it: part of its day, no rest before it). */ own?: true }
 
 /** One planned duty of a crew member, measured from its flights as they are now (report and release from the legs). */
 function dutySpan(g: GameState, d: Duty, p: Pairing, cabin: boolean): Span | null {
@@ -96,7 +96,7 @@ function dutySpan(g: GameState, d: Duty, p: Pairing, cabin: boolean): Span | nul
 }
 
 /** Everything a crew member works around t (28 days back, the next 3 days): flown log, planned duties, tickets, standby. */
-function workOf(g: GameState, c: CrewMember, t: Minute, skipDuty?: string): Span[] {
+export function workOf(g: GameState, c: CrewMember, t: Minute, skipDuty?: string): Span[] {
   const out: Span[] = [];
   const from = t - 29 * DAY;
   const to = t + 3 * DAY;

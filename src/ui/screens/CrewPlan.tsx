@@ -2,10 +2,10 @@
 // the joiners, a clean per-role table and one verdict line; Round up opens the hire flow pre-filled with exactly the
 // crew that complete the sets. The People view keeps a one-line summary per family that links here.
 
-import { CalendarClock, Check, UserPlus } from 'lucide-react';
+import { CalendarClock, Check, GraduationCap, UserPlus } from 'lucide-react';
 import type { RatingFamily } from '../../data/acmiTypes';
 import type { GameState } from '../../engine/core/types';
-import { awayOnDryLease, crewPeakCard, crewPlan, deploymentSets, familyName, peakForecast, peakGroups, peakId, roundTargets, setWords, type FamilyPlan } from '../../engine/crew';
+import { awayOnDryLease, conversionClasses, crewPeakCard, crewPlan, deploymentSets, familyName, peakForecast, peakGroups, peakId, roundTargets, setWords, type FamilyPlan } from '../../engine/crew';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { fmtDay } from '../../engine/core/time';
 import { ProblemCardView, runAction } from '../components/ProblemCard';
@@ -13,7 +13,7 @@ import { typeOf } from '../../engine/core/perf';
 import { Term } from '../components/Term';
 import { Help } from '../components/Help';
 import { store } from '../store';
-import { isPilotRole } from './screenLogic';
+import { baseDay, isPilotRole } from './screenLogic';
 import { planSentence, setsWhyLines } from './crewPlanLogic';
 import { lockOf } from '../../engine/scenario';
 import { LockNote } from '../components/Locked';
@@ -43,7 +43,18 @@ function idleTypes(g: GameState, plans: FamilyPlan[]): { family: RatingFamily; p
 }
 
 /** One family: sets, the verdict, the role table and the round-up buttons. */
-function FamilyCard({ p, lock }: { p: FamilyPlan; lock?: string | null }) {
+/**
+ * v0.23 the classes booked onto a type, in a line for its card: 'Classes for this type: 39 people · last one ends 19 Jul'.
+ * (The Joining column counts those of them the type they fly today can spare, marked 'in class'.)
+ */
+function bookedLine(g: GameState, family: RatingFamily): string | null {
+  const ks = conversionClasses(g).filter((k) => k.family === family);
+  const n = ks.flatMap((k) => k.crewIds).filter((id) => g.crew[id]).length;
+  if (!n) return null;
+  return `Classes for this type: ${n} ${n === 1 ? 'person' : 'people'} · last one ends ${baseDay(g, Math.max(...ks.map((k) => k.end)) - 1)}`;
+}
+
+function FamilyCard({ p, lock, trainLock, booked }: { p: FamilyPlan; lock?: string | null; trainLock?: string | null; booked?: string | null }) {
   const t = roundTargets(p);
   const short = p.setsComplete < p.setsNeeded;
   const pct = (n: number) => `${Math.min(100, (n / Math.max(1, p.setsNeeded)) * 100)}%`;
@@ -79,7 +90,7 @@ function FamilyCard({ p, lock }: { p: FamilyPlan; lock?: string | null }) {
               <td><b>{r.role}</b> <span className="tiny muted">{ROLE_WORD[r.role]}</span></td>
               <td className="num">{r.have}{r.shared ? <span className="tiny muted cp-shared">{r.shared} shared</span> : null}</td>
               <td className="num">{r.need}</td>
-              <td className="num">{r.joining || '–'}</td>
+              <td className="num">{r.joining || '–'}{r.inClass ? <span className="tiny muted cp-shared">{r.inClass} in class</span> : null}</td>
               <td className="num">{r.away || '–'}</td>
               <td className={`num ${r.balance < 0 ? 'warn' : r.balance > 0 ? 'muted' : 'good'}`}>
                 {r.balance < 0 ? `short ${-r.balance}` : r.balance > 0 ? `+${r.balance}` : 'exact'}
@@ -99,6 +110,7 @@ function FamilyCard({ p, lock }: { p: FamilyPlan; lock?: string | null }) {
       ) : (
         <div key={`f${b.family}`} className="tiny muted cp-backup">{backupWho(b)} from the {b.label} also rated here · counted in the {b.label}</div>
       ))}
+      {booked && <div className="tiny muted cp-backup">{booked}</div>}
       {p.clientCabin > 0 && <div className="tiny muted"><Term id="dampLease">Mixed crew</Term>: clients' crew fly about {p.clientCabin} cabin {p.clientCabin === 1 ? 'place' : 'places'}</div>}
       {p.dryLeased > 0 && <div className="tiny muted">Dry lease out: {p.dryLeased} more {p.dryLeased === 1 ? 'aircraft is' : 'aircraft are'} away with the lessee's crews; no sets until {p.dryLeased === 1 ? 'it comes' : 'they come'} back.</div>}
       {/* v0.15 a scenario's hiring allowance. */}
@@ -116,6 +128,8 @@ function FamilyCard({ p, lock }: { p: FamilyPlan; lock?: string | null }) {
         {t.complete === null && t.next === null && (
           <button className="btn btn-ghost btn-sm" onClick={() => store.openModal({ kind: 'roundUp', family: p.family, target: t.spare })}>Add a spare set</button>
         )}
+        {/* v0.23 train the crew we have onto this type: the class planner. */}
+        <button className={`btn ${t.complete !== null ? '' : 'btn-sm'} cp-classes ${trainLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'classPlan', family: p.family })} disabled={!!trainLock} data-tip={trainLock ?? undefined}><GraduationCap /> Plan classes</button>
       </div>
     </div>
   );
@@ -169,7 +183,7 @@ export function CrewPlanView({ g }: { g: GameState }) {
       <PeakHeadsUp g={g} />
       {!plans.length && <div className="small muted">No aircraft in the fleet yet.</div>}
       <div className="cp-grid">
-        {plans.map((p) => <FamilyCard key={p.family} p={p} lock={lockOf(g, 'hiring')} />)}
+        {plans.map((p) => <FamilyCard key={p.family} p={p} lock={lockOf(g, 'hiring')} trainLock={lockOf(g, 'training')} booked={bookedLine(g, p.family)} />)}
       </div>
       {idle.length > 0 && (
         <div className="small muted cp-idle">

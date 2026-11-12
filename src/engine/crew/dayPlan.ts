@@ -16,6 +16,7 @@ import { moraleShock } from './morale';
 import { evalSegs, offsetAt, tzDeltaH, type LegalityIssue, type Seg } from './rules';
 import { noteRecovery, onStandby, pruneStandby } from './standby';
 import { crewIx, ctxOf, locAt, segsOf, standbySeg, touchCrewState, typeIdOf } from './timeline';
+import { guestOn } from './avail';
 
 const R = () => BAL.v09.roster;
 
@@ -1473,7 +1474,7 @@ export function leaveAfterTours(g: GameState): string[] {
   for (const c of Object.values(g.crew)) {
     if (c.notice || !c.blocks?.some((b) => b.why === 'leave' && b.annual && b.from > pub)) continue;
     for (const q of ix.pairingsOf.get(c.id) ?? []) {
-      if (!q.tour || q.status === 'broken' || q.status === 'done') continue;
+      if (!q.tour || q.status === 'broken' || q.status === 'done' || guestOn(q, c.id)) continue;
       const dep = q.deploymentId ? g.deployments[q.deploymentId] : undefined;
       if (!dep) continue;
       const to = Math.min(q.tour.to, dep.end);
