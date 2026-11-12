@@ -514,6 +514,11 @@ export interface LegalityIssue {
   level: Legality;
   text: string;
   dutyId?: string;
+  /**
+   * Crew alarm round (Nov 2026): the issue is the rest (or overlap) before the NEXT work after this duty, that work's duty
+   * ('' when it holds none: a loose ticket, a standby). A held seat re-checked leaves it to a later trip (check.ts).
+   */
+  next?: string;
 }
 
 const hm = (m: number) => `${Math.floor(m / 60)}:${String(Math.round(m % 60)).padStart(2, '0')}`;
@@ -639,6 +644,15 @@ export function evalSegs(ctxIn: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
   let cutAt = -1;
   let cut = 0;
   const restOfSeg = (k: number) => (k === cutAt ? segs[k].rest - cut : segs[k].rest);
+  // Crew alarm round (Nov 2026, the player's CVE291): ORO.FTL.235(a)'s 12 h at home base is the rest before an FDP that
+  // starts there. A ticket out on its own (positioning, no FDP) leads to an FDP away from base, so the rest before it is
+  // the away minimum (b): max(preceding duty, 10 h). Léa Bernard came home on a ticket at 09:35 and rode out to Fuerteventura
+  // at 20:00 for a duty the next day: "Rest 10:25 < 12:00", an alarm with every rest clearly fine.
+  const restBefore = (nx: Seg, pv: Seg, need: number): number => {
+    if (nx.kind !== 'pos' || pv.kind === 'log' || pv.aug || pv.at !== ctx.base) return need;
+    const dm = pv.end - pv.start;
+    return need - (Math.max(dm, 12 * H) - Math.max(dm, 10 * H));
+  };
   for (let i = 0; i < segs.length; i++) {
     const s = segs[i];
     if (s.ext && s.kind !== 'log') {
@@ -681,7 +695,7 @@ export function evalSegs(ctxIn: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
       // Rest after the previous seg (the last logged one rests until ctx.restUntil).
       if (i > 0) {
         const p = segs[i - 1];
-        const restEnd = i - 1 === lastLog ? Math.max(p.end + (p.rest || 0), ctx.restUntil) : p.end + restOfSeg(i - 1);
+        const restEnd = i - 1 === lastLog ? Math.max(p.end + (p.rest || 0), ctx.restUntil) : p.end + restBefore(s, p, restOfSeg(i - 1));
         if (s.start < p.end) pushIssue(issues, 'overlap', 'illegal', 'Overlaps another duty', tgt);
         else if (s.start < restEnd) pushIssue(issues, 'rest', 'illegal', `Rest ${hm(s.start - p.end)} < ${hm(restEnd - p.end)}`, tgt);
       } else if (s.start < ctx.restUntil) pushIssue(issues, 'rest', 'illegal', 'Still resting', tgt);
@@ -697,8 +711,8 @@ export function evalSegs(ctxIn: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
       // The next seg must also respect this seg's rest (a later seg's start airport is checked as a target).
       const n = segs[i + 1];
       if (n && s.fresh && !n.fresh) {
-        if (n.start < s.end) pushIssue(issues, 'overlap', 'illegal', 'Overlaps another duty', tgt);
-        else if (n.start < s.end + restOfSeg(i)) pushIssue(issues, 'rest', 'illegal', `Rest before next duty ${hm(n.start - s.end)} < ${hm(restOfSeg(i))}`, tgt);
+        if (n.start < s.end) issues.push({ code: 'overlap', level: 'illegal', text: 'Overlaps another duty', dutyId: tgt.dutyId, next: n.dutyId ?? '' });
+        else if (n.start < s.end + restBefore(n, s, restOfSeg(i))) issues.push({ code: 'rest', level: 'illegal', text: `Rest before next duty ${hm(n.start - s.end)} < ${hm(restBefore(n, s, restOfSeg(i)))}`, dutyId: tgt.dutyId, next: n.dutyId ?? '' });
       }
       if (s.kind === 'duty') {
         if (s.fdp > s.maxFdp) pushIssue(issues, 'fdp', 'illegal', `FDP ${hm(s.fdp)} > ${hm(s.maxFdp)}`, tgt);

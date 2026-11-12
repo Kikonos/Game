@@ -46,7 +46,7 @@ export interface MoraleSummary {
 export const MORALE_LABEL: Record<MoraleDriver, string> = {
   policy: 'Pay & tours', hotel: 'Hotels', tour: 'Long tour', offAway: 'Days off away', workload: 'Workload', lateChange: 'Late changes',
   discretion: 'Extended duties', mission: 'Missions', extraCrew: 'Extra crew', career: 'New type', pay: 'Pay', recognition: 'Client thanks',
-  standby: 'Long standby runs', daysOff: 'Days off', leave: 'Leave', offMoved: 'Day off moved',
+  standby: 'Long standby runs', daysOff: 'Days off', leave: 'Leave', offMoved: 'Day off moved', logLater: 'Report times changed',
 };
 
 const M = () => BAL.morale;

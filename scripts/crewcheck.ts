@@ -60,8 +60,18 @@ function nowWords(text: string, flightId: string): string {
   }
 }
 
+/**
+ * v0.23.1 duties whose report was logged later than the crew reported (crew/logLater.ts): not alarms and not errors, a
+ * choice the player made; listed apart so a reader of the check knows the roster there is the logged one.
+ */
+const adjusted: string[] = [];
+function noteAdjusted(g: GameState, source: string): void {
+  for (const a of g.opsx?.adjusted ?? []) adjusted.push(`${fmtDateTime(a.t)}  ${a.no}: report logged +${a.min} min (${a.limit === 'rest' ? 'short rest' : 'day over its limit'})${a.found ? ', found' : ''} · ${source}`);
+}
+
 function judgeSave(text: string, source: string, rows: Row[]): void {
   const g = asItWas(text);
+  noteAdjusted(g, source);
   const seen = new Set<string>();
   const marked = Object.values(g.flights)
     .filter((f) => f.status === 'scheduled' && f.kind !== 'deadhead' && (f.crewAlert || f.crewEarly) && short(g, f.id))
@@ -131,6 +141,10 @@ function main(): void {
   }
   const n = (v: string) => rows.filter((r) => r.verdict === v).length;
   console.log(`\nsummary: ${rows.length} alarm(s) checked · RIGHT ${n('RIGHT')} · WRONG ${n('WRONG')} · UNSURE ${n('UNSURE')}`);
+  if (adjusted.length) {
+    console.log(`adjusted (report logged later, not alarms): ${adjusted.length}`);
+    for (const l of adjusted.slice(-20)) console.log(`  ${l}`);
+  }
   if (jsonOut) {
     writeFileSync(jsonOut, JSON.stringify(rows, null, 1));
     console.log(`rows written to ${jsonOut}`);

@@ -388,6 +388,23 @@ export const BAL = {
     hurtLowUsd: 10_000, hurtLowPax: 100,
   },
 
+  /**
+   * v0.23.1 a later report time logged on the roster (crew/logLater.ts): some charter operators hide a short rest or a
+   * day over its limit this way. At most capMin, in stepMin steps, once per duty. Morale for the crew whose limit it
+   * hides: base + per10 for each 10 minutes, ×repeatX when their roster was changed before inside windowDays (refused
+   * after refuseAt changes there); the rest of that crew `others`; everyone else `company`. Fatigue for the crew whose
+   * limit it hides. Found later (a crew report, or the authority's audit) with a chance of findBase + findPer for each
+   * other change in the last year (at most findMax): a fine (fineBase + finePer for each one found before in the year)
+   * and an audit finding (Level 1 from the third found in a year).
+   */
+  logLater: {
+    capMin: 60, stepMin: 5, windowDays: 28, refuseAt: 2,
+    morale: { base: -4, per10: -1, repeatX: 2, others: -2, company: -0.5 },
+    fatigue: 5,
+    findBase: 0.06, findPer: 0.04, findMax: 0.4, reportDays: [10, 60] as [number, number],
+    fineBase: 20_000, finePer: 15_000, reliable: -1,
+  },
+
   // ---------- crew rules & fleet v0.7.2 (ENGINE; UPDATE-0.7.2.md §11) ----------
   v072: {
     /** Cabin crew report this much earlier than the pilots (ORO.FTL.205(c)); their FDP and max FDP both grow by it. */

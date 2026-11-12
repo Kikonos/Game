@@ -59,6 +59,9 @@ describe("v0.9 What's new catch-up (UPDATE-0.9.md §X)", () => {
     for (const w of ['three types', 'drops A320', 'Plan classes', 'Next', 'Inbox', 'hire replacements']) expect(txt).toContain(w);
     expect(txt).toMatch(/hires would join/);
     expect(txt).toMatch(/hiring hold/);
+    // The later report time on the roster, and the crew alarm fixes from the player's export.
+    for (const w of ['Log a later report time', 'at most an hour', 'once per duty', 'morale', 'Twice in 28 days', 'a fine and an audit finding']) expect(txt).toContain(w);
+    for (const w of ['no longer called busy', 'that trip\'s alarm', '10 hours of rest', 'waits for them (up to an hour)']) expect(txt).toContain(w);
     for (const l of lines) expect(l.length).toBeLessThanOrEqual(240);
   });
   it('v0.23 crew planned person by person below it, in short plain lines', () => {

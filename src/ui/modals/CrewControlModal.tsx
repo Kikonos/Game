@@ -4,7 +4,7 @@
 // trips) and Apply (two taps where the engine asks for a confirm). After a fix the view is re-read; crewed → Close.
 // Engine: crew/control.ts (crewControl, applyCrewFix). Calm: nothing animates.
 
-import { ArrowLeftRight, CalendarPlus, CalendarRange, Check, CircleSlash, Clock, Handshake, Hourglass, PhoneCall, PlaneTakeoff, Ticket, TimerOff, Users, Wand2 } from 'lucide-react';
+import { ArrowLeftRight, CalendarPlus, CalendarRange, Check, CircleSlash, ClipboardPen, Clock, Handshake, Hourglass, PhoneCall, PlaneTakeoff, Ticket, TimerOff, Users, Wand2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { flightsRev } from '../../engine/core/entities';
 import { fmtTime } from '../../engine/core/time';
@@ -21,12 +21,15 @@ import { spanLabel } from '../screens/screenLogic';
 import { store, useGame } from '../store';
 import { canTake, chooseWord, defaultPicks, goneText, hurtTone, keepHurt, seatPlan } from './crewControlLogic';
 import { HintButton, ScreenHint } from '../components/ScreenHint';
+import { Help } from '../components/Help';
 
 const FIX_ICON: Record<CrewFix, ReactNode> = {
   autoFix: <Wand2 />, deadhead: <Ticket />, delay: <Clock />, jet: <PlaneTakeoff />, callIn: <PhoneCall />, discretion: <Hourglass />,
   swap: <ArrowLeftRight />, subcharter: <Handshake />, cancel: <CircleSlash />,
   // v0.12.1
   buyBack: <CalendarPlus />,
+  // v0.23.1
+  logLater: <ClipboardPen />,
 };
 const MULTI: CrewFix[] = ['deadhead', 'callIn'];
 const LEVEL_TONE = { legal: 'good', tight: 'warn', illegal: 'bad' } as const;
@@ -92,6 +95,7 @@ function Row({ s, open, onOpen, children }: { s: CrewSolution; open: boolean; on
         <span className="grow col cc-row-main">
           <span className="row gap-8 wrap">
             <b>{s.label}</b>
+            {s.id === 'logLater' && <LogLaterHelp />}
             {s.available ? (
               <>
                 {!priced && <span className={`chip sc-chip ${spend > 0 ? '' : 'good'}`}>{spend > 0 ? money(spend) : 'free'}</span>}
@@ -107,6 +111,18 @@ function Row({ s, open, onOpen, children }: { s: CrewSolution; open: boolean; on
       </button>
       {open && <div className="cc-row-body">{children}</div>}
     </div>
+  );
+}
+
+/** v0.23.1 what a later report time on the roster is (crew/logLater.ts), behind the small '?'. */
+export function LogLaterHelp() {
+  return (
+    <Help title="Log a later report time">
+      <p>Crew control changes the report time on the roster, so the crew seem to check in later than they did. A short rest or a long day then reads as legal.</p>
+      <p>It is falsifying the roster. Some charter operators do it. The crew really had the shorter rest or worked the longer day.</p>
+      <p>At most an hour, once per duty. The person it covers loses the most morale, more if it happens to them again. Twice in 28 days and they refuse. The rest of the crew lose a little.</p>
+      <p>A crew member may report it, or the authority's audit may find it: a fine and an audit finding. The more you do it, the likelier.</p>
+    </Help>
   );
 }
 

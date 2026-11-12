@@ -32,6 +32,7 @@ import { money } from '../format';
 import { Dot } from '../screens/common';
 import { contractColor } from '../screens/palette';
 import { ROLE_LABEL, ROLES } from '../screens/screenLogic';
+import { LogLaterHelp } from './CrewControlModal';
 import { store, useGame } from '../store';
 
 const LEVEL_TONE = { legal: 'good', tight: 'warn', illegal: 'bad' } as const;
@@ -365,6 +366,8 @@ export function DutyModal({ id }: { id: string }) {
           <div className="col gap-4" style={{ minWidth: 0 }}>
             <span className="small muted">
               Report {fmtDateTime(d.report)} UTC{first ? ` (${fmtTime(d.report, first.from)} at ${first.from})` : ''} · release {releaseText(d.report, d.release)} UTC
+              {/* v0.23.1 a later report time logged on the roster (crew/logLater.ts): the fact, with its '?'. */}
+              {d.logged && <> · <span className="warn">roster shows {fmtTime(d.report + d.logged.min)} (+{d.logged.min} min)</span> <LogLaterHelp /></>}
             </span>
             <DayLength g={g} dutyId={d.id} ac={ac?.reg} />
             <SlipLine g={g} d={d} />

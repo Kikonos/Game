@@ -326,6 +326,8 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
   const held = onDuty && fl.every((f) => f.status === 'scheduled') && fl[0].std - d.report >= 6 * 60 + 60 && shape(typeId, fl).report - d.report >= 6 * 60;
   const reported = onDuty && !held;
   const sh = shape(typeId, fl, reported ? d.report : undefined);
+  // v0.23.1 a later report time logged on the roster (crew/logLater.ts): the day on record runs from it.
+  if (d.logged) sh.fdp -= d.logged.min;
   const refOf = (report: Minute): RefAt => {
     const r = referenceTime(p.base, sh.dep, Math.min(p.start, report), report);
     return { reportLocal: r.reportLocal, acclimatised: r.state !== 'X', tz: r.tz };

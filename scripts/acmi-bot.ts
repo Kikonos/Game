@@ -596,6 +596,9 @@ function offers(g: GameState, t: Tally): void {
 // Everything else (decisions, Crew Control, checks, fleet, leases, the Ladder) is the standard policy. A pure function
 // of the game, like the rest.
 const PLAYER = process.argv.includes('--player');
+/** v0.23.1 --adjust: the bot logs a later report time when Crew Control offers it (never without the flag). */
+const ADJUST = process.argv.includes('--adjust');
+const adjustStats = { offered: 0, applied: 0, why: new Map<string, number>() };
 const PDBG = !!process.env.PDBG;
 /** Hand-overs made to take a better job, and what they cost (tally only). */
 const playerTally = { subleases: 0, subLegs: 0, subCost: 0, subBill: 0, shortSigned: 0, callsSigned: 0, crewShortSigned: 0, roundUps: 0, peakHires: 0, signHires: 0, classPlans: 0, classPeople: 0 };
@@ -1687,6 +1690,17 @@ function crewControlPolicy(g: GameState, t: Tally): void {
     // v0.8 at most $60K a jet (a widebody crew flown to Asia cost seed 3 $100K a time).
     if (jet && jet.cost <= 60_000 && jetDep + 180 <= waitDep && apply(jet)) continue;
     if (apply(sol(first, 'discretion'))) continue;
+    // v0.23.1 --adjust: a later report time on the roster (crew/logLater.ts) when Crew Control offers it; never without the flag.
+    if (ADJUST) {
+      const lv = view(['logLater'], true);
+      const ll = lv?.solutions.find((s) => s.id === 'logLater');
+      if (ll?.available) adjustStats.offered++;
+      else if (ll?.why) adjustStats.why.set(ll.why.replace(/\d+/g, 'N'), (adjustStats.why.get(ll.why.replace(/\d+/g, 'N')) ?? 0) + 1);
+      if (ll?.available && apply(ll)) {
+        adjustStats.applied++;
+        continue;
+      }
+    }
     if (!jetOk && !skipDelay) {
       const dv = view(['delay'], false, lateCapMin);
       if (!dv || dv.stage === 'ok') continue;
@@ -2848,6 +2862,11 @@ if (ROUTES || Object.keys(g.network?.routes ?? {}).length) console.log(botNetwor
   const fixes = [...tally.crewFixes].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || 'none';
   const jetShare = revenueY ? (s.jetSpend ?? 0) / revenueY : 0;
   console.log(`crew control: amber ${s.crewAmber ?? 0}, red ${s.crewRed ?? 0} (out of hours ${g.stats.v09?.oohRed ?? 0}), fixes {${fixes}}, jets ${s.jets ?? 0} ${k$(s.jetSpend ?? 0)} (${(jetShare * 100).toFixed(2)}% of revenue) · short-notice offers passed over ${tally.shortSkipped}, widebody general work capped ${tally.wideCapped}, leases without a job ${tally.leaseNoJob}`);
+  // v0.23.1 --adjust: how often a later report time was offered and taken, why not, and what came to light.
+  if (ADJUST) {
+    const adj = g.opsx?.adjusted ?? [];
+    console.log(`log a later report: offered ${adjustStats.offered}, applied ${adjustStats.applied}, on record ${adj.length} (found ${adj.filter((a) => a.found).length}, to be found ${adj.filter((a) => !a.found && a.foundAt !== undefined).length}) · not offered: ${[...adjustStats.why].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, n]) => `${n}× ${k}`).join('; ') || 'none'}`);
+  }
   // v0.12.1 crew riding our own flights instead of airline tickets.
   console.log(`own-flight rides: ${tally.ownRides} crew on ${tally.ownRideLegs} passenger flights, ${tally.emptyRides} on empty legs · airline tickets ${k$(-[...g.finance.history.map((h) => h.lines), g.finance.current.lines].reduce((n, l) => n + (l.deadhead ?? 0), 0))} (all months)`);
   softTargets.push(['jets ≤ 8 a year and ≤ 1% of revenue', (s.jets ?? 0) * (365 / days) <= 8 && jetShare <= 0.01, `${s.jets ?? 0} jets, ${k$(s.jetSpend ?? 0)}`]);

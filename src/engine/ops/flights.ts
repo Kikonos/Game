@@ -938,7 +938,9 @@ export function liveDay(g: GameState, f: Flight): { fdp: number; max: number; fu
   if (p) for (const s of p.slots) if (s.crewId && !s.above) rep = Math.min(rep, s.from !== undefined && s.from > d.report ? s.from : d.report);
   if (rep === Infinity) rep = d.report;
   const max = p && rep > d.report ? fdpLimitAt(g, p, d, f.from, rep).max : d.maxFdp;
-  return { fdp: lastOn - rep, max, full: lastOn - d.report, rep };
+  // v0.23.1 a later report time logged on the roster (crew/logLater.ts): the day on record runs from it.
+  const adj = d.logged?.min ?? 0;
+  return { fdp: lastOn - rep - (rep === d.report ? adj : 0), max, full: lastOn - d.report - adj, rep };
 }
 
 /** Minutes the live day (liveDay) runs over its limit before discretion (negative: within); null before report. */

@@ -7,6 +7,7 @@
 // approvals filed or granted on the Ladder) until it is closed. Rolls on a side stream.
 
 import { AUDIT_DEADLINE, AUDIT_FEE, AUDIT_TASKS } from '../../data/opsData';
+import { BAL } from '../core/balance';
 import { AUTHORITY } from '../../data/flavor';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { nextId } from '../core/entities';
@@ -112,8 +113,40 @@ export function startAuditTask(g: GameState, id: string): ActionResult {
   return { ok: true, msg: `${f.task.label}: done by ${fmtDate(f.ready)}` };
 }
 
+/**
+ * v0.23.1 a report time logged later than the crew reported (crew/logLater.ts) comes to light on the day its record
+ * says (a crew member reports it, or the authority's audit reads the rosters against the movement records): a fine,
+ * an audit finding (Level 1 from the third in a year) and Reliable name. Deterministic: decided when the change was made.
+ */
+export function logLaterFound(g: GameState): void {
+  const ops = g.opsx;
+  if (!ops?.adjusted?.length) return;
+  const B = BAL.logLater;
+  for (const a of ops.adjusted) {
+    if (a.found || a.foundAt === undefined || a.foundAt > g.now) continue;
+    a.found = true;
+    const year = ops.adjusted.filter((x) => x.found && x !== a && x.t > g.now - 365 * DAY).length;
+    const fine = B.fineBase + B.finePer * year;
+    post(g, 'compliance', -fine);
+    const level: AuditLevel = year >= 2 ? 1 : 2;
+    const L2 = Math.round(AUDIT_DEADLINE[2][0] + (AUDIT_DEADLINE[2][1] - AUDIT_DEADLINE[2][0]) * 0.5);
+    const f = finding(g, level, 'roster', `${a.no} on ${fmtDate(a.t)}: the report was logged ${a.min} min later than the crew reported, to hide a ${a.limit === 'rest' ? 'short rest' : 'day over its limit'}.`, level === 1 ? AUDIT_DEADLINE[1] : L2);
+    ops.audit.findings.push(f);
+    countOps(g, 'rosterFound');
+    bumpReliable(g, B.reliable);
+    const auth = cap(authorityName(g));
+    pushMessage(g, {
+      tone: 'bad', cat: 'company', title: a.how === 'report' ? `A crew member reported the changed report time on ${a.no}` : `${auth} audit found the changed report time on ${a.no}`,
+      body: `${f.why} Fine ${usd(fine)} and a Level ${level} finding: ${f.task.label.toLowerCase()} by ${fmtDate(f.due)} (Company › Safety). Reliable name ${B.reliable}.`,
+      ref: { kind: 'audit', id: f.id }, problem: { kind: 'auditFinding', ref: { kind: 'audit', id: f.id } },
+      hurt: { money: fine + f.task.cost, pax: 0, delayMin: 0, level: 'high' }, cue: level === 1 ? 'opsEmergency' : 'notice',
+    });
+  }
+}
+
 /** Daily: the four-week notice, the audit itself, actions completing, deadlines passing, the suspension. */
 export function dailyAudit(g: GameState): void {
+  logLaterFound(g);
   if (!OPS_LIVE.on || !OPS_LIVE.disrupt) return;
   const ops = opsState(g);
   const st = ops.audit;
