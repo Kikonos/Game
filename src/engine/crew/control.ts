@@ -2523,11 +2523,12 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
     const o = logLaterOffer(g, f.id);
     if (!o.ok) out.push(no(s, o.why));
     else {
-      const first = o.who[0];
-      const before = adjustedRecently(g.crew[first.crewId], g.now);
-      const m = logLaterMorale(o.min, before);
+      // Final debug round: each crew member's own morale (a repeat costs more), one number only when all match.
+      const ms = o.who.map((y) => ({ y, m: logLaterMorale(o.min, adjustedRecently(g.crew[y.crewId], g.now)) }));
+      const vals = [...new Set(ms.map((z) => z.m))].sort((a, b) => b - a);
+      const again = ms.filter((z) => z.m === vals[vals.length - 1]).map((z) => z.y.name.split(' ')[0]);
       s.label = logLaterLabel(o.min);
-      s.chips = [`Morale ${m}${o.who.length > 1 ? ' each' : ''}`, `Crew ${BAL.logLater.morale.others}`, 'Risk: fine'];
+      s.chips = [vals.length === 1 ? `Morale ${vals[0]}${o.who.length > 1 ? ' each' : ''}` : `Morale ${vals.join(' / ')} (${again.length > 2 ? `${again.length} crew` : again.join(' and ')} again)`, `Crew ${BAL.logLater.morale.others}`, 'Risk: fine'];
       const names = o.who.map((y) => y.name.split(' ')[0]);
       s.consequences = [`${names.length > 2 ? `${names.slice(0, 2).join(', ')} and ${names.length - 2} more` : names.join(' and ')}: ${o.limit === 'rest' ? 'rest' : 'day'} legal on paper, ${o.min} min ${o.limit === 'rest' ? 'short' : 'over'} in reality`];
       s.confirm = true;

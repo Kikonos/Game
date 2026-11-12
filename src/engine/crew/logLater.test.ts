@@ -122,6 +122,21 @@ describe('log a later report time: when it is offered', () => {
     expect(o2.ok).toBe(true);
     expect(logLaterMorale(20, 1)).toBe(logLaterMorale(20, 0) * BAL.logLater.morale.repeatX);
   });
+
+  it('the morale chip names a crew member it happens to again (each one\'s own cost)', () => {
+    const { g, f, d, p, cpt } = trip();
+    const fo = p.slots.find((s) => s.role === 'FO')!.crewId!;
+    shortRest(g, cpt, d.report, 30);
+    shortRest(g, fo, d.report, 30);
+    g.crew[fo].adjusted = [g.now - 10 * DAY];
+    // (No standby pilot: the only answer is the logged report.)
+    for (const x of Object.values(g.crew)) if ((x.role === 'CPT' || x.role === 'FO') && x.id !== cpt && x.id !== fo) x.blocks = [{ from: g.now, to: g.now + 5 * DAY, why: 'sick' }];
+    touchCrewState(g);
+    recheckPairing(g, p);
+    const row = crewControl(g, f.id)!.solutions.find((s) => s.id === 'logLater')!;
+    expect(row.available).toBe(true);
+    expect(row.chips![0]).toBe(`Morale ${logLaterMorale(30, 0)} / ${logLaterMorale(30, 1)} (${g.crew[fo].first} again)`);
+  });
 });
 
 describe('log a later report time: applied', () => {
