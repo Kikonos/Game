@@ -57,9 +57,25 @@ function start(data: { save?: string } = {}) {
   window.setTimeout(() => {
     cleanReportsOnOpen().then(({ fixed }) => {
       noteCleared(fixed);
-      if (fixed.length) store.toast('good', clearedTitle(fixed.length), 'Menu › Bug reports › Cleared says what each fix was.');
+      if (fixed.length) whenPlaying(() => store.toast('good', clearedTitle(fixed.length), 'Menu › Bug reports › Cleared says what each fix was.'));
     }, (e) => console.warn('[bug reports] clean-up skipped', e));
   }, 2500);
+}
+
+/**
+ * Final debug round: runs `fn` once a game is on screen with no dialog over it. The clean-up finds fixes right after an
+ * update, when What's New opens, and a dialog clears the toasts: shown then, the toast was gone in half a second (and
+ * logged at game time 0).
+ */
+function whenPlaying(fn: () => void): void {
+  const ready = () => store.screen === 'game' && !!store.game && !store.modal;
+  if (ready()) return fn();
+  const off = store.subscribe(() => {
+    if (!ready()) return;
+    off();
+    // (After the render that closed the dialog.)
+    window.setTimeout(fn, 0);
+  });
 }
 
 if (hot?.ready) hot.ready(start);

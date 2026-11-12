@@ -52,9 +52,11 @@ describe('v0.23.1 the clean-up when the game opens', () => {
     const list: BugReportMeta[] = [
       rep(fixedId, { what: 'Crew “?” Info off screen' }),
       rep('mine'),
-      rep('alarmOld', { auto: 'crew-alarm', context: ctx('v0.23') }),
+      rep('alarmOld', { auto: 'crew-alarm', context: ctx('v0.23'), status: 'sent' }),
+      // (Final debug round: an older one never exported stays until Export all sends it.)
+      rep('alarmUnsent', { auto: 'crew-alarm', context: ctx('v0.23') }),
       rep('alarmNow', { auto: 'crew-alarm' }),
-      rep('selfOld', { title: 'Self-check: XY3060 can\'t fly', expected: SELF_CHECK_EXPECTED, context: ctx('v0.22.1') }),
+      rep('selfOld', { title: 'Self-check: XY3060 can\'t fly', expected: SELF_CHECK_EXPECTED, context: ctx('v0.22.1'), sentAt: 3 }),
       rep('selfNow', { auto: 'self-check' }),
       rep('mineOld', { context: ctx('v0.21') }),
     ];
@@ -78,7 +80,7 @@ describe('v0.23.1 the clean-up when the game opens', () => {
     // A store addressed by id where the records have none (the first id-less record answers `undefined`).
     const rows: BugReport[] = [
       rep(undefined, { createdAt: 1, title: 'First', what: 'a' }),
-      rep(undefined, { createdAt: 2, title: 'Second', what: 'b', auto: 'crew-alarm', context: ctx('v0.22') }),
+      rep(undefined, { createdAt: 2, title: 'Second', what: 'b', auto: 'crew-alarm', context: ctx('v0.22'), status: 'sent' }),
     ];
     const store: ReportStore = {
       list: async () => rows.map(({ snapshot: _s, ...m }) => m),

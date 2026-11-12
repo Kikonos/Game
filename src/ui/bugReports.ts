@@ -383,8 +383,8 @@ const filedBy = (r: BugReportMeta): string => r.context?.version ?? '';
 /**
  * v0.23.1 what the game deletes when it opens (the player: "auto-delete fixed bugs when I open the game"): the reports
  * the version installed lists as fixed (data/fixedReports.ts), and the records the game filed itself (crew alarms,
- * self-checks) by an older version: they were looked at when they were exported, and this version files again whatever
- * is still wrong. The player's own reports stay unless fixed. Records without an id get a stable one (`rekey`). Pure.
+ * self-checks) by an older version once exported (sent): they were looked at then, and this version files again whatever
+ * is still wrong; one not exported yet stays until it is. The player's own reports stay unless fixed. Records without an id get a stable one (`rekey`). Pure.
  */
 export function openCleanup(list: readonly BugReportMeta[], installed: string = CURRENT.version, now = Date.now()): { remove: string[]; fixed: ClearedReport[]; old: number; rekey: { from: string | undefined; to: string }[] } {
   const remove: string[] = [];
@@ -403,7 +403,9 @@ export function openCleanup(list: readonly BugReportMeta[], installed: string = 
       continue;
     }
     const v = filedBy(r);
-    if (isAutoReport(r) && (f || (v && v !== installed && versionAtMost(v, installed)))) {
+    // Final debug round: an older version's own record only once it was exported (Export all marks it sent); one never
+    // exported stays until it is, so no crew alarm is lost before it reaches the checks.
+    if (isAutoReport(r) && (f || (v && v !== installed && versionAtMost(v, installed) && (r.status === 'sent' || !!r.sentAt)))) {
       remove.push(id);
       old++;
     }

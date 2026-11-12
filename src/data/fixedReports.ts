@@ -53,7 +53,7 @@ export const FIXED_REPORTS: Record<string, FixedReport> = {
   bmwdo5trhi3sl: { version: 'v0.23.1', what: 'a finished market study and a route going on sale pop up and pause the game (Settings › Pause for network news turns the pause off).' },
   bmwdnxjlp5jo6: { version: 'v0.23.1', what: 'a running route\'s cabin can be changed in Sales › Cabin (business and economy, or economy only), with seats, passengers, revenue and profit compared first.' },
   bmwdnzq5ab7lk: { version: 'v0.23.1', what: 'the times were checked: Lisbon–Bissau takes about 4 h 20 gate to gate in the game, close to the real timetables, so they stay.' },
-  bmwdp7pj1ebdw: { version: 'v0.23.1', what: 'checked, and it is realistic: in ACMI the operator pays for maintenance, so maintenance and its reserves are a big cost, after crew and aircraft rent.' },
+  bmwdp7pj1ebdw: { version: 'v0.23.1', what: 'checked, and it is realistic: in ACMI the operator pays for maintenance. With older 757s, maintenance and its reserves are your biggest cost, about 30 % of spending; newer aircraft cost less.' },
 };
 
 /** 'v0.17.2' → [0, 17, 2]. Pure. */

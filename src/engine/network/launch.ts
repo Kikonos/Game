@@ -982,7 +982,7 @@ export function stepLaunch(g: GameState, r: Route): void {
       const cs = stage(r, 'case');
       cs.state = 'waiting';
       cs.start = g.now;
-      pushRouteNote(g, r, 'warn', `Study done: ${m.city}`, `About ${p50} travellers a week both ways could fly with us (${r.study.est.p10}–${r.study.est.p90}). The business case waits for your answer.`, null, 'routeStudy');
+      pushRouteNote(g, r, 'warn', `Study done: ${m.city}`, `About ${p50.toLocaleString('en-US')} travellers a week both ways could fly with us (${r.study.est.p10.toLocaleString('en-US')}–${r.study.est.p90.toLocaleString('en-US')}). The business case waits for your answer.`, null, 'routeStudy');
       // v0.23.1 a pop-up and the clock stops (Settings › Pause for network news; report bmwdo5trhi3sl).
       requestPause('network');
       // v0.22 the first finished study earns the network planner at once (the daily check ran before this handler: the
