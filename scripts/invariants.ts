@@ -41,6 +41,8 @@ import { inCurfew } from '../src/engine/core/curfew';
 import { openAfter } from '../src/engine/contracts/schedule';
 
 const H = 60;
+/** v0.23.1 the most a report may be logged later (BAL.logLater.capMin, written here from the brief). */
+const LOG_CAP = 60;
 /** v0.14 new copies of one empty move in 24 h above which it is a re-plan loop (a hop out and back is two). */
 export const REPLAN_MAX = 3;
 
@@ -84,6 +86,8 @@ interface LogRec {
   ext: boolean;
   block: number;
   sectors: number;
+  /** v0.23.1 the report was logged this many minutes later than the crew reported (start is the real one). */
+  logged?: number;
 }
 interface SbyRec {
   from: Minute;
@@ -156,6 +160,8 @@ export function createChecker(opts: CheckerOpts = {}) {
   const emptySeen = new Set<string>();
   const replans = new Map<string, { t: Minute; std: Minute }[]>();
   const fdpSeen = new Set<string>();
+  /** v0.23.1 duties whose report was logged later (crew/logLater.ts), and the rests / days it hid (not errors). */
+  const adjusted = { duties: 0, rest: 0, fdp: 0 };
   /** v0.14.1 duties already reported as a positioning day over its limit (pos-fdp). */
   const posSeen = new Set<string>();
   /** v0.12.1 passenger flights whose riders were checked; crew rides on them seen. */
@@ -230,7 +236,8 @@ export function createChecker(opts: CheckerOpts = {}) {
     // ---- crew snapshots (logs are pruned at 28 days, so they are collected as they appear) ----
     for (const c of Object.values(g.crew)) {
       const h = hist(g, c.id);
-      for (const e of c.log) h.log.set(`${e.start}|${e.end}`, { start: e.start, end: e.end, aug: e.augmented, ext: !!e.ext, block: e.block, sectors: e.sectors });
+      // v0.23.1 a start logged later than the crew reported (crew/logLater.ts): read from the real report, the minutes kept.
+      for (const e of c.log) h.log.set(`${e.start}|${e.end}`, { start: e.start - (e.logged ?? 0), end: e.end, aug: e.augmented, ext: !!e.ext, block: e.block, sectors: e.sectors, ...(e.logged ? { logged: e.logged } : {}) });
       // Windows dropped before they started never happened (the day planner re-plans ahead).
       const cur = new Set((c.standby ?? []).map((w) => w.from));
       for (const [from] of h.sby) if (from > lastObs && !cur.has(from)) h.sby.delete(from);
@@ -364,6 +371,14 @@ export function createChecker(opts: CheckerOpts = {}) {
         const lastF = d.flightIds.map((id) => g.flights[id]).filter((f) => f && f.status === 'done').pop();
         if (crewN && lastF?.ata !== undefined && d.release < lastF.ata) err('release', d.release, `duty ${d.id} released ${fmtDateTime(d.release)} before ${lastF.no} landed ${fmtDateTime(lastF.ata)}`);
         if (crewN && d.flightIds.some((id) => g.flights[id]?.status === 'done')) {
+          // v0.23.1 d.fdp is the day on record (from a later logged report, crew/logLater.ts): the real day is longer by
+          // its minutes. Within them (and the cap) it is counted apart as adjusted; beyond them, or unmarked, an error.
+          const lg = d.logged?.min ?? 0;
+          if (lg > LOG_CAP) err('adjust-cap', d.release, `duty ${d.id} report logged ${lg} min later (cap ${LOG_CAP} min)`);
+          if (lg) {
+            adjusted.duties++;
+            if (d.fdp + lg > d.maxFdp + disc + 1 && d.fdp <= d.maxFdp + disc + 1) adjusted.fdp++;
+          }
           if (d.fdp > d.maxFdp + disc + 1) err('fdp', d.release, `duty ${d.id} (${d.flightIds.map((id) => g.flights[id]?.no).join(' ')}) FDP ${hm(d.fdp)} over max ${hm(d.maxFdp)} + discretion ${hm(disc)}`);
           if (disc > (d.augment ? 3 * H : 2 * H)) err('fdp', d.release, `duty ${d.id} discretion ${hm(disc)} over the ${d.augment ? 3 : 2} h allowed`);
           if (d.split && d.maxFdp > 16 * H) err('fdp', d.release, `duty ${d.id} split duty max FDP ${hm(d.maxFdp)} over 16 h`);
@@ -580,6 +595,11 @@ export function createChecker(opts: CheckerOpts = {}) {
           what = `${w.kind} standby${w.calledAt !== undefined ? ' (called out)' : ''}`;
         }
         etc.restChecked++;
+        // v0.23.1 a rest short only by the minutes a later logged report hides (at most the cap): counted apart.
+        if (gap < need - 1 && b.logged && b.logged <= LOG_CAP && !w && gap + b.logged >= need - 1) {
+          adjusted.rest++;
+          continue;
+        }
         if (gap < need - 1) {
           etc.rest++;
           const tags = [a.aug ? 'augmented' : '', a.ext ? 'extended' : '', tz >= 4 ? `tz ${tz} h` : '', home ? 'home' : `away at ${at}`].filter(Boolean).join(', ');
@@ -675,15 +695,15 @@ export function createChecker(opts: CheckerOpts = {}) {
         if (cabin < min) err('crew-min', f.atd, `${f.no} ${f.from}–${f.to} flew with ${cabin} cabin crew (minimum ${min} for ${seats} seats)`);
       }
     }
-    summary = { restChecked: etc.restChecked, restShort: etc.rest, restUnknown: etc.unknown, flights: flights.size, crew: crew.size, steps, from: firstT ?? 0, to: lastT, rides: rides.n, rideLegs: ridesSeen.size };
+    summary = { restChecked: etc.restChecked, restShort: etc.rest, restUnknown: etc.unknown, flights: flights.size, crew: crew.size, steps, from: firstT ?? 0, to: lastT, rides: rides.n, rideLegs: ridesSeen.size, adjusted: { ...adjusted } };
   }
 
-  let summary = { restChecked: 0, restShort: 0, restUnknown: 0, flights: 0, crew: 0, steps: 0, from: 0, to: 0, rides: 0, rideLegs: 0 };
+  let summary = { restChecked: 0, restShort: 0, restUnknown: 0, flights: 0, crew: 0, steps: 0, from: 0, to: 0, rides: 0, rideLegs: 0, adjusted: { duties: 0, rest: 0, fdp: 0 } };
 
   function print(label = 'invariants', max = 25): void {
     const by = new Map<string, Issue[]>();
     for (const e of errors) (by.get(e.code) ?? by.set(e.code, []).get(e.code)!).push(e);
-    console.log(`\n== ${label}: ${errors.length} errors, ${warns.length} warnings (${summary.flights} legs, ${summary.crew} crew, ${summary.restChecked} rests checked (${summary.restUnknown} without legs on record), ${summary.rides} crew rides on ${summary.rideLegs} passenger flights, ${summary.steps} steps, ${fmtDateTime(summary.from)} → ${fmtDateTime(summary.to)})`);
+    console.log(`\n== ${label}: ${errors.length} errors, ${warns.length} warnings (${summary.flights} legs, ${summary.crew} crew, ${summary.restChecked} rests checked (${summary.restUnknown} without legs on record), ${summary.rides} crew rides on ${summary.rideLegs} passenger flights, ${summary.steps} steps, ${fmtDateTime(summary.from)} → ${fmtDateTime(summary.to)})${summary.adjusted.duties ? `; adjusted (report logged later): ${summary.adjusted.duties} duties, ${summary.adjusted.rest} rests and ${summary.adjusted.fdp} days within it` : ''}`);
     for (const [code, list] of [...by].sort()) {
       console.log(`  ERROR ${code} × ${list.length}`);
       for (const e of list.slice(0, max)) console.log(`    ${fmtDateTime(e.t)}  ${e.text}`);
