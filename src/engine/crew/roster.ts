@@ -1331,9 +1331,17 @@ function leaveBack(g: GameState, c: CrewMember, b: LeaveBlock): boolean {
   const segs = withoutTickets(segsOf(g, c), have.map((f) => f.id));
   if (home) {
     const next = segs.find((s) => s.kind !== 'log' && s.kind !== 'sby' && !s.leave && s.start >= home.sta);
-    // (A tour's next duty, whenever it comes: the set lives on station.)
-    const tourOf = (x: Seg | undefined) => !!x?.dutyId && !!g.pairings[g.duties[x.dutyId]?.pairingId ?? '']?.tour;
-    const soon = (x: Seg) => x.start < b.to + LEAVE_BACK_GAP || tourOf(x) || tourOf(segs.find((y) => y.kind === 'duty' && y.start >= x.end));
+    // (A tour's next duty, whenever it comes: the set lives on station. v0.22.1 only where it does: the tour's period
+    // under way when the leave ends, and the trip back landing at the deployment's own station; Pedro Sousa was flown to
+    // the slip station eight days before a tour period not yet begun, and home again eight hours later.)
+    const place = (x: Seg): string => (x.kind === 'duty' ? (x.out?.id ? x.out.to : x.from) : x.ticketId && x.from === c.base ? x.at : x.from) ?? '';
+    const tourOf = (x: Seg | undefined, at: string) => {
+      const q = x?.dutyId ? g.pairings[g.duties[x.dutyId]?.pairingId ?? ''] : undefined;
+      const span = q ? tourSpan(g, q) : null;
+      const dep = q ? deploymentOf(g, q) : undefined;
+      return !!span && !!dep && span.from <= b.to && dep.base === at;
+    };
+    const soon = (x: Seg) => x.start < b.to + LEAVE_BACK_GAP || tourOf(x, place(x)) || tourOf(segs.find((y) => y.kind === 'duty' && y.start >= x.end), place(x));
     if (next && next.start >= b.to - DAY && soon(next)) {
       const d = next.dutyId ? g.duties[next.dutyId] : undefined;
       if (next.kind === 'duty' && next.out?.id && next.out.to !== c.base && d) {

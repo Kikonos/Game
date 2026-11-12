@@ -103,6 +103,7 @@ import { dayIndex as dayIndexAt, isOff } from '../src/engine/crew/dayPlan';
 import { offsetAt } from '../src/engine/crew/rules';
 import { createTicketLog } from './ticketlog';
 import { createChecker } from './invariants';
+import { watchAlarms } from './bot/alarms';
 import { SETUP_BY_ID, type SetupId } from '../src/data/setups';
 import { createScenario, METRICS, SCENARIO_BY_ID, fmtValue, reliability, scenarioOutcome, scenarioView } from '../src/engine/scenario';
 import { fleetWords } from '../src/engine/newGame';
@@ -157,6 +158,9 @@ const INV = process.argv.includes('--inv') ? createChecker() : null;
 /** Rotations round: --ticketlog=<file>: every crew ticket bought, classified against the tours (scripts/ticketlog.ts). */
 const TLOG_FILE = process.argv.find((a) => a.startsWith('--ticketlog='))?.slice(12);
 const TLOG = TLOG_FILE ? createTicketLog() : null;
+/** v0.22.1 --alarms[=file]: every crew alarm that reaches the player, with its leg, its card's hurt and (--crewcheck) the cross-check's verdict. */
+const ALARMS_ARG = process.argv.find((a) => a === '--alarms' || a.startsWith('--alarms='));
+const ALARMS = ALARMS_ARG ? watchAlarms() : null;
 /** v0.12 --setup=<id>: another New Game start setup (data/setups.ts: boeing, leisure, newtech, mixed, veterans, shoestring). */
 const SETUP = process.argv.find((a) => a.startsWith('--setup='))?.slice(8) as SetupId | undefined;
 
@@ -2475,6 +2479,14 @@ if (FORECAST_HIRE) console.log(`forecast hires: ${fcHired} (${[...fcHiredBy].map
 if (TLOG && TLOG_FILE) {
   writeFileSync(TLOG_FILE, `${TLOG.report(g, `seed ${seed} ${days} days ${process.argv.slice(3).filter((a) => a.startsWith('--') && !a.startsWith('--ticketlog')).join(' ')}`)}\n`);
   console.log(`ticket log written to ${TLOG_FILE}`);
+}
+if (ALARMS) {
+  for (const l of ALARMS.report()) console.log(l);
+  const file = ALARMS_ARG!.includes('=') ? ALARMS_ARG!.slice(9) : '';
+  if (file) {
+    ALARMS.save(file);
+    console.log(`crew alarms written to ${file}`);
+  }
 }
 if (INV) {
   INV.finish(g);

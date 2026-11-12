@@ -1493,6 +1493,23 @@ export interface SelfCheckRecord {
   evidence: string[];
 }
 
+/**
+ * v0.22.1 one crew alarm that reached the player (confirmed by the self-check): kept until the UI files it, quietly, into
+ * Bug reports with a snapshot, so every alarm can be cross-checked later (scripts/crewcheck.ts).
+ */
+export interface CrewAlarmRecord {
+  t: Minute;
+  kind: 'short' | 'hours' | 'early' | 'takenOff' | 'rest';
+  flightId: string;
+  no: string;
+  /** 'JED–LGW 4 May 10:15'. */
+  leg: string;
+  /** The alarm's title as the Inbox shows it. */
+  title: string;
+  /** The planner's evidence (the self-check's "Checked ✓" lines). */
+  evidence: string[];
+}
+
 export interface SelfCheckState {
   confirmed: number;
   withheld: number;
@@ -1500,6 +1517,8 @@ export interface SelfCheckState {
   log: SelfCheckRecord[];
   /** Withheld ones still to be filed into Bug reports by the UI (takeSelfCheckRecords). */
   pending: SelfCheckRecord[];
+  /** v0.22.1 confirmed alarms still to be filed into Bug reports by the UI (takeCrewAlarmRecords); at most 40 wait. */
+  alarms?: CrewAlarmRecord[];
 }
 
 export interface DecisionOption {
