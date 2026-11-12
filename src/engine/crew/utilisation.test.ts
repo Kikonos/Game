@@ -90,6 +90,17 @@ describe('v0.18.2 Crew › Utilisation', () => {
     expect(heldHires(g, 'A320').some((x) => x.role === 'CPT')).toBe(false);
   });
 
+  it('crew who fly few hours but are rostered on trips or tours are not idle for the hold (player bot round)', () => {
+    const g = fixtureGame();
+    addCrew(g, { CPT: 6 });
+    for (const c of Object.values(g.crew)) c.hired = g.now - 400 * DAY;
+    expect(hireHold(g, 'A320', 'CPT')).not.toBeNull();
+    const u = crewUtilisation(g);
+    // Every idle captain rostered (not free): nobody is spare, the round-up is not held.
+    for (const p of u.people) p.free = false;
+    expect(hireHold(g, 'A320', 'CPT', u)).toBeNull();
+  });
+
   it('unpaid leave: those who take it stay home without pay, voluntary', () => {
     const g = fixtureGame();
     addCrew(g, { CC: 12 });
