@@ -337,6 +337,22 @@ function tiesKept(h: GameState, before: Map<string, Minute>): boolean {
   return true;
 }
 
+/** The aircraft's plan still chains after the wait: no leg leaves before the one before it has landed and turned. */
+function planChains(h: GameState, aircraftId: string): boolean {
+  const ac = h.fleet[aircraftId];
+  if (!ac) return false;
+  const legs = liveFlightsOf(h, aircraftId).filter((y) => y.status === 'scheduled' && !y.operatedBy).sort((a, b) => a.std + a.delay - (b.std + b.delay));
+  for (let i = 1; i < legs.length; i++) {
+    const a = legs[i - 1];
+    const b = legs[i];
+    if (b.std + b.delay < a.sta + a.delay + turnOf(ac) || b.from !== a.to) return false;
+  }
+  return true;
+}
+
+/** The most an empty leg waits for its crew past its own time (a leg that would slip longer keeps its alarm). */
+const WAIT_MAX = 36 * 60;
+
 /** How often the wait is looked for again for one leg (each look runs the roster on copies). */
 const WAIT_RETRY = 6 * 60;
 
@@ -358,9 +374,12 @@ export function waitForCrew(g: GameState, f: Flight): boolean {
   // Never past the moment the aircraft must leave for what comes after (its next flight with passengers, its check).
   const tie = emptyLegTie(g, f);
   if (tie && plan.at > tie.latest) return false;
+  // Nor for days: a leg that has already slipped a day and a half from its first time is a problem to look at.
+  if (plan.at - (f.schedStd ?? f.std) > WAIT_MAX) return false;
   const before = tiesOf(g, f.aircraftId, f.id);
   const short = new Set(shortFlights(g).map((s) => s.flightId));
-  const harmless = (h: GameState): boolean => tiesKept(h, before) && shortFlights(h).every((s) => short.has(s.flightId));
+  const chained = planChains(g, f.aircraftId);
+  const harmless = (h: GameState): boolean => tiesKept(h, before) && (!chained || planChains(h, f.aircraftId!)) && shortFlights(h).every((s) => short.has(s.flightId));
   const h = previewCopy(g);
   previewing++;
   let ok = false;

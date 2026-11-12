@@ -36,6 +36,9 @@ export const FIXED_REPORTS: Record<string, FixedReport> = {
   bmwbiobsokzf4: { version: 'v0.21', what: 'a stop can now be a real stopover: some passengers get off, others get on, others stay on. Build your own route shows "Fuel stop only" and "Stopover" side by side with the pros and cons, and a fuel stop can be turned into a stopover.' },
   bmwbir591j4cw: { version: 'v0.21', what: 'Network › Studies lists every study (under way, shelved, launched, run out). A market with a study still good shows "Show study" and a grey "Valid until" instead of a new paid study.' },
   bmwbjlg2n93bp: { version: 'v0.21', what: 'the business case opens with Worth it / Marginal / Not worth it and why, new pictures (money from revenue to result, load against break-even, margin scale), the analyst\'s suggestions with Apply, a network planner to hire, and small "?" marks that answer your questions on tap. Margins were checked against real airlines.' },
+  // v0.22.1
+  bmwbzgzrejg9v: { version: 'v0.22.1', what: 'after annual leave nobody is flown out days early to a tour that has not begun, only to be sent home again.' },
+  bmwc20bgx36j: { version: 'v0.22.1', what: 'approval fees have their own Finance slice, Approvals & audits, instead of Office & sales.' },
 };
 
 /** 'v0.17.2' → [0, 17, 2]. Pure. */

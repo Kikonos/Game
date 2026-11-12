@@ -12,7 +12,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { FIXED_REPORTS } from '../src/data/fixedReports';
-import { parseBugsFile, shotExt, snapshotText } from '../src/ui/bugReports';
+import { isCrewAlarm, parseBugsFile, shotExt, snapshotText } from '../src/ui/bugReports';
 
 function main(): void {
   const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
@@ -26,9 +26,23 @@ function main(): void {
   mkdirSync(outDir, { recursive: true });
   console.log(`${data.app} · exported ${data.exportedAt} · ${data.company ?? '(no game)'} · ${data.reports.length} report(s)`);
   if (data.skipped?.length) console.log(`left out of this export: ${data.skipped.map((x) => `${x.id} (${x.status}${FIXED_REPORTS[x.id] ? `, fixed in ${FIXED_REPORTS[x.id].version}` : ''})`).join(', ')}`);
+  const alarms = data.reports.filter(isCrewAlarm).length;
+  if (alarms) console.log(`${alarms} of them are crew alarms the game filed itself: npx tsx scripts/crewcheck.ts <file> judges each one (RIGHT / WRONG / UNSURE)`);
   data.reports.forEach((r, i) => {
     const c = r.context;
     const stem = `${String(i + 1).padStart(2, '0')}-${r.id}`;
+    // v0.22.1 a crew alarm filed by the game: one line, its snapshot written when it carries one (alarms of the same
+    // game minute share one).
+    if (isCrewAlarm(r) && r.alarm) {
+      const a = r.alarm;
+      if (r.snapshot) writeFileSync(join(outDir, `${stem}.blockhours.json`), snapshotText(r.snapshot));
+      console.log(`\n[${i + 1}] crew alarm (${a.kind}) · game ${c.gameTime} · ${a.no} ${a.leg} · ${a.title}`);
+      if (a.why) console.log(`  why: ${a.why}`);
+      if (a.hurt) console.log(`  hurt: ${a.hurt}`);
+      if (a.evidence.length) console.log(`  checked: ${a.evidence.join('; ')}`);
+      console.log(r.snapshot ? `  snapshot → ${join(outDir, `${stem}.blockhours.json`)}` : r.snapOf ? `  snapshot: shared with ${r.snapOf}` : '  no snapshot kept');
+      return;
+    }
     const name = `${stem}.blockhours.json`;
     const known = FIXED_REPORTS[r.id];
     const write = !known || all;
