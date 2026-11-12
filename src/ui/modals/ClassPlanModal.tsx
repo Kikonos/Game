@@ -13,7 +13,7 @@ import { typeOf } from '../../engine/core/perf';
 import { DAY } from '../../engine/core/time';
 import type { GameState, Minute, Role } from '../../engine/core/types';
 import {
-  bookClassPlan, CLASS_PLAN, classCandidates, classPlanNeed, classPlanSteps, conversionEarliest, courseOf, crewName, crewRev, familyWord, previewCopy, removeRating, removeRatingPlan,
+  bookClassPlan, CLASS_PLAN, classCandidates, classPlanNeed, classPlanSteps, conversionEarliest, courseOf, crewName, crewRev, dropChoices, familyWord, previewCopy, removeRating, removeRatingPlan,
   type ClassProposal, type PlannedClass,
 } from '../../engine/crew';
 import { lockOf } from '../../engine/scenario';
@@ -23,7 +23,7 @@ import { Modal, Seg } from '../components/ui';
 import { money } from '../format';
 import { baseDay, isPilotRole } from '../screens/screenLogic';
 import { store, useGame, type ModalSpec } from '../store';
-import { byChoices, samePlan, sizesText, stripView } from './classPlanLogic';
+import { byChoices, nextNo, samePlan, sizesText, stripView } from './classPlanLogic';
 
 type Group = 'cabin' | 'pilot';
 const RANKS: Record<Group, { role: Role; label: string }[]> = {
@@ -47,6 +47,25 @@ function familyList(g: GameState): RatingFamily[] {
   const fleet = [...new Set(Object.values(g.fleet).map((a) => typeOf(a.typeId).family))];
   const all = [...new Set(ACMI_TYPES_LIST.map((t) => t.family))];
   return [...fleet, ...all.filter((f) => !fleet.includes(f))];
+}
+
+/** v0.23.1 Select's people: the group most of them are in (cabin crew on a tie). */
+function seedGroup(g: GameState, ids: string[]): Group {
+  const pilots = ids.filter((id) => isPilotRole(g.crew[id].role)).length;
+  return pilots > ids.length - pilots ? 'pilot' : 'cabin';
+}
+
+/** v0.23.1 Select's people: the type most of their group could train for (flown or on its way first; one short of crew first). */
+function seedFamily(g: GameState, ids: string[], fams: RatingFamily[]): RatingFamily | undefined {
+  const gr = seedGroup(g, ids);
+  const mine = ids.filter((id) => isPilotRole(g.crew[id].role) === (gr === 'pilot'));
+  const flown = new Set(Object.values(g.fleet).map((a) => typeOf(a.typeId).family));
+  const score = (f: RatingFamily) => mine.filter((id) => !g.crew[id].ratings.includes(f)).length;
+  const shorts = new Map<RatingFamily, number>();
+  const short = (f: RatingFamily) => shorts.get(f) ?? shorts.set(f, classPlanNeed(g, f, gr).roles.some((r) => r.short > 0) ? 1 : 0).get(f)!;
+  let best: RatingFamily | undefined;
+  for (const f of fams.filter((x) => flown.has(x))) if (best === undefined || score(f) > score(best) || (score(f) === score(best) && short(f) > short(best))) best = f;
+  return best && score(best) > 0 ? best : fams.find((f) => score(f) > 0) ?? best;
 }
 
 /** The group the type is short of (cabin crew first), else cabin crew. */
@@ -80,7 +99,7 @@ function Strip({ g, p, open, onOpen }: { g: GameState; p: ClassProposal; open: s
         <i className="kp-now" style={{ left: pc(v.today) }} />
         {v.by !== null && <i className="kp-by" style={{ left: pc(v.by) }} />}
         {v.blocks.map((b) => (
-          <button key={b.no} className={`kp-block ${p.group} ${open === b.no ? 'on' : ''}`} style={{ left: pc(b.left), width: pc(b.width), top: b.lane * 30 + 2 }} onClick={() => onOpen(b.no)} aria-label={`${b.no}: ${b.n} people from ${baseDay(g, b.start)}`} aria-pressed={open === b.no}>
+          <button key={b.no} className={`kp-block ${p.group} ${b.next ? 'next' : ''} ${open === b.no ? 'on' : ''}`} style={{ left: pc(b.left), width: pc(b.width), top: b.lane * 30 + 2 }} onClick={() => onOpen(b.no)} aria-label={`${b.next ? 'Next' : b.no}: ${b.n} people from ${baseDay(g, b.start)}`} aria-pressed={open === b.no}>
             <b>{b.n}</b>
           </button>
         ))}
@@ -94,13 +113,15 @@ function Strip({ g, p, open, onOpen }: { g: GameState; p: ClassProposal; open: s
   );
 }
 
-export function ClassPlanModal({ family: fam0, group: group0 }: { family?: RatingFamily; group?: Group }) {
+export function ClassPlanModal({ family: fam0, group: group0, crewIds: seed, onBooked }: { family?: RatingFamily; group?: Group; crewIds?: string[]; onBooked?: () => void }) {
   const g = useGame();
   const fams = useMemo(() => familyList(g), [g]);
-  const [family, setFamilyRaw] = useState<RatingFamily>(fam0 ?? fams[0] ?? 'A320');
-  const [group, setGroupRaw] = useState<Group>(() => group0 ?? defaultGroup(g, fam0 ?? fams[0] ?? 'A320'));
+  // v0.23.1 from Select on the Crew screen: exactly the people chosen (the type most of them could train for).
+  const picked = useMemo(() => (seed ? seed.filter((id) => g.crew[id]) : null), [seed?.join()]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [family, setFamilyRaw] = useState<RatingFamily>(() => fam0 ?? (picked ? seedFamily(g, picked, fams) : fams[0]) ?? 'A320');
+  const [group, setGroupRaw] = useState<Group>(() => group0 ?? (picked ? seedGroup(g, picked) : defaultGroup(g, fam0 ?? fams[0] ?? 'A320')));
   const need = useMemo(() => classPlanNeed(g, family, group), [g, family, group]);
-  const everyone = useMemo(() => classCandidates(g, family, group), [g, family, group, crewRev(g)]); // eslint-disable-line react-hooks/exhaustive-deps
+  const everyone = useMemo(() => (picked ? picked.filter((id) => isPilotRole(g.crew[id].role) === (group === 'pilot')) : classCandidates(g, family, group)), [g, family, group, picked, crewRev(g)]); // eslint-disable-line react-hooks/exhaustive-deps
   const [rank, setRank] = useState<Role | 'all'>('all');
   const [by, setBy] = useState<Minute | null>(() => classPlanNeed(g, family, group).arrival?.at ?? null);
   const [balance, setBalance] = useState(2);
@@ -108,9 +129,12 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
   const [open, setOpen] = useState<string | null>(null);
   const [showOut, setShowOut] = useState(false);
   const [review, setReview] = useState(false);
+  // v0.23.1 cabin crew at three types: the type each gives up, where the player chose (the planner's default otherwise).
+  const [drops, setDrops] = useState<Record<string, RatingFamily>>({});
   const reset = (f: RatingFamily, gr: Group) => {
     setRank('all');
     setPins({});
+    setDrops({});
     setOpen(null);
     setReview(false);
     setBy(classPlanNeed(g, f, gr).arrival?.at ?? null);
@@ -119,7 +143,7 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
   const setGroup = (gr: Group) => { setGroupRaw(gr); reset(family, gr); };
   const ids = useMemo(() => everyone.filter((id) => rank === 'all' || g.crew[id]?.role === rank), [everyone, rank, g]);
   // The proposals for all five stops: worked out once per request (a dry run each), after the dialog has painted.
-  const key = `${family}|${group}|${by}|${ids.join()}|${JSON.stringify(pins)}|${Math.floor(g.now / DAY)}|${crewRev(g)}|${Object.keys(g.classes ?? {}).length}`;
+  const key = `${family}|${group}|${by}|${ids.join()}|${JSON.stringify(pins)}|${JSON.stringify(drops)}|${Math.floor(g.now / DAY)}|${crewRev(g)}|${Object.keys(g.classes ?? {}).length}`;
   const [made, setMade] = useState<{ key: string; plans: ClassProposal[] } | null>(() => {
     const plans = doneFor(g, key);
     return plans ? { key, plans } : null;
@@ -131,7 +155,7 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
       return;
     }
     // A step at a time between frames (a dry run each), so the dialog stays live; a running game is read from a copy.
-    const it = classPlanSteps(store.paused ? g : previewCopy(g), { family, group, crewIds: ids, by, pins });
+    const it = classPlanSteps(store.paused ? g : previewCopy(g), { family, group, crewIds: ids, by, pins, drops });
     let t = 0;
     const step = () => {
       const until = performance.now() + 30;
@@ -164,7 +188,24 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
   const book = () => {
     if (!p) return;
     const res = store.act((gg) => bookClassPlan(gg, p));
-    if (res.ok) close();
+    if (!res.ok) return;
+    onBooked?.();
+    close();
+  };
+  const dropAs = (id: string, f: RatingFamily) => {
+    setDrops({ ...drops, [id]: f });
+    setReview(false);
+  };
+  /** 'drops A320' under a name: a quiet select of the types they may give up. */
+  const dropPick = (id: string) => {
+    const c = g.crew[id];
+    const d = p?.drops[id];
+    if (!c || !d) return null;
+    return (
+      <select className="select sm kp-drop" value={d} onChange={(e) => dropAs(id, e.target.value as RatingFamily)} aria-label={`Type ${crewName(c)} gives up`}>
+        {dropChoices(c, family).map((f) => <option key={f} value={f}>drops {familyWord(f)}</option>)}
+      </select>
+    );
   };
   const pin = (id: string, to: Minute | 'out' | null) => {
     const next = { ...pins };
@@ -176,6 +217,7 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
   const byList = byChoices(g.company.homeBase, g.now, conversionEarliest(g), course.days);
   const byValue = by === null ? '' : String(by);
   const same = plans ? samePlan(plans) : false;
+  const nNext = p ? p.next.reduce((n, k) => n + k.crewIds.length, 0) : 0;
 
   const member = (k: PlannedClass, id: string) => {
     const c = g.crew[id];
@@ -184,8 +226,12 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
     return (
       <div key={id} className="kp-person">
         <span className={`sc-role r-${c.role}`}>{c.role}</span>
-        <button className="sc-seat-name ellipsis grow" onClick={() => store.openPerson(id)}>{c.last}, {c.first.charAt(0)}.</button>
-        {x?.drop && <span className="tiny dim nowrap">drops {familyWord(x.drop)}</span>}
+        {x?.drop ? (
+          <span className="col grow kp-who">
+            <button className="sc-seat-name ellipsis" onClick={() => store.openPerson(id)}>{c.last}, {c.first.charAt(0)}.</button>
+            {dropPick(id)}
+          </span>
+        ) : <button className="sc-seat-name ellipsis grow" onClick={() => store.openPerson(id)}>{c.last}, {c.first.charAt(0)}.</button>}
         {x && x.duties > 0 && <span className="tiny warn nowrap">{x.duties} {x.duties === 1 ? 'duty' : 'duties'}</span>}
         <select className="select kp-move" value={x?.pinned ? String(k.start) : ''} onChange={(e) => pin(id, e.target.value === 'out' ? 'out' : e.target.value === '' ? null : Number(e.target.value))} aria-label={`Move ${crewName(c)}`}>
           <option value="">{x?.pinned ? 'Let the planner place' : 'Move…'}</option>
@@ -217,7 +263,7 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
             {fams.map((f) => <option key={f} value={f}>Onto the {familyWord(f)}</option>)}
           </select>
           <select className="select" value={rank} onChange={(e) => { setRank(e.target.value as Role | 'all'); setPins({}); }} aria-label="Who">
-            <option value="all">Everyone ({everyone.length})</option>
+            <option value="all">{picked ? 'Selected' : 'Everyone'} ({everyone.length})</option>
             {RANKS[group].map((r) => <option key={r.role} value={r.role}>{r.label} ({everyone.filter((id) => g.crew[id]?.role === r.role).length})</option>)}
           </select>
           <select className="select" value={byValue} onChange={(e) => setBy(e.target.value === '' ? null : Number(e.target.value))} aria-label="Finish by">
@@ -242,6 +288,8 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
                 ? `Cabin crew: ${course.days} days (classroom, doors, slides, fire and first aid), up to ${CLASS_PLAN.max.cabin} in a class, ${BAL.conv.cabinParallel} classes at a time, ${money(course.cost)} each. They keep their types, up to 3.`
                 : `Pilots: ${course.days} days (ground school, simulator, base and line training), up to ${CLASS_PLAN.max.pilot} in a class in simulator pairs, classes ${BAL.conv.pilotStaggerDays} days apart, ${money(course.cost)} each. A pilot leaves the old type when the course starts, so nobody goes before its aircraft can spare them.`}</p>
               <p>Paid at booking. Full refund up to {BAL.conv.refundFull} days before a class, half after.</p>
+              <p>Classes are booked up to {BAL.conv.maxAheadDays} days ahead. Later ones show as next, with the day they can be booked; the Inbox says when.</p>
+              {group === 'cabin' && <p>Someone already on 3 types gives one up when the course ends: by default one with no aircraft, being phased out, or flown least. Their trips on it after the class go to others.</p>}
             </Help>
           </div>
           {same && p && p.classes.length > 0 && <div className="tiny muted">One plan is best at every setting here{p.duties === 0 ? ': nothing on the roster is in the way' : ''}.</div>}
@@ -249,17 +297,17 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
 
         {!p ? (
           <div className="kp-wait small muted" role="status">Working out the classes…</div>
-        ) : !p.classes.length ? (
+        ) : !p.classes.length && !p.next.length ? (
           <div className="kp-wait small muted">No class fits{p.leftOut.length ? `: ${p.leftOut[0].why.charAt(0).toLowerCase() + p.leftOut[0].why.slice(1)}` : ` (nobody of this group left to train on the ${label})`}.</div>
         ) : (
           <div className={`col gap-12 ${stale ? 'kp-stale' : ''}`}>
             <Strip g={g} p={p} open={open} onOpen={(no) => setOpen(open === no ? null : no)} />
             <div className="kp-tiles" role="list" aria-label="The balance">
-              <Tile label="Trained" value={`${p.trained} of ${p.asked}`} tone={p.trained < p.asked ? 'warn' : 'good'} />
+              <Tile label="Trained" value={`${p.trained} of ${p.asked}`} sub={nNext ? `${nNext} next` : undefined} tone={p.trained + nNext < p.asked ? 'warn' : 'good'} />
               <Tile label="Classes" value={String(p.classes.length)} sub={sizesText(p)} />
               <Tile label="Duties to re-crew" value={String(p.duties)} sub={p.duties ? 'go to other crew' : 'roster untouched'} tone={p.duties ? 'warn' : 'good'} />
               <Tile label="Flights left short" value={String(p.short.length)} tone={p.short.length ? 'bad' : 'good'} />
-              <Tile label="Finished" value={baseDay(g, p.finish! - 1)} sub={p.late ? 'after the date asked' : `first starts ${baseDay(g, p.first!)}`} tone={p.late ? 'warn' : undefined} />
+              <Tile label="Finished" value={p.finish !== null ? baseDay(g, p.finish - 1) : '–'} sub={p.late ? 'after the date asked' : p.first !== null ? `first starts ${baseDay(g, p.first)}` : undefined} tone={p.late ? 'warn' : undefined} />
               <Tile label="Course fees" value={money(p.fees)} sub={p.extra ? `+ ${money(p.extra)} tickets` : 'training'} />
             </div>
             {p.warnings.map((w, i) => <div key={i} className={`small row gap-8 cv-warn ${w.level === 'bad' ? 'bad' : 'warn'}`}><AlertTriangle className="sc-ico-s" /><span>{w.text}</span></div>)}
@@ -277,6 +325,32 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
                     </button>
                     {on && <div className="kp-people">{k.crewIds.map((id) => member(k, id))}</div>}
                     {on && k.phases.length > 1 && <div className="tiny dim kp-phases">{k.phases.map((ph) => `${ph.label} ${baseDay(g, ph.from)}`).join(' · ')}</div>}
+                  </div>
+                );
+              })}
+              {p.next.map((k, i) => {
+                const no = nextNo(i);
+                const on = open === no;
+                return (
+                  <div key={no} id={`kp-${no}`} className={`kp-class next ${on ? 'on' : ''}`}>
+                    <button className="kp-class-head" onClick={() => setOpen(on ? null : no)} aria-expanded={on}>
+                      <b>Next</b>
+                      <span className="small muted grow ellipsis">{baseDay(g, k.start)} – {baseDay(g, k.end - 1)} · {k.crewIds.length} {group === 'pilot' ? 'pilots' : 'people'} · book from {baseDay(g, k.bookFrom)}</span>
+                      <ChevronDown className={`sc-ico-s kp-chev ${on ? 'up' : ''}`} />
+                    </button>
+                    {on && (
+                      <div className="kp-people">
+                        {k.crewIds.map((id) => {
+                          const c = g.crew[id];
+                          return c ? (
+                            <div key={id} className="kp-person">
+                              <span className={`sc-role r-${c.role}`}>{c.role}</span>
+                              <button className="sc-seat-name ellipsis grow" onClick={() => store.openPerson(id)}>{c.last}, {c.first.charAt(0)}.</button>
+                            </div>
+                          ) : null;
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}
@@ -298,6 +372,7 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
                             <span className="col grow" style={{ minWidth: 0 }}>
                               <button className="sc-seat-name ellipsis" onClick={() => store.openPerson(x.crewId)}>{c.last}, {c.first.charAt(0)}.</button>
                               <span className="tiny muted ellipsis">{x.why}</span>
+                              {dropPick(x.crewId)}
                             </span>
                             <select className="select kp-move" value={pins[x.crewId] === 'out' ? 'out' : ''} onChange={(e) => pin(x.crewId, e.target.value === '' ? null : e.target.value === 'out' ? 'out' : Number(e.target.value))} aria-label={`Place ${crewName(c)}`}>
                               <option value="">{pins[x.crewId] === 'out' ? 'Put back' : 'Add…'}</option>

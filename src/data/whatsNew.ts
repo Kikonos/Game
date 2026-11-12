@@ -16,6 +16,20 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.23.1',
+    name: 'Class planner, step two',
+    features: [
+      'Cabin crew already on three types now go into the plan. Each gives one type up when the course ends: by default one with no aircraft, one being phased out, or the one they fly least.',
+      'The class\'s people list says which type each gives up ("drops A320"). Tap it to pick another. Their trips on that type after the class go to other crew, tried on a copy of the roster first.',
+      'Select people on the Crew screen and tap Plan classes: the planner opens with exactly them.',
+      'A long phase-out goes in instalments. Classes more than 120 days ahead show as Next, with the day you can book them. The Inbox tells you when that day comes.',
+    ],
+    improvements: [
+      'The planner works out its proposals faster and the screen stays live while it does. Going back to a choice you had is instant.',
+      'Pilots booked to leave a type after one of its aircraft goes no longer make Crew › Planning or the crew desk ask you to hire replacements.',
+    ],
+  },
+  {
     version: 'v0.23',
     name: 'Crew person by person, and a class planner',
     features: [

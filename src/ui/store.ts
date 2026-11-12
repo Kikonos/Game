@@ -182,7 +182,7 @@ export type ModalSpec =
   | { kind: 'convert'; crewIds: string[]; family?: RatingFamily; onBooked?: () => void; advice?: { from: RatingFamily; role: Role; n: number } }
   | { kind: 'classes' }
   /** v0.23 the class planner (Crew › Planning › Plan classes) and Remove type rating for cabin crew (ui/modals/ClassPlanModal.tsx). */
-  | { kind: 'classPlan'; family?: RatingFamily; group?: 'cabin' | 'pilot' }
+  | { kind: 'classPlan'; family?: RatingFamily; group?: 'cabin' | 'pilot'; crewIds?: string[]; onBooked?: () => void }
   | { kind: 'removeRating'; crewIds: string[]; family?: RatingFamily; back?: ModalSpec; onDone?: () => void }
   /** v0.7: sign a market offer; cabin refit; lease extend/return; an approval on the ladder; the ladder-step celebration. */
   | { kind: 'acquire'; offerId: string }
