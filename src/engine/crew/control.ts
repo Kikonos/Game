@@ -57,6 +57,7 @@ import { boughtNow, buyBackFor, buyBackMode, repayText, type BuyBack } from './b
 import { crewAlertKind, LIMIT_NAME, outOfHours, type CrewAlertKind } from './outOfHours';
 import { confirmAlarm, setAlarmHooks, type CheckHooks } from './selfCheck';
 import { syncDuty } from './duties';
+import { adjustedRecently, logLaterLabel, logLaterMorale, logLaterOffer, writeLogLater } from './logLater';
 import { restPlan } from './restPlan';
 import { restMarked, restMarkLive } from './restMarks';
 import { lockOf } from '../scenario/rules';
@@ -147,10 +148,13 @@ export const FIX_LABEL: Record<CrewFix, string> = {
   autoFix: 'Auto-fix', deadhead: 'Fly someone in', delay: 'Delay until crew arrives', jet: 'Charter a private jet', callIn: 'Call in standby crew',
   discretion: "Commander's discretion", swap: 'Swap crews', subcharter: 'Sub-charter', cancel: 'Cancel',
   buyBack: 'Ask someone to work a day off',
+  logLater: 'Log a later report time',
 };
 // v0.12.1 the buy-back after the call-in (its cost ranks it before a late ticket, a jet or a cancellation).
 // BLU2032 round: discretion right after the auto-fix: when the commander may extend the day it is free and at once.
-const FIX_ORDER: CrewFix[] = ['autoFix', 'discretion', 'deadhead', 'delay', 'jet', 'callIn', 'buyBack', 'swap', 'subcharter', 'cancel'];
+/** v0.23.1 Crew Control's ranking weighs a later report time on the roster as this many dollars (its morale and risk). */
+const LOG_LATER_RANK = 60_000;
+const FIX_ORDER: CrewFix[] = ['autoFix', 'discretion', 'deadhead', 'delay', 'jet', 'callIn', 'buyBack', 'swap', 'logLater', 'subcharter', 'cancel'];
 const FIX_DESC: Record<CrewFix, string> = {
   autoFix: 'Run the roster again for this flight and its trip.',
   deadhead: 'A free crew member flies in as a passenger on an airline ticket.',
@@ -162,6 +166,7 @@ const FIX_DESC: Record<CrewFix, string> = {
   subcharter: 'A rival airline flies it; we still bill the client.',
   cancel: 'Compensation to the client and a reliability hit.',
   buyBack: "Paid at twice a day's pay; the day off is given back later in the month.",
+  logLater: 'The roster shows the crew reporting later than they did, so the limit reads as kept. Costs morale; it may come out later.',
 };
 
 // ---------- the unit, seats and words ----------
@@ -1089,10 +1094,21 @@ export function crewShortCard(g: GameState, flightId: string): ProblemCard | nul
     actions: [
       { id: 'crewControl', label: 'Crew Control', open: { modal: 'crewControl', id: f.id }, primary: true },
       ...(d ? [{ id: 'adjustCrew', label: 'Adjust crew', open: { modal: 'duty' as const, id: d.id } }] : []),
+      // v0.23.1 a short rest or a day over its limit by at most an hour: the roster may show a later report.
+      ...logLaterAction(g, f.id),
       { id: 'schedule', label: 'Schedule', open: { tab: 'schedule', sel: { kind: 'flight', id: f.id } } },
     ],
     details, visuals, terms: [...new Set(terms)], by: f.std,
   };
+}
+
+/**
+ * v0.23.1 the card's action for a later report time on the roster (crew/logLater.ts), when it is offered: it opens Crew
+ * Control on that row ('Log a later report time (+40 min)'). Pure.
+ */
+export function logLaterAction(g: GameState, flightId: string): ProblemCard['actions'] {
+  const o = logLaterOffer(g, flightId);
+  return o.ok ? [{ id: 'logLater', label: logLaterLabel(o.min), open: { modal: 'crewControl', id: flightId, fix: 'logLater' } }] : [];
 }
 
 // ---------- gauges (§7) ----------
@@ -1953,6 +1969,28 @@ function runFix(h: GameState, flightId: string, fix: CrewFix, opts: ApplyOpts): 
       changes.push(...seatChanges(h, f, before));
       return { ok: true, changes, cost: r.data!.cost };
     }
+    case 'logLater': {
+      // v0.23.1 the roster shows a later report (crew/logLater.ts): the duty re-measured from it, whoever left a seat
+      // for the limit seated again, and the flight must then be legal (else nothing changes: atomic / the preview).
+      if (!d || !p) return { ok: false, error: 'No crew plan for this flight yet' };
+      const o = logLaterOffer(h, flightId);
+      if (!o.ok) return { ok: false, error: o.why };
+      const hd = h.duties[d.id];
+      const hp = h.pairings[p.id];
+      const back = o.who.filter((y) => !hp.slots.some((s) => s.crewId === y.crewId));
+      const changes = writeLogLater(h, hd, hp, f.no, o);
+      syncDuty(h, hd, hp);
+      touchCrew(h);
+      for (const y of back) {
+        const r = assignCrew(h, f.id, y.crewId, h.crew[y.crewId]?.role ?? y.role);
+        if (!r.ok) return { ok: false, error: `${y.name} can't take the seat back: ${r.error}` };
+        changes.push(`${y.name} takes the ${ROLE_WORD[h.crew[y.crewId]?.role ?? y.role][0]} seat again`);
+      }
+      recheckPairing(h, hp);
+      touchCrew(h);
+      if (BAD(flightCrewStatus(h, f.id, { live: false }).level)) return { ok: false, error: 'Even logged later the crew is not legal' };
+      return { ok: true, changes, cost: 0 };
+    }
     case 'discretion': {
       if (!d) return { ok: false, error: 'No duty' };
       const r = applyDiscretion(h, d.id);
@@ -2147,7 +2185,7 @@ const SPEND_CATS: Record<SpendKind, readonly ('deadhead' | 'crewJet' | 'salaries
 const OWN_FIRST: Record<CrewFix, SpendKind[]> = {
   autoFix: ['pay', 'tickets', 'other'], deadhead: ['tickets', 'pay', 'other'], delay: ['tickets', 'pay', 'other'], jet: ['tickets', 'pay', 'other'],
   callIn: ['pay', 'tickets', 'other'], buyBack: ['pay', 'tickets', 'other'], discretion: ['pay', 'tickets', 'other'], swap: ['pay', 'tickets', 'other'],
-  subcharter: ['other', 'tickets', 'pay'], cancel: ['other', 'tickets', 'pay'],
+  subcharter: ['other', 'tickets', 'pay'], cancel: ['other', 'tickets', 'pay'], logLater: ['pay', 'tickets', 'other'],
 };
 const SPEND_WORD: Record<SpendKind, string> = { tickets: 'tickets', pay: 'extra crew pay', other: 'other costs' };
 
@@ -2479,6 +2517,23 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
       out.push(run(s));
     }
   }
+  // v0.23.1 log a later report time: only for a short rest or a day over its limit, by at most an hour.
+  if (want('logLater')) {
+    const s = base('logLater');
+    const o = logLaterOffer(g, f.id);
+    if (!o.ok) out.push(no(s, o.why));
+    else {
+      const first = o.who[0];
+      const before = adjustedRecently(g.crew[first.crewId], g.now);
+      const m = logLaterMorale(o.min, before);
+      s.label = logLaterLabel(o.min);
+      s.chips = ['Free', `Morale ${m}${o.who.length > 1 ? ' each' : ''}`, `Crew ${BAL.logLater.morale.others}`, 'Risk: fine'];
+      const names = o.who.map((y) => y.name.split(' ')[0]);
+      s.consequences = [`${names.length > 2 ? `${names.slice(0, 2).join(', ')} and ${names.length - 2} more` : names.join(' and ')}: ${o.limit === 'rest' ? 'rest' : 'day'} legal on paper, ${o.min} min ${o.limit === 'rest' ? 'short' : 'over'} in reality`];
+      s.confirm = true;
+      out.push(run(s));
+    }
+  }
   // g. swap
   if (want('swap')) {
     const s = base('swap');
@@ -2540,7 +2595,8 @@ function solutionsFor(g: GameState, x: Ctx, previews: boolean, only?: readonly C
     const bad = BAD(s.preview.after.level) ? 1e9 : 0;
     const late = s.newDeparture ? Math.max(0, s.newDeparture - f.std) * 100 : 0;
     const rip = s.preview.ripple.reduce((n, l) => n + (l.tone === 'bad' ? 20_000 : 2_000), 0);
-    return bad + s.cost + (s.preview.extraCost ?? 0) + late + rip + (s.id === 'cancel' ? x.pax * 500 + (waitWins ? 5e8 : 0) : 0);
+    // v0.23.1 a falsified roster is never the first answer when a legal fix costs less than this (morale, the risk).
+    return bad + s.cost + (s.preview.extraCost ?? 0) + late + rip + (s.id === 'cancel' ? x.pax * 500 + (waitWins ? 5e8 : 0) : 0) + (s.id === 'logLater' ? LOG_LATER_RANK : 0);
   };
   // A jet not offered (v0.8 fix pack) goes last: the panel shows it as one muted line under the rows.
   // v0.9 §T crew out of hours: a call-in from standby leads at equal cost, as the card says ('Replace X: Y is on standby').

@@ -90,7 +90,9 @@ function dutySpan(g: GameState, d: Duty, p: Pairing, cabin: boolean): Span | nul
   // A duty already reported runs from its report (a hold at the gate grows the day); one still to report from its first
   // departure as it now stands.
   const reported = d.report <= g.now && p.status === 'active';
-  const start = reported || first.status !== 'scheduled' ? d.report - early : first.std + (first.delay ?? 0) - rm.report - early;
+  // v0.23.1 a later report time logged on the roster (crew/logLater.ts) is read as logged: the check judges the roster as
+  // it stands (the change itself is on record, Duty.logged; scripts/invariants.ts counts it apart).
+  const start = (reported || first.status !== 'scheduled' ? d.report - early : first.std + (first.delay ?? 0) - rm.report - early) + (d.logged?.min ?? 0);
   const end = (last.status === 'done' ? last.ata ?? last.sta : last.status === 'enroute' ? last.eta ?? last.sta : last.sta + (last.delay ?? 0)) + rm.post;
   return { start, end, block: fl.reduce((s, f) => s + f.block, 0), aug: d.augment > 0, ext: !!d.ext, dep: first.from, arr: last.to, kind: 'duty', weight: 1 };
 }

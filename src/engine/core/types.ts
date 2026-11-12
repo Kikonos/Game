@@ -982,7 +982,9 @@ export type JetClass = 'light' | 'midsize' | 'heavy' | 'long';
 /** v0.7.1 Crew Control fixes (crew/control.ts). */
 export type CrewFix = 'autoFix' | 'deadhead' | 'delay' | 'jet' | 'callIn' | 'discretion' | 'swap' | 'subcharter' | 'cancel'
   /** v0.12.1 ask a crew member to work a day off (crew/buyBack.ts). */
-  | 'buyBack';
+  | 'buyBack'
+  /** v0.23.1 log a later report time on the roster (crew/logLater.ts). */
+  | 'logLater';
 
 /** v0.7.1 every kind of problem a ProblemCard can be about (engine/problems). */
 export type ProblemKind =
@@ -1056,6 +1058,8 @@ export interface DutyLogEntry {
    * +2 h after, 'after' = +4 h after (absent on older entries: +4 h after, as they were rested).
    */
   extRest?: 'split' | 'after';
+  /** v0.23.1 the start is a report logged this many minutes later than the crew reported (crew/logLater.ts). */
+  logged?: number;
   early?: boolean;
   late?: boolean;
   night?: boolean;
@@ -1068,7 +1072,9 @@ export type MoraleDriver = 'policy' | 'hotel' | 'tour' | 'offAway' | 'workload' 
   /** v0.18.1 a leave request declined; bug 1108b also the lift after annual leave. */
   | 'leave'
   /** Bug 1108b a published day off moved or taken (was counted under 'daysOff'). */
-  | 'offMoved';
+  | 'offMoved'
+  /** v0.23.1 a report time logged later than the crew reported (crew/logLater.ts). */
+  | 'logLater';
 
 /** v0.9 standby kinds (UPDATE-0.9.md §R.3): home (SBY), hotel at a station away from base, airport (ASBY), reserve (RES). */
 export type StandbyKind = 'home' | 'hotel' | 'airport' | 'reserve';
@@ -1098,6 +1104,8 @@ export interface CrewMember {
   awaySince: Minute | null;
   morale: number;
   fatigue: number;
+  /** v0.23.1 when this crew member's report time was logged later than they reported (crew/logLater.ts), the last 28 days. */
+  adjusted?: Minute[];
   /** Gross monthly salary (USD). */
   salary: number;
   hired: Minute;
@@ -1304,6 +1312,36 @@ export interface Duty {
    * held): the duty releases then, never back at the last landing, so the rest after it starts when it really does.
    */
   heldTo?: Minute;
+  /**
+   * v0.23.1 a later report time logged on the roster than the crew really reported (crew/logLater.ts): the roster and the
+   * crew logs read the report `min` minutes later, which hides a rest or day-length limit by that much. `real` is the
+   * report the crew kept; `crewIds` the crew whose limit it hides. At most one per duty, at most BAL.logLater.capMin.
+   */
+  logged?: LoggedReport;
+}
+
+/** v0.23.1 the logged (falsified) report of a duty: see Duty.logged. */
+export interface LoggedReport {
+  min: number;
+  at: Minute;
+  limit: 'fdp' | 'rest';
+  crewIds: string[];
+  real: Minute;
+}
+
+/** v0.23.1 one roster change on record (OpsState.adjusted): found later by a crew report or the authority's audit, or never. */
+export interface AdjustRecord {
+  t: Minute;
+  dutyId: string;
+  no: string;
+  min: number;
+  limit: 'fdp' | 'rest';
+  crewIds: string[];
+  /** When it comes to light (decided on the day, a side-stream roll) and how; absent: never. */
+  foundAt?: Minute;
+  how?: 'report' | 'audit';
+  /** It came to light (the fine and the finding are on record). */
+  found?: true;
 }
 
 /** A crew complement's trip: duties from base back to base (or a deployment at a client base). */
@@ -2556,7 +2594,7 @@ export interface AuditFinding {
   id: string;
   level: AuditLevel;
   /** Area code (ops manual, FTL, maintenance, training, ramp, quality). */
-  area: 'ftl' | 'ramp' | 'tech' | 'checks' | 'training' | 'quality';
+  area: 'ftl' | 'ramp' | 'tech' | 'checks' | 'training' | 'quality' | 'roster';
   /** 'Crew flew over their FTL limits'. */
   text: string;
   /** The record behind it. */
@@ -2597,6 +2635,8 @@ export interface OpsState {
   reducedReports?: Minute[];
   /** Aircraft-days spent grounded with a check overdue (day starts; the audit reads the last year). */
   grounded?: Minute[];
+  /** v0.23.1 report times logged later than the crew reported (crew/logLater.ts), the last 400 days. */
+  adjusted?: AdjustRecord[];
 }
 
 // ======================================================================

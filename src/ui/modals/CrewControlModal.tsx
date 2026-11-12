@@ -4,7 +4,7 @@
 // trips) and Apply (two taps where the engine asks for a confirm). After a fix the view is re-read; crewed → Close.
 // Engine: crew/control.ts (crewControl, applyCrewFix). Calm: nothing animates.
 
-import { ArrowLeftRight, CalendarPlus, CalendarRange, Check, CircleSlash, Clock, Handshake, Hourglass, PhoneCall, PlaneTakeoff, Ticket, TimerOff, Users, Wand2 } from 'lucide-react';
+import { ArrowLeftRight, CalendarPlus, CalendarRange, Check, CircleSlash, ClipboardPen, Clock, Handshake, Hourglass, PhoneCall, PlaneTakeoff, Ticket, TimerOff, Users, Wand2 } from 'lucide-react';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { flightsRev } from '../../engine/core/entities';
 import { fmtTime } from '../../engine/core/time';
@@ -27,6 +27,8 @@ const FIX_ICON: Record<CrewFix, ReactNode> = {
   swap: <ArrowLeftRight />, subcharter: <Handshake />, cancel: <CircleSlash />,
   // v0.12.1
   buyBack: <CalendarPlus />,
+  // v0.23.1
+  logLater: <ClipboardPen />,
 };
 const MULTI: CrewFix[] = ['deadhead', 'callIn'];
 const LEVEL_TONE = { legal: 'good', tight: 'warn', illegal: 'bad' } as const;

@@ -704,7 +704,7 @@ function fillKey(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: TicketPl
   KEY[i++] = c.base; KEY[i++] = p.base; KEY[i++] = d.restAt; KEY[i++] = f0?.from ?? ''; KEY[i++] = f0?.status ?? ''; KEY[i++] = p.aircraftId ?? '';
   KEY[i++] = d.ev; KEY[i++] = d.flightsEv; KEY[i++] = d.report; KEY[i++] = d.release; KEY[i++] = d.fdp; KEY[i++] = d.maxFdp; KEY[i++] = d.discretion ?? 0; KEY[i++] = d.cabinEarly ?? -1;
   KEY[i++] = d.augment; KEY[i++] = d.sectors; KEY[i++] = d.flightIds.length; KEY[i++] = p.start; KEY[i++] = rest?.fc?.cls ?? 0; KEY[i++] = rest?.cc?.cls ?? 0;
-  KEY[i++] = joinedAt(g, p, c.id, d);
+  KEY[i++] = joinedAt(g, p, c.id, d); KEY[i++] = d.logged?.min ?? 0;
   KEY[i++] = o ? o.id ?? '' : '-'; KEY[i++] = o?.from ?? ''; KEY[i++] = o?.to ?? ''; KEY[i++] = o?.status ?? ''; KEY[i++] = o?.std ?? -1; KEY[i++] = o?.sta ?? -1;
   KEY[i++] = h ? h.id ?? '' : '-'; KEY[i++] = h?.from ?? ''; KEY[i++] = h?.to ?? ''; KEY[i++] = h?.status ?? ''; KEY[i++] = h?.std ?? -1; KEY[i++] = h?.sta ?? -1;
   return i;
@@ -847,8 +847,13 @@ function dutySegsRaw(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: Tick
   // A replacement who joined after the report has a shorter day from their own report (its own Table 2 limit).
   const rep = joinedAt(g, p, c.id, d);
   const own = rep - d.report;
+  // v0.23.1 a later report time logged on the roster (crew/logLater.ts): d.fdp is the day on record (from the logged
+  // report); the crew aboard from the report start their day on record that much later (rest before it, the log), a
+  // crew member who joined later keeps their own report.
+  const logged = d.logged?.min ?? 0;
+  const adj = own ? 0 : logged;
   let start = rep - early;
-  let fdp = d.fdp - own + early;
+  let fdp = d.fdp + logged - own + early;
   let max = (own ? fdpLimitAt(g, p, d, dep, rep).max : d.maxFdp) + (d.discretion ?? 0) + early;
   let tz = referenceTime(p.base, dep, Math.min(p.start, rep), rep).tz;
   let from = dep;
@@ -858,7 +863,7 @@ function dutySegsRaw(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: Tick
       mergedOut = { id: (out as Partial<Flight>).id, to: dep, start, fdp, maxFdp: max, disruptive: isDisruptive(tz, start, d.release) };
       start = out.std - checkInOf(out);
       from = out.from;
-      fdp = d.fdp - own + (rep - start);
+      fdp = d.fdp + logged - own + (rep - start);
       const lim = fdpLimitAt(g, p, d, out.from, start);
       max = lim.max + (d.discretion ?? 0) + early;
       tz = lim.ref.tz;
@@ -874,6 +879,10 @@ function dutySegsRaw(g: GameState, c: CrewMember, p: Pairing, d: Duty, out: Tick
       end = home.sta;
       at = home.to;
     } else if (!flown(home)) tail = { ...posSeg(home, c, fresh), dutyId: d.id };
+  }
+  if (adj) {
+    start += adj;
+    fdp -= adj;
   }
   const k = disruptiveKinds(tz, start, end);
   segs.push(mkSeg({

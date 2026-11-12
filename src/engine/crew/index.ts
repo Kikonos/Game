@@ -268,6 +268,8 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
     c.log.push({
       start: seg.start, end: seg.end, fdp: seg.fdp, block, sectors: d.sectors, augmented: d.augment > 0, disruptive: seg.disruptive,
       ...(d.ext ? { ext: true as const, extRest: extCut ? ('split' as const) : ('after' as const) } : {}), ...(seg.early ? { early: true } : {}), ...(seg.late ? { late: true } : {}), ...(seg.night ? { night: true } : {}),
+      // v0.23.1 the start on record is the logged report (crew/logLater.ts): the minutes it was moved, for the checker.
+      ...(d.logged && !(s.from !== undefined && s.from > d.report) ? { logged: d.logged.min } : {}),
     });
     c.log = c.log.filter((e) => e.end > g.now - 28 * DAY);
     // v0.18.1 the legs flown, for the calendar once the flights are pruned.
