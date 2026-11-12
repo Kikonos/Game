@@ -1750,6 +1750,8 @@ function restShort(i: LegalityIssue | undefined): number | null {
 
 /** A world tour waits up to a day for its own crew's rest: one crew all the way round is the job. */
 const TOUR_REST_SLIP = DAY;
+/** Crew alarm round (Nov 2026): a trip's next day waits this long at most for its own crew's rest (minutes). */
+const TRIP_REST_SLIP = 60;
 let tourSlipping = false;
 
 /**
@@ -1759,20 +1761,27 @@ let tourSlipping = false;
  * eleven came off, went home on a ticket, and the tour sat 48 h at the gate for a crew nobody had, then was cancelled
  * whole. True when the legs moved (the trip is re-checked through the re-sync).
  */
-function slipTourForRest(g: GameState, p: Pairing, d: Duty, ids: string[], issue: Map<string, LegalityIssue>): boolean {
-  const f = g.flights[d.flightIds[0]];
-  // Rotations round: a deployment tour's leg waits too, up to REST_SLIP (a late landing left one person 12 minutes short
-  // of rest for the next day: four people were flown out from base and four home).
-  const held = heldJobOf(g, p);
-  if (tourSlipping || !restDelayHook || !p.aircraftId || d.report <= g.now || !f || f.status !== 'scheduled' || (!held && !p.tour)) return false;
-  const cap = held ? TOUR_REST_SLIP : REST_SLIP;
+function slipTourForRest(g: GameState, p: Pairing, firstOpen: Duty, ids: string[], issue: Map<string, LegalityIssue>, under: boolean): boolean {
+  // Crew alarm round (Nov 2026, the player's VY1040): any trip, under way or not. The crew of a Barcelona trip finished
+  // its first day 4 minutes short of the rest before the second (Rest 11:28 < 11:32): all seven came off, the second day
+  // was split off and a red alarm said it needed a whole crew 12 h before departure. The duty every issue names (one
+  // duty of this trip, not reported yet) waits for its own crew instead: up to TRIP_REST_SLIP for a trip, REST_SLIP for a
+  // deployment tour, a day for a held job.
+  let d: Duty | undefined;
   let slip = 0;
   for (const id of ids) {
     const i = issue.get(id);
     const short = restShort(i);
-    if (short === null || i?.dutyId !== d.id) return false;
+    const x = i?.dutyId ? g.duties[i.dutyId] : undefined;
+    if (short === null || !x || x.pairingId !== p.id || (d && d !== x)) return false;
+    d = x;
     slip = Math.max(slip, short);
   }
+  if (!d || (under && d === firstOpen)) return false;
+  const f = g.flights[d.flightIds[0]];
+  const held = heldJobOf(g, p);
+  if (tourSlipping || !restDelayHook || !p.aircraftId || d.report <= g.now || !f || f.status !== 'scheduled') return false;
+  const cap = held ? TOUR_REST_SLIP : p.tour ? REST_SLIP : TRIP_REST_SLIP;
   slip = Math.ceil(slip / 5) * 5 + 5;
   if (slip <= 0 || slip > cap) return false;
   tourSlipping = true;
@@ -2842,7 +2851,7 @@ function rerosterFrom0(g: GameState, aircraftId: string, t: Minute): RosterResul
     const retickable = (id: string) => !under || (!!p.tour && g.crew[id]?.loc === station && (rc.from.get(id) ?? 0) > firstOpen.report);
     const out = rc.illegal.filter((id) => !locked(id) && (!retickable(id) || !(g.crew[id] && retick(g, p, g.crew[id]))));
     // v0.14.1 (merge) a world tour's crew short only of rest before its next duty: the duty waits for them.
-    if (!under && out.length && slipTourForRest(g, p, firstOpen, out, rc.issue)) continue;
+    if (out.length && slipTourForRest(g, p, firstOpen, out, rc.issue, under)) continue;
     // Rotations round: a deployment tour's crew member over a limit on one or two duties (rest after a late landing,
     // 60 h in 7 days, the 168 h recovery, a day off due) keeps the tour: those duties go back to the deployment's planner
     // (another set on station takes them, else they fly as a trip from base), instead of the whole seat being flown out
