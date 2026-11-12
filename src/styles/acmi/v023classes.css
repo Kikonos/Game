@@ -55,7 +55,7 @@
 .kp-person.skipped { opacity: 0.6; border-style: dashed; }
 /* A quiet control: it reads as a word until it is tapped. */
 /* (Its text keeps the touch size: a smaller select makes iOS zoom the page on focus.) */
-.kp-move.select { width: auto; max-width: 150px; flex: none; padding-left: 8px; color: var(--text-2); background-color: transparent; border-color: transparent; }
+.kp-move.select { width: 118px; flex: none; padding-left: 8px; color: var(--text-2); background-color: transparent; border-color: transparent; }
 .kp-move.select:hover, .kp-move.select:focus { border-color: var(--border); color: var(--text); }
 .kp-phases { padding: 0 12px 10px; }
 .kp-cover { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
