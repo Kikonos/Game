@@ -16,6 +16,20 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.23.1',
+    name: 'Stacked work and the crew it needs',
+    features: [],
+    improvements: [
+      'An offer that is short of crew now says when new hires would join: in time for its first short day, or too late.',
+      'The hiring hold only holds when crew have nothing on their roster. Crew on tours and trips who fly few hours no longer stop the round-up while flights go short.',
+    ],
+    fixes: [
+      'A short delay on a day that began with a flight out could take the whole crew off a legal day. Their flight home now moves to after the longer rest instead.',
+      'Crew waiting at a station for their flight out to their tour can fly a trip in between and go back there for it.',
+      'A seat emptied halfway through a duty (a sick call) is no longer filled by someone at another airport.',
+    ],
+  },
+  {
     version: 'v0.23',
     name: 'Crew person by person, and a class planner',
     features: [
