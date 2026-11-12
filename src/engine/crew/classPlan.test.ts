@@ -177,8 +177,8 @@ describe('class planner: pilots and the phase-out', () => {
     expect(roles).toEqual(['CPT', 'CPT', 'FO', 'FO']);
     expect(p.classes[0].end - p.classes[0].start).toBe(BAL.conv.pilotDays * DAY);
     expect(p.leftOut).toHaveLength(16);
-    expect(p.leftOut[0].why).toMatch(/The B737 needs 8 (captains|first officers) from .* \(CS-TDB back from dry lease\)/);
-    expect(p.pace[0]).toMatch(/^The B737 needs 8 captains and 8 first officers from /);
+    expect(p.leftOut[0].why).toMatch(/The 737 needs 8 (captains|first officers) from .* \(CS-TDB back from dry lease\)/);
+    expect(p.pace[0]).toMatch(/^The 737 needs 8 captains and 8 first officers from /);
     expect(p.short).toEqual([]);
   });
 
@@ -252,15 +252,15 @@ describe('remove type rating (cabin crew)', () => {
     const many = removeRatingPlan(g, ids, 'B737');
     // (People flying the 737 right now keep it until they are back.)
     expect(many.people.length + many.skipped.length).toBe(29);
-    for (const x of many.skipped) expect(x.why).toMatch(/^Flying the B737 until /);
+    for (const x of many.skipped) expect(x.why).toMatch(/^Flying the 737 until /);
     expect(many.coverage.find((x) => x.role === 'CC')!.after).toBe(have - many.people.length);
     // Spare pursers fill cabin crew seats, so the cabin crew alone may still be covered; with the pursers gone too it is short.
     const purs = Object.values(g.crew).filter((c) => c.role === 'PUR' && c.ratings.includes('B737')).map((c) => c.id);
     for (const id of purs) g.crew[id].ratings.push(F);
     const everyone = removeRatingPlan(g, [...ids, ...purs], 'B737');
     expect(everyone.coverage.find((x) => x.role === 'PUR')!.after).toBeLessThan(4);
-    expect(everyone.warnings.some((w) => w.level === 'bad' && /Leaves the B737 short: \d+ of 4 pursers/.test(w.text))).toBe(true);
-    expect(everyone.warnings.some((w) => w.level === 'bad' && /Leaves the B737 short: \d+ of 12 cabin crew/.test(w.text))).toBe(true);
+    expect(everyone.warnings.some((w) => w.level === 'bad' && /Leaves the 737 short: \d+ of 4 pursers/.test(w.text))).toBe(true);
+    expect(everyone.warnings.some((w) => w.level === 'bad' && /Leaves the 737 short: \d+ of 12 cabin crew/.test(w.text))).toBe(true);
     // The plan is a dry run: nothing changed.
     expect(cc().have).toBe(have);
   });

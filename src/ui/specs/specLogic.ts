@@ -301,7 +301,8 @@ export function engineFig(n: number, engines: string, thrust?: string): KeyFig {
   // In the order they are named.
   makers.sort((a, b) => engines.indexOf(a) - engines.indexOf(b));
   const sub = [makers.join(' / '), thrust].filter(Boolean).join(' · ');
-  return { k: 'engines', label: 'Engines', value: `${n} × ${models}`, sub: sub || undefined };
+  // A model name stays in one piece ('RB211‑535' never breaks at its hyphen).
+  return { k: 'engines', label: 'Engines', value: `${n} × ${models.replace(/-/g, '\u2011')}`, sub: sub || undefined };
 }
 
 /** v0.23 a rest facility as a tile: 'Economy seats' with 'class 3' under it (it was one long line, 'economy seats (class 3)'). Pure. */

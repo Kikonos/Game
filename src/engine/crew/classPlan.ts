@@ -32,9 +32,9 @@ import { DAY, fmtDay, fmtDayAt } from '../core/time';
 import type { ActionResult, CrewMember, GameState, Minute, Pairing, Role } from '../core/types';
 import { lockOf } from '../scenario/rules';
 import { previewCopy } from './atomic';
-import { ccqKeeps, classOf, classPhases, classStartFor, conversionClasses, conversionEarliest, conversionPlan, courseOf, familyLabel, ratingsLost, startConversion } from './conversion';
+import { ccqKeeps, classOf, classPhases, classStartFor, conversionClasses, conversionEarliest, conversionPlan, courseOf, ratingsLost, startConversion } from './conversion';
 import { rosterHorizon } from './dayPlan';
-import { crewDays, PEAK, workDays } from './forecast';
+import { crewDays, familyWord, PEAK, workDays } from './forecast';
 import { crewName, crewPay } from './generate';
 import { staffing, staffingAssign } from './hr';
 import { fillAll, flightCrewStatus, emptyResult, recheckPairing, releaseCrew, rosterOf } from './roster';
@@ -370,8 +370,8 @@ function refuse(s: Search, p: Person, start: Minute, u: Usage): string | null {
           // Pursers beyond their own need fill cabin crew seats (as the sets).
           const hp = here(pur, fPUR);
           const hc = here(cc, fCC);
-          if (hp < (fPUR?.need ?? 0) || hc + Math.max(0, hp - (fPUR?.need ?? 0)) < (fCC?.need ?? 0)) return `The ${familyLabel(p.home)} keeps ${nRole(fl.need, p.role)} at work`;
-        } else if (here(key, fl) < fl.need) return `The ${familyLabel(p.home)} keeps ${nRole(fl.need, p.role)} at work`;
+          if (hp < (fPUR?.need ?? 0) || hc + Math.max(0, hp - (fPUR?.need ?? 0)) < (fCC?.need ?? 0)) return `The ${familyWord(p.home)} keeps ${nRole(fl.need, p.role)} at work`;
+        } else if (here(key, fl) < fl.need) return `The ${familyWord(p.home)} keeps ${nRole(fl.need, p.role)} at work`;
       }
     }
     // The forecast beyond the published roster: the weeks this class takes them out of their fleet (for good when the rating goes).
@@ -384,7 +384,7 @@ function refuse(s: Search, p: Person, start: Minute, u: Usage): string | null {
       const mine = (overlap(w.from, w.to, start, to) / DAY) * WORK_SHARE;
       let margin = w.margin.get(key) ?? 0;
       if (p.role === 'CC') margin += Math.max(0, (w.margin.get(`${p.home}:PUR`) ?? 0) - (usedPur?.[j] ?? 0));
-      if ((used?.[j] ?? 0) + mine > margin + 1e-6) return `The ${familyLabel(p.home)} needs its ${ROLE_PL[p.role]} in the week of ${fmtDayAt(s.g.company.homeBase, w.from)}`;
+      if ((used?.[j] ?? 0) + mine > margin + 1e-6) return `The ${familyWord(p.home)} needs its ${ROLE_PL[p.role]} in the week of ${fmtDayAt(s.g.company.homeBase, w.from)}`;
     }
   }
   // A rating given up for good: the fleet's need of it over the next year.
@@ -394,7 +394,7 @@ function refuse(s: Search, p: Person, start: Minute, u: Usage): string | null {
     if (!fl) continue;
     const { need, why } = needFrom(f, p.role, lossAt, fl.fc, fl.per);
     const leaving = (u.lost.get(`${f}:${p.role}`) ?? 0) + 1;
-    if ((fl.have[p.role] ?? 0) - leaving < need) return `The ${familyLabel(f)} needs ${nRole(need, p.role)}${why ? ` ${why.delta > 0 ? 'from' : 'until'} ${fmtDay(why.at)} (${why.reg} ${why.what})` : ''}`;
+    if ((fl.have[p.role] ?? 0) - leaving < need) return `The ${familyWord(f)} needs ${nRole(need, p.role)}${why ? ` ${why.delta > 0 ? 'from' : 'until'} ${fmtDay(why.at)} (${why.reg} ${why.what})` : ''}`;
   }
   return null;
 }
@@ -565,7 +565,8 @@ function bookOn(h: GameState, family: RatingFamily, classes: { start: Minute; cr
 }
 
 function people(g: GameState, req: Omit<ClassPlanRequest, 'balance'>, ids: string[]): { map: Map<string, Person>; skipped: { crewId: string; why: string }[] } {
-  const plan = conversionPlan(g, { crewIds: ids, family: req.family, start: conversionEarliest(g) });
+  // (Asked at the far end of the booking window: a joiner who arrives before then can still take a later class.)
+  const plan = conversionPlan(g, { crewIds: ids, family: req.family, start: g.now + BAL.conv.maxAheadDays * DAY });
   const skip = new Map(plan.skipped.map((x) => [x.crewId, x.why]));
   const { homeOf } = staffingAssign(g);
   const map = new Map<string, Person>();
@@ -750,7 +751,7 @@ function solve(g: GameState, req: ClassPlanRequest, prep: Prep): ClassProposal {
     for (const [key, u] of used) {
       const [f, r] = key.split(':') as [RatingFamily, Role];
       const spare = r === 'CC' ? Math.max(0, (w.margin.get(`${f}:PUR`) ?? 0) - (used.get(`${f}:PUR`) ?? 0)) : 0;
-      if (u > 0 && u > (w.margin.get(key) ?? 0) + spare + 0.5) thin.push(`${fmtDayAt(home, w.from)}: ${familyLabel(f)} ${ROLE_PL[r]}`);
+      if (u > 0 && u > (w.margin.get(key) ?? 0) + spare + 0.5) thin.push(`${fmtDayAt(home, w.from)}: ${familyWord(f)} ${ROLE_PL[r]}`);
     }
   }
   const pace: string[] = [];
@@ -759,7 +760,7 @@ function solve(g: GameState, req: ClassPlanRequest, prep: Prep): ClassProposal {
     if (!roles.length) continue;
     const w = needFrom(f, roles[0], earliest, fl.fc, fl.per).why;
     const need = roles.map((r) => nRole(needFrom(f, r, earliest, fl.fc, fl.per).need, r)).join(' and ');
-    pace.push(`The ${familyLabel(f)} needs ${need}${w ? ` ${w.delta > 0 ? 'from' : 'until'} ${fmtDay(w.at)} (${w.reg} ${w.what})` : ''}`);
+    pace.push(`The ${familyWord(f)} needs ${need}${w ? ` ${w.delta > 0 ? 'from' : 'until'} ${fmtDay(w.at)} (${w.reg} ${w.what})` : ''}`);
     for (const c of fl.fc.changes.filter((x) => x.delta < 0 && x !== w).slice(0, 2)) pace.push(`${c.reg}: ${c.what} ${fmtDay(c.at)}`);
   }
   const warnings: ClassProposal['warnings'] = [];
@@ -861,16 +862,16 @@ function tripsOn(g: GameState, crewId: string, family: RatingFamily): Pairing[] 
 function keepWhy(g: GameState, c: CrewMember | undefined, family: RatingFamily): string | null {
   if (!c) return 'Not found';
   if (isPilot(c.role)) return 'Pilots change type by a conversion course';
-  if (!c.ratings.includes(family)) return `Not rated on the ${familyLabel(family)}`;
-  if (c.ratings.length < 2) return `The ${familyLabel(family)} is their only type`;
+  if (!c.ratings.includes(family)) return `Not rated on the ${familyWord(family)}`;
+  if (c.ratings.length < 2) return `The ${familyWord(family)} is their only type`;
   const under = tripsOn(g, c.id, family).find((p) => p.status === 'active' || p.start <= g.now);
-  if (under) return `Flying the ${familyLabel(family)} until ${fmtDay(under.end)}`;
+  if (under) return `Flying the ${familyWord(family)} until ${fmtDay(under.end)}`;
   return null;
 }
 
 /** Takes the rating off these people on `g`: their trips on the type go back to the roster. Returns the trips touched. */
 function dropRating(g: GameState, ids: string[], family: RatingFamily): number {
-  const label = familyLabel(family);
+  const label = familyWord(family);
   let trips = 0;
   for (const id of ids) {
     const c = g.crew[id];
@@ -915,7 +916,7 @@ export function removeRatingPlan(g: GameState, crewIds: string[], family: Rating
   const purSpare = Math.max(0, (coverage.find((x) => x.role === 'PUR')?.after ?? 0) - (coverage.find((x) => x.role === 'PUR')?.need ?? 0));
   for (const x of coverage) {
     const have = x.after + (x.role === 'CC' ? purSpare : 0);
-    if (have < x.need && x.after < x.have) warnings.push({ level: 'bad', text: `Leaves the ${familyLabel(family)} short: ${x.after} of ${x.need} ${ROLE_PL[x.role]}` });
+    if (have < x.need && x.after < x.have) warnings.push({ level: 'bad', text: `Leaves the ${familyWord(family)} short: ${x.after} of ${x.need} ${ROLE_PL[x.role]}` });
   }
   if (short.length) warnings.push({ level: 'bad', text: `${short.length} flight${short.length === 1 ? '' : 's'} left short: ${short.slice(0, 3).join(', ')}${short.length > 3 ? '…' : ''}` });
   return { family, people, skipped, coverage, trips: people.reduce((n, p) => n + p.trips, 0), short, pay: people.reduce((n, p) => n + p.pay, 0), warnings, ok: ids.length > 0 };
@@ -933,7 +934,7 @@ export function removeRating(g: GameState, crewIds: string[], family: RatingFami
     return { ok: false, error: `${c ? `${crewName(c)}: ` : ''}${keepWhy(g, c, family) ?? 'Nobody to change'}` };
   }
   const trips = dropRating(g, ids, family);
-  const label = familyLabel(family);
+  const label = familyWord(family);
   const n = ids.length;
   const names = ids.slice(0, 6).map((id) => crewName(g.crew[id])).join(', ');
   pushMessage(g, {

@@ -13,7 +13,7 @@ import { typeOf } from '../../engine/core/perf';
 import { DAY } from '../../engine/core/time';
 import type { GameState, Minute, Role } from '../../engine/core/types';
 import {
-  bookClassPlan, CLASS_PLAN, classCandidates, classPlanNeed, classProposals, conversionEarliest, courseOf, crewName, crewRev, familyLabel, removeRating, removeRatingPlan,
+  bookClassPlan, CLASS_PLAN, classCandidates, classPlanNeed, classProposals, conversionEarliest, courseOf, crewName, crewRev, familyWord, removeRating, removeRatingPlan,
   type ClassProposal, type PlannedClass,
 } from '../../engine/crew';
 import { lockOf } from '../../engine/scenario';
@@ -119,7 +119,7 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
   const p = plans ? plans[balance] : null;
   const close = () => store.closeModal();
   const lock = lockOf(g, 'training');
-  const label = familyLabel(family);
+  const label = familyWord(family);
   const course = courseOf(group, 'full', family);
   const risky = !!p && p.short.length > 0;
   const book = () => {
@@ -147,11 +147,11 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
       <div key={id} className="kp-person">
         <span className={`sc-role r-${c.role}`}>{c.role}</span>
         <button className="sc-seat-name ellipsis grow" onClick={() => store.openPerson(id)}>{c.last}, {c.first.charAt(0)}.</button>
-        {x?.drop && <span className="tiny dim nowrap">drops {familyLabel(x.drop)}</span>}
+        {x?.drop && <span className="tiny dim nowrap">drops {familyWord(x.drop)}</span>}
         {x && x.duties > 0 && <span className="tiny warn nowrap">{x.duties} {x.duties === 1 ? 'duty' : 'duties'}</span>}
         <select className="select kp-move" value={x?.pinned ? String(k.start) : ''} onChange={(e) => pin(id, e.target.value === 'out' ? 'out' : e.target.value === '' ? null : Number(e.target.value))} aria-label={`Move ${crewName(c)}`}>
-          <option value="">{x?.pinned ? 'Let the planner place' : 'In this class'}</option>
-          {x?.pinned && <option value={k.start}>Placed here by you</option>}
+          <option value="">{x?.pinned ? 'Let the planner place' : 'Move…'}</option>
+          {x?.pinned && <option value={k.start}>Placed by you</option>}
           {p!.classes.filter((o) => o.start !== k.start).map((o) => <option key={o.no} value={o.start}>Move to {baseDay(g, o.start)}</option>)}
           <option value="out">Take out</option>
         </select>
@@ -176,7 +176,7 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
         <div className="kp-controls">
           <Seg<Group> value={group} onChange={setGroup} options={[{ value: 'cabin', label: 'Cabin crew' }, { value: 'pilot', label: 'Pilots' }]} />
           <select className="select" value={family} onChange={(e) => setFamily(e.target.value as RatingFamily)} aria-label="Type to train for">
-            {fams.map((f) => <option key={f} value={f}>Onto the {familyLabel(f)}</option>)}
+            {fams.map((f) => <option key={f} value={f}>Onto the {familyWord(f)}</option>)}
           </select>
           <select className="select" value={rank} onChange={(e) => { setRank(e.target.value as Role | 'all'); setPins({}); }} aria-label="Who">
             <option value="all">All {everyone.length} {whoWord}</option>
@@ -184,8 +184,8 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
           </select>
           <select className="select" value={byValue} onChange={(e) => setBy(e.target.value === '' ? null : Number(e.target.value))} aria-label="Finish by">
             <option value="">No finish date</option>
-            {need.arrival && <option value={need.arrival.at}>Before {need.arrival.reg} flies · {baseDay(g, need.arrival.at)}</option>}
-            {byList.map((b) => <option key={b.at} value={b.at}>{b.label}</option>)}
+            {need.arrival && <option value={need.arrival.at}>By {baseDay(g, need.arrival.at)} · {need.arrival.reg}</option>}
+            {byList.map((b) => <option key={b.at} value={b.at}>By {b.label.charAt(0).toLowerCase() + b.label.slice(1)}</option>)}
           </select>
         </div>
         <div className={`small ${need.roles.some((r) => r.short > 0) ? 'warn' : 'muted'}`}>
@@ -262,7 +262,7 @@ export function ClassPlanModal({ family: fam0, group: group0 }: { family?: Ratin
                               <span className="tiny muted ellipsis">{x.why}</span>
                             </span>
                             <select className="select kp-move" value={pins[x.crewId] === 'out' ? 'out' : ''} onChange={(e) => pin(x.crewId, e.target.value === '' ? null : e.target.value === 'out' ? 'out' : Number(e.target.value))} aria-label={`Place ${crewName(c)}`}>
-                              <option value="">{pins[x.crewId] === 'out' ? 'Put back' : 'Left out'}</option>
+                              <option value="">{pins[x.crewId] === 'out' ? 'Put back' : 'Add…'}</option>
                               {pins[x.crewId] === 'out' && <option value="out">Taken out</option>}
                               {p.classes.map((o) => <option key={o.no} value={o.start}>Add to {baseDay(g, o.start)}</option>)}
                             </select>
@@ -308,7 +308,7 @@ export function RemoveRatingModal({ crewIds, family: fam0, back, onDone }: { cre
   const close = () => (back ? store.openModal(back) : store.closeModal());
   const risky = !!plan && plan.warnings.some((w) => w.level === 'bad');
   const n = plan?.people.length ?? 0;
-  const label = family ? familyLabel(family) : '';
+  const label = family ? familyWord(family) : '';
   const go = () => {
     if (!family) return;
     const res = store.act((gg) => removeRating(gg, ids, family));
@@ -343,7 +343,7 @@ export function RemoveRatingModal({ crewIds, family: fam0, back, onDone }: { cre
               </Help>
             </div>
             <div className="cv-chips">
-              {held.map((f) => <button key={f} className={`cv-chip ${f === family ? 'on' : ''}`} onClick={() => { setFamily(f); setReview(false); }} aria-pressed={f === family}><b>{familyLabel(f)}</b></button>)}
+              {held.map((f) => <button key={f} className={`cv-chip ${f === family ? 'on' : ''}`} onClick={() => { setFamily(f); setReview(false); }} aria-pressed={f === family}><b>{familyWord(f)}</b></button>)}
             </div>
           </>
         )}
@@ -375,7 +375,7 @@ export function RemoveRatingModal({ crewIds, family: fam0, back, onDone }: { cre
                     <span className={`sc-role r-${c.role}`}>{c.role}</span>
                     <span className="col grow" style={{ minWidth: 0 }}>
                       <b className="ellipsis">{c.last}, {c.first.charAt(0)}.</b>
-                      <span className="tiny muted ellipsis">loses the {label} · keeps {x.keeps.map(familyLabel).join(', ')}{x.trips ? ` · ${x.trips} trip${x.trips === 1 ? '' : 's'} to re-crew` : ''}</span>
+                      <span className="tiny muted ellipsis">loses the {label} · keeps {x.keeps.map(familyWord).join(', ')}{x.trips ? ` · ${x.trips} trip${x.trips === 1 ? '' : 's'} to re-crew` : ''}</span>
                     </span>
                   </div>
                 );
