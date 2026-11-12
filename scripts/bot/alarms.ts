@@ -29,7 +29,7 @@ export interface AlarmLog {
   save(file: string): void;
 }
 
-export function watchAlarms(opts: { judge?: (g: GameState, rec: CrewAlarmRecord) => { verdict: string; plan?: string } | null } = {}): AlarmLog {
+export function watchAlarms(opts: { judge?: (g: GameState, rec: CrewAlarmRecord) => { verdict: string; plan?: string } | null; /** Player bot round: also told of each alarm (scripts/bot/advice.ts). */ also?: (g: GameState, rec: CrewAlarmRecord) => void } = {}): AlarmLog {
   const rows: AlarmRow[] = [];
   setAlarmSpy((g, rec) => {
     const f = g.flights[rec.flightId];
@@ -39,6 +39,7 @@ export function watchAlarms(opts: { judge?: (g: GameState, rec: CrewAlarmRecord)
       legKind: f ? `${f.kind}${f.purpose ? `/${f.purpose}` : ''}${f.contractId ? '' : ' no-contract'}` : '?',
       hurt: card ? `${card.hurt.level} $${Math.round(card.hurt.money)} pax ${card.hurt.pax}` : '-',
     };
+    opts.also?.(g, rec);
     const j = opts.judge?.(g, rec);
     if (j) {
       row.verdict = j.verdict;

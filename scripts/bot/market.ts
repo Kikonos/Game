@@ -35,6 +35,10 @@ export interface BotMarketOpts {
   greedy: boolean;
   /** --newfam: a 737-800 variation in month 8 (tests §H). */
   newfam: boolean;
+  /** Player bot round (--player): narrowbodies grown to at most this many (the player's first year: 2 → 6); default 3. */
+  maxNarrow?: number;
+  /** Player bot round: the committed share (next 60 days) that asks for another narrowbody (default 0.75, 0.6 from day 150). */
+  growAt?: number;
 }
 
 /** The report's tally (report017.ts): grades by quarter, growth needs and when they were met, greedy and exotic counts. */
@@ -159,14 +163,14 @@ function trackGrowth(g: GameState): void {
 }
 
 /** 1. Narrowbody growth through requests and letters of intent. */
-function narrowGrowth(g: GameState): boolean {
+function narrowGrowth(g: GameState, maxNarrow = 3, growAt?: number): boolean {
   if (dayN(g) < 75 || Object.values(g.fleet).some((a) => a.status === 'delivering')) return false;
   const narrows = Object.values(g.fleet).filter((a) => !wide(a.typeId)).length + activeDeals(g).filter((d) => !wide(d.offer.typeId)).length;
-  if (narrows >= 3) {
+  if (narrows >= maxNarrow) {
     MARKET_TALLY.needAt = null;
     return false;
   }
-  if (committed(g, 60) < (dayN(g) >= 150 ? 0.6 : 0.75)) return false;
+  if (committed(g, 60) < (growAt ?? (dayN(g) >= 150 ? 0.6 : 0.75))) return false;
   const need = (MARKET_TALLY.needAt ??= dayN(g));
   const main = mainNarrow(g);
   const fam = typeOf(main).family;
@@ -301,7 +305,7 @@ export function botMarket(g: GameState, opts: BotMarketOpts): boolean {
     if (applyVariation(g, 'B737', 'b738').ok) acted = true;
   }
   if (!NOSIGN) {
-    if (narrowGrowth(g)) acted = true;
+    if (narrowGrowth(g, opts.maxNarrow, opts.growAt)) acted = true;
     if (widebody(g)) acted = true;
     if (shortTerm(g)) acted = true;
     if (opts.greedy && greedy(g)) acted = true;

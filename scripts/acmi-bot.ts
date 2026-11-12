@@ -121,6 +121,7 @@ import { botMarket, MARKET_TALLY } from './bot/market';
 import { loiQuote, signLoi, usesLoi } from '../src/engine/leasing';
 import { botMarketReport } from './bot/report017';
 import { measure } from './playstyle';
+import { adviceReport, noteAlarm, noteSigned } from './bot/advice';
 // Player bot round (--player): the offer dialog's hand-over and the class planner.
 import { subleaseTrip } from '../src/engine/ops/sublease';
 import { subcharter, subcharterHit } from '../src/engine/ops/subcharter';
@@ -173,7 +174,7 @@ const ALARMS_ARG = process.argv.find((a) => a === '--alarms' || a.startsWith('--
 /** v0.22.1 --crewcheck: each alarm is cross-checked as it fires (src/engine/crew/crossCheck.ts: RIGHT / WRONG / UNSURE). */
 const CREWCHECK = process.argv.includes('--crewcheck');
 const ALARMS = ALARMS_ARG || CREWCHECK
-  ? watchAlarms(CREWCHECK ? { judge: (g, rec) => { const r = crossCheck(g, rec.flightId, rec.kind as AlarmKind); return { verdict: r.verdict, plan: `${r.why}${r.plan.length ? ` :: ${crossPlanLines(r).join(' || ')}` : ''}` }; } } : {})
+  ? watchAlarms(CREWCHECK ? { also: noteAlarm, judge: (g, rec) => { const r = crossCheck(g, rec.flightId, rec.kind as AlarmKind); return { verdict: r.verdict, plan: `${r.why}${r.plan.length ? ` :: ${crossPlanLines(r).join(' || ')}` : ''}` }; } } : { also: noteAlarm })
   : null;
 /** v0.12 --setup=<id>: another New Game start setup (data/setups.ts: boeing, leisure, newtech, mixed, veterans, shoestring). */
 const SETUP = process.argv.find((a) => a.startsWith('--setup='))?.slice(8) as SetupId | undefined;
@@ -546,7 +547,9 @@ function offers(g: GameState, t: Tally): void {
     }
     hireFor(g, t, best);
     const xc = paidExtra(g, o, best.aircraftId);
-    if (acceptOffer(g, o.id, [best.aircraftId], { paint: paintOn(o), crewExtra: xc ?? undefined }).ok) {
+    const res = acceptOffer(g, o.id, [best.aircraftId], { paint: paintOn(o), crewExtra: xc ?? undefined });
+    if (res.ok) {
+      if (res.data?.contractId) noteSigned(g, res.data.contractId, best, o.archetype);
       t.accepted++;
       pipeNote(o, 'accepted');
       const code = CODE[o.archetype] ?? o.archetype;
@@ -582,6 +585,7 @@ function offers(g: GameState, t: Tally): void {
 // Everything else (decisions, Crew Control, checks, fleet, leases, the Ladder) is the standard policy. A pure function
 // of the game, like the rest.
 const PLAYER = process.argv.includes('--player');
+const PDBG = !!process.env.PDBG;
 /** Hand-overs made to take a better job, and what they cost (tally only). */
 const playerTally = { subleases: 0, subLegs: 0, subCost: 0, subBill: 0, shortSigned: 0, callsSigned: 0, crewShortSigned: 0, roundUps: 0, peakHires: 0, signHires: 0, classPlans: 0, classPeople: 0 };
 
@@ -604,9 +608,16 @@ function playerSublease(g: GameState, o: ContractOffer): SubleasePick | null {
   let best: SubleasePick | null = null;
   for (const id of seatsFit(g, o)) {
     const r = feasibility(g, o.id, id, { paint: paintOn(o), quick: true });
-    if (r.level !== 'no' || !r.conflicts.flights.length || r.conflicts.programmes.length || r.conflicts.maintenance.length) continue;
-    // Only the aircraft being busy stands in the way.
-    if (r.checks.some((c) => c.level === 'no' && c.id !== 'availability')) continue;
+    const why = (x: string) => PDBG && console.error(`${fmtDateTime(g.now)} PSUB ${o.archetype} ${o.id} ${g.fleet[id].reg} ${x}`);
+    if (r.level !== 'no' || !r.conflicts.flights.length || r.conflicts.programmes.length || r.conflicts.maintenance.length) {
+      why(`level ${r.level} flights ${r.conflicts.flights.length} progs ${r.conflicts.programmes.length} mx ${r.conflicts.maintenance.length} ${r.checks.filter((c) => c.level === 'no').map((c) => c.id + ':' + c.label).join(' | ')}`);
+      continue;
+    }
+    // Only the aircraft being busy stands in the way (and the positioning it leaves no room for).
+    if (r.checks.some((c) => c.level === 'no' && c.id !== 'availability' && c.id !== 'positioning')) {
+      why(`other no: ${r.checks.filter((c) => c.level === 'no').map((c) => c.id + ':' + c.label).join(' | ')}`);
+      continue;
+    }
     const trips: SubleasePick['trips'] = [];
     const seen = new Set<string>();
     let ok = true;
@@ -614,6 +625,7 @@ function playerSublease(g: GameState, o: ContractOffer): SubleasePick | null {
       if (seen.has(fid)) continue;
       const v = subleaseTrip(g, fid);
       if (!v.ok || !v.best) {
+        why(`trip ${v.label}: ${v.reason}`);
         ok = false;
         break;
       }
@@ -623,10 +635,14 @@ function playerSublease(g: GameState, o: ContractOffer): SubleasePick | null {
     }
     if (!ok || !trips.length || trips.length > 3) continue;
     const w = feasibilityWithout(g, o.id, id, trips.flatMap((x) => x.ids), { paint: paintOn(o), quick: true });
-    if ((w.level !== 'ok' && w.level !== 'warn') || w.estMargin <= 0) continue;
+    if ((w.level !== 'ok' && w.level !== 'warn') || w.estMargin <= 0) {
+      why(`without ${trips.length} trips: ${w.level} m${Math.round(w.estMargin / 1000)}k ${w.checks.filter((c) => c.level === 'no').map((c) => c.id + ':' + c.label).join(' | ')}`);
+      continue;
+    }
     const hit = subcharterHit(g, trips.flatMap((x) => x.ids)).reliability;
     const cost = trips.reduce((s, x) => s + Math.max(0, x.cost - x.bill), 0) + 10_000 * Math.abs(hit);
     const gain = w.estMargin - cost;
+    why(`gain ${Math.round(gain / 1000)}k (margin ${Math.round(w.estMargin / 1000)}k, cost ${Math.round(cost / 1000)}k)`);
     if (gain < 20_000 || (best && best.gain >= gain)) continue;
     best = { aircraftId: id, trips, gain, report: w };
   }
@@ -682,7 +698,9 @@ function playerOffers(g: GameState, t: Tally): void {
       }
     }
     const xc = paidExtra(g, o, best.aircraftId);
-    if (acceptOffer(g, o.id, [best.aircraftId], { paint: paintOn(o), crewExtra: xc ?? undefined }).ok) {
+    const res = acceptOffer(g, o.id, [best.aircraftId], { paint: paintOn(o), crewExtra: xc ?? undefined });
+    if (res.ok) {
+      if (res.data?.contractId) noteSigned(g, res.data.contractId, best, o.archetype);
       t.accepted++;
       pipeNote(o, 'accepted');
       const code = CODE[o.archetype] ?? o.archetype;
@@ -1713,7 +1731,7 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     if (botFinance(g)) act(g, t);
     if (botSales(g)) act(g, t);
     // v0.17 fleet planning on the aircraft market (step 0: never acts).
-    if (botMarket(g, { greedy: GREEDY, newfam: NEWFAM })) act(g, t);
+    if (botMarket(g, { greedy: GREEDY, newfam: NEWFAM, ...(PLAYER ? { maxNarrow: 6, growAt: 0.35 } : {}) })) act(g, t);
     // v0.16 the prestige ladder (scripts/bot/ladder.ts): IOSA filed when allowed.
     if (botLadder(g)) act(g, t);
     // v0.16 the far routes offered and signed (scripts/bot/clients.ts; a tally only, no action).
@@ -2712,6 +2730,7 @@ if (TLOG && TLOG_FILE) {
 }
 if (ALARMS) {
   for (const l of ALARMS.report()) console.log(l);
+  for (const l of adviceReport()) console.log(l);
   const file = ALARMS_ARG?.includes('=') ? ALARMS_ARG.slice(9) : '';
   if (file) {
     ALARMS.save(file);
