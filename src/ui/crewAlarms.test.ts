@@ -14,8 +14,8 @@ import { confirmAlarm, takeCrewAlarmRecords } from '../engine/crew/selfCheck';
 import { fixture } from '../engine/fixtures/compatKit';
 import { deserialize, serialize } from '../engine/save';
 import {
-  addCrewAlarms, addReport, CREW_ALARM_KEEP, CREW_ALARM_SNAPS, crewAlarmHousekeeping, crewAlarmSig, exportFile, exportSelection, isCrewAlarm, makeReport, memoryStore, newCrewAlarms, packSnapshot, parseBugsFile,
-  snapshotFor, snapshotText, type BugContext, type BugReport, type BugReportMeta, type CrewAlarmEntry,
+  addCrewAlarms, addReport, CREW_ALARM_KEEP, CREW_ALARM_SNAP_CHARS, crewAlarmHousekeeping, crewAlarmSig, exportFile, exportSelection, isCrewAlarm, makeReport, memoryStore, newCrewAlarms, parseBugsFile,
+  resetSnapChain, snapshotFor, snapshotText, snapshotTextFor, type BugContext, type BugReport, type BugReportMeta, type CrewAlarmEntry,
 } from './bugReports';
 import { crewAlarmEntry } from './selfCheckFiler';
 
@@ -93,8 +93,10 @@ describe('v0.22.1 crew alarms in Bug reports: quiet, deduped, small', () => {
     const store = memoryStore();
     const mine = makeReport(g, { title: 'My report', what: 'x', expected: 'y' }, ctx(g), 5);
     await addReport(mine, store);
+    resetSnapChain();
     let packs = 0;
-    const snap = () => { packs++; return packSnapshot(serialize(g, 'bug')); };
+    let lastText = '';
+    const snap = () => { packs++; return (lastText = serialize(g, 'bug')); };
     const gt = (t: number) => fmtDateTime(t);
     const first = await addCrewAlarms([entry({ t: g.now }), entry({ t: g.now, flightId: 'f2', no: 'CVE162' })], () => ctx(g), snap, gt, store, 10);
     expect(first.length).toBe(2);
@@ -112,6 +114,9 @@ describe('v0.22.1 crew alarms in Bug reports: quiet, deduped, small', () => {
     const later = await addCrewAlarms([entry({ t: g.now + 60, kind: 'hours', title: 'CVE166: crew out of hours' })], () => ctx(g), snap, gt, store, 40);
     expect(later[0].size).toBeGreaterThan(0);
     expect(packs).toBe(2);
+    // v0.23.1 the same game a minute on: kept as the changes since the first (a few characters), rebuilt exactly.
+    expect(later[0].snapBase).toBe(first[0].id);
+    expect(later[0].size).toBeLessThan(first[0].size / 20);
     const list = await store.list();
     expect(list.filter(isCrewAlarm).length).toBe(4);
     expect(list.filter((r) => !isCrewAlarm(r)).map((r) => r.id)).toEqual([mine.id]);
@@ -120,42 +125,46 @@ describe('v0.22.1 crew alarms in Bug reports: quiet, deduped, small', () => {
     const shared = full.find((r) => r.id === first[1].id)!;
     expect(snapshotFor(shared, full)).toBe(first[0].snapshot);
     expect(deserialize(snapshotText(snapshotFor(shared, full))).flights.f39l.no).toBe('CVE166');
+    expect(snapshotTextFor(full.find((r) => r.id === later[0].id)!, full) === lastText).toBe(true);
   });
 
-  it('only the newest keep a snapshot, and at most 60 records stay; the player\'s reports never go', () => {
+  it('every record keeps its snapshot within the budget, and at most 60 records stay; the player\'s reports never go', () => {
     const list: BugReportMeta[] = [];
     for (let i = 0; i < CREW_ALARM_KEEP + 15; i++) list.push({ id: `a${i}`, createdAt: i, title: 't', what: '', expected: '', context: {} as BugContext, size: 80_000, auto: 'crew-alarm', alarm: entry({ flightId: `f${i}` }) });
     list.push({ id: 'mine', createdAt: 0, title: 'mine', what: '', expected: '', context: {} as BugContext, size: 900_000 });
     const hk = crewAlarmHousekeeping(list);
     // The 15 oldest records go.
     expect(hk.remove.sort()).toEqual(Array.from({ length: 15 }, (_, i) => `a${i}`).sort());
-    // Of the 60 kept, the newest 12 keep their snapshot.
-    expect(hk.strip.length).toBe(CREW_ALARM_KEEP - CREW_ALARM_SNAPS);
-    expect(hk.strip).not.toContain(`a${CREW_ALARM_KEEP + 14}`);
-    expect(hk.strip).toContain('a15');
+    // v0.23.1 the 60 kept all keep their snapshot (they were 12): 60 × 80k is within the budget.
+    expect(hk.strip).toEqual([]);
     expect([...hk.remove, ...hk.strip]).not.toContain('mine');
-    // Big snapshots (a large game): the character budget cuts sooner, but three always stay.
-    const big = list.filter(isCrewAlarm).slice(-10).map((r) => ({ ...r, size: 700_000 }));
+    // Over the budget the oldest lose theirs first, but three always stay.
+    const big = list.filter(isCrewAlarm).slice(-10).map((r) => ({ ...r, size: CREW_ALARM_SNAP_CHARS }));
     expect(crewAlarmHousekeeping(big).strip.length).toBe(7);
+    expect(crewAlarmHousekeeping(big).strip).not.toContain(`a${CREW_ALARM_KEEP + 14}`);
   });
 
   it('the export carries them with the rest and marks them sent; the file stays small', async () => {
     const g = raw();
     const store = memoryStore();
-    const snap = () => packSnapshot(serialize(g, 'bug'));
+    resetSnapChain();
+    const snap = () => serialize(g, 'bug');
     for (let i = 0; i < 20; i++) await addCrewAlarms([entry({ t: g.now + i * 60, flightId: `f${i}`, no: `CVE${100 + i}` })], () => ctx(g), snap, (t) => fmtDateTime(t), store, 100 + i);
     const list = await store.list();
     expect(list.length).toBe(20);
-    expect(list.filter((r) => r.size > 0).length).toBe(CREW_ALARM_SNAPS);
+    // v0.23.1 every one keeps a snapshot: one whole game, then the changes since the one before.
+    expect(list.filter((r) => r.size > 0).length).toBe(20);
+    expect(list.filter((r) => r.snapBase).length).toBe(19);
     const { take } = exportSelection(list, false);
     expect(take.length).toBe(20);
     const full = (await Promise.all(take.map((r) => store.get(r.id)))) as BugReport[];
     const file = exportFile(full, g, new Date(0));
     const back = parseBugsFile(file);
     expect(back.reports.filter((r) => isCrewAlarm(r) && r.alarm).length).toBe(20);
-    // 20 records, 12 snapshots and the current save: a few MB at most on a game of this size (0.5 MB a save).
+    // 20 records, 20 snapshots (one whole, 19 as changes) and the current save: well under what 12 whole ones took.
     const bytes = Buffer.byteLength(file, 'utf8');
-    expect(bytes).toBeLessThan(6 * 1024 * 1024);
+    expect(bytes).toBeLessThan(3 * 1024 * 1024);
+    for (const r of back.reports) expect(deserialize(snapshotTextFor(r, back.reports)).flights.f39l.no).toBe('CVE166');
   });
 });
 

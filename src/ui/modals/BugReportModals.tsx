@@ -6,7 +6,7 @@ import { Bug, Check, ChevronDown, ChevronRight, ClipboardCopy, Download, ImageOf
 import { useEffect, useState } from 'react';
 import { fmtDateTime } from '../../engine/core/time';
 import type { GameState, Ref } from '../../engine/core/types';
-import { addReport, captureContext, exportFile, exportFileName, exportSelection, fixedHousekeeping, fixedLine, hasDurableStore, isCrewAlarm, makeReport, markSent, reportStatus, reportStore, storageBytes, storageNote, summaryText, type BugContext, type BugPrefill, type BugReport, type BugReportMeta, type BugShot, type ReportStatus } from '../bugReports';
+import { addReport, captureContext, dropReports, exportFile, exportFileName, exportReady, exportSelection, fixedHousekeeping, fixedLine, hasDurableStore, isCrewAlarm, makeReport, markSent, readCleared, reportStatus, reportStore, storageBytes, storageNote, summaryText, type BugContext, type BugPrefill, type BugReport, type BugReportMeta, type BugShot, type ClearedReport, type ReportStatus } from '../bugReports';
 import { deviceNow } from '../device';
 import { Modal } from '../components/ui';
 import { Help } from '../components/Help';
@@ -152,13 +152,16 @@ export function BugReportsModal() {
   const [withSent, setWithSent] = useState(false);
   // v0.22.1 the crew alarms the game files itself: one folded line under the player's own reports.
   const [showAlarms, setShowAlarms] = useState(false);
+  // v0.23.1 the reports cleared as fixed when the game opened: what each fix was, folded.
+  const [cleared] = useState<ClearedReport[]>(readCleared);
+  const [showCleared, setShowCleared] = useState(false);
   // v0.17.2 on opening: fixed reports get the day they were first seen fixed, and go 7 days after it.
   const refresh = async () => {
     try {
       const st = reportStore();
       const all = await st.list();
       const hk = fixedHousekeeping(all, Date.now());
-      for (const id of hk.remove) await st.remove(id);
+      await dropReports(hk.remove, [], st);
       for (const id of hk.mark) {
         const r = await st.get(id);
         if (r) await st.put({ ...r, fixedSeenAt: Date.now() });
@@ -177,7 +180,7 @@ export function BugReportsModal() {
   };
   const del = (r: BugReportMeta) => {
     store.openModal({ kind: 'confirm', title: 'Delete this report?', confirm: 'Delete', danger: true, body: `"${r.title}" and its snapshot will be deleted. This cannot be undone.`, onConfirm: async () => {
-      await reportStore().remove(r.id);
+      await dropReports([r.id]);
       store.openModal({ kind: 'bugReports' });
     } });
   };
@@ -191,7 +194,8 @@ export function BugReportsModal() {
         const r = await reportStore().get(m.id);
         if (r) full.push(r);
       }
-      download(exportFile(full, g, new Date(), sel.skipped), exportFileName(g?.company.name));
+      // v0.23.1 a crew alarm whose snapshot is built on one sent before gets the game itself in the file.
+      download(exportFile(await exportReady(full), g, new Date(), sel.skipped), exportFileName(g?.company.name));
       // v0.17.2 what went out is Sent from now on (Export all leaves it out unless Include sent is on).
       const now = Date.now();
       for (const r of full) if (reportStatus(r) === 'new') await reportStore().put(markSent(r, now));
@@ -217,7 +221,7 @@ export function BugReportsModal() {
     const fixed = (list ?? []).filter((r) => reportStatus(r) === 'fixed');
     if (!fixed.length) return;
     store.openModal({ kind: 'confirm', title: `Delete ${fixed.length} fixed report${fixed.length === 1 ? '' : 's'}?`, confirm: 'Delete fixed', danger: true, body: 'They are fixed in this version. Their snapshots and screenshots are deleted from this device.', onConfirm: async () => {
-      for (const r of fixed) await reportStore().remove(r.id);
+      await dropReports(fixed.map((r) => r.id));
       store.openModal({ kind: 'bugReports' });
     } });
   };
@@ -228,7 +232,7 @@ export function BugReportsModal() {
   const delAlarms = () => {
     if (!alarms.length) return;
     store.openModal({ kind: 'confirm', title: `Delete ${alarms.length} crew alarm${alarms.length === 1 ? '' : 's'}?`, confirm: 'Delete', danger: true, body: 'The records the game filed and their snapshots are deleted from this device. Your own reports stay.', onConfirm: async () => {
-      for (const r of alarms) await reportStore().remove(r.id);
+      await dropReports(alarms.map((r) => r.id));
       store.openModal({ kind: 'bugReports' });
     } });
   };
@@ -252,7 +256,7 @@ export function BugReportsModal() {
           <div className="small muted">Screen {c.screen.tab}{c.screen.view ? ` › ${c.screen.view}` : ''}{c.screen.modal ? ` · dialog ${c.screen.modal}` : ''}{c.screen.sel ? ` · ${c.screen.sel.kind} ${c.screen.sel.id}` : ''}</div>
           {c.entity && <pre>{[c.entity.label, ...c.entity.lines].join('\n')}</pre>}
           {c.inbox.length > 0 && <pre>{c.inbox.join('\n')}</pre>}
-          <div className="tiny dim">{open.size ? `Snapshot ${Math.round((open.size * 2) / 1024)} KB` : open.snapOf ? 'Shares a snapshot with another alarm of the same minute' : 'No game snapshot'}{open.shotBytes ? ` · screenshot ${Math.round(open.shotBytes / 1024)} KB` : ''} · {[c.device.kind, c.device.form, c.device.standalone ? 'home-screen app' : '', c.device.viewport].filter(Boolean).join(' · ')}</div>
+          <div className="tiny dim">{open.size ? `Snapshot ${Math.round((open.size * 2) / 1024)} KB${open.snapBase ? ' (changes since the alarm before)' : ''}` : open.snapOf ? 'Shares a snapshot with another alarm of the same minute' : 'No game snapshot'}{open.shotBytes ? ` · screenshot ${Math.round(open.shotBytes / 1024)} KB` : ''} · {[c.device.kind, c.device.form, c.device.standalone ? 'home-screen app' : '', c.device.viewport].filter(Boolean).join(' · ')}</div>
         </div>
       </Modal>
     );
@@ -261,8 +265,8 @@ export function BugReportsModal() {
     <Modal title={<>Bug reports <Help title="Bug reports">
       <p>Each report keeps a screenshot and the game at that moment.</p>
       <p>Export writes one file with your new reports and your current save; what you export is marked Sent.</p>
-      <p>Fixed reports are deleted 7 days after the update that fixed them.</p>
-      <p>Crew alarms: the game files every crew alarm here by itself, with the game at that minute, so it can be checked later whether the alarm was right. They go out with Export; only the newest keep a snapshot.</p>
+      <p>When the game opens after an update, the reports it fixed are deleted. Cleared shows what each fix was.</p>
+      <p>Crew alarms: the game files every crew alarm here by itself, with the game at that minute, so it can be checked later whether the alarm was right. They go out with Export. After an update the old ones are deleted; the new version files again whatever is still wrong.</p>
     </Help></>} icon={<Bug className="accent" />} onClose={close} footer={
       <>
         <span className="small dim grow">{list ? `${own.length} report${own.length === 1 ? '' : 's'}${alarms.length ? ` · ${alarms.length} crew alarm${alarms.length === 1 ? '' : 's'}` : ''} · ${Math.round(storageBytes(list) / 1024 / 1024 * 10) / 10} MB` : ''}</span>
@@ -317,6 +321,25 @@ export function BugReportsModal() {
                       <div className="small muted ellipsis">game {r.context.gameTime}{r.alarm ? ` · ${r.alarm.no} ${r.alarm.leg}` : ''}{reportStatus(r) === 'sent' ? ' · sent' : ''}</div>
                     </button>
                     <button className="btn btn-ghost btn-icon" onClick={() => del(r)} aria-label={`Delete crew alarm ${r.title}`}><Trash2 /></button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+        {cleared.length > 0 && (
+          <div className="col gap-6">
+            <button className="bug-fold upper dim" aria-expanded={showCleared} onClick={() => setShowCleared(!showCleared)}>
+              {showCleared ? <ChevronDown aria-hidden /> : <ChevronRight aria-hidden />} Cleared · {cleared.length}
+            </button>
+            {showCleared && (
+              <div className="bug-list">
+                {cleared.map((c) => (
+                  <div key={c.id} className="bug-row bug-fixed bug-cleared">
+                    <div className="bug-row-main">
+                      <b className="ellipsis">{c.title}</b>
+                      <div className="small good bug-fixed">Fixed in {c.version}: {c.what}</div>
+                    </div>
                   </div>
                 ))}
               </div>

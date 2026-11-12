@@ -1,6 +1,6 @@
 // v0.20 Finance › At a glance (player: "more visuals in finance, more easily digestible ... pie charts with different
 // colours"). On top of the Finance screen: the month's verdict (made or lost, with and without one-offs) and the cash
-// today, the three biggest changes on the month before, where the money went and where it came from (two donuts in
+// today, the three biggest changes on the month before, Expenses and Income (two donuts in
 // plain groups, tap a slice or a row for its lines and what it is), each block hour's earnings and costs, plain tips,
 // and the cash line behind and ahead with the big one-offs marked. Lazy-loaded (ui/screens/Finance.tsx); everything is
 // computed once per month picked (and once a day for this month so far) from engine/finance/glance.ts.
@@ -73,7 +73,8 @@ function Donut<Id extends string>({ slices, colors, kind, total, caption, pick, 
   const c = S / 2;
   const r1 = c - 6;
   const r0 = r1 - 24;
-  const shown = slices.filter((s) => s.amount > 0);
+  // v0.23.1 the biggest line first (player report bmwdgq50o8vuy); a tie keeps the groups' own order.
+  const shown = slices.map((s, i) => ({ s, i })).filter((x) => x.s.amount > 0).sort((x, y) => y.s.amount - x.s.amount || x.i - y.i).map((x) => x.s);
   const on = pick?.kind === kind ? (pick.id as Id) : null;
   const lit = hover ?? on;
   let a = -Math.PI / 2;
@@ -141,7 +142,7 @@ function Detail({ pick, groups, prev, bh, onClose }: { pick: Pick; groups: Retur
       </div>
       <p className="small muted gl-about">{ABOUT.get(`${pick.kind}:${pick.id}`)}</p>
       <div className="gl-lines">
-        {s.lines.map((l) => (
+        {[...s.lines].sort((x, y) => y.amount - x.amount).map((l) => (
           <div key={l.cat} className="gl-line">
             <span>{LEDGER_LABEL[l.cat] ?? l.cat}</span>
             <span className="num">{money(l.amount)}</span>
@@ -414,10 +415,10 @@ export default function Glance({ g, forecast }: { g: GameState; forecast: { t: n
       </section>
 
       <div className="gl-two gl-donuts">
-        <Card title="Where the money went" sub="tap a slice">
+        <Card title="Expenses" sub="tap a slice">
           <Donut slices={view.groups.costs} colors={COST_COLOR} kind="cost" total={view.groups.totals.costs} caption="spent" pick={pick} onPick={setPick} />
         </Card>
-        <Card title="Where the money came from" sub="tap a slice">
+        <Card title="Income" sub="tap a slice">
           <Donut slices={view.groups.revenue} colors={REV_COLOR} kind="revenue" total={view.groups.totals.revenue} caption="earned" pick={pick} onPick={setPick} />
         </Card>
       </div>
