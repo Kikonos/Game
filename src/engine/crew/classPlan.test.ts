@@ -254,7 +254,13 @@ describe('remove type rating (cabin crew)', () => {
     expect(many.people.length + many.skipped.length).toBe(29);
     for (const x of many.skipped) expect(x.why).toMatch(/^Flying the B737 until /);
     expect(many.coverage.find((x) => x.role === 'CC')!.after).toBe(have - many.people.length);
-    expect(many.warnings.some((w) => w.level === 'bad' && /Leaves the B737 short/.test(w.text))).toBe(true);
+    // Spare pursers fill cabin crew seats, so the cabin crew alone may still be covered; with the pursers gone too it is short.
+    const purs = Object.values(g.crew).filter((c) => c.role === 'PUR' && c.ratings.includes('B737')).map((c) => c.id);
+    for (const id of purs) g.crew[id].ratings.push(F);
+    const everyone = removeRatingPlan(g, [...ids, ...purs], 'B737');
+    expect(everyone.coverage.find((x) => x.role === 'PUR')!.after).toBeLessThan(4);
+    expect(everyone.warnings.some((w) => w.level === 'bad' && /Leaves the B737 short: \d+ of 4 pursers/.test(w.text))).toBe(true);
+    expect(everyone.warnings.some((w) => w.level === 'bad' && /Leaves the B737 short: \d+ of 12 cabin crew/.test(w.text))).toBe(true);
     // The plan is a dry run: nothing changed.
     expect(cc().have).toBe(have);
   });
