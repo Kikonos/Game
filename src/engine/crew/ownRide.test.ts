@@ -169,7 +169,10 @@ describe('v0.12.1 crew riding our own passenger flights', () => {
     // They reach the trip: its first duty from Dublin is flown with them aboard.
     const dub = openDuties(g, p).find((d) => g.flights[d.flightIds[0]]?.from === f.to)!;
     const first = g.flights[dub.flightIds[0]];
+    // (Crew alarm round, Nov 2026: the trip's legs can be retimed on the way (a wait for its own crew's rest, the
+    // schedule's recovery): the clock runs to the leg's landing as it now stands.)
     run(g, first.sta + 60);
+    if (first.status !== 'done') run(g, (first.eta ?? first.sta + first.delay) + 60);
     expect(first.status).toBe('done');
     for (const id of ids) if (p.slots.some((s) => s.crewId === id)) expect(first.crewIds, id).toContain(id);
   });

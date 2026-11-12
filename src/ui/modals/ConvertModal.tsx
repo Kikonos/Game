@@ -11,7 +11,7 @@ import { ACMI_TYPES_LIST, type RatingFamily } from '../../data/acmiTypes';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, toDate, toLocal } from '../../engine/core/time';
 import type { GameState, Role } from '../../engine/core/types';
-import { applyConvertOption, ccqKeeps, ccqPartners, conversionEarliest, conversionPlan, convertAdvice, courseOf, courseText, crewName, familyLabel, startConversion, type ConvertOption } from '../../engine/crew';
+import { applyConvertOption, ccqKeeps, ccqPartners, conversionEarliest, conversionPlan, convertAdvice, courseOf, courseText, crewName, dropChoices, familyLabel, startConversion, type ConvertOption } from '../../engine/crew';
 import { fmtDay } from '../../engine/core/time';
 import { approvalReqs, ratedPilots } from '../../engine/ops';
 import { Modal } from '../components/ui';
@@ -131,7 +131,8 @@ export function ConvertModal({ crewIds, family: fam0, onBooked, advice }: { crew
         </span>
         {dropFor && !why && (
           <select className="select cv-drop" value={drop[id] ?? dropFor} onChange={(e) => setDrop({ ...drop, [id]: e.target.value as RatingFamily })} aria-label={`Rating ${c.last} gives up`}>
-            {c.ratings.map((f) => <option key={f} value={f}>drops {f}</option>)}
+            {/* v0.23.1 the planner's rule: any type held but the one a CCQ builds on. */}
+            {dropChoices(c, family).map((f) => <option key={f} value={f}>drops {familyLabel(f)}</option>)}
           </select>
         )}
         <button className="btn btn-ghost btn-icon cv-x" onClick={() => { leave(); setIds(ids.filter((x) => x !== id)); }} aria-label={`Remove ${crewName(c)}`}><X /></button>

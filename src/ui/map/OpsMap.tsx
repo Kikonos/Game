@@ -16,6 +16,7 @@
 
 import { ArrowLeftRight, Binoculars, ChevronDown, ChevronLeft, ChevronRight, CloudLightning, ChevronUp, HelpCircle, LayoutGrid, TimerOff, Users, X } from 'lucide-react';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PopBox, usePopover } from '../components/Term';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
@@ -224,24 +225,19 @@ const LEGEND: { swatch: ReactNode; label: ReactNode }[] = [
 ];
 
 function MapLegend() {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  // Any tap elsewhere closes it.
-  useEffect(() => {
-    if (!open) return;
-    const off = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
-    document.addEventListener('pointerdown', off, true);
-    return () => document.removeEventListener('pointerdown', off, true);
-  }, [open]);
+  // v0.23.1 on the page itself, whole on the screen (Term.tsx PopBox): inside the Up next panel it was cut off by the
+  // panel's own edge, and lost entirely with the panel folded (player report bmwdgkcfg2ur3).
+  const [open, toggle, close] = usePopover();
+  const ref = useRef<HTMLButtonElement>(null);
   return (
-    <div className="ops-help" ref={ref}>
-      <button className="btn btn-ghost btn-icon ops-help-btn" onClick={() => setOpen((v) => !v)} aria-label="What the colours mean" aria-expanded={open} title="What the colours mean"><HelpCircle /></button>
-      {open && (
-        <div className="ops-help-pop card" role="dialog" aria-label="What the colours mean">
+    <div className="ops-help">
+      <button ref={ref} className="btn btn-ghost btn-icon ops-help-btn" onClick={toggle} aria-label="What the colours mean" aria-expanded={open} title="What the colours mean"><HelpCircle /></button>
+      {open && ref.current && (
+        <PopBox anchor={ref.current} onClose={close} label="What the colours mean" className="ops-help-pop">
           <HintNote id="map" />
-          <div className="row between ops-help-h"><span className="upper dim">What the colours mean</span><button className="btn btn-ghost btn-icon" onClick={() => setOpen(false)} aria-label="Close"><X /></button></div>
+          <div className="row between ops-help-h"><span className="upper dim">What the colours mean</span><button className="btn btn-ghost btn-icon" onClick={close} aria-label="Close"><X /></button></div>
           {LEGEND.map((l, i) => <div key={i} className="ops-help-row"><span className="ops-help-sw">{l.swatch}</span><span>{l.label}</span></div>)}
-        </div>
+        </PopBox>
       )}
     </div>
   );

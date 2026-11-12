@@ -15,6 +15,7 @@ import { setResumeSave, store } from './ui/store';
 import { installTouchClass } from './ui/useMedia';
 import { installDevice } from './ui/device';
 import { enableReadCache } from './engine/core/uiRev';
+import { cleanReportsOnOpen, clearedTitle, noteCleared } from './ui/bugReports';
 
 // The artifact host pads the page top/bottom by the safe-area insets itself
 // (see --safe-t/--safe-b in app.css); it also runs the page under the side bars.
@@ -51,6 +52,30 @@ function start(data: { save?: string } = {}) {
     </StrictMode>,
   );
   registerOffline();
+  // v0.23.1 the player: "auto-delete fixed bugs when I open the game". Reports this version fixed, and the records the
+  // game filed itself under an older version, go; one short toast says how many were fixed (Bug reports › Cleared).
+  window.setTimeout(() => {
+    cleanReportsOnOpen().then(({ fixed }) => {
+      noteCleared(fixed);
+      if (fixed.length) whenPlaying(() => store.toast('good', clearedTitle(fixed.length), 'Menu › Bug reports › Cleared says what each fix was.'));
+    }, (e) => console.warn('[bug reports] clean-up skipped', e));
+  }, 2500);
+}
+
+/**
+ * Final debug round: runs `fn` once a game is on screen with no dialog over it. The clean-up finds fixes right after an
+ * update, when What's New opens, and a dialog clears the toasts: shown then, the toast was gone in half a second (and
+ * logged at game time 0).
+ */
+function whenPlaying(fn: () => void): void {
+  const ready = () => store.screen === 'game' && !!store.game && !store.modal;
+  if (ready()) return fn();
+  const off = store.subscribe(() => {
+    if (!ready()) return;
+    off();
+    // (After the render that closed the dialog.)
+    window.setTimeout(fn, 0);
+  });
 }
 
 if (hot?.ready) hot.ready(start);

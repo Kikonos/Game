@@ -2,7 +2,7 @@
 // cancel with penalty) and Missed. DESIGN.md §6.3.
 
 import { AlertTriangle, CalendarRange, ChevronDown, ChevronRight, CircleSlash, Clock, Crown, FileSearch, Handshake, Inbox as InboxIcon, Medal, Palette, PhoneIncoming, Users } from 'lucide-react';
-import { lazy, Suspense, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { flag } from '../../data/countries';
 import { cancelContract, cancelCost, contractProgress, counterView, idleWindows, type IdleWindow, leadDays, offerClientLine, offerCompetition, standing } from '../../engine/contracts';
 import { dryLeaseView, marketOutlook } from '../../engine/ops';
@@ -37,11 +37,9 @@ import { openTenders, TendersView } from './Tenders';
 import { MarketsView } from './Markets';
 import { cancelWarning, lockOf, rulesOf } from '../../engine/scenario';
 import { LockedPanel, LockNote, lockedProps } from '../components/Locked';
-import { isRouteContract, networkTotals, routeName, seasonWord } from './network/networkLogic';
-// v0.19 Contracts › Network (scheduled routes) in its own chunk with its stylesheet.
-const NetworkView = lazy(() => import('./network'));
+import { isRouteContract, routeName, seasonWord } from './network/networkLogic';
 
-type View = 'market' | 'active' | 'tenders' | 'missed' | 'clients' | 'markets' | /** v0.16.3 the Market hub's Leads segment (was the Sales tab) */ 'leads' | 'filter' | /** v0.19 */ 'network';
+type View = 'market' | 'active' | 'tenders' | 'missed' | 'clients' | 'markets' | /** v0.16.3 the Market hub's Leads segment (was the Sales tab) */ 'leads' | 'filter';
 /** v0.16.3 the Market hub's segments; 'sales' (old links) opens Leads. */
 type Hub = 'market' | 'leads' | 'tenders';
 const HUB: Record<string, Hub> = { market: 'market', leads: 'leads', sales: 'leads', tenders: 'tenders' };
@@ -396,14 +394,12 @@ export function ContractsScreen() {
   const g = useGame();
   const nav = store.nav;
   const raw = nav.view === 'sales' ? 'leads' : nav.view;
-  const view = (['market', 'active', 'tenders', 'missed', 'clients', 'markets', 'leads', 'filter', 'network'].includes(raw ?? '') ? raw : 'market') as View;
+  const view = (['market', 'active', 'tenders', 'missed', 'clients', 'markets', 'leads', 'filter'].includes(raw ?? '') ? raw : 'market') as View;
   const hub: Hub | null = HUB[view] ?? null;
   const nMarket = marketOffers(g).length;
   const nLeads = salesTabCount(g);
   const nTenders = openTenders(g);
   const nActive = Object.values(g.contracts).filter((c) => (c.status === 'signed' || c.status === 'active') && !isRouteContract(c)).length;
-  // v0.19 routes operating (the Network tab's count).
-  const nRoutes = networkTotals(g).operating;
   const nMissed = missedOffers(g).length;
   // v0.11 Clients moved here from Company. Same rule as the Clients list's first filter (a job done, a contract or an open offer); moves at most daily.
   const day = Math.floor(g.now / 1440);
@@ -415,8 +411,7 @@ export function ContractsScreen() {
           // v0.16.3 one Market tab: offers, the leads pipeline and the tender board as segments (Sales and Tenders were tabs).
           { id: 'market', label: 'Market', count: nMarket + nLeads + nTenders || undefined },
           { id: 'active', label: 'Active', count: nActive },
-          // v0.19 our scheduled routes (secondary to ACMI).
-          { id: 'network', label: 'Network', count: nRoutes || undefined },
+          // v0.23.1 the Network moved to its own screen (the rail, under Contracts).
           { id: 'missed', label: 'Missed', count: nMissed },
           { id: 'clients', label: 'Clients', count: nClients || undefined },
           // v0.14 market presence, the trade fairs and sales trips (moved here from Company › Team).
@@ -436,7 +431,6 @@ export function ContractsScreen() {
       {view === 'clients' && <ClientsView g={g} />}
       {view === 'markets' && <MarketsView g={g} />}
       {view === 'filter' && <FilterView g={g} />}
-      {view === 'network' && <Suspense fallback={null}><NetworkView g={g} /></Suspense>}
     </div>
   );
 }

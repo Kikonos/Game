@@ -5,7 +5,7 @@
 // or the cheapest.
 
 import { subcharterFlights } from '../core/entities';
-import { post } from '../core/ledger';
+import { cashOnly, post } from '../core/ledger';
 import { typeOf } from '../core/perf';
 import { DAY, fmtDay } from '../core/time';
 import type { GameState, Minute } from '../core/types';
@@ -186,9 +186,11 @@ export function resolveRotation(g: GameState, rotId: string, choice: RouteChoice
     const times = rotationSchedule(g, route, rot);
     const cost = subCost(g, s.typeId, times.reduce((a, x) => a + (x.sta - x.std), 0), rot.dep);
     const ids = live(g, rot).map((f) => f!.id);
-    noteRouteSub(g, live(g, rot).map((f) => f!), cost);
+    const pre = noteRouteSub(g, live(g, rot).map((f) => f!), cost);
     subcharterFlights(g, ids, rv);
-    post(g, 'subcharter', -cost);
+    // (Paid now; the route's share is booked as each sector flies: noteRouteSub.)
+    post(g, 'subcharter', -(cost - pre));
+    cashOnly(g, -pre);
     rot.operatedBy = rv;
     rot.aircraftId = null;
     g.network!.stats.subs++;

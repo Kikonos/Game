@@ -5,7 +5,7 @@ import type { Minute } from '../../engine/core/types';
 import type { ClassProposal } from '../../engine/crew';
 
 export interface StripMonth { key: number; label: string; left: number; width: number }
-export interface StripBlock { no: string; start: Minute; left: number; width: number; lane: number; n: number }
+export interface StripBlock { no: string; start: Minute; left: number; width: number; lane: number; n: number; /** v0.23.1 not bookable yet (beyond the booking window). */ next?: true }
 export interface StripView {
   months: StripMonth[];
   blocks: StripBlock[];
@@ -20,11 +20,14 @@ export interface StripView {
  * The month strip of a proposal: whole months from this one to the month the last class (or the date asked for) ends
  * in, at least two; classes as blocks in as few rows as their overlaps need. `home`: the base whose calendar is read.
  */
-export function stripView(home: string, now: Minute, p: Pick<ClassProposal, 'classes' | 'rosterEnd' | 'by' | 'finish'>): StripView {
+export function stripView(home: string, now: Minute, p: Pick<ClassProposal, 'classes' | 'rosterEnd' | 'by' | 'finish'> & Partial<Pick<ClassProposal, 'next'>>): StripView {
   const loc = (t: Minute) => toLocal(home, t);
   const k0 = monthKey(loc(now));
-  const last = Math.max(loc(now) + 45 * DAY, p.finish !== null ? loc(p.finish - 1) : 0, p.rosterEnd ? loc(p.rosterEnd - 1) : 0);
-  const k1 = Math.min(k0 + 6, monthKey(last));
+  const next = p.next ?? [];
+  const nextEnd = next.length ? Math.max(...next.map((k) => k.end)) : 0;
+  const last = Math.max(loc(now) + 45 * DAY, p.finish !== null ? loc(p.finish - 1) : 0, p.rosterEnd ? loc(p.rosterEnd - 1) : 0, nextEnd ? loc(nextEnd - 1) : 0);
+  // (Six months on; up to nine with the next instalments of a phase-out.)
+  const k1 = Math.min(k0 + (next.length ? 9 : 6), monthKey(last));
   const from = monthStart(k0);
   const to = monthStart(k1 + 1);
   const pos = (t: Minute) => Math.min(1, Math.max(0, (loc(t) - from) / (to - from)));
@@ -32,15 +35,19 @@ export function stripView(home: string, now: Minute, p: Pick<ClassProposal, 'cla
   for (let k = k0; k <= k1; k++) months.push({ key: k, label: fmtMonth(k).split(' ')[0], left: (monthStart(k) - from) / (to - from), width: (monthStart(k + 1) - monthStart(k)) / (to - from) });
   const ends: Minute[] = [];
   const blocks: StripBlock[] = [];
-  for (const k of [...p.classes].sort((a, b) => a.start - b.start || (a.no < b.no ? -1 : 1))) {
+  const all = [...p.classes.map((k) => ({ ...k, next: false })), ...next.map((k, i) => ({ ...k, no: nextNo(i), next: true }))];
+  for (const k of all.sort((a, b) => a.start - b.start || (a.no < b.no ? -1 : 1))) {
     let lane = ends.findIndex((e) => e <= k.start);
     if (lane < 0) lane = ends.length;
     ends[lane] = k.end;
-    blocks.push({ no: k.no, start: k.start, left: pos(k.start), width: Math.max(0.012, pos(k.end) - pos(k.start)), lane, n: k.crewIds.length });
+    blocks.push({ no: k.no, start: k.start, left: pos(k.start), width: Math.max(0.012, pos(k.end) - pos(k.start)), lane, n: k.crewIds.length, ...(k.next ? { next: true as const } : {}) });
   }
   const inside = (t: Minute | null) => (t !== null && loc(t) > from && loc(t) < to ? pos(t) : null);
   return { months, blocks, lanes: Math.max(1, ends.length), today: pos(now), roster: inside(p.rosterEnd), by: inside(p.by) };
 }
+
+/** v0.23.1 the key of a class not bookable yet (they have no number until booked). */
+export const nextNo = (i: number) => `next-${i + 1}`;
 
 /** '13 each' / '13 · 13 · 12'. */
 export function sizesText(p: Pick<ClassProposal, 'classes'>): string {

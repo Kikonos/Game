@@ -18,7 +18,9 @@ export type Cue =
   | 'offerCall'
   // v0.11 Operations: a disruption needing a choice (1 HI); an emergency in operations: a diversion, a medical
   // emergency, a crew member sick away, an aircraft detained, an audit deadline missed (2 HI).
-  | 'opsDisruption' | 'opsEmergency';
+  | 'opsDisruption' | 'opsEmergency'
+  // v0.23.1 a route's market study done, a route launched (tickets on sale): each opens its pop-up (report bmwdo5trhi3sl).
+  | 'routeStudy' | 'routeLaunched';
 
 /** Every cue, in the §S.3 table order (tests, the UI's test list). */
 export const CUES: Cue[] = [
@@ -26,6 +28,7 @@ export const CUES: Cue[] = [
   'aog', 'delayPenalty', 'sickCall', 'latePayer', 'offerLapsing', 'worldEventOurs', 'crewAmber', 'ruleAlert',
   'cancelRisk', 'airspaceActive', 'cashNegative', 'evacuation', 'clientCollapse', 'crewShortage', 'crewOutOfHours',
   'achievement', 'ladder', 'headUnlocked', 'headHired', 'counterReply', 'notice', 'delivered', 'offerCall', 'opsDisruption', 'opsEmergency',
+  'routeStudy', 'routeLaunched',
 ];
 
 /** v0.9.1 what a cue is for, in the player's words (the toast; the Inbox message when `msgId`). */

@@ -1,9 +1,9 @@
 // Game shell for iPad landscape: top bar (company, UTC clock, speed control, cash, alerts, menu)
-// and a left rail of eight screens. No ticker (calm visuals). DESIGN.md §6.1. Owner: architect → B5.
+// and a left rail of nine screens (v0.23.1 Network). No ticker (calm visuals). DESIGN.md §6.1. Owner: architect → B5.
 // v0.7.2: the live ops strip (OpsStrip) fills the space between the speed control and cash.
 
 import {
-  Bell, Building2, CalendarRange, FileSignature, Globe2, Inbox as InboxIcon, Menu, Pause, Plane, Play, TrendingDown, TrendingUp, Users, Wallet,
+  Bell, Building2, CalendarRange, FileSignature, Globe2, Inbox as InboxIcon, Menu, Pause, Plane, Play, Route, TrendingDown, TrendingUp, Users, Wallet,
 } from 'lucide-react';
 import { type ReactNode, useEffect, useMemo } from 'react';
 import { fmtDate, fmtTime } from '../../engine/core/time';
@@ -18,6 +18,7 @@ import { CrewScreen } from '../screens/Crew';
 import { FinanceScreen } from '../screens/Finance';
 import { FleetScreen } from '../screens/Fleet';
 import { InboxScreen } from '../screens/Inbox';
+import { NetworkScreen } from '../screens/Network';
 import { ScheduleScreen } from '../screens/Schedule';
 import { refTarget } from '../screens/screenLogic';
 import { OpsStrip } from './OpsStrip';
@@ -33,6 +34,8 @@ import { ScreenHint } from '../components/ScreenHint';
 export const NAV: { tab: Tab; label: string; short: string; icon: ReactNode }[] = [
   { tab: 'map', label: 'Ops Map', short: 'Map', icon: <Globe2 /> },
   { tab: 'contracts', label: 'Contracts', short: 'Contracts', icon: <FileSignature /> },
+  // v0.23.1 our scheduled routes on their own screen, under Contracts (report bmwdolc94ctrb).
+  { tab: 'network', label: 'Network', short: 'Network', icon: <Route /> },
   { tab: 'schedule', label: 'Schedule', short: 'Schedule', icon: <CalendarRange /> },
   { tab: 'crew', label: 'Crew', short: 'Crew', icon: <Users /> },
   { tab: 'fleet', label: 'Fleet', short: 'Fleet', icon: <Plane /> },
@@ -98,7 +101,7 @@ function SpeedControl() {
 
 const PAUSE_LABEL: Record<PauseReason, string> = {
   decision: 'Decision waiting', urgentOffer: 'Urgent offer', aog: 'Aircraft AOG', monthEnd: 'Month closed', contractStart: 'Contract starts', crewShortage: 'Crew shortage',
-  marketOffer: 'Market offer', crewHours: 'Crew out of hours', rule: 'Your rule',
+  marketOffer: 'Market offer', crewHours: 'Crew out of hours', rule: 'Your rule', network: 'Network news',
 };
 
 /** Static amber badge saying why the clock stopped (no pulsing); tap goes where the reason lives. */
@@ -131,6 +134,7 @@ function PauseBadge() {
       s.openModal({ kind: 'sheet', refs: [ref] });
     }
     else if (reason === 'contractStart') s.navigate('schedule');
+    else if (reason === 'network') s.navigate('network');
     else if (reason === 'rule') s.navigate('company', { view: 'team', sel: { kind: 'head', id: 'watch' } });
     else if (reason === 'marketOffer') {
       // v0.7.2: straight to the newest offer.
@@ -277,6 +281,7 @@ export function Shell() {
         {/* The map hint sits where the selection panel opens: hidden while one is open. */}
         {tab === 'map' && !s.nav.sel && <ScreenHint id="map" className="float" />}
         {tab === 'contracts' && <ContractsScreen />}
+        {tab === 'network' && <NetworkScreen />}
         {tab === 'schedule' && <ScheduleScreen />}
         {tab === 'crew' && <CrewScreen />}
         {tab === 'fleet' && <FleetScreen />}

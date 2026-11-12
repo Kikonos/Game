@@ -21,6 +21,7 @@ import {
   routeCode, routeName, sectorLoad, seatsLine, seriesAircraft, seriesWords, hhmm, trend, upcoming, launchSpend,
 } from './networkLogic';
 import { TimetableEditor } from './TimetableEditor';
+import { CabinRow } from './CabinChange';
 import { confirmCancelRotation } from './live';
 
 type Tab = 'overview' | 'timetable' | 'sales' | 'costs';
@@ -202,6 +203,8 @@ function SalesTab({ g, r }: { g: GameState; r: Route }) {
       {!own && <div className="small muted">{modelLabel(g, r)}: the partner sets the fares and sells the seats. We are paid per block hour, plus a share above 70 % full.</div>}
       {own && (
         <div className="nw-setgrid">
+          {/* v0.23.1 the cabin: business and economy, or economy only (the comparison before the change). */}
+          <CabinRow g={g} r={r} />
           <div className="nw-set"><div><b className="small"><Ticket className="sc-ico-s" /> Fares</b><div className="tiny muted">Cheaper fills more seats; dearer earns more a seat</div></div><Seg<FareLevel> value={r.fares.level} onChange={(v) => act((gg) => net.setFares(gg, r.id, v), 'Fares set')} options={(['low', 'market', 'high'] as FareLevel[]).map((v) => ({ value: v, label: FARE_WORD[v] }))} /></div>
           <div className="nw-set"><div><b className="small"><Megaphone className="sc-ico-s" /> Marketing</b><div className="tiny muted">{money([3_000, 8_000, 15_000][['low', 'normal', 'high'].indexOf(r.marketing)])} a month</div></div><Seg<MarketingLevel> value={r.marketing} onChange={(v) => act((gg) => net.setMarketing(gg, r.id, v), 'Marketing set')} options={(['low', 'normal', 'high'] as MarketingLevel[]).map((v) => ({ value: v, label: MKT_WORD[v] }))} /></div>
           <div className="nw-set"><div><b className="small row gap-6" style={{ alignItems: 'center' }}>Overbook 3 % <Help title="Overbooking">

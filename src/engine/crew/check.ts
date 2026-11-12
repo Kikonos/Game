@@ -8,7 +8,7 @@ import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } f
 import { dayFloorIssue, eveFloorIssue, monthFloorIssue, offIssue, offMovable } from './dayPlan';
 import { evalSegs, EXT_REST, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { flightsRev } from '../core/entities';
-import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outMerges, outTicket, planHome, posSeg, planHomeAfter, planOut, reserveSeat, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
+import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outExtra, outTicket, planHome, posSeg, planHomeAfter, planOut, reserveSeat, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 import { guestOn, homeOf, lastPart, sameTour, tourHomePlan, tourSpan, tourStationFor } from './tours';
 import { dutyClash } from './avail';
 import { leaveBackFor } from './leaveTrips';
@@ -315,7 +315,12 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
       // (A ticket, alone or merged into its duty, that only takes them home or to where this trip ends is no reason to
       // go back for it: the old rule re-buys it from where they will be, `retick` below.)
       const dest = nx ? (nx.kind === 'pos' ? nx.at : nx.out?.to) : undefined;
-      if (nx && nx.from && nx.from !== c.base && (dest === undefined || (dest !== c.base && dest !== last.restAt))) {
+      // Player bot round: ... unless that ticket is a set member's way out to their tour, which is never bought again
+      // (the re-ticket below is for planned trips): then they go back for it (bot seed 1: a captain waiting at
+      // Kangerlussuaq for his ticket out to the Riyadh base was refused a trip ending at Riyadh, "due in Kangerlussuaq").
+      const qn = nx?.dutyId ? g.pairings[g.duties[nx.dutyId]?.pairingId ?? ''] : undefined;
+      const rebought = !qn || (qn.status === 'planned' && (!qn.tour || guestOn(qn, c.id)));
+      if (nx && nx.from && nx.from !== c.base && (dest === undefined || (dest !== c.base && (dest !== last.restAt || !rebought)))) {
         if (nx.from === loc) station = loc;
         else if (nx.from !== last.restAt && locAt(c, base, nx.start) !== nx.from) station = nx.from;
       }
@@ -338,6 +343,27 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
         base = stay;
         dropped.push(...back);
       } else home = tour && !leaveNext ? tourHomePlan(g, p, last, c.base, cabinEarly(g, p)) : planHome(last, homeAt, cabinEarly(g, p) + outExtra(out, duties));
+    }
+  }
+  // Player bot round: a duty already under way (its first leg gone) is joined where its next leg leaves, by someone
+  // there when it leaves: the crew who flew the legs before are at that airport, a joiner may not be (bot --player seed
+  // 1: a cabin crew member at Palma seated on 2W7103 out of Budapest after 2W7102 had left without her, "teleport").
+  const leg0 = g.flights[first.flightIds[0]];
+  if (leg0 && leg0.status !== 'scheduled' && leg0.status !== 'cancelled' && first.report <= g.now) {
+    let flew = false;
+    let next: Flight | undefined;
+    for (const id of first.flightIds) {
+      const f = g.flights[id];
+      if (!f || f.status === 'cancelled') continue;
+      if (f.status === 'scheduled') {
+        next ??= f;
+        continue;
+      }
+      if (f.crewIds.includes(c.id) || aboard(f, c.id)) flew = true;
+    }
+    if (next && !flew) {
+      const w = locAt(c, base, next.std);
+      if (w !== next.from) issues.push({ code: 'location', level: 'illegal', text: `At ${w}, not ${next.from}`, dutyId: first.id });
     }
   }
   let segs = buildSegs(g, c, p, duties, out, home);
@@ -406,7 +432,7 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
       break;
     }
   }
-  const other = otherTrip(g, c, p, segs[0].start, segs[segs.length - 1].end, existing, leaving, also, guest);
+  const other = otherTrip(g, c, p, segs[0].start, segs[segs.length - 1].end, existing, leaving, also, guest, segs);
   if (other) issues.push({ code: 'overlap', level: 'illegal', text: `On another ${other.tour ? 'tour' : 'trip'} until ${fmtDay(other.end)}`, dutyId: first.id });
   issues.push(...statusIssues(c, segs[0].start, segs[segs.length - 1].end, typeOf(typeIdOf(g, p)).family, duties));
   // v0.9 new work on a planned day off (UPDATE-0.9.md §R.3): the roster never takes one; a player change confirms it.
@@ -432,6 +458,15 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
     // duty once the crew has reported (tight); before report the crew is re-planned like any other limit (v0.9 fix:
     // the 168 h is never planned past).
     for (const i of ftl) if (i.code === 'recovery' && i.level === 'illegal' && i.dutyId && (g.duties[i.dutyId]?.report ?? Infinity) <= g.now) i.level = 'tight';
+    // Crew alarm round (Nov 2026, the player's EW6000): the rest before a LATER trip's work (its ticket out, its duty) is
+    // that trip's problem: its own re-check flags its seat and the roster re-crews it ("only the earlier pairing wins").
+    // It read as this duty's: "Beatriz Ribeiro is short of rest" on EW6000, whose own rest before was 18:50.
+    for (const i of ftl) {
+      // (An overlap is both trips' problem: they cannot be in two places; only the rest is owed to the later one.)
+      if (i.next === undefined || i.code !== 'rest' || i.level !== 'illegal' || !i.next) continue;
+      const q = g.pairings[g.duties[i.next]?.pairingId ?? ''];
+      if (q && q.id !== p.id && (q.start > p.start || (q.start === p.start && q.id > p.id))) i.level = 'legal';
+    }
   }
   // v0.12.1 a later trip's ticket out, not flown yet, from where the crew are now: this trip takes them elsewhere, so that
   // ticket is bought again from where they will be (S1027: a rested captain in Goma refused for "Lisbon, not Goma",
@@ -467,16 +502,6 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
   return { level: levelOf(issues), issues, out, home, segs, drop: dropped.length ? dropped : undefined, ...(retick.length ? { retick, retickCost } : {}), ...(leaveBack ? { leaveBack } : {}), ...(backTo ? { backTo } : {}), ...(guest ? { guest: true as const } : {}) };
 }
 
-/**
- * Rotations round: on a one-duty trip whose ticket out joins the duty's day (it lands too close to the report to rest),
- * the day runs from the ticket's check-in: the rest the ticket home waits for is measured from there (planHome's
- * `early`). Before, the ticket home left 11:30 after a 12:30 day and the whole plan read illegal. Pure.
- */
-function outExtra(out: TicketPlan | null, duties: Duty[]): number {
-  if (!out || duties.length !== 1 || out.rideId) return 0;
-  const first = duties[0];
-  return outMerges(out, first.report) ? Math.max(0, first.report - (out.std - BAL.deadheadCheckIn)) : 0;
-}
 
 /**
  * v0.9.1: c's stand-alone ticket (no duty holds it) out of the last duty's rest airport, the first work after that
@@ -611,7 +636,7 @@ function nextFrom(segs: Seg[], t: Minute): string {
  * off (manual swap), which no longer counts. `also`: trips c was seated on in this roster run (not in the index yet).
  * `guest`: c is (or would be) a guest on p.
  */
-export function otherTrip(g: GameState, c: CrewMember, p: Pairing, from: Minute, to: Minute, existing: boolean, leaving?: string, also?: Pairing[], guest = guestOn(p, c.id)): Pairing | null {
+export function otherTrip(g: GameState, c: CrewMember, p: Pairing, from: Minute, to: Minute, existing: boolean, leaving?: string, also?: Pairing[], guest = guestOn(p, c.id), own?: readonly Seg[]): Pairing | null {
   const held = crewIx(g).pairingsOf.get(c.id) ?? [];
   const list = also?.length ? [...held, ...also.filter((x) => !held.includes(x))] : held;
   const member = !!p.tour && !guest;
@@ -624,8 +649,16 @@ export function otherTrip(g: GameState, c: CrewMember, p: Pairing, from: Minute,
     // Re-checking a held seat: only the earlier pairing wins (the later one is flagged and re-rostered).
     if (existing && (q.start > p.start || (q.start === p.start && q.id > p.id))) continue;
     const open = q.status === 'done' ? [] : openDuties(g, q);
-    if (dutyClash(open, from, to) >= 0) return q;
+    // Crew alarm round (Nov 2026, the player's XY3060 and U27060): with the plan's own work at hand (`own`: its tickets
+    // and duties), another trip's duty clashes only with that work, never with the gap between a ticket out and the
+    // first duty (Rui Ribeiro flew out the day before, worked a guest duty of the same tour on the way, then this one:
+    // "On another tour until 18 Jul", while every rest and place held). The timeline (evalSegs) judges the gaps.
+    if (own?.length ? own.some((s) => s.kind !== 'log' && s.kind !== 'sby' && dutyClash(open, s.start, s.end) >= 0) : dutyClash(open, from, to) >= 0) return q;
     if (qGuest) continue;
+    // Crew alarm round (Nov 2026, the player's FR2040): a held seat is re-checked on real clashes only. The two holds
+    // below are the planner's choices when it seats someone (a set's rotation not known yet, two rotations at once),
+    // not limits: a seat already taken (by the player, here) whose every duty is legal is no crew alarm.
+    if (existing) continue;
     const span = tourSpan(g, q);
     const dep = span && q.deploymentId ? g.deployments[q.deploymentId] : undefined;
     // Crew bug round (the alarm self-check, s0501 AT1002): a finished part of another set's tour at the same station no

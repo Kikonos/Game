@@ -2,7 +2,7 @@
 // own sheet (modals/PersonSheet.tsx: monthly roster, totals, limits, morale; Train / Hire similar). DESIGN.md §6.3.
 
 import { RankMark } from '../components/RankMark';
-import { Check, CheckSquare, Gauge, GraduationCap, Layers, LayoutGrid, List, Lock, Palmtree, Search, UserMinus, UserPlus, Users, X } from 'lucide-react';
+import { CalendarRange, Check, CheckSquare, Gauge, GraduationCap, Layers, LayoutGrid, List, Lock, Palmtree, Search, UserMinus, UserPlus, Users, X } from 'lucide-react';
 import { CrewPlanView, DeploymentStrip, PeakHeadsUp, PlanStrip } from './CrewPlan';
 import { LeaveView } from './CrewLeave';
 import { UtilisationView } from './CrewUtil';
@@ -131,6 +131,8 @@ function SelectBar({ g, ids, onClear, onDone }: { g: GameState; ids: string[]; o
       <button className="btn" onClick={onClear} disabled={!ids.length}>Clear</button>
       {/* v0.23 cabin crew can give a type up (it frees one of their three places). */}
       <button className="btn sc-sel-remove" onClick={() => store.openModal({ kind: 'removeRating', crewIds: ids, onDone })} disabled={!canRemove}><UserMinus /> <span className="sc-sel-long">Remove rating…</span></button>
+      {/* v0.23.1 the class planner with exactly these people (Convert… books one class by hand). */}
+      <button className={`btn sc-sel-plan ${lockOf(g, 'training') ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'classPlan', crewIds: ids, onBooked: onDone })} disabled={!ids.length || !!lockOf(g, 'training')} aria-label="Plan classes"><CalendarRange /> <span className="sc-sel-long">Plan classes…</span></button>
       <button className={`btn btn-primary ${lockOf(g, 'training') ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'convert', crewIds: ids, onBooked: onDone })} disabled={!ids.length || !!lockOf(g, 'training')} data-tip={lockOf(g, 'training') ?? undefined}><GraduationCap /> Convert…</button>
       <button className="btn btn-ghost btn-icon" onClick={onDone} aria-label="Done selecting"><X /></button>
     </div>

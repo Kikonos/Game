@@ -41,6 +41,8 @@ export const SOUND_OF: Record<SoundEvent, SoundId> = {
   offerCall: 'ring',
   // v0.11 Operations: a disruption card 1 HI; a diversion, a medical emergency, a detention, a missed audit deadline 2 HI.
   opsDisruption: 'hi', opsEmergency: 'hi2',
+  // v0.23.1 network news with its pop-up: a study done (1 HI, an answer waits), a route launched (the calm double).
+  routeStudy: 'hi', routeLaunched: 'lo2',
 };
 
 export const CAT_OF: Record<SoundId, SoundCat> = {

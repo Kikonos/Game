@@ -2,6 +2,7 @@
 // read and follows its ref. DESIGN.md §6.3. v0.7.1: a 'Problems only' filter, a severity badge on every warning
 // (money / passengers / lateness) and an Explain button that unfolds the four-line card in place.
 
+import type { RatingFamily } from '../../data/acmiTypes';
 import { CheckCheck, ChevronRight, HelpCircle, History, Hourglass, Inbox as InboxIcon, PencilLine, ShieldAlert, TimerOff, Trophy, Users, X } from 'lucide-react';
 import { HEAD_DEFS } from '../../data/heads';
 import type { HeadId } from '../../engine/core/types';
@@ -53,8 +54,15 @@ export function openMessage(g: GameState, m: Message) {
   // v0.19 a route's note opens its page (or the launch while it is launching).
   if (m.ref?.kind === 'route') {
     const r = g.network?.routes[m.ref.id];
-    store.navigate('contracts', { view: 'network' });
+    store.navigate('network');
     if (r && r.status !== 'closed') store.openModal(r.status === 'study' || r.status === 'case' || r.status === 'launching' ? { kind: 'routeLaunch', routeId: r.id } : { kind: 'route', routeId: r.id });
+    return;
+  }
+  // v0.23.1 'Next 757/767 classes can be booked': the planner itself, on that type and crew group.
+  const next = m.ref?.kind === 'crew' ? /^classes:(.+):(pilot|cabin)$/.exec(m.ref.id) : null;
+  if (next) {
+    store.navigate('crew', { view: 'plan' });
+    store.openModal({ kind: 'classPlan', family: next[1] as RatingFamily, group: next[2] as 'pilot' | 'cabin' });
     return;
   }
   const link = m.ref ? refTarget(g, m.ref) : null;

@@ -370,7 +370,8 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     }
     case 'crew':
       // Peak-staffing round: a busy-month heads-up opens Crew › Planning.
-      if (ref.id.startsWith('peak:')) return { tab: 'crew', view: 'plan' };
+      // v0.23.1 the next instalment of classes can be booked: Crew › Planning (the type's card has Plan classes).
+      if (ref.id.startsWith('peak:') || ref.id.startsWith('classes:')) return { tab: 'crew', view: 'plan' };
       return g.crew[ref.id] ? { tab: 'crew', sel: ref } : { tab: 'crew' };
     case 'maint': {
       const m = g.maintenance[ref.id];
@@ -387,9 +388,9 @@ export function refTarget(g: GameState, ref: Ref): DeepLink | null {
     // v0.8: a client / rival opens its pane on Company; a world event its pin on the map.
     case 'client':
       return { tab: 'contracts', view: 'clients', sel: ref };
-    // v0.19 a scheduled route: Contracts › Network.
+    // v0.19 a scheduled route: v0.23.1 the Network screen.
     case 'route':
-      return { tab: 'contracts', view: 'network', sel: ref };
+      return { tab: 'network', sel: ref };
     case 'rival':
       return { tab: 'company', view: 'rivals', sel: ref };
     case 'event':

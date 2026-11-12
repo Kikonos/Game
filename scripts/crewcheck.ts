@@ -19,7 +19,7 @@ import { flightCrewStatus } from '../src/engine/crew';
 import { crossCheck, crossPlanLines, type CrossResult } from '../src/engine/crew/crossCheck';
 import type { AlarmKind } from '../src/engine/crew/selfCheck';
 import { deserialize } from '../src/engine/save';
-import { BUGS_FORMAT, isCrewAlarm, parseBugsFile, snapshotFor, snapshotText } from '../src/ui/bugReports';
+import { BUGS_FORMAT, isCrewAlarm, parseBugsFile, snapshotTextFor } from '../src/ui/bugReports';
 
 interface Row extends CrossResult {
   /** Game time of the alarm (or of the save). */
@@ -60,8 +60,18 @@ function nowWords(text: string, flightId: string): string {
   }
 }
 
+/**
+ * v0.23.1 duties whose report was logged later than the crew reported (crew/logLater.ts): not alarms and not errors, a
+ * choice the player made; listed apart so a reader of the check knows the roster there is the logged one.
+ */
+const adjusted: string[] = [];
+function noteAdjusted(g: GameState, source: string): void {
+  for (const a of g.opsx?.adjusted ?? []) adjusted.push(`${fmtDateTime(a.t)}  ${a.no}: report logged +${a.min} min (${a.limit === 'rest' ? 'short rest' : 'day over its limit'})${a.found ? ', found' : ''} · ${source}`);
+}
+
 function judgeSave(text: string, source: string, rows: Row[]): void {
   const g = asItWas(text);
+  noteAdjusted(g, source);
   const seen = new Set<string>();
   const marked = Object.values(g.flights)
     .filter((f) => f.status === 'scheduled' && f.kind !== 'deadhead' && (f.crewAlert || f.crewEarly) && short(g, f.id))
@@ -93,20 +103,30 @@ function main(): void {
     const alarms = data.reports.filter((r) => isCrewAlarm(r) && r.alarm);
     head = `${data.app} · exported ${data.exportedAt} · ${data.company ?? '(no game)'} · ${alarms.length} crew alarm record(s) of ${data.reports.length} report(s)`;
     const cache = new Map<string, GameState>();
+    // v0.23.1 a record's snapshot may be the changes since the record before (rebuilt here, as far back as needed).
+    const texts = new Map<string, string>();
+    let rebuilt = 0;
     for (const r of alarms) {
       const a = r.alarm!;
-      const snap = snapshotFor(r, data.reports);
-      if (!snap) {
-        rows.push({ verdict: 'UNSURE', flightId: a.flightId, no: a.no, leg: a.leg, seats: [], plan: [], why: 'no snapshot kept for this record (only the newest keep one)', tried: 0, refused: {}, when: fmtDateTime(a.t), kind: a.kind, title: a.title, now: '-', source: r.id });
+      let saveText = '';
+      try {
+        saveText = snapshotTextFor(r, data.reports, texts);
+      } catch (e) {
+        rows.push({ verdict: 'UNSURE', flightId: a.flightId, no: a.no, leg: a.leg, seats: [], plan: [], why: `snapshot could not be read: ${(e as Error).message}`, tried: 0, refused: {}, when: fmtDateTime(a.t), kind: a.kind, title: a.title, now: '-', source: r.id });
         continue;
       }
+      if (!saveText) {
+        rows.push({ verdict: 'UNSURE', flightId: a.flightId, no: a.no, leg: a.leg, seats: [], plan: [], why: 'no snapshot kept for this record', tried: 0, refused: {}, when: fmtDateTime(a.t), kind: a.kind, title: a.title, now: '-', source: r.id });
+        continue;
+      }
+      if (r.snapBase) rebuilt++;
       const key = r.snapOf ?? r.id;
       let g = cache.get(key);
-      const saveText = snapshotText(snap);
       if (!g) cache.set(key, (g = asItWas(saveText)));
       const res = crossCheck(g, a.flightId, a.kind as AlarmKind);
       rows.push({ ...res, when: fmtDateTime(a.t), kind: a.kind, title: a.title, now: nowWords(saveText, a.flightId), source: r.id });
     }
+    if (rebuilt) head += ` · ${rebuilt} snapshot(s) rebuilt from the changes since the record before`;
     if (data.currentSave) judgeSave(data.currentSave, 'current save', rows);
   } else {
     head = `save file ${file}`;
@@ -131,6 +151,10 @@ function main(): void {
   }
   const n = (v: string) => rows.filter((r) => r.verdict === v).length;
   console.log(`\nsummary: ${rows.length} alarm(s) checked · RIGHT ${n('RIGHT')} · WRONG ${n('WRONG')} · UNSURE ${n('UNSURE')}`);
+  if (adjusted.length) {
+    console.log(`adjusted (report logged later, not alarms): ${adjusted.length}`);
+    for (const l of adjusted.slice(-20)) console.log(`  ${l}`);
+  }
   if (jsonOut) {
     writeFileSync(jsonOut, JSON.stringify(rows, null, 1));
     console.log(`rows written to ${jsonOut}`);

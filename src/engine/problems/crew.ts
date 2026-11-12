@@ -5,7 +5,7 @@ import { BAL } from '../core/balance';
 import { seatLabel, typeOf } from '../core/perf';
 import { DAY, fmtDay, fmtDateTime } from '../core/time';
 import type { CrewFix, Duty, GameState, ProblemRef, RestFacility } from '../core/types';
-import { crewGauges, crewShortCard, setCrewHoursCard, shortFlights } from '../crew/control';
+import { crewGauges, crewShortCard, logLaterAction, setCrewHoursCard, shortFlights } from '../crew/control';
 import { crewAlertKind, LIMIT_NAME, outOfHours, roleWord, type OohInfo } from '../crew/outOfHours';
 import { crewPeakCard, peakForecast, peakGroups, peakId } from '../crew/forecast';
 import { dutyCandidates } from '../crew/rosterActions';
@@ -357,7 +357,7 @@ export function oohWhy(g: GameState, x: OohInfo, d?: Duty): string {
       const late = d ? Math.max(0, (g.flights[d.flightIds[0]]?.delay ?? 0)) : 0;
       return x.value ? `${who}'s day would run ${hmm(x.value)}${late ? ` after the ${hmm(late)} delay` : ''}; the limit is ${hmm(x.max)}.` : x.overMin ? `${who}'s day would run ${hmm(x.overMin)} over its limit.` : `${who}'s day would run over its limit.`;
     }
-    case 'rest': return x.overMin ? `${who}'s rest would be ${hmm(x.overMin)} short of the minimum before report.` : `${who} has not had the minimum rest before report.`;
+    case 'rest': return x.overMin ? `${who}'s rest would be ${hmm(x.overMin)} short of the minimum.` : `${who} has not had the minimum rest.`;
     case 'recovery': return `${who} would go over 7 days without a 36 h rest.`;
     case 'daysOff': return `${who}'s ${MONTHS[new Date(Date.UTC(2000, 0, 1) + g.now * 60_000).getUTCMonth()]} days off would fall below 7.`;
     case 'inflightRest': return `${who}'s rest plan no longer works after the delay: the cabin crew cannot all rest in this cruise.`;
@@ -405,6 +405,8 @@ export function crewHoursCard(g: GameState, flightId: string): ProblemCard | nul
     }
     actions.push({ id: 'delay', label: x.limit === 'rest' && x.overMin ? `Delay ${hmm(x.overMin)} for the rest` : 'Delay until a legal crew is ready', open: open('delay'), primary: !actions.length });
   }
+  // v0.23.1 a short rest or a day over its limit by at most an hour: the roster may show a later report (crew/logLater.ts).
+  actions.push(...logLaterAction(g, f.id));
   actions.push({ id: 'subcharter', label: 'Sub-charter', open: open('subcharter') }, { id: 'cancel', label: 'Cancel', open: open('cancel') });
   // The 14/28-day duty limits read on the duty gauge's place, the 12-month flying on the year's.
   const gid = x.limit === 'fdp' ? 'fdp' : x.limit === 'rest' ? 'rest' : x.limit === 'duty7d' || x.limit === 'duty14d' || x.limit === 'duty28d' ? 'duty7d' : x.limit === 'block28d' ? 'block28d' : x.limit === 'blockYear' || x.limit === 'block12m' ? 'blockYear' : null;

@@ -105,6 +105,7 @@ import { createTicketLog } from './ticketlog';
 import { createChecker } from './invariants';
 import { watchAlarms } from './bot/alarms';
 import { crossCheck, crossPlanLines } from '../src/engine/crew/crossCheck';
+import { heldDuties } from '../src/engine/crew/avail';
 import type { AlarmKind } from '../src/engine/crew/selfCheck';
 import { SETUP_BY_ID, type SetupId } from '../src/data/setups';
 import { createScenario, METRICS, SCENARIO_BY_ID, fmtValue, reliability, scenarioOutcome, scenarioView } from '../src/engine/scenario';
@@ -120,6 +121,15 @@ import { botSalesFinanceReport } from './bot/report016';
 import { botMarket, MARKET_TALLY } from './bot/market';
 import { loiQuote, signLoi, usesLoi } from '../src/engine/leasing';
 import { botMarketReport } from './bot/report017';
+import { measure } from './playstyle';
+import { adviceReport, noteAlarm, noteSigned } from './bot/advice';
+// Player bot round (--player): the offer dialog's hand-over and the class planner.
+import { subleaseTrip } from '../src/engine/ops/sublease';
+import { subcharter, subcharterHit } from '../src/engine/ops/subcharter';
+import { feasibilityWithout } from '../src/engine/contracts/freeUp';
+import { crewPlan, roundTargets, roundUpQuote } from '../src/engine/crew/sets';
+import { crewUtilisation, heldHires } from '../src/engine/crew/utilisation';
+import { bookClassPlan, classCandidates, classPlanNeed, classProposals } from '../src/engine/crew/classPlan';
 
 
 const args = process.argv.slice(2).filter((a) => !a.startsWith('--'));
@@ -165,8 +175,18 @@ const ALARMS_ARG = process.argv.find((a) => a === '--alarms' || a.startsWith('--
 /** v0.22.1 --crewcheck: each alarm is cross-checked as it fires (src/engine/crew/crossCheck.ts: RIGHT / WRONG / UNSURE). */
 const CREWCHECK = process.argv.includes('--crewcheck');
 const ALARMS = ALARMS_ARG || CREWCHECK
-  ? watchAlarms(CREWCHECK ? { judge: (g, rec) => { const r = crossCheck(g, rec.flightId, rec.kind as AlarmKind); return { verdict: r.verdict, plan: `${r.why}${r.plan.length ? ` :: ${crossPlanLines(r).join(' || ')}` : ''}` }; } } : {})
+  ? watchAlarms(CREWCHECK ? { also: noteAlarm, judge: (g, rec) => { const r = crossCheck(g, rec.flightId, rec.kind as AlarmKind); return { verdict: r.verdict, plan: `${r.why}${reserveNote(g, r)}${r.plan.length ? ` :: ${crossPlanLines(r).join(' || ')}` : ''}` }; } } : { also: noteAlarm })
   : null;
+/** Player bot round: a cross-check plan that takes someone standing by for their own set (a far base's reserve, a relief pilot). */
+function reserveNote(g: GameState, r: ReturnType<typeof crossCheck>): string {
+  const f = g.flights[r.flightId];
+  if (!f || r.verdict === 'RIGHT') return '';
+  const d = f.dutyId ? g.duties[f.dutyId] : undefined;
+  const from = d?.report ?? f.std;
+  const to = d?.release ?? f.sta;
+  const held = r.plan.filter((x) => { const c = g.crew[x.crewId]; return !!c && heldDuties(g, c, Object.values(g.pairings)).some((h) => h.standsBy && h.start < to && h.end > from); });
+  return held.length ? ` [standing by for their own set: ${held.map((x) => x.name).join(', ')}]` : '';
+}
 /** v0.12 --setup=<id>: another New Game start setup (data/setups.ts: boeing, leisure, newtech, mixed, veterans, shoestring). */
 const SETUP = process.argv.find((a) => a.startsWith('--setup='))?.slice(8) as SetupId | undefined;
 
@@ -538,7 +558,9 @@ function offers(g: GameState, t: Tally): void {
     }
     hireFor(g, t, best);
     const xc = paidExtra(g, o, best.aircraftId);
-    if (acceptOffer(g, o.id, [best.aircraftId], { paint: paintOn(o), crewExtra: xc ?? undefined }).ok) {
+    const res = acceptOffer(g, o.id, [best.aircraftId], { paint: paintOn(o), crewExtra: xc ?? undefined });
+    if (res.ok) {
+      if (res.data?.contractId) noteSigned(g, res.data.contractId, best, o.archetype);
       t.accepted++;
       pipeNote(o, 'accepted');
       const code = CODE[o.archetype] ?? o.archetype;
@@ -548,6 +570,233 @@ function offers(g: GameState, t: Tally): void {
       if (longLead) t.longLead++;
       t.firstAccept ??= g.now;
       act(g, t);
+    }
+  }
+}
+
+// ---------- --player (player bot round, Nov 2026) ----------
+//
+// A policy measured on the player's own saves (scripts/playstyle.ts; /home/user/work/playerbot/compare.md), not on what
+// a careful dispatcher would do. Their first year (Blue Airlines, 6–7 aircraft) signed about 2.2 jobs per aircraft a
+// month, a quarter of them inside a week of the first leg and one in six inside 72 h, at any lead time (half were
+// 30+ days out); 115 of 143 non-base jobs ran while a base deployment was flying; they handed about one trip a week to
+// another operator, mostly their own hand-overs to make room for a better job ("I subleased some trips and took this
+// trip for the extra money"); 9 in 10 hires came within a week of a signing (the offer's crew line, the Planning card),
+// not ahead of it. So, against the standard policy:
+// - offers: every job the offer dialog lets through on an aircraft (ok or warn, a positive margin) is signed, crew
+//   short or not (the dialog's "Short of crew" is a warning, not a stop), at any lead time, short notice and calls
+//   included, thin series too; looked at every day; never countered;
+// - no aircraft free: the trips in the way are sub-leased (the dialog's own hand-over, ops/sublease.ts) when the job
+//   then fits and pays more than the hand-overs cost;
+// - hires: only what the game says: the offer's crew line at signing, the Planning card's round-up (as the crew desk
+//   proposes it, held ranks left out) and the busy-month heads-up; no extra sets for hot pilots or widebodies, no extra
+//   cabin crew of our own;
+// - a new type: its classes booked with the class planner (crew/classPlan.ts, the dialog's middle stop), finishing by
+//   the arrival.
+// Everything else (decisions, Crew Control, checks, fleet, leases, the Ladder) is the standard policy. A pure function
+// of the game, like the rest.
+const PLAYER = process.argv.includes('--player');
+/** v0.23.1 --adjust: the bot logs a later report time when Crew Control offers it (never without the flag). */
+const ADJUST = process.argv.includes('--adjust');
+const adjustStats = { offered: 0, applied: 0, why: new Map<string, number>() };
+const PDBG = !!process.env.PDBG;
+/** Hand-overs made to take a better job, and what they cost (tally only). */
+const playerTally = { subleases: 0, subLegs: 0, subCost: 0, subBill: 0, shortSigned: 0, callsSigned: 0, crewShortSigned: 0, roundUps: 0, peakHires: 0, signHires: 0, classPlans: 0, classPeople: 0 };
+
+/** The aircraft the offer dialog would put first: passing (ok before warn), then the best margin; crew short allowed. */
+function playerFit(g: GameState, o: ContractOffer): FeasibilityReport | null {
+  const rank = { ok: 0, warn: 1, no: 2 } as const;
+  const all = seatsFit(g, o).map((id) => feasibility(g, o.id, id, { paint: paintOn(o), quick: true }));
+  return all.filter((r) => (r.level === 'ok' || r.level === 'warn') && r.estMargin > 0).sort((a, b) => rank[a.level] - rank[b.level] || b.estMargin - a.estMargin)[0] ?? null;
+}
+
+interface SubleasePick { aircraftId: string; trips: { ids: string[]; cost: number; bill: number; rivalId: string }[]; gain: number; report: FeasibilityReport }
+
+/**
+ * No aircraft free: per aircraft busy only with trips (no programme days, no check in the way), the trips in the way as
+ * the offer dialog lists them (subleaseTrip), each one an operator can take; the job's check again without them
+ * (feasibilityWithout, the dialog's freeUpVerdict). Worth it when the job's margin beats what the hand-overs cost us
+ * (the rival's price less what we still bill, plus $10K per reliability point) by $20K. The best gain wins.
+ */
+function playerSublease(g: GameState, o: ContractOffer): SubleasePick | null {
+  let best: SubleasePick | null = null;
+  for (const id of seatsFit(g, o)) {
+    const r = feasibility(g, o.id, id, { paint: paintOn(o), quick: true });
+    const why = (x: string) => PDBG && console.error(`${fmtDateTime(g.now)} PSUB ${o.archetype} ${o.id} ${g.fleet[id].reg} ${x}`);
+    if (r.level !== 'no' || !r.conflicts.flights.length || r.conflicts.programmes.length || r.conflicts.maintenance.length) {
+      why(`level ${r.level} flights ${r.conflicts.flights.length} progs ${r.conflicts.programmes.length} mx ${r.conflicts.maintenance.length} ${r.checks.filter((c) => c.level === 'no').map((c) => c.id + ':' + c.label).join(' | ')}`);
+      continue;
+    }
+    // Only the aircraft being busy stands in the way (and the positioning it leaves no room for).
+    if (r.checks.some((c) => c.level === 'no' && c.id !== 'availability' && c.id !== 'positioning')) {
+      why(`other no: ${r.checks.filter((c) => c.level === 'no').map((c) => c.id + ':' + c.label).join(' | ')}`);
+      continue;
+    }
+    const trips: SubleasePick['trips'] = [];
+    const seen = new Set<string>();
+    let ok = true;
+    for (const fid of r.conflicts.flights) {
+      if (seen.has(fid)) continue;
+      const v = subleaseTrip(g, fid);
+      if (!v.ok || !v.best) {
+        why(`trip ${v.label}: ${v.reason}`);
+        ok = false;
+        break;
+      }
+      for (const x of v.flightIds) seen.add(x);
+      seen.add(fid);
+      trips.push({ ids: v.flightIds, cost: v.best.cost, bill: v.best.revenue, rivalId: v.best.rivalId });
+    }
+    if (!ok || !trips.length || trips.length > 3) continue;
+    const w = feasibilityWithout(g, o.id, id, trips.flatMap((x) => x.ids), { paint: paintOn(o), quick: true });
+    if ((w.level !== 'ok' && w.level !== 'warn') || w.estMargin <= 0) {
+      why(`without ${trips.length} trips: ${w.level} m${Math.round(w.estMargin / 1000)}k ${w.checks.filter((c) => c.level === 'no').map((c) => c.id + ':' + c.label).join(' | ')}`);
+      continue;
+    }
+    const hit = subcharterHit(g, trips.flatMap((x) => x.ids)).reliability;
+    const cost = trips.reduce((s, x) => s + Math.max(0, x.cost - x.bill), 0) + 10_000 * Math.abs(hit);
+    const gain = w.estMargin - cost;
+    why(`gain ${Math.round(gain / 1000)}k (margin ${Math.round(w.estMargin / 1000)}k, cost ${Math.round(cost / 1000)}k)`);
+    if (gain < 20_000 || (best && best.gain >= gain)) continue;
+    best = { aircraftId: id, trips, gain, report: w };
+  }
+  return best;
+}
+
+function playerOffers(g: GameState, t: Tally): void {
+  const open = Object.values(g.offers)
+    .filter((o) => o.status === 'open' && o.start >= g.now && g.now < o.expires)
+    .sort((a, b) => Number(isBase(b)) - Number(isBase(a)) || b.estValue - a.estValue || (a.id < b.id ? -1 : 1));
+  const won = wonTenderOffers(g);
+  for (const o of open) {
+    if (won.has(o.id) || o.archetype === 'dryLeaseOut') continue;
+    if (o.archetype === 'deportation' && g.company.reputation.clean < 70) continue;
+    if (o.archetype === 'evacuation' && warRiskAt(g, o.pin) > 2) continue;
+    if (o.archetype === 'hajj' && (o.requirements.body !== 'wide' || !Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide' && a.cabin.total >= 300))) continue;
+    let best = playerFit(g, o);
+    let pick: SubleasePick | null = null;
+    if (!best) {
+      pick = playerSublease(g, o);
+      if (!pick) continue;
+      best = pick.report;
+    }
+    // A widebody flies narrowbody-sized work only a week out and one job at a time (the standard rule: day-ahead
+    // narrowbody work on a 747 lost the year).
+    if (typeOf(g.fleet[best.aircraftId].typeId).body === 'wide' && !wideWork(o)) {
+      const held = Object.values(g.contracts).filter((k) => (k.status === 'signed' || k.status === 'active') && k.aircraftIds.includes(best!.aircraftId) && k.end > g.now && !wideWork(k) && k.pattern.kind !== 'base').length;
+      if (o.start < g.now + 7 * DAY || held >= 1) continue;
+    }
+    if (pick) {
+      let n = 0;
+      for (const x of pick.trips) {
+        const r = subcharter(g, x.ids, x.cost, x.rivalId);
+        if (!r.ok) break;
+        n++;
+        playerTally.subLegs += r.data!.legs;
+        playerTally.subCost += r.data!.cost;
+        playerTally.subBill += x.bill;
+      }
+      if (n !== pick.trips.length) continue;
+      playerTally.subleases += n;
+      if (MSGS) console.error(`${fmtDateTime(g.now)} PLAYER sub-leased ${n} trip(s) on ${g.fleet[pick.aircraftId].reg} to take ${o.title} (gain ${Math.round(pick.gain / 1000)}k)`);
+      const again = feasibility(g, o.id, pick.aircraftId, { paint: paintOn(o), quick: true });
+      if (again.level === 'no') continue;
+      best = again;
+    }
+    const crewShort = best.checks.some((c) => c.id === 'crew' && c.level !== 'ok');
+    // The offer's crew line says who to hire ("Short of crew: 2 captains from 12 May"): hired as it says.
+    for (const [role, cap] of Object.entries(best.crew.byRole)) {
+      if (cap && cap.short > 0 && hireSplit(g, { role: role as Role, family: typeOf(g.fleet[best.aircraftId].typeId).family, base: g.company.homeBase, count: Math.min(30, cap.short) }).ok) {
+        playerTally.signHires += Math.min(30, cap.short);
+        act(g, t);
+      }
+    }
+    const xc = paidExtra(g, o, best.aircraftId);
+    const res = acceptOffer(g, o.id, [best.aircraftId], { paint: paintOn(o), crewExtra: xc ?? undefined });
+    if (res.ok) {
+      if (res.data?.contractId) noteSigned(g, res.data.contractId, best, o.archetype);
+      t.accepted++;
+      pipeNote(o, 'accepted');
+      const code = CODE[o.archetype] ?? o.archetype;
+      t.types.set(code, (t.types.get(code) ?? 0) + 1);
+      if (o.start < g.now + 7 * DAY) playerTally.shortSigned++;
+      if (o.call) playerTally.callsSigned++;
+      if (crewShort) playerTally.crewShortSigned++;
+      t.firstAccept ??= g.now;
+      act(g, t);
+    }
+  }
+}
+
+/**
+ * Hires as the game advises: the Planning card's round-up to complete sets (the crew desk's proposal: ranks the hiring
+ * hold names left out, at most what it shows) and the busy-month heads-up (the forecast's gaps). Never with less than
+ * $300K of cash.
+ */
+function playerHire(g: GameState, t: Tally): void {
+  if (g.company.cash < 300_000) return;
+  const u = crewUtilisation(g);
+  for (const p of crewPlan(g)) {
+    if (p.setsComplete >= p.setsNeeded) continue;
+    const target = roundTargets(p).complete ?? p.setsNeeded;
+    const held = new Set(heldHires(g, p.family, u).map((x) => x.role));
+    for (const l of roundUpQuote(g, p, target).lines) {
+      if (held.has(l.req.role)) continue;
+      if (hireCrew(g, l.req).ok) {
+        playerTally.roundUps += l.req.count;
+        act(g, t);
+      }
+    }
+  }
+  for (const x of peakForecast(g).gaps) {
+    if (x.late) continue;
+    if (hireCrew(g, { role: x.role, family: x.family, base: g.company.homeBase, count: Math.min(30, x.short), ...(isPilotRole(x.role) ? {} : { families: [x.family] }) }).ok) {
+      playerTally.peakHires += x.short;
+      act(g, t);
+    }
+  }
+}
+
+/**
+ * A new type on its way (or a family short of rated crew): its classes booked with the class planner, as the player
+ * would in the Class plan dialog: the people other types can spare (the standard policy's donors), the dialog's
+ * default stop (2), finishing by the arrival. Once per family and group while a plan is booked.
+ */
+function playerClasses(g: GameState, t: Tally): void {
+  const lines = staffing(g);
+  for (const fam of [...new Set(lines.map((l) => l.family))]) {
+    for (const group of ['pilot', 'cabin'] as const) {
+      const need = classPlanNeed(g, fam, group);
+      if (!need.roles.some((r) => r.short > 0)) continue;
+      const rated = Object.values(g.crew).some((c) => c.ratings.includes(fam) && !c.notice && (group === 'pilot') === isPilotRole(c.role));
+      // A type the crew already fly is hired for (the round-up); a new one is trained for.
+      if (rated && !need.arrival) continue;
+      if (conversionClasses(g).some((k) => k.family === fam && k.status === 'planned' && k.crewIds.some((id) => (group === 'pilot') === isPilotRole(g.crew[id]?.role ?? 'CC')))) continue;
+      const take: string[] = [];
+      for (const r of need.roles) {
+        let short = r.short;
+        if (short <= 0) continue;
+        const pilot = isPilotRole(r.role);
+        const spare = (x: StaffingLine) => (pilot ? x.have - x.need : Math.floor(x.have - 0.85 * x.need));
+        const donors = lines.filter((x) => x.role === r.role && x.family !== fam && spare(x) > 0).sort((a, b) => spare(b) - spare(a) || (a.family < b.family ? -1 : 1));
+        const cands = new Set(classCandidates(g, fam, group));
+        for (const d of donors) {
+          const pool = Object.values(g.crew).filter((c) => cands.has(c.id) && c.role === r.role && c.ratings.includes(d.family) && !take.includes(c.id)).sort((a, b) => (a.id < b.id ? -1 : 1));
+          const n = Math.min(short, spare(d), pool.length);
+          take.push(...pool.slice(0, n).map((c) => c.id));
+          short -= n;
+          if (short <= 0) break;
+        }
+      }
+      if (!take.length) continue;
+      const p = classProposals(g, { family: fam, group, crewIds: take, by: need.arrival?.at ?? null })[2];
+      if (!p || !p.ok || !p.classes.length) continue;
+      if (bookClassPlan(g, p).ok) {
+        playerTally.classPlans++;
+        playerTally.classPeople += p.trained;
+        t.classesBooked += p.classes.length;
+        act(g, t);
+      }
     }
   }
 }
@@ -1441,6 +1690,17 @@ function crewControlPolicy(g: GameState, t: Tally): void {
     // v0.8 at most $60K a jet (a widebody crew flown to Asia cost seed 3 $100K a time).
     if (jet && jet.cost <= 60_000 && jetDep + 180 <= waitDep && apply(jet)) continue;
     if (apply(sol(first, 'discretion'))) continue;
+    // v0.23.1 --adjust: a later report time on the roster (crew/logLater.ts) when Crew Control offers it; never without the flag.
+    if (ADJUST) {
+      const lv = view(['logLater'], true);
+      const ll = lv?.solutions.find((s) => s.id === 'logLater');
+      if (ll?.available) adjustStats.offered++;
+      else if (ll?.why) adjustStats.why.set(ll.why.replace(/\d+/g, 'N'), (adjustStats.why.get(ll.why.replace(/\d+/g, 'N')) ?? 0) + 1);
+      if (ll?.available && apply(ll)) {
+        adjustStats.applied++;
+        continue;
+      }
+    }
     if (!jetOk && !skipDelay) {
       const dv = view(['delay'], false, lateCapMin);
       if (!dv || dv.stage === 'ok') continue;
@@ -1496,7 +1756,7 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     if (botFinance(g)) act(g, t);
     if (botSales(g)) act(g, t);
     // v0.17 fleet planning on the aircraft market (step 0: never acts).
-    if (botMarket(g, { greedy: GREEDY, newfam: NEWFAM })) act(g, t);
+    if (botMarket(g, { greedy: GREEDY, newfam: NEWFAM, ...(PLAYER ? { maxNarrow: 6, growAt: 0.35 } : {}) })) act(g, t);
     // v0.16 the prestige ladder (scripts/bot/ladder.ts): IOSA filed when allowed.
     if (botLadder(g)) act(g, t);
     // v0.16 the far routes offered and signed (scripts/bot/clients.ts; a tally only, no action).
@@ -1504,10 +1764,15 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
     // v0.19 --routes: scheduled routes on idle widebodies (scripts/bot/network.ts).
     if (ROUTES && botNetwork(g)) act(g, t);
     policies(g, t);
-    rehire(g, t);
-    extraCrew(g, t);
-    conversions(g, t);
-    hire(g, t);
+    if (PLAYER) {
+      playerClasses(g, t);
+      playerHire(g, t);
+    } else {
+      rehire(g, t);
+      extraCrew(g, t);
+      conversions(g, t);
+      hire(g, t);
+    }
     if (FORECAST_HIRE) forecastHire(g, t);
     checks(g, t);
     // v0.7.3 the rest cards (widebodies held with augmented crews only: the cards read every duty's rest plan).
@@ -1531,7 +1796,7 @@ function policy(g: GameState, t: Tally, urgent: boolean, newDay: boolean): void 
       salesTrips(g, t);
     }
   }
-  if ((newDay || urgent) && !NOSIGN) offers(g, t);
+  if ((newDay || urgent) && !NOSIGN) (PLAYER ? playerOffers : offers)(g, t);
 }
 
 /**
@@ -1620,14 +1885,14 @@ function play(g: GameState, t: Tally, end: number, onStep?: () => void): void {
   while (g.now < end && !g.gameOver) {
     const grid = g.started + (Math.floor((g.now - g.started) / STEP) + 1) * STEP;
     // Debugging (STOPAT=<minute>,<file>): the save one minute before that instant, then exit.
+    // (Player bot round: through the pauses as the run takes them, each with its policy step, so the save is the run's.)
     const stopAt = process.env.STOPAT?.split(',');
-    if (stopAt && g.now < +stopAt[0] && +stopAt[0] <= Math.min(end, grid)) {
-      advanceTo(g, +stopAt[0] - 1);
+    const trips0 = safetyTrips.length;
+    const r = advanceTo(g, Math.min(end, grid, stopAt && g.now < +stopAt[0] - 1 ? +stopAt[0] - 1 : Infinity));
+    if (stopAt && g.now >= +stopAt[0] - 1) {
       writeFileSync(stopAt[1], serialize(g));
       process.exit(0);
     }
-    const trips0 = safetyTrips.length;
-    const r = advanceTo(g, Math.min(end, grid));
     // Debugging (TRIPINFO=1): the legs of the aircraft a safety-net trip names, when it trips.
     if (process.env.TRIPINFO && safetyTrips.length > trips0) {
       for (const x of safetyTrips.slice(trips0)) {
@@ -2034,7 +2299,9 @@ function crewProbe(g: GameState, name: string): void {
 const seatContracts = new Set<string>();
 const seatIssues = new Set<string>();
 const tally = newTally();
-const end = g.started + days * DAY;
+/** Player bot round: --from=<save> --on=<days> plays that many days on from the save (else to `days` from the game's start). */
+const ON = process.argv.find((a) => a.startsWith('--on='))?.slice(5);
+const end = FROM && ON ? g.now + Number(ON) * DAY : g.started + days * DAY;
 const seenFlight = new Set<string>();
 const seenOffer = new Set<string>();
 /**
@@ -2488,6 +2755,7 @@ if (TLOG && TLOG_FILE) {
 }
 if (ALARMS) {
   for (const l of ALARMS.report()) console.log(l);
+  for (const l of adviceReport()) console.log(l);
   const file = ALARMS_ARG?.includes('=') ? ALARMS_ARG.slice(9) : '';
   if (file) {
     ALARMS.save(file);
@@ -2594,6 +2862,11 @@ if (ROUTES || Object.keys(g.network?.routes ?? {}).length) console.log(botNetwor
   const fixes = [...tally.crewFixes].sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(', ') || 'none';
   const jetShare = revenueY ? (s.jetSpend ?? 0) / revenueY : 0;
   console.log(`crew control: amber ${s.crewAmber ?? 0}, red ${s.crewRed ?? 0} (out of hours ${g.stats.v09?.oohRed ?? 0}), fixes {${fixes}}, jets ${s.jets ?? 0} ${k$(s.jetSpend ?? 0)} (${(jetShare * 100).toFixed(2)}% of revenue) · short-notice offers passed over ${tally.shortSkipped}, widebody general work capped ${tally.wideCapped}, leases without a job ${tally.leaseNoJob}`);
+  // v0.23.1 --adjust: how often a later report time was offered and taken, why not, and what came to light.
+  if (ADJUST) {
+    const adj = g.opsx?.adjusted ?? [];
+    console.log(`log a later report: offered ${adjustStats.offered}, applied ${adjustStats.applied}, on record ${adj.length} (found ${adj.filter((a) => a.found).length}, to be found ${adj.filter((a) => !a.found && a.foundAt !== undefined).length}) · not offered: ${[...adjustStats.why].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, n]) => `${n}× ${k}`).join('; ') || 'none'}`);
+  }
   // v0.12.1 crew riding our own flights instead of airline tickets.
   console.log(`own-flight rides: ${tally.ownRides} crew on ${tally.ownRideLegs} passenger flights, ${tally.emptyRides} on empty legs · airline tickets ${k$(-[...g.finance.history.map((h) => h.lines), g.finance.current.lines].reduce((n, l) => n + (l.deadhead ?? 0), 0))} (all months)`);
   softTargets.push(['jets ≤ 8 a year and ≤ 1% of revenue', (s.jets ?? 0) * (365 / days) <= 8 && jetShare <= 0.01, `${s.jets ?? 0} jets, ${k$(s.jetSpend ?? 0)}`]);
@@ -2649,6 +2922,13 @@ console.log(
   const grantDay = g.company.approvalsAt?.widebody !== undefined && g.company.approvals.includes('widebody') ? Math.floor((g.company.approvalsAt.widebody - g.started) / DAY) : null;
   const ccqClasses = Object.values(g.classes ?? {}).filter((k) => k.course === 'ccq' && k.status !== 'cancelled').length;
   console.log(`v0.12.1: legs stopped at the gate for an approval ${s.gateStopped ?? 0}, approval decisions ${[...tally.decKinds].filter(([k]) => k.startsWith('approvalLate')).reduce((n, [, v]) => n + v, 0)} · widebody signed ${tally.wideSigned === null ? 'never' : `day ${Math.floor((tally.wideSigned - g.started) / DAY)}`}, home ${wideHome === null ? 'never' : `day ${wideHome}`}, Widebody operations ${grantDay === null ? 'not held' : `day ${grantDay}`}, first widebody revenue leg ${wideFirstRev === null ? 'never' : `day ${wideFirstRev}`} · CCQ classes ${ccqClasses}`);
+  // Player bot round: how the game was played (scripts/playstyle.ts, the same measures as on a player's save).
+  {
+    const ps = measure(g, `bot ${seed}`);
+    const pc = (x: number) => `${Math.round(x * 100)}%`;
+    console.log(`play style: signed ${ps.signed} (${ps.perMonth.toFixed(1)}/month; ${Object.entries(ps.byKind).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ')}), lead ${Object.entries(ps.byLead).map(([k, n]) => `${k} ${n}`).join(', ')}, short ${pc(ps.shortShare)}, urgent ${pc(ps.urgentShare)}; sub-out ${ps.subOut} legs; crew/ac ${ps.crewPerAc.toFixed(1)}, sets/ac ${ps.setsPerAc.toFixed(1)} of ${ps.setsNeededPerAc.toFixed(1)}; hires ${ps.hires} (${ps.hiresAfterSign} ≤7 d after a signing); stacked on base ${ps.stacked}, running/ac ${ps.concurrentPerAc.toFixed(2)}`);
+    if (PLAYER) console.log(`player: hand-overs ${playerTally.subleases} trips (${playerTally.subLegs} legs, cost ${Math.round(playerTally.subCost / 1000)}k, still billed ${Math.round(playerTally.subBill / 1000)}k), signed short-notice ${playerTally.shortSigned}, calls ${playerTally.callsSigned}, crew-short ${playerTally.crewShortSigned}; hires: at signing ${playerTally.signHires}, round-up ${playerTally.roundUps}, busy-month ${playerTally.peakHires}; class plans ${playerTally.classPlans} (${playerTally.classPeople} people)`);
+  }
   console.log(`v0.7.2: sub-chartered legs ${s.subchartered ?? 0} (reliability ${s.subHit ?? 0}), C-checks at hubs [${tally.cHubs.join(', ') || '-'}], ferry+ticket cost ${Math.round(tally.hubTravel / 1000)}k, ferry legs ${checkLegs.size}, captains as FO ${s.asFo ?? 0}, multi-type cabin hires ${tally.multiHires}, early returns ${s.earlyReturns ?? 0}, sales ${s.sales ?? 0}`);
   // v0.7.3 in-flight rest & EASA.
   {

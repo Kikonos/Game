@@ -7,7 +7,7 @@ import { BugReportsModal } from '../modals/BugReportModals';
 import { sound, SOUND_MEANING } from '../sound';
 import { TERMINAL, TRACKS } from '../music';
 import { HeadUnlockedModal } from '../modals/HeadUnlockedModal';
-import { CounterReplyModal, DeliveredModal, FollowDeliveryModal } from '../modals/PopModals';
+import { CounterReplyModal, DeliveredModal, FollowDeliveryModal, RouteNewsModal } from '../modals/PopModals';
 import { CallModal } from '../modals/CallModal';
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 // v0.18 the person sheet (monthly roster) in its own chunk.
@@ -339,6 +339,7 @@ function SettingsModal() {
         <div className="set-row"><div><b>Pause for crew shortages</b><div className="tiny dim">A seat in the next 12 h has nobody to fill it</div></div><Toggle on={st.autoPause.crewShortage} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, crewShortage: v } })} /></div>
         <div className="set-row"><div><b>Pause for crew out of hours</b></div><Toggle on={st.autoPause.crewHours} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, crewHours: v } })} /></div>
         <div className="set-row"><div><b>Pause for your rules</b><div className="tiny dim">Watch desk rules</div></div><Toggle on={st.autoPause.rule} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, rule: v } })} /></div>
+        <div className="set-row"><div><b>Pause for network news</b><div className="tiny dim">A route study done, a route launched</div></div><Toggle on={st.autoPause.network} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, network: v } })} /></div>
         <div className="set-row"><div><b>Pause when a contract starts</b></div><Toggle on={st.autoPause.contractStart} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, contractStart: v } })} /></div>
         <div className="set-row"><div><b>Pause at month end</b></div><Toggle on={st.autoPause.monthEnd} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, monthEnd: v } })} /></div>
         <SoundSettings />
@@ -401,7 +402,7 @@ export function GlobalModals() {
     case 'livery': return s.game ? <LiveryModal target={m.target} /> : null;
     case 'convert': return s.game ? <ConvertModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} onBooked={m.onBooked} advice={m.advice} /> : null;
     case 'classes': return s.game ? <ClassesModal /> : null;
-    case 'classPlan': return s.game ? <ClassPlanModal family={m.family} group={m.group} /> : null;
+    case 'classPlan': return s.game ? <ClassPlanModal family={m.family} group={m.group} crewIds={m.crewIds} onBooked={m.onBooked} /> : null;
     case 'removeRating': return s.game ? <RemoveRatingModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} back={m.back} onDone={m.onDone} /> : null;
     case 'acquire': return s.game ? <AcquireModal offerId={m.offerId} /> : null;
     // v0.17 the aircraft market (lane market-ui fills them).
@@ -431,6 +432,7 @@ export function GlobalModals() {
     case 'counterReply': return s.game ? <CounterReplyModal {...m} /> : null;
     case 'offerCall': return s.game ? <CallModal key={m.offerId} offerId={m.offerId} aircraftId={m.aircraftId} /> : null;
     case 'delivered': return s.game ? <DeliveredModal aircraftId={m.aircraftId} /> : null;
+    case 'routeNews': return s.game ? <RouteNewsModal routeId={m.routeId} what={m.what} title={m.title} body={m.body} /> : null;
     case 'followDelivery': return s.game ? <FollowDeliveryModal aircraftId={m.aircraftId} /> : null;
     case 'welcome': return s.game ? <WelcomeModal /> : null;
     case 'route': case 'routeLaunch': case 'routeBuild': case 'rotationMove': return s.game ? <Suspense fallback={null}><NetworkModals m={m} /></Suspense> : null;

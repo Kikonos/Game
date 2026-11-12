@@ -8,6 +8,7 @@ import { schedule } from '../core/queue';
 import { DAY, monthKey, yearOf } from '../core/time';
 import type { CrewMember, Duty, Flight, GameState, Minute, Pairing, SimEvent } from '../core/types';
 import { cancelConversion, classOf, dailyClasses, restoreCcqRatings } from './conversion';
+import { dailyClassReminders } from './classPlan';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { afterDiversion, deletePairing, resizeDeployments, dutyLegality as dutyLevel, pairingSeats, planAircraft, refreshPairing, syncDuty } from './duties';
 export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
@@ -25,7 +26,7 @@ import { pushMessage } from '../core/messages';
 import { post } from '../core/ledger';
 import { flownLegs, noteFlown, rebuildFlown } from './flown';
 import { dailyLeave, leaveLoad, leavePolicy } from './leave';
-import { aboard, checkInOf, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, extCutAt, onBlocks, passengers, reserveStation, standsBy, touchCrew, touchCrewState, typeIdOf } from './timeline';
+import { aboard, checkInOf, crewCount, crewIx, dutyBlock, dutyFlights, dutySegs, extCutAt, loggedFor, onBlocks, passengers, reserveStation, standsBy, touchCrew, touchCrewState, typeIdOf } from './timeline';
 import { openDuties } from './check';
 import { reportMinutes } from '../core/perf';
 
@@ -50,13 +51,13 @@ export { paidShare, salaryBill } from './costs';
 export { crewRev, rideRoom, rideSeats, ridersText, ridesAllowed, revenueRide, ticketPrice } from './timeline';
 export { dropTargets, moveDuty, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from './board';
 export {
-  cancelConversion, ccqKeeps, ccqPartner, ccqPartners, classOf, classPhases, conversionClasses, conversionEarliest, conversionPlan, courseOf, courseText, familyLabel, ratingsLost, refundShare, startConversion,
+  cancelConversion, ccqKeeps, ccqPartner, ccqPartners, classOf, classPhases, conversionClasses, conversionEarliest, conversionPlan, courseOf, courseText, dropChoices, dropDefaultFor, familyLabel, ratingsLost, refundShare, startConversion,
   type ConversionClassPlan, type ConversionPlan, type ConversionRequest,
 } from './conversion';
 // v0.23 the class planner and Remove type rating (crew/classPlan.ts).
 export {
-  bookClassPlan, CLASS_PLAN, classCandidates, classPlanNeed, classProposal, classProposals, fleetChanges, nextArrival, removeRating, removeRatingPlan,
-  type ClassPlanNeed, type ClassPlanRequest, type ClassProposal, type FleetChange, type PlannedClass, type RemoveRatingPlan,
+  bookClassPlan, CLASS_PLAN, classCandidates, classPlanDefaultBy, classPlanNeed, classPlanSteps, classProposal, classProposals, dailyClassReminders, fleetChanges, nextArrival, removeRating, removeRatingPlan,
+  type ClassPlanNeed, type ClassPlanRequest, type ClassProposal, type FleetChange, type NextClass, type PlannedClass, type RemoveRatingPlan,
 } from './classPlan';
 // v0.18.3 Convert surplus crew (Crew › Utilisation).
 export {
@@ -267,6 +268,9 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
     c.log.push({
       start: seg.start, end: seg.end, fdp: seg.fdp, block, sectors: d.sectors, augmented: d.augment > 0, disruptive: seg.disruptive,
       ...(d.ext ? { ext: true as const, extRest: extCut ? ('split' as const) : ('after' as const) } : {}), ...(seg.early ? { early: true } : {}), ...(seg.late ? { late: true } : {}), ...(seg.night ? { night: true } : {}),
+      // v0.23.1 the start on record is the logged report (crew/logLater.ts): the minutes it was moved, for the checker
+      // (only the crew whose limit it hides: the others' day runs from their real report, dutySegs).
+      ...(d.logged && loggedFor(d, c.id) && !(s.from !== undefined && s.from > d.report) ? { logged: d.logged.min } : {}),
     });
     c.log = c.log.filter((e) => e.end > g.now - 28 * DAY);
     // v0.18.1 the legs flown, for the calendar once the flights are pruned.
@@ -644,6 +648,7 @@ function prune(g: GameState): void {
 
 function daily(g: GameState) {
   dailyClasses(g);
+  dailyClassReminders(g);
   refreshStatuses(g);
   prune(g);
   dailyCrewCosts(g);

@@ -6,7 +6,7 @@
 
 import { BAL } from '../core/balance';
 import { cancelFlight, flightsOf, removeFlights, retimeFlight, subcharterFlights, touchFlights, touchStatus, touchTickets } from '../core/entities';
-import { invoice, post } from '../core/ledger';
+import { cashOnly, invoice, post } from '../core/ledger';
 import { noteRouteSub, ROUTE_COST_CATS, routeCancelLoss, routeLegCost } from '../network/costs';
 import { pushMessage } from '../core/messages';
 import { blockMinutes, typeOf } from '../core/perf';
@@ -681,7 +681,8 @@ export function pickRival(g: GameState, typeId: string, legs: Flight[] = []): st
 export function subcharterLegs(g: GameState, legs: Flight[], rivalId: string, cost: number, out?: { hit?: SubHit }): number {
   const live = legs.filter((f) => f.status === 'scheduled' && f.purpose !== 'delivery');
   // v0.19 a scheduled route's sectors: the rival's price counts in the route's own result.
-  if (live.some((f) => f.sched)) noteRouteSub(g, live, cost);
+  // (Final debug round: paid now; the route sectors' share is booked as each flies.)
+  const pre = live.some((f) => f.sched) ? noteRouteSub(g, live, cost) : 0;
   const rev = live.filter(isRevenue);
   const empty = live.filter((f) => !isRevenue(f));
   // v0.7.2 the client notices (F3): reliability and relation, worse when hand-overs become a habit.
@@ -695,7 +696,8 @@ export function subcharterLegs(g: GameState, legs: Flight[], rivalId: string, co
   }
   if (empty.length) removeFlights(g, empty.map((f) => f.id));
   if (rev.length) subcharterFlights(g, rev.map((f) => f.id), rivalId || 'rival');
-  if (cost) post(g, 'subcharter', -cost);
+  if (cost) post(g, 'subcharter', -(cost - pre));
+  if (pre) cashOnly(g, -pre);
   stats(g).subchartered += rev.length;
   if (rev.length) {
     bumpReliable(g, hit.reliability);
@@ -938,7 +940,9 @@ export function liveDay(g: GameState, f: Flight): { fdp: number; max: number; fu
   if (p) for (const s of p.slots) if (s.crewId && !s.above) rep = Math.min(rep, s.from !== undefined && s.from > d.report ? s.from : d.report);
   if (rep === Infinity) rep = d.report;
   const max = p && rep > d.report ? fdpLimitAt(g, p, d, f.from, rep).max : d.maxFdp;
-  return { fdp: lastOn - rep, max, full: lastOn - d.report, rep };
+  // v0.23.1 a later report time logged on the roster (crew/logLater.ts): the day on record runs from it.
+  const adj = d.logged?.min ?? 0;
+  return { fdp: lastOn - rep - (rep === d.report ? adj : 0), max, full: lastOn - d.report - adj, rep };
 }
 
 /** Minutes the live day (liveDay) runs over its limit before discretion (negative: within); null before report. */

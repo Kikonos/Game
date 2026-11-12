@@ -80,6 +80,8 @@ export const AUDIT_TASKS = {
   checks: { text: 'An aircraft flew past a maintenance check', task: 'Revise the maintenance planning procedure', cost: 30_000, days: 10 },
   training: { text: 'Training records incomplete for some crew', task: 'Audit and complete the crew training files', cost: 25_000, days: 10 },
   quality: { text: 'Operations manual not kept up to date', task: 'Revise the operations manual (Part A)', cost: 20_000, days: 14 },
+  /** v0.23.1 report times logged later than the crew reported (crew/logLater.ts). */
+  roster: { text: 'Roster report times changed to hide FTL limits', task: 'Independent review of crew rosters and logs', cost: 40_000, days: 14 },
 } as const;
 /** Audit cost (the authority's fee and our time) and the reputation for a clean audit. */
 export const AUDIT_FEE = 18_000;

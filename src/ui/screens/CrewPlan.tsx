@@ -17,6 +17,7 @@ import { baseDay, isPilotRole } from './screenLogic';
 import { planSentence, setsWhyLines } from './crewPlanLogic';
 import { lockOf } from '../../engine/scenario';
 import { LockNote } from '../components/Locked';
+import { useClassPlanWarmup } from '../modals/ClassPlanModal';
 
 const ROLE_WORD: Record<string, string> = { CPT: 'Captains', FO: 'First officers', PUR: 'Pursers', CC: 'Cabin crew' };
 /** v0.22 the '?' on the Have column: where crew rated on two fleets are counted (it used to be a bracket on every line). */
@@ -178,6 +179,8 @@ export function PeakHeadsUp({ g }: { g: GameState }) {
 export function CrewPlanView({ g }: { g: GameState }) {
   const plans = crewPlan(g);
   const idle = idleTypes(g, plans);
+  // v0.23.1 the planner for the card most likely opened, worked out in idle time (Plan classes then opens at once).
+  useClassPlanWarmup(g, plans.map((p) => p.family), !!lockOf(g, 'training'));
   return (
     <div className="cp-view">
       <PeakHeadsUp g={g} />

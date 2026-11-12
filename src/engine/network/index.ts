@@ -2,7 +2,7 @@
 // Every hook returns at once when no route exists, so a game without routes plays exactly as v0.18.3.
 
 import { BAL } from '../core/balance';
-import { post } from '../core/ledger';
+import { accrue, post } from '../core/ledger';
 import type { SimModule } from '../core/module';
 import { DAY, fmtDay } from '../core/time';
 import type { Flight, GameState, LedgerCat, SimEvent } from '../core/types';
@@ -16,6 +16,7 @@ import { fadeReputation } from './reputation';
 import { onSectorArr, onSectorDep, pnlOf } from './revenue';
 import { dailySales } from './sales';
 import { materialise } from './timetable';
+import { repairRouteCabins } from './cabin';
 import type { NetworkState, Route, Rotation, SectorLoad } from './types';
 import { netHooks } from '../core/netHooks';
 import { marketOfRoute, usd } from './model';
@@ -39,6 +40,7 @@ export * from './notes';
 export * from './custom';
 export * from './stopover';
 export * from './advice';
+export * from './cabin';
 
 const emptyStats = (): NetworkState['stats'] => ({ launched: 0, rotations: 0, pax: 0, swaps: 0, subs: 0, moves: 0, cancels: 0, downgrades: 0 });
 
@@ -54,6 +56,7 @@ export function loadNetwork(g: GameState): void {
     r.pnl ??= {};
     r.contractIds ??= [];
   }
+  repairRouteCabins(g);
 }
 
 /** Bumps the network revision (the cards' and the UI's cache key). */
@@ -187,6 +190,7 @@ function strandedRotations(g: GameState, r: Route): void {
     for (const s of rot.sectors) {
       if (s.accrued || s.voided) continue;
       s.voided = true;
+      bookSubPre(g, s);
       const pax = Math.max(s.bookedJ + s.bookedY, 0);
       const band = marketOfRoute(r)?.eu261 === 'long' ? 2 : 1;
       const c = pax * (BAL.v019.pax.eu261[band] + BAL.v019.pax.meals);
@@ -209,9 +213,17 @@ function strandedRotations(g: GameState, r: Route): void {
   }
 }
 
+/** Final debug round: a sector that will not fly books the sub-charter price paid for it (a rival's on-the-day cancel). */
+function bookSubPre(g: GameState, s: SectorLoad): void {
+  if (!s.subPre) return;
+  accrue(g, 'subcharter', -s.subPre);
+  delete s.subPre;
+}
+
 /** A route sector operations cancelled: its ticket money back, EU261 (or care only for force majeure), reputation. */
 function voidSector(g: GameState, r: Route, rot: Rotation, s: SectorLoad, f: Flight): void {
   s.voided = true;
+  bookSubPre(g, s);
   const comp = routeDisruptionCost(g, f, 'cancel', 0, notOursCancel(f.delayReason));
   if (comp) post(g, 'paxComp', -comp);
   if (s.sold) {

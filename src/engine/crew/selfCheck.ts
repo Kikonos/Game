@@ -79,7 +79,7 @@ export function augMax(augment: 1 | 2, fcCls: 1 | 2 | 3, ccCls: 1 | 2 | 3 | null
 export interface Span { start: Minute; end: Minute; block: number; aug: boolean; ext: boolean; dep: string; arr: string; kind: 'duty' | 'ticket' | 'standby' | 'log' | 'leave'; weight: number; /** A ticket of the duty being judged (positioning into it: part of its day, no rest before it). */ own?: true }
 
 /** One planned duty of a crew member, measured from its flights as they are now (report and release from the legs). */
-function dutySpan(g: GameState, d: Duty, p: Pairing, cabin: boolean): Span | null {
+function dutySpan(g: GameState, d: Duty, p: Pairing, cabin: boolean, crewId?: string): Span | null {
   const fl = d.flightIds.map((id) => g.flights[id]).filter((f): f is Flight => !!f && f.status !== 'cancelled');
   if (!fl.length) return null;
   const typeId = (p.aircraftId && g.fleet[p.aircraftId]?.typeId) || 'a320ceo';
@@ -90,7 +90,11 @@ function dutySpan(g: GameState, d: Duty, p: Pairing, cabin: boolean): Span | nul
   // A duty already reported runs from its report (a hold at the gate grows the day); one still to report from its first
   // departure as it now stands.
   const reported = d.report <= g.now && p.status === 'active';
-  const start = reported || first.status !== 'scheduled' ? d.report - early : first.std + (first.delay ?? 0) - rm.report - early;
+  // v0.23.1 a later report time logged on the roster (crew/logLater.ts) is read as logged: the check judges the roster as
+  // it stands (the change itself is on record, Duty.logged; scripts/invariants.ts counts it apart). Only for the crew
+  // whose limit it hides: the others' day runs from their real report (crew/timeline.ts loggedFor).
+  const lg = d.logged && (!crewId || !d.logged.crewIds || d.logged.crewIds.includes(crewId)) ? d.logged.min : 0;
+  const start = (reported || first.status !== 'scheduled' ? d.report - early : first.std + (first.delay ?? 0) - rm.report - early) + lg;
   const end = (last.status === 'done' ? last.ata ?? last.sta : last.status === 'enroute' ? last.eta ?? last.sta : last.sta + (last.delay ?? 0)) + rm.post;
   return { start, end, block: fl.reduce((s, f) => s + f.block, 0), aug: d.augment > 0, ext: !!d.ext, dep: first.from, arr: last.to, kind: 'duty', weight: 1 };
 }
@@ -107,7 +111,7 @@ export function workOf(g: GameState, c: CrewMember, t: Minute, skipDuty?: string
     for (const id of p.dutyIds) {
       const d = g.duties[id];
       if (!d) continue;
-      const s = dutySpan(g, d, p, !isPilot(c.role));
+      const s = dutySpan(g, d, p, !isPilot(c.role), c.id);
       if (!s || s.end < from || s.start > to) continue;
       // (Bug 1108b: standing by at the station for this duty, a reserve or a relief pilot: hotel standby, a quarter.)
       if (!d.done && standsBy(g, p, d, c.id)) {
@@ -123,9 +127,17 @@ export function workOf(g: GameState, c: CrewMember, t: Minute, skipDuty?: string
     }
   }
   // v0.19.3 a trip home or back inside annual leave: where they are, nothing more (no duty, no rest, never a clash).
+  // Player bot round: ... and any other ticket they hold that no trip still open lists (the way back of a trip already
+  // flown): positioning is duty and owes its rest (the check read "free" a first officer landing at Riyadh 9:15 before
+  // his report, on the ticket of a finished trip; the planner rightly refused him).
   for (const tk of deadheadFlights(g)) {
-    if (!tk.leaveTrip || tk.status === 'cancelled' || tk.sta < from || tk.std > to || !tk.crewIds.includes(c.id)) continue;
-    out.push({ start: tk.std - H, end: tk.sta, block: 0, aug: false, ext: false, dep: tk.from, arr: tk.to, kind: 'leave', weight: 0 });
+    if (tk.status === 'cancelled' || tk.sta < from || tk.std > to || !tk.crewIds.includes(c.id)) continue;
+    if (tk.leaveTrip) {
+      out.push({ start: tk.std - H, end: tk.sta, block: 0, aug: false, ext: false, dep: tk.from, arr: tk.to, kind: 'leave', weight: 0 });
+      continue;
+    }
+    const t: Span = { start: tk.std - H, end: tk.sta, block: 0, aug: false, ext: false, dep: tk.from, arr: tk.to, kind: 'ticket', weight: 1 };
+    if (!logged(t) && !out.some((x) => x.kind === 'ticket' && x.start === t.start && x.end === t.end && x.dep === t.dep)) out.push(t);
   }
   for (const w of c.standby ?? []) {
     if (w.to < from || w.from > to) continue;
@@ -156,7 +168,7 @@ export interface PersonReading {
 export function judgePerson(g: GameState, c: CrewMember, d: Duty, p: Pairing): PersonReading {
   const values: PersonReading['values'] = {};
   const other: PersonReading['other'] = {};
-  const me = dutySpan(g, d, p, !isPilot(c.role));
+  const me = dutySpan(g, d, p, !isPilot(c.role), c.id);
   if (!me) return { values, other, placeJudged: false };
   const work = workOf(g, c, me.end, d.id);
   const all = [...work, me];

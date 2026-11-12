@@ -17,7 +17,7 @@ import { crewExtraFor, seatsFor, type Seat } from './extraSeats';
 import { farBase, farTourBase, patternSets, reserveCarrier, reserveRoles } from './farBase';
 import { bestSlip } from './slip';
 import { dropStandby } from './standby';
-import { aboard, cabinEarly, cabinEarlyOf, crewCount, crewIx, ctxOf, dhBlock, dutyBlock, dutyFlights, dutySegs, onBlocks, planHome, segsOf, touchCrew } from './timeline';
+import { aboard, cabinEarly, cabinEarlyOf, crewCount, crewIx, ctxOf, dhBlock, dutyBlock, dutyFlights, dutySegs, onBlocks, outExtra, planHome, segsOf, touchCrew } from './timeline';
 import { mergeSegs, openDuties } from './check';
 import { homeOf } from './tours';
 import { isSeatRest, pilotsOnlyTrip, planRest, restOf, restWords, type RestLeg, type RestPlan } from './restPlan';
@@ -326,6 +326,8 @@ export function syncDuty(g: GameState, d: Duty, p: Pairing): void {
   const held = onDuty && fl.every((f) => f.status === 'scheduled') && fl[0].std - d.report >= 6 * 60 + 60 && shape(typeId, fl).report - d.report >= 6 * 60;
   const reported = onDuty && !held;
   const sh = shape(typeId, fl, reported ? d.report : undefined);
+  // v0.23.1 a later report time logged on the roster (crew/logLater.ts): the day on record runs from it.
+  if (d.logged) sh.fdp -= d.logged.min;
   const refOf = (report: Minute): RefAt => {
     const r = referenceTime(p.base, sh.dep, Math.min(p.start, report), report);
     return { reportLocal: r.reportLocal, acclimatised: r.state !== 'X', tz: r.tz };
@@ -1152,7 +1154,7 @@ function ownTrailOk(g: GameState, p: Pairing, c: CrewMember, upto: Duty): boolea
     if (f && f.status !== 'cancelled' && aboard(f, c.id) && f.sta <= first.report) out = f;
   }
   const homeAt = homeOf(g, c, p);
-  const home = last.restAt !== homeAt ? planHome(last, homeAt, cabinEarly(g, p)) : null;
+  const home = last.restAt !== homeAt ? planHome(last, homeAt, cabinEarly(g, p) + outExtra(out, duties)) : null;
   const own: Seg[] = [];
   for (const d of duties) own.push(...dutySegs(g, c, p, d, d === first ? out : null, d === last ? home : null, true));
   const before = segsOf(g, c, p.id).filter((s) => s.end <= first.report);

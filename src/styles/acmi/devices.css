@@ -33,7 +33,7 @@
 /* ---------- phone on its side (and any window under 500 px tall) ---------- */
 @media (max-height: 499.98px) {
   /* The rail runs the full height down the left (the Dynamic Island side is padded by --safe-l); the top bar sits
-     beside it. Eight sections at 44 px or more fit 375 px; shorter (Safari's toolbars) the rail scrolls a little. */
+     beside it. Nine sections (v0.23.1 Network) at 40 px or more fit 375 px; shorter (Safari's toolbars) the rail scrolls a little. */
   .shell.acmi.compact-acmi {
     --side-w: 60px; --topbar-h: 52px; --main-pl: 14px; --main-pr: calc(14px + var(--safe-r)); --main-pb: calc(20px + var(--safe-b));
     grid-template-rows: calc(var(--topbar-h) + var(--safe-t)) minmax(0, 1fr);
@@ -45,7 +45,7 @@
   }
   .shell.acmi.compact-acmi .sidebar::-webkit-scrollbar { display: none; }
   .shell.acmi.compact-acmi .nav-item {
-    width: 48px; height: clamp(44px, calc((var(--app-h) - var(--safe-t) - var(--safe-b) - 8px) / 8), 52px); border-radius: 12px; gap: 0;
+    width: 48px; height: clamp(40px, calc((var(--app-h) - var(--safe-t) - var(--safe-b) - 8px) / 9), 52px); border-radius: 12px; gap: 0;
   }
   .shell.acmi.compact-acmi .nav-item.active::before { left: calc(-6px - var(--safe-l)); top: 12px; bottom: 12px; }
   .shell.acmi.compact-acmi .topbar { gap: 8px; padding-left: 8px; }

@@ -15,8 +15,12 @@ let closeOpen: (() => void) | null = null;
 /**
  * The small floating box under (or above) its anchor: closes on a tap elsewhere, Escape, a scroll, a dialog or a tab
  * change. v0.20.1 shared by the glossary terms and the '?' notes (Help.tsx); kept clear of the bug button's corner.
+ * v0.23.1 every '?' box of the game opens through it (the screen tips, the colour legends, the map's Up next): placed on
+ * the page itself, whole on the screen, under its button, else above or beside it (popPlace.ts). They used to hang off
+ * their button inside the screen, where Crew's tip opened off the left edge and Up next's was cut off by its panel
+ * (player reports bmwdgjk45aj1h, bmwdgkcfg2ur3). `className`: the box's own look (its width).
  */
-export function PopBox({ anchor, onClose, label, children }: { anchor: HTMLElement; onClose: () => void; label: string; children: ReactNode }) {
+export function PopBox({ anchor, onClose, label, children, className }: { anchor: HTMLElement; onClose: () => void; label: string; children: ReactNode; className?: string }) {
   const box = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState<{ left: number; top: number } | null>(null);
   useLayoutEffect(() => {
@@ -64,7 +68,7 @@ export function PopBox({ anchor, onClose, label, children }: { anchor: HTMLEleme
     return () => { off(); };
   }, []);
   return createPortal(
-    <div ref={box} className="term-pop" role="dialog" aria-label={label} style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: 'hidden' }}>
+    <div ref={box} className={`term-pop ${className ?? ''}`} role="dialog" aria-label={label} style={pos ? { left: pos.left, top: pos.top } : { left: 0, top: 0, visibility: 'hidden' }}>
       {children}
     </div>,
     document.body,

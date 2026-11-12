@@ -22,6 +22,15 @@ describe('class planner strip', () => {
     expect(v.today).toBeLessThan(0.02);
   });
 
+  it('v0.23.1 shows the classes not bookable yet as next blocks, the strip running on to them (at most nine months)', () => {
+    const classes = [cls('P1', 24, 42, 4)];
+    const next = [{ group: 'pilot' as const, course: 'full' as const, start: JUN1 + 156 * DAY, end: JUN1 + 198 * DAY, crewIds: ['a', 'b'], bookFrom: JUN1 + 36 * DAY }];
+    const v = stripView('LHR', JUN1 + 8 * 60, { classes, next, rosterEnd: JUN1 + 30 * DAY, by: null, finish: classes[0].end });
+    expect(v.months.map((m) => m.label)).toEqual(['Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']);
+    expect(v.blocks.map((b) => [b.no, b.n, b.next ?? false])).toEqual([['P1', 4, false], ['next-1', 2, true]]);
+    expect(v.blocks[1].left + v.blocks[1].width).toBeLessThanOrEqual(1);
+  });
+
   it('names the class sizes, tells when every stop shows one plan, and offers month ends a course still fits in', () => {
     expect(sizesText({ classes: [cls('a', 0, 8, 13), cls('b', 9, 8, 13)] })).toBe('13 each');
     expect(sizesText({ classes: [cls('a', 0, 8, 13), cls('b', 9, 8, 12)] })).toBe('13 · 12');

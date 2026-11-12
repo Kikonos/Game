@@ -2,6 +2,8 @@
 // as the export carries it): the version that fixed it and what we did, in a line. A report whose fix is in the
 // version installed reads "Fixed in v0.17.2: …" in the list, is left out of the next Export all, and is deleted from
 // the device 7 days later (or at once with Delete fixed). scripts/bugs.ts marks these as known.
+// v0.23.1 deleted when the game opens (bugReports.ts cleanReportsOnOpen), with a toast; Bug reports › Cleared keeps the
+// line of what was done.
 
 export interface FixedReport {
   /** As What's new shows it: 'v0.17.2'. */
@@ -39,6 +41,19 @@ export const FIXED_REPORTS: Record<string, FixedReport> = {
   // v0.22.1
   bmwbzgzrejg9v: { version: 'v0.22.1', what: 'after annual leave nobody is flown out days early to a tour that has not begun, only to be sent home again.' },
   bmwc20bgx36j: { version: 'v0.22.1', what: 'approval fees have their own Finance slice, Approvals & audits, instead of Office & sales.' },
+  // v0.23
+  bmwcx84rmc1t8: { version: 'v0.23', what: 'the spec sheet tiles (range, cruise, take-off weight …) are centred in their squares.' },
+  bmwcy1l6r5e6w: { version: 'v0.23', what: 'Crew › Planning › Plan classes: a class planner that groups crew into few, full classes at the quietest time, without breaking the roster.' },
+  // v0.23.1
+  bmwdgjk45aj1h: { version: 'v0.23.1', what: 'every "?" box opens whole on the screen, beside or above its button when there is no room below (Crew\'s "?" opened off the left edge).' },
+  bmwdgkcfg2ur3: { version: 'v0.23.1', what: 'the Up next "?" box opens on top of the map, whole on the screen (it was cut off inside the panel).' },
+  bmwdorhy4a9hd: { version: 'v0.23.1', what: 'the map no longer breaks into squares with question marks after zooming out: a map square that fails to show is drawn again at once.' },
+  bmwdgq50o8vuy: { version: 'v0.23.1', what: 'Finance: "Where the money went" is now Expenses and "Where the money came from" Income, each with the biggest line first.' },
+  bmwdolc94ctrb: { version: 'v0.23.1', what: 'Network has its own screen on the left, between Contracts and Schedule.' },
+  bmwdo5trhi3sl: { version: 'v0.23.1', what: 'a finished market study and a route going on sale pop up and pause the game (Settings › Pause for network news turns the pause off).' },
+  bmwdnxjlp5jo6: { version: 'v0.23.1', what: 'a running route\'s cabin can be changed in Sales › Cabin (business and economy, or economy only), with seats, passengers, revenue and profit compared first.' },
+  bmwdnzq5ab7lk: { version: 'v0.23.1', what: 'the times were checked: Lisbon–Bissau takes about 4 h 20 gate to gate in the game, close to the real timetables, so they stay.' },
+  bmwdp7pj1ebdw: { version: 'v0.23.1', what: 'checked, and it is realistic: in ACMI the operator pays for maintenance. With older 757s, maintenance and its reserves are your biggest cost, about 30 % of spending; newer aircraft cost less.' },
 };
 
 /** 'v0.17.2' → [0, 17, 2]. Pure. */

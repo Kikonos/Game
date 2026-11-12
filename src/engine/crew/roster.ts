@@ -23,7 +23,7 @@ import { restMarked } from './restMarks';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, emptyLegsOnly, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
-import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, freshReport, locAt, noteRiders, OUT_CONNECT, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, standsBy, slotAfter, snapDeparture, takeLostRides, takeSkippedFull, ticketPrice, touchCrew, touchCrewState, typeIdOf, withoutTickets } from './timeline';
+import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, freshReport, locAt, noteRiders, OUT_CONNECT, outExtra, outMerges, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, standsBy, slotAfter, snapDeparture, takeLostRides, takeSkippedFull, ticketPrice, touchCrew, touchCrewState, typeIdOf, withoutTickets } from './timeline';
 import { deploymentOf, guestOn, homeOf, tourDay, tourHolding, tourHomePlan, tourSpan } from './tours';
 import { isAnnual, leaveBackPlan, leaveBackTaken, leaveHomePlan, leaveHomeTrip, leaveHorizon, leaveTicketsOf, LEAVE_BACK_BUFFER, LEAVE_BACK_GAP } from './leaveTrips';
 
@@ -296,6 +296,36 @@ function seatAs(seat: CrewSlot, plan: CrewPlan): void {
 let ownRelease: string | null = null;
 
 /**
+ * v0.23.1 cabin crew giving a type up at the end of a booked course (a class's `drop`): per person, the day before the
+ * class starts. They are not rostered on that type for a trip that ends later (their trips on it went back to the
+ * roster at booking). Empty for most games.
+ */
+export function droppingAt(g: GameState, family: RatingFamily): Map<string, Minute> | null {
+  let out: Map<string, Minute> | null = null;
+  for (const k of Object.values(g.classes ?? {})) {
+    if ((k.status !== 'planned' && k.status !== 'running') || !k.drop) continue;
+    for (const [id, f] of Object.entries(k.drop)) if (f === family) (out ??= new Map()).set(id, k.start - DAY);
+  }
+  return out;
+}
+
+/** True when `c` gives `family` up at a course before the trip [.., end) ends (droppingAt). */
+const goingOff = (drops: Map<string, Minute> | null, c: CrewMember, end: Minute): boolean => !!drops && drops.has(c.id) && end > drops.get(c.id)!;
+
+/**
+ * v0.23.1 a cabin crew member's trips on a type from `from` on go back to the roster (a type they give up at the end of
+ * a course: conversion.ts), the seats re-crewed. Returns the trips touched.
+ */
+export function releaseTrips(g: GameState, crewId: string, family: RatingFamily, from: Minute, why: string): number {
+  const hit = (crewIx(g).pairingsOf.get(crewId) ?? []).filter((p) => p.status !== 'done' && p.status !== 'broken' && p.start >= from && p.aircraftId && typeOf(typeIdOf(g, p)).family === family);
+  if (!hit.length) return 0;
+  for (const p of hit) releaseCrew(g, p, crewId, why);
+  fillAll(g, hit, emptyResult(), new Set([crewId]));
+  for (const p of hit) if (g.pairings[p.id]) recheckPairing(g, p);
+  return hit.length;
+}
+
+/**
  * Rotations round: what a crew ticket is for, in plain words (Flight.why): a tour's own change, a replacement for someone
  * who left a seat early (the seat remembers whom and why: CrewSlot.left), or a trip's own positioning.
  */
@@ -484,6 +514,15 @@ function retick(g: GameState, p: Pairing, c: CrewMember): boolean {
   const first = openDuties(g, p)[0];
   const dep = first ? g.flights[first.flightIds[0]]?.from ?? first.restAt : undefined;
   const air = (crewIx(g).tickets.get(c.id) ?? []).find((f) => f.status === 'scheduled' && f.std <= g.now && f.sta > g.now && aboard(f, c.id));
+  // v0.23.1 ... or landed already on it, the ticket joining the day (it lands too close to the report to rest): it is
+  // part of the duty, and the rest before the ticket home counts it. Planned afresh it was left out, so a short delay
+  // moved the ticket home EARLIER into the rest and the departure check then took a legal crew member off the flight
+  // (bot seed 2, DK983: 'Rest 10:46 < 12:14').
+  const landed = first && !air ? first.deadheadIds.map((id) => g.flights[id]).find((f) => !!f && f.kind === 'deadhead' && f.status === 'done' && f.to === dep && aboard(f, c.id) && f.sta <= first.report && outMerges(f, first.report)) : undefined;
+  if (first && landed) {
+    rehome(g, p, new Set([c.id]));
+    return acceptable(g, planCrew(g, c, p, segsOf(g, c, p.id), true));
+  }
   if (first && air && air.to === dep && air.sta <= first.report) {
     rehome(g, p, new Set([c.id]));
     return acceptable(g, planCrew(g, c, p, segsOf(g, c, p.id), true));
@@ -1720,6 +1759,8 @@ function restShort(i: LegalityIssue | undefined): number | null {
 
 /** A world tour waits up to a day for its own crew's rest: one crew all the way round is the job. */
 const TOUR_REST_SLIP = DAY;
+/** Crew alarm round (Nov 2026): a trip's next day waits this long at most for its own crew's rest (minutes). */
+const TRIP_REST_SLIP = 60;
 let tourSlipping = false;
 
 /**
@@ -1729,22 +1770,33 @@ let tourSlipping = false;
  * eleven came off, went home on a ticket, and the tour sat 48 h at the gate for a crew nobody had, then was cancelled
  * whole. True when the legs moved (the trip is re-checked through the re-sync).
  */
-function slipTourForRest(g: GameState, p: Pairing, d: Duty, ids: string[], issue: Map<string, LegalityIssue>): boolean {
-  const f = g.flights[d.flightIds[0]];
-  // Rotations round: a deployment tour's leg waits too, up to REST_SLIP (a late landing left one person 12 minutes short
-  // of rest for the next day: four people were flown out from base and four home).
-  const held = heldJobOf(g, p);
-  if (tourSlipping || !restDelayHook || !p.aircraftId || d.report <= g.now || !f || f.status !== 'scheduled' || (!held && !p.tour)) return false;
-  const cap = held ? TOUR_REST_SLIP : REST_SLIP;
+function slipTourForRest(g: GameState, p: Pairing, firstOpen: Duty, ids: string[], issue: Map<string, LegalityIssue>, under: boolean): boolean {
+  // Crew alarm round (Nov 2026, the player's VY1040): any trip, under way or not. The crew of a Barcelona trip finished
+  // its first day 4 minutes short of the rest before the second (Rest 11:28 < 11:32): all seven came off, the second day
+  // was split off and a red alarm said it needed a whole crew 12 h before departure. The duty every issue names (one
+  // duty of this trip, not reported yet) waits for its own crew instead: up to TRIP_REST_SLIP for a trip, REST_SLIP for a
+  // deployment tour, a day for a held job.
+  let d: Duty | undefined;
   let slip = 0;
   for (const id of ids) {
     const i = issue.get(id);
     const short = restShort(i);
-    if (short === null || i?.dutyId !== d.id) return false;
+    const x = i?.dutyId ? g.duties[i.dutyId] : undefined;
+    if (short === null || !x || x.pairingId !== p.id || (d && d !== x)) return false;
+    d = x;
     slip = Math.max(slip, short);
   }
+  if (!d || (under && d === firstOpen)) return false;
+  const f = g.flights[d.flightIds[0]];
+  const held = heldJobOf(g, p);
+  // (A tour or a held job under way keeps its own handling, keepTourCrew: as before, they wait only before they report.)
+  if ((held || p.tour) && under) return false;
+  if (tourSlipping || !restDelayHook || !p.aircraftId || d.report <= g.now || !f || f.status !== 'scheduled') return false;
+  const cap = held ? TOUR_REST_SLIP : p.tour ? REST_SLIP : TRIP_REST_SLIP;
   slip = Math.ceil(slip / 5) * 5 + 5;
-  if (slip <= 0 || slip > cap) return false;
+  // A trip's waits add up from its own schedule: never more than the cap in all (a wait that did not cure it is not repeated).
+  const before = held || p.tour ? 0 : Math.max(0, f.std - (f.schedStd ?? f.std));
+  if (slip <= 0 || slip + before > cap) return false;
   tourSlipping = true;
   try {
     if (!restDelayHook(g, f, f.std + slip)) return false;
@@ -1804,6 +1856,29 @@ function keepTourCrew(g: GameState, p: Pairing, ids: string[], issue: Map<string
 }
 
 /**
+ * v0.23.1 crew in `bad` short of rest on the trip's last duty whose airline ticket home leaves before the rest that day
+ * needs (planHome, a ticket out joining the day counted) get that ticket moved to after the rest (rehome). True when
+ * any was moved.
+ */
+function earlyHome(g: GameState, d: Duty, bad: { crewId: string; issue: LegalityIssue }[]): boolean {
+  const p = g.pairings[d.pairingId];
+  const duties = p ? openDuties(g, p) : [];
+  if (!p || p.tour || duties[duties.length - 1] !== d) return false;
+  const ids = new Set<string>();
+  for (const b of bad) {
+    const c = g.crew[b.crewId];
+    if (b.issue.code !== 'rest' || !c) continue;
+    const t = d.deadheadIds.map((id) => g.flights[id]).find((f) => !!f && f.kind === 'deadhead' && f.status === 'scheduled' && !f.charter && f.from === d.restAt && f.std >= d.release && f.std - BAL.deadheadCheckIn > g.now && aboard(f, c.id));
+    if (!t) continue;
+    const out = duties[0].deadheadIds.map((id) => g.flights[id]).find((f) => !!f && f.status !== 'cancelled' && aboard(f, c.id) && f.sta <= duties[0].report) ?? null;
+    if (planHome(d, t.to, cabinEarly(g, p) + outExtra(out, duties)).std > t.std) ids.add(c.id);
+  }
+  if (!ids.size) return false;
+  rehome(g, p, ids);
+  return true;
+}
+
+/**
  * Last line before a duty (2 h before report, and at the gate): no crew member may fly it over a limit. Crew with
  * a crew-level issue are re-rostered (their later trips give way first, then this aircraft is re-planned); anyone
  * still illegal comes off the duty (the trip is split there) and the seat is refilled, else it stays empty and
@@ -1829,6 +1904,12 @@ export function guardDuty(g: GameState, dutyId: string): boolean {
   let short = 0;
   if (d && !d.done && g.pairings[d.pairingId]) {
     let bad = crewIssuesFor(g, d);
+    // v0.23.1 short only of the rest before their ticket home (booked too early for the day as it now runs): the ticket
+    // moves to after the rest, nobody comes off the flight for it (bot seed 2, DK785: a 7-minute delay sub-chartered it).
+    if (bad.some((b) => b.issue.code === 'rest') && earlyHome(g, d, bad)) {
+      d = g.duties[dutyId];
+      bad = d && !d.done ? crewIssuesFor(g, d) : [];
+    }
     // v0.5.2: nobody to swap, but the crew are only short of rest (a late finish the day before): the duty
     // reports when their rest ends (its legs move up to REST_SLIP later) rather than flying uncovered.
     if (bad.length && slipForRest(g, d, bad.map((b) => b.crewId))) {
@@ -2069,8 +2150,9 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
   for (const r of SLOT_ORDER) for (const i of order) if (canFill(p.slots[i].role, r)) fitRoles.add(r);
   const price = new Map<string, number>();
   const pool: { c: CrewMember; score: number; rank: number }[] = [];
+  const drops = droppingAt(g, family);
   for (const c of ctx.crew) {
-    if (!fitRoles.has(c.role) || !c.ratings.includes(family) || inP.has(c.id) || exclude?.has(c.id) || c.morale < refuseBelow) continue;
+    if (!fitRoles.has(c.role) || !c.ratings.includes(family) || inP.has(c.id) || exclude?.has(c.id) || c.morale < refuseBelow || goingOff(drops, c, p.end)) continue;
     // v0.9 round 3 speed: crew planCrew would refuse at once (on leave, sick, in training or joining during the trip;
     // still resting at its report) are not planned at all: they were refused anyway, one full timeline check each.
     // Debug round (26 Oct 2026): until they are home again (a trip ending away: its rest and the ticket home), so leave
@@ -2421,7 +2503,8 @@ function splitTourGap(g: GameState, ctx: Ctx, p: Pairing, exclude?: Set<string>)
   const family = typeOf(typeIdOf(g, p)).family;
   const inP = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
   const end = open[open.length - 1].release;
-  const pool = ctx.crew.filter((c) => !inP.has(c.id) && !exclude?.has(c.id) && c.ratings.includes(family) && roles.some((r) => canFill(r, c.role)));
+  const drops = droppingAt(g, family);
+  const pool = ctx.crew.filter((c) => !inP.has(c.id) && !exclude?.has(c.id) && c.ratings.includes(family) && roles.some((r) => canFill(r, c.role)) && !goingOff(drops, c, p.end));
   const horizon = rosterHorizon(g);
   for (let k = 1; k < open.length; k++) {
     const d = open[k];
@@ -2469,7 +2552,8 @@ function coverRun(g: GameState, ctx: Ctx, p: Pairing, exclude?: Set<string>): { 
   const family = typeOf(typeIdOf(g, p)).family;
   const inP = new Set(p.slots.filter((s) => s.crewId).map((s) => s.crewId!));
   const until = g.now + COVER_AHEAD;
-  const pool = ctx.crew.filter((c) => !inP.has(c.id) && !exclude?.has(c.id) && c.ratings.includes(family) && roles.some((r) => canFill(r, c.role)));
+  const drops = droppingAt(g, family);
+  const pool = ctx.crew.filter((c) => !inP.has(c.id) && !exclude?.has(c.id) && c.ratings.includes(family) && roles.some((r) => canFill(r, c.role)) && !goingOff(drops, c, p.end));
   if (!pool.length) return none();
   /** Who of `from` can fly duties [k, m) as a part of their own (a guest on a tour when duties follow it). */
   const can = (from: CrewMember[], k: number, m: number): CrewMember[] => {
@@ -2809,7 +2893,7 @@ function rerosterFrom0(g: GameState, aircraftId: string, t: Minute): RosterResul
     const retickable = (id: string) => !under || (!!p.tour && g.crew[id]?.loc === station && (rc.from.get(id) ?? 0) > firstOpen.report);
     const out = rc.illegal.filter((id) => !locked(id) && (!retickable(id) || !(g.crew[id] && retick(g, p, g.crew[id]))));
     // v0.14.1 (merge) a world tour's crew short only of rest before its next duty: the duty waits for them.
-    if (!under && out.length && slipTourForRest(g, p, firstOpen, out, rc.issue)) continue;
+    if (out.length && slipTourForRest(g, p, firstOpen, out, rc.issue, under)) continue;
     // Rotations round: a deployment tour's crew member over a limit on one or two duties (rest after a late landing,
     // 60 h in 7 days, the 168 h recovery, a day off due) keeps the tour: those duties go back to the deployment's planner
     // (another set on station takes them, else they fly as a trip from base), instead of the whole seat being flown out
@@ -3016,7 +3100,7 @@ setCrewTrailOkHook((g, p, c) => {
     if (f && f.status !== 'cancelled' && aboard(f, c.id) && f.sta <= duties[0].report) out = f;
   }
   const homeAt = homeOf(g, c, p);
-  const home = last.restAt !== homeAt ? planHome(last, homeAt, cabinEarly(g, p)) : null;
+  const home = last.restAt !== homeAt ? planHome(last, homeAt, cabinEarly(g, p) + outExtra(out, duties)) : null;
   const own: Seg[] = [];
   for (const d of duties) own.push(...dutySegs(g, c, p, d, d === duties[0] ? out : null, d === last ? home : null, true));
   return !evalSegs({ ...ctxOf(g, c), slack: BAL.rosterSlack }, mergeSegs(segsOf(g, c, p.id), own)).some((i) => i.level === 'illegal' && i.code !== 'fdp');
@@ -3032,7 +3116,9 @@ function rehome(g: GameState, p: Pairing, only?: Set<string>): void {
     const c = s.crewId && (!only || only.has(s.crewId)) ? g.crew[s.crewId] : undefined;
     if (!c) continue;
     const homeAt = homeOf(g, c, p);
-    const home = last.restAt !== homeAt ? (p.tour && !s.guest ? tourHomePlan(g, p, last, c.base, cabinEarly(g, p)) : planHome(last, homeAt, cabinEarly(g, p))) : null;
+    // Player bot round: a one-day trip's ticket out that joins the day counts in the rest before the ticket home.
+    const out = duties[0].deadheadIds.map((id) => g.flights[id]).find((f) => !!f && f.status !== 'cancelled' && aboard(f, c.id) && f.sta <= duties[0].report) ?? null;
+    const home = last.restAt !== homeAt ? (p.tour && !s.guest ? tourHomePlan(g, p, last, c.base, cabinEarly(g, p)) : planHome(last, homeAt, cabinEarly(g, p) + outExtra(out, duties))) : null;
     // Rotations round: the ticket home that only moves is re-timed (moveHome), not bought again.
     if (home && moveHome(g, p, c, home)) continue;
     for (const d of duties) {

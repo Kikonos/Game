@@ -37,10 +37,10 @@
 /* ---------- the corner kept clear ---------- */
 /* New game, Scenarios: the bottom bar's Back button starts after the corner. */
 .ng-foot { padding-left: max(16px, calc(var(--safe-l) + var(--bug-inset))); }
-/* iPhone on its side: the rail ends above the corner (eight sections still fit 393 px). */
+/* iPhone on its side: the rail ends above the corner (v0.23.1 nine sections fit 393 px at 36 px). */
 @media (max-height: 499.98px) {
   .shell.acmi.compact-acmi .sidebar { padding-bottom: calc(4px + var(--safe-b) + var(--bug-inset)); }
-  .shell.acmi.compact-acmi .nav-item { height: clamp(40px, calc((var(--app-h) - var(--safe-t) - var(--safe-b) - 8px - var(--bug-inset)) / 8), 52px); }
+  .shell.acmi.compact-acmi .nav-item { height: clamp(36px, calc((var(--app-h) - var(--safe-t) - var(--safe-b) - 8px - var(--bug-inset)) / 9), 52px); }
 }
 /* Phone dialogs are bottom sheets that can run to the left edge: the footer's first button starts after the corner. */
 @media (max-width: 699.98px), (max-height: 499.98px) {
