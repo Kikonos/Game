@@ -462,7 +462,8 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
     // that trip's problem: its own re-check flags its seat and the roster re-crews it ("only the earlier pairing wins").
     // It read as this duty's: "Beatriz Ribeiro is short of rest" on EW6000, whose own rest before was 18:50.
     for (const i of ftl) {
-      if (i.next === undefined || i.level !== 'illegal' || !i.next) continue;
+      // (An overlap is both trips' problem: they cannot be in two places; only the rest is owed to the later one.)
+      if (i.next === undefined || i.code !== 'rest' || i.level !== 'illegal' || !i.next) continue;
       const q = g.pairings[g.duties[i.next]?.pairingId ?? ''];
       if (q && q.id !== p.id && (q.start > p.start || (q.start === p.start && q.id > p.id))) i.level = 'legal';
     }
