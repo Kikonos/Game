@@ -640,6 +640,19 @@ export function planHome(d: Duty, to: string, early = 0, extCut = 0): TicketPlan
   return { from, to, std: std2, sta: std2 + blk };
 }
 
+/**
+ * Rotations round: on a one-duty trip whose ticket out joins the duty's day (it lands too close to the report to rest),
+ * the day runs from the ticket's check-in: the rest the ticket home waits for is measured from there (planHome's
+ * `early`). Before, the ticket home left 11:30 after a 12:30 day and the whole plan read illegal. Pure.
+ * Player bot round: shared by every planHome caller (a re-plan of the way home after a delay sized the rest on the
+ * duty alone, kept the morning ticket, and the re-check then took the whole crew off a legal day: bot seed 2 TB954).
+ */
+export function outExtra(out: TicketPlan | null, duties: readonly Duty[]): number {
+  if (!out || duties.length !== 1 || out.rideId) return 0;
+  const first = duties[0];
+  return outMerges(out, first.report) ? Math.max(0, first.report - (out.std - BAL.deadheadCheckIn)) : 0;
+}
+
 /** Ticket home leaving `wait` after release (a recovery rest at the hotel before positioning home). */
 export function planHomeAfter(d: Duty, to: string, wait: number): TicketPlan {
   const std = snapDeparture(d.restAt, to, hour(d.release + wait + CHECKIN(), true));

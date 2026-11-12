@@ -17,7 +17,7 @@ export interface WhatsNewEntry {
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
     version: 'v0.23.1',
-    name: 'Class planner, step two',
+    name: 'Class planner step two, and stacked work',
     features: [
       'Cabin crew already on three types now go into the plan. Each gives one type up when the course ends: by default one with no aircraft, one being phased out, or the one they fly least.',
       'The class\'s people list says which type each gives up ("drops A320"). Tap it to pick another. Their trips on that type after the class go to other crew, tried on a copy of the roster first.',
@@ -27,6 +27,14 @@ export const WHATS_NEW: WhatsNewEntry[] = [
     improvements: [
       'The planner works out its proposals faster and the screen stays live while it does. Going back to a choice you had is instant.',
       'Pilots booked to leave a type after one of its aircraft goes no longer make Crew › Planning or the crew desk ask you to hire replacements.',
+      'An offer that is short of crew now says when new hires would join: in time for its first short day, or too late.',
+      'The hiring hold only holds when crew have nothing on their roster. Crew on tours and trips who fly few hours no longer stop the round-up while flights go short.',
+    ],
+    fixes: [
+      'A short delay on a day that began with a flight out could take the whole crew off a legal day. Their flight home now moves to after the longer rest instead.',
+      'Crew waiting at a station for their flight out to their tour can fly a trip in between and go back there for it.',
+      'A seat emptied halfway through a duty (a sick call) is no longer filled by someone at another airport.',
+      'The crew alarm check in Bug reports now counts a flight home still to come from a finished trip, and its rest.',
     ],
   },
   {

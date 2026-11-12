@@ -8,7 +8,7 @@ import type { CrewMember, Duty, Flight, GameState, Legality, Minute, Pairing } f
 import { dayFloorIssue, eveFloorIssue, monthFloorIssue, offIssue, offMovable } from './dayPlan';
 import { evalSegs, EXT_REST, levelOf, LIMITS, type LegalityIssue, type Seg } from './rules';
 import { flightsRev } from '../core/entities';
-import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outMerges, outTicket, planHome, posSeg, planHomeAfter, planOut, reserveSeat, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
+import { aboard, block12m, cabinEarly, crewIx, crewRev, ctxOf, droppableHome, droppableOut, dutyBlock, dutySegs, locAt, outExtra, outTicket, planHome, posSeg, planHomeAfter, planOut, reserveSeat, ridesHome, segsOf, segsTagOf, ticketPrice, ticketSlotOk, typeIdOf, withoutTickets, type TicketPlan } from './timeline';
 import { guestOn, homeOf, lastPart, sameTour, tourHomePlan, tourSpan, tourStationFor } from './tours';
 import { dutyClash } from './avail';
 import { leaveBackFor } from './leaveTrips';
@@ -315,7 +315,12 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
       // (A ticket, alone or merged into its duty, that only takes them home or to where this trip ends is no reason to
       // go back for it: the old rule re-buys it from where they will be, `retick` below.)
       const dest = nx ? (nx.kind === 'pos' ? nx.at : nx.out?.to) : undefined;
-      if (nx && nx.from && nx.from !== c.base && (dest === undefined || (dest !== c.base && dest !== last.restAt))) {
+      // Player bot round: ... unless that ticket is a set member's way out to their tour, which is never bought again
+      // (the re-ticket below is for planned trips): then they go back for it (bot seed 1: a captain waiting at
+      // Kangerlussuaq for his ticket out to the Riyadh base was refused a trip ending at Riyadh, "due in Kangerlussuaq").
+      const qn = nx?.dutyId ? g.pairings[g.duties[nx.dutyId]?.pairingId ?? ''] : undefined;
+      const rebought = !qn || (qn.status === 'planned' && (!qn.tour || guestOn(qn, c.id)));
+      if (nx && nx.from && nx.from !== c.base && (dest === undefined || (dest !== c.base && (dest !== last.restAt || !rebought)))) {
         if (nx.from === loc) station = loc;
         else if (nx.from !== last.restAt && locAt(c, base, nx.start) !== nx.from) station = nx.from;
       }
@@ -338,6 +343,27 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
         base = stay;
         dropped.push(...back);
       } else home = tour && !leaveNext ? tourHomePlan(g, p, last, c.base, cabinEarly(g, p)) : planHome(last, homeAt, cabinEarly(g, p) + outExtra(out, duties));
+    }
+  }
+  // Player bot round: a duty already under way (its first leg gone) is joined where its next leg leaves, by someone
+  // there when it leaves: the crew who flew the legs before are at that airport, a joiner may not be (bot --player seed
+  // 1: a cabin crew member at Palma seated on 2W7103 out of Budapest after 2W7102 had left without her, "teleport").
+  const leg0 = g.flights[first.flightIds[0]];
+  if (leg0 && leg0.status !== 'scheduled' && leg0.status !== 'cancelled' && first.report <= g.now) {
+    let flew = false;
+    let next: Flight | undefined;
+    for (const id of first.flightIds) {
+      const f = g.flights[id];
+      if (!f || f.status === 'cancelled') continue;
+      if (f.status === 'scheduled') {
+        next ??= f;
+        continue;
+      }
+      if (f.crewIds.includes(c.id) || aboard(f, c.id)) flew = true;
+    }
+    if (next && !flew) {
+      const w = locAt(c, base, next.std);
+      if (w !== next.from) issues.push({ code: 'location', level: 'illegal', text: `At ${w}, not ${next.from}`, dutyId: first.id });
     }
   }
   let segs = buildSegs(g, c, p, duties, out, home);
@@ -467,16 +493,6 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
   return { level: levelOf(issues), issues, out, home, segs, drop: dropped.length ? dropped : undefined, ...(retick.length ? { retick, retickCost } : {}), ...(leaveBack ? { leaveBack } : {}), ...(backTo ? { backTo } : {}), ...(guest ? { guest: true as const } : {}) };
 }
 
-/**
- * Rotations round: on a one-duty trip whose ticket out joins the duty's day (it lands too close to the report to rest),
- * the day runs from the ticket's check-in: the rest the ticket home waits for is measured from there (planHome's
- * `early`). Before, the ticket home left 11:30 after a 12:30 day and the whole plan read illegal. Pure.
- */
-function outExtra(out: TicketPlan | null, duties: Duty[]): number {
-  if (!out || duties.length !== 1 || out.rideId) return 0;
-  const first = duties[0];
-  return outMerges(out, first.report) ? Math.max(0, first.report - (out.std - BAL.deadheadCheckIn)) : 0;
-}
 
 /**
  * v0.9.1: c's stand-alone ticket (no duty holds it) out of the last duty's rest airport, the first work after that

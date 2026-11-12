@@ -23,7 +23,7 @@ import { restMarked } from './restMarks';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, emptyLegsOnly, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
-import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, freshReport, locAt, noteRiders, OUT_CONNECT, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, standsBy, slotAfter, snapDeparture, takeLostRides, takeSkippedFull, ticketPrice, touchCrew, touchCrewState, typeIdOf, withoutTickets } from './timeline';
+import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, freshReport, locAt, noteRiders, OUT_CONNECT, outExtra, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, standsBy, slotAfter, snapDeparture, takeLostRides, takeSkippedFull, ticketPrice, touchCrew, touchCrewState, typeIdOf, withoutTickets } from './timeline';
 import { deploymentOf, guestOn, homeOf, tourDay, tourHolding, tourHomePlan, tourSpan } from './tours';
 import { isAnnual, leaveBackPlan, leaveBackTaken, leaveHomePlan, leaveHomeTrip, leaveHorizon, leaveTicketsOf, LEAVE_BACK_BUFFER, LEAVE_BACK_GAP } from './leaveTrips';
 
@@ -3049,7 +3049,7 @@ setCrewTrailOkHook((g, p, c) => {
     if (f && f.status !== 'cancelled' && aboard(f, c.id) && f.sta <= duties[0].report) out = f;
   }
   const homeAt = homeOf(g, c, p);
-  const home = last.restAt !== homeAt ? planHome(last, homeAt, cabinEarly(g, p)) : null;
+  const home = last.restAt !== homeAt ? planHome(last, homeAt, cabinEarly(g, p) + outExtra(out, duties)) : null;
   const own: Seg[] = [];
   for (const d of duties) own.push(...dutySegs(g, c, p, d, d === duties[0] ? out : null, d === last ? home : null, true));
   return !evalSegs({ ...ctxOf(g, c), slack: BAL.rosterSlack }, mergeSegs(segsOf(g, c, p.id), own)).some((i) => i.level === 'illegal' && i.code !== 'fdp');
@@ -3065,7 +3065,9 @@ function rehome(g: GameState, p: Pairing, only?: Set<string>): void {
     const c = s.crewId && (!only || only.has(s.crewId)) ? g.crew[s.crewId] : undefined;
     if (!c) continue;
     const homeAt = homeOf(g, c, p);
-    const home = last.restAt !== homeAt ? (p.tour && !s.guest ? tourHomePlan(g, p, last, c.base, cabinEarly(g, p)) : planHome(last, homeAt, cabinEarly(g, p))) : null;
+    // Player bot round: a one-day trip's ticket out that joins the day counts in the rest before the ticket home.
+    const out = duties[0].deadheadIds.map((id) => g.flights[id]).find((f) => !!f && f.status !== 'cancelled' && aboard(f, c.id) && f.sta <= duties[0].report) ?? null;
+    const home = last.restAt !== homeAt ? (p.tour && !s.guest ? tourHomePlan(g, p, last, c.base, cabinEarly(g, p)) : planHome(last, homeAt, cabinEarly(g, p) + outExtra(out, duties))) : null;
     // Rotations round: the ticket home that only moves is re-timed (moveHome), not bought again.
     if (home && moveHome(g, p, c, home)) continue;
     for (const d of duties) {

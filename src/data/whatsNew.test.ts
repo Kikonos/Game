@@ -53,10 +53,12 @@ describe("v0.9 What's new catch-up (UPDATE-0.9.md §X)", () => {
     expect(v(whatsNewToShow('v0.7.4', false))).toEqual(['v0.23.1', 'v0.23', 'v0.22.1', 'v0.22', 'v0.21', 'v0.20.1', 'v0.20', 'v0.19.5', 'v0.19.4', 'v0.19.3', 'v0.19.2', 'v0.19.1', 'v0.19', 'v0.18.3', 'v0.18.2', 'v0.18.1', 'v0.18', 'v0.17.2', 'v0.17.1', 'v0.17', 'v0.16.4', 'v0.16.3', 'v0.16.2', 'v0.16.1', 'v0.16', 'v0.15', 'v0.14.1', 'v0.14', 'v0.13', 'v0.12', 'v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1', 'v0.10', 'v0.9.1', 'v0.9', 'v0.8', 'v0.7.4']);
   });
   it('v0.23.1 the class planner, step two, on top in short plain lines', () => {
-    expect(`${WHATS_NEW[0].version} ${WHATS_NEW[0].name}`).toBe('v0.23.1 Class planner, step two');
+    expect(`${WHATS_NEW[0].version} ${WHATS_NEW[0].name}`).toBe('v0.23.1 Class planner step two, and stacked work');
     const lines = [...WHATS_NEW[0].features, ...WHATS_NEW[0].improvements, ...(WHATS_NEW[0].fixes ?? [])];
     const txt = lines.join('\n');
     for (const w of ['three types', 'drops A320', 'Plan classes', 'Next', 'Inbox', 'hire replacements']) expect(txt).toContain(w);
+    expect(txt).toMatch(/hires would join/);
+    expect(txt).toMatch(/hiring hold/);
     for (const l of lines) expect(l.length).toBeLessThanOrEqual(240);
   });
   it('v0.23 crew planned person by person below it, in short plain lines', () => {

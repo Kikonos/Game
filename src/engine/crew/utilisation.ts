@@ -163,7 +163,10 @@ export function hireHold(g: GameState, family: RatingFamily, role: Role, u = cre
   const xs = u.people.filter((p) => p.family === family && p.role === role && !p.away);
   if (xs.length < 4) return null;
   const avg = xs.reduce((s, p) => s + p.d28, 0) / xs.length;
-  const idle = xs.filter((p) => p.idle).length;
+  // Player bot round: idle means free too (nothing on the roster for 28 days). Crew on tours and trips who fly few block
+  // hours (a station set in winter, days of positioning and standby) are not spare: the player-like bot ran the A320
+  // family 51 cabin crew short with red alarms all winter while the hold said "not flying enough to need more".
+  const idle = xs.filter((p) => p.idle && p.free).length;
   if (avg >= UTIL_TYPICAL.hold28 || idle < 2) return null;
   return { why: `${familyName(family)} ${ROLE_WORDS[role][1]} flew ${Math.round(avg)} h on average in the last 28 days; ${idle} flew under ${UTIL_TYPICAL.idle28} h`, idle, avg };
 }
