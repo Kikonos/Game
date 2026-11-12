@@ -42,6 +42,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'A seat you gave someone is no longer flagged for a crew plan rule that is only a planning choice.',
       'A short rest before someone\'s next trip is now that trip\'s alarm, not the flight before it.',
       'Before a flight out to work away from base, crew need 10 hours of rest, not 12.',
+      'When a late landing leaves a crew a few minutes short of rest before the next day of their trip, that flight now waits for them (up to an hour) instead of the whole crew coming off.',
     ],
   },
   {
