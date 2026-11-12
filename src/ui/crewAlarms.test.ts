@@ -14,7 +14,7 @@ import { confirmAlarm, takeCrewAlarmRecords } from '../engine/crew/selfCheck';
 import { fixture } from '../engine/fixtures/compatKit';
 import { deserialize, serialize } from '../engine/save';
 import {
-  addCrewAlarms, addReport, CREW_ALARM_KEEP, CREW_ALARM_SNAP_CHARS, crewAlarmHousekeeping, crewAlarmSig, exportFile, exportSelection, isCrewAlarm, makeReport, memoryStore, newCrewAlarms, parseBugsFile,
+  addCrewAlarms, addReport, CREW_ALARM_KEEP, CREW_ALARM_SNAP_CHARS, CREW_ALARM_TRIM, crewAlarmHousekeeping, crewAlarmSig, exportFile, exportSelection, isCrewAlarm, makeReport, memoryStore, newCrewAlarms, parseBugsFile,
   resetSnapChain, snapshotFor, snapshotText, snapshotTextFor, type BugContext, type BugReport, type BugReportMeta, type CrewAlarmEntry,
 } from './bugReports';
 import { crewAlarmEntry } from './selfCheckFiler';
@@ -133,8 +133,9 @@ describe('v0.22.1 crew alarms in Bug reports: quiet, deduped, small', () => {
     for (let i = 0; i < CREW_ALARM_KEEP + 15; i++) list.push({ id: `a${i}`, createdAt: i, title: 't', what: '', expected: '', context: {} as BugContext, size: 80_000, auto: 'crew-alarm', alarm: entry({ flightId: `f${i}` }) });
     list.push({ id: 'mine', createdAt: 0, title: 'mine', what: '', expected: '', context: {} as BugContext, size: 900_000 });
     const hk = crewAlarmHousekeeping(list);
-    // The 15 oldest records go.
-    expect(hk.remove.sort()).toEqual(Array.from({ length: 15 }, (_, i) => `a${i}`).sort());
+    // The 15 oldest records go, and v0.23.1 five more with them (the next few alarms then add without a trim).
+    expect(hk.remove.sort()).toEqual(Array.from({ length: 15 + CREW_ALARM_TRIM }, (_, i) => `a${i}`).sort());
+    expect(crewAlarmHousekeeping(list.slice(0, CREW_ALARM_KEEP)).remove).toEqual([]);
     // v0.23.1 the 60 kept all keep their snapshot (they were 12): 60 × 80k is within the budget.
     expect(hk.strip).toEqual([]);
     expect([...hk.remove, ...hk.strip]).not.toContain('mine');

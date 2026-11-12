@@ -113,6 +113,8 @@ export interface CrewAlarmEntry {
 
 /** At most this many crew-alarm records are kept (the oldest go first). */
 export const CREW_ALARM_KEEP = 60;
+/** v0.23.1 past the cap, this many more of the oldest go with them. */
+export const CREW_ALARM_TRIM = 5;
 /**
  * v0.23.1 every record keeps a snapshot (they were 12 at most: 56 of the player's 60 could not be checked): the changes
  * since the record before (snapDelta.ts) and a whole game now and then, within CREW_ALARM_SNAP_CHARS characters in all
@@ -158,7 +160,9 @@ export function newCrewAlarms(existing: readonly BugReportMeta[], batch: readonl
  */
 export function crewAlarmHousekeeping(list: readonly BugReportMeta[]): { remove: string[]; strip: string[] } {
   const mine = list.filter(isCrewAlarm).sort((a, b) => b.createdAt - a.createdAt);
-  const remove = mine.slice(CREW_ALARM_KEEP).map((r) => r.id);
+  // v0.23.1 past the cap a few go at once: the oldest record carries a whole game, and the one after it has to be made
+  // whole when it goes (once per few alarms, not at every one).
+  const remove = mine.slice(mine.length > CREW_ALARM_KEEP ? CREW_ALARM_KEEP - CREW_ALARM_TRIM : CREW_ALARM_KEEP).map((r) => r.id);
   const strip: string[] = [];
   let n = 0;
   let chars = 0;

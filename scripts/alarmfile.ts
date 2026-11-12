@@ -3,7 +3,10 @@
 // the changes since the record before otherwise), and writes a Bug reports export of them with the sizes. The export
 // is what scripts/crewcheck.ts reads.
 //
-//   npx tsx scripts/alarmfile.ts <save.json> <days> <out.blockhours-bugs.json>
+//   npx tsx scripts/alarmfile.ts <save.json> <days> <out.blockhours-bugs.json> [--every=H]
+//
+// --every=H also files a stand-in record every H game hours (a size test: as many records as the player's 60, spread
+// over the months the game is played, whatever the alarms).
 
 import { readFileSync, writeFileSync } from 'node:fs';
 import { fmtDateTime } from '../src/engine/core/time';
@@ -15,7 +18,9 @@ import { CURRENT } from '../src/data/whatsNew';
 import { crewAlarmEntry } from '../src/ui/selfCheckFiler';
 
 async function main(): Promise<void> {
-  const [file, daysArg = '20', out = 'alarms.blockhours-bugs.json'] = process.argv.slice(2);
+  const [file, daysArg = '20', out = 'alarms.blockhours-bugs.json'] = process.argv.slice(2).filter((a) => !a.startsWith('--'));
+  const every = Number(process.argv.find((a) => a.startsWith('--every='))?.slice(8) ?? 0) * 60;
+  let next = every ? 0 : Infinity;
   if (!file) {
     console.log('usage: alarmfile.ts <save.json> <days> <out.blockhours-bugs.json>');
     process.exit(1);
@@ -29,9 +34,12 @@ async function main(): Promise<void> {
   while (g.now < end) {
     advanceTo(g, Math.min(end, g.now + 60), new Set());
     if (g.selfCheck?.pending.length) g.selfCheck.pending = [];
-    if (!g.selfCheck?.alarms?.length) continue;
+    const stand = every && g.now >= next;
+    if (stand) next = g.now + every;
+    if (!g.selfCheck?.alarms?.length && !stand) continue;
     const recs = takeCrewAlarmRecords(g);
     const batch = recs.map((r) => crewAlarmEntry(g, r));
+    if (stand && !batch.length) batch.push({ t: g.now, kind: 'short', flightId: `size-${g.now}`, no: 'SIZE', leg: 'stand-in', title: 'Stand-in record (size test)', evidence: [], verdict: 'confirmed' });
     const ctx: BugContext = { version: CURRENT.version, gameTime: `${fmtDateTime(g.now)} UTC`, gameTimeLocal: '', now: g.now, company: g.company.name, seed: g.seed, screen: { tab: 'map' }, inbox: [], settings: {}, device: { viewport: 'script', dpr: 1, ua: 'alarmfile' } };
     const a = Date.now();
     const text = serialize(g, 'bug');
