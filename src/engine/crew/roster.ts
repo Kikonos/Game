@@ -1780,10 +1780,14 @@ function slipTourForRest(g: GameState, p: Pairing, firstOpen: Duty, ids: string[
   if (!d || (under && d === firstOpen)) return false;
   const f = g.flights[d.flightIds[0]];
   const held = heldJobOf(g, p);
+  // (A tour or a held job under way keeps its own handling, keepTourCrew: as before, they wait only before they report.)
+  if ((held || p.tour) && under) return false;
   if (tourSlipping || !restDelayHook || !p.aircraftId || d.report <= g.now || !f || f.status !== 'scheduled') return false;
   const cap = held ? TOUR_REST_SLIP : p.tour ? REST_SLIP : TRIP_REST_SLIP;
   slip = Math.ceil(slip / 5) * 5 + 5;
-  if (slip <= 0 || slip > cap) return false;
+  // A trip's waits add up from its own schedule: never more than the cap in all (a wait that did not cure it is not repeated).
+  const before = held || p.tour ? 0 : Math.max(0, f.std - (f.schedStd ?? f.std));
+  if (slip <= 0 || slip + before > cap) return false;
   tourSlipping = true;
   try {
     if (!restDelayHook(g, f, f.std + slip)) return false;
