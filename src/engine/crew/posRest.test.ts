@@ -46,13 +46,18 @@ describe('v0.14.1 a crewed positioning day the job moved past its limit', () => 
     expect(d.augment).toBe(1);
     expect(d.legality).not.toBe('illegal');
     expect(crewCount(g.pairings[d.pairingId])).toBeGreaterThan(0);
-    expect(dutyOf(g, inn.id).pairingId).toBe(d.pairingId);
+    // v0.23 crew planned person by person: the trip in is crewed in full by whoever is free that day (its own part when
+    // nobody can fly both days); the crew of the long day fly it too.
+    const longDay = g.pairings[d.pairingId].slots.filter((s) => s.crewId).map((s) => s.crewId!);
+    const tripIn = g.pairings[dutyOf(g, inn.id).pairingId].slots;
+    expect(tripIn.every((s) => s.crewId || s.above)).toBe(true);
+    for (const id of longDay) expect(tripIn.some((s) => s.crewId === id)).toBe(true);
   });
 
   it('the job +3 h: the move goes the evening before, the duty is cut at the rest, same trip and crew, both legal', () => {
     const { g, ac, pos, op } = crewedTrip();
     const p0 = dutyOf(g, op.id).pairingId;
-    const crew0 = g.pairings[p0].slots.filter((s) => s.role === 'CPT' && s.crewId).map((s) => s.crewId);
+    const all0 = g.pairings[p0].slots.filter((s) => s.crewId).map((s) => s.crewId!);
     retimeFlight(g, op, op.std + 3 * H, op.sta + 3 * H);
     relinkPositioning(g, ac.id);
     onFlightsChanged(g, ac.id, g.now);
@@ -66,8 +71,10 @@ describe('v0.14.1 a crewed positioning day the job moved past its limit', () => 
     expect(b.flightIds).toEqual([op.id]);
     for (const d of [a, b]) expect(d.legality, `${d.id} ${d.fdp}/${d.maxFdp}`).not.toBe('illegal');
     expect(b.report - a.release).toBeGreaterThanOrEqual(10 * H);
-    expect(b.pairingId).toBe(p0);
-    expect(g.pairings[p0].slots.filter((s) => s.role === 'CPT' && s.crewId).map((s) => s.crewId)).toEqual(crew0);
+    // The same crew go on with the job (v0.23: the empty leg may be a part of its own, with whoever is free for it too).
+    const after = g.pairings[b.pairingId].slots.filter((s) => s.crewId).map((s) => s.crewId!);
+    for (const id of all0) expect(after).toContain(id);
+    for (const id of all0) expect(g.pairings[a.pairingId].slots.some((s) => s.crewId === id) || !g.pairings[a.pairingId].slots.some((s) => !s.crewId && !s.above)).toBe(true);
   });
 
   it('a move that cannot go earlier (a ferry held where it is): the illegal duty is re-planned, never left crewed', () => {

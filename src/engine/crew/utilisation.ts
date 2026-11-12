@@ -19,6 +19,7 @@ import { moraleShock } from './morale';
 import { removeCrew } from './roster';
 import { crewPlan, crewSupply, familyName, familyNeeds } from './sets';
 import { crewIx, touchCrew } from './timeline';
+import { guestOn } from './avail';
 
 /** What ACMI crew typically fly (block hours): a month in season, a year; idle below `idle28` in 28 days. */
 export const UTIL_TYPICAL = { monthLo: 60, monthHi: 85, yearLo: 700, yearHi: 850, idle28: 15, hold28: 40 };
@@ -102,7 +103,7 @@ export function crewUtilisation(g: GameState): Utilisation {
     people.push({
       id: c.id, name: crewName(c), role: c.role, family: homes.get(c.id) ?? c.ratings[0], base: c.base,
       month: (c.blockMonths?.[mk] ?? 0) / 60, d28, y12, away,
-      free: !away && !measured.has(c.id) && !(ix.pairingsOf.get(c.id) ?? []).some((p) => p.status !== 'done' && p.status !== 'broken' && p.start < ahead && (p.tour ? Math.max(p.end, p.tour.to) : p.end) > g.now),
+      free: !away && !measured.has(c.id) && !(ix.pairingsOf.get(c.id) ?? []).some((p) => p.status !== 'done' && p.status !== 'broken' && p.start < ahead && (p.tour && !guestOn(p, c.id) ? Math.max(p.end, p.tour.to) : p.end) > g.now),
       idle: !away && g.now - c.hired >= 28 * DAY && d28 < UTIL_TYPICAL.idle28,
     });
   }

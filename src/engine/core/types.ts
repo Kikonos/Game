@@ -1234,6 +1234,12 @@ export interface CrewSlot {
   };
   /** v0.22.1 a side trip flown from a tour station between the set's own duties: the station they go back to after it (crew/tours.ts homeOf). Cleared with the seat. */
   backTo?: string;
+  /**
+   * v0.23 crew planned person by person: this seat on a tour part is held by a guest, who flies this part's duties only
+   * and then goes back to where they need to be (their own station `backTo`, else home). Not a member of the set: no
+   * tour hold, no ticket home at the rotation's end (crew/tours.ts guestOn). Cleared with the seat.
+   */
+  guest?: true;
 }
 
 /** v0.9 the legal limit a crew member reached (UPDATE-0.9.md §T.1). */
@@ -1814,6 +1820,8 @@ export interface Stats {
   emptyWaits?: number;
   /** v0.22.1 flights marked short of crew by an older build were rostered again once on load (crew/control.ts redoShortOnLoad). */
   sideTripRedo?: boolean;
+  /** v0.23 the same once more for crew planned person by person: flights an older build left short are rostered again once on load. */
+  perCrewRedo?: boolean;
   /** v0.22.1 the one-off refund for the crew-planning error (crew/planRefund.ts): the amount given back (0: nothing to refund); absent on an older save until it loads. */
   planRefund?: number;
   /** v0.16.4 aircraft told stuck away from base (awayIdle card), with when that stay began (told once a stay). */

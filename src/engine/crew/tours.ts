@@ -9,6 +9,7 @@ import type { CrewMember, Deployment, GameState, Minute, Pairing } from '../core
 import { periodOf } from './duties';
 import { crewIx, dhBlock, planHome, snapDeparture, type TicketPlan } from './timeline';
 import { isAnnual, leaveTicketsOf } from './leaveTrips';
+import { guestOn } from './avail';
 
 /** The deployment of a tour pairing. */
 export const deploymentOf = (g: GameState, p: Pairing): Deployment | undefined => (p.tour && p.deploymentId ? g.deployments[p.deploymentId] : undefined);
@@ -18,6 +19,46 @@ export function tourSpan(g: GameState, p: Pairing): { from: Minute; to: Minute }
   const dep = deploymentOf(g, p);
   if (!dep || !p.tour) return null;
   return { from: p.tour.from, to: Math.min(p.tour.to, dep.end) };
+}
+
+/**
+ * v0.23 crew planned person by person: crewId's seat on p is a guest's. A guest flies this part's duties only (a duty or
+ * two of another set's tour, between their own work) and goes back to where they need to be; they are no member of the
+ * set, so nothing that reads "the set's crew" (the tour hold, the ticket home at the rotation's end, the set's line on
+ * the Crew view) counts them.
+ */
+export { guestOn };
+
+/**
+ * v0.23 crewId covers a seat of ANOTHER set on p (for the Crew views: 'Covering'). One of the set's own members who
+ * flies an earlier part of their own tour again holds it as a guest too (this part's duties, no ticket home after it),
+ * and is no visitor.
+ */
+export function coversOther(g: GameState, p: Pairing, crewId: string): boolean {
+  return !!p.tour && guestOn(p, crewId) && !memberTours(g, crewId).some((q) => sameTour(p, q));
+}
+
+/** v0.23 the tour pairings crewId is a member of (seated, not as a guest; not broken). */
+export function memberTours(g: GameState, crewId: string): Pairing[] {
+  const out: Pairing[] = [];
+  for (const q of crewIx(g).pairingsOf.get(crewId) ?? []) if (q.tour && q.status !== 'broken' && !guestOn(q, crewId)) out.push(q);
+  return out;
+}
+
+/**
+ * v0.23 p is the last part of its set's tour (no live part of the same tour starts after it): the part a new member
+ * joins for the rest of the rotation. A seat open on an earlier part is a gap someone covers as a guest; the member of
+ * the later part comes back (or takes over) after it.
+ */
+export function lastPart(g: GameState, p: Pairing): boolean {
+  const dep = deploymentOf(g, p);
+  if (!dep) return true;
+  for (const id of dep.pairingIds) {
+    const q = g.pairings[id];
+    if (!q || q === p || q.status === 'done' || q.status === 'broken' || !sameTour(p, q)) continue;
+    if (q.start > p.start || (q.start === p.start && q.id > p.id)) return false;
+  }
+  return true;
 }
 
 /** Two pairings are parts of one set's tour (a tour split into parts keeps set and period). */
@@ -40,8 +81,8 @@ export function tourEndKnown(g: GameState, p: Pairing): boolean {
  */
 export function tourHolding(g: GameState, c: CrewMember): Pairing | null {
   let hold: Pairing | null = null;
-  for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
-    if (!q.tour || q.status === 'broken') continue;
+  // (v0.23 a guest on a part of another set's tour is not held by it.)
+  for (const q of memberTours(g, c.id)) {
     const dep = deploymentOf(g, q);
     const span = tourSpan(g, q);
     if (!dep || !span || c.loc !== dep.base) continue;
@@ -61,10 +102,13 @@ export function tourHolding(g: GameState, c: CrewMember): Pairing | null {
  * `at`: where they are when the trip starts (before any ticket out); [from, to): the trip's duties. The station of a tour
  * of theirs whose period is under way over the whole trip, with work still to come (or its end not known yet). Pure.
  */
-export function tourStationFor(g: GameState, c: CrewMember, p: Pairing, from: Minute, to: Minute, at: string): string | null {
-  if (p.tour) return null;
-  for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
-    if (!q.tour || q.status === 'broken' || q.id === p.id) continue;
+export function tourStationFor(g: GameState, c: CrewMember, p: Pairing, from: Minute, to: Minute, at: string, guest = false, also?: Pairing[]): string | null {
+  // v0.23 a guest on another set's tour part goes back to their own station as from any side trip; a member of p does not.
+  if (p.tour && !guest) return null;
+  const held = crewIx(g).pairingsOf.get(c.id) ?? [];
+  const list = also?.length ? [...held, ...also.filter((x) => !held.includes(x))] : held;
+  for (const q of list) {
+    if (!q.tour || q.status === 'broken' || q.id === p.id || guestOn(q, c.id)) continue;
     const dep = deploymentOf(g, q);
     const span = tourSpan(g, q);
     if (!dep || !span || dep.base !== at || span.from > from || span.to <= to) continue;
@@ -75,8 +119,8 @@ export function tourStationFor(g: GameState, c: CrewMember, p: Pairing, from: Mi
   // duty leaves from, when that is where they are.
   if (at === c.base) return null;
   let next: { report: Minute; from: string } | null = null;
-  for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
-    if (q.tour || q.status === 'broken' || q.status === 'done' || q.id === p.id) continue;
+  for (const q of list) {
+    if ((q.tour && !guestOn(q, c.id)) || q.status === 'broken' || q.status === 'done' || q.id === p.id) continue;
     for (const id of q.dutyIds) {
       const d = g.duties[id];
       if (!d || d.done || d.report < to || (next && next.report <= d.report)) continue;
@@ -93,17 +137,19 @@ export function tourStationFor(g: GameState, c: CrewMember, p: Pairing, from: Mi
 export function homeOf(g: GameState, c: CrewMember, p: Pairing): string {
   const st = p.slots.find((s) => s.crewId === c.id)?.backTo;
   if (!st || st === c.base) return c.base;
-  for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
-    if (!q.tour || q.status === 'broken') continue;
+  for (const q of memberTours(g, c.id)) {
+    if (q.id === p.id) continue;
     const dep = deploymentOf(g, q);
     const span = tourSpan(g, q);
     if (dep && span && dep.base === st && span.to > g.now) return st;
   }
-  // (Or a trip of several days that goes on from there.)
+  // (Or a trip of several days that goes on from there; v0.23 or another part they cover as a guest.)
   for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
-    if (q.tour || q.id === p.id || q.status === 'broken' || q.status === 'done') continue;
+    if ((q.tour && !guestOn(q, c.id)) || q.id === p.id || q.status === 'broken' || q.status === 'done') continue;
     if (q.dutyIds.some((id) => { const d = g.duties[id]; return !!d && !d.done && g.flights[d.flightIds[0]]?.from === st; })) return st;
   }
+  // (v0.23 or a ticket of theirs that leaves from there later: the way out to their next station.)
+  for (const f of crewIx(g).tickets.get(c.id) ?? []) if (f.status === 'scheduled' && f.from === st && f.to !== c.base && f.std > g.now) return st;
   return c.base;
 }
 
@@ -150,7 +196,8 @@ export function deploymentSets(g: GameState): SetLine[] {
       const early: SetLine['early'] = [];
       for (const p of parts) {
         for (const sl of p.slots) {
-          if (sl.crewId && g.crew[sl.crewId]) ids.add(sl.crewId);
+          // (v0.23 a guest covering a duty or two is not one of the set.)
+          if (sl.crewId && !sl.guest && g.crew[sl.crewId]) ids.add(sl.crewId);
           const c = sl.left ? g.crew[sl.left.crewId] : undefined;
           if (sl.left && c && sl.left.at >= per.from && !early.some((e) => e.name === `${c.first} ${c.last}`)) early.push({ name: `${c.first} ${c.last}`, why: sl.left.why, at: sl.left.at });
         }
