@@ -60,7 +60,7 @@ describe("v0.9 What's new catch-up (UPDATE-0.9.md §X)", () => {
     expect(txt).toMatch(/hires would join/);
     expect(txt).toMatch(/hiring hold/);
     // The bug reports lane: fixed reports cleared on opening, a snapshot for every crew alarm, Expenses and Income, '?' boxes.
-    for (const w of ['Fixed bug reports clear themselves', 'Bug reports › Cleared', 'not only the newest 12', 'Expenses', 'Income', 'biggest first', 'whole on the screen', 'Up next']) expect(txt).toContain(w);
+    for (const w of ['Fixed bug reports clear themselves', 'Bug reports › Cleared', 'not only the newest 12', 'Expenses', 'Income', 'biggest first', 'whole on the screen', 'Up next', 'after zooming out']) expect(txt).toContain(w);
     for (const l of lines) expect(l.length).toBeLessThanOrEqual(240);
   });
   it('v0.23 crew planned person by person below it, in short plain lines', () => {

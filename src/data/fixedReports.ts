@@ -47,6 +47,7 @@ export const FIXED_REPORTS: Record<string, FixedReport> = {
   // v0.23.1
   bmwdgjk45aj1h: { version: 'v0.23.1', what: 'every "?" box opens whole on the screen, beside or above its button when there is no room below (Crew\'s "?" opened off the left edge).' },
   bmwdgkcfg2ur3: { version: 'v0.23.1', what: 'the Up next "?" box opens on top of the map, whole on the screen (it was cut off inside the panel).' },
+  bmwdorhy4a9hd: { version: 'v0.23.1', what: 'the map no longer breaks into squares with question marks after zooming out: a map square that fails to show is drawn again at once.' },
   bmwdgq50o8vuy: { version: 'v0.23.1', what: 'Finance: "Where the money went" is now Expenses and "Where the money came from" Income, each with the biggest line first.' },
 };
 

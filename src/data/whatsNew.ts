@@ -40,6 +40,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'A seat emptied halfway through a duty (a sick call) is no longer filled by someone at another airport.',
       'The crew alarm check in Bug reports now counts a flight home still to come from a finished trip, and its rest.',
       'The Crew "?" tip opened off the left edge of the screen, and the Up next "?" was cut off by its panel.',
+      'The map could break into squares with question marks after zooming out on an iPad. It now draws any square that fails again, and uses far less memory doing it.',
     ],
   },
   {
