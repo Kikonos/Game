@@ -181,6 +181,9 @@ export type ModalSpec =
   /** v0.6: bulk type-rating conversion for the selected crew; the classes list (cancel per class / member). */
   | { kind: 'convert'; crewIds: string[]; family?: RatingFamily; onBooked?: () => void; advice?: { from: RatingFamily; role: Role; n: number } }
   | { kind: 'classes' }
+  /** v0.23 the class planner (Crew › Planning › Plan classes) and Remove type rating for cabin crew (ui/modals/ClassPlanModal.tsx). */
+  | { kind: 'classPlan'; family?: RatingFamily; group?: 'cabin' | 'pilot' }
+  | { kind: 'removeRating'; crewIds: string[]; family?: RatingFamily; back?: ModalSpec; onDone?: () => void }
   /** v0.7: sign a market offer; cabin refit; lease extend/return; an approval on the ladder; the ladder-step celebration. */
   | { kind: 'acquire'; offerId: string }
   /** v0.17 the aircraft market (UPDATE-0.17.md §N.3): ask lessors; the letter of intent; add a type to the AOC; short-term aircraft. */

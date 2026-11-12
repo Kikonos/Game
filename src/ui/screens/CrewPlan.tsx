@@ -2,7 +2,7 @@
 // the joiners, a clean per-role table and one verdict line; Round up opens the hire flow pre-filled with exactly the
 // crew that complete the sets. The People view keeps a one-line summary per family that links here.
 
-import { CalendarClock, Check, UserPlus } from 'lucide-react';
+import { CalendarClock, Check, GraduationCap, UserPlus } from 'lucide-react';
 import type { RatingFamily } from '../../data/acmiTypes';
 import type { GameState } from '../../engine/core/types';
 import { awayOnDryLease, crewPeakCard, crewPlan, deploymentSets, familyName, peakForecast, peakGroups, peakId, roundTargets, setWords, type FamilyPlan } from '../../engine/crew';
@@ -43,7 +43,7 @@ function idleTypes(g: GameState, plans: FamilyPlan[]): { family: RatingFamily; p
 }
 
 /** One family: sets, the verdict, the role table and the round-up buttons. */
-function FamilyCard({ p, lock }: { p: FamilyPlan; lock?: string | null }) {
+function FamilyCard({ p, lock, trainLock }: { p: FamilyPlan; lock?: string | null; trainLock?: string | null }) {
   const t = roundTargets(p);
   const short = p.setsComplete < p.setsNeeded;
   const pct = (n: number) => `${Math.min(100, (n / Math.max(1, p.setsNeeded)) * 100)}%`;
@@ -116,6 +116,8 @@ function FamilyCard({ p, lock }: { p: FamilyPlan; lock?: string | null }) {
         {t.complete === null && t.next === null && (
           <button className="btn btn-ghost btn-sm" onClick={() => store.openModal({ kind: 'roundUp', family: p.family, target: t.spare })}>Add a spare set</button>
         )}
+        {/* v0.23 train the crew we have onto this type: the class planner. */}
+        <button className={`btn ${t.complete !== null ? '' : 'btn-sm'} cp-classes ${trainLock ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'classPlan', family: p.family })} disabled={!!trainLock} data-tip={trainLock ?? undefined}><GraduationCap /> Plan classes</button>
       </div>
     </div>
   );
@@ -169,7 +171,7 @@ export function CrewPlanView({ g }: { g: GameState }) {
       <PeakHeadsUp g={g} />
       {!plans.length && <div className="small muted">No aircraft in the fleet yet.</div>}
       <div className="cp-grid">
-        {plans.map((p) => <FamilyCard key={p.family} p={p} lock={lockOf(g, 'hiring')} />)}
+        {plans.map((p) => <FamilyCard key={p.family} p={p} lock={lockOf(g, 'hiring')} trainLock={lockOf(g, 'training')} />)}
       </div>
       {idle.length > 0 && (
         <div className="small muted cp-idle">

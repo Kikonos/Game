@@ -31,6 +31,7 @@ import { SubcharterModal } from '../modals/SubcharterModal';
 import { TrainModal } from '../modals/TrainModal';
 import { LiveryModal } from '../modals/LiveryModal';
 import { ClassesModal } from '../modals/ClassesModal';
+import { ClassPlanModal, RemoveRatingModal } from '../modals/ClassPlanModal';
 import { ConvertModal } from '../modals/ConvertModal';
 import { AcquireModal } from '../modals/AcquireModal';
 import { AocModal } from '../modals/AocModal';
@@ -400,6 +401,8 @@ export function GlobalModals() {
     case 'livery': return s.game ? <LiveryModal target={m.target} /> : null;
     case 'convert': return s.game ? <ConvertModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} onBooked={m.onBooked} advice={m.advice} /> : null;
     case 'classes': return s.game ? <ClassesModal /> : null;
+    case 'classPlan': return s.game ? <ClassPlanModal family={m.family} group={m.group} /> : null;
+    case 'removeRating': return s.game ? <RemoveRatingModal key={m.crewIds.join()} crewIds={m.crewIds} family={m.family} back={m.back} onDone={m.onDone} /> : null;
     case 'acquire': return s.game ? <AcquireModal offerId={m.offerId} /> : null;
     // v0.17 the aircraft market (lane market-ui fills them).
     case 'rfp': return s.game ? <RfpModal typeId={m.typeId} /> : null;

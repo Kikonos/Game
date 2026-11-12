@@ -2,7 +2,7 @@
 // own sheet (modals/PersonSheet.tsx: monthly roster, totals, limits, morale; Train / Hire similar). DESIGN.md §6.3.
 
 import { RankMark } from '../components/RankMark';
-import { Check, CheckSquare, Gauge, GraduationCap, Layers, LayoutGrid, List, Lock, Palmtree, Search, UserPlus, Users, X } from 'lucide-react';
+import { Check, CheckSquare, Gauge, GraduationCap, Layers, LayoutGrid, List, Lock, Palmtree, Search, UserMinus, UserPlus, Users, X } from 'lucide-react';
 import { CrewPlanView, DeploymentStrip, PeakHeadsUp, PlanStrip } from './CrewPlan';
 import { LeaveView } from './CrewLeave';
 import { UtilisationView } from './CrewUtil';
@@ -122,12 +122,15 @@ function storedView(): CrewView {
 /** v0.6: bottom bar of Select mode ('12 selected · Convert… · Clear'). */
 function SelectBar({ g, ids, onClear, onDone }: { g: GameState; ids: string[]; onClear: () => void; onDone: () => void }) {
   const pilots = ids.filter((id) => isPilotRole(g.crew[id].role)).length;
+  const canRemove = ids.some((id) => !isPilotRole(g.crew[id].role) && g.crew[id].ratings.length > 1);
   return (
     <div className="sc-selbar card">
       <b className="nowrap">{ids.length} selected</b>
       <span className="small muted ellipsis">{ids.length ? `${pilots} pilot${pilots === 1 ? '' : 's'} · ${ids.length - pilots} cabin crew` : 'Tap people or a group to select them'}</span>
       <span className="grow" />
       <button className="btn" onClick={onClear} disabled={!ids.length}>Clear</button>
+      {/* v0.23 cabin crew can give a type up (it frees one of their three places). */}
+      <button className="btn sc-sel-remove" onClick={() => store.openModal({ kind: 'removeRating', crewIds: ids, onDone })} disabled={!canRemove}><UserMinus /> <span className="sc-sel-long">Remove rating…</span></button>
       <button className={`btn btn-primary ${lockOf(g, 'training') ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'convert', crewIds: ids, onBooked: onDone })} disabled={!ids.length || !!lockOf(g, 'training')} data-tip={lockOf(g, 'training') ?? undefined}><GraduationCap /> Convert…</button>
       <button className="btn btn-ghost btn-icon" onClick={onDone} aria-label="Done selecting"><X /></button>
     </div>

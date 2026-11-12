@@ -16,8 +16,8 @@ import { store, useGame } from '../store';
 import { lockOf } from '../../engine/scenario';
 import { LockNote } from '../components/Locked';
 
-type Kind = 'convert' | Extract<TrainingKind, 'command' | 'sccm'>;
-const KIND_LABEL: Record<Kind, string> = { convert: 'Type conversion…', command: 'Command upgrade', sccm: 'Purser course' };
+type Kind = 'convert' | 'remove' | Extract<TrainingKind, 'command' | 'sccm'>;
+const KIND_LABEL: Record<Kind, string> = { convert: 'Type conversion…', command: 'Command upgrade', sccm: 'Purser course', remove: 'Remove a type…' };
 
 export function TrainModal({ crewId }: { crewId: string }) {
   const g = useGame();
@@ -25,11 +25,14 @@ export function TrainModal({ crewId }: { crewId: string }) {
   const kinds: Kind[] = ['convert'];
   if (c?.role === 'FO') kinds.push('command');
   if (c?.role === 'CC') kinds.push('sccm');
+  // v0.23 cabin crew on two or three types can give one up (a place free for another type).
+  if (c && (c.role === 'CC' || c.role === 'PUR') && c.ratings.length > 1) kinds.push('remove');
   const [kind, setKind] = useState<Kind>('convert');
   if (!c) return null;
   const k = classOf(g, c.id);
   const q = kind === 'command' ? { days: BAL.commandUpgrade.days, cost: BAL.commandUpgrade.cost } : { days: BAL.sccmCourse.days, cost: BAL.sccmCourse.cost };
   const convert = () => store.openModal({ kind: 'convert', crewIds: [c.id] });
+  const remove = () => store.openModal({ kind: 'removeRating', crewIds: [c.id], back: { kind: 'person', crewId: c.id } });
   const train = () => {
     const res = store.act((gg) => trainCrew(gg, c.id, kind as TrainingKind, c.ratings[0] ?? 'A320'));
     if (res.ok) store.closeModal();
@@ -38,7 +41,9 @@ export function TrainModal({ crewId }: { crewId: string }) {
     <Modal title={`Train ${crewName(c)}`} icon={<GraduationCap className="accent" />} onClose={() => store.closeModal()} footer={
       <>
         <button className="btn" onClick={() => store.closeModal()}>Cancel</button>
-        {kind === 'convert'
+        {kind === 'remove'
+          ? <button className="btn btn-primary" onClick={remove}><ArrowRight /> Choose the type</button>
+          : kind === 'convert'
           ? <button className="btn btn-primary" onClick={convert} disabled={!!lockOf(g, 'training')}><ArrowRight /> Plan the conversion</button>
           : <button className="btn btn-primary" onClick={train} disabled={g.company.cash < q.cost || !!lockOf(g, 'training')}><GraduationCap /> Start for {money(q.cost)}</button>}
       </>
@@ -48,7 +53,12 @@ export function TrainModal({ crewId }: { crewId: string }) {
         <div className="small muted">{ROLE_LABEL[c.role]} · rated {c.ratings.join(', ') || 'none'} · {Math.round(c.totalHours).toLocaleString('en-US')} h</div>
         {k && <div className="small warn">Booked on {k.no} ({fmtDate(k.start)} – {fmtDate(k.end - 1)}). Cancel it from the classes chip on the Crew screen.</div>}
         {kinds.length > 1 && <div className="sc-seg-wrap"><Seg<Kind> value={kind} onChange={setKind} options={kinds.map((x) => ({ value: x, label: KIND_LABEL[x] }))} /></div>}
-        {kind === 'convert' ? (
+        {kind === 'remove' ? (
+          <div className="small muted">Holds {c.ratings.length} of 3 types <Help title="Removing a type">
+            <p>Cabin crew hold up to 3 types. Removing one frees a place for another.</p>
+            <p>It costs nothing. To fly that type again they take its course again.</p>
+          </Help></div>
+        ) : kind === 'convert' ? (
           <div className="small muted">Pilots about 6 weeks · cabin crew about 8 days <Help title="Type conversion">
             <p>A type conversion puts this person in a class on the new type, with the same rules and prices as a bulk conversion.</p>
             <p>Between the A320 and the A330 it is a CCQ: about {BAL.conv.pilotCcqDays} days for pilots, {BAL.conv.cabinCcqDays} for cabin crew, and they keep the old type.</p>

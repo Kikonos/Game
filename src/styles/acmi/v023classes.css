@@ -1,0 +1,67 @@
+/* v0.23 the class planner and Remove type rating (ui/modals/ClassPlanModal.tsx). */
+.kp-modal.modal.wide { width: min(820px, 100%); }
+.kp-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.kp-controls .select { width: auto; flex: 1 1 150px; min-width: 0; }
+.kp-controls .seg { flex: none; }
+
+.kp-balance { display: flex; flex-direction: column; gap: 2px; padding: 10px 14px 8px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--border); }
+.kp-end { color: var(--text-3); transition: color 0.15s; }
+.kp-end.on { color: var(--text); font-weight: 600; }
+.kp-wait { display: grid; place-items: center; min-height: 120px; text-align: center; }
+.kp-stale { opacity: 0.55; transition: opacity 0.12s; }
+
+/* The month strip: classes as blocks, their head count inside. */
+.kp-strip { display: flex; flex-direction: column; gap: 4px; }
+.kp-months { position: relative; height: 16px; }
+.kp-month { position: absolute; top: 0; padding-left: 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--text-3); white-space: nowrap; overflow: hidden; }
+.kp-lanes { position: relative; border-radius: 8px; background: rgba(var(--line-rgb), 0.07); overflow: hidden; }
+.kp-grid { position: absolute; top: 0; bottom: 0; width: 1px; background: rgba(var(--line-rgb), 0.16); }
+.kp-roster { position: absolute; left: 0; top: 0; bottom: 0; background: repeating-linear-gradient(135deg, rgba(var(--line-rgb), 0.09) 0 4px, transparent 4px 8px); border-right: 1px dashed rgba(var(--line-rgb), 0.45); }
+.kp-now { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--text); opacity: 0.75; }
+.kp-by { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--warn); }
+.kp-block { position: absolute; height: 26px; min-width: 22px; padding: 0; display: grid; place-items: center; border: 1px solid transparent; border-radius: 6px; background: var(--c-bg-c084fc); color: var(--on-color); cursor: pointer; }
+.kp-block.pilot { background: var(--info); }
+.kp-block b { font-size: 12px; font-variant-numeric: tabular-nums; line-height: 1; }
+.kp-block.on { border-color: var(--text); box-shadow: 0 0 0 2px rgba(var(--accent-rgb), 0.45); }
+.kp-legend { display: flex; flex-wrap: wrap; gap: 2px 14px; }
+.kp-legend span { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.kp-key { display: inline-block; width: 10px; height: 10px; border-radius: 2px; }
+.kp-key.now { width: 2px; background: var(--text); opacity: 0.75; }
+.kp-key.by { width: 2px; background: var(--warn); }
+.kp-key.roster { background: repeating-linear-gradient(135deg, rgba(var(--line-rgb), 0.3) 0 2px, transparent 2px 4px); border-right: 1px dashed rgba(var(--line-rgb), 0.6); }
+
+/* The balance in numbers: each tile's content in the middle of its square. */
+.kp-tiles { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 1px; border: 1px solid var(--border); border-radius: 14px; overflow: hidden; background: var(--border); }
+.kp-tile { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 2px; padding: 9px 4px 8px; background: var(--panel-solid); min-width: 0; }
+.kp-tile-l { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-3); text-wrap: balance; }
+.kp-tile-v { font-size: 16px; font-weight: 650; line-height: 1.2; white-space: nowrap; }
+.kp-tile-s { font-size: 11px; color: var(--text-2); line-height: 1.25; text-wrap: balance; }
+
+.kp-class { border: 1px solid var(--border); border-radius: 12px; background: var(--panel-2); overflow: hidden; }
+.kp-class.on { border-color: var(--border-strong); }
+.kp-class.out { border-style: dashed; }
+.kp-class-head { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 44px; padding: 6px 12px; background: none; border: none; color: inherit; text-align: left; cursor: pointer; font: inherit; }
+.kp-chev { flex: none; color: var(--text-3); transition: transform 0.15s; }
+.kp-chev.up { transform: rotate(180deg); }
+.kp-people { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px 10px; padding: 2px 10px 10px; }
+.kp-person { display: flex; align-items: center; gap: 8px; min-height: 40px; min-width: 0; padding: 2px 4px 2px 8px; border-radius: 9px; background: var(--panel-solid); border: 1px solid var(--border); }
+.kp-person.skipped { opacity: 0.6; border-style: dashed; }
+.kp-move { width: auto; max-width: 128px; flex: none; min-height: 32px; padding-top: 2px; padding-bottom: 2px; font-size: 12px; }
+.kp-phases { padding: 0 12px 10px; }
+.kp-cover { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--border); }
+.modal:not(.kp-modal) .kp-people { grid-template-columns: minmax(0, 1fr); padding: 0; }
+.kp-foot { text-align: center; }
+
+@media (max-width: 720px) {
+  .kp-tiles { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .kp-people { grid-template-columns: minmax(0, 1fr); }
+  .kp-foot { display: none; }
+}
+/* A phone on its side: the dialog is short, so the controls and tiles stay compact. */
+@media (max-height: 460px) {
+  .kp-balance { padding: 6px 12px 4px; }
+  .kp-tile { padding: 6px 4px 5px; }
+  .kp-tile-v { font-size: 14px; }
+}
+/* The Select bar on a narrow screen: Remove rating as an icon only. */
+@media (max-width: 760px) { .sc-sel-long { display: none; } }
