@@ -3,7 +3,8 @@
 // screen head, or the '?' the screen already has: Schedule and map colours), which shows it again on a tap.
 
 import { HelpCircle, Lightbulb } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef } from 'react';
+import { PopBox, usePopover } from './Term';
 import { foldHint, HINT_SEEN_MS, hintMode, SCREEN_HINTS, type ScreenHintId } from '../screenHints';
 import { store, useStore } from '../store';
 
@@ -49,24 +50,23 @@ export function HintNote({ id }: { id: ScreenHintId }) {
 
 /** v0.12 a folded hint's '?' button (screen heads, dialog titles): tap for the hint; nothing while the strip shows or after
  *  'Don't show again'. */
-export function HintButton({ id, align }: { id: ScreenHintId; align?: 'left' | 'right' }) {
+export function HintButton({ id }: { id: ScreenHintId; align?: 'left' | 'right' }) {
   const s = useStore();
-  const [open, setOpen] = useState(false);
+  const [open, toggle, close] = usePopover();
+  const ref = useRef<HTMLButtonElement>(null);
   if (hintMode(id, s.settings) !== 'fold') return null;
   return (
     <span className="sc-pop-wrap v12-hint-wrap">
-      <button className={`btn btn-icon v12-hint-btn ${open ? 'btn-on' : ''}`} onClick={() => setOpen(!open)} aria-label="Tip for this screen" aria-expanded={open} data-hint-btn={id}><HelpCircle /></button>
-      {open && (
-        <>
-          <button className="sc-pop-shade" aria-label="Close" onClick={() => setOpen(false)} />
-          <div className={`sc-pop card v12-hint-pop ${align === 'left' ? 'left' : ''}`} role="dialog" aria-label="Tip">
-            <div className="row gap-8"><Lightbulb className="v9-hint-ico" aria-hidden /><span className="small">{SCREEN_HINTS[id]}</span></div>
-            <span className="row gap-8">
-              <button className="btn btn-sm" onClick={() => setOpen(false)}>Got it</button>
-              <button className="btn btn-sm btn-ghost" onClick={() => { setOpen(false); off(id); }}>Don’t show again</button>
-            </span>
-          </div>
-        </>
+      <button ref={ref} className={`btn btn-icon v12-hint-btn ${open ? 'btn-on' : ''}`} onClick={toggle} aria-label="Tip for this screen" aria-expanded={open} data-hint-btn={id}><HelpCircle /></button>
+      {/* v0.23.1 on the page itself, whole on the screen (it opened off the left edge of Crew: bmwdgjk45aj1h). */}
+      {open && ref.current && (
+        <PopBox anchor={ref.current} onClose={close} label="Tip" className="v12-hint-pop">
+          <div className="row gap-8"><Lightbulb className="v9-hint-ico" aria-hidden /><span className="small">{SCREEN_HINTS[id]}</span></div>
+          <span className="row gap-8">
+            <button className="btn btn-sm" onClick={close}>Got it</button>
+            <button className="btn btn-sm btn-ghost" onClick={() => { close(); off(id); }}>Don’t show again</button>
+          </span>
+        </PopBox>
       )}
     </span>
   );

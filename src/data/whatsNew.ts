@@ -26,12 +26,16 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'New choice when a crew member is a little out of hours: Log a later report time. The roster shows them checking in later, so a short rest or a long day reads as legal.',
       'Only for a short rest or a long day, by at most an hour, once per duty. It costs crew morale, most for the person it covers. Twice in 28 days and they refuse.',
       'It can come out later: a crew member reports it, or the authority\'s audit finds it. That means a fine and an audit finding.',
+      'Fixed bug reports clear themselves. When the game opens after an update, the reports it fixed are deleted. A short note says how many; Bug reports › Cleared says what each fix was.',
+      'Every crew alarm in Bug reports now keeps the game at that minute, not only the newest 12. Each keeps just what changed since the one before, so they take little room.',
     ],
     improvements: [
       'The planner works out its proposals faster and the screen stays live while it does. Going back to a choice you had is instant.',
       'Pilots booked to leave a type after one of its aircraft goes no longer make Crew › Planning or the crew desk ask you to hire replacements.',
       'An offer that is short of crew now says when new hires would join: in time for its first short day, or too late.',
       'The hiring hold only holds when crew have nothing on their roster. Crew on tours and trips who fly few hours no longer stop the round-up while flights go short.',
+      'Finance: "Where the money went" is now Expenses and "Where the money came from" is Income. Both list the biggest first.',
+      'Every "?" opens its box whole on the screen: under it, or above or beside it when there is no room.',
     ],
     fixes: [
       'A short delay on a day that began with a flight out could take the whole crew off a legal day. Their flight home now moves to after the longer rest instead.',
@@ -43,6 +47,8 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'A short rest before someone\'s next trip is now that trip\'s alarm, not the flight before it.',
       'Before a flight out to work away from base, crew need 10 hours of rest, not 12.',
       'When a late landing leaves a crew a few minutes short of rest before the next day of their trip, that flight now waits for them (up to an hour) instead of the whole crew coming off.',
+      'The Crew "?" tip opened off the left edge of the screen, and the Up next "?" was cut off by its panel.',
+      'The map could break into squares with question marks after zooming out on an iPad. It now draws any square that fails again, and uses far less memory doing it.',
     ],
   },
   {

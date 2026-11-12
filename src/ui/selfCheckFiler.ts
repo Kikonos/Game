@@ -5,7 +5,7 @@ import { takeCrewAlarmRecords, takeSelfCheckRecords } from '../engine/crew/selfC
 import { crewShortCard } from '../engine/crew';
 import { fmtDateTime } from '../engine/core/time';
 import type { CrewAlarmRecord, GameState, SelfCheckRecord } from '../engine/core/types';
-import { addCrewAlarms, addReport, makeReport, packSnapshot, type CrewAlarmEntry } from './bugReports';
+import { addCrewAlarms, addReport, makeReport, SELF_CHECK_EXPECTED, type CrewAlarmEntry } from './bugReports';
 import { serialize } from '../engine/save';
 import { contextNow } from './modals/BugReportModals';
 
@@ -15,7 +15,7 @@ export function selfCheckWords(recs: readonly SelfCheckRecord[]): { title: strin
   return {
     title: `Self-check: ${first.title}${recs.length > 1 ? ` (+${recs.length - 1} more)` : ''}`,
     what: recs.map((r) => `${fmtDateTime(r.t)} UTC · ${r.title} — withheld: ${r.why}.${r.evidence.length ? ` ${r.evidence.join('; ')}.` : ''}`).join('\n'),
-    expected: 'Filed by the game: this crew alarm did not chime or pause because an independent check disagreed with it.',
+    expected: SELF_CHECK_EXPECTED,
   };
 }
 
@@ -25,7 +25,8 @@ export function fileSelfChecks(g: GameState): void {
   if (!recs.length) return;
   try {
     const ref = recs[0].flightId && g.flights[recs[0].flightId] ? { kind: 'flight' as const, id: recs[0].flightId } : undefined;
-    const r = makeReport(g, selfCheckWords(recs), contextNow(g, ref ? { ref } : undefined));
+    // v0.23.1 marked as the game's own (the clean-up when the game opens tells it from the player's reports).
+    const r = { ...makeReport(g, selfCheckWords(recs), contextNow(g, ref ? { ref } : undefined)), auto: 'self-check' as const };
     addReport(r).catch((e) => console.warn('[self-check] could not file the report', e));
   } catch (e) {
     console.warn('[self-check] could not file the report', e);
@@ -57,12 +58,12 @@ export function fileCrewAlarms(g: GameState): void {
   if (!recs.length) return;
   try {
     // Read now, while the game stands at the alarm's minute (the store is asynchronous and the clock runs on): the
-    // words, the context and the game as plain save text; the text is compressed only if a new record needs it.
+    // words, the context and the game as plain save text; v0.23.1 the filer keeps it as the changes since the record
+    // before, or whole now and then.
     const batch = recs.map((r) => crewAlarmEntry(g, r));
     const ctx = new Map(batch.map((a) => [a, contextNow(g, g.flights[a.flightId] ? { ref: { kind: 'flight', id: a.flightId } } : undefined)]));
     const text = serialize(g, 'bug');
-    let snap: string | null = null;
-    addCrewAlarms(batch, (a) => ctx.get(a)!, () => (snap ??= packSnapshot(text)), (t) => fmtDateTime(t)).catch((e) => console.warn('[crew-alarm] could not file the record', e));
+    addCrewAlarms(batch, (a) => ctx.get(a)!, () => text, (t) => fmtDateTime(t)).catch((e) => console.warn('[crew-alarm] could not file the record', e));
   } catch (e) {
     console.warn('[crew-alarm] could not file the record', e);
   }

@@ -135,11 +135,13 @@ class Painter {
         this.busy.clear();
         this.pump();
       };
-      w.onmessage = (e: MessageEvent<{ id: number; png?: Blob; gen?: number; error?: string }>) => {
+      w.onmessage = (e: MessageEvent<{ id: number; buf?: ArrayBuffer; png?: Blob; gen?: number; error?: string }>) => {
         if (e.data.error) { fallBack(e.data.error); return; }
         const job = this.busy.get(e.data.id);
         this.busy.delete(e.data.id);
-        if (job) job.done(e.data.gen === this.gen ? e.data.png ?? null : null);
+        // v0.23.1 the picture's bytes, in a blob of this page's own (not one that lives in the worker).
+        const png = e.data.buf && e.data.buf.byteLength ? new Blob([e.data.buf], { type: 'image/png' }) : e.data.png ?? null;
+        if (job) job.done(e.data.gen === this.gen ? png : null);
         this.pump();
       };
       w.onerror = (e) => { e.preventDefault?.(); fallBack('worker error'); };
@@ -267,6 +269,20 @@ const forget = (img: HTMLImageElement) => {
   if (url.startsWith('blob:')) URL.revokeObjectURL(url);
 };
 
+/** v0.23.1 a tile that shows nothing (its picture failed or was dropped by the browser): it is drawn again. */
+export const brokenTile = (img: Pick<HTMLImageElement, 'complete' | 'naturalWidth'> & { getAttribute(n: string): string | null }): boolean =>
+  !img.getAttribute('src') || (img.complete && img.naturalWidth === 0);
+
+/** The cache key a tile <img> was made for. */
+const keyOf = (img: HTMLImageElement): string | undefined => img.dataset.ck;
+
+/** Takes a tile off the page; one the cache no longer holds (replaced, or never kept) is let go for good. */
+function unhang(img: HTMLImageElement) {
+  img.remove();
+  const k = keyOf(img);
+  if (!k || cache.get(k) !== img) forget(img);
+}
+
 function remember(key: string, img: HTMLImageElement) {
   cache.set(key, img);
   if (cache.size <= TILE_CAP) return;
@@ -295,7 +311,8 @@ function imgOf(png: Blob, cls: string): Promise<HTMLImageElement | null> {
   img.decoding = 'async';
   img.draggable = false;
   img.src = URL.createObjectURL(png);
-  return (img.decode ? img.decode() : Promise.resolve()).then(() => img, () => { forget(img); return null; });
+  // v0.23.1 a picture that "decoded" to nothing (Safari, short of memory) is not shown: it would be a broken image.
+  return (img.decode ? img.decode() : Promise.resolve()).then(() => (img.naturalWidth > 0 ? img : (forget(img), null)), () => { forget(img); return null; });
 }
 
 const tfOf = (x: number, y: number, r: number) => `translate3d(${x.toFixed(2)}px, ${y.toFixed(2)}px, 0) scale(${r.toPrecision(6)})`;
@@ -325,7 +342,16 @@ export class LandLayer {
     this.baseEl = document.createElement('div');
     this.baseEl.className = 'land-base';
     root.appendChild(this.baseEl);
+    document.addEventListener('visibilitychange', this.mend);
+    window.addEventListener('pageshow', this.mend);
   }
+
+  /** v0.23.1 back from the background (Safari may have dropped pictures meanwhile): tiles that show nothing are drawn again. */
+  private mend = () => {
+    if (this.disposed || document.visibilityState === 'hidden' || !this.last || !this.front) return;
+    (this.front as TileSet & { range?: string }).range = undefined;
+    this.place(this.last, true);
+  };
 
   /** The colours (theme): on a change everything is drawn again (the old rasters stay until the new ones are in). */
   setInk(ink: LandInk) {
@@ -375,8 +401,22 @@ export class LandLayer {
     const maxRow = Math.ceil((MAP_H * set.sc) / TILE);
     const y0 = Math.max(r0, -2);
     const y1 = Math.min(r1, maxRow);
+    // v0.23.1 tiles that show nothing (a picture Safari dropped or could not draw: the player's map after zooming out,
+    // report bmwdorhy4a9hd) leave the layer and the cache, and are drawn again.
+    let mended = false;
+    if (ask) {
+      for (const [k, img] of set.tiles) {
+        if (!brokenTile(img)) continue;
+        set.tiles.delete(k);
+        const ck = keyOf(img);
+        if (ck && cache.get(ck) === img) cache.delete(ck);
+        img.remove();
+        forget(img);
+        mended = true;
+      }
+    }
     const key = `${c0}|${y0}|${c1}|${y1}|${ask ? 1 : 0}`;
-    if ((set as TileSet & { range?: string }).range === key) return;
+    if (!mended && (set as TileSet & { range?: string }).range === key) return;
     (set as TileSet & { range?: string }).range = key;
     const want = new Set<string>();
     const cxs = (c0 + c1) / 2;
@@ -390,7 +430,8 @@ export class LandLayer {
         if (set.tiles.has(k)) continue;
         const ck = `${gen}|${set.sc}|${k}`;
         const hit = cache.get(ck);
-        if (hit) {
+        // A tile already shown by another layer (another map on the page) is not taken from it: this one draws its own.
+        if (hit && (!hit.isConnected || hit.parentElement === set.el) && !brokenTile(hit)) {
           cache.delete(ck);
           cache.set(ck, hit);
           this.attach(set, k, tx, ty, hit);
@@ -402,6 +443,7 @@ export class LandLayer {
           void imgOf(png, 'land-tile').then((img) => {
             if (!img) return;
             if (gen !== p.gen) { forget(img); return; }
+            img.dataset.ck = ck;
             remember(ck, img);
             const cur = this.front;
             if (!this.disposed && cur && cur.sc === set.sc && cur.want.has(k) && !cur.tiles.has(k)) this.attach(cur, k, tx, ty, img);
@@ -415,7 +457,7 @@ export class LandLayer {
       if (want.has(k)) continue;
       const [tx, ty] = k.split('|').map(Number);
       if (tx >= c0 - 2 && tx <= c1 + 2 && ty >= y0 - 2 && ty <= y1 + 2) continue;
-      img.remove();
+      unhang(img);
       set.tiles.delete(k);
     }
     const pre = `${gen}|${set.sc}|`;
@@ -451,6 +493,15 @@ export class LandLayer {
   }
 
   private newSet(sc: number) {
+    // v0.23.1 back to the zoom still under the new one (a zoom out and straight back in): that layer comes to the front
+    // again. A new layer of the same zoom took its tiles from it, and dropping the old one then took them off the new.
+    if (this.back && Math.abs(this.back.sc / sc - 1) <= 1e-4) {
+      this.dropSet(this.front);
+      this.front = this.back;
+      this.back = null;
+      this.root.appendChild(this.front.el);
+      return;
+    }
     const el = document.createElement('div');
     el.className = 'land-set';
     this.root.appendChild(el);
@@ -464,7 +515,8 @@ export class LandLayer {
 
   private dropSet(set: TileSet | null) {
     if (!set) return;
-    for (const img of set.tiles.values()) img.remove();
+    // Only its own tiles (one moved to another layer stays there).
+    for (const img of set.tiles.values()) if (img.parentElement === set.el) unhang(img);
     set.el.remove();
   }
 
@@ -556,6 +608,8 @@ export class LandLayer {
 
   destroy() {
     this.disposed = true;
+    document.removeEventListener('visibilitychange', this.mend);
+    window.removeEventListener('pageshow', this.mend);
     this.dropSet(this.front);
     this.dropSet(this.back);
     this.front = this.back = null;

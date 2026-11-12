@@ -11,6 +11,10 @@ const ctx = self as unknown as {
 
 let geo: LandGeo | null = null;
 let ink: LandInk | null = null;
+// v0.23.1 one canvas for every tile (player report bmwdorhy4a9hd: the map broke after zooming out on an iPad). A new
+// canvas per tile left its memory to the collector; zooming out draws dozens of tiles at once, Safari's canvas memory
+// ran out and the tiles came back as pictures that could not be shown.
+let cv: OffscreenCanvas | null = null;
 
 ctx.onmessage = async (e) => {
   const d = e.data;
@@ -21,12 +25,19 @@ ctx.onmessage = async (e) => {
     if (typeof OffscreenCanvas === 'undefined') throw new Error('no OffscreenCanvas here');
     if (!geo || !ink) throw new Error('no land yet');
     const s = d.spec;
-    const cv = new OffscreenCanvas(Math.ceil(s.w * s.dpr), Math.ceil(s.h * s.dpr));
+    const w = Math.ceil(s.w * s.dpr);
+    const h = Math.ceil(s.h * s.dpr);
+    if (!cv) cv = new OffscreenCanvas(w, h);
+    else if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
     const c = cv.getContext('2d');
     if (!c) throw new Error('no 2D context on an OffscreenCanvas here');
+    c.setTransform(1, 0, 0, 1, 0, 0);
+    c.clearRect(0, 0, w, h);
     paintLand(c, geo, ink, s.sc, s.px, s.py, s.w, s.h, s.dpr);
     const png = await cv.convertToBlob({ type: 'image/png' });
-    ctx.postMessage({ id: d.id, png, gen: d.gen });
+    // The bytes themselves, handed over: the page keeps its own copy of the picture, whatever becomes of this worker.
+    const buf = await png.arrayBuffer();
+    ctx.postMessage({ id: d.id, buf, gen: d.gen }, [buf]);
   } catch (err) {
     ctx.postMessage({ id: d.id, error: err instanceof Error ? err.message : String(err) });
   }

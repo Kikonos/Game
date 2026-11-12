@@ -3,7 +3,7 @@
 // rings near the tile, in every world copy it meets, with strokes of the old SVG's screen widths.
 import { beforeAll, describe, expect, it } from 'vitest';
 import { basePaths, loadMapData, MAP_H, MAP_W, projection } from './mapData';
-import { baseSpec, BASE_W, landGeo, type LandInk, paintLand, TILE, tileRange, tileSpec } from './landTiles';
+import { baseSpec, BASE_W, brokenTile, landGeo, type LandInk, paintLand, TILE, tileRange, tileSpec } from './landTiles';
 
 const INK: LandInk = { land0: '#111', land1: '#222', coast: '#333', border: '#444', grid: '#555' };
 
@@ -112,5 +112,17 @@ describe('v0.19 land tiles', () => {
     const r4 = recorder();
     paintLand(r4.c, geo, INK, s.sc, s.px + MAP_W * sc, s.py, s.w, s.h, s.dpr);
     expect(r4.log.filter((l) => l.op === 'fill')[0].n).toBe(fills[0].n);
+  });
+});
+
+// v0.23.1 the player's map after zooming out (report bmwdorhy4a9hd): every tile showed Safari's broken-picture mark, and
+// stayed so, as the layer kept a tile it had shown. A tile with no picture, or one that came to nothing, is drawn again.
+describe('v0.23.1 a tile that shows nothing is drawn again', () => {
+  const img = (src: string | null, complete: boolean, naturalWidth: number) => ({ complete, naturalWidth, getAttribute: (n: string) => (n === 'src' ? src : null) });
+  it('broken: no picture, or loaded to nothing; still loading or drawn: kept', () => {
+    expect(brokenTile(img(null, true, 0))).toBe(true);
+    expect(brokenTile(img('blob:x', true, 0))).toBe(true);
+    expect(brokenTile(img('blob:x', false, 0))).toBe(false);
+    expect(brokenTile(img('blob:x', true, 512))).toBe(false);
   });
 });

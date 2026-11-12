@@ -15,6 +15,7 @@ import { setResumeSave, store } from './ui/store';
 import { installTouchClass } from './ui/useMedia';
 import { installDevice } from './ui/device';
 import { enableReadCache } from './engine/core/uiRev';
+import { cleanReportsOnOpen, clearedTitle, noteCleared } from './ui/bugReports';
 
 // The artifact host pads the page top/bottom by the safe-area insets itself
 // (see --safe-t/--safe-b in app.css); it also runs the page under the side bars.
@@ -51,6 +52,14 @@ function start(data: { save?: string } = {}) {
     </StrictMode>,
   );
   registerOffline();
+  // v0.23.1 the player: "auto-delete fixed bugs when I open the game". Reports this version fixed, and the records the
+  // game filed itself under an older version, go; one short toast says how many were fixed (Bug reports › Cleared).
+  window.setTimeout(() => {
+    cleanReportsOnOpen().then(({ fixed }) => {
+      noteCleared(fixed);
+      if (fixed.length) store.toast('good', clearedTitle(fixed.length), 'Menu › Bug reports › Cleared says what each fix was.');
+    }, (e) => console.warn('[bug reports] clean-up skipped', e));
+  }, 2500);
 }
 
 if (hot?.ready) hot.ready(start);
