@@ -68,7 +68,7 @@ describe('v0.23.1 the clean-up when the game opens', () => {
   });
 
   it('this version\'s own fixes: the player\'s reports seeded in the list are cleared', () => {
-    for (const id of ['bmwc20bgx36j', 'bmwcx84rmc1t8', 'bmwcy1l6r5e6w', 'bmwdgjk45aj1h', 'bmwdgkcfg2ur3', 'bmwdgq50o8vuy', 'bmwdorhy4a9hd']) {
+    for (const id of ['bmwc20bgx36j', 'bmwcx84rmc1t8', 'bmwcy1l6r5e6w', 'bmwdgjk45aj1h', 'bmwdgkcfg2ur3', 'bmwdgq50o8vuy', 'bmwdorhy4a9hd', 'bmwdolc94ctrb', 'bmwdo5trhi3sl', 'bmwdnxjlp5jo6', 'bmwdnzq5ab7lk', 'bmwdp7pj1ebdw']) {
       expect(FIXED_REPORTS[id]).toBeDefined();
       expect(openCleanup([rep(id)], CURRENT.version).remove).toEqual([id]);
     }

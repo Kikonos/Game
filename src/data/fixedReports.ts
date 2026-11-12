@@ -49,6 +49,11 @@ export const FIXED_REPORTS: Record<string, FixedReport> = {
   bmwdgkcfg2ur3: { version: 'v0.23.1', what: 'the Up next "?" box opens on top of the map, whole on the screen (it was cut off inside the panel).' },
   bmwdorhy4a9hd: { version: 'v0.23.1', what: 'the map no longer breaks into squares with question marks after zooming out: a map square that fails to show is drawn again at once.' },
   bmwdgq50o8vuy: { version: 'v0.23.1', what: 'Finance: "Where the money went" is now Expenses and "Where the money came from" Income, each with the biggest line first.' },
+  bmwdolc94ctrb: { version: 'v0.23.1', what: 'Network has its own screen on the left, between Contracts and Schedule.' },
+  bmwdo5trhi3sl: { version: 'v0.23.1', what: 'a finished market study and a route going on sale pop up and pause the game (Settings › Pause for network news turns the pause off).' },
+  bmwdnxjlp5jo6: { version: 'v0.23.1', what: 'a running route\'s cabin can be changed in Sales › Cabin (business and economy, or economy only), with seats, passengers, revenue and profit compared first.' },
+  bmwdnzq5ab7lk: { version: 'v0.23.1', what: 'the times were checked: Lisbon–Bissau takes about 4 h 20 gate to gate in the game, close to the real timetables, so they stay.' },
+  bmwdp7pj1ebdw: { version: 'v0.23.1', what: 'checked, and it is realistic: in ACMI the operator pays for maintenance, so maintenance and its reserves are a big cost, after crew and aircraft rent.' },
 };
 
 /** 'v0.17.2' → [0, 17, 2]. Pure. */
