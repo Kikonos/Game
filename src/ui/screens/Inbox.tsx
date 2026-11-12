@@ -54,7 +54,7 @@ export function openMessage(g: GameState, m: Message) {
   // v0.19 a route's note opens its page (or the launch while it is launching).
   if (m.ref?.kind === 'route') {
     const r = g.network?.routes[m.ref.id];
-    store.navigate('contracts', { view: 'network' });
+    store.navigate('network');
     if (r && r.status !== 'closed') store.openModal(r.status === 'study' || r.status === 'case' || r.status === 'launching' ? { kind: 'routeLaunch', routeId: r.id } : { kind: 'route', routeId: r.id });
     return;
   }

@@ -2,7 +2,7 @@
 // counter-offer with the buttons that still apply, and an aircraft handed over (a celebration card, then "Follow the
 // delivery flight?"). Queued like ladder steps, never over another dialog.
 
-import { Check, Eye, MapPinned, PartyPopper, Plane, X } from 'lucide-react';
+import { Check, ClipboardCheck, Eye, MapPinned, PartyPopper, Plane, Route, X } from 'lucide-react';
 import { useEffect } from 'react';
 import { ACMI_TYPES, artFor } from '../../data/acmiTypes';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -156,6 +156,38 @@ export function FollowDeliveryModal({ aircraftId }: { aircraftId: string }) {
       </>
     }>
       <p>{ac.reg} {ferry.length ? `flies home from ${city(ferry[0].from)} on ${fmtDay(ferry[0].std)}` : 'is on its way home'}. The map follows it from the handover to {city(g.company.homeBase)}.</p>
+    </Modal>
+  );
+}
+
+/**
+ * v0.23.1 network news (report bmwdo5trhi3sl): a route's market study is done (the business case waits) or a route is
+ * launched (tickets on sale). The clock stops with it (Settings › Pause for network news); the buttons go to the case
+ * or the route.
+ */
+export function RouteNewsModal({ routeId, what, title, body }: { routeId: string; what: 'study' | 'launched'; title: string; body: string }) {
+  const g = useGame();
+  const r = g.network?.routes[routeId];
+  const close = () => store.closeModal();
+  const open = () => {
+    close();
+    store.navigate('network');
+    if (!r || r.status === 'closed') return;
+    const launching = r.status === 'study' || r.status === 'case' || r.status === 'launching';
+    store.openModal(launching ? { kind: 'routeLaunch', routeId } : { kind: 'route', routeId });
+  };
+  const study = what === 'study';
+  return (
+    <Modal className="v91-pop v231-route-news" title={study ? 'Market study done' : 'Route launched'} icon={study ? <ClipboardCheck className="accent" /> : <PartyPopper className="gold" />} onClose={close} footer={
+      <>
+        <button className="btn" onClick={close}>Later</button>
+        <button className="btn btn-primary" onClick={open} autoFocus>{study ? <><ClipboardCheck /> See the business case</> : <><Route /> Open the route</>}</button>
+      </>
+    }>
+      <div className="v91-reply">
+        <b>{title}</b>
+        <p>{body}</p>
+      </div>
     </Modal>
   );
 }

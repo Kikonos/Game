@@ -206,13 +206,13 @@ export function restNow(spec: GaugeSpec, now: Minute): GaugeSpec {
 
 /** The views each screen knows (store.nav.view); the glossary's 'Show me' must land on one of them. */
 export const KNOWN_VIEWS: Record<Tab, string[]> = {
-  map: [], contracts: ['market', 'active', 'missed'], schedule: [], crew: ['people', 'board'], fleet: ['market'], finance: [], company: [], inbox: [],
+  map: [], contracts: ['market', 'active', 'missed'], network: [], schedule: [], crew: ['people', 'board'], fleet: ['market'], finance: [], company: [], inbox: [],
 };
 const VIEW_LABEL: Record<string, string> = { market: 'Market', active: 'Active', missed: 'Missed', people: 'People', board: 'Roster board', plan: 'Planning' };
-const TAB_LABEL: Record<Tab, string> = { map: 'Ops Map', contracts: 'Contracts', schedule: 'Schedule', crew: 'Crew', fleet: 'Fleet', finance: 'Finance', company: 'Company', inbox: 'Inbox' };
+const TAB_LABEL: Record<Tab, string> = { map: 'Ops Map', contracts: 'Contracts', network: 'Network', schedule: 'Schedule', crew: 'Crew', fleet: 'Fleet', finance: 'Finance', company: 'Company', inbox: 'Inbox' };
 /** Older glossary targets, in the screens' own names. */
 const VIEW_ALIAS: Record<string, { tab: Tab; view?: string; label?: string }> = {
-  'crew/roster': { tab: 'crew', view: 'board' }, 'crew/policies': { tab: 'company', label: 'Policies' }, 'company/policies': { tab: 'company', label: 'Policies' },
+  'crew/roster': { tab: 'crew', view: 'board' }, 'contracts/network': { tab: 'network' }, 'crew/policies': { tab: 'company', label: 'Policies' }, 'company/policies': { tab: 'company', label: 'Policies' },
 };
 
 /** Where a glossary entry's 'Show me' goes, with the button label in the screen's own words ('Crew › Roster board'). */

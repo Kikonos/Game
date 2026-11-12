@@ -10,6 +10,7 @@ import { BAL } from '../core/balance';
 import { cashOnly, post } from '../core/ledger';
 import { blockMinutes, typeOf } from '../core/perf';
 import { chance, gaussian, int } from '../core/rng';
+import { requestPause } from '../core/pause';
 import { DAY, fmtDay, fmtTime, monthKey } from '../core/time';
 import type { CabinLayout } from '../../data/acmiTypes';
 import type { Client, GameState, LedgerCat, Minute } from '../core/types';
@@ -244,6 +245,8 @@ export interface Projection {
   result: number;
   /** Passengers boarded (a through passenger once). */
   pax: number;
+  /** v0.23.1 of them, in business class (a cabin change prices their downgrades). */
+  paxJ: number;
   seats: number;
   /** v0.21 passengers and seats counted on every sector (the load factor). */
   paxSec: number;
@@ -287,6 +290,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   let spill = 0;
   let paxSec = 0;
   let seatSec = 0;
+  let paxJ = 0;
   let offLf = 0, offN = 0, peakLf = 0, peakN = 0;
   let sp = { thr: 0, ab: 0, bc: 0, n: 0 };
   const blockOf = (dir: Dir) => chainOf(m, dir).slice(1).reduce((a, to, i) => a + blockMinutes(p.typeId, chainOf(m, dir)[i], to), 0);
@@ -333,6 +337,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
       let secPax: { j: number; y: number }[];
       let secSold: number[];
       let boarded: number;
+      let boardedJ: number;
       let tickets: number;
       const legs = tag ? legMarkets(m, dir) : null;
       if (legs && c0.length === 3) {
@@ -354,6 +359,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
         secPax = [{ j: a.thr.j + a.l1.j, y: a.thr.y + a.l1.y }, { j: a.thr.j + a.l2.j, y: a.thr.y + a.l2.y }];
         secSold = [(tT * blks[0]) / blkSum + t1, (tT * blks[1]) / blkSum + t2];
         boarded = a.thr.j + a.thr.y + a.l1.j + a.l1.y + a.l2.j + a.l2.y;
+        boardedJ = a.thr.j + a.l1.j + a.l2.j;
         // Out the first sector's locals are A–B travellers; back they are B–C (C–B): keep A–B and B–C apart.
         const ab = legs.bcSecond ? a.l1 : a.l2;
         const bc = legs.bcSecond ? a.l2 : a.l1;
@@ -369,6 +375,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
         secPax = blks.map(() => ({ j, y }));
         secSold = blks.map((b) => (tickets * b) / blkSum);
         boarded = j + y;
+        boardedJ = j;
       }
       const blk = dir === 'out' ? blockOut : blockBack;
       let pass = 0;
@@ -405,6 +412,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
         seatSec += cab.total * deps;
       }
       pax += boarded * deps;
+      paxJ += boardedJ * deps;
       seats += cab.total * deps;
       const lf = secPax.reduce((a, q) => a + q.j + q.y, 0) / Math.max(1, cab.total * secPax.length);
       if ([1, 2, 3, 4, 9, 10].includes(month)) { offLf += lf; offN++; }
@@ -423,7 +431,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   const sum = (k: 'rev' | 'cost' | 'result' | 'pax' | 'seats') => months.reduce((a, x) => a + x[k], 0);
   for (const k of Object.keys(parts) as (keyof MoneyParts)[]) parts[k] = Math.round(parts[k]);
   return {
-    months, rev: sum('rev'), cost: sum('cost'), result: sum('result'), pax: sum('pax'), seats: sum('seats'), paxSec, seatSec, bh, sectors,
+    months, rev: sum('rev'), cost: sum('cost'), result: sum('result'), pax: sum('pax'), paxJ: Math.round(paxJ), seats: sum('seats'), paxSec, seatSec, bh, sectors,
     lfOff: offN ? offLf / offN : 0, lfPeak: peakN ? peakLf / peakN : 0, spill, parts, rotations: Math.round(deps * 12),
     ...(tag && sp.n ? { split: { thr: sp.thr / sp.n, ab: sp.ab / sp.n, bc: sp.bc / sp.n, seats: cab.total } } : {}),
   };
@@ -597,6 +605,17 @@ export function businessCase(g: GameState, routeId: string, draft: RoutePlan): B
     launchCost: cost, acmi, notes, firstFlight: start, parts: mid.parts, rotations: mid.rotations, lfOff: mid.lfOff, lfPeak: mid.lfPeak,
     acmiResult, crew, ...(stop ? { stop } : {}), asStop, verdict,
   };
+}
+
+/**
+ * v0.23.1 the study's view of a route's demand as a multiple of its base (the business case's P50; 1 without a study).
+ * The hidden truth is not used. Pure.
+ */
+export function businessCaseX(g: GameState, r: Route): number {
+  const est = r.study?.est;
+  if (!est) return 1;
+  const base = studyBase(g, r);
+  return base ? est.p50 / base : 1;
 }
 
 /** The demand the study measures against (passengers a week both ways at the recommended plan, truth 1). */
@@ -963,7 +982,9 @@ export function stepLaunch(g: GameState, r: Route): void {
       const cs = stage(r, 'case');
       cs.state = 'waiting';
       cs.start = g.now;
-      pushRouteNote(g, r, 'warn', `Study done: ${m.city}`, `About ${p50} travellers a week both ways could fly with us (${r.study.est.p10}–${r.study.est.p90}). The business case waits for your answer.`, null);
+      pushRouteNote(g, r, 'warn', `Study done: ${m.city}`, `About ${p50} travellers a week both ways could fly with us (${r.study.est.p10}–${r.study.est.p90}). The business case waits for your answer.`, null, 'routeStudy');
+      // v0.23.1 a pop-up and the clock stops (Settings › Pause for network news; report bmwdo5trhi3sl).
+      requestPause('network');
       // v0.22 the first finished study earns the network planner at once (the daily check ran before this handler: the
       // business case's "Hire a network planner" led to a head still locked until the next day).
       checkAchievements(g, { ids: ['firstStudy'] });
@@ -1013,7 +1034,8 @@ export function stepLaunch(g: GameState, r: Route): void {
     r.slots.held = r.rotations.filter((x) => x.dep < (r.firstFlight ?? g.now) + 210 * DAY).length;
     startStage(g, r, 'marketing');
     startStage(g, r, 'familiarisation');
-    pushRouteNote(g, r, 'good', `${m.city}: tickets on sale`, `The timetable is filed and sales are open. First flight ${r.firstFlight ? `${fmtDay(r.firstFlight)} ${fmtTime(r.firstFlight)} UTC` : 'soon'}.`, null);
+    pushRouteNote(g, r, 'good', `${m.city}: tickets on sale`, `The timetable is filed and sales are open. First flight ${r.firstFlight ? `${fmtDay(r.firstFlight)} ${fmtTime(r.firstFlight)} UTC` : 'soon'}.`, null, 'routeLaunched');
+    requestPause('network');
   }
   // Awareness: the campaign lifts it towards its level, marketing keeps it, it fades with time.
   const A = BAL.v019.demand.awareness;
