@@ -7,7 +7,7 @@ import { ACMI_TYPES, type RatingFamily } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { isPilot, typeOf } from '../core/perf';
 import { DAY } from '../core/time';
-import type { Aircraft, Contract, GameState, Role } from '../core/types';
+import type { Aircraft, Contract, GameState, Minute, Role } from '../core/types';
 import { dropClientSeats } from './clientCrew';
 import { restOf } from './restPlan';
 import { conversionClasses, ratingsLost } from './conversion';
@@ -407,8 +407,11 @@ export type CrewHomes = Map<string, RatingFamily>;
  * for a seat a spare purser already fills; the seniors are placed first (roles in set order, then oldest first).
  * `homes`: the family each person is counted in (Hire view, peak forecast and offer checks count crew the same way).
  */
-export function crewSupply(g: GameState, fams: Map<RatingFamily, { need: Partial<Record<Role, number>> }>) {
+export function crewSupply(g: GameState, fams: Map<RatingFamily, { need: Partial<Record<Role, number>>; aircraft?: number }>) {
   const losing = new Map<string, RatingFamily[]>();
+  // v0.23.1 a phase-out: who leaves a type for a class (pilots at its start, cabin crew giving it up at its end), by
+  // type and rank, with when.
+  const leavers = new Map<string, { id: string; at: Minute }[]>();
   for (const k of conversionClasses(g)) {
     for (const id of k.crewIds) {
       const c = g.crew[id];
@@ -416,6 +419,29 @@ export function crewSupply(g: GameState, fams: Map<RatingFamily, { need: Partial
       // v0.12.1 one rule for what a course ends (a CCQ keeps the old type).
       const lost = ratingsLost(c, k);
       if (lost.length) losing.set(id, [...(losing.get(id) ?? []), ...lost]);
+      for (const f of lost) {
+        const key = `${f}:${c.role}`;
+        leavers.set(key, [...(leavers.get(key) ?? []), { id, at: k.group === 'pilot' ? k.start : k.end }]);
+      }
+    }
+  }
+  // v0.23.1 ... and those the type's own aircraft leaving first make spare: they count there until they go, so no hire
+  // replaces them (the 737 card asked to hire the captains a phase-out was letting go). The rest leave it at booking,
+  // as before. They count on the new type too (as joiners): each card reads its own need.
+  const stays = new Map<string, RatingFamily[]>();
+  for (const [key, xs] of leavers) {
+    const [f, r] = key.split(':') as [RatingFamily, Role];
+    const fam = fams.get(f);
+    const need = Math.ceil((fam?.need[r] ?? 0) - 1e-9);
+    const n = fam?.aircraft ?? 0;
+    if (!n || !need) continue;
+    const gone = (t: Minute) => Object.values(g.fleet).filter((a) => typeOf(a.typeId).family === f && a.status !== 'stored' && a.status !== 'delivering' && !awayOnDryLease(g, a) && (a.sale ? a.sale.closes : a.ownership.kind === 'dryLeaseIn' ? a.ownership.leaseEnd : Infinity) <= t).length;
+    let kept = 0;
+    for (const x of [...xs].sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1))) {
+      const spare = need - Math.ceil((need * Math.max(0, n - gone(x.at))) / n - 1e-9);
+      if (kept >= spare) continue;
+      kept++;
+      stays.set(x.id, [...(stays.get(x.id) ?? []), f]);
     }
   }
   // v0.23 the reverse, for the gain: a person in a booked or running class onto a family counts as its supply, as a
@@ -481,6 +507,7 @@ export function crewSupply(g: GameState, fams: Map<RatingFamily, { need: Partial
   const multi: { c: GameState['crew'][string]; fs: RatingFamily[] }[] = [];
   for (const c of Object.values(g.crew).sort((a, b) => (a.id < b.id ? -1 : 1))) {
     if (c.notice) continue;
+    for (const f of stays.get(c.id) ?? []) add(f, c, [f]);
     const fs = [...c.ratings.filter((f) => fams.has(f) && !losing.get(c.id)?.includes(f)), ...(gaining.get(c.id) ?? [])];
     if (!fs.length) continue;
     if (fs.length === 1) add(fs[0], c, fs);

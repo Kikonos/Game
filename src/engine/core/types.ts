@@ -2098,6 +2098,11 @@ export interface GameState {
   training: TrainingItem[];
   /** v0.6: conversion classes. load: ??= {} */
   classes?: Record<string, TrainingClass>;
+  /**
+   * v0.23.1 the class planner's next instalments (classes more than the booking window ahead, in a plan that was booked):
+   * on `at` the Inbox says they can be booked. One per type and group.
+   */
+  classNext?: { family: RatingFamily; group: 'pilot' | 'cabin'; at: Minute; crewIds: string[] }[];
   /** Newest first. */
   messages: Message[];
   decisions: Decision[];

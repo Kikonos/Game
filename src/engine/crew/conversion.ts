@@ -17,10 +17,10 @@ import type { ActionResult, CrewMember, GameState, Minute, Role, TrainingClass, 
 import { staffing } from './hr';
 import { crewName, crewPay } from './generate';
 import { moraleShock } from './morale';
-import { removeCrew, rosterOf } from './roster';
+import { releaseTrips, removeCrew, rosterOf } from './roster';
 import { dropStandby } from './standby';
 import { offsetAt } from './rules';
-import { touchCrew } from './timeline';
+import { touchCrew, typeIdOf } from './timeline';
 import { lockOf } from '../scenario/rules';
 
 export interface ConversionRequest {
@@ -159,10 +159,58 @@ export function classOf(g: GameState, crewId: string): TrainingClass | null {
   return null;
 }
 
-/** Default rating a cabin crew member at 3 types gives up: a family with no aircraft in the fleet, else the first. */
-function defaultDrop(g: GameState, c: CrewMember): RatingFamily {
-  const fleet = new Set(Object.values(g.fleet).map((a) => typeOf(a.typeId).family));
-  return c.ratings.find((f) => !fleet.has(f)) ?? c.ratings[0];
+/**
+ * v0.23.1 the types a cabin crew member at three types may give up for a course onto `family` (Remove rating's rule:
+ * any type they hold; a CCQ course keeps the type it builds on). Empty for pilots and anyone under three types. Pure.
+ */
+export function dropChoices(c: Pick<CrewMember, 'role' | 'ratings'>, family: RatingFamily): RatingFamily[] {
+  if (isPilot(c.role) || c.ratings.length < 3 || c.ratings.includes(family)) return [];
+  const keep = ccqKeeps(c, family);
+  return c.ratings.filter((f) => f !== keep);
+}
+
+/** Aircraft of a family that fly for us today (not stored, not on their way) and a year on (sales and leases ending, deliveries). */
+function fleetTrend(g: GameState, family: RatingFamily): { now: number; later: number } {
+  const until = g.now + 365 * DAY;
+  let now = 0;
+  let later = 0;
+  for (const a of Object.values(g.fleet)) {
+    if (typeOf(a.typeId).family !== family || a.status === 'stored') continue;
+    const coming = a.status === 'delivering';
+    if (!coming) now++;
+    const goes = a.sale ? a.sale.closes : a.ownership.kind === 'dryLeaseIn' ? a.ownership.leaseEnd : Infinity;
+    if (goes > until) later++;
+  }
+  return { now, later };
+}
+
+/**
+ * v0.23.1 the type a cabin crew member at three types gives up by default (the player may pick another): one with no
+ * aircraft, else one being phased out (fewer aircraft a year on), else the one they fly least (duties in the last four
+ * weeks and rostered ahead), then one not growing (an aircraft on its way), then the one with fewer aircraft a year on,
+ * then the first held. Was: no aircraft, else the first type held (often the one they fly every day, so the planner
+ * left them out: its fleet needed them). Pure.
+ */
+export function dropDefaultFor(g: GameState, c: CrewMember, family: RatingFamily): RatingFamily | undefined {
+  const choices = dropChoices(c, family);
+  if (!choices.length) return undefined;
+  const flown = new Map<RatingFamily, number>();
+  for (const d of rosterOf(g, c.id, g.now - 28 * DAY, Infinity)) {
+    const p = g.pairings[d.pairingId];
+    if (!p) continue;
+    const f = typeOf(typeIdOf(g, p)).family;
+    flown.set(f, (flown.get(f) ?? 0) + 1);
+  }
+  const rank = (f: RatingFamily): number[] => {
+    const t = fleetTrend(g, f);
+    return [t.now + t.later > 0 ? 1 : 0, t.later < t.now ? 0 : 1, flown.get(f) ?? 0, t.later > t.now ? 1 : 0, t.later, c.ratings.indexOf(f)];
+  };
+  const ranked = choices.map((f) => ({ f, r: rank(f) }));
+  ranked.sort((a, b) => {
+    for (let i = 0; i < a.r.length; i++) if (a.r[i] !== b.r[i]) return a.r[i] - b.r[i];
+    return 0;
+  });
+  return ranked[0].f;
 }
 
 /** Ratings after the course (pilots: one type unless common type; cabin: up to 3, `drop` given up at 3). */
@@ -282,9 +330,9 @@ export function conversionPlan(g: GameState, r: ConversionRequest, opts?: { quic
     const course = courseFor(c, r.family);
     let drop: RatingFamily | undefined;
     if (group === 'cabin' && c.ratings.length >= 3) {
-      dropDefault[id] = defaultDrop(g, c);
+      dropDefault[id] = dropDefaultFor(g, c, r.family) ?? c.ratings[0];
       const want = r.drop?.[id];
-      drop = want && c.ratings.includes(want) ? want : dropDefault[id];
+      drop = want && dropChoices(c, r.family).includes(want) ? want : dropDefault[id];
     }
     ratingsAfter[id] = after(c, r.family, course, drop);
     pools.find((p) => p.group === group && p.course === course)!.ids.push(id);
@@ -394,6 +442,10 @@ export function startConversion(g: GameState, r: ConversionRequest): ActionResul
       removeCrew(g, cid, k.start - DAY, k.end);
       const c = g.crew[cid];
       if (c.blocks) c.blocks = c.blocks.filter((b) => !(b.why === 'leave' && b.from === k.start - DAY && b.to === k.end));
+      // v0.23.1 a type given up at the end of the course: their trips on it after the class go back to the roster now
+      // (they are not rostered on it again: roster.ts droppingAt), as any other duty in the way of the class.
+      const gone = k.group === 'cabin' ? c.ratings.find((f) => !plan.ratingsAfter[cid].includes(f)) : undefined;
+      if (gone) releaseTrips(g, cid, gone, k.start - DAY, `Gives up the ${familyLabel(gone)} on ${fmtDayAt(g.company.homeBase, k.end - 1)}`);
     }
   }
   touchCrew(g);
@@ -489,7 +541,12 @@ export function onClassItemDone(g: GameState, item: TrainingItem): boolean {
       if (k.course === 'full') c.bondUntil = k.end + Math.round(BAL.conv.bondMonths * 30.44) * DAY;
     } else {
       const drop = k.drop?.[c.id];
-      if (c.ratings.length >= 3) c.ratings = c.ratings.filter((f) => f !== (drop ?? c.ratings[0]));
+      if (c.ratings.length >= 3) {
+        const gone = drop ?? c.ratings[0];
+        // v0.23.1 any trip on it still on their roster (put there by hand since the booking) goes to others.
+        releaseTrips(g, c.id, gone, g.now, `No longer rated on the ${familyLabel(gone)}`);
+        c.ratings = c.ratings.filter((f) => f !== gone);
+      }
       if (!c.ratings.includes(k.family)) c.ratings.push(k.family);
     }
     // v0.12.1 the pay of the best-paid type held (a 767 in the fleet pays the B757/767 family widebody rates).
