@@ -103,6 +103,7 @@ function Seat({ s, busy, later, onChange, onRemove, onUnlock }: { s: RosterSlotV
             : <span className="chip sc-chip sc-chip-extra" data-tip="Above the legal minimum: optional, never blocks the departure">Extra</span>)}
           {s.extra && !s.above && <span className="chip sc-chip">added</span>}
           {s.standby && !s.reserve && <span className="chip sc-chip sc-chip-extra" data-tip="A relief pilot for the set's long days: no in-flight rest on this one, so on hotel standby at the station">Standby this day</span>}
+          {s.guest && <span className="chip sc-chip sc-chip-extra" data-tip="Not one of this set: flies these duties for it, then goes back to their own roster">Covering</span>}
           {s.locked && <span className="row gap-4 accent"><Lock className="sc-ico-s" />set by you</span>}
         </span>
       </span>

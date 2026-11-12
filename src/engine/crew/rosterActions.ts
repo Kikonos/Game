@@ -55,6 +55,8 @@ export interface RosterSlotView {
   level: Legality | null;
   /** Bug 1108b: seated but not flying this duty: on hotel standby at the station (a reserve, or a relief pilot on a plain day). */
   standby?: true;
+  /** v0.23 covering this seat for the set (a guest: this part's duties only, then back to their own roster). */
+  guest?: true;
 }
 
 export interface DutyCrewView {
@@ -90,6 +92,7 @@ export function dutyCrew(g: GameState, dutyOrFlightId: string): DutyCrewView | n
     return {
       index, role: s.role, crewId: s.crewId, name: c ? crewName(c) : null, locked: !!s.locked, extra: !!s.extra, above: !!s.above, ...(s.reserve ? { reserve: true as const } : {}), level,
       ...(c && standsBy(g, p, d, c.id) ? { standby: true as const } : {}),
+      ...(c && s.guest && p.tour ? { guest: true as const } : {}),
     };
   });
   return {

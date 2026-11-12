@@ -1999,6 +1999,16 @@ function offFallback(g: GameState, c: CrewMember, plan: CrewPlan, base: Seg[]): 
   return offMovable(g, c, mergeSegs(base, plan.segs));
 }
 
+/**
+ * v0.23 what the roster does with a candidate's plan (for the crew-alarm cross-check): seated as planned, or by one of
+ * its day-off answers (an unpublished day off moved, a published one swapped by agreement, an automatic buy-back). Pure.
+ */
+export function wouldSeat(g: GameState, c: CrewMember, plan: CrewPlan): boolean {
+  if (acceptable(g, plan)) return true;
+  const base = segsOf(g, c);
+  return offFallback(g, c, plan, base) || (buyBackMode(g) === 'auto' && !!buyBackFor(g, c, plan, base));
+}
+
 /** Time from a trip's last release to home: none at base; away, a night's rest and the ticket. */
 // Crew-planning round: the rest the last duty needs (its length, 14 h after an augmented day or across 4+ time zones),
 // not a flat 10 h (a 12 h day's ticket home landed on the first morning of the leave).
