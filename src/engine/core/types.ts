@@ -1559,7 +1559,9 @@ export type LedgerCat =
   /** v0.19 scheduled routes (engine/network, UPDATE-0.19.md §N.1): revenue lines. */
   | 'ticketRevenue' | 'cargoRevenue' | 'ancillaryRevenue'
   /** v0.19 scheduled routes: cost lines. */
-  | 'handling' | 'catering' | 'paxServices' | 'navCharges' | 'distribution' | 'marketing' | 'paxComp' | 'routeSetup';
+  | 'handling' | 'catering' | 'paxServices' | 'navCharges' | 'distribution' | 'marketing' | 'paxComp' | 'routeSetup'
+  /** v0.22.1 money given back for a game error (crew/planRefund.ts: the crew-planning error behind CVE166); revenue, a one-off. */
+  | 'refund';
 
 export interface MonthStatement {
   month: MonthKey;
@@ -1787,6 +1789,8 @@ export interface Stats {
   narrowAsked?: boolean;
   /** v0.22.1 flights marked short of crew by an older build were rostered again once on load (crew/control.ts redoShortOnLoad). */
   sideTripRedo?: boolean;
+  /** v0.22.1 the one-off refund for the crew-planning error (crew/planRefund.ts): the amount given back (0: nothing to refund); absent on an older save until it loads. */
+  planRefund?: number;
   /** v0.16.4 aircraft told stuck away from base (awayIdle card), with when that stay began (told once a stay). */
   awayTold?: Record<string, Minute>;
   /** Peak-staffing round: busy-month gaps already told in the Inbox ('<month key>|<family>|<role>'; past months pruned). */

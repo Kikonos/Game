@@ -14,7 +14,9 @@ import type { GameState } from '../core/types';
 import { fixture } from '../fixtures/compatKit';
 import { deserialize } from '../save';
 import { advanceTo } from '../sim';
+import { fixtureGame } from './fixtures';
 import { acceptable, otherTrip, planCrew } from './check';
+import { planLosses, refundPlanLosses } from './planRefund';
 import { segsOf } from './timeline';
 
 const load = (): GameState => deserialize(fixture('v022-cve166'));
@@ -23,6 +25,7 @@ const raw = (): GameState => {
   const text = fixture('v022-cve166');
   const data = JSON.parse(text) as { state: GameState };
   data.state.stats.sideTripRedo = true;
+  data.state.stats.planRefund = 0;
   return deserialize(JSON.stringify(data));
 };
 
@@ -102,4 +105,74 @@ describe('CVE166: a set on station flies a side trip between its own tour duties
     expect(g.flights.f1zx.operatedBy).toBeUndefined();
     expect(g.flights.f1zx.crewIds.length).toBeGreaterThanOrEqual(4);
   }, 120_000);
+});
+
+describe('CVE166: the one-off refund for the planning error', () => {
+  it('finds the four hand-overs the save ties to the error, and nothing of the player\'s own sub-lease', () => {
+    const g = raw();
+    const x = planLosses(g)!;
+    expect(x.station).toBe('JED');
+    expect(x.legs).toEqual(['CVE161', 'CVE163', 'CVE164', 'CVE165', 'CVE166']);
+    expect(x.contracts.map((k) => k.id)).toEqual(['k2zs']);
+    expect(x.items.map((i) => [i.no, i.kind, i.money])).toEqual([
+      ['CVE161', 'subcharter', 52_000], ['CVE163', 'subcharter', 54_000], ['U27080', 'subcharter', 60_573], ['CVE165', 'subcharter', 67_000],
+    ]);
+    expect(x.money).toBe(233_573);
+    // The month's sub-charter line is bigger: the Jeddah legs the player sub-leased on purpose are not given back.
+    expect(-(g.finance.current.lines.subcharter ?? 0)).toBeGreaterThan(x.money + 100_000);
+    expect(x.reliability).toBeCloseTo(6.4, 5);
+    expect(x.relation).toEqual([['cx1d', 3.6]]);
+  });
+
+  it('on load: the money back on its own ledger line, reliability and the client\'s relation restored, one quiet line, once', () => {
+    const before = raw();
+    const g = load();
+    expect(g.stats.planRefund).toBe(233_573);
+    expect(g.finance.current.lines.refund).toBe(233_573);
+    expect(g.finance.current.lines.subcharter).toBe(before.finance.current.lines.subcharter);
+    expect(g.company.reputation.reliable).toBeCloseTo(before.company.reputation.reliable + 6.4, 5);
+    expect(g.clients.cx1d.relation).toBeCloseTo(before.clients.cx1d.relation + 3.6, 5);
+    const notes = g.messages.filter((m) => /^Refund: crew planning error/.test(m.title));
+    expect(notes.length).toBe(1);
+    expect(notes[0].cat).toBe('finance');
+    expect(notes[0].body).toMatch(/crew at Jeddah could have flown the empty leg CVE161/);
+    expect(notes[0].body).toMatch(/sub-charters \$234K; reliability \+6\.4, easyJet \+3\.6/);
+    // Loaded again (and asked again): nothing more.
+    const cash = g.company.cash;
+    refundPlanLosses(g);
+    const again = deserialize(JSON.stringify({ format: 'contrail-acmi-save', meta: {}, state: JSON.parse(JSON.stringify(g)) }));
+    expect(again.company.cash).toBe(cash);
+    expect(again.messages.filter((m) => /^Refund: crew planning error/.test(m.title)).length).toBe(1);
+  });
+
+  it('a later cancellation "waiting for crew" on the same job counts too; other losses do not', () => {
+    const g = raw();
+    const t = g.now + 60;
+    g.now = t;
+    g.messages.unshift(
+      { id: 'mx1', t, read: false, tone: 'bad', cat: 'ops', title: '4 legs cancelled: U27060…', body: 'Waiting for crew: U27060 LGW–ALC would leave more than 6 h late, so they were dropped. Compensation $60K.', problem: { kind: 'penalty', ref: { kind: 'contract', id: 'k2zs' } }, hurt: { money: 60_000, pax: 0, delayMin: 0, level: 'high' } },
+      // Another contract's cancellation, and a technical one on this job: not the planning error.
+      { id: 'mx2', t, read: false, tone: 'bad', cat: 'ops', title: '2 legs cancelled: F37000…', body: 'Waiting for crew: dropped. Compensation $30K.', problem: { kind: 'penalty', ref: { kind: 'contract', id: 'k9f' } }, hurt: { money: 30_000, pax: 0, delayMin: 0, level: 'high' } },
+      { id: 'mx3', t, read: false, tone: 'bad', cat: 'ops', title: '2 legs cancelled: U27000…', body: 'AOG: no spare aircraft. Compensation $30K.', problem: { kind: 'penalty', ref: { kind: 'contract', id: 'k2zs' } }, hurt: { money: 30_000, pax: 0, delayMin: 0, level: 'high' } },
+    );
+    g.clients.cx1d.log!.push([t, -3, 'Cancelled U27060']);
+    const x = planLosses(g)!;
+    expect(x.money).toBe(233_573 + 60_000);
+    expect(x.items.filter((i) => i.kind === 'cancel').map((i) => i.msgId)).toEqual(['mx1']);
+    expect(x.relation).toEqual([['cx1d', 6.6]]);
+  });
+
+  it('a game with no such alarm gets nothing, and a new game never asks', () => {
+    const g = raw();
+    g.messages = g.messages.filter((m) => !/this empty leg was planned/.test(m.body));
+    expect(planLosses(g)).toBeNull();
+    delete g.stats.planRefund;
+    const cash = g.company.cash;
+    refundPlanLosses(g);
+    expect(g.stats.planRefund).toBe(0);
+    expect(g.company.cash).toBe(cash);
+    const fresh = fixtureGame(5);
+    expect(fresh.stats.planRefund).toBe(0);
+    expect(fresh.stats.sideTripRedo).toBe(true);
+  });
 });
