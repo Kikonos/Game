@@ -54,6 +54,41 @@ export function tourHolding(g: GameState, c: CrewMember): Pairing | null {
   return hold;
 }
 
+/**
+ * v0.22.1 (the player's CVE166: "there was crew at JED"): the tour station crew member c goes back to after a side trip.
+ * A set on station flies other work from there between its own tour duties (the aircraft ferried away for another job
+ * while the tour's legs are sub-leased) and returns to the station, not to home base, for the rest of its rotation.
+ * `at`: where they are when the trip starts (before any ticket out); [from, to): the trip's duties. The station of a tour
+ * of theirs whose period is under way over the whole trip, with work still to come (or its end not known yet). Pure.
+ */
+export function tourStationFor(g: GameState, c: CrewMember, p: Pairing, from: Minute, to: Minute, at: string): string | null {
+  if (p.tour) return null;
+  for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
+    if (!q.tour || q.status === 'broken' || q.id === p.id) continue;
+    const dep = deploymentOf(g, q);
+    const span = tourSpan(g, q);
+    if (!dep || !span || dep.base !== at || span.from > from || span.to <= to) continue;
+    if (!tourEndKnown(g, q) || q.dutyIds.some((id) => { const d = g.duties[id]; return !!d && !d.done && d.report >= to; })) return dep.base;
+  }
+  return null;
+}
+
+/**
+ * v0.22.1 where crew member c goes after trip p: the tour station they came from (the seat's `backTo`, written when the
+ * trip was planned, while a tour of theirs there is still on), else home base.
+ */
+export function homeOf(g: GameState, c: CrewMember, p: Pairing): string {
+  const st = p.slots.find((s) => s.crewId === c.id)?.backTo;
+  if (!st || st === c.base) return c.base;
+  for (const q of crewIx(g).pairingsOf.get(c.id) ?? []) {
+    if (!q.tour || q.status === 'broken') continue;
+    const dep = deploymentOf(g, q);
+    const span = tourSpan(g, q);
+    if (dep && span && dep.base === st && span.to > g.now) return st;
+  }
+  return c.base;
+}
+
 /** Rotations round: how far into its period a set is, in whole days (for the Crew view and the inbox). */
 export function tourDay(g: GameState, p: Pairing): { day: number; of: number } | null {
   const span = tourSpan(g, p);

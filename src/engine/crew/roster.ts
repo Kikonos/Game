@@ -24,7 +24,7 @@ import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, emptyLegsOnly, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
 import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, freshReport, locAt, noteRiders, OUT_CONNECT, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, standsBy, slotAfter, snapDeparture, takeLostRides, takeSkippedFull, ticketPrice, touchCrew, touchCrewState, typeIdOf, withoutTickets } from './timeline';
-import { deploymentOf, tourDay, tourHolding, tourHomePlan, tourSpan } from './tours';
+import { deploymentOf, homeOf, tourDay, tourHolding, tourHomePlan, tourSpan } from './tours';
 import { isAnnual, leaveBackPlan, leaveBackTaken, leaveHomePlan, leaveHomeTrip, leaveHorizon, leaveTicketsOf, LEAVE_BACK_BUFFER, LEAVE_BACK_GAP } from './leaveTrips';
 
 export { buildDuties } from './duties';
@@ -248,6 +248,12 @@ function dropPlanned(g: GameState, crewId: string, ids: string[]): void {
 export function buyTickets(g: GameState, p: Pairing, plans: Map<string, CrewPlan>, res: RosterResult): void {
   const duties = openDuties(g, p);
   for (const [id, plan] of plans) if (plan.drop) dropPlanned(g, id, plan.drop);
+  // v0.22.1 a side trip from a tour station: the seat remembers the station they go back to (crew/tours.ts homeOf).
+  for (const [id, plan] of plans) {
+    const seat = p.slots.find((s) => s.crewId === id);
+    if (seat && plan.backTo) seat.backTo = plan.backTo;
+    else if (seat && plan.segs.length) delete seat.backTo;
+  }
   if (!duties.length) return;
   const first = duties[0];
   const last = duties[duties.length - 1];
@@ -301,6 +307,8 @@ function ticketWhy(g: GameState, p: Pairing, crewId: string, out: boolean, t?: T
     return out ? `Back to ${where} after ${what}` : `Home for ${what} from ${fmtDay(blk.from + 720)}`;
   }
   if (p.tour) return `${out ? 'Tour out' : 'Tour home'}: set ${p.tour.set + 1}${dep ? ` at ${dep.base}` : ''}`;
+  // v0.22.1 a side trip flown from a tour station: the way back to the set there.
+  if (!out && t && seat?.backTo && t.to === seat.backTo) return `Back to the set at ${seat.backTo} after the trip`;
   return out ? 'Trip out' : 'Trip home';
 }
 
@@ -314,6 +322,7 @@ export function releaseCrew(g: GameState, p: Pairing, crewId: string, why?: stri
     s.crewId = null;
     delete s.locked;
     delete s.from;
+    delete s.backTo;
     // Rotations round: the seat remembers who left it and why (the replacement's ticket and the inbox say so).
     if (why) s.left = { crewId, why, at: g.now };
     else delete s.left;
@@ -2872,7 +2881,8 @@ setCrewTrailOkHook((g, p, c) => {
     const f = g.flights[fid];
     if (f && f.status !== 'cancelled' && aboard(f, c.id) && f.sta <= duties[0].report) out = f;
   }
-  const home = last.restAt !== c.base ? planHome(last, c.base, cabinEarly(g, p)) : null;
+  const homeAt = homeOf(g, c, p);
+  const home = last.restAt !== homeAt ? planHome(last, homeAt, cabinEarly(g, p)) : null;
   const own: Seg[] = [];
   for (const d of duties) own.push(...dutySegs(g, c, p, d, d === duties[0] ? out : null, d === last ? home : null, true));
   return !evalSegs({ ...ctxOf(g, c), slack: BAL.rosterSlack }, mergeSegs(segsOf(g, c, p.id), own)).some((i) => i.level === 'illegal' && i.code !== 'fdp');
@@ -2887,7 +2897,8 @@ function rehome(g: GameState, p: Pairing, only?: Set<string>): void {
   for (const s of p.slots) {
     const c = s.crewId && (!only || only.has(s.crewId)) ? g.crew[s.crewId] : undefined;
     if (!c) continue;
-    const home = last.restAt !== c.base ? (p.tour ? tourHomePlan(g, p, last, c.base, cabinEarly(g, p)) : planHome(last, c.base, cabinEarly(g, p))) : null;
+    const homeAt = homeOf(g, c, p);
+    const home = last.restAt !== homeAt ? (p.tour ? tourHomePlan(g, p, last, c.base, cabinEarly(g, p)) : planHome(last, homeAt, cabinEarly(g, p))) : null;
     // Rotations round: the ticket home that only moves is re-timed (moveHome), not bought again.
     if (home && moveHome(g, p, c, home)) continue;
     for (const d of duties) {

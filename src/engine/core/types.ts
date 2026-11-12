@@ -1228,6 +1228,8 @@ export interface CrewSlot {
     /** v0.14.1 (merge) when it was bought and its notice (taken back with it when given back the same minute); absent on older saves. */
     at?: Minute; msgId?: string;
   };
+  /** v0.22.1 a side trip flown from a tour station between the set's own duties: the station they go back to after it (crew/tours.ts homeOf). Cleared with the seat. */
+  backTo?: string;
 }
 
 /** v0.9 the legal limit a crew member reached (UPDATE-0.9.md §T.1). */
@@ -1783,6 +1785,8 @@ export interface Stats {
   bodyAsked?: boolean;
   /** v0.16.4 open narrowbody wet asks (an A320-size base, cover, capacity lease, sub-charter) given body 'narrow' once on load. */
   narrowAsked?: boolean;
+  /** v0.22.1 flights marked short of crew by an older build were rostered again once on load (crew/control.ts redoShortOnLoad). */
+  sideTripRedo?: boolean;
   /** v0.16.4 aircraft told stuck away from base (awayIdle card), with when that stay began (told once a stay). */
   awayTold?: Record<string, Minute>;
   /** Peak-staffing round: busy-month gaps already told in the Inbox ('<month key>|<family>|<role>'; past months pruned). */

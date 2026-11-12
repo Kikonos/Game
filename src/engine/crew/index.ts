@@ -70,7 +70,7 @@ export {
   applyCrewFix, cancelTrip, charterJet, crewControl, crewGauges, crewShortCard, escalateShortages, FIX_LABEL, jetQuote, previewCopy, reachFor, ROLE_WORD, rootReason, seatsText, shortFlights,
   type ApplyOpts, type CrewControlView, type CrewSolution, type FixOption, type FixPreview, type JetQuote, type Reason, type ReasonCode, type SeatNeed,
 } from './control';
-import { closureTicketsOnLoad, escalateShortages } from './control';
+import { closureTicketsOnLoad, escalateShortages, redoShortOnLoad } from './control';
 import { migrateRanks, migrateRelief } from './migrate';
 import { payBuyBack } from './buyBack';
 export { migrateRanks, migrateRelief } from './migrate';
@@ -768,6 +768,7 @@ export const crewModule: SimModule = {
   init(g) {
     // The same defaults load sets (a fresh game and a reloaded one serialise alike).
     g.stats.crewFixes ??= {};
+    g.stats.sideTripRedo = true;
     g.company.policies.buyBack ??= 'auto';
     for (const c of Object.values(g.crew)) c.twoDays ??= { 0: monthKey(g.now) };
     // v0.9 roster planning from the first day (days off and standby for the published days); v0.18.1 leave by request.
@@ -832,6 +833,8 @@ export const crewModule: SimModule = {
     repairReserveAboard(g);
     // v0.19.5 empty legs from away before a trip's first passengers: a pilots-only trip (BLU2266).
     splitLeadingEmpty(g);
+    // v0.22.1 once: flights an older build left short get the roster again (a set on station flies a side trip now).
+    redoShortOnLoad(g);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);

@@ -608,6 +608,27 @@ function escalate(g: GameState, reroster: boolean, freeFix: boolean): void {
 setShortHook((g) => escalateShortages(g));
 
 /**
+ * v0.22.1 once, on loading an older save: flights marked short of crew get the roster's run again (a set on station can
+ * fly a side trip between its own tour duties now: the player's CVE166, red with three idle sets at Jeddah), and the
+ * marks of the ones crewed are cleared. Nothing on a save made by this version (Stats.sideTripRedo; a new game sets it).
+ */
+export function redoShortOnLoad(g: GameState): void {
+  if (g.stats.sideTripRedo) return;
+  g.stats.sideTripRedo = true;
+  if (!g.company.policies.autoRoster) return;
+  const done = new Set<string>();
+  const short = Object.values(g.flights)
+    .filter((f) => f.status === 'scheduled' && !!f.aircraftId && f.kind !== 'deadhead' && (!!f.crewAlert || !!f.crewEarly) && f.std > g.now)
+    .sort((a, b) => a.std - b.std || (a.id < b.id ? -1 : 1));
+  for (const f of short) {
+    if (done.has(f.aircraftId!) || flightCrewStatus(g, f.id, { live: false }).level !== 'missing') continue;
+    done.add(f.aircraftId!);
+    planNow(g, f);
+  }
+  if (done.size) escalateShortages(g);
+}
+
+/**
  * v0.9 the routine call-out (§R.4): every open seat of the flight (and those of crew out of hours) taken by crew on
  * standby at the departure, legal, no overtime, no day off; applied only when it covers them all. One info message.
  */
