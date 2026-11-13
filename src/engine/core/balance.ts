@@ -888,8 +888,8 @@ export const BAL = {
     rampDays: 45,
     costX: { low: 0, medium: 0.06, high: 0.14 },
     fee: { low: [0, 0], medium: [4_000, 8_000], high: [10_000, 20_000] } as Record<'low' | 'medium' | 'high', [number, number]>,
-    delayX: { low: 1, medium: 0.75, high: 0.5 },
-    aogX: { low: 1, medium: 0.7, high: 0.45 },
-    deferredX: { low: 1, medium: 0.6, high: 0.35 },
+    delayX: { low: 1, medium: 0.8, high: 0.5 },
+    aogX: { low: 1, medium: 0.75, high: 0.45 },
+    deferredX: { low: 1, medium: 0.7, high: 0.35 },
   },
 } as const;
