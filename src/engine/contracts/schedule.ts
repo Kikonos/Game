@@ -8,6 +8,7 @@ import { ticketBlock } from '../ops/commercial';
 import { safetyTrip } from '../core/safety';
 import { positioningFit, restBeforeJob, restedDeparture, type MoveLeg } from '../crew/duties';
 import { restOf } from '../crew/restPlan';
+import { segsOf } from '../crew/timeline';
 import { farBase } from '../crew/farBase';
 import { DAY, dayStart } from '../core/time';
 import type { Contract, Flight, GameState, Minute } from '../core/types';
@@ -274,6 +275,48 @@ function crewFree(g: GameState, aircraftId: string, X: string, earliest: Minute)
   return Math.max(earliest, Math.ceil((g.now + lead) / 5) * 5);
 }
 
+/** v0.23.2 a late empty move whose crew wait at the airport is pulled forward when it would leave this much sooner. */
+const PULL_MIN = 3 * 60;
+
+/**
+ * v0.23.2 (9H-VZH, player report) the earliest the crew rostered on the empty leg `f` out of X can fly it when they are
+ * all at X now (the ferry crew of a chain's earlier day, in a hotel there): their rest and the report, two hours from
+ * now at least, or the leg's own time when that is sooner. null when the leg has no crew or one of them is elsewhere.
+ * crewFree read an aircraft a few hours on the ground far from home as crewless and put every new plan a ticket's lead
+ * from now (46 h at Quito): each time the late move was planned again (the leg it flew to cancelled, the next one out
+ * of another airport) it left two days later still, and never did. Pure.
+ */
+function crewThere(g: GameState, f: Flight | undefined, X: string): Minute | null {
+  if (!f || f.status !== 'scheduled' || f.from !== X || !f.crewIds.length) return null;
+  let rested = -Infinity;
+  for (const id of f.crewIds) {
+    const c = g.crew[id];
+    if (!c || c.loc !== X || (c.status !== 'available' && c.status !== 'resting')) return null;
+    if (c.blocks?.some((b) => b.from < f.std && b.to > g.now)) return null;
+    rested = Math.max(rested, c.restUntil);
+    // The rest after what they have done or are doing there (a hotel standby is followed by rest too).
+    for (const sg of segsOf(g, c)) if (sg.start <= g.now && sg.kind !== 'log') rested = Math.max(rested, sg.end + sg.rest);
+  }
+  const report = f.aircraftId && g.fleet[f.aircraftId] ? reportMinutes(g.fleet[f.aircraftId].typeId).report : 60;
+  return Math.max(Math.ceil((rested + report) / 5) * 5, Math.min(f.std, Math.ceil((g.now + 120) / 5) * 5));
+}
+
+/**
+ * v0.23.2 the aircraft is behind on the job the leg `b` belongs to: the job's flight before it on this aircraft was
+ * cancelled (the aircraft was not there). The empty move into such a job leaves as soon as it can and waits at the
+ * job's airport, not as late as the next flight still standing allows: that flight is the next to go when anything
+ * slips, and the move was put back each time one did. Pure.
+ */
+function behindOn(g: GameState, aircraftId: string, b: Anchor): boolean {
+  if (b.kind !== 'flight' || !live(g, b.contractId)) return false;
+  let last: Flight | undefined;
+  for (const f of flightsOf(g, aircraftId)) {
+    if (f.kind !== 'revenue' || f.id === b.id || f.std > b.std) continue;
+    if (!last || f.std >= last.std) last = f;
+  }
+  return !!last && last.status === 'cancelled' && last.contractId === b.contractId;
+}
+
 /** v0.14 the longest night stop between two ferry days of one empty chain (plan.ts nextDay: 14 h, put to 07:00 local). */
 const FERRY_NIGHT_MAX = 30 * 60;
 
@@ -333,14 +376,17 @@ function restAfterCurfew(g: GameState, a: Anchor, aircraftId: string, X: string)
  * KTM–PVG pulled from 05:20 to 01:20 for the job's crew while its ferry crew rested until 04:12, its crew gone, then
  * eight days at Kathmandu and Juneyao's Shanghai legs sub-chartered seven times. Pure.
  */
-function inboundCrew(g: GameState, a: Anchor, aircraftId: string, X: string): { landed: Minute; rested: Minute } | null {
+function inboundCrew(g: GameState, a: Anchor, aircraftId: string, X: string): { landed: Minute; rested: Minute; block: number } | null {
   let f: Flight | undefined = a.kind === 'flight' ? g.flights[a.id] : undefined;
   if (a.kind === 'start') for (const y of flightsOf(g, aircraftId)) if (y.status === 'done' && y.kind !== 'deadhead' && (!f || y.std >= f.std)) f = y;
   if (!f || f.to !== X || (f.kind !== 'positioning' && f.kind !== 'ferry') || !f.dutyId) return null;
   if (f.status === 'scheduled' ? !f.crewIds.length : f.status !== 'enroute' && (f.status !== 'done' || f.ata === undefined || g.now - f.ata >= DAY)) return null;
   const rested = restedDeparture(g, f);
   // (The landing as crewFree reads it: the schedule's, not the wind's.)
-  return rested === null ? null : { landed: f.status === 'done' ? f.ata! : f.sta, rested };
+  // v0.23.2 what their day has flown by then (its legs and the fuel stops between).
+  const day = g.duties[f.dutyId]?.flightIds.map((id) => g.flights[id]).filter((x) => x && x.std <= f!.std) ?? [];
+  const block = day.reduce((s, x) => s + x.block, 0) + Math.max(0, day.length - 1) * TECH_STOP_MIN;
+  return rested === null ? null : { landed: f.status === 'done' ? f.ata! : f.sta, rested, block };
 }
 
 /** v0.15.1 the same crew can take a leg on within this of landing (crewFree's reading). */
@@ -652,6 +698,15 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     // before their rest ends (and before a fresh crew could be there).
     const inb = inboundCrew(g, a, aircraftId, X);
     const nobody = (std: Minute): boolean => !!inb && std > inb.landed + SAME_CREW_MIN && std < Math.min(inb.rested, crewFree(g, aircraftId, X, inb.landed + SAME_CREW_MIN + 5));
+    // v0.23.2 nor a move straight on with the crew who flew the aircraft in when their day would then be longer than
+    // one crew's day of empty flying (emptyDay): the next ferry day waits for their rest. Planned on at the turn, the
+    // roster took them off and the aircraft waited two days for another crew (9H-VZH at Hartford).
+    const dayOver = (ch: ChainLeg[]): boolean => {
+      if (!inb || !ch.length || ch[0].from !== X || ch[0].std >= inb.rested || ch[0].std > inb.landed + SAME_CREW_MIN) return false;
+      let blk = inb.block + TECH_STOP_MIN + (ch[0].sta - ch[0].std);
+      for (let i = 1; i < ch.length && ch[i].std - ch[i - 1].sta <= SAME_CREW_MIN; i++) blk += TECH_STOP_MIN + (ch[i].sta - ch[i].std);
+      return blk > day;
+    };
     // v0.15.1 a kept chain the roster has crewed (a duty with crew, not illegal) is flown by them whatever the estimate
     // reads: the chain's night counts from the scheduled landing, restedDeparture from the ETA, and the moment BOG–JFK
     // took off 11 minutes behind, the legal crewed JFK–SFJ–SNN at 14:35 (rested 14:46) was re-made to leave at landing,
@@ -686,13 +741,26 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     // fly (on time from `ready` or not at all) nor is planned in a tight window: the move leaves when a crew can be at
     // X, late, and the commitments it misses are covered meanwhile (CS-TIF at Manila: an "on time" MNL–RIX planned
     // 11 h out, held, its Riga flights dropped, and the ferry re-planned anew, for weeks).
-    const ready = farOutstation(g, X) ? crewFree(g, aircraftId, X, earliest) : earliest;
+    // v0.23.2 never later than its crew can fly it: a crew at X (crewThere), or the roster's crew at the time the leg
+    // already has (a crewed leg is never pushed back a ticket's lead from now each time the move is planned again).
+    const there = crewThere(g, legs[0], X);
+    const first = legs.length && legs[0].from === X && legs[0].status === 'scheduled' && crewed(legs[0]) ? legs[0].std : null;
+    const freeAt = (e: Minute): Minute => {
+      const t = crewFree(g, aircraftId, X, e);
+      return there !== null ? Math.min(t, Math.max(e, there)) : first !== null ? Math.min(t, Math.max(e, first)) : t;
+    };
+    const ready = farOutstation(g, X) ? freeAt(earliest) : earliest;
+    // v0.23.2 behind on the job it flies to (its flights are being cancelled): the move leaves as soon as it can. And
+    // a late move whose crew wait at X leaves when they can fly it, not days later.
+    const asap = X !== Y && X !== home && behindOn(g, aircraftId, b) && b.std - freeAt(earliest) < AWAY_GAP;
+    const soon = asap && legs.length > 0 && legs[0].from === X && legs[0].std - freeAt(earliest) >= PULL_MIN;
+    const pull = soon || (there !== null && legs[legs.length - 1].sta > latest && legs[0].std - Math.max(earliest, there) >= PULL_MIN);
     const hop = X === Y ? gapMoves(typeId, X, Y, crewFree(g, aircraftId, X, earliest), latest, home, allowHop, cap, day) : null;
     if (X === Y && !legs.length && !hop?.length) continue;
     // v0.12.1 kept only on time for Y, or when nothing on time can be planned (a late chain stays late, not re-made).
     // v0.14.1 (OPS-5) a move home before a check that waits AWAY_GAP or more at X is planned again (forward).
     const idleAway = homeFirst && legs.length > 0 && legs[0].std - crewFree(g, aircraftId, X, earliest) >= AWAY_GAP && latest - earliest >= AWAY_GAP;
-    if (legs.length && chainOk(legs, X, Y, earliest) && chainSane(typeId, legs, X, Y, home, allowHop, cap, day) && (legs[legs.length - 1].sta <= latest || !onTimeMove(typeId, X, Y, ready, latest, home, allowHop, cap, day)) && !crewLate(legs) && !idleAway && (crewed(legs[0]) || !nobody(legs[0].std))) continue;
+    if (legs.length && chainOk(legs, X, Y, earliest) && chainSane(typeId, legs, X, Y, home, allowHop, cap, day) && (legs[legs.length - 1].sta <= latest || !onTimeMove(typeId, X, Y, ready, latest, home, allowHop, cap, day)) && !crewLate(legs) && !idleAway && !pull && (crewed(legs[0]) || !nobody(legs[0].std))) continue;
     const nl = nudged(legs, X, Y, earliest, latest);
     replacing(legs);
     if (nl && chainSane(typeId, legs, X, Y, home, allowHop, cap, day)) {
@@ -711,7 +779,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
       continue;
     }
     // Leave room to crew it when the window allows; a tight window keeps the earliest slot.
-    const from = crewFree(g, aircraftId, X, earliest);
+    const from = freeAt(earliest);
     // A long wait at an outstation is spent at home (home, then on to Y), not parked away for weeks.
     const via = (allowHop || (homeFirst && b.std - leadFor(g, b, turn) - from >= AWAY_GAP)) && X !== home ? gapMoves(typeId, X, Y, from, b.std - leadFor(g, b, turn), home, true, cap, day) : null;
     if (via?.some((l) => l.to === home)) {
@@ -727,6 +795,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     const slack = leadFor(g, b, turn) - turn;
     const soft = slack > 0 && slack <= CHARTER_SLACK ? slack : 0;
     const ch0 =
+      (asap ? openForward(g, typeId, X, Y, from, cap, job, day) : null) ??
       open(chainBackward(typeId, X, Y, from, b.std - leadFor(g, b, turn), cap, day, soft)) ??
       open(chainBackward(typeId, X, Y, from, latest, cap, day)) ??
       open(chainBackward(typeId, X, Y, ready, b.std - leadFor(g, b, turn), cap, day, soft)) ??
@@ -739,7 +808,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     let ch = ch0 ? crewTimed(ch0, from) : ch0;
     // v0.15.1 the move as late as possible can fall in the same gap (the job soon after the ferry crew's landing): then
     // it leaves after their rest when that still reaches Y in time, else as a late move after it.
-    if (ch?.length && ch[0].from === X && nobody(ch[0].std)) ch = open(chainBackward(typeId, X, Y, inb!.rested, latest, cap, day)) ?? openForward(g, typeId, X, Y, inb!.rested, cap, job, day) ?? ch;
+    if (ch?.length && ch[0].from === X && (nobody(ch[0].std) || dayOver(ch))) ch = open(chainBackward(typeId, X, Y, inb!.rested, latest, cap, day)) ?? openForward(g, typeId, X, Y, inb!.rested, cap, job, day) ?? ch;
     if (ch) {
       if (earliest > base0 && ch[0].from === X) pushed.set(ch[0], base0);
       if (ready > earliest && ch.length && ch[0].from === X && ch[ch.length - 1].sta > latest) farLate.set(ch[0], ch[ch.length - 1].sta);

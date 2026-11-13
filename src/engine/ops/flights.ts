@@ -95,6 +95,10 @@ export function settleOverlaps(g: GameState, ac: Aircraft): number {
     if (broken && f.kind === 'positioning' && f.from === prev.from && f.to === prev.to) continue;
     const ready = prev.sta + turn + (broken ? emptyMoveMin(ac.typeId, prev.to, f.from) + turn : 0);
     if (f.std < ready) {
+      // v0.23.2 (9H-VZH) never a passenger leg behind an empty move that does not lead to it, past the lateness it may
+      // have (lateCap): it keeps its time and is given up at its own departure if the aircraft is still away. Pushed
+      // behind the ferry's legs, Virgin's waves stood two days late in the middle of the night, and were flown so.
+      if (broken && isRevenue(f) && ready - (f.schedStd ?? f.std) - (f.lateOk ?? 0) > lateCap(g, f)) continue;
       moveFlight(g, f, ready, 'Late inbound aircraft');
       n++;
     }
@@ -1221,7 +1225,21 @@ function notReady(g: GameState, f: Flight, ac: Aircraft): void {
     return;
   }
   // Wrong airport: a scheduled leg into f.from brings it (follow that), else wait for re-planning, then give up.
-  const inbound = flightsOf(g, ac.id).find((x) => x !== f && x.status === 'scheduled' && x.to === f.from && x.std < f.std + DAY);
+  // v0.23.2 one the aircraft can fly: a leg into f.from from where it stands, or at the end of legs that lead on from
+  // there. Any later leg into f.from counted (9H-VZH at Quito: "the next flight to London is VS7001 MXP–LHR").
+  let inbound: Flight | undefined;
+  {
+    let loc = ac.at;
+    for (const x of flightsOf(g, ac.id)) {
+      if (x === f || x.status !== 'scheduled' || x.from !== loc) continue;
+      if (x.std >= f.std + DAY) break;
+      loc = x.to;
+      if (loc === f.from) {
+        inbound = x;
+        break;
+      }
+    }
+  }
   if (inbound) {
     const at = Math.max(g.now + 30, inbound.std + inbound.delay + inbound.block + turnOf(ac));
     if (at <= f.std + f.delay) return holdFlight(g, f, 30);

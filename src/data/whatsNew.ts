@@ -16,6 +16,24 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.23.2',
+    name: 'Hotfix: stuck ferries',
+    features: [],
+    improvements: [
+      'An aircraft that is late for a job now ferries there as soon as its crew can fly, and waits there. Before, it left as late as the next flight still standing allowed.',
+      'A flight is no longer pushed days late behind a ferry that does not lead to it. It keeps its time; if the aircraft is still away then, it is cancelled.',
+    ],
+    fixes: [
+      'An aircraft on a long ferry could sit at a stop for days while its flights were cancelled one by one (9H-VZH at Quito). Each new plan put the ferry two days later, though its crew were there.',
+      'The next day of a ferry now waits for the crew\'s rest. Planned straight on, the crew came off and the aircraft waited for another.',
+      'A ferry day no longer lands in a night curfew.',
+      '"Flight moved: aircraft not there" named a flight the aircraft could not fly as the one bringing it in.',
+      'Once, when you load your game: an aircraft stuck like this gets its ferry planned again to leave as soon as its crew can fly it.',
+      'The compensation you paid for flights cancelled while it sat there is given back, with the client\'s trust. One Inbox message says how much.',
+      'Flights it still cannot reach are taken off at no charge. Flights pushed late, some to the middle of the night, go back to their own times.',
+    ],
+  },
+  {
     version: 'v0.23.1',
     name: 'Planner step two, stacked work, later report times, tidy bug reports, Network screen',
     features: [
