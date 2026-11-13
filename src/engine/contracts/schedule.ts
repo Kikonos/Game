@@ -781,7 +781,8 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     }
     // v0.12.1 the empty leg out of an alternate after our own technical diversion is our cost: never billed to the
     // client as positioning (seed 9: airBaltic billed for four VAR–RIX legs after our fault at Riga).
-    const inId = a.kind === 'start' && ownFaultAt(g, aircraftId, X) ? null : live(g, b.contractId) ? b.contractId : flying(g, a.contractId) ? a.contractId : null;
+    // v0.23.3 nor the empty leg from where the player positioned the aircraft (away from base): our choice, our cost.
+    const inId = (a.kind === 'start' && ownFaultAt(g, aircraftId, X)) || (parked && X !== home) ? null : live(g, b.contractId) ? b.contractId : flying(g, a.contractId) ? a.contractId : null;
     if (X === Y) {
       if (hop?.length) {
         const k = hop.findIndex((l) => l.to === home) + 1;

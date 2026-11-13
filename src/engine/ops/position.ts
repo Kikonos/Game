@@ -17,7 +17,6 @@ import { distanceNm } from '../core/geo';
 import { pushMessage } from '../core/messages';
 import { isolatePauses } from '../core/pause';
 import { etopsCap, runwayFit, typeOf } from '../core/perf';
-import { curfewOk } from '../core/curfew';
 import { DAY, fmtDay, fmtTime } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, Minute } from '../core/types';
 import { anchorsOf, chainBackward, chainForward, noRouteWhy, route, sortedLegs, type Anchor, type ChainLeg } from '../contracts/plan';
@@ -78,6 +77,9 @@ const city = (code: string): string => AIRPORT_BY_CODE[code]?.city ?? code;
 const when = (t: Minute): string => `${fmtDay(t)} ${fmtTime(t)}`;
 const up5 = (t: Minute): Minute => Math.ceil(t / 5) * 5;
 
+/** A flight this close that would lose its crew to the move refuses it; a later one is only said. */
+const ROBBED_DAYS = 7;
+
 /** Later departures tried when the roster has nobody for the first one (minutes after it). */
 const RETRY = [6 * 60, 12 * 60, 24 * 60, 48 * 60];
 
@@ -86,6 +88,8 @@ interface Plan {
   at: string;
   chain: ChainLeg[];
   earliest: Minute;
+  /** The departure asked for (the chain leaves later when a night curfew is in the way). */
+  asked: Minute;
   next: Anchor | null;
 }
 
@@ -124,7 +128,8 @@ function planOf(g: GameState, aircraftId: string, to: string, opts: PositionOpts
   const ac = g.fleet[aircraftId];
   if (!ac) return 'Aircraft not found';
   if (!AIRPORT_BY_CODE[to]) return 'Unknown airport';
-  if (ac.status === 'delivering' || ac.status === 'stored' || ac.status === 'leasedOut') return `${ac.reg} is not flying for us now`;
+  if (ac.status === 'delivering') return `${ac.reg} is not delivered yet`;
+  if (ac.status === 'stored' || ac.status === 'leasedOut') return `${ac.reg} is not flying for us now`;
   if (ac.returning || ac.sale) return `${ac.reg} is leaving the fleet`;
   if (ac.delivery && ac.delivery.arrived === undefined) return `${ac.reg} is still on its delivery`;
   if (isGrounded(g, ac)) return `${ac.reg} is grounded: a check is overdue`;
@@ -154,7 +159,7 @@ function planOf(g: GameState, aircraftId: string, to: string, opts: PositionOpts
     const fits = next.from === to ? arr <= latest : !!chainBackward(ac.typeId, to, next.from, arr + t.turnMin, latest, cap, day)?.length;
     if (!fits) return next.from === X ? `Not back at ${X} in time for ${anchorText(g, next)}` : `Too late at ${next.from} for ${anchorText(g, next)}`;
   }
-  return { ac, at: X, chain, earliest, next };
+  return { ac, at: X, chain, earliest, asked: from, next };
 }
 
 /** The legs with their night stops marked (a stop longer than a fuel stop: the crew rest there). */
@@ -172,7 +177,7 @@ function baseQuote(g: GameState, p: Plan, to: string): PositionQuote {
   const oneWay = days.slice(0, 1).map((l) => ({ ...l, nightStopAfter: false }));
   const crewCost = ferryCrewCost(g, home, p.at, days) + (to === home ? 0 : ferryCrewCost(g, home, to, p.at === home ? days : oneWay));
   const notes: string[] = [];
-  if (!curfewOk(p.at, p.earliest) || (legs[0].std > p.earliest && p.chain.length === 1 && legs[0].std - p.earliest < DAY && !curfewOk(to, p.earliest + legs[0].block))) notes.push('Leaves after the night curfew.');
+  if (legs[0].std > p.asked + 5) notes.push('Leaves later to stay clear of a night curfew.');
   return {
     ok: true, reason: null, from: p.at, to, legs, stops: legs.slice(0, -1).map((l) => l.to), earliest: p.earliest, depart: legs[0].std, arrive: legs[legs.length - 1].sta,
     block: legs.reduce((s, l) => s + l.block, 0), fuel, fees, crewCost, total: fuel + fees + crewCost, crew: null, notes, full: false,
@@ -258,17 +263,19 @@ function tryAt(g: GameState, p: Plan, to: string): Try {
       missing = s.missing;
     } else if (s.level === 'tight' && (level === 'ok' || level === 'later')) level = 'tight';
   }
-  const names = [...seated].map((id) => h.crew[id]).filter((c) => !!c).sort((a, b) => (a.role === 'CPT' ? 0 : 1) - (b.role === 'CPT' ? 0 : 1)).map((c) => `${c.role === 'CPT' ? 'Capt' : c.role} ${crewName(c)}`).join(', ');
+  const names = [...seated].map((id) => h.crew[id]).filter((c) => !!c && (c.role === 'CPT' || c.role === 'FO')).sort((a, b) => (a.role === 'CPT' ? 0 : 1) - (b.role === 'CPT' ? 0 : 1)).map((c) => `${c.role === 'CPT' ? 'Capt' : c.role} ${crewName(c)}`).join(', ');
   const crew: PositionCrew = {
     level, names,
     text: level === 'later' ? 'Crewed when that month\'s roster comes out' : level === 'missing' ? `No ${missing.includes('CPT') && missing.includes('FO') ? 'pilots' : missing.includes('CPT') ? 'captain' : 'first officer'} free then` : level === 'illegal' ? 'Over the crew\'s duty limits' : `${names || 'Two pilots'} · ${level === 'tight' ? 'legal, tight' : 'legal'}`,
   };
   if (level === 'missing' || level === 'illegal') return { q: { ...q, ok: false, reason: level === 'missing' ? 'No crew can fly it then' : 'No crew can fly it legally then', crew, full: true }, retry: p.chain[0].std + RETRY[0] };
-  // Nobody else's flight loses its crew to it.
+  // Nobody else's flight loses its crew to it: refused when that flight leaves within a week, said when it is later
+  // (the roster has time to find it another crew).
   const was = shortOf(g, horizon, ids);
-  const robbed = [...shortOf(h, horizon, ids)].map((id) => h.flights[id]).find((f) => !was.has(f.id) && !!g.flights[f.id]);
-  if (robbed) return no(`It would take the crew of ${robbed.no} on ${fmtDay(robbed.std)}`, p.chain[0].std + RETRY[0]);
+  const robbed = [...shortOf(h, horizon, ids)].map((id) => h.flights[id]).filter((f) => !was.has(f.id) && !!g.flights[f.id]).sort((a, b) => a.std - b.std)[0];
+  if (robbed && robbed.std < g.now + ROBBED_DAYS * DAY) return no(`It would take the crew of ${robbed.no} on ${fmtDay(robbed.std)}`, p.chain[0].std + RETRY[0]);
   const notes = [...q.notes];
+  if (robbed) notes.push(`${robbed.no} on ${fmtDay(robbed.std)} will need another crew.`);
   const gS = new Set(soft(g).map((f) => `${f.from}|${f.to}|${f.std}`));
   const hS = new Set(soft(h).map((f) => `${f.from}|${f.to}|${f.std}`));
   const gone = soft(g).filter((f) => !hS.has(`${f.from}|${f.to}|${f.std}`));

@@ -185,7 +185,8 @@ describe('the schedule plans on from where the aircraft was put', () => {
     const res = acceptOffer(g, o.id, [ac.id]);
     if (!res.ok) throw new Error(res.error);
     const fl = liveFlightsOf(g, ac.id);
-    expect(fl[0]).toMatchObject({ kind: 'positioning', from: 'FRA', to: 'HAM' });
+    // (At our cost: the client is not billed for an empty leg from where we chose to put the aircraft.)
+    expect(fl[0]).toMatchObject({ kind: 'positioning', from: 'FRA', to: 'HAM', contractId: null });
     expect(fl.some((f) => f.to === 'LIS' && f.std < fl[1].std)).toBe(false);
     // As late as possible: it waits at Frankfurt, not at Hamburg.
     expect(fl[1].std - fl[0].sta).toBeLessThan(DAY);
