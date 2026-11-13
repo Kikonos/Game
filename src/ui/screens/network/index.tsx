@@ -10,7 +10,7 @@ import { ROUTE_MARKETS, type RouteMarket } from '../../../data/routes';
 import { typeOf } from '../../../engine/core/perf';
 import { fmtDate, fmtDay } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
-import { marketById, reopenStudy, routeIdeas, studyList, validStudyFor, type StudyRow } from '../../../engine/network';
+import { marketById, reopenStudy, routeIdeas, routeIdeasNone, studyList, validStudyFor, type StudyRow } from '../../../engine/network';
 import type { Route } from '../../../engine/network/types';
 import { Bar, Empty } from '../../components/ui';
 import { Help } from '../../components/Help';
@@ -120,12 +120,16 @@ function Studies({ g }: { g: GameState }) {
 function Ideas({ g }: { g: GameState }) {
   const h = g.heads?.netPlanner;
   const month = Math.floor(g.now / (1440 * 30));
-  const ideas = useMemo(() => routeIdeas(g), [g.network?.rev, month, h?.hired?.since, h?.on, Object.keys(g.fleet).length]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!h?.hired || !h.on || !ideas.length) return null;
+  const deps = [g.network?.rev, month, h?.hired?.since, h?.on, Object.keys(g.fleet).length];
+  const ideas = useMemo(() => routeIdeas(g), deps); // eslint-disable-line react-hooks/exhaustive-deps
+  const none = useMemo(() => routeIdeasNone(g), deps); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!h?.hired || !h.on || (!ideas.length && !none)) return null;
   return (
     <>
       <div className="row between wrap gap-8 nw-open"><span className="upper dim row gap-6"><Earth className="sc-ico-s" /> Worth a study, says {h.hired.name.split(' ')[0]}</span></div>
       <div className="card nw-studies">
+        {/* v0.23.2 an empty shortlist says so; the reason sits behind the "?". */}
+        {!ideas.length && none && <div className="nw-study nw-none"><span className="small muted grow">Nothing worth a study right now</span><Help title="Why no ideas">{none}</Help></div>}
         {ideas.map((x) => (
           <button key={x.marketId} className="nw-study" onClick={() => store.openModal({ kind: 'routeBuild', from: x.from, to: x.to })}>
             <span className="nw-flag" aria-hidden>{flag(AIRPORT_BY_CODE[x.to]?.country ?? '')}</span>
