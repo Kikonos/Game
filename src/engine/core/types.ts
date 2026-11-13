@@ -1862,6 +1862,8 @@ export interface Stats {
   perCrewRedo?: boolean;
   /** v0.22.1 the one-off refund for the crew-planning error (crew/planRefund.ts): the amount given back (0: nothing to refund); absent on an older save until it loads. */
   planRefund?: number;
+  /** v0.23.2 the one-off repair and refund for ferries stuck away while their job's flights were cancelled (ops/ferryRepair.ts): the amount given back (0: nothing); absent on an older save until it loads. */
+  ferryRefund?: number;
   /** v0.16.4 aircraft told stuck away from base (awayIdle card), with when that stay began (told once a stay). */
   awayTold?: Record<string, Minute>;
   /** Peak-staffing round: busy-month gaps already told in the Inbox ('<month key>|<family>|<role>'; past months pruned). */

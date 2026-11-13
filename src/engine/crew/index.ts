@@ -78,6 +78,7 @@ export {
 } from './control';
 import { closureTicketsOnLoad, escalateShortages, redoShortOnLoad } from './control';
 import { refundPlanLosses } from './planRefund';
+import { repairStuckFerries } from '../ops/ferryRepair';
 import { migrateRanks, migrateRelief } from './migrate';
 import { payBuyBack } from './buyBack';
 export { migrateRanks, migrateRelief } from './migrate';
@@ -782,6 +783,7 @@ export const crewModule: SimModule = {
     g.stats.sideTripRedo = true;
     g.stats.perCrewRedo = true;
     g.stats.planRefund = 0;
+    g.stats.ferryRefund = 0;
     g.company.policies.buyBack ??= 'auto';
     for (const c of Object.values(g.crew)) c.twoDays ??= { 0: monthKey(g.now) };
     // v0.9 roster planning from the first day (days off and standby for the published days); v0.18.1 leave by request.
@@ -850,6 +852,8 @@ export const crewModule: SimModule = {
     redoShortOnLoad(g);
     // v0.22.1 once: the money, reliability and relation that planning error cost are given back (crew/planRefund.ts).
     refundPlanLosses(g);
+    // v0.23.2 once: a ferry stuck away while its job's flights were cancelled is planned again, and the compensation given back.
+    repairStuckFerries(g);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
