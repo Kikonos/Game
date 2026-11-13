@@ -362,6 +362,9 @@ export interface RouteIdea {
 
 /** v0.23.2 flights a week the planner tries on a pair. */
 const IDEA_FREQ = [1, 2, 3];
+/** How much the travellers' ties weigh in the shortlist (× 1 … 1 + this), and the most ideas to one country. */
+const IDEA_TIE_X = 2;
+const IDEA_PER_COUNTRY = 2;
 
 /** `n` departures a week from `day` (0 = Monday), spread through the week. */
 function spreadDays(day: number, n: number): number {
@@ -373,8 +376,9 @@ const ideaCache = new Map<string, { list: RouteIdea[]; why: string | null }>();
 
 /**
  * v0.21 the network planner's shortlist (hired and on, else empty): pairs from our bases nobody has researched whose
- * first guess earns a healthy margin on an aircraft of ours, best first. A guess from the airports and the ties, not
- * the hidden real size: the study tells. Pure; cached by bases, fleet types and month.
+ * first guess earns a healthy margin on an aircraft of ours, best first. The pairs suit the base's own market: those
+ * where people are tied come first, no city twice, at most two to a country. A guess from the airports and the ties,
+ * not the hidden real size: the study tells. Pure; cached by bases, fleet types and month.
  */
 export function routeIdeas(g: GameState): RouteIdea[] {
   return ideasOf(g).list;
@@ -419,7 +423,7 @@ function ideasOf(g: GameState): { list: RouteIdea[]; why: string | null } {
     }
   }
   pre.sort((p, q) => q.score - p.score || (p.to < q.to ? -1 : 1));
-  const out: RouteIdea[] = [];
+  const out: (RouteIdea & { rank: number })[] = [];
   for (const c of pre.slice(0, 120)) {
     const m = customMarket({ from: c.from, to: c.to });
     if (!m || m.closed) continue;
@@ -442,10 +446,31 @@ function ideasOf(g: GameState): { list: RouteIdea[]; why: string | null } {
         }
       }
     }
-    if (top && top.margin >= 0.06 && top.result > 0) out.push(top);
+    if (top && top.margin >= 0.06 && top.result > 0) {
+      // The base's own market first: a pair where people are really tied (family, diaspora, the islands at home)
+      // counts for up to three times its first guess.
+      const f = customFacts(c.from, c.to);
+      const tied = f ? f.links / Math.max(1, f.links + f.biz + f.tour + f.other) : 0;
+      out.push({ ...top, rank: top.result * (1 + IDEA_TIE_X * tied) });
+    }
   }
-  out.sort((p, q) => q.result - p.result || (p.to < q.to ? -1 : 1));
-  const list = out.slice(0, BAL.v019.planner.ideas);
+  out.sort((p, q) => q.rank - p.rank || (p.to < q.to ? -1 : 1));
+  // A varied shortlist: a city once (Istanbul's two airports, the same city from two of our bases), a country twice.
+  const picked: RouteIdea[] = [];
+  const cities = new Set<string>();
+  const countries = new Map<string, number>();
+  for (const { rank: _r, ...x } of out) {
+    void _r;
+    if (picked.length >= BAL.v019.planner.ideas) break;
+    const B = AIRPORT_BY_CODE[x.to];
+    const cityKey = `${B?.country}:${B?.city}`;
+    const n = countries.get(B?.country ?? '') ?? 0;
+    if (cities.has(cityKey) || n >= IDEA_PER_COUNTRY) continue;
+    cities.add(cityKey);
+    countries.set(B?.country ?? '', n + 1);
+    picked.push(x);
+  }
+  const list = picked.sort((p, q) => q.result - p.result || (p.to < q.to ? -1 : 1));
   const fleet = types.map((t) => typeOf(t)?.short ?? t).join(' and ');
   const why = list.length ? null
     : !pre.length ? `Our ${fleet} cannot reach any well-travelled city from ${home} (range, runway or ETOPS).`
