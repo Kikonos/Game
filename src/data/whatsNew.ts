@@ -16,6 +16,18 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.23.3',
+    name: 'Position aircraft from the Schedule',
+    features: [
+      'Position an aircraft yourself. On the Schedule, tap an aircraft\'s idle line and choose Position, next to the A-check, C-check and cabin refit.',
+      'Pick the airport from a short list (home base, the next job, crew bases, open offers nearby) or search for any other.',
+      'Before you confirm you see the route with its fuel stops, the times, the cost, the crew and what follows. If it can\'t be done, one line says why.',
+      'The aircraft then waits there. No automatic ferry home, and its next job starts from where it stands.',
+      'Changed your mind? Tap the flight on the Schedule and cancel it before it leaves.',
+    ],
+    improvements: [],
+  },
+  {
     version: 'v0.23.2',
     name: 'Hotfix: stuck ferries',
     features: [],
