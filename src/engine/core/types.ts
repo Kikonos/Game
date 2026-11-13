@@ -374,6 +374,8 @@ export interface Aircraft {
   paintedFor?: string;
   /** v0.6: extra crew above the legal minimum (unset = company default). */
   crewExtra?: CrewExtra;
+  /** v0.23.3 the airport the player positioned the aircraft to and where it still stands (cleared when it next leaves): it waits there, no ferry home. */
+  parked?: string;
   /** v0.7: handover abroad and the delivery ferry (unset on v0.6 deliveries: handover at base, no ferry). */
   delivery?: DeliveryInfo;
   /** v0.17 (§G) the transition plan of a leased aircraft (records, check, registration, paint, acceptance). Absent on older deliveries. */
@@ -912,6 +914,11 @@ export interface Flight {
   forgiven?: true;
   /** B2: the crew-shortage warning was given for this flight (once; saved so a reload does not repeat it). */
   crewWarned?: boolean;
+  /**
+   * v0.23.3 a leg of a move the player ordered from the Schedule's idle line (ops/position.ts): the move's id and where it
+   * ends. A ferry of no job: the schedule plans from where it lands and never sends the aircraft home from there.
+   */
+  pos?: { id: string; to: string };
   /** v0.7: why an empty ferry flies (labels, map, ticket purpose). */
   purpose?: 'delivery' | 'return' | 'refit' | /** v0.7.2 */ 'check' | 'sale' | /** v0.8 dry lease ferries */ 'lease';
   /** v0.7.1 crew-shortage ladder stage reached (amber ≤ 48 h, red ≤ 12 h); load: crewWarned → 'amber'. */
