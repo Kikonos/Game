@@ -255,8 +255,8 @@ function whoText(g: GameState, ids: string[]): string {
  */
 export function askTypeCrew(g: GameState): void {
   if (!BAL.v017.on) return;
-  const asked = (g.company.typeCrewAsked ??= []);
   for (const [family, ids] of waitingTypeCrew(g)) {
+    const asked = (g.company.typeCrewAsked ??= []);
     if (asked.includes(family)) continue;
     asked.push(family);
     const pay = ids.reduce((s, id) => s + (g.crew[id]?.salary ?? 0), 0);
