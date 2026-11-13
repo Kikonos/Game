@@ -147,7 +147,7 @@ function pmEffect(g: GameState): string {
   const level = pmLevel(g);
   const q = pmQuote(g, level === 'low' ? 'high' : level);
   const parts = [`AOGs −${q.aogLess} %`, `defects −${q.delayLess} %`];
-  if (q.monthly >= 500) parts.push(`≈ ${signedK(-q.monthly)}/month`);
+  if (q.monthly >= 500) parts.push(`≈ ${signedK(q.monthly)}/month`);
   const k = pmProgress(g);
   const since = g.company.pm?.since ?? g.now;
   const full = k < 1 ? ` · in full ${fmtDate(since + BAL.pm.rampDays * 24 * 60)}` : '';
