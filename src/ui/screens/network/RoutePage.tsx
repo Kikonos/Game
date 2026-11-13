@@ -297,7 +297,7 @@ function CostsTab({ g, r }: { g: GameState; r: Route }) {
                 <Fuel className="sc-ico-s" /> fuel {st.fuelX === 1 ? 'at the world price' : `${st.fuelX > 1 ? '+' : '−'}${Math.round(Math.abs(st.fuelX - 1) * 100)} %`}
                 {' · '}<Utensils className="sc-ico-s" /> {st.caterer ? 'local catering' : `catered from ${baseCity}`}
                 {!st.euCargo && ' · no cargo to Europe'}
-                {st.overhead ? ` · office ${money(st.overhead)}/month` : ''}
+                {st.overhead && code !== base ? ` · office ${money(st.overhead)}/month` : ''}
               </span>
             </div>
           );

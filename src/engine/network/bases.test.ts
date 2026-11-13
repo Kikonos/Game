@@ -54,7 +54,8 @@ describe('the catalogue by start base', () => {
     expect(sha(LIS_MARKETS)).toBe(LIS_MARKETS_SHA);
     // The stations too (the lounge flag is new: Lisbon's lounge was a line of code before).
     expect(sha(LIS_STATION_CODES.map((c) => { const { lounge: _l, ...st } = ROUTE_STATIONS[c]; void _l; return st; }))).toBe(LIS_STATIONS_SHA);
-    expect(LIS_STATIONS.map((s) => s.code)).toEqual(LIS_STATION_CODES);
+    expect(Object.keys(LIS_STATIONS)).toEqual(LIS_STATION_CODES);
+    for (const [code, st] of Object.entries(LIS_STATIONS)) expect(st.code).toBe(code);
     // The catalogue starts with Lisbon's markets, whatever the other bases add behind them.
     expect(ROUTE_MARKETS.slice(0, LIS_IDS.length).map((m) => m.id)).toEqual(LIS_IDS);
   });
@@ -66,10 +67,9 @@ describe('the catalogue by start base', () => {
         expect(country(m.from), `${m.id} leaves from ${base}'s country`).toBe(country(base));
         expect(m.custom, m.id).toBeUndefined();
       }
-      // The home station: ours (no outstation office), with a caterer and cargo security.
+      // The home station is researched: a caterer of ours and cargo security, whatever the airport's size.
       const st = ROUTE_STATIONS[base];
       expect(st, base).toBeDefined();
-      expect(st.overhead, base).toBe(0);
       expect(st.caterer && st.euCargo, base).toBe(true);
     }
     expect(ROUTE_MARKETS.length).toBe(Object.values(BY_BASE).reduce((n, l) => n + l.length, 0));

@@ -5,23 +5,23 @@
 import type { RouteMarket, RouteStation } from '../routes';
 
 /** §G stations (767 reference): Lisbon and Porto, the destinations, the fuel stops of the Dili series. */
-export const LIS_STATIONS: RouteStation[] = [
-  { code: 'LIS', fuelX: 1.0, airport: 2_200, handling: 4_500, paxCharge: 2.2, overhead: 0, cat: 'A', caterer: true, euCargo: true, taxes: 44, lounge: true },
-  { code: 'OPO', fuelX: 1.0, airport: 1_900, handling: 4_200, paxCharge: 2.0, overhead: 6_000, cat: 'A', caterer: true, euCargo: true, taxes: 40 },
-  { code: 'OXB', fuelX: 1.17, airport: 2_900, handling: 5_200, paxCharge: 1, overhead: 10_000, cat: 'B', caterer: false, euCargo: false, taxes: 62 },
-  { code: 'TMS', fuelX: 1.17, airport: 2_700, handling: 5_000, paxCharge: 1, overhead: 10_000, cat: 'B', caterer: false, euCargo: true, taxes: 55 },
-  { code: 'DIL', fuelX: 1.35, airport: 3_500, handling: 4_600, paxCharge: 1, overhead: 12_000, cat: 'C', caterer: false, euCargo: false, taxes: 30 },
-  { code: 'DXB', fuelX: 1.0, airport: 2_500, handling: 2_400, paxCharge: 0, overhead: 2_000, cat: 'A', caterer: true, euCargo: true, taxes: 0 },
-  { code: 'KUL', fuelX: 0.98, airport: 1_800, handling: 2_400, paxCharge: 0, overhead: 2_000, cat: 'A', caterer: true, euCargo: true, taxes: 0 },
-  { code: 'RAI', fuelX: 1.12, airport: 2_400, handling: 4_400, paxCharge: 1, overhead: 9_000, cat: 'B', caterer: true, euCargo: true, taxes: 48 },
-  { code: 'SID', fuelX: 1.12, airport: 2_300, handling: 4_200, paxCharge: 1, overhead: 7_000, cat: 'A', caterer: true, euCargo: true, taxes: 48 },
-  { code: 'BVC', fuelX: 1.15, airport: 2_100, handling: 4_200, paxCharge: 1, overhead: 7_000, cat: 'B', caterer: false, euCargo: true, taxes: 48 },
-  { code: 'LAD', fuelX: 1.10, airport: 3_400, handling: 5_600, paxCharge: 1.5, overhead: 14_000, cat: 'A', caterer: true, euCargo: true, taxes: 70 },
-  { code: 'MPM', fuelX: 1.15, airport: 3_000, handling: 5_000, paxCharge: 1.5, overhead: 11_000, cat: 'A', caterer: true, euCargo: true, taxes: 60 },
-  { code: 'REC', fuelX: 1.08, airport: 2_600, handling: 4_400, paxCharge: 1.5, overhead: 9_000, cat: 'A', caterer: true, euCargo: true, taxes: 52 },
-  { code: 'FOR', fuelX: 1.08, airport: 2_500, handling: 4_400, paxCharge: 1.5, overhead: 9_000, cat: 'A', caterer: true, euCargo: true, taxes: 52 },
-  { code: 'CCS', fuelX: 0.9, airport: 3_000, handling: 5_000, paxCharge: 1.5, overhead: 12_000, cat: 'B', caterer: true, euCargo: false, taxes: 80 },
-];
+export const LIS_STATIONS: Record<string, RouteStation> = {
+  LIS: { code: 'LIS', fuelX: 1.0, airport: 2_200, handling: 4_500, paxCharge: 2.2, overhead: 0, cat: 'A', caterer: true, euCargo: true, taxes: 44, lounge: true },
+  OPO: { code: 'OPO', fuelX: 1.0, airport: 1_900, handling: 4_200, paxCharge: 2.0, overhead: 6_000, cat: 'A', caterer: true, euCargo: true, taxes: 40 },
+  OXB: { code: 'OXB', fuelX: 1.17, airport: 2_900, handling: 5_200, paxCharge: 1, overhead: 10_000, cat: 'B', caterer: false, euCargo: false, taxes: 62 },
+  TMS: { code: 'TMS', fuelX: 1.17, airport: 2_700, handling: 5_000, paxCharge: 1, overhead: 10_000, cat: 'B', caterer: false, euCargo: true, taxes: 55 },
+  DIL: { code: 'DIL', fuelX: 1.35, airport: 3_500, handling: 4_600, paxCharge: 1, overhead: 12_000, cat: 'C', caterer: false, euCargo: false, taxes: 30 },
+  DXB: { code: 'DXB', fuelX: 1.0, airport: 2_500, handling: 2_400, paxCharge: 0, overhead: 2_000, cat: 'A', caterer: true, euCargo: true, taxes: 0 },
+  KUL: { code: 'KUL', fuelX: 0.98, airport: 1_800, handling: 2_400, paxCharge: 0, overhead: 2_000, cat: 'A', caterer: true, euCargo: true, taxes: 0 },
+  RAI: { code: 'RAI', fuelX: 1.12, airport: 2_400, handling: 4_400, paxCharge: 1, overhead: 9_000, cat: 'B', caterer: true, euCargo: true, taxes: 48 },
+  SID: { code: 'SID', fuelX: 1.12, airport: 2_300, handling: 4_200, paxCharge: 1, overhead: 7_000, cat: 'A', caterer: true, euCargo: true, taxes: 48 },
+  BVC: { code: 'BVC', fuelX: 1.15, airport: 2_100, handling: 4_200, paxCharge: 1, overhead: 7_000, cat: 'B', caterer: false, euCargo: true, taxes: 48 },
+  LAD: { code: 'LAD', fuelX: 1.10, airport: 3_400, handling: 5_600, paxCharge: 1.5, overhead: 14_000, cat: 'A', caterer: true, euCargo: true, taxes: 70 },
+  MPM: { code: 'MPM', fuelX: 1.15, airport: 3_000, handling: 5_000, paxCharge: 1.5, overhead: 11_000, cat: 'A', caterer: true, euCargo: true, taxes: 60 },
+  REC: { code: 'REC', fuelX: 1.08, airport: 2_600, handling: 4_400, paxCharge: 1.5, overhead: 9_000, cat: 'A', caterer: true, euCargo: true, taxes: 52 },
+  FOR: { code: 'FOR', fuelX: 1.08, airport: 2_500, handling: 4_400, paxCharge: 1.5, overhead: 9_000, cat: 'A', caterer: true, euCargo: true, taxes: 52 },
+  CCS: { code: 'CCS', fuelX: 0.9, airport: 3_000, handling: 5_000, paxCharge: 1.5, overhead: 12_000, cat: 'B', caterer: true, euCargo: false, taxes: 80 },
+};
 
 /** §B the catalogue from Lisbon and Porto. */
 export const LIS_MARKETS: RouteMarket[] = [

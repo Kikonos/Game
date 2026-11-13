@@ -129,10 +129,11 @@ export interface RouteStopover {
 }
 
 /**
- * The researched catalogue, one file a start base (data/markets/<base>.ts: `<BASE>_MARKETS` and `<BASE>_STATIONS`).
- * A market shows in a game only when its origin is one of the player's route bases (engine/network catalogueFor).
+ * The researched catalogue, one file a start base (data/markets/<base>.ts: `<BASE>_MARKETS`, a list, and
+ * `<BASE>_STATIONS`, by code). A market shows in a game only when its origin is one of the player's route bases
+ * (engine/network catalogueFor). A station two files list keeps the first file's row.
  */
-const BASE_DATA: { markets: RouteMarket[]; stations: RouteStation[] }[] = [
+const BASE_DATA: { markets: RouteMarket[]; stations: Record<string, RouteStation> }[] = [
   { markets: LIS_MARKETS, stations: LIS_STATIONS },
   { markets: VNO_MARKETS, stations: VNO_STATIONS },
   { markets: MLA_MARKETS, stations: MLA_STATIONS },
@@ -145,7 +146,7 @@ const BASE_DATA: { markets: RouteMarket[]; stations: RouteStation[] }[] = [
 
 /** §G the researched stations by code (767 reference); a code listed twice keeps its first row. */
 export const ROUTE_STATIONS: Record<string, RouteStation> = {};
-for (const b of BASE_DATA) for (const s of b.stations) ROUTE_STATIONS[s.code] ??= s;
+for (const b of BASE_DATA) for (const s of Object.values(b.stations)) ROUTE_STATIONS[s.code] ??= s;
 
 /** §B the catalogue: every base's markets, Lisbon's first (their order is the list's order). */
 export const ROUTE_MARKETS: RouteMarket[] = BASE_DATA.flatMap((b) => b.markets);
