@@ -760,7 +760,6 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     // v0.12.1 kept only on time for Y, or when nothing on time can be planned (a late chain stays late, not re-made).
     // v0.14.1 (OPS-5) a move home before a check that waits AWAY_GAP or more at X is planned again (forward).
     const idleAway = homeFirst && legs.length > 0 && legs[0].std - crewFree(g, aircraftId, X, earliest) >= AWAY_GAP && latest - earliest >= AWAY_GAP;
-    if ((globalThis as any).__rl && aircraftId === 'a1fg') (globalThis as any).__rl({ now: g.now, X, Y, a, b, legs: legs.map((l) => [l.no, l.from, l.to, l.std, l.sta, l.crewIds.length]), earliest, latest, ok: legs.length && chainOk(legs, X, Y, earliest), sane: legs.length && chainSane(typeId, legs, X, Y, home, allowHop, cap, day), onTime: onTimeMove(typeId, X, Y, ready, latest, home, allowHop, cap, day), crewLate: legs.length && crewLate(legs), idleAway, pull, there, first, inb, ready, free: freeAt(earliest) }); // DEBUGHOOK
     if (legs.length && chainOk(legs, X, Y, earliest) && chainSane(typeId, legs, X, Y, home, allowHop, cap, day) && (legs[legs.length - 1].sta <= latest || !onTimeMove(typeId, X, Y, ready, latest, home, allowHop, cap, day)) && !crewLate(legs) && !idleAway && !pull && (crewed(legs[0]) || !nobody(legs[0].std))) continue;
     const nl = nudged(legs, X, Y, earliest, latest);
     replacing(legs);

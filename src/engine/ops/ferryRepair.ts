@@ -28,6 +28,8 @@ import { isRevenue, turnOf } from './util';
 const STUCK_MIN = DAY;
 /** A flight put back to an earlier time leaves no sooner than this from now (its crew's notice). */
 const NOTICE = 12 * 60;
+/** The longest night stop between two ferry days of one move. */
+const NIGHT_MAX = 36 * 60;
 /** Why a flight was cancelled when the aircraft was not there. */
 const AWAY = /Late inbound aircraft|Aircraft out of position/;
 
@@ -52,6 +54,8 @@ function wayOut(g: GameState, ac: Aircraft): Flight[] {
   let loc = ac.at;
   for (const f of flightsOf(g, ac.id)) {
     if (f.status !== 'scheduled' || f.from !== loc || (f.kind !== 'positioning' && f.kind !== 'ferry')) continue;
+    // One move: its ferry days a night stop apart, not the empty legs of the weeks after.
+    if (out.length && f.std - out[out.length - 1].sta > NIGHT_MAX) break;
     out.push(f);
     loc = f.to;
   }
@@ -79,10 +83,10 @@ export function stuckFerries(g: GameState): StuckFerry[] {
   return out;
 }
 
-/** The job's flights from `i` that go together: out and back to where the first leaves (a base wave, a round trip). */
-function unitFrom(legs: Flight[], i: number): Flight[] {
+/** The job's flights from `i` that go together: out and back to where the first leaves or to the job's station (a base wave, a round trip). */
+function unitFrom(legs: Flight[], i: number, station: string): Flight[] {
   const out = [legs[i]];
-  for (let k = i + 1; k < legs.length && out[out.length - 1].to !== legs[i].from && out.length < 12; k++) {
+  for (let k = i + 1; k < legs.length && out[out.length - 1].to !== legs[i].from && out[out.length - 1].to !== station && out.length < 12; k++) {
     if (legs[k].from !== out[out.length - 1].to) break;
     out.push(legs[k]);
   }
@@ -102,10 +106,11 @@ function tidy(g: GameState, s: StuckFerry): { dropped: Flight[]; moved: number }
   const legs = flightsOf(g, s.ac.id)
     .filter((f) => f.contractId === s.contract.id && isRevenue(f) && f.status === 'scheduled')
     .sort((a, b) => sched(a) - sched(b) || a.std - b.std);
+  const station = s.contract.pattern.kind === 'base' ? s.contract.pattern.base : g.company.homeBase;
   const dropped: Flight[] = [];
   let moved = 0;
   for (let i = 0; i < legs.length; ) {
-    const u = unitFrom(legs, i);
+    const u = unitFrom(legs, i, station);
     i += u.length;
     const x = u[0];
     const r = loc !== x.from ? route(s.ac.typeId, loc, x.from) : null;
