@@ -16,6 +16,26 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.23.2',
+    name: 'Routes for every start base',
+    features: [
+      'Network now lists markets from your own base. Malta, Madrid, Vilnius, Riga, Tallinn, Prague and Sofia each have 7 or 8 researched markets, with real rivals, fares and seasons.',
+      'Some pay and some lose, as in real life. Routes crowded with low-cost airlines are hard; a study shows which.',
+      'Each base has one long-haul market for a widebody later, such as Malta–New York or Prague–Hanoi.',
+      'New airports: Benghazi, Tangier and Marsa Alam.',
+    ],
+    improvements: [
+      'The network planner\'s "Worth a study" list follows your base\'s own ties. A city shows once and a country at most twice.',
+      'When the planner has no idea to show, it says why.',
+      'Route costs and text name your own base: the business lounge, catering, tanker fuel and slot notes.',
+      'Tallinn, Prague and Santa Cruz (Bolivia) have their real runway lengths.',
+    ],
+    fixes: [
+      'A game based outside Lisbon listed Lisbon and Porto markets. It now lists only markets from its own bases.',
+      'The network planner suggested nothing at some bases. It now has ideas at every start base, on every start fleet.',
+    ],
+  },
+  {
     version: 'v0.23.1',
     name: 'Planner step two, stacked work, later report times, tidy bug reports, Network screen',
     features: [
