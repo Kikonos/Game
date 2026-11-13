@@ -3,13 +3,14 @@
 // case's P50 is positive, the recommended timetable on that aircraft's type and cabin, fare level Market. A second
 // route (TMS for STP Airways) once OXB had three positive months and another widebody idles. DIL only with
 // --routes=dil. Conflicts with ACMI work take the cheapest choice (contracts/accept). The report's Network block.
+// v0.23.2 at another start base (--base=MLA): the base's own catalogue (nextFromCatalogue below).
 
 import { BAL } from '../../src/engine/core/balance';
 import { typeOf } from '../../src/engine/core/perf';
 import { DAY, fmtDate, monthKey } from '../../src/engine/core/time';
 import type { GameState } from '../../src/engine/core/types';
 import { liveFlightsOf } from '../../src/engine/core/entities';
-import { acmiNetBH, answerSlot, businessCase, caseDraft, chainOf, customId, decideCase, marketById, startStudy } from '../../src/engine/network';
+import { acmiNetBH, answerSlot, businessCase, caseDraft, catalogueFor, chainOf, customId, decideCase, marketById, startStudy } from '../../src/engine/network';
 import { distanceNm } from '../../src/engine/core/geo';
 import { blockMinutes, maxSectorNm } from '../../src/engine/core/perf';
 import type { Route } from '../../src/engine/network/types';
@@ -55,6 +56,18 @@ function idleAll(g: GameState, exclude: Set<string>, marketId: string): string[]
 }
 
 const live = (g: GameState) => Object.values(g.network?.routes ?? {}).filter((r) => r.status !== 'closed');
+
+/**
+ * v0.23.2 another start base (--base=MLA): the base's own researched markets, the least crowded first (nonstop rival
+ * flights a week), one an idle aircraft reaches and we never studied. At most two routes live and four studies a game.
+ */
+function nextFromCatalogue(g: GameState, used: Set<string>): string | null {
+  const all = Object.values(g.network?.routes ?? {});
+  if (live(g).filter((r) => r.status !== 'study' && r.status !== 'case').length >= 2 || all.length >= 4) return null;
+  const crowd = (id: string) => (marketById(id)?.competitors ?? []).filter((c) => c.stops === 0).reduce((a, c) => a + c.perWeek, 0);
+  const list = catalogueFor(g).filter((m) => !m.closed && !all.some((r) => r.marketId === m.id) && idleWide(g, used, m.id));
+  return list.sort((a, b) => crowd(a.id) - crowd(b.id) || (a.id < b.id ? -1 : 1))[0]?.id ?? null;
+}
 
 /** One bot day on the network. Returns true when it did something. */
 export function botNetwork(g: GameState): boolean {
@@ -102,8 +115,10 @@ export function botNetwork(g: GameState): boolean {
     const r = routes.find((x) => x.marketId === id);
     return r ? Object.values(r.pnl).filter((p) => p.sectors && p.result > 0).length : 0;
   };
-  const next = CUSTOM && !has(CUSTOM) ? CUSTOM : !has('LIS-OXB') ? 'LIS-OXB' : !has('LIS-TMS') && goodMonths('LIS-OXB') >= 3 ? 'LIS-TMS' : DIL && !has('LIS-DIL') ? 'LIS-DIL' : null;
-  if (next && g.company.homeBase === 'LIS' && !routes.some((r) => r.status === 'study' || r.status === 'case') && idleWide(g, used, next)) {
+  const home = g.company.homeBase;
+  const next = home !== 'LIS' ? nextFromCatalogue(g, used)
+    : CUSTOM && !has(CUSTOM) ? CUSTOM : !has('LIS-OXB') ? 'LIS-OXB' : !has('LIS-TMS') && goodMonths('LIS-OXB') >= 3 ? 'LIS-TMS' : DIL && !has('LIS-DIL') ? 'LIS-DIL' : null;
+  if (next && !routes.some((r) => r.status === 'study' || r.status === 'case') && idleWide(g, used, next)) {
     const res = startStudy(g, next, 'full');
     if (res.routeId) did = true;
   }
