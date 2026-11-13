@@ -168,8 +168,9 @@ function baseQuote(g: GameState, p: Plan, to: string): PositionQuote {
   const home = g.company.homeBase;
   const { fuel, fees } = ferryCost(p.ac.typeId, legs, g.market.fuelPrice);
   const days = legs.map((l) => ({ ...l, nightStopAfter: l.night }));
-  // Two pilots: tickets out to an aircraft away from base, tickets home from where they leave it, hotels on the way.
-  const crewCost = ferryCrewCost(g, home, p.at, days) + (to === home ? 0 : ferryCrewCost(g, home, to, p.at === home ? days : []) || ferryCrewCost(g, home, to, days.slice(0, 1).map((l) => ({ ...l, nightStopAfter: false }))));
+  // Two pilots: tickets out to an aircraft away from base and hotels on the way, tickets home from where they leave it.
+  const oneWay = days.slice(0, 1).map((l) => ({ ...l, nightStopAfter: false }));
+  const crewCost = ferryCrewCost(g, home, p.at, days) + (to === home ? 0 : ferryCrewCost(g, home, to, p.at === home ? days : oneWay));
   const notes: string[] = [];
   if (!curfewOk(p.at, p.earliest) || (legs[0].std > p.earliest && p.chain.length === 1 && legs[0].std - p.earliest < DAY && !curfewOk(to, p.earliest + legs[0].block))) notes.push('Leaves after the night curfew.');
   return {
@@ -272,6 +273,9 @@ function tryAt(g: GameState, p: Plan, to: string): Try {
   const hS = new Set(soft(h).map((f) => `${f.from}|${f.to}|${f.std}`));
   const gone = soft(g).filter((f) => !hS.has(`${f.from}|${f.to}|${f.std}`));
   const added = soft(h).filter((f) => !gS.has(`${f.from}|${f.to}|${f.std}`));
+  // The schedule's new empty legs on to the next work are crewed too (uncrewed they would wait, and the work with them).
+  const stuck = added.find((f) => f.std <= horizon && ['missing', 'illegal'].includes(flightCrewStatus(h, f.id, { live: false }).level));
+  if (stuck && p.next) return no(`No crew to fly on to ${p.next.from} in time for ${anchorText(g, p.next)}`);
   if (added.length) notes.push(`Then ${added.map((f) => `${f.from}–${f.to}`).join(', ')} on ${fmtDay(added[0].std)}${p.next ? ` for ${anchorText(g, p.next)}` : ''}.`);
   else if (p.next) notes.push(`Next: ${anchorText(g, p.next)}.`);
   else if (to !== g.company.homeBase) notes.push(`${p.ac.reg} stays at ${city(to)} until it has work.`);
