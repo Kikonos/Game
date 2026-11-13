@@ -140,7 +140,7 @@ describe('position booked', () => {
     expect(awayIdle(g, ac.id)).toBeNull();
   });
 
-  it('cancelled before it leaves: the legs go, the crew are free, nothing is charged; not once it has left', () => {
+  it('cancelled before it leaves: the legs go, the crew are free, no fuel or fees are charged; not once it has left', () => {
     const g = newGame(3);
     const ac = owned(g);
     const cash = g.company.cash;
@@ -153,7 +153,9 @@ describe('position booked', () => {
     expect(ids.every((id) => !g.flights[id])).toBe(true);
     expect(liveFlightsOf(g, ac.id)).toEqual([]);
     expect(Object.values(g.duties).some((d) => d.flightIds.some((id) => ids.includes(id)))).toBe(false);
-    expect(g.company.cash).toBe(cash);
+    // Only the pilots' airline tickets already bought stay paid (they are not refunded, as with any cancelled ferry).
+    expect(g.company.cash - cash).toBe(g.finance.current.lines.deadhead ?? 0);
+    expect(cash - g.company.cash).toBeLessThan(10_000);
     run(g, g.now + 2 * DAY);
     expect(ac.at).toBe('LIS');
     // Under way: the leg in the air stays, the legs still to fly can go; the aircraft then finds its own way home.
