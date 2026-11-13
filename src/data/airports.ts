@@ -771,8 +771,20 @@ const ENROUTE = new Set([...Object.values(EXTRA_ETOPS).flat().map((r) => r[0]), 
 const ICE = new Set(['WFR', 'TRL', 'UGL']);
 const CONTINENT_OF: Record<string, ContinentId> = { UGL: 'SA' };
 
-for (const extra of [EXTRA, EXTRA_B1, EXTRA_B3, EXTRA_V08, EXTRA_ETOPS, EXTRA_V0121, EXTRA_V016]) for (const [region, rows] of Object.entries(extra)) (DATA[region] ??= []).push(...rows);
-Object.assign(RUNWAY, RUNWAY_B1, RUNWAY_B3, RUNWAY_V08, RUNWAY_ETOPS, RUNWAY_V0121, RUNWAY_V016);
+// v0.23.2 the researched markets of the other start bases (data/markets/): Benghazi (Malta), Tangier (Madrid) and
+// Marsa Alam (Prague), with published positions and runways; and published runways where the size estimate was wrong
+// (Tallinn since 2017, Prague 06/24, Santa Cruz Viru Viru).
+const EXTRA_V0232: Record<string, Row[]> = {
+  NAF: [
+    ['BEN', 'Benina', 'Benghazi', 'LY', 32.097, 20.269, 0.9, 2, 0.25, 0.02],
+    ['TNG', 'Ibn Battouta', 'Tangier', 'MA', 35.727, -5.917, 1.3, 2, 0.3, 0.6],
+    ['RMF', 'Marsa Alam Intl', 'Marsa Alam', 'EG', 25.557, 34.584, 0.05, 2, 0.05, 1.0],
+  ],
+};
+const RUNWAY_V0232: Record<string, number> = { BEN: 3576, TNG: 3500, RMF: 3000, TLL: 3480, PRG: 3715, VVI: 3500 };
+
+for (const extra of [EXTRA, EXTRA_B1, EXTRA_B3, EXTRA_V08, EXTRA_ETOPS, EXTRA_V0121, EXTRA_V016, EXTRA_V0232]) for (const [region, rows] of Object.entries(extra)) (DATA[region] ??= []).push(...rows);
+Object.assign(RUNWAY, RUNWAY_B1, RUNWAY_B3, RUNWAY_V08, RUNWAY_ETOPS, RUNWAY_V0121, RUNWAY_V016, RUNWAY_V0232);
 for (const c of NARROW_V016) NARROW.add(c);
 ELEV.TRN = 301;
 
