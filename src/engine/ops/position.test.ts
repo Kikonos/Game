@@ -143,7 +143,7 @@ describe('position booked', () => {
   it('cancelled before it leaves: the legs go, the crew are free, nothing is charged; not once it has left', () => {
     const g = newGame(3);
     const ac = owned(g);
-    const cash = g.finance.cash;
+    const cash = g.company.cash;
     const r = positionAircraft(g, ac.id, 'JFK', { from: g.now });
     if (!r.ok) throw new Error(r.error);
     const ids = r.data!.flightIds;
@@ -153,7 +153,7 @@ describe('position booked', () => {
     expect(ids.every((id) => !g.flights[id])).toBe(true);
     expect(liveFlightsOf(g, ac.id)).toEqual([]);
     expect(Object.values(g.duties).some((d) => d.flightIds.some((id) => ids.includes(id)))).toBe(false);
-    expect(g.finance.cash).toBe(cash);
+    expect(g.company.cash).toBe(cash);
     run(g, g.now + 2 * DAY);
     expect(ac.at).toBe('LIS');
     // Under way: the leg in the air stays, the legs still to fly can go; the aircraft then finds its own way home.
