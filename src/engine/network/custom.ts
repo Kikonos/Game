@@ -33,6 +33,9 @@ export const CUSTOM_SIGMA = 0.3;
 /** Extra study inaccuracy on an unresearched pair, by depth (added to the catalogue's accuracy). */
 export const CUSTOM_STUDY_EXTRA: Record<'desk' | 'full' | 'survey', number> = { desk: 0.1, full: 0.05, survey: 0.02 };
 
+/** v0.23.2 the tourism pull (airports' `tour`) a destination needs before a tour operator sells holidays there. */
+export const TOUR_PULL = 0.6;
+
 export interface MarketDraft {
   from: string;
   to: string;
@@ -162,31 +165,64 @@ function holidayCurve(B: Airport, A: Airport): number[] {
 
 const KIND_W: Record<CarrierKind, number> = { network: 1, regional: 0.8, lcc: 1.3 };
 
-/** Nonstop rivals, their weekly flights shared out of what the market can fill; and up to three one-stop rivals. */
-function rivals(A: Airport, B: Airport, km: number, od: number): RouteCompetitor[] {
+const sisterCache = new Map<string, Airport[]>();
+/** The other airports of the same city (Istanbul's two, London's four, Paris's two). Pure, cached. */
+export function sisters(code: string): Airport[] {
+  let v = sisterCache.get(code);
+  if (!v) {
+    const a = AIRPORT_BY_CODE[code];
+    v = a ? AIRPORTS.filter((x) => x.code !== code && x.country === a.country && x.city === a.city && usable(x)) : [];
+    sisterCache.set(code, v);
+  }
+  return v;
+}
+
+/** The airlines of our list that fly a pair nonstop, their weekly flights shared out of what the pair can fill. */
+function nonstops(A: Airport, B: Airport, km: number, od: number): RouteCompetitor[] {
+  const direct = directCarriers(A.code, B.code);
+  if (!direct.length) return [];
   const wide = km > 4_500;
   const seats = wide ? 260 : 170;
-  const out: RouteCompetitor[] = [];
-  const direct = directCarriers(A.code, B.code);
-  if (direct.length) {
-    const ws = direct.map((c) => KIND_W[c.kind] * (c.kind !== 'lcc' && (c.hubs.includes(A.code) || c.hubs.includes(B.code)) ? 2.5 : 1));
-    const wsum = ws.reduce((s, x) => s + x, 0);
-    // What the pair can fill, plus the connecting passengers a hub carrier puts on it.
-    const perWeek = (od * 1.3) / (104 * seats * 0.8);
-    const hours = blockMinutes(wide ? 'a333' : 'a320ceo', A.code, B.code) / 60;
-    direct.forEach((c, i) => {
-      const f = Math.max(wide ? 1 : 2, Math.round((perWeek * ws[i]) / wsum));
-      const own = c.hubs.includes(A.code) || c.hubs.includes(B.code);
-      out.push({ name: c.name, perWeek: f, stops: 0, hours: Math.round(hours * 10) / 10, fareX: c.kind === 'lcc' ? 0.75 : own ? 1.05 : 1.0, seats: c.kind === 'lcc' ? 186 : seats });
-    });
+  const ws = direct.map((c) => KIND_W[c.kind] * (c.kind !== 'lcc' && (c.hubs.includes(A.code) || c.hubs.includes(B.code)) ? 2.5 : 1));
+  const wsum = ws.reduce((s, x) => s + x, 0);
+  // What the pair can fill, plus the connecting passengers a hub carrier puts on it.
+  const perWeek = (od * 1.3) / (104 * seats * 0.8);
+  const hours = blockMinutes(wide ? 'a333' : 'a320ceo', A.code, B.code) / 60;
+  return direct.map((c, i) => {
+    const f = Math.max(wide ? 1 : 2, Math.round((perWeek * ws[i]) / wsum));
+    const own = c.hubs.includes(A.code) || c.hubs.includes(B.code);
+    return { name: c.name, perWeek: f, stops: 0, hours: Math.round(hours * 10) / 10, fareX: c.kind === 'lcc' ? 0.75 : own ? 1.05 : 1.0, seats: c.kind === 'lcc' ? 186 : seats };
+  });
+}
+
+/**
+ * Nonstop rivals and up to three one-stop rivals. v0.23.2 an airport nobody flies to nonstop, in a city whose other
+ * airport has nonstop flights (Sabiha Gökçen beside Istanbul Airport, Orly beside Charles de Gaulle): those airlines
+ * are the nonstop rivals, named with their airport. It used to read "Nobody flies it nonstop".
+ */
+function rivals(A: Airport, B: Airport, km: number, od: number): RouteCompetitor[] {
+  const out: RouteCompetitor[] = nonstops(A, B, km, od);
+  const sisA = sisters(A.code);
+  const sisB = sisters(B.code);
+  if (!out.length) {
+    for (const A2 of [A, ...sisA]) {
+      for (const B2 of [B, ...sisB]) {
+        if (A2 === A && B2 === B) continue;
+        const cat = catalogueOf(A2.code, B2.code);
+        const list = cat ? cat.competitors.filter((c) => c.stops === 0) : nonstops(A2, B2, distance(A2.code, B2.code), customFacts(A2.code, B2.code)?.od ?? 0);
+        const at = A2 !== A && B2 !== B ? `${A2.name}–${B2.name}` : B2 !== B ? B2.name : A2.name;
+        for (const c of list) out.push({ ...c, name: `${c.name} (${at})` });
+      }
+    }
   }
+  const sameCity = new Set([...sisA, ...sisB].map((x) => x.code));
   // One-stop rivals: an airline's own hub on the way (detour ≤ 1.5, ≤ 1.35 on short pairs).
   const cands: { c: string; via: string; hours: number }[] = [];
   const maxDetour = km < 2_000 ? 1.35 : 1.5;
   for (const c of CARRIERS) {
     if (c.kind === 'lcc') continue;
     for (const h of c.hubs) {
-      if (h === A.code || h === B.code || !AIRPORT_BY_CODE[h]) continue;
+      if (h === A.code || h === B.code || sameCity.has(h) || !AIRPORT_BY_CODE[h]) continue;
       const d1 = distance(A.code, h);
       const d2 = distance(h, B.code);
       if ((d1 + d2) / Math.max(1, km) > maxDetour) continue;
@@ -197,7 +233,7 @@ function rivals(A: Airport, B: Airport, km: number, od: number): RouteCompetitor
     }
   }
   cands.sort((p, q) => p.hours - q.hours || (p.c < q.c ? -1 : 1));
-  const seen = new Set(out.map((x) => x.name));
+  const seen = new Set(out.map((x) => x.name.replace(/ \(.*\)$/, '')));
   for (const x of cands) {
     if (seen.has(x.c) || out.filter((o) => o.stops === 1).length >= 3) continue;
     seen.add(x.c);
@@ -207,7 +243,7 @@ function rivals(A: Airport, B: Airport, km: number, od: number): RouteCompetitor
     // Nobody in our airline list links it: travellers still connect at the nearest big hub on the way, slowly.
     let best: { h: string; d: number } | null = null;
     for (const h of WORLD_HUBS) {
-      if (h === A.code || h === B.code || !AIRPORT_BY_CODE[h]) continue;
+      if (h === A.code || h === B.code || sameCity.has(h) || !AIRPORT_BY_CODE[h]) continue;
       const d = distance(A.code, h) + distance(h, B.code);
       if (d / Math.max(1, km) <= 2 && (!best || d < best.d)) best = { h, d };
     }
@@ -247,6 +283,19 @@ export interface CustomFacts {
   km: number;
 }
 
+/** v0.23.2 business and holiday travel on a pair nobody flies nonstop, against the same pair with a direct flight. */
+export const UNSERVED_X = 0.6;
+
+/** Some airline flies the city pair nonstop today (any airport of either city; the researched rivals count). */
+function served(A: Airport, B: Airport): boolean {
+  for (const A2 of [A, ...sisters(A.code)]) {
+    for (const B2 of [B, ...sisters(B.code)]) {
+      if (directCarriers(A2.code, B2.code).length || catalogueOf(A2.code, B2.code)?.competitors.some((c) => c.stops === 0)) return true;
+    }
+  }
+  return false;
+}
+
 const factsCache = new Map<string, CustomFacts>();
 
 /** The demand pieces of a city pair. Pure, cached. */
@@ -259,8 +308,11 @@ export function customFacts(from: string, to: string): CustomFacts | null {
   if (hit) return hit;
   const km = distance(from, to);
   const links = linkFlow(A, B, km);
-  const biz = bizFlow(A, B, km);
-  const tour = tourOneWay(A, B, km) + tourOneWay(B, A, km);
+  // v0.23.2 a pair no airline flies nonstop (from any airport of either city): the guess is fitted on served pairs,
+  // and with no direct flight fewer people do business or holiday between the two. Ties travel anyway.
+  const ux = served(A, B) ? 1 : UNSERVED_X;
+  const biz = bizFlow(A, B, km) * ux;
+  const tour = (tourOneWay(A, B, km) + tourOneWay(B, A, km)) * ux;
   const other = otherFlow(A, B, km);
   const f: CustomFacts = { links, biz, tour, other, od: Math.round((links + biz + tour + other) / 100) * 100, km };
   factsCache.set(key, f);
@@ -364,7 +416,9 @@ export function customMarket(d: MarketDraft): RouteMarket | null {
     : west ? { pattern: 'weekly', day, out: 690, back: 1_290, nights: 1 } : { pattern: 'weekly', day, out: 1_320, back: 1_320, nights: 1 };
   const hard = rightsHardness(A, B);
   const risk = COUNTRY_RISK[B.country];
-  const models: RouteModel[] = tourS >= 0.45 && A.continent === 'EU' && km <= 6_500 ? ['own', 'tour'] : ['own'];
+  // v0.23.2 a holiday series goes to a place people go on holiday: not to Shannon, Billund or Eindhoven because the
+  // visitors come the other way (the first guesses there used to read "sold as holidays" at a tour series' fares).
+  const models: RouteModel[] = tourS >= 0.45 && B.tour >= TOUR_PULL && A.continent === 'EU' && km <= 6_500 ? ['own', 'tour'] : ['own'];
   const closed = CLOSED_COUNTRY[B.country] ?? CLOSED_COUNTRY[A.country] ?? [...(d.via ?? []), ...(d.viaBack ?? [])].map((s) => CLOSED_COUNTRY[AIRPORT_BY_CODE[s]?.country ?? '']).find(Boolean);
   const via = d.via?.length ? [...d.via] : undefined;
   const viaBack = d.viaBack ? (d.viaBack.length ? [...d.viaBack] : undefined) : via ? [...via].reverse() : undefined;

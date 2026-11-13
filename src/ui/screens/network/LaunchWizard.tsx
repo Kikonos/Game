@@ -20,17 +20,12 @@ import { int, money, moneyDelta, pct } from '../../format';
 import { store, useGame } from '../../store';
 import { LaunchProgress } from './bits';
 import { net, type BusinessCase, type CaseDraft, type Recommendation } from './netApi';
-import { DAY_SHORT, daysOf, hhmm, lastQuarters, marketBlock, marketOf, MODEL_HINT, routeCode, routeName, seriesWords, STAGE_LABEL, stopChosen } from './networkLogic';
+import { DAY_SHORT, daysOf, depthHint, hhmm, lastQuarters, marketBlock, marketOf, MODEL_HINT, routeCode, routeName, seriesWords, STAGE_LABEL, stopChosen } from './networkLogic';
 import { RouteMap } from './RouteMap';
 
 const MODEL_WORD: Record<RouteModel, string> = { own: 'Own brand', partner: 'For a partner', tour: 'Holidays charter' };
 const DEPTHS: StudyDepth[] = ['desk', 'full', 'survey'];
 const DEPTH_WORD: Record<StudyDepth, string> = { desk: 'Desk study', full: 'Full study', survey: 'Full + survey' };
-const DEPTH_HINT: Record<StudyDepth, string> = {
-  desk: 'Published traffic data and rivals\' timetables. Cheap and quick, but it can be well off.',
-  full: 'Booking data, the diaspora associations, government and NGO interviews.',
-  survey: 'The full study plus a passenger survey: the closest estimate.',
-};
 
 type StudyCfg = { days: [number, number]; cost: number; accuracy: number };
 function studyCfg(d: StudyDepth): StudyCfg | null {
@@ -143,7 +138,7 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
                   <b>{DEPTH_WORD[d]}</b>
                   {c && <span className="small num">{money(c.cost)} · {fmtSpan(Math.max(1, Math.round(c.days[0] / 7)), Math.max(1, Math.round(c.days[1] / 7)), 'weeks')}</span>}
                   {c && <span className="tiny muted">estimate within ±{Math.round(c.accuracy * plannerStudyX(g) * 100)} %</span>}
-                  <span className="tiny muted">{DEPTH_HINT[d]}</span>
+                  <span className="tiny muted">{depthHint(d, m)}</span>
                 </button>
               );
             })}

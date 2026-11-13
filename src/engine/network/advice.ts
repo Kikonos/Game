@@ -9,7 +9,7 @@ import { distance } from '../core/geo';
 import { etopsCap, typeOf } from '../core/perf';
 import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
-import { catalogueOf, chainProblem, customFacts, customMarket, routeBases } from './custom';
+import { catalogueOf, chainProblem, customFacts, customMarket, routeBases, sisters } from './custom';
 import { firstFlightOf, project, studyBase, type Projection } from './launch';
 import { cabinFor, freqPerWeek, marketOfRoute, serviceHours } from './model';
 import { crewAwayCost } from './pnl';
@@ -365,6 +365,9 @@ const IDEA_FREQ = [1, 2, 3];
 /** How much the travellers' ties weigh in the shortlist (× 1 … 1 + this), and the most ideas to one country. */
 const IDEA_TIE_X = 2;
 const IDEA_PER_COUNTRY = 2;
+/** The well-travelled pairs the planner costs (the rest are too thin to look at), and the first guess's margin worth a study. */
+const IDEA_SHORTLIST = 180;
+export const IDEA_MARGIN = 0.05;
 
 /** `n` departures a week from `day` (0 = Monday), spread through the week. */
 function spreadDays(day: number, n: number): number {
@@ -392,12 +395,27 @@ export function routeIdeasNone(g: GameState): string | null {
   return ideasOf(g).why;
 }
 
-function ideasOf(g: GameState): { list: RouteIdea[]; why: string | null } {
-  if (!activeHead(g, 'netPlanner')) return { list: [], why: null };
+/** What the shortlist depends on: bases, fleet types and how far each may fly from an alternate, routes, month, fuel. */
+function ideasKey(g: GameState): { key: string; bases: string[]; caps: { t: string; cap: number }[]; taken: Set<string> } {
   const bases = routeBases(g);
   const types = [...new Set(Object.values(g.fleet).filter((a) => a.status !== 'leasedOut').map((a) => a.typeId))].sort();
+  // v0.23.2 an ETOPS approval won this month opens the ocean pairs at once (the list used to wait for the month's turn).
+  const caps = types.map((t) => ({ t, cap: etopsCap(g.company.approvals, t) }));
   const taken = new Set(Object.values(g.network?.routes ?? {}).filter((r) => r.status !== 'closed').map((r) => { const m = marketOfRoute(r); return m ? `${m.from}-${m.to}` : ''; }));
-  const key = `${bases.join()}|${types.join()}|${[...taken].sort().join()}|${Math.floor(g.now / (30 * DAY))}|${Math.round(g.market.fuelPrice / 25)}`;
+  const key = `${bases.join()}|${caps.map((c) => `${c.t}:${c.cap}`).join()}|${[...taken].sort().join()}|${Math.floor(g.now / (30 * DAY))}|${Math.round(g.market.fuelPrice / 25)}`;
+  return { key, bases, caps, taken };
+}
+
+/** v0.23.2 the shortlist's key for the screen (it changes when the list may: a new type, an approval, a route, the month). */
+export function routeIdeasKey(g: GameState): string {
+  const h = activeHead(g, 'netPlanner');
+  return h ? `${h.hired?.name ?? ''}|${ideasKey(g).key}` : '';
+}
+
+function ideasOf(g: GameState): { list: RouteIdea[]; why: string | null } {
+  if (!activeHead(g, 'netPlanner')) return { list: [], why: null };
+  const { key, bases, caps, taken } = ideasKey(g);
+  const types = caps.map((c) => c.t);
   const hit = ideaCache.get(key);
   if (hit) return hit;
   const home = city(bases[0]);
@@ -409,11 +427,12 @@ function ideasOf(g: GameState): { list: RouteIdea[]; why: string | null } {
   // v0.23.2 (player report: "the network planner doesn't suggest routes at all" on a new A320 airline) the pairs the
   // fleet cannot fly (range, runway, ETOPS) go before the shortlist is cut, not after: the longest pairs used to fill
   // it and a narrowbody start was left with none.
-  const caps = types.map((t) => ({ t, cap: etopsCap(g.company.approvals, t) }));
   const pre: { from: string; to: string; score: number; fit: string[] }[] = [];
   for (const from of bases) {
     for (const a of AIRPORTS) {
       if (a.enroute || a.ice || a.code === from || taken.has(`${from}-${a.code}`) || catalogueOf(from, a.code)) continue;
+      // A city we already fly or have researched through its other airport (London by Luton, Tripoli) is no new idea.
+      if (sisters(a.code).some((x) => taken.has(`${from}-${x.code}`) || catalogueOf(from, x.code))) continue;
       const f = customFacts(from, a.code);
       if (!f || f.km < 600 || f.od < 8_000) continue;
       const fit = caps.filter((c) => !chainProblem({ from, to: a.code }, c.t, c.cap)).map((c) => c.t);
@@ -424,7 +443,7 @@ function ideasOf(g: GameState): { list: RouteIdea[]; why: string | null } {
   }
   pre.sort((p, q) => q.score - p.score || (p.to < q.to ? -1 : 1));
   const out: (RouteIdea & { rank: number })[] = [];
-  for (const c of pre.slice(0, 120)) {
+  for (const c of pre.slice(0, IDEA_SHORTLIST)) {
     const m = customMarket({ from: c.from, to: c.to });
     if (!m || m.closed) continue;
     let top: RouteIdea | null = null;
@@ -446,7 +465,7 @@ function ideasOf(g: GameState): { list: RouteIdea[]; why: string | null } {
         }
       }
     }
-    if (top && top.margin >= 0.06 && top.result > 0) {
+    if (top && top.margin >= IDEA_MARGIN && top.result > 0) {
       // The base's own market first: a pair where people are really tied (family, diaspora, the islands at home)
       // counts for up to three times its first guess.
       const f = customFacts(c.from, c.to);

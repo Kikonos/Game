@@ -24,9 +24,11 @@ import { createGame } from '../newGame';
 import { hireHead, unlockHead } from '../ops/heads';
 import { deserialize, serialize } from '../save';
 import {
-  catalogueFor, chainProblem, customId, customMarket, devLaunchRoute, marketFareX, marketOfRoute, quoteMoveRotation, routeBases, routeIdeas, routeIdeasNone, sectorCost,
-  startStudy, studyBlock,
+  catalogueFor, chainProblem, customFacts, customId, customMarket, devLaunchRoute, IDEA_MARGIN, marketFareX, marketOfRoute, quoteMoveRotation, routeBases, routeIdeas,
+  routeIdeasKey, routeIdeasNone, sectorCost, sisters, startStudy, studyBlock, TOUR_PULL, UNSERVED_X,
 } from '.';
+import { devAddType, devGrantApproval } from '../dev';
+import { directCarriers } from '../ops/commercial';
 import type { SetupId } from '../../data/setups';
 
 const game = (base: string, setup: SetupId = 'classic', seed = 3): GameState =>
@@ -187,7 +189,7 @@ describe('the network planner at every start base', () => {
           expect(country(x.from), `${tag} ${x.marketId}`).toBe(country(base));
           expect(Object.values(g.fleet).some((a) => a.typeId === x.typeId), `${tag} ${x.marketId}`).toBe(true);
           expect(chainProblem({ from: x.from, to: x.to }, x.typeId), `${tag} ${x.marketId}`).toBeNull();
-          expect(x.margin, `${tag} ${x.marketId}`).toBeGreaterThanOrEqual(0.06);
+          expect(x.margin, `${tag} ${x.marketId}`).toBeGreaterThanOrEqual(IDEA_MARGIN);
           expect(ROUTE_MARKETS.some((m) => m.from === x.from && m.to === x.to), `${tag} ${x.marketId} is not researched already`).toBe(false);
         }
         // Best first; a city once, a country at most twice.
@@ -199,12 +201,103 @@ describe('the network planner at every start base', () => {
     }
   }, 240_000);
 
-  it('the ideas follow the base\'s own ties: Bulgarians in Germany and Britain, Serbs in Malta, Lithuanians in London', () => {
+  it('the ideas follow the base\'s own ties: Bulgarians in Germany and Britain, Italians and Britons in Malta, Lithuanians in London', () => {
     // The planner's ideas and the researched markets together (a pair researched later leaves the ideas).
     const tos = (base: string) => { const g = withPlanner(game(base)); return [...routeIdeas(g).map((x) => x.to), ...catalogueFor(g).map((m) => m.to)]; };
     expect(tos('SOF').some((t) => ['GB', 'DE', 'TR'].includes(country(t)!))).toBe(true);
-    expect(tos('MLA')).toContain('BEG');
-    expect(tos('VNO')).toContain('LHR');
+    // Italians and Britons in Malta, Lithuanians in London (researched through Luton: one city, one market).
+    expect(tos('MLA').some((t) => ['IT', 'GB'].includes(country(t)!))).toBe(true);
+    expect(tos('VNO').some((t) => AIRPORT_BY_CODE[t].city === 'London')).toBe(true);
     for (const [a, b] of [['MT', 'IT'], ['LT', 'NO'], ['LV', 'GB'], ['EE', 'SE'], ['CZ', 'SK'], ['BG', 'DE'], ['ES', 'MA']]) expect(tieBetween(a, b), `${a}-${b}`).toBeGreaterThan(0);
   }, 60_000);
 });
+
+// v0.23.2 review: a city's second airport read as "Nobody flies it nonstop" (Malta–Sabiha Gökçen, Prague–Orly); the
+// first guesses ran far richer than the researched markets; the list stayed stale after an ETOPS approval.
+describe('the planner\'s ideas: one city one market, sober first guesses, a fresh list', () => {
+  it('an airline flying nonstop to the city\'s other airport is a nonstop rival, named with its airport', () => {
+    for (const [from, to, main, rival] of [['MLA', 'SAW', 'IST', /^Turkish Airlines \(Istanbul Airport\)$/], ['PRG', 'ORY', 'CDG', /^Air France \(Charles de Gaulle\)$/], ['SOF', 'ORY', 'CDG', /\(Charles de Gaulle\)$/], ['LIS', 'SAW', 'IST', /\(Istanbul Airport\)$/]] as const) {
+      expect(sisters(to).map((a) => a.code), to).toContain(main);
+      const m = customMarket({ from, to })!;
+      const there = customMarket({ from, to: main })!.competitors.filter((c) => c.stops === 0);
+      const nonstop = m.competitors.filter((c) => c.stops === 0);
+      expect(there.length, `${from}-${main}`).toBeGreaterThan(0);
+      expect(nonstop.length, m.id).toBe(there.length);
+      expect(nonstop.some((c) => rival.test(c.name)), `${m.id}: ${nonstop.map((c) => c.name).join(', ')}`).toBe(true);
+      expect(nonstop.reduce((s, c) => s + c.perWeek, 0), m.id).toBe(there.reduce((s, c) => s + c.perWeek, 0));
+      // Nobody "connects" at the city itself, and the same airline is not listed twice.
+      for (const c of m.competitors.filter((x) => x.stops > 0)) {
+        expect(sisters(to).map((a) => a.code), `${m.id} ${c.name}`).not.toContain(c.via);
+        expect(nonstop.some((n) => c.name.startsWith(n.name.replace(/ \(.*\)$/, ''))), `${m.id} ${c.name}`).toBe(false);
+      }
+      expect(m.blurb, m.id).not.toMatch(/no nonstop|no airline/);
+    }
+    // An airport with nonstop flights of its own keeps its own rivals (Heathrow from Malta, JFK from Lisbon).
+    for (const [from, to] of [['MLA', 'LHR'], ['LIS', 'JFK'], ['MLA', 'IST'], ['PRG', 'CDG']] as const) {
+      const own = customMarket({ from, to })!.competitors.filter((c) => c.stops === 0);
+      expect(own.length, `${from}-${to}`).toBe(directCarriers(from, to).length);
+      expect(own.some((c) => /\(/.test(c.name)), `${from}-${to}`).toBe(false);
+    }
+  });
+
+  it('no idea says "Nobody flies it nonstop" where a sister airport has a nonstop rival; a researched city is no idea', () => {
+    for (const base of HOME_BASES) {
+      for (const setup of ['classic', START_SETUPS[START_SETUPS.length - 1].id] as SetupId[]) {
+        const g = withPlanner(game(base, setup));
+        const cat = catalogueFor(g);
+        for (const x of routeIdeas(g)) {
+          const tag = `${base} ${setup} ${x.marketId}`;
+          const all = [x.to, ...sisters(x.to).map((a) => a.code)];
+          const flown = all.some((b) => directCarriers(x.from, b).length > 0);
+          if (flown) expect(x.why, tag).not.toMatch(/Nobody flies it nonstop/);
+          else expect(x.why, tag).toMatch(/Nobody flies it nonstop/);
+          expect(cat.some((m) => m.from === x.from && all.includes(m.to)), `${tag} is researched through another airport`).toBe(false);
+          // Holidays are sold to a holiday place only.
+          if (x.model === 'tour') expect(AIRPORT_BY_CODE[x.to].tour, tag).toBeGreaterThanOrEqual(TOUR_PULL);
+        }
+      }
+    }
+  }, 240_000);
+
+  it('a pair nobody flies is guessed smaller than the same cities with a direct flight; ties travel anyway', () => {
+    // Prague–Gothenburg, Madrid–Shannon: no airline of our list flies them. Business and holiday travel are cut.
+    for (const [a, b, most] of [['PRG', 'GOT', 75_000], ['MAD', 'SNN', 55_000], ['PRG', 'EIN', 70_000]] as const) {
+      expect(directCarriers(a, b), `${a}-${b}`).toEqual([]);
+      const f = customFacts(a, b)!;
+      expect(f.od, `${a}-${b}`).toBeLessThan(most);
+      expect(customMarket({ from: a, to: b })!.models, `${a}-${b}`).toEqual(['own']);
+    }
+    // Sofia–Ankara: unserved too, but the Turkish families of Bulgaria still travel (the ties are not cut).
+    const esb = customFacts('SOF', 'ESB')!;
+    expect(esb.links).toBeGreaterThan(25_000);
+    expect(esb.links / esb.od).toBeGreaterThan(0.35);
+    // A served pair keeps its size; a city's second airport is served when the first is.
+    expect(customFacts('PRG', 'CPH')!.od).toBeGreaterThan(300_000);
+    expect(customFacts('PRG', 'ORY')!.od).toBeGreaterThan(300_000);
+    expect(UNSERVED_X).toBeLessThan(1);
+    // A holiday island keeps its holiday series.
+    expect(customMarket({ from: 'MLA', to: 'CAG' })!.models).toContain('tour');
+    // First guesses sit near the researched markets now (Prague's used to be 19–22 %, all "sold as holidays").
+    for (const base of HOME_BASES) for (const x of routeIdeas(withPlanner(game(base)))) expect(x.margin, `${base} ${x.marketId}`).toBeLessThan(0.3);
+  }, 120_000);
+
+  it('an ETOPS approval won this month changes the list at once (the cache and the screen follow it)', () => {
+    const g = withPlanner(game('LIS'));
+    devAddType(g, 'b763');
+    const k0 = routeIdeasKey(g);
+    const before = routeIdeas(g).map((x) => x.marketId);
+    for (const id of ['widebody', 'etops120', 'etops180'] as const) devGrantApproval(g, id);
+    const k1 = routeIdeasKey(g);
+    expect(k1).not.toBe(k0);
+    const after = routeIdeas(g).map((x) => x.marketId);
+    // The same list a game gets that held the approvals before it first asked.
+    const g2 = withPlanner(game('LIS'));
+    devAddType(g2, 'b763');
+    for (const id of ['widebody', 'etops120', 'etops180'] as const) devGrantApproval(g2, id);
+    expect(after).toEqual(routeIdeas(g2).map((x) => x.marketId));
+    expect(after).not.toEqual(before);
+    // No planner: no key (the screen shows nothing).
+    expect(routeIdeasKey(game('LIS'))).toBe('');
+  }, 120_000);
+});
+

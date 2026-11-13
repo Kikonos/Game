@@ -6,7 +6,7 @@ import type { GameState } from '../../../engine/core/types';
 import { LAUNCH_STAGES, type LaunchStage, type Route } from '../../../engine/network/types';
 import { Bar } from '../../components/ui';
 import { money } from '../../format';
-import { STAGE_HINT, STAGE_LABEL, statusChip } from './networkLogic';
+import { marketOf, STAGE_LABEL, stageHint, statusChip } from './networkLogic';
 
 export function StatusChip({ r }: { r: Route }) {
   const s = statusChip(r);
@@ -67,7 +67,7 @@ export function LaunchProgress({ g, r, compact }: { g: GameState; r: Route; comp
               <span className={`tiny nowrap ${s.state === 'delayed' || s.state === 'waiting' ? 'warn' : s.state === 'failed' ? 'bad' : 'muted'}`}>{STATE_WORD[s.state]}</span>
             </div>
             <div className="tiny muted">
-              {s.state === 'todo' ? STAGE_HINT[s.id] : [
+              {s.state === 'todo' ? stageHint(s.id, marketOf(r)) : [
                 s.start ? `from ${fmtDay(s.start)}` : '',
                 s.due ? `${s.state === 'done' ? 'done' : 'due'} ${fmtDayRel(s.due, g.now)}` : '',
                 s.cost ? money(s.cost) : '',

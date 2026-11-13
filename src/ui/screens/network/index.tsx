@@ -10,7 +10,7 @@ import type { RouteMarket } from '../../../data/routes';
 import { typeOf } from '../../../engine/core/perf';
 import { fmtDate, fmtDay } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
-import { catalogueFor, marketById, reopenStudy, routeIdeas, routeIdeasNone, studyList, validStudyFor, type StudyRow } from '../../../engine/network';
+import { catalogueFor, marketById, reopenStudy, routeIdeas, routeIdeasKey, routeIdeasNone, studyList, validStudyFor, type StudyRow } from '../../../engine/network';
 import type { Route } from '../../../engine/network/types';
 import { Bar, Empty } from '../../components/ui';
 import { Help } from '../../components/Help';
@@ -119,8 +119,7 @@ function Studies({ g }: { g: GameState }) {
 /** v0.21 the network planner's shortlist of pairs worth a study (only with a planner on the team). */
 function Ideas({ g }: { g: GameState }) {
   const h = g.heads?.netPlanner;
-  const month = Math.floor(g.now / (1440 * 30));
-  const deps = [g.network?.rev, month, h?.hired?.since, h?.on, Object.keys(g.fleet).length];
+  const deps = [routeIdeasKey(g)];
   const ideas = useMemo(() => routeIdeas(g), deps); // eslint-disable-line react-hooks/exhaustive-deps
   const none = useMemo(() => routeIdeasNone(g), deps); // eslint-disable-line react-hooks/exhaustive-deps
   if (!h?.hired || !h.on || (!ideas.length && !none)) return null;
