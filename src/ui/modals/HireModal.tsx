@@ -8,6 +8,7 @@ import { typeOf } from '../../engine/core/perf';
 import { DAY, fmtDate, fmtDay } from '../../engine/core/time';
 import type { GameState, Role } from '../../engine/core/types';
 import { hireCrew, hireQuote, type HireRequest, payFor, staffing } from '../../engine/crew';
+import { crewTypeBlock } from '../../engine/leasing';
 import { Modal, Seg, Stepper } from '../components/ui';
 import { Help } from '../components/Help';
 import { money } from '../format';
@@ -17,12 +18,16 @@ import { store, useGame } from '../store';
 import { lockOf } from '../../engine/scenario';
 import { LockNote } from '../components/Locked';
 
-/** Families flown or on order first, then the rest of the catalogue. */
+/** Families flown or on order first, then the rest of the catalogue; v0.24 the ones we may crew before the others. */
 function families(g: GameState): RatingFamily[] {
   const fleet = [...new Set(Object.values(g.fleet).map((a) => typeOf(a.typeId).family))];
   const all = [...new Set(ACMI_TYPES_LIST.map((t) => t.family))];
-  return [...fleet, ...all.filter((f) => !fleet.includes(f))];
+  const list = [...fleet, ...all.filter((f) => !fleet.includes(f))];
+  return [...list.filter((f) => !crewTypeBlock(g, f)), ...list.filter((f) => crewTypeBlock(g, f))];
 }
+
+/** v0.24 the '?' by the type field: why some types are greyed out. */
+export const AOC_TYPE_NOTE = 'Crew train on our manuals for the type: OM-B, MEL and the training programme. They exist once the type is on our AOC, or its variation is filed (Company › Ladder › Add a type). Widebody operations brings the first widebody type.';
 
 function bases(g: GameState): string[] {
   const out = [g.company.homeBase];
@@ -68,6 +73,9 @@ export function HireModal({ role: role0, family: fam0, base: base0, count: count
     if (!isPilotRole(r) && pilot && !ticked.includes(family)) setTicked([family]);
     setRole(r);
   };
+  // v0.24 a type not on our AOC (no variation filed) cannot be crewed: the reason under the field, Hire off.
+  const blocked = pilot ? crewTypeBlock(g, family) : ticked.map((f) => crewTypeBlock(g, f)).find(Boolean) ?? null;
+  const anyBlocked = fams.some((f) => crewTypeBlock(g, f));
   const hire = () => {
     const res = store.act((gg) => hireCrew(gg, req));
     if (res.ok) store.closeModal();
@@ -77,7 +85,7 @@ export function HireModal({ role: role0, family: fam0, base: base0, count: count
     <Modal title="Hire crew" icon={<UserPlus className="accent" />} onClose={() => store.closeModal()} footer={
       <>
         <button className="btn" onClick={() => store.closeModal()}>Cancel</button>
-        <button className="btn btn-primary" onClick={hire} disabled={g.company.cash < q.cost || !!lockOf(g, 'hiring', { count })}><UserPlus /> Hire {count} for {money(q.cost)}</button>
+        <button className="btn btn-primary" onClick={hire} disabled={g.company.cash < q.cost || !!lockOf(g, 'hiring', { count }) || !!blocked}><UserPlus /> Hire {count} for {money(q.cost)}</button>
       </>
     }>
       <div className="col gap-16">
@@ -91,9 +99,9 @@ export function HireModal({ role: role0, family: fam0, base: base0, count: count
         {pilot ? (
           <div className="grid-2">
             <div className="field">
-              <label>Type rating</label>
+              <label>Type rating{anyBlocked && <> <Help title="Types not on our AOC">{AOC_TYPE_NOTE}</Help></>}</label>
               <select className="select" value={family} onChange={(e) => setFamily(e.target.value as RatingFamily)}>
-                {fams.map((f) => <option key={f} value={f}>{f}</option>)}
+                {fams.map((f) => <option key={f} value={f} disabled={!!crewTypeBlock(g, f) && f !== family}>{f}{crewTypeBlock(g, f) ? ' · not on our AOC' : ''}</option>)}
               </select>
             </div>
             <BaseField g={g} base={base} setBase={setBase} />
@@ -101,13 +109,14 @@ export function HireModal({ role: role0, family: fam0, base: base0, count: count
         ) : (
           <>
             <div className="field">
-              <label>Aircraft types <span className="dim">({ticked.length} of {MAX_TYPES})</span> <Help title="Aircraft types">{EXTRA_TYPE_NOTE}</Help></label>
+              <label>Aircraft types <span className="dim">({ticked.length} of {MAX_TYPES})</span> <Help title="Aircraft types">{EXTRA_TYPE_NOTE}{anyBlocked && <><br /><br />{AOC_TYPE_NOTE}</>}</Help></label>
               <div className="hm-ticks" role="group" aria-label="Aircraft types">
                 {fams.map((f) => {
                   const on = ticked.includes(f);
                   const full = !on && ticked.length >= MAX_TYPES;
+                  const noAoc = !on && !!crewTypeBlock(g, f);
                   return (
-                    <button key={f} className={`chip hm-tick ${on ? 'on' : ''}`} aria-pressed={on} disabled={full} onClick={() => tick(f)} data-tip={full ? 'Up to 3 types' : undefined}>
+                    <button key={f} className={`chip hm-tick ${on ? 'on' : ''}`} aria-pressed={on} disabled={full || noAoc} onClick={() => tick(f)} data-tip={noAoc ? 'Not on our AOC' : full ? 'Up to 3 types' : undefined}>
                       <span className="hm-box" aria-hidden>{on && <Check />}</span>{FAMILY_TICK[f]}
                     </button>
                   );
@@ -143,6 +152,7 @@ export function HireModal({ role: role0, family: fam0, base: base0, count: count
             <div className="small muted">Salary {money(salary)} / month each</div>
           </div>
         )}
+        {blocked && <div className="small warn">{blocked}.</div>}
         {q.beyondPool > 0 && <div className="small warn">The market has few rated {req.family} {role} free: {q.beyondPool} of these come through an agency (+{money(q.fee)} fee) and take longer to join.</div>}
       </div>
     </Modal>
