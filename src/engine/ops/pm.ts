@@ -14,7 +14,6 @@ import { post } from '../core/ledger';
 import { typeOf } from '../core/perf';
 import { DAY } from '../core/time';
 import type { ActionResult, Aircraft, GameState, PmLevel } from '../core/types';
-import { lockOf } from '../scenario/rules';
 import { ageOf } from './util';
 
 const P = () => BAL.pm;
@@ -94,8 +93,6 @@ export function pmQuote(g: GameState, level: PmLevel): PmQuote {
 /** Player action: the fleet's programme level. The cost changes today; the effect builds over BAL.pm.rampDays. */
 export function setPmLevel(g: GameState, level: PmLevel): ActionResult {
   if (!PM_LEVELS.includes(level)) return { ok: false, error: 'Unknown level' };
-  const lk = lockOf(g, 'fleet');
-  if (lk) return { ok: false, error: lk };
   const cur = pmLevel(g);
   if (cur === level) return { ok: true };
   // Mid-change: start from the level nearer to what is in force now (a change never jumps the factors far).
