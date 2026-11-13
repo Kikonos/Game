@@ -12,6 +12,8 @@ import { resolveDecision } from '../ops';
 import { applyVariation, crewTypeBlock, waitingTypeCrew } from './aoc';
 import { newGame } from './deals017.helpers';
 
+const err = (r: { ok: boolean }) => (r as { error?: string }).error;
+
 describe('v0.24 crew hiring gate on the AOC', () => {
   it('refuses pilots and cabin crew for a family not on our AOC, with a plain reason', () => {
     const g = newGame(3);
@@ -21,12 +23,12 @@ describe('v0.24 crew hiring gate on the AOC', () => {
     for (const role of ['CPT', 'FO'] as const) {
       const r = hireCrew(g, { role, family: 'B737', base: 'LIS', count: 2 });
       expect(r.ok).toBe(false);
-      expect(r.error).toMatch(/B737 is not on our AOC: file the variation first/);
+      expect(err(r)).toMatch(/B737 is not on our AOC: file the variation first/);
     }
     // Widebody: neither Widebody operations nor a variation.
     const w = hireCrew(g, { role: 'CPT', family: 'A330/340', base: 'LIS', count: 2 });
     expect(w.ok).toBe(false);
-    expect(w.error).toMatch(/Widebody operations/);
+    expect(err(w)).toMatch(/Widebody operations/);
     // Cabin crew: any type ticked that is not on the AOC refuses the whole order.
     const c = hireCrew(g, { role: 'CC', family: 'A320', families: ['A320', 'B737'], base: 'LIS', count: 4 });
     expect(c.ok).toBe(false);
@@ -58,7 +60,7 @@ describe('v0.24 crew hiring gate on the AOC', () => {
     expect(plan.warnings[0].text).toMatch(/B737 is not on our AOC/);
     const r = startConversion(g, { crewIds: ids, family: 'B737', start: conversionEarliest(g) });
     expect(r.ok).toBe(false);
-    expect(r.error).toMatch(/not on our AOC/);
+    expect(err(r)).toMatch(/not on our AOC/);
   });
 
   it('an older save: crew hired on a type not on the AOC are kept and put to the player once', () => {
