@@ -50,6 +50,7 @@ import { ProblemModal } from '../modals/ProblemModal';
 import { GlossaryModal } from '../modals/GlossaryModal';
 import { TripMoveModal } from '../modals/TripMoveModal';
 import { MaintMoveModal } from '../modals/MaintMoveModal';
+import { PositionModal } from '../modals/PositionModal';
 import { ClientModal, OutlookModal, RivalModal, WorldEventModal } from '../modals/V08Modals';
 import { CURRENT } from '../../data/whatsNew';
 import { DEVICE_NAME, deviceLabel, deviceNow, type DevicePref, detectedDevice, INPUT_NAME, UI_SCALE, type UiSize, uiSizeNow, uiZoomNow } from '../device';
@@ -422,6 +423,7 @@ export function GlobalModals() {
     case 'problem': return s.game ? <ProblemModal subject={m.subject} hint={m.hint} /> : null;
     case 'glossary': return <GlossaryModal term={m.term} />;
     case 'tripMove': return s.game ? <TripMoveModal key={`${m.flightId}>${m.targetId}`} flightId={m.flightId} targetId={m.targetId} back={m.back} /> : null;
+    case 'position': return s.game ? <PositionModal key={`${m.aircraftId}@${m.from}`} aircraftId={m.aircraftId} from={m.from} /> : null;
     case 'maintMove': return s.game ? <MaintMoveModal key={`${m.maintId}@${m.start}`} maintId={m.maintId} start={m.start} /> : null;
     case 'client': return s.game ? <ClientModal clientId={m.clientId} /> : null;
     case 'rival': return s.game ? <RivalModal rivalId={m.rivalId} /> : null;

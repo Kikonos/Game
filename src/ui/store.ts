@@ -207,6 +207,8 @@ export type ModalSpec =
   | { kind: 'problem'; subject: ProblemRef; hint?: boolean }
   | { kind: 'glossary'; term?: TermId }
   /** v0.7.2.1 trip swap: confirm moving the trip of a flight to another aircraft (money before / after). */
+  /** v0.23.3 position an aircraft from an idle stretch on the Schedule (`from`: the stretch's start). */
+  | { kind: 'position'; aircraftId: string; from: number }
   | { kind: 'tripMove'; flightId: string; targetId: string; /** v0.9.1 the dialog to come back to (the offer's schedule portal) */ back?: ModalSpec }
   /** v0.7.2.2 check planning: confirm moving a booked A/C-check or refit along its aircraft's timeline. */
   | { kind: 'maintMove'; maintId: string; start: number }

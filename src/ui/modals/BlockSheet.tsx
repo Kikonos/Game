@@ -1,7 +1,7 @@
 // Schedule detail sheet (B5): the flight(s) or maintenance near a Gantt tap, or an idle gap.
 // Flight: times UTC/local, crew and legality, contract link. Maintenance: reschedule / cancel.
 
-import { ArrowRightLeft, CalendarClock, ChevronLeft, ChevronRight, Clock, FileSignature, Handshake, Lock, Palette, Repeat, Search, Sofa, Trash2, Users, Wrench } from 'lucide-react';
+import { ArrowRightLeft, CalendarClock, ChevronLeft, ChevronRight, Clock, FileSignature, Handshake, Lock, Palette, PlaneTakeoff, Repeat, Search, Sofa, Trash2, Users, Wrench } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { fmtDateTime, fmtDay, fmtDayRel, fmtDuration, fmtTime } from '../../engine/core/time';
@@ -11,6 +11,7 @@ import { seatLabel, typeOf } from '../../engine/core/perf';
 import { cabinOptions, cancelCheck, checkStatus, delayFlight, dryLeaseView, flightCrewAboard, flightType, flightZone, refitSlots } from '../../engine/ops';
 import { ClientCrewRow } from './v08Bits';
 import { gapCheck, type GapOption } from '../../engine/ops/maintMove';
+import { cancelPosition, positionLegs, positionTargets, quotePosition } from '../../engine/ops/position';
 import { problemAt } from '../../engine/problems';
 import { tripOf, tripTargets } from '../../engine/ops/tripMove';
 import { subleaseTrip } from '../../engine/ops/sublease';
@@ -186,6 +187,8 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
   const zone = f.status === 'scheduled' ? flightZone(g, f.id) : null;
   if (zone) rows.push(['World event', <button className={`chip sc-chip ${zone.effect === 'held' ? 'bad' : 'warn'}`} onClick={() => store.openModal({ kind: 'worldEvent', eventId: zone.eventId })}>{zone.text}</button>]);
   if (f.warRisk) rows.push(['War-risk cover', `${money(f.warRisk)} for this landing`]);
+  // v0.23.3 a move the player ordered from the Schedule's idle line.
+  if (f.pos) rows.push(['Positioning', `Booked by you · to ${AIRPORT_BY_CODE[f.pos.to]?.city ?? f.pos.to} (${f.pos.to})`]);
   if (f.purpose === 'lease' && c?.dry) rows.push(['Dry lease', `${c.dry.outIds.includes(f.id) ? 'Delivery' : 'Return'} ferry · ${g.clients[c.clientId]?.name ?? 'lessee'} at ${c.dry.site}`]);
   if (d) rows.push(['Duty', `Day length ${hm(d.fdp)} of ${hm(d.maxFdp + (d.discretion ?? 0))} · ${d.sectors} sector${d.sectors === 1 ? '' : 's'}${d.augment ? ` · ${2 + d.augment} pilots (${dutyPilotsLine(g, d)})` : ''}${d.ext ? ' · planned extension' : ''}${d.split ? ' · split duty' : ''}${d.discretion ? ` · commander's discretion +${hm(d.discretion)}` : ''}`]);
   const live = f.status === 'scheduled' && !!f.aircraftId;
@@ -258,6 +261,7 @@ function FlightDetail({ g, f }: { g: GameState; f: Flight }) {
           <Stepper value={hold} min={0} max={8} onChange={setHold} format={(v) => (v ? `+${v * 30} min` : 'Hold')} />
           <button className="btn" onClick={doHold} disabled={!hold}><Clock /> Delay</button>
           {canSub && <button className="btn" onClick={() => store.openModal({ kind: 'subcharter', contractId: c!.id, flightId: f.id, ...(sub?.ok ? { flightIds: sub.flightIds } : {}) })} title={f.sched ? 'Another operator flies it under our flight number; passengers keep their tickets, no penalty' : 'Another operator flies it for us; the client still pays us (a sub-charter)'}><Handshake /> {f.sched ? 'Sub-charter' : 'Sub-lease'}</button>}
+          {f.pos && <button className="btn btn-danger" onClick={() => { const r = store.act((gg) => cancelPosition(gg, f.id)); if (r.ok) store.closeModal(); }} title="The legs still to fly are removed; crew tickets already bought are not refunded"><Trash2 /> Cancel positioning{positionLegs(g, f.id).length > 1 ? ` (${positionLegs(g, f.id).length} legs)` : ''}</button>}
           {trip && <button className={`btn ${moving ? 'active' : ''}`} onClick={() => setMoving(!moving)} disabled={!trip.ok} title={trip.ok ? `Move ${trip.label} to another aircraft` : trip.reason}><ArrowRightLeft /> Move trip to…</button>}
         </div>
       )}
@@ -340,7 +344,7 @@ function MaintDetail({ g, m }: { g: GameState; m: MaintenanceEvent }) {
 }
 
 /**
- * v0.7.2.2 the idle gap's own work: Book C-check, Book A-check, Cabin refit, each pre-filled for this aircraft at this
+ * v0.7.2.2 the idle gap's own work: Book C-check, Book A-check, Cabin refit (v0.23.3 and Position), each pre-filled for this aircraft at this
  * gap. Under each check: the interval usage if done at the gap's start and the next due date (disabled with the reason
  * when the gap is too short or the aircraft can't get there); under the refit: the earliest window in the gap.
  */
@@ -358,6 +362,11 @@ function GapActions({ g, idle }: { g: GameState; idle: { aircraftId: string; fro
   const rs = !refitBooked && label ? refitSlots(g, ac.id, label, 1, from) : null;
   const rslot = rs?.slots[0];
   const inGap = !!rslot && rslot.start < idle.to;
+  // v0.23.3 Position: open unless the aircraft can't be moved at all (the first shortlist airport's quick quote says why).
+  const tgt = positionTargets(g, ac.id, from, 1)[0];
+  const pq = tgt ? quotePosition(g, ac.id, tgt.code, { from, quick: true }) : null;
+  const fixed = !!pq && !pq.ok && !!pq.reason && pq.reason.startsWith(ac.reg);
+  const pos = { ok: !fixed, why: fixed ? pq!.reason : null, hint: pq?.ok && tgt ? `${tgt.tag} ${tgt.code}: ${fmtDuration(pq.block, true)} · ${money(pq.total)}` : null };
   const check = (k: 'A' | 'C', o: GapOption) => {
     const old = booked(k === 'A' ? st.nextA : st.nextC);
     return (
@@ -372,6 +381,11 @@ function GapActions({ g, idle }: { g: GameState; idle: { aircraftId: string; fro
     <div className="gap-acts">
       {check('C', c)}
       {check('A', a)}
+      <button className={`gap-act ${pos.ok ? '' : 'blocked'}`} disabled={!pos.ok} onClick={() => store.openModal({ kind: 'position', aircraftId: ac.id, from })}>
+        <b className="row gap-6"><PlaneTakeoff /> Position</b>
+        <span className="small muted">{pos.ok ? 'fly it empty to another airport' : pos.why}</span>
+        {pos.ok && pos.hint && <span className="tiny muted">{pos.hint}</span>}
+      </button>
       <button className="gap-act" onClick={() => store.openModal({ kind: 'refit', aircraftId: ac.id, after: from })}>
         <b className="row gap-6"><Sofa /> Cabin refit</b>
         <span className="small muted">now {ac.cabin.label}</span>
