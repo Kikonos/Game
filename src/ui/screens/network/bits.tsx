@@ -8,8 +8,8 @@ import { Bar } from '../../components/ui';
 import { money } from '../../format';
 import { marketOf, STAGE_LABEL, stageHint, statusChip } from './networkLogic';
 
-export function StatusChip({ r }: { r: Route }) {
-  const s = statusChip(r);
+export function StatusChip({ r, now }: { r: Route; now?: number }) {
+  const s = statusChip(r, now);
   return <span className={`nw-chip ${s.tone}`}>{s.label}</span>;
 }
 

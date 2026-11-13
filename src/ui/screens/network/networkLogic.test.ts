@@ -27,6 +27,10 @@ describe('v0.19 network view helpers', () => {
     // v0.23.2 a seasonal series names its months.
     expect(seriesWords({ days: 1 << 5, every: 1, months: 0b111000001111 })).toBe('Weekly, Sat, Oct–Apr');
     expect(seriesWords({ days: 1 << 5, every: 1, months: 4095 })).toBe('Weekly, Sat');
+    const winter = route({ series: [{ id: 's1', days: 1 << 5, every: 1, out: 420, back: 795, nights: 0, typeId: 'a320ceo', layout: 'two-class', from: 0, to: 9e9, months: 0b111000001111 }] });
+    expect(statusChip(winter, fromUTC(2027, 7, 10)).label).toBe('Out of season');
+    expect(statusChip(winter, fromUTC(2027, 12, 10)).label).toBe('Operating');
+    expect(statusChip(winter).label).toBe('Operating');
     expect(daysOf(0b1000001)).toEqual([0, 6]);
     expect(hhmm(400)).toBe('06:40');
     expect(hhmm(-30)).toBe('23:30');

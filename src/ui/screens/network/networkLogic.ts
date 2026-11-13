@@ -7,6 +7,7 @@ import { ROUTE_MARKETS, type RouteMarket } from '../../../data/routes';
 import { typeOf } from '../../../engine/core/perf';
 import { DAY, fmtDay, fmtTime, localMinuteOfDay, monthKey, toDate } from '../../../engine/core/time';
 import type { GameState, Minute, MonthKey } from '../../../engine/core/types';
+import { routeResting } from '../../../engine/network/costs';
 import { monthsWords } from '../../../engine/network/model';
 import type { LaunchStageId, Rotation, Route, RoutePnl, RouteSeries, SectorLoad } from '../../../engine/network/types';
 
@@ -128,7 +129,9 @@ export function depthHint(d: 'desk' | 'full' | 'survey', m?: Pick<RouteMarket, '
 export type Tone = 'good' | 'warn' | 'bad' | 'info' | 'off';
 
 /** The status chip (Study · Business case · Launching (stage x of 11) · On sale · Operating · Suspended · Closed). */
-export function statusChip(r: Route): { label: string; tone: Tone } {
+export function statusChip(r: Route, now?: Minute): { label: string; tone: Tone } {
+  // v0.23.2 a seasonal route out of its season: no flights until its months come round.
+  if (now !== undefined && r.status === 'operating' && routeResting(r, now)) return { label: 'Out of season', tone: 'info' };
   switch (r.status) {
     case 'study': return { label: 'Study', tone: 'info' };
     case 'case': return { label: 'Your decision', tone: 'warn' };

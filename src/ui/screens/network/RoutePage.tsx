@@ -317,7 +317,7 @@ export function RoutePage({ routeId, tab: tab0 }: { routeId: string; tab?: Tab }
   const m = marketOf(r);
   const s0 = r.series[0];
   return (
-    <Modal title={<span className="row gap-8 nw-title"><span className="ellipsis">{routeName(r)}</span><StatusChip r={r} /></span>} icon={<Plane className="accent" />} onClose={close} size="xwide" className="nw-modal nw-route">
+    <Modal title={<span className="row gap-8 nw-title"><span className="ellipsis">{routeName(r)}</span><StatusChip r={r} now={g.now} /></span>} icon={<Plane className="accent" />} onClose={close} size="xwide" className="nw-modal nw-route">
       <div className="col gap-12">
         <div className="small muted nw-route-sub">
           <span className="mono">{routeCode(m)}</span> · {modelLabel(g, r)}{s0 ? ` · ${seriesAircraft(g, s0)}` : ''}

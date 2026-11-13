@@ -34,7 +34,7 @@ function RouteRow({ g, r }: { g: GameState; r: Route }) {
   return (
     <button className="card nw-row" onClick={open} aria-label={`${routeName(r)}: open`}>
       <div className="nw-row-head">
-        <StatusChip r={r} />
+        <StatusChip r={r} now={g.now} />
         <b className="nw-row-name ellipsis">{routeName(r)}</b>
         <span className="mono small muted nowrap">{routeCode(m)}</span>
         {!launching && <span className={`small nowrap nw-rep ${rep.tone}`}>{rep.word}</span>}
