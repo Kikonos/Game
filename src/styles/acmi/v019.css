@@ -351,6 +351,8 @@
 .nw-study .nw-chip { flex-shrink: 0; }
 .nw-study .nw-valid { margin-left: 0; flex-shrink: 0; }
 @media (hover: hover) { .nw-study:not(:disabled):hover { background: var(--panel-hover); } }
+.nw-study.nw-none { cursor: default; min-height: 44px; }
+@media (hover: hover) { .nw-study.nw-none:hover { background: transparent; } }
 
 @media (max-width: 760px) {
   .nv-grid { grid-template-columns: 1fr; }

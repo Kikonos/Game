@@ -8,6 +8,7 @@ import type { CabinLayout } from '../../../data/acmiTypes';
 import { typeOf } from '../../../engine/core/perf';
 import { DAY } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
+import { monthsWords, seasonMonths } from '../../../engine/network/model';
 import type { Route, RouteSeries } from '../../../engine/network/types';
 import { Seg, Stepper } from '../../components/ui';
 import { store } from '../../store';
@@ -34,6 +35,7 @@ export function TimetableEditor({ g, r, series, onDone }: { g: GameState; r: Rou
   });
   const [err, setErr] = useState<string | null>(null);
   const monthly = !!s.monthly;
+  const season = m ? seasonMonths(m) : null;
   const fleetTypes = useMemo(() => [...new Set(Object.values(g.fleet).map((a) => a.typeId))], [g.fleet]);
   const tails = Object.values(g.fleet).filter((a) => a.typeId === s.typeId && a.status !== 'leasedOut');
   const layouts: CabinLayout[] = ['two-class', 'all-economy', 'three-class'];
@@ -98,6 +100,12 @@ export function TimetableEditor({ g, r, series, onDone }: { g: GameState; r: Rou
           </select>
         </span>
       </div>
+      {season && (
+        <div className="nw-draft-row">
+          <span className="small muted">Months</span>
+          <Seg<string> value={s.months !== undefined ? 's' : 'y'} onChange={(v) => set({ months: v === 's' ? season : undefined })} options={[{ value: 's', label: monthsWords(season) }, { value: 'y', label: 'All year' }]} />
+        </div>
+      )}
       <div className="nw-draft-row">
         <span className="small muted">Runs</span>
         <span className="row gap-6 wrap">

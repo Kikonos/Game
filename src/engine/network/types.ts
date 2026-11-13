@@ -73,6 +73,8 @@ export interface RouteSeries {
   /** The dates the series runs (normally one IATA season). */
   from: Minute;
   to: Minute;
+  /** v0.23.2 the months it flies (bit 0 = January, at the origin's local date); absent = every month. */
+  months?: number;
 }
 
 /** §J.1 one sector of a rotation: seats, bookings, what flew, its money. */
@@ -193,7 +195,7 @@ export interface Route {
   reputation: number;
   /** Ticket cash taken for sectors not yet flown (§N.2). */
   unearned: number;
-  /** §D.5 the LIS slot series this season. */
+  /** §D.5 the slot series at the route's base this season. */
   slots?: { held: number; flown: number; season: string };
   tanker?: boolean;
   pnl: Record<MonthKey, RoutePnl>;
@@ -209,7 +211,7 @@ export interface Route {
   told?: Record<string, Minute>;
   /** The partner's fee a block hour (partner model), fixed at Go (a better fee won at the brand stage raises it). */
   partnerFeeBH?: number;
-  /** Stations without a caterer up to the standard (double catering from Lisbon); fuel on cash terms. */
+  /** Stations without a caterer up to the standard (double catering from the route's base); fuel on cash terms. */
   noCaterer?: string[];
   /** A rival's reaction to the launch: its fare cut until a date. */
   rivalCut?: { x: number; until: Minute };
@@ -237,6 +239,8 @@ export interface RoutePlan {
   layout?: CabinLayout;
   fares: FareLevel;
   marketing: MarketingLevel;
+  /** v0.23.2 fly only the market's season (model.seasonMonths: winter sun from the Baltics, summer to the islands). */
+  season?: true;
 }
 
 /** A temporary dent in a route's demand (J only, or all passengers). */

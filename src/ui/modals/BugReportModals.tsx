@@ -28,7 +28,7 @@ export function modalRef(m: ModalSpec | null | undefined, g: GameState | null): 
       return f ? flight(f.id) : undefined;
     }
     case 'subcharter': return m.flightId ? flight(m.flightId) : m.flightIds?.length ? flight(m.flightIds[0]) : { kind: 'contract', id: m.contractId };
-    case 'check': case 'refit': case 'lease': case 'sell': case 'delivered': case 'followDelivery': return { kind: 'aircraft', id: m.aircraftId };
+    case 'check': case 'refit': case 'position': case 'lease': case 'sell': case 'delivered': case 'followDelivery': return { kind: 'aircraft', id: m.aircraftId };
     case 'livery': return m.target === 'company' ? undefined : { kind: 'aircraft', id: m.target.aircraftId };
     case 'train': case 'person': return { kind: 'crew', id: m.crewId };
     case 'acquire': case 'loi': return { kind: 'market', id: m.offerId };

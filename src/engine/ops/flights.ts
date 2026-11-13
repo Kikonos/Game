@@ -1055,6 +1055,8 @@ function depart(g: GameState, f: Flight, ac: Aircraft): void {
   ac.flightId = f.id;
   ac.at = f.from;
   ac.status = 'flying';
+  // v0.23.3 no longer where the player parked it.
+  delete ac.parked;
   f.eta = curfewEta(g, f, g.now + Math.max(15, Math.round(f.block * (1 + range(g, -BAL.windNoise, BAL.windNoise)))));
   schedule(g, f.eta, 'flight.arr', f.id, f.ev);
   // v0.11 a weather closure, a medical event or a technical fault later in this flight (side stream, the director).
@@ -1621,6 +1623,8 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
   ac.flightId = null;
   ac.at = f.to;
   if (ac.status === 'flying') ac.status = 'available';
+  // v0.23.3 the last leg of a move the player ordered: the aircraft stays here until it has work (no ferry home).
+  if (f.pos && f.to === f.pos.to) ac.parked = f.to;
   const block = Math.max(0, g.now - (f.atd ?? f.std));
   const bh = block / 60;
   const fh = Math.max(0, block - 20) / 60;

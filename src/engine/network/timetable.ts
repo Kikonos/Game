@@ -3,6 +3,7 @@
 // route's contract (archetype 'scheduled', a charter at price 0: trip moves, sub-charters, crew, positioning and the
 // flight sheet work unchanged). The player moves or cancels single rotations or whole series at a small cost.
 
+import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { inCurfew } from '../core/curfew';
 import { addFlight, liveFlightsOf, nextId, removeFlights, retimeFlight, touchFlights } from '../core/entities';
@@ -16,7 +17,7 @@ import { relinkPositioning } from '../contracts/schedule';
 import { anchorsOf } from '../contracts/plan';
 import { autoRoster } from '../crew/roster';
 import { noteRouteSub } from './costs';
-import { cabinFor, localToUtc, localWeekday, marketOfRoute, rotationTimes, seasonCode, usd } from './model';
+import { cabinFor, localMonth, localToUtc, localWeekday, marketOfRoute, rotationTimes, seasonCode, usd } from './model';
 import { bumpRoute } from './reputation';
 import { pushRouteNote } from './notes';
 import { setRouteCabin } from './cabin';
@@ -35,6 +36,8 @@ export function seriesDates(g: GameState, route: Route, s: RouteSeries): Minute[
   for (let day = Math.floor(from / DAY) * DAY - DAY; day <= to + DAY; day += DAY) {
     const dep = localToUtc(m.from, day + 12 * 60, s.out);
     if (dep < from || dep > to) continue;
+    // v0.23.2 a seasonal series flies only in its months.
+    if (s.months !== undefined && !(s.months & (1 << localMonth(m.from, dep)))) continue;
     const wd = localWeekday(m.from, dep);
     if (s.monthly) {
       if (wd !== s.monthly.weekday) continue;
@@ -359,7 +362,7 @@ export function quoteMoveRotation(g: GameState, rotId: string, deltaMin: number)
   const P = BAL.v019.pax.change;
   const cost = Math.round(pax * P.move[band]);
   const repDelta = P.rep[band];
-  if (Math.abs(deltaMin) > BAL.v019.ops.slotFreeMin && route.model === 'own') notes.push('More than an hour from the held slot: Lisbon gives a new slot for it.');
+  if (Math.abs(deltaMin) > BAL.v019.ops.slotFreeMin && route.model === 'own') notes.push(`More than an hour from the held slot: ${AIRPORT_BY_CODE[rot.sectors[0]?.from ?? '']?.city ?? 'the airport'} gives a new slot for it.`);
   if (pax) notes.push(`${pax} booked passenger${pax === 1 ? '' : 's'} told and rebooked${band ? ' at short notice' : ''}.`);
   if (acId) notes.push('The crew are re-planned for the new times.');
   return { ok: true, dep, cost, repDelta, pax, notes };

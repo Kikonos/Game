@@ -29,7 +29,7 @@ export const WORLD_ZONES: WorldZone[] = [
     ring: [[24, 8.5], [27, 5], [30, 3.6], [34, 4], [35.9, 4.6], [34, 8], [33, 10], [32, 12], [28, 10], [25, 10]],
   },
   {
-    id: 'libya', name: 'Libya', adj: 'Libyan', countries: ['LY'], detourMin: 35, airports: ['MJI', 'TIP', 'KUF'], staging: [['MJI', 'MLA']], baseWarRisk: 2,
+    id: 'libya', name: 'Libya', adj: 'Libyan', countries: ['LY'], detourMin: 35, airports: ['MJI', 'TIP', 'KUF', 'BEN'], staging: [['MJI', 'MLA']], baseWarRisk: 2,
     ring: [[9.5, 30], [10, 25], [12, 23], [15, 23], [24, 20], [25, 20], [25, 31.5], [20, 32.5], [15, 32.5], [11.5, 33]],
   },
   {

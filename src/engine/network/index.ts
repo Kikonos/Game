@@ -6,7 +6,7 @@ import { accrue, post } from '../core/ledger';
 import type { SimModule } from '../core/module';
 import { DAY, fmtDay } from '../core/time';
 import type { Flight, GameState, LedgerCat, SimEvent } from '../core/types';
-import { routeDisruptionCost, routeMonthCosts } from './costs';
+import { routeDisruptionCost, routeMonthCosts, routeResting } from './costs';
 import { cashOnly } from '../core/ledger';
 import { notOursCancel } from '../ops/latePolicy';
 import { bumpRoute } from './reputation';
@@ -122,7 +122,7 @@ export function monthlyNetwork(g: GameState): void {
   const routes = routesOn(g);
   if (!routes.length) return;
   for (const r of routes) {
-    for (const [cat, v] of Object.entries(routeMonthCosts(r)) as [LedgerCat, number][]) if (v) post(g, cat, -Math.round(v));
+    for (const [cat, v] of Object.entries(routeMonthCosts(r, routeResting(r, g.now - 1))) as [LedgerCat, number][]) if (v) post(g, cat, -Math.round(v));
     closePnlMonth(g, r);
   }
   touchNetwork(g);

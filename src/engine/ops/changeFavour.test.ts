@@ -41,7 +41,8 @@ function ask(g: GameState, c: Parameters<typeof changeRequestFor>[1]) {
 
 describe('a change request as a favour', () => {
   it("the card names the knock-on up front: the client's own legs (no penalty) and the other client's (our delay)", () => {
-    const { g, A, C, other } = book(61);
+    // v0.23.2 seed 65 (was 61): three airports joined the world, the streams moved; this seed's push reaches the other client's leg.
+    const { g, A, C, other } = book(65);
     const d = ask(g, A.c);
     const desc = d.options.find((o) => o.id === 'accept')!.desc;
     const name = g.clients[A.c.clientId].name;

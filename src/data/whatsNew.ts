@@ -16,6 +16,38 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.23.3',
+    name: 'Routes for every base, position aircraft',
+    features: [
+      'Network now lists markets from your own base. Malta, Madrid, Vilnius, Riga, Tallinn, Prague and Sofia each have 7 or 8 researched markets, with real rivals, fares and seasons.',
+      'Some pay and some lose, as in real life. Routes crowded with low-cost airlines are hard, and a study shows which.',
+      'Each base has one long-haul market for a widebody later, such as Malta–New York or Prague–Hanoi.',
+      'Seasonal routes: a market with a dead season is planned for its season only, such as Tenerife from the Baltics, October to April.',
+      'Out of season there are no flights, the station costs half and the aircraft is free. Change it under Months in the business case.',
+      'New airports: Benghazi, Tangier and Marsa Alam.',
+      'Position an aircraft yourself. On the Schedule, tap an aircraft\'s idle line and choose Position, next to the A-check, C-check and cabin refit.',
+      'Pick the airport from a short list (home base, the next job, crew bases, open offers nearby) or search for any other.',
+      'Before you confirm you see the route with its fuel stops, the times, the cost, the crew and what follows. If it can\'t be done, one line says why.',
+      'The aircraft then waits there. No automatic ferry home, and its next job starts from where it stands.',
+      'Changed your mind? Tap the flight on the Schedule and cancel it before it leaves.',
+    ],
+    improvements: [
+      'The network planner\'s "Worth a study" list follows your base\'s own ties. A city shows once and a country at most twice.',
+      'When the planner has no idea to show, it says why.',
+      'The planner\'s first guesses are more sober. A pair no airline flies nonstop is guessed smaller, and holidays are only sold to holiday places.',
+      'The study and launch campaign texts follow who travels: tour operators on a holiday route, companies on a business route.',
+      'Route costs and text name your own base: the business lounge, catering, tanker fuel and slot notes.',
+      'Tallinn, Prague and Santa Cruz (Bolivia) have their real runway lengths.',
+    ],
+    fixes: [
+      'A game based outside Lisbon listed Lisbon and Porto markets. It now lists only markets from its own bases.',
+      'The network planner suggested nothing at some bases. It now has ideas at every start base, on every start fleet.',
+      'The planner said "Nobody flies it nonstop" for a city\'s second airport, such as Paris Orly. Airlines at the city\'s main airport now count as rivals.',
+      'The planner\'s list did not change after a new ETOPS approval until the month ended. It now changes at once.',
+      'Crew whose flight was moved into their standby hours flew it without being called, then showed on standby at the wrong airport.',
+    ],
+  },
+  {
     version: 'v0.23.2',
     name: 'Hotfix: stuck ferries',
     features: [],

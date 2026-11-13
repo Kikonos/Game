@@ -6,11 +6,11 @@ import { ChevronRight, ClipboardList, Compass, Earth, Globe2, PlusCircle, Route 
 import { useMemo } from 'react';
 import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { flag } from '../../../data/countries';
-import { ROUTE_MARKETS, type RouteMarket } from '../../../data/routes';
+import type { RouteMarket } from '../../../data/routes';
 import { typeOf } from '../../../engine/core/perf';
 import { fmtDate, fmtDay } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
-import { marketById, reopenStudy, routeIdeas, studyList, validStudyFor, type StudyRow } from '../../../engine/network';
+import { catalogueFor, marketById, reopenStudy, routeIdeas, routeIdeasKey, routeIdeasNone, studyList, validStudyFor, type StudyRow } from '../../../engine/network';
 import type { Route } from '../../../engine/network/types';
 import { Bar, Empty } from '../../components/ui';
 import { Help } from '../../components/Help';
@@ -34,7 +34,7 @@ function RouteRow({ g, r }: { g: GameState; r: Route }) {
   return (
     <button className="card nw-row" onClick={open} aria-label={`${routeName(r)}: open`}>
       <div className="nw-row-head">
-        <StatusChip r={r} />
+        <StatusChip r={r} now={g.now} />
         <b className="nw-row-name ellipsis">{routeName(r)}</b>
         <span className="mono small muted nowrap">{routeCode(m)}</span>
         {!launching && <span className={`small nowrap nw-rep ${rep.tone}`}>{rep.word}</span>}
@@ -47,7 +47,7 @@ function RouteRow({ g, r }: { g: GameState; r: Route }) {
         <div className="nw-row-facts">
           {next && load ? (
             <div className="nw-next">
-              <span className="small muted ellipsis">Next {depWords(next.dep, m?.from ?? 'LIS')}</span>
+              <span className="small muted ellipsis">Next {depWords(next.dep, m?.from ?? g.company.homeBase)}</span>
               <div className="nw-lf"><Bar value={load.lf} tone={lfTone(load.lf)} size="thin" /><span className="small num nowrap">{seatsLine(load)}</span></div>
             </div>
           ) : (
@@ -119,13 +119,16 @@ function Studies({ g }: { g: GameState }) {
 /** v0.21 the network planner's shortlist of pairs worth a study (only with a planner on the team). */
 function Ideas({ g }: { g: GameState }) {
   const h = g.heads?.netPlanner;
-  const month = Math.floor(g.now / (1440 * 30));
-  const ideas = useMemo(() => routeIdeas(g), [g.network?.rev, month, h?.hired?.since, h?.on, Object.keys(g.fleet).length]); // eslint-disable-line react-hooks/exhaustive-deps
-  if (!h?.hired || !h.on || !ideas.length) return null;
+  const deps = [routeIdeasKey(g)];
+  const ideas = useMemo(() => routeIdeas(g), deps); // eslint-disable-line react-hooks/exhaustive-deps
+  const none = useMemo(() => routeIdeasNone(g), deps); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!h?.hired || !h.on || (!ideas.length && !none)) return null;
   return (
     <>
       <div className="row between wrap gap-8 nw-open"><span className="upper dim row gap-6"><Earth className="sc-ico-s" /> Worth a study, says {h.hired.name.split(' ')[0]}</span></div>
       <div className="card nw-studies">
+        {/* v0.23.2 an empty shortlist says so; the reason sits behind the "?". */}
+        {!ideas.length && none && <div className="nw-study nw-none"><span className="small muted grow">Nothing worth a study right now</span><Help title="Why no ideas">{none}</Help></div>}
         {ideas.map((x) => (
           <button key={x.marketId} className="nw-study" onClick={() => store.openModal({ kind: 'routeBuild', from: x.from, to: x.to })}>
             <span className="nw-flag" aria-hidden>{flag(AIRPORT_BY_CODE[x.to]?.country ?? '')}</span>
@@ -181,7 +184,8 @@ export default function NetworkView({ g }: { g: GameState }) {
     [g, rev, day], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const tot = useMemo(() => networkTotals(g), [g, rev, day]); // eslint-disable-line react-hooks/exhaustive-deps
-  const markets = ROUTE_MARKETS;
+  // The researched markets from our own bases only (an airline at Malta sees no Lisbon market).
+  const markets = catalogueFor(g);
   return (
     <div className="nw">
       {routes.length > 0 ? (
@@ -199,14 +203,14 @@ export default function NetworkView({ g }: { g: GameState }) {
       <Studies g={g} />
       <Ideas g={g} />
       <div className="row between wrap gap-8 nw-open">
-        <span className="upper dim row gap-6"><Globe2 className="sc-ico-s" /> Suggested markets, researched <Help title="Scheduled routes">
+        <span className="upper dim row gap-6"><Globe2 className="sc-ico-s" /> {markets.length ? 'Suggested markets, researched' : 'New routes'} <Help title="Scheduled routes">
           <p>Fly your own weekly flights on an aircraft that would otherwise stand idle. Launching one takes months of planning; it earns a modest, steady margin.</p>
           <p>Route flights sit on the Schedule beside your ACMI work. When a job wants the aircraft, you choose: swap, sub-charter, move or cancel.</p>
-          <p>These markets are researched already. Your own route can go anywhere, with fuel stops where the aircraft needs them: its study tells how many would fly.</p>
+          <p>{markets.length ? 'These markets are researched already. ' : ''}Your own route can go anywhere, with fuel stops where the aircraft needs them: its study tells how many would fly.</p>
         </Help></span>
         <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'routeLaunch' })}><PlusCircle /> Open a new route</button>
       </div>
-      <div className="card nw-markets">{markets.map((m) => <MarketRow key={m.id} g={g} m={m} />)}</div>
+      {markets.length > 0 && <div className="card nw-markets">{markets.map((m) => <MarketRow key={m.id} g={g} m={m} />)}</div>}
       <button className="card nw-build-card" onClick={() => store.openModal({ kind: 'routeBuild' })} aria-label="Build your own route to any destination">
         <Compass className="accent" aria-hidden />
         <span className="col grow"><b>Build your own route</b><span className="small muted">Any destination in the world, from one of our bases</span></span>

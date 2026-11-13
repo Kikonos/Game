@@ -101,7 +101,7 @@ function inboundJob(g: GameState, aircraftId: string, a: Anchor, X: string): str
 }
 
 /** v0.12.1 (review) chainForward from `from`, moved past any closure on its way (a few tries). */
-function openForward(g: GameState, typeId: string, X: string, Y: string, from: Minute, cap: number, permit: Permit | ((std: Minute) => Permit), day = Infinity): ChainLeg[] | null {
+export function openForward(g: GameState, typeId: string, X: string, Y: string, from: Minute, cap: number, permit: Permit | ((std: Minute) => Permit), day = Infinity): ChainLeg[] | null {
   let t = from;
   for (let i = 0; i < 4; i++) {
     const ch = chainForward(typeId, X, Y, t, cap, day);
@@ -257,7 +257,7 @@ const TICKET_WAIT = 12 * 60;
  * the legs leave no sooner than a ticket from base gets a crew there (same day when short, else the day before).
  * Right after landing the operating crew can still take it on.
  */
-function crewFree(g: GameState, aircraftId: string, X: string, earliest: Minute): Minute {
+export function crewFree(g: GameState, aircraftId: string, X: string, earliest: Minute): Minute {
   const home = g.company.homeBase;
   const blk = X === home ? 0 : ticketBlock(home, X);
   const lead = X === home ? 120 : ticketLead(g.fleet[aircraftId]?.typeId, blk, farOutstation(g, X));
@@ -315,6 +315,15 @@ function behindOn(g: GameState, aircraftId: string, b: Anchor): boolean {
     if (!last || f.std >= last.std) last = f;
   }
   return !!last && last.status === 'cancelled' && last.contractId === b.contractId;
+}
+
+/**
+ * v0.23.3 the player put the aircraft at X (ops/position.ts): it stands there now (`parked`), or the leg before this
+ * gap is the last one of that move. It waits at X for its next work: no ferry home, no hop home and back. Pure.
+ */
+export function parkedAt(g: GameState, aircraftId: string, a: Anchor, X: string): boolean {
+  if (a.kind === 'start') return g.fleet[aircraftId]?.parked === X;
+  return a.kind === 'flight' && g.flights[a.id]?.pos?.to === X;
 }
 
 /** v0.14 the longest night stop between two ferry days of one empty chain (plan.ts nextDay: 14 h, put to 07:00 local). */
@@ -642,7 +651,8 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
       // v0.16.4 (CS-TQM) and whenever it is on the ground away with nothing planned at all: an aircraft away from base
       // always has a way home (or a card says why not: problems/fleet.ts awayIdleCard). Not one being handed back or
       // over abroad (a lease return, a sale), nor one waiting at the seller for its delivery ferry.
-      const idle = a.kind === 'start' && ac.status === 'available' && !ac.returning && !ac.sale && !(ac.delivery && !ac.delivery.arrived);
+      // v0.23.3 nor one the player positioned here: it waits where it was put.
+      const idle = a.kind === 'start' && ac.status === 'available' && !ac.returning && !ac.sale && !(ac.delivery && !ac.delivery.arrived) && !parkedAt(g, aircraftId, a, X);
       const wantHome = (live(g, a.contractId) || (a.kind === 'start' && stranded(g, aircraftId, X)) || idle) && X !== home && a.kind !== 'maint';
       if (legs.length ? chainOk(legs, X, null, earliest) && chainSane(typeId, legs, X, null, home, false, cap, day) : !wantHome) continue;
       const nh = nudged(legs, X, null, earliest, Infinity);
@@ -674,14 +684,16 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     const emptyNext = b.kind === 'flight' && (g.flights[b.id]?.kind === 'ferry' || g.flights[b.id]?.kind === 'positioning');
     // v0.12.1 nor inside a held job (a world tour): the aircraft waits at the stop with its crew.
     const inHold = !!b.contractId && isHold(g.contracts[b.contractId]) && (a.contractId === b.contractId || b.std <= g.now);
-    const allowHop = a.kind !== 'maint' && b.kind !== 'maint' && !sameBase && !emptyNext && !inHold;
+    // v0.23.3 nor from where the player positioned the aircraft: it waits there and flies to Y as late as possible.
+    const parked = parkedAt(g, aircraftId, a, X);
+    const allowHop = a.kind !== 'maint' && b.kind !== 'maint' && !sameBase && !emptyNext && !inHold && !parked;
     // v0.14.1 (OPS-5) before a check at home after a long wait away, the aircraft goes home at once (only the out-and-
     // back hop stays barred around checks): CS-TCS sat 13.5 days at Prague, then a lone 01:50 ferry home to its C-check.
     // v0.16.4 (CS-TQM, player report) and before any commitment that starts at home, whatever it is: an empty ferry out
     // of home (a dry lease's delivery) barred the hop, so the move home was planned as late as possible: CS-TQM sat 24
     // days at Hong Kong after the Hong Kong Airlines cover, its HKG–TAS–BUD–LIS planned for the eve of the ferry to
     // Abidjan, crewless. Going home is no out-and-back: the empty ferry after it is no reason to wait away.
-    const homeFirst = a.kind !== 'maint' && Y === home && X !== home && !inHold;
+    const homeFirst = a.kind !== 'maint' && Y === home && X !== home && !inHold && !parked;
     const latest = b.std - turn;
     // v0.14.1 (CS-TTL, player report) an empty move into a job is timed for the crew who fly the job, not only for the
     // aircraft: as late as possible when one crew flies both in a day that needs no more than the job alone; otherwise,
@@ -769,7 +781,8 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     }
     // v0.12.1 the empty leg out of an alternate after our own technical diversion is our cost: never billed to the
     // client as positioning (seed 9: airBaltic billed for four VAR–RIX legs after our fault at Riga).
-    const inId = a.kind === 'start' && ownFaultAt(g, aircraftId, X) ? null : live(g, b.contractId) ? b.contractId : flying(g, a.contractId) ? a.contractId : null;
+    // v0.23.3 nor the empty leg from where the player positioned the aircraft (away from base): our choice, our cost.
+    const inId = (a.kind === 'start' && ownFaultAt(g, aircraftId, X)) || (parked && X !== home) ? null : live(g, b.contractId) ? b.contractId : flying(g, a.contractId) ? a.contractId : null;
     if (X === Y) {
       if (hop?.length) {
         const k = hop.findIndex((l) => l.to === home) + 1;
@@ -870,6 +883,8 @@ export function awayIdle(g: GameState, aircraftId: string): { why: 'route' | 'cl
   const ac = g.fleet[aircraftId];
   const home = g.company.homeBase;
   if (!ac || ac.at === home || ac.status !== 'available' || ac.flightId || ac.returning || ac.sale || (ac.delivery && !ac.delivery.arrived)) return null;
+  // v0.23.3 positioned here by the player: it waits where it was put.
+  if (ac.parked === ac.at) return null;
   if (liveFlightsOf(g, aircraftId).some((f) => f.status === 'scheduled' || f.status === 'enroute') || onwardPending(g, aircraftId)) return null;
   // Where it has to be next: its next commitment (a base programme, a check) elsewhere, else home; one here is a plan.
   const next = anchorsOf(g, aircraftId).find((x) => x.kind !== 'start');

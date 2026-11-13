@@ -49,6 +49,7 @@ import { devDisruption } from '../engine/ops/disrupt';
 import { CURFEWS } from '../data/opsData';
 import { inspect, rampFindings } from '../engine/ops/ramp';
 import { devAudit } from '../engine/ops/audit';
+import { catalogueFor } from '../engine/network/custom';
 import { devLaunchRoute } from '../engine/network/launch';
 
 export type { GameSpeed } from '../engine/core/time';
@@ -207,6 +208,8 @@ export type ModalSpec =
   | { kind: 'problem'; subject: ProblemRef; hint?: boolean }
   | { kind: 'glossary'; term?: TermId }
   /** v0.7.2.1 trip swap: confirm moving the trip of a flight to another aircraft (money before / after). */
+  /** v0.23.3 position an aircraft from an idle stretch on the Schedule (`from`: the stretch's start). */
+  | { kind: 'position'; aircraftId: string; from: number }
   | { kind: 'tripMove'; flightId: string; targetId: string; /** v0.9.1 the dialog to come back to (the offer's schedule portal) */ back?: ModalSpec }
   /** v0.7.2.2 check planning: confirm moving a booked A/C-check or refit along its aircraft's timeline. */
   | { kind: 'maintMove'; maintId: string; start: number }
@@ -1636,9 +1639,11 @@ class GameStore {
       return id;
     },
     /** v0.19 a scheduled route straight to operating (study, Go and every stage done; on sale), on an aircraft by reg. */
-    route: (marketId = 'LIS-OXB', reg?: string) => {
+    route: (market?: string, reg?: string) => {
       const g = this.game;
       if (!g) return '';
+      // Without a market: the first researched one from our own bases (Lisbon–Bissau in a Lisbon game).
+      const marketId = market ?? catalogueFor(g).find((m) => !m.closed)?.id ?? 'LIS-OXB';
       const ac = reg ? Object.values(g.fleet).find((a) => a.reg === reg) : Object.values(g.fleet).filter((a) => a.status !== 'leasedOut').sort((a, b) => b.cabin.total - a.cabin.total)[0];
       const id = devLaunchRoute(g, marketId, ac?.id);
       settle(g);

@@ -37,6 +37,8 @@ export interface CaseDraft {
   layout?: CabinLayout;
   fares: FareLevel;
   marketing: MarketingLevel;
+  /** v0.23.2 fly only the market's season. */
+  season?: true;
 }
 
 export interface CaseBand {

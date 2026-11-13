@@ -7,6 +7,8 @@ import { ROUTE_MARKETS, type RouteMarket } from '../../../data/routes';
 import { typeOf } from '../../../engine/core/perf';
 import { DAY, fmtDay, fmtTime, localMinuteOfDay, monthKey, toDate } from '../../../engine/core/time';
 import type { GameState, Minute, MonthKey } from '../../../engine/core/types';
+import { routeResting } from '../../../engine/network/costs';
+import { monthsWords } from '../../../engine/network/model';
 import type { LaunchStageId, Rotation, Route, RoutePnl, RouteSeries, SectorLoad } from '../../../engine/network/types';
 
 export const MARKET_BY_ID: Record<string, RouteMarket> = Object.fromEntries(ROUTE_MARKETS.map((m) => [m.id, m]));
@@ -58,7 +60,7 @@ export const STAGE_LABEL: Record<LaunchStageId, string> = {
   inaugural: 'First flight',
 };
 
-export const STAGE_HINT: Record<LaunchStageId, string> = {
+const STAGE_HINT: Record<LaunchStageId, string> = {
   study: 'A consultant sizes the market: traffic data, the diaspora, rivals, government and NGO travel.',
   case: 'Your decision: go, change the plan, or shelve it.',
   rights: 'Designation, the foreign operator permit and any stop-over permits.',
@@ -72,10 +74,64 @@ export const STAGE_HINT: Record<LaunchStageId, string> = {
   inaugural: 'Water salute, press and guests.',
 };
 
+/** v0.23.2 who mostly travels on a market: families with officials and aid workers (Lisbon's Africa), families, holidaymakers, business. */
+export type MarketKind = 'aid' | 'family' | 'holiday' | 'business';
+
+export function marketKind(m?: Pick<RouteMarket, 'segments'>): MarketKind {
+  const s = m?.segments ?? {};
+  const aid = (s.gov ?? 0) + (s.ngo ?? 0) + (s.teachers ?? 0);
+  const fam = (s.vfr ?? 0) + (s.students ?? 0) + aid;
+  const hol = s.tourism ?? 0;
+  const biz = s.biz ?? 0;
+  if (hol > fam && hol >= biz) return 'holiday';
+  if (biz > fam) return 'business';
+  return aid >= 0.08 || !m ? 'aid' : 'family';
+}
+
+/** v0.23.2 the study and the campaign in the market's own words (they used to name the diaspora, churches and NGOs on every route). */
+const KIND_HINT: Record<Exclude<MarketKind, 'aid'>, { full: string; study: string; marketing: string }> = {
+  family: {
+    full: 'Booking data and interviews with the diaspora associations and travel agents.',
+    study: 'A consultant sizes the market: traffic data, the diaspora, rivals and travel agents.',
+    marketing: 'Diaspora radio and press, associations, agents, launch fares.',
+  },
+  holiday: {
+    full: 'Booking data and interviews with tour operators, hotels and travel agents.',
+    study: 'A consultant sizes the market: traffic data, rivals, tour operators and hotels.',
+    marketing: 'Tour operators and travel agents, online ads, launch fares.',
+  },
+  business: {
+    full: 'Booking data and interviews with companies and their travel agents.',
+    study: 'A consultant sizes the market: traffic data, rivals, companies and their travel agents.',
+    marketing: 'Press and online ads, company deals, agents, launch fares.',
+  },
+};
+
+const DEPTH_HINT: Record<'desk' | 'full' | 'survey', string> = {
+  desk: 'Published traffic data and rivals\' timetables. Cheap and quick, but it can be well off.',
+  full: 'Booking data, the diaspora associations, government and NGO interviews.',
+  survey: 'The full study plus a passenger survey: the closest estimate.',
+};
+
+/** What a launch stage is, for this market. */
+export function stageHint(id: LaunchStageId, m?: Pick<RouteMarket, 'segments'>): string {
+  const k = marketKind(m);
+  if (k !== 'aid' && (id === 'study' || id === 'marketing')) return KIND_HINT[k][id];
+  return STAGE_HINT[id];
+}
+
+/** What a study depth looks at, for this market. */
+export function depthHint(d: 'desk' | 'full' | 'survey', m?: Pick<RouteMarket, 'segments'>): string {
+  const k = marketKind(m);
+  return d === 'full' && k !== 'aid' ? KIND_HINT[k].full : DEPTH_HINT[d];
+}
+
 export type Tone = 'good' | 'warn' | 'bad' | 'info' | 'off';
 
 /** The status chip (Study · Business case · Launching (stage x of 11) · On sale · Operating · Suspended · Closed). */
-export function statusChip(r: Route): { label: string; tone: Tone } {
+export function statusChip(r: Route, now?: Minute): { label: string; tone: Tone } {
+  // v0.23.2 a seasonal route out of its season: no flights until its months come round.
+  if (now !== undefined && r.status === 'operating' && routeResting(r, now)) return { label: 'Out of season', tone: 'info' };
   switch (r.status) {
     case 'study': return { label: 'Study', tone: 'info' };
     case 'case': return { label: 'Your decision', tone: 'warn' };
@@ -102,7 +158,13 @@ export function daysOf(mask: number): number[] {
 }
 
 /** 'Weekly, Fri' · 'Twice weekly, Wed · Fri' · 'Every 2 weeks, Sat' · 'Monthly, first Fri' · 'Daily'. */
-export function seriesWords(s: Pick<RouteSeries, 'days' | 'every' | 'monthly'>): string {
+export function seriesWords(s: Pick<RouteSeries, 'days' | 'every' | 'monthly' | 'months'>): string {
+  // v0.23.2 a seasonal series names its months ("Weekly, Sat, Oct–Apr").
+  const base = patternWords(s);
+  return s.months !== undefined && (s.months & 4095) !== 4095 ? `${base}, ${monthsWords(s.months)}` : base;
+}
+
+function patternWords(s: Pick<RouteSeries, 'days' | 'every' | 'monthly'>): string {
   if (s.monthly) {
     const nth = s.monthly.nth === -1 ? 'last' : NTH[s.monthly.nth] ?? `${s.monthly.nth}th`;
     return `Monthly, ${nth} ${DAY_SHORT[s.monthly.weekday] ?? ''}`.trim();
