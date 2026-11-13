@@ -8,7 +8,10 @@ import type { GameState } from '../core/types';
 import { run } from '../contracts/testkit';
 import { demoFlights } from '../dev';
 import { deserialize, serialize } from '../save';
-import { addCrew, fixtureGame } from './fixtures';
+import { addCrew, everyTypeOnAoc, fixtureGame as fixtureGame0 } from './fixtures';
+
+/** v0.24 these tests hire and convert onto other types: every family on our AOC. */
+const fixtureGame = (seed?: number) => everyTypeOnAoc(fixtureGame0(seed));
 import {
   autoRoster, cancelConversion, classOf, conversionClasses, conversionEarliest, conversionPlan, crewCalendar, crewStatusView, familyLabel, rosterOf, startConversion, trainCrew,
 } from '.';
