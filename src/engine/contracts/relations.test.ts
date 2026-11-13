@@ -146,7 +146,8 @@ describe('what moves the relation (§1.3)', () => {
   });
 
   it('short-notice cover +3 at signing; completion +6 (≥ 85 % on time), +10 AOG cover; jobs counted', () => {
-    const g = newGame(5);
+    // v0.24 seed 6 (was 5: airlines ask only for the body they fly, so the AOG cover draw moved).
+    const g = newGame(6);
     const o = offer(g, 'aogCover');
     expect(o.urgency).toBe('urgent');
     const cl = g.clients[o.clientId];
