@@ -2,6 +2,9 @@
 // A market's `from` is MAD (or another airport in Spain: it then becomes a route base of a game based at MAD). Ids are
 // '<FROM>-<TO>' and never change once released (saves name them). A station another base's file lists too is
 // repeated here with the same numbers (the first file's row is the one used).
+// The fares here are net: what a passenger pays us, off-peak to peak. The engine reads catalogue fares as
+// published ones and sells under them (BAL.v019.fares.scale 0.57), so each market carries `fareX: 1.75` (1 / 0.57)
+// unless tuned (a balance step: scripts/netcal.ts).
 
 import type { RouteMarket, RouteStation } from '../routes';
 
@@ -48,7 +51,7 @@ export const MAD_MARKETS: RouteMarket[] = [
       { name: 'Ryanair', perWeek: 21, stops: 0, hours: 2.9, fareX: 0.75, seats: 189 },
     ],
     // [F] Canary residents pay 25 % of the fare, the state pays the airline the other 75 %: the fare here is the whole of it.
-    fareY: [85, 210], fareJ: [220, 480],
+    fareY: [85, 210], fareJ: [220, 480], fareX: 1.75,
     cargo: { south: 2_500, north: 800, mail: 400, perish: 600 },
     ancillary: 16, bagShare: 0.3,
     timetable: { pattern: 'weekly', day: 4, out: 900, back: 1_075, nights: 0 },
@@ -70,7 +73,7 @@ export const MAD_MARKETS: RouteMarket[] = [
       { name: 'Ryanair', perWeek: 14, stops: 0, hours: 1.2, fareX: 0.75, seats: 189 },
       { name: 'Vueling', perWeek: 7, stops: 0, hours: 1.2, fareX: 0.85, seats: 180 },
     ],
-    fareY: [55, 210], fareJ: [150, 450],
+    fareY: [55, 210], fareJ: [150, 450], fareX: 1.4, // tuned: four rivals: a newcomer sells under them
     cargo: { south: 600, north: 100 },
     ancillary: 18, bagShare: 0.2,
     timetable: { pattern: 'weekly', day: 4, out: 1_020, back: 1_145, nights: 0 },
@@ -96,7 +99,7 @@ export const MAD_MARKETS: RouteMarket[] = [
       { name: 'Royal Air Maroc', perWeek: 3, stops: 0, hours: 1.4, fareX: 1.05, seats: 160 },
     ],
     // [F] Air Arabia sells Madrid-Tangier from EUR 26, Air Europa (codeshare) from EUR 55.
-    fareY: [50, 160], fareJ: [140, 330],
+    fareY: [50, 160], fareJ: [140, 330], fareX: 1.75,
     cargo: { south: 500, north: 300, perish: 200 },
     ancillary: 22, bagShare: 0.4,
     timetable: { pattern: 'weekly', day: 5, out: 480, back: 570, nights: 0 },
@@ -118,7 +121,7 @@ export const MAD_MARKETS: RouteMarket[] = [
       { name: 'Iberia', perWeek: 4, stops: 0, hours: 3.8, fareX: 1.15, seats: 180 },
     ],
     // [F] Skyscanner: Madrid-Bucharest from EUR 86 return in the low season.
-    fareY: [65, 190], fareJ: [200, 420],
+    fareY: [65, 190], fareJ: [200, 420], fareX: 1.75,
     cargo: { south: 600, north: 400, mail: 150 },
     ancillary: 24, bagShare: 0.4,
     timetable: { pattern: 'weekly', day: 5, out: 420, back: 765, nights: 0 },
@@ -140,7 +143,7 @@ export const MAD_MARKETS: RouteMarket[] = [
       { name: 'Turkish Airlines via Istanbul', perWeek: 3, stops: 1, hours: 14, fareX: 0.9, seats: 12, via: 'IST' },
       { name: 'Ethiopian via Addis Ababa', perWeek: 3, stops: 1, hours: 17, fareX: 0.85, seats: 10, via: 'ADD' },
     ],
-    fareY: [330, 640], fareJ: [1_100, 1_900],
+    fareY: [330, 640], fareJ: [1_100, 1_900], fareX: 1.75,
     // [E] food, parts and parcels south; nothing north (no EU cargo security at Malabo).
     cargo: { south: 3_000, north: 0, mail: 150 },
     ancillary: 26, bagShare: 0.4,
@@ -163,7 +166,7 @@ export const MAD_MARKETS: RouteMarket[] = [
       { name: 'Avianca via Bogotá', perWeek: 7, stops: 1, hours: 16, fareX: 0.85, seats: 20, via: 'BOG' },
     ],
     // [F] Air Europa: Madrid-Santa Cruz from EUR 731 return.
-    fareY: [360, 760], fareJ: [1_500, 2_700],
+    fareY: [360, 760], fareJ: [1_500, 2_700], fareX: 1.4, // tuned: long haul: the range reads as published fares
     cargo: { south: 4_000, north: 1_500, mail: 200, perish: 600 },
     ancillary: 28, bagShare: 0.4,
     timetable: { pattern: 'weekly', day: 2, out: 720, back: 1_320, nights: 1 },
@@ -189,7 +192,7 @@ export const MAD_MARKETS: RouteMarket[] = [
       { name: 'Copa Airlines via Panama', perWeek: 14, stops: 1, hours: 15, fareX: 0.9, seats: 25, via: 'PTY' },
     ],
     // [F] June 2026: return fares above EUR 2,000, some days EUR 3,970; Air China from EUR 1,300. [E] a normal year below.
-    fareY: [420, 950], fareJ: [1_700, 3_200],
+    fareY: [420, 950], fareJ: [1_700, 3_200], fareX: 1.2, // tuned: long haul: the range reads as published fares
     // [E] parcels and supplies south on every flight; little north.
     cargo: { south: 4_500, north: 300, mail: 300, ngo: 300 },
     ancillary: 30, bagShare: 0.45,

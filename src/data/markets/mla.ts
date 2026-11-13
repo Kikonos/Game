@@ -2,6 +2,9 @@
 // A market's `from` is MLA (or another airport in Malta: it then becomes a route base of a game based at MLA). Ids are
 // '<FROM>-<TO>' and never change once released (saves name them). A station another base's file lists too is
 // repeated here with the same numbers (the first file's row is the one used).
+// The fares here are net: what a passenger pays us, off-peak to peak. The engine reads catalogue fares as
+// published ones and sells under them (BAL.v019.fares.scale 0.57), so each market carries `fareX: 1.75` (1 / 0.57)
+// unless tuned (a balance step: scripts/netcal.ts).
 
 import type { RouteMarket, RouteStation } from '../routes';
 
@@ -46,7 +49,7 @@ export const MLA_MARKETS: RouteMarket[] = [
       { name: 'easyJet', perWeek: 6, stops: 0, hours: 3.6, fareX: 0.85, seats: 186 },
       { name: 'Jet2.com', perWeek: 4, stops: 0, hours: 3.6, fareX: 1.0, seats: 189 },
     ],
-    fareY: [75, 200], fareJ: [190, 420],
+    fareY: [75, 200], fareJ: [190, 420], fareX: 1.75,
     cargo: { south: 300, north: 400, mail: 100 },
     ancillary: 20, bagShare: 0.2,
     timetable: { pattern: 'weekly', day: 5, out: 600, back: 815, nights: 0 },
@@ -66,7 +69,7 @@ export const MLA_MARKETS: RouteMarket[] = [
       { name: 'Jet2.com', perWeek: 2, stops: 0, hours: 4.0, fareX: 1.0, seats: 189 },
       { name: 'easyJet', perWeek: 2, stops: 0, hours: 4.0, fareX: 0.85, seats: 186 },
     ],
-    fareY: [85, 220], fareJ: [210, 450],
+    fareY: [85, 220], fareJ: [210, 450], fareX: 1.75,
     cargo: { south: 200, north: 300 },
     ancillary: 20, bagShare: 0.2,
     timetable: { pattern: 'weekly', day: 2, out: 600, back: 840, nights: 0 },
@@ -87,7 +90,7 @@ export const MLA_MARKETS: RouteMarket[] = [
       { name: 'Turkish Airlines via Istanbul', perWeek: 7, stops: 1, hours: 7.5, fareX: 1.1, seats: 15, via: 'IST' },
     ],
     // [F] Skyscanner: Mitiga-Malta from EUR 472 return.
-    fareY: [190, 330], fareJ: [420, 650],
+    fareY: [190, 330], fareJ: [420, 650], fareX: 1, // tuned: the fare is a published one [F]
     // [E] parts, medicines and courier south; nothing north (no EU cargo security at Mitiga).
     cargo: { south: 1_500, north: 0, mail: 100 },
     ancillary: 28, bagShare: 0.4,
@@ -106,7 +109,7 @@ export const MLA_MARKETS: RouteMarket[] = [
       { name: 'Turkish Airlines via Istanbul', perWeek: 4, stops: 1, hours: 8, fareX: 1.0, seats: 12, via: 'IST' },
       { name: 'EgyptAir via Cairo', perWeek: 5, stops: 1, hours: 9, fareX: 0.95, seats: 10, via: 'CAI' },
     ],
-    fareY: [200, 340], fareJ: [430, 680],
+    fareY: [200, 340], fareJ: [430, 680], fareX: 1.75,
     cargo: { south: 1_200, north: 0, mail: 50 },
     ancillary: 28, bagShare: 0.4,
     // [F] the first flight left Benina at 09:15 and landed in Malta at 10:45.
@@ -128,7 +131,7 @@ export const MLA_MARKETS: RouteMarket[] = [
       { name: 'Ryanair', perWeek: 18, stops: 0, hours: 0.8, fareX: 0.75, seats: 189 },
       { name: 'KM Malta Airlines', perWeek: 2, stops: 0, hours: 0.8, fareX: 1.1, seats: 168 },
     ],
-    fareY: [35, 95], fareJ: [90, 200],
+    fareY: [35, 95], fareJ: [90, 200], fareX: 1.75,
     cargo: { south: 300, north: 600, mail: 150, perish: 300 },
     ancillary: 14, bagShare: 0.25,
     timetable: { pattern: 'weekly', day: 4, out: 420, back: 510, nights: 0 },
@@ -149,7 +152,7 @@ export const MLA_MARKETS: RouteMarket[] = [
       { name: 'Norwegian', perWeek: 4, stops: 0, hours: 3.3, fareX: 0.85, seats: 186 },
       { name: 'SAS', perWeek: 4, stops: 0, hours: 3.3, fareX: 1.05, seats: 180 },
     ],
-    fareY: [95, 230], fareJ: [230, 480],
+    fareY: [95, 230], fareJ: [230, 480], fareX: 1.75,
     cargo: { south: 200, north: 300 },
     ancillary: 20, bagShare: 0.2,
     timetable: { pattern: 'weekly', day: 6, out: 540, back: 795, nights: 0 },
@@ -171,7 +174,7 @@ export const MLA_MARKETS: RouteMarket[] = [
       { name: 'KM Malta Airlines charters', perWeek: 0.25, stops: 0, hours: 2.3, fareX: 1.1, seats: 168 },
       { name: 'Ryanair via London Stansted', perWeek: 3, stops: 1, hours: 9, fareX: 0.8, seats: 10, via: 'STN' },
     ],
-    fareY: [130, 190], fareJ: [260, 380],
+    fareY: [130, 190], fareJ: [260, 380], fareX: 1.75,
     cargo: { south: 0, north: 0 },
     ancillary: 8, bagShare: 0.1,
     timetable: { pattern: 'weekly', day: 3, out: 420, back: 600, nights: 0 },
@@ -193,7 +196,7 @@ export const MLA_MARKETS: RouteMarket[] = [
       { name: 'Turkish Airlines via Istanbul', perWeek: 14, stops: 1, hours: 15.5, fareX: 0.8, seats: 15, via: 'IST' },
       { name: 'ITA Airways via Rome', perWeek: 7, stops: 1, hours: 13.5, fareX: 0.9, seats: 15, via: 'FCO' },
     ],
-    fareY: [420, 850], fareJ: [1_500, 2_900],
+    fareY: [420, 850], fareJ: [1_500, 2_900], fareX: 1.3, // tuned: long haul: the range reads as published fares
     // [E] Maltese pharmaceuticals and electronics out, general cargo back.
     cargo: { south: 2_500, north: 2_000, mail: 200 },
     ancillary: 30, bagShare: 0.2,

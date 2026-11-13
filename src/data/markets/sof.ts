@@ -2,6 +2,9 @@
 // A market's `from` is SOF (or another airport in Bulgaria: it then becomes a route base of a game based at SOF). Ids are
 // '<FROM>-<TO>' and never change once released (saves name them). A station already listed in another base's file is
 // not repeated here.
+// The fares here are net: what a passenger pays us, off-peak to peak. The engine reads catalogue fares as
+// published ones and sells under them (BAL.v019.fares.scale 0.57), so each market carries `fareX: 1.75` (1 / 0.57)
+// unless tuned (a balance step: scripts/netcal.ts).
 
 import type { RouteMarket, RouteStation } from '../routes';
 
@@ -54,7 +57,7 @@ export const SOF_MARKETS: RouteMarket[] = [
       { name: 'Bulgaria Air', perWeek: 5, stops: 0, hours: 3.3, fareX: 1.25, seats: 143 },
     ],
     // [F] from EUR 39 to 43 one way (Skyscanner, 2026).
-    fareY: [50, 160], fareJ: [150, 360],
+    fareY: [50, 160], fareJ: [150, 360], fareX: 1.75,
     cargo: { south: 500, north: 600, mail: 200 },
     ancillary: 24, bagShare: 0.4,
     timetable: { pattern: 'weekly', day: 4, out: 420, back: 550, nights: 0 },
@@ -74,7 +77,7 @@ export const SOF_MARKETS: RouteMarket[] = [
       { name: 'Lufthansa', perWeek: 19, stops: 0, hours: 2.4, fareX: 1.15, seats: 90 },
       { name: 'Bulgaria Air', perWeek: 3, stops: 0, hours: 2.4, fareX: 1.0, seats: 110 },
     ],
-    fareY: [90, 260], fareJ: [260, 560],
+    fareY: [90, 260], fareJ: [260, 560], fareX: 1.4, // tuned: Lufthansa's hub route: a newcomer sells under it
     cargo: { south: 600, north: 500, mail: 200 },
     ancillary: 22, bagShare: 0.3,
     timetable: { pattern: 'weekly', day: 0, out: 1_050, back: 1_180, nights: 0 },
@@ -96,7 +99,7 @@ export const SOF_MARKETS: RouteMarket[] = [
       { name: 'Bulgaria Air', perWeek: 4, stops: 0, hours: 3.6, fareX: 1.2, seats: 143 },
     ],
     // [F] from EUR 52 one way (Skyscanner, 2026).
-    fareY: [60, 190], fareJ: [180, 420],
+    fareY: [60, 190], fareJ: [180, 420], fareX: 1.75,
     cargo: { south: 400, north: 400, mail: 100 },
     ancillary: 24, bagShare: 0.4,
     timetable: { pattern: 'weekly', day: 5, out: 810, back: 1_020, nights: 0 },
@@ -118,7 +121,7 @@ export const SOF_MARKETS: RouteMarket[] = [
       { name: 'Bulgaria Air', perWeek: 1.5, stops: 0, hours: 2.1, fareX: 1.2, seats: 143 },
     ],
     // [F] from EUR 27 one way (Skyscanner, 2026).
-    fareY: [45, 150], fareJ: [150, 340],
+    fareY: [45, 150], fareJ: [150, 340], fareX: 1.75,
     cargo: { south: 400, north: 500, mail: 100 },
     ancillary: 22, bagShare: 0.3,
     timetable: { pattern: 'weekly', day: 1, out: 390, back: 505, nights: 0 },
@@ -141,7 +144,7 @@ export const SOF_MARKETS: RouteMarket[] = [
       { name: 'Israir', perWeek: 4, stops: 0, hours: 2.5, fareX: 0.95, seats: 174 },
       { name: 'Arkia', perWeek: 3, stops: 0, hours: 2.5, fareX: 0.95, seats: 174 },
     ],
-    fareY: [80, 230], fareJ: [220, 480],
+    fareY: [80, 230], fareJ: [220, 480], fareX: 1.55, // tuned: five rivals: a newcomer sells under them
     cargo: { south: 400, north: 400, mail: 100 },
     ancillary: 22, bagShare: 0.25,
     timetable: { pattern: 'weekly', day: 3, out: 600, back: 810, nights: 0 },
@@ -165,7 +168,7 @@ export const SOF_MARKETS: RouteMarket[] = [
       { name: 'Wizz Air', perWeek: 1, stops: 0, hours: 2.9, fareX: 0.8, seats: 230 },
       { name: 'European Air Charter', perWeek: 0.5, stops: 0, hours: 2.9, fareX: 1.0, seats: 180 },
     ],
-    fareY: [110, 260], fareJ: [240, 460],
+    fareY: [110, 260], fareJ: [240, 460], fareX: 1.75,
     cargo: { south: 100, north: 0 },
     ancillary: 18, bagShare: 0.12,
     timetable: { pattern: 'weekly', day: 5, out: 360, back: 600, nights: 0 },
@@ -188,7 +191,7 @@ export const SOF_MARKETS: RouteMarket[] = [
       { name: 'Turkish Airlines via Istanbul', perWeek: 21, stops: 1, hours: 4.5, fareX: 1.15, seats: 15, via: 'IST' },
     ],
     // [F] from USD 69 one way (Skyscanner, 2026).
-    fareY: [70, 200], fareJ: [170, 360],
+    fareY: [70, 200], fareJ: [170, 360], fareX: 1.75,
     cargo: { south: 100, north: 200, perish: 200 },
     ancillary: 16, bagShare: 0.12,
     timetable: { pattern: 'weekly', day: 1, out: 900, back: 1_080, nights: 0 },
@@ -212,7 +215,7 @@ export const SOF_MARKETS: RouteMarket[] = [
       { name: 'Austrian via Vienna', perWeek: 7, stops: 1, hours: 13.5, fareX: 0.95, seats: 15, via: 'VIE' },
       { name: 'LOT via Warsaw', perWeek: 7, stops: 1, hours: 14, fareX: 0.9, seats: 15, via: 'WAW' },
     ],
-    fareY: [430, 900], fareJ: [1_500, 2_900],
+    fareY: [430, 900], fareJ: [1_500, 2_900], fareX: 1.5, // tuned: long haul: the range reads as published fares
     cargo: { south: 2_000, north: 2_000, mail: 200 },
     ancillary: 30, bagShare: 0.4,
     timetable: { pattern: 'weekly', day: 5, out: 630, back: 1_020, nights: 1 },

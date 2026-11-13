@@ -2,6 +2,9 @@
 // A market's `from` is RIX (or another airport in Latvia: it then becomes a route base of a game based at RIX). Ids are
 // '<FROM>-<TO>' and never change once released (saves name them). A station another base's file lists too is
 // repeated here with the same numbers (the first file's row is the one used).
+// The fares here are net: what a passenger pays us, off-peak to peak. The engine reads catalogue fares as
+// published ones and sells under them (BAL.v019.fares.scale 0.57), so each market carries `fareX: 1.75` (1 / 0.57)
+// unless tuned (a balance step: scripts/netcal.ts).
 
 import type { RouteMarket, RouteStation } from '../routes';
 
@@ -50,7 +53,7 @@ export const RIX_MARKETS: RouteMarket[] = [
       { name: 'Ryanair', perWeek: 12, stops: 0, hours: 2.9, fareX: 0.75, seats: 189 },
     ],
     // [F] airBaltic sells Riga-London from EUR 58 and London-Riga from EUR 75 one way.
-    fareY: [60, 180], fareJ: [170, 400],
+    fareY: [60, 180], fareJ: [170, 400], fareX: 1.75,
     cargo: { south: 500, north: 600, mail: 200 },
     ancillary: 24, bagShare: 0.38,
     timetable: { pattern: 'weekly', day: 4, out: 435, back: 540, nights: 0 },
@@ -70,7 +73,7 @@ export const RIX_MARKETS: RouteMarket[] = [
       { name: 'Ryanair', perWeek: 5, stops: 0, hours: 3.2, fareX: 0.8, seats: 189 },
       { name: 'airBaltic', perWeek: 2, stops: 0, hours: 3.2, fareX: 1.05, seats: 148 },
     ],
-    fareY: [70, 200], fareJ: [180, 420],
+    fareY: [70, 200], fareJ: [180, 420], fareX: 1.75,
     cargo: { south: 300, north: 400, mail: 100 },
     ancillary: 24, bagShare: 0.4,
     timetable: { pattern: 'weekly', day: 5, out: 615, back: 770, nights: 0 },
@@ -91,7 +94,7 @@ export const RIX_MARKETS: RouteMarket[] = [
       { name: 'airBaltic', perWeek: 15, stops: 0, hours: 1.6, fareX: 1.0, seats: 148 },
       { name: 'Norwegian', perWeek: 5, stops: 0, hours: 1.6, fareX: 0.9, seats: 186 },
     ],
-    fareY: [55, 160], fareJ: [150, 340],
+    fareY: [55, 160], fareJ: [150, 340], fareX: 1.75,
     cargo: { south: 200, north: 500, perish: 400 },
     ancillary: 22, bagShare: 0.32,
     timetable: { pattern: 'weekly', day: 6, out: 1_035, back: 1_110, nights: 0 },
@@ -112,7 +115,7 @@ export const RIX_MARKETS: RouteMarket[] = [
       { name: 'airBaltic', perWeek: 1.5, stops: 0, hours: 6.5, fareX: 1.05, seats: 148 },
       { name: 'Tez Tour charters', perWeek: 0.5, stops: 0, hours: 6.5, fareX: 1.0, seats: 180 },
     ],
-    fareY: [150, 330], fareJ: [330, 620],
+    fareY: [150, 330], fareJ: [330, 620], fareX: 1.75,
     cargo: { south: 200, north: 100 },
     ancillary: 20, bagShare: 0.15,
     timetable: { pattern: 'weekly', day: 5, out: 420, back: 800, nights: 0 },
@@ -133,7 +136,7 @@ export const RIX_MARKETS: RouteMarket[] = [
       { name: 'airBaltic', perWeek: 1.5, stops: 0, hours: 5.0, fareX: 1.0, seats: 148 },
       { name: 'Turkish Airlines via Istanbul', perWeek: 7, stops: 1, hours: 9, fareX: 1.1, seats: 10, via: 'IST' },
     ],
-    fareY: [140, 300], fareJ: [300, 560],
+    fareY: [140, 300], fareJ: [300, 560], fareX: 1.75,
     cargo: { south: 100, north: 0 },
     ancillary: 18, bagShare: 0.12,
     timetable: { pattern: 'weekly', day: 2, out: 480, back: 840, nights: 0 },
@@ -155,7 +158,7 @@ export const RIX_MARKETS: RouteMarket[] = [
       { name: 'Turkish Airlines via Istanbul', perWeek: 14, stops: 1, hours: 7.5, fareX: 1.0, seats: 15, via: 'IST' },
       { name: 'LOT via Warsaw', perWeek: 7, stops: 1, hours: 6.5, fareX: 1.0, seats: 10, via: 'WAW' },
     ],
-    fareY: [140, 300], fareJ: [330, 620],
+    fareY: [140, 300], fareJ: [330, 620], fareX: 1.5, // tuned: our detour round Belarus and Russia is not in the block time
     // [E] Georgian wine and mineral water north.
     cargo: { south: 400, north: 600, mail: 100, perish: 200 },
     ancillary: 22, bagShare: 0.3,
@@ -177,7 +180,7 @@ export const RIX_MARKETS: RouteMarket[] = [
       { name: 'FLYONE Asia', perWeek: 3, stops: 0, hours: 5.8, fareX: 0.8, seats: 180 },
       { name: 'Turkish Airlines via Istanbul', perWeek: 14, stops: 1, hours: 10, fareX: 1.05, seats: 15, via: 'IST' },
     ],
-    fareY: [230, 420], fareJ: [600, 1_050],
+    fareY: [230, 420], fareJ: [600, 1_050], fareX: 1.45, // tuned: our detour round Russia is not in the block time
     // [E] textiles and dried fruit north, parts and medicines south.
     cargo: { south: 800, north: 1_200, mail: 100, perish: 300 },
     ancillary: 26, bagShare: 0.45,
@@ -203,7 +206,7 @@ export const RIX_MARKETS: RouteMarket[] = [
       { name: 'SAS via Copenhagen', perWeek: 7, stops: 1, hours: 12, fareX: 0.95, seats: 15, via: 'CPH' },
       { name: 'LOT via Warsaw', perWeek: 7, stops: 1, hours: 13, fareX: 0.9, seats: 15, via: 'WAW' },
     ],
-    fareY: [400, 850], fareJ: [1_450, 2_800],
+    fareY: [400, 850], fareJ: [1_450, 2_800], fareX: 1.25, // tuned: long haul: the range reads as published fares
     cargo: { south: 2_000, north: 2_000, mail: 200 },
     ancillary: 30, bagShare: 0.3,
     timetable: { pattern: 'weekly', day: 5, out: 690, back: 1_110, nights: 1 },

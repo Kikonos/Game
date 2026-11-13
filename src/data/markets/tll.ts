@@ -2,6 +2,9 @@
 // A market's `from` is TLL (or another airport in Estonia: it then becomes a route base of a game based at TLL). Ids are
 // '<FROM>-<TO>' and never change once released (saves name them). A station another base's file lists too is
 // repeated here with the same numbers (the first file's row is the one used).
+// The fares here are net: what a passenger pays us, off-peak to peak. The engine reads catalogue fares as
+// published ones and sells under them (BAL.v019.fares.scale 0.57), so each market carries `fareX: 1.75` (1 / 0.57)
+// unless tuned (a balance step: scripts/netcal.ts).
 
 import type { RouteMarket, RouteStation } from '../routes';
 
@@ -50,7 +53,7 @@ export const TLL_MARKETS: RouteMarket[] = [
       { name: 'airBaltic', perWeek: 3, stops: 0, hours: 3.0, fareX: 1.05, seats: 148 },
       { name: 'Wizz Air', perWeek: 3, stops: 0, hours: 2.9, fareX: 0.75, seats: 230 },
     ],
-    fareY: [60, 180], fareJ: [170, 400],
+    fareY: [60, 180], fareJ: [170, 400], fareX: 1.75,
     cargo: { south: 400, north: 500, mail: 150 },
     ancillary: 22, bagShare: 0.3,
     timetable: { pattern: 'weekly', day: 4, out: 450, back: 555, nights: 0 },
@@ -72,7 +75,7 @@ export const TLL_MARKETS: RouteMarket[] = [
       { name: 'SAS', perWeek: 24, stops: 0, hours: 1.0, fareX: 1.1, seats: 90 },
       { name: 'Ryanair', perWeek: 4, stops: 0, hours: 1.0, fareX: 0.7, seats: 189 },
     ],
-    fareY: [60, 190], fareJ: [170, 380],
+    fareY: [60, 190], fareJ: [170, 380], fareX: 1.35, // tuned: SAS 24 a week: a newcomer sells under it
     cargo: { south: 300, north: 300, mail: 200 },
     ancillary: 14, bagShare: 0.15,
     timetable: { pattern: 'weekly', day: 0, out: 405, back: 430, nights: 0 },
@@ -93,7 +96,7 @@ export const TLL_MARKETS: RouteMarket[] = [
       { name: 'Norwegian', perWeek: 4, stops: 0, hours: 1.5, fareX: 0.9, seats: 186 },
       { name: 'SAS via Stockholm', perWeek: 21, stops: 1, hours: 3.5, fareX: 1.1, seats: 15, via: 'ARN' },
     ],
-    fareY: [60, 170], fareJ: [160, 350],
+    fareY: [60, 170], fareJ: [160, 350], fareX: 1.75,
     cargo: { south: 150, north: 400, perish: 300 },
     ancillary: 20, bagShare: 0.28,
     timetable: { pattern: 'weekly', day: 3, out: 990, back: 1_060, nights: 0 },
@@ -113,7 +116,7 @@ export const TLL_MARKETS: RouteMarket[] = [
       { name: 'Ryanair', perWeek: 2, stops: 0, hours: 3.2, fareX: 0.8, seats: 189 },
       { name: 'airBaltic via Riga', perWeek: 2, stops: 1, hours: 6, fareX: 1.1, seats: 20, via: 'RIX' },
     ],
-    fareY: [75, 200], fareJ: [190, 420],
+    fareY: [75, 200], fareJ: [190, 420], fareX: 1.75,
     cargo: { south: 200, north: 200 },
     ancillary: 22, bagShare: 0.25,
     timetable: { pattern: 'weekly', day: 3, out: 600, back: 765, nights: 0 },
@@ -133,7 +136,7 @@ export const TLL_MARKETS: RouteMarket[] = [
       // mid-February; 1.5 over the year.
       { name: 'airBaltic', perWeek: 1.5, stops: 0, hours: 6.4, fareX: 1.05, seats: 148 },
     ],
-    fareY: [160, 340], fareJ: [340, 640],
+    fareY: [160, 340], fareJ: [340, 640], fareX: 1.75,
     cargo: { south: 150, north: 100 },
     ancillary: 20, bagShare: 0.15,
     // [F] BT881 leaves Tallinn at 07:45 and lands at 12:10; BT882 leaves Tenerife at 13:55 and lands at 22:10.
@@ -158,7 +161,7 @@ export const TLL_MARKETS: RouteMarket[] = [
       { name: 'Novatours charters', perWeek: 3, stops: 0, hours: 3.8, fareX: 1.0, seats: 180 },
       { name: 'Turkish Airlines via Istanbul', perWeek: 10, stops: 1, hours: 7, fareX: 1.15, seats: 12, via: 'IST' },
     ],
-    fareY: [100, 250], fareJ: [230, 460],
+    fareY: [100, 250], fareJ: [230, 460], fareX: 1.75,
     cargo: { south: 100, north: 300, perish: 200 },
     ancillary: 16, bagShare: 0.12,
     timetable: { pattern: 'weekly', day: 5, out: 375, back: 670, nights: 0 },
@@ -180,7 +183,7 @@ export const TLL_MARKETS: RouteMarket[] = [
       { name: 'Tour operators’ charters', perWeek: 0.8, stops: 0, hours: 5.4, fareX: 1.0, seats: 180 },
       { name: 'Turkish Airlines via Istanbul', perWeek: 7, stops: 1, hours: 9.5, fareX: 1.15, seats: 10, via: 'IST' },
     ],
-    fareY: [150, 320], fareJ: [320, 580],
+    fareY: [150, 320], fareJ: [320, 580], fareX: 1.75,
     cargo: { south: 100, north: 0 },
     ancillary: 18, bagShare: 0.12,
     timetable: { pattern: 'weekly', day: 6, out: 450, back: 840, nights: 0 },
@@ -201,7 +204,7 @@ export const TLL_MARKETS: RouteMarket[] = [
       { name: 'Finnair via Helsinki', perWeek: 7, stops: 1, hours: 14, fareX: 1.0, seats: 20, via: 'HEL' },
       { name: 'Turkish Airlines via Istanbul', perWeek: 10, stops: 1, hours: 16.5, fareX: 0.9, seats: 15, via: 'IST' },
     ],
-    fareY: [430, 780], fareJ: [1_300, 2_300],
+    fareY: [430, 780], fareJ: [1_300, 2_300], fareX: 1.75,
     cargo: { south: 500, north: 1_500, perish: 800 },
     ancillary: 24, bagShare: 0.15,
     timetable: { pattern: 'weekly', day: 5, out: 1_200, back: 840, nights: 1 },
