@@ -2341,7 +2341,7 @@ function logOffer(g: GameState, o: ContractOffer, src: string): void {
   const c = g.clients[o.clientId];
   offerLog.push(JSON.stringify({
     day: Math.floor((g.now - g.started) / DAY), src, arch: o.archetype, client: c?.name, kind: c?.kind, country: c?.country, prestige: c?.prestige,
-    req: o.requirements.approvals, body: o.requirements.body, wideJob: isWideJob(o.requirements), etops: o.requirements.etops, wideFleet: Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide'), seats: o.requirements.minSeats, iosaAsked: !!o.iosaAsked, stretch: !!o.stretch,
+    req: o.requirements.approvals, body: o.requirements.body, wideJob: isWideJob(o.requirements), etops: o.requirements.etops, wideFleet: Object.values(g.fleet).some((a) => typeOf(a.typeId).body === 'wide'), seats: o.requirements.minSeats, stretch: !!o.stretch,
     have: g.company.approvals, pending: g.company.pendingApprovals.map((p) => p.id), fit: src === 'tender' ? undefined : Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no'),
   }));
 }
@@ -2350,9 +2350,9 @@ function logAsks(g: GameState): void {
   for (const t of com(g).tenders) {
     if (seenAsk.has(t.id)) continue;
     seenAsk.add(t.id);
-    logOffer(g, t.ask, 'tender');
+    if (t.ask) logOffer(g, t.ask, 'tender');
   }
-  for (const l of com(g).leads) {
+  for (const l of com(g).leads ?? []) {
     if (seenAsk.has(l.id)) continue;
     seenAsk.add(l.id);
     const c = g.clients[l.clientId];

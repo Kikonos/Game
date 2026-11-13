@@ -51,7 +51,7 @@ import { afterOfferDays, isQuiet, QUIET_MARKET_OFFERS } from '../ops/director';
 import { marketTilt, presenceWeight } from '../commercial/presence';
 import { clientCrewOnCabin, fuelFactor, MISSION_BUILDERS, missionWeights, presidential, rollClientCabin, WINDOW_FIT_V08 } from './missions';
 import { lockOf, themeWeight, unreachableApproval } from '../scenario/rules';
-import { fleetOutlook, noteReach, reachOpen, seatsFor, targetUnit } from './fleetFit';
+import { clientFlies, clientTakes, fleetOutlook, noteReach, reachOpen, seatsFor, targetUnit } from './fleetFit';
 
 // ---------- process ----------
 
@@ -440,7 +440,8 @@ function seasonBase(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
   // v0.14 an ordinary market offer may also come from the market-presence airlines' hubs.
   const hubs = [...(wide ? F.BASE_HUBS_WB : F.BASE_HUBS_NB), ...(o.ordinary ? F.BASE_HUBS_MARKET : [])];
-  const cands = clientsOf(g, ['airline'], (c) => (o.airport ? c.base === o.airport : hubs.includes(c.base)) && !!AIRPORT_BY_CODE[c.base]);
+  // v0.24 only an airline that flies this body asks for it (Iberojet, all A330s and A350s, never an A320-size base).
+  const cands = clientsOf(g, ['airline'], (c) => (o.airport ? c.base === o.airport : hubs.includes(c.base)) && !!AIRPORT_BY_CODE[c.base] && clientTakes(c, wide ? 'wide' : 'narrow'));
   const client = nearClient(ctx, cands);
   if (!client) return null;
   const base = o.baseAt && AIRPORT_BY_CODE[o.baseAt] ? o.baseAt : client.base;
@@ -540,7 +541,7 @@ function aogCover(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
   if (ctx.window && ctx.window.from > g.now + 20 * 60) return null;
   const at = ctx.window?.at ?? g.company.homeBase;
-  const cands = clientsOf(g, ['airline'], (c) => !!AIRPORT_BY_CODE[c.base] && (o.airport ? c.base === o.airport : wide || km(c.base, at) < 3500));
+  const cands = clientsOf(g, ['airline'], (c) => !!AIRPORT_BY_CODE[c.base] && (o.airport ? c.base === o.airport : wide || km(c.base, at) < 3500) && clientTakes(c, wide ? 'wide' : 'narrow'));
   const client = nearClient(ctx, cands);
   if (!client) return null;
   const base = client.base;
@@ -1342,6 +1343,12 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     ...(d.req.clientCabin ? { clientCabin: d.req.clientCabin } : {}),
   };
   if (d.req.body) requirements.body = d.req.body;
+  // v0.24 (player: "Iberojet is widebody only and was offered as a narrowbody lead") an airline only asks for the body
+  // and the families it flies, whichever way the job was asked for (a lead, a tender, a repeat, an event).
+  if (!clientFlies(d.client, requirements)) {
+    fixDropped = true;
+    return null;
+  }
   // v0.8 fix pack (newcomer noise): a Newcomer without a widebody sees only a few jobs it can never fly.
   if (newcomerNarrow(g) && !d.repeatOf && !d.eventId && (isWideJob(requirements) || requirements.approvals.some((a) => !g.company.approvals.includes(a) && !g.company.pendingApprovals.some((p) => p.id === a)))
     && !chance(sideRng(g, `reach:${g.seq}:${g.now}:${d.archetype}`), BAL.v08.standing.newcomerReach)) {
@@ -1665,8 +1672,10 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     if (d && opts.leadId) d.leadId = opts.leadId;
     // v0.16 a draft from a client one level above ours is a stretch offer, a national carrier or a major asks for IOSA
     // (contracts/prestige.ts); the hand-shaped opening offers are a new company's fair first jobs and ask nothing.
-    if (d && !opening) markStretch(g, d);
-    const o = d && finalize(g, d, ctx.aspire);
+    // v0.24 an IOSA ask thinned out while we have none filed: dropped like an impossible draft (another is drawn).
+    const thinned = !!d && !opening && markStretch(g, d) === 'drop';
+    if (thinned) fixDropped = true;
+    const o = d && !thinned && finalize(g, d, ctx.aspire);
     if (o) {
       // v0.16 a stretch offer made: the next one waits a month (contracts/prestige.ts).
       noteStretch(g, o);

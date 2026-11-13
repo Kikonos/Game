@@ -66,7 +66,7 @@ export function loadSales(g: GameState): void {
     if (l.body || (l.stage !== 'lead' && l.stage !== 'proposal' && l.stage !== 'negotiation')) continue;
     const o = l.offerId ? g.offers[l.offerId] : undefined;
     const cl = g.clients[l.clientId];
-    l.body = o ? bodyOfReq(o.requirements) : !holdsWide(g) || !cl ? 'narrow' : pickBody(g, cl, next(sideOf(g, `leadbody:${l.id}`)));
+    l.body = o ? bodyOfReq(o.requirements) : !holdsWide(g) || !cl ? 'narrow' : pickBody(g, cl, next(sideOf(g, `leadbody:${l.id}`))) ?? 'narrow';
   }
 }
 
@@ -290,8 +290,10 @@ function quoteLead(g: GameState, c: Client, archetypes: Archetype[], key: string
   // v0.19.4 the body the client asks for, fixed now (the offer keeps it): what our fleet has and the client flies,
   // weighted by our idle and soon-idle aircraft (contracts/fleetFit.ts); a widebody job has one of ours in mind (its seats).
   const br = sideOf(g, `leadq:${key}:body`);
-  const first = want ?? pickBody(g, c, next(br));
+  // v0.24 a client that flies nothing like ours (a widebody-only airline and a narrowbody fleet) brings no lead.
   const bodies = bodiesFor(g, c);
+  const first = want && bodies.includes(want) ? want : pickBody(g, c, next(br));
+  if (!first) return null;
   const tryBodies: Body[] = [first, ...bodies.filter((b) => b !== first)];
   try {
     for (const body of tryBodies) {
@@ -686,10 +688,10 @@ export function pitchTargets(g: GameState): PitchTarget[] {
   const done = new Set((g.com?.pitches ?? []).filter((p) => p.season === w.season).map((p) => p.clientId));
   return Object.values(g.clients)
     .filter((c) => c.kind === 'airline' && !c.rivalId && c.ceased === undefined && clientPrestige(c) <= lvl + 1 && airlineInReach(g, c))
-    .map((c) => {
-      const bodies = bodiesFor(g, c);
-      return { client: c, level: clientPrestige(c), stretch: clientPrestige(c) > lvl, cost: pitchFree(g, c.id) ? 0 : S.pitch.cost, pitched: done.has(c.id), bodies, body: defaultPitchBody(g, bodies) };
-    })
+    .map((c) => ({ c, bodies: bodiesFor(g, c) }))
+    // v0.24 nothing of ours they would fly (Iberojet's A330s and A350s against our A320s): not a pitch target.
+    .filter((x) => x.bodies.length > 0)
+    .map(({ c, bodies }) => ({ client: c, level: clientPrestige(c), stretch: clientPrestige(c) > lvl, cost: pitchFree(g, c.id) ? 0 : S.pitch.cost, pitched: done.has(c.id), bodies, body: defaultPitchBody(g, bodies) }))
     .sort((a, b) => Number(a.pitched) - Number(b.pitched) || b.client.relation - a.client.relation || a.client.name.localeCompare(b.client.name));
 }
 

@@ -10,6 +10,8 @@
 import { TENDER_CLIENT_SEEDS } from '../../data/fairs';
 import { CLIENT_SEEDS, CLIENT_SEEDS_B1, CLIENT_SEEDS_V014, CLIENT_SEEDS_V016, CLIENT_SEEDS_V08, CLIENT_SEEDS_V0121, type ClientSeed } from '../../data/naming';
 import { BAL } from '../core/balance';
+import { chance } from '../core/rng';
+import { hash } from '../core/util';
 import { statsV016 } from '../core/stats016';
 import { DAY, yearOf } from '../core/time';
 import { pushMessage } from '../core/messages';
@@ -246,25 +248,37 @@ export function prestigeOfferWeight(g: GameState, c: Client): number {
   return 0;
 }
 
+/** v0.24 the clients that ask a new operator for IOSA registration: airlines (IATA members audit their wet lessors to
+ *  the IOSA standards and take the registration as the proof). Governments, the UN agencies and the aid bodies charter
+ *  through their own checks (an EU AOC, insurance, often their own audit), not IOSA. Pure. */
+export const asksIosa = (c: Pick<Client, 'kind'>): boolean => c.kind === 'airline';
+
 /**
  * A draft's prestige marks (offers.ts generateOffer, before finalize): a client one level above ours (not yet flown
  * for) makes it a stretch offer while the month's stretch window is open, whichever way it was asked (a rival hiring
- * us is a peer, never a stretch); a national carrier, agency, major or government (level 3–4) we have not flown for
- * asks for IOSA registration: a major wants it held, a level-3 client is content with it filed (feasibility then
- * says what is missing). Clients we have flown for ask nothing new.
+ * us is a peer, never a stretch); a national carrier or a major (level 3–4 airline) we have not flown for asks for
+ * IOSA registration: a major wants it held, a national carrier is content with it filed (feasibility then says what
+ * is missing). Clients we have flown for ask nothing new.
+ *
+ * v0.24 stage-aware (player: "a lot of IOSA contracts offered when I don't have IOSA yet"): with IOSA neither held
+ * nor filed, only a share of those asks reach us (BAL.v016.prestige.iosaKeep, a side roll): enough to show what IOSA
+ * brings. Returns 'drop' for the others (offers.ts draws another job; a lead, tender or event asked of that client
+ * does not come). Once IOSA is filed or held, they all come.
  */
-export function markStretch(g: GameState, d: { client: Client; stretch?: true; iosaAsked?: true; req?: { approvals: ApprovalId[] } }): void {
+export function markStretch(g: GameState, d: { client: Client; stretch?: true; iosaAsked?: true; req?: { approvals: ApprovalId[] } }): 'drop' | undefined {
   const cur = g.clients[d.client.id] ?? d.client;
-  if (!PRESTIGE_GATE.on || cur.jobs) return;
+  if (!PRESTIGE_GATE.on || cur.jobs) return undefined;
   const lv = clientPrestige(cur);
   if (lv === playerLevel(g) + 1 && !cur.rivalId && stretchOpen(g)) d.stretch = true;
-  if (lv >= 3 && d.req && !d.req.approvals.includes('iosa') && !g.company.approvals.includes('iosa')) {
+  if (lv >= 3 && asksIosa(cur) && d.req && !d.req.approvals.includes('iosa') && !g.company.approvals.includes('iosa')) {
     const filed = g.company.pendingApprovals.some((p) => p.id === 'iosa');
     if (lv === 4 || !filed) {
+      if (!filed && !chance({ rng: hash(`${g.seed}:iosa:${g.seq}:${g.now}:${cur.id}`) | 0 }, P.iosaKeep)) return 'drop';
       d.req.approvals.push('iosa');
       d.iosaAsked = true;
     }
   }
+  return undefined;
 }
 
 /** offers.ts: a stretch offer reached the market: the next one waits `stretchDays`. Action-side. */
@@ -291,7 +305,7 @@ export const prestigeRelationX = (level: Prestige): number => (PRESTIGE_GATE.on 
 export const PRESTIGE_SHORT: Record<Prestige, string> = { 1: 'brochure work', 2: 'charter market', 3: 'national carrier', 4: 'major or government' };
 
 /** What a level 3 / 4 client checks before it signs (plain lines) and whether we pass. Pure. */
-export function prestigeRequirements(g: GameState, level: Prestige): { line: string; ok: boolean }[] {
+export function prestigeRequirements(g: GameState, level: Prestige, kind: Client['kind'] = 'airline'): { line: string; ok: boolean }[] {
   const r = P.reqs[level];
   if (!r) return [];
   const { reliable, clean } = g.company.reputation;
@@ -300,8 +314,9 @@ export function prestigeRequirements(g: GameState, level: Prestige): { line: str
   const age = fleet.length ? fleet.reduce((s, a) => s + Math.max(0, year - a.builtYear), 0) / fleet.length : 0;
   const held = g.company.approvals.includes('iosa');
   const filed = g.company.pendingApprovals.some((p) => p.id === 'iosa');
+  // v0.24 IOSA is an airline's check (asksIosa); a ministry or an aid body looks at the rest.
   const out = [
-    { line: level === 4 ? `IOSA registration held${held ? '' : filed ? ' (filed, not yet granted)' : ''}` : `IOSA registration${held ? '' : filed ? ' (filed: enough for now)' : ' (filed is enough)'}`, ok: held || (level === 3 && filed) },
+    ...(asksIosa({ kind }) ? [{ line: level === 4 ? `IOSA registration held${held ? '' : filed ? ' (filed, not yet granted)' : ''}` : `IOSA registration${held ? '' : filed ? ' (filed: enough for now)' : ' (filed is enough)'}`, ok: held || (level === 3 && filed) }] : []),
     { line: `Reliable ${r.reliable} or more (now ${Math.round(reliable)})`, ok: reliable >= r.reliable },
     { line: `Fleet average age ${r.maxAge} years or less (now ${Math.round(age)})`, ok: age <= r.maxAge },
   ];
@@ -316,7 +331,7 @@ export function offerPrestigeLines(g: GameState, offerId: string): { level: Pres
   if (!o || !c) return null;
   const level = clientPrestige(c);
   const pay = o.prestigePct ? `${o.prestigePct > 0 ? '+' : '−'}${Math.round(Math.abs(o.prestigePct) * 100)} % rate (${PRESTIGE_SHORT[level]}, included)` : null;
-  return { level, stars: clientStars(c), name: PRESTIGE_NAME[level], stretch: !!o.stretch, pay, checks: level >= 3 && !c.jobs ? prestigeRequirements(g, level) : [] };
+  return { level, stars: clientStars(c), name: PRESTIGE_NAME[level], stretch: !!o.stretch, pay, checks: level >= 3 && !c.jobs ? prestigeRequirements(g, level, c.kind) : [] };
 }
 
 /** The sales module: a trade fair attended (+15, counted at our level) and a tender won (+40, the client's level). */

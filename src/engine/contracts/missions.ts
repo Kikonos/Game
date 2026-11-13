@@ -36,6 +36,7 @@ import { sideRng } from './paintTerms';
 import { computeWaves, programmeOf, route, routeMinutes } from './plan';
 import { ARCH_MULT, defaultSeats, flownTypes, referenceType } from './pricing';
 import { markStretch } from './prestige';
+import { clientTakes } from './fleetFit';
 import { isQuiet } from '../ops/director';
 import { warRiskCost } from './missionChecks';
 import { levelOf } from './relations';
@@ -134,6 +135,8 @@ const TCC = ['DAC', 'KTM', 'ISB', 'ADD', 'KGL', 'ACC'];
 function unRotation(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
   if (standingOf(g) < 1) return null;
+  // v0.24 stage-aware: with IOSA neither held nor filed, only a share of these reach us (prestige.ts markStretch).
+  if (!o.client && !has(g, 'iosa') && !chance(sideRng(g, `uniosa:${g.seq}:${g.now}`), BAL.v016.prestige.iosaKeep)) return null;
   const client = (o.client && g.clients[o.client]) || nearClient({ ...ctx, window: undefined }, clientsOf(g, ['government', 'agency'], (c) => /^UN (Department of Peace|World Food)/.test(c.name)));
   if (!client) return null;
   const tcc = o.airport ?? pick(g, TCC.filter(exists));
@@ -1005,7 +1008,7 @@ export function dailyFarRoute(g: GameState): ContractOffer | null {
 export function makeFarRoute(g: GameState, id?: string, opts: Parameters<typeof farRoute>[2] = {}): ContractOffer | null {
   const d = farRoute(g, id, opts);
   if (!d) return null;
-  markStretch(g, d);
+  if (markStretch(g, d) === 'drop') return null;
   return finalizeDraft(g, d);
 }
 
@@ -1109,7 +1112,8 @@ export function dailySubIn(g: GameState): ContractOffer | null {
   const rivals = g.rivals.filter((x) => isActive(x) && rivalClient(g, x) && x.fleet.some((f) => f.count > 0 && typeOf(f.typeId).family === fam));
   const rival = weightedPick(r, rivals, (x) => x.fleet.reduce((s, f) => s + f.count, 0) * (x.load ?? 0.7));
   if (!rival) return null;
-  const ends = clientsOf(g, ['airline'], (c) => exists(c.base) && !c.rivalId);
+  // v0.24 the end client flies this body (a rival's A320 never covers Virgin Atlantic's all-widebody schedule).
+  const ends = clientsOf(g, ['airline'], (c) => exists(c.base) && !c.rivalId && clientTakes(c, wide ? 'wide' : 'narrow'));
   const end = weightedPick(r, ends, (c) => 1 / (1 + km(c.base, rival.base) / 1500));
   if (!end) return null;
   // v0.14 paced: a rival's request at short notice waits for a busy spell (a quiet spell rings no phone).
