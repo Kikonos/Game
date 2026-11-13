@@ -853,7 +853,8 @@ export const crewModule: SimModule = {
     // v0.22.1 once: the money, reliability and relation that planning error cost are given back (crew/planRefund.ts).
     refundPlanLosses(g);
     // v0.23.2 once: a ferry stuck away while its job's flights were cancelled is planned again, and the compensation given back.
-    repairStuckFerries(g);
+    // (Its flights changed: the roster follows at once, so the loaded game holds no duty of a leg that is gone.)
+    if (repairStuckFerries(g)) crewModule.settle?.(g, true);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);

@@ -146,11 +146,12 @@ function relink(g: GameState, id: string): void {
   for (let i = 0; i < 3; i++) if (!relinkPositioning(g, id).length) break;
 }
 
-/** The repair and the refund, once per save (Stats.ferryRefund). */
-export function repairStuckFerries(g: GameState): void {
-  if (g.stats.ferryRefund !== undefined) return;
+/** The repair and the refund, once per save (Stats.ferryRefund). True when an aircraft was stuck (flights changed: the caller re-syncs the roster). */
+export function repairStuckFerries(g: GameState): boolean {
+  if (g.stats.ferryRefund !== undefined) return false;
   g.stats.ferryRefund = 0;
-  for (const s of stuckFerries(g)) {
+  const stuck = stuckFerries(g);
+  for (const s of stuck) {
     const dropped: Flight[] = [];
     for (let i = 0; i < 4; i++) {
       relink(g, s.ac.id);
@@ -179,4 +180,5 @@ export function repairStuckFerries(g: GameState): void {
       ref: { kind: 'aircraft', id: s.ac.id },
     });
   }
+  return stuck.length > 0;
 }
