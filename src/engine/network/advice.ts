@@ -9,11 +9,11 @@ import { distance } from '../core/geo';
 import { etopsCap, typeOf } from '../core/perf';
 import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
-import { catalogueOf, chainProblem, customFacts, customMarket, routeBases } from './custom';
+import { catalogueOf, chainProblem, customFacts, customMarket, routeBases, sisters } from './custom';
 import { firstFlightOf, project, studyBase, type Projection } from './launch';
-import { cabinFor, freqPerWeek, marketOfRoute, serviceHours } from './model';
+import { cabinFor, freqPerWeek, marketOfRoute, monthsWords, seasonMonths, serviceHours } from './model';
 import { crewAwayCost } from './pnl';
-import type { FifthRights, Route, RoutePlan } from './types';
+import type { FifthRights, Route, RouteModel, RoutePlan } from './types';
 
 export type StopMode = 'stopover' | 'fuel' | 'nonstop';
 
@@ -180,7 +180,7 @@ export function stopoverCompare(g: GameState, from: string, to: string, at: stri
 // ---------- the analyst and the planner on a business case ----------
 
 export interface Advice {
-  key: 'freq' | 'fares' | 'campaign' | 'aircraft' | 'cabin' | 'nights' | 'stop';
+  key: 'freq' | 'fares' | 'campaign' | 'aircraft' | 'cabin' | 'nights' | 'stop' | 'season';
   who: 'analyst' | 'planner';
   /** What to do, in a few words. */
   title: string;
@@ -234,6 +234,7 @@ export function caseAdvice(g: GameState, routeId: string, draft: RoutePlan): Cas
       for (const o of opts) {
         const plan = { ...draft, ...o.patch };
         if ('monthly' in o.patch && !o.patch.monthly) delete plan.monthly;
+        if ('season' in o.patch && !o.patch.season) delete plan.season;
         if (chainProblem(m, plan.typeId)) continue;
         const p = project(g, view, plan, start, x);
         const gain = Math.round(p.result - cur.result - (o.extra ?? 0));
@@ -242,6 +243,13 @@ export function caseAdvice(g: GameState, routeId: string, draft: RoutePlan): Cas
       if (top) list.push(top);
     };
     const lfWhy = (gain: number, p: Projection) => `About ${k$(gain)} more a year; flights ${Math.round((p.seatSec ? p.paxSec / p.seatSec : 0) * 100)} % full.`;
+    // v0.23.2 a market with a dead season: fly the season only, or all year where the quiet months still pay.
+    const season = seasonMonths(m);
+    if (season && draft.model !== 'partner') {
+      best('season', [draft.season
+        ? { title: 'Fly all year', patch: { season: undefined }, why: (gain: number) => `About ${k$(gain)} more a year: the quiet months still cover their costs.` }
+        : { title: `Fly ${monthsWords(season)} only`, patch: { season: true }, why: (gain: number) => `About ${k$(gain)} more a year: out of season the flights go half empty.` }]);
+    }
     // How often (a partner sets its own timetable).
     if (draft.model !== 'partner') {
       const f: { title: string; patch: Partial<RoutePlan>; why: typeof lfWhy }[] = [];
@@ -354,56 +362,150 @@ export interface RouteIdea {
   result: number;
   margin: number;
   lf: number;
+  /** v0.23.2 the guess's flights a week and how it is sold. */
+  perWeek: number;
+  model: RouteModel;
   why: string;
 }
 
-const ideaCache = new Map<string, RouteIdea[]>();
+/** v0.23.2 flights a week the planner tries on a pair. */
+const IDEA_FREQ = [1, 2, 3];
+/** How much the travellers' ties weigh in the shortlist (× 1 … 1 + this), and the most ideas to one country. */
+const IDEA_TIE_X = 2;
+const IDEA_PER_COUNTRY = 2;
+/** The well-travelled pairs the planner costs (the rest are too thin to look at), and the first guess's margin worth a study. */
+const IDEA_SHORTLIST = 180;
+export const IDEA_MARGIN = 0.05;
+
+/** `n` departures a week from `day` (0 = Monday), spread through the week. */
+function spreadDays(day: number, n: number): number {
+  const steps = n >= 3 ? [0, 2, 4] : n === 2 ? [0, 3] : [0];
+  return steps.reduce((mask, k) => mask | (1 << ((day + k) % 7)), 0);
+}
+
+const ideaCache = new Map<string, { list: RouteIdea[]; why: string | null }>();
 
 /**
  * v0.21 the network planner's shortlist (hired and on, else empty): pairs from our bases nobody has researched whose
- * first guess earns a healthy margin on an aircraft of ours, best first. A guess from the airports and the ties, not
- * the hidden real size: the study tells. Pure; cached by bases, fleet types and month.
+ * first guess earns a healthy margin on an aircraft of ours, best first. The pairs suit the base's own market: those
+ * where people are tied come first, no city twice, at most two to a country. A guess from the airports and the ties,
+ * not the hidden real size: the study tells. Pure; cached by bases, fleet types and month.
  */
 export function routeIdeas(g: GameState): RouteIdea[] {
-  if (!activeHead(g, 'netPlanner')) return [];
+  return ideasOf(g).list;
+}
+
+/**
+ * v0.23.2 why the planner's shortlist is empty, in one plain line (null when it has ideas or no planner is on):
+ * no aircraft, nothing they can reach, or nothing that earns enough.
+ */
+export function routeIdeasNone(g: GameState): string | null {
+  return ideasOf(g).why;
+}
+
+/** What the shortlist depends on: bases, fleet types and how far each may fly from an alternate, routes, month, fuel. */
+function ideasKey(g: GameState): { key: string; bases: string[]; caps: { t: string; cap: number }[]; taken: Set<string> } {
   const bases = routeBases(g);
   const types = [...new Set(Object.values(g.fleet).filter((a) => a.status !== 'leasedOut').map((a) => a.typeId))].sort();
+  // v0.23.2 an ETOPS approval won this month opens the ocean pairs at once (the list used to wait for the month's turn).
+  const caps = types.map((t) => ({ t, cap: etopsCap(g.company.approvals, t) }));
   const taken = new Set(Object.values(g.network?.routes ?? {}).filter((r) => r.status !== 'closed').map((r) => { const m = marketOfRoute(r); return m ? `${m.from}-${m.to}` : ''; }));
-  const key = `${bases.join()}|${types.join()}|${[...taken].sort().join()}|${Math.floor(g.now / (30 * DAY))}|${Math.round(g.market.fuelPrice / 25)}`;
+  const key = `${bases.join()}|${caps.map((c) => `${c.t}:${c.cap}`).join()}|${[...taken].sort().join()}|${Math.floor(g.now / (30 * DAY))}|${Math.round(g.market.fuelPrice / 25)}`;
+  return { key, bases, caps, taken };
+}
+
+/** v0.23.2 the shortlist's key for the screen (it changes when the list may: a new type, an approval, a route, the month). */
+export function routeIdeasKey(g: GameState): string {
+  const h = activeHead(g, 'netPlanner');
+  return h ? `${h.hired?.name ?? ''}|${ideasKey(g).key}` : '';
+}
+
+function ideasOf(g: GameState): { list: RouteIdea[]; why: string | null } {
+  if (!activeHead(g, 'netPlanner')) return { list: [], why: null };
+  const { key, bases, caps, taken } = ideasKey(g);
+  const types = caps.map((c) => c.t);
   const hit = ideaCache.get(key);
   if (hit) return hit;
-  const pre: { from: string; to: string; score: number }[] = [];
+  const home = city(bases[0]);
+  if (!types.length) {
+    const res = { list: [], why: 'We have no aircraft of our own to fly a route.' };
+    ideaCache.set(key, res);
+    return res;
+  }
+  // v0.23.2 (player report: "the network planner doesn't suggest routes at all" on a new A320 airline) the pairs the
+  // fleet cannot fly (range, runway, ETOPS) go before the shortlist is cut, not after: the longest pairs used to fill
+  // it and a narrowbody start was left with none.
+  const pre: { from: string; to: string; score: number; fit: string[] }[] = [];
   for (const from of bases) {
     for (const a of AIRPORTS) {
       if (a.enroute || a.ice || a.code === from || taken.has(`${from}-${a.code}`) || catalogueOf(from, a.code)) continue;
+      // A city we already fly or have researched through its other airport (London by Luton, Tripoli) is no new idea.
+      if (sisters(a.code).some((x) => taken.has(`${from}-${x.code}`) || catalogueOf(from, x.code))) continue;
       const f = customFacts(from, a.code);
       if (!f || f.km < 600 || f.od < 8_000) continue;
-      // Long, well-travelled pairs first: where an aircraft of ours can fill and the fares carry the distance.
-      pre.push({ from, to: a.code, score: f.od * Math.sqrt(f.km) });
+      const fit = caps.filter((c) => !chainProblem({ from, to: a.code }, c.t, c.cap)).map((c) => c.t);
+      if (!fit.length) continue;
+      // Well-travelled pairs first, longer ones a little ahead (the fares carry the distance).
+      pre.push({ from, to: a.code, score: f.od * Math.sqrt(f.km), fit });
     }
   }
   pre.sort((p, q) => q.score - p.score || (p.to < q.to ? -1 : 1));
-  const out: RouteIdea[] = [];
-  for (const c of pre.slice(0, 120)) {
+  const out: (RouteIdea & { rank: number })[] = [];
+  for (const c of pre.slice(0, IDEA_SHORTLIST)) {
     const m = customMarket({ from: c.from, to: c.to });
     if (!m || m.closed) continue;
     let top: RouteIdea | null = null;
-    for (const t of types) {
-      if (chainProblem(m, t, etopsCap(g.company.approvals, t))) continue;
-      const p = project(g, viewOf(m), firstPlan(m, t), g.now + 120 * DAY, 1);
-      const margin = p.rev ? p.result / p.rev : 0;
-      if (!top || p.result > top.result) {
-        const rivals = m.competitors.filter((v) => v.stops === 0);
-        top = { from: c.from, to: c.to, marketId: m.id, typeId: t, result: Math.round(p.result), margin, lf: p.seatSec ? p.paxSec / p.seatSec : 0, why: `${rivals.length ? `${rivals.length} nonstop rival${rivals.length > 1 ? 's' : ''}` : 'Nobody flies it nonstop'}; a weekly ${typeOf(t)?.short ?? t} about ${Math.round((p.seatSec ? p.paxSec / p.seatSec : 0) * 100)} % full.` };
+    for (const t of c.fit) {
+      // A weekly flight, or two or three a week (short-haul fills more often); own sale or a tour operator's.
+      for (const n of IDEA_FREQ) {
+        for (const model of m.models.filter((x) => x !== 'partner')) {
+          const plan = { ...firstPlan(m, t), model, days: spreadDays(m.timetable.day, n) };
+          const p = project(g, { ...viewOf(m), model }, plan, g.now + 120 * DAY, 1);
+          const margin = p.rev ? p.result / p.rev : 0;
+          if (!top || p.result > top.result) {
+            const rivals = m.competitors.filter((v) => v.stops === 0);
+            const lf = p.seatSec ? p.paxSec / p.seatSec : 0;
+            top = {
+              from: c.from, to: c.to, marketId: m.id, typeId: t, result: Math.round(p.result), margin, lf, perWeek: n, model,
+              why: `${rivals.length ? `${rivals.length} nonstop rival${rivals.length > 1 ? 's' : ''}` : 'Nobody flies it nonstop'}; ${n === 1 ? 'a weekly' : `${n} a week on the`} ${typeOf(t)?.short ?? t} about ${Math.round(lf * 100)} % full${model === 'tour' ? ', sold as holidays' : ''}.`,
+            };
+          }
+        }
       }
     }
-    if (top && top.margin >= 0.06 && top.result > 0) out.push(top);
+    if (top && top.margin >= IDEA_MARGIN && top.result > 0) {
+      // The base's own market first: a pair where people are really tied (family, diaspora, the islands at home)
+      // counts for up to three times its first guess.
+      const f = customFacts(c.from, c.to);
+      const tied = f ? f.links / Math.max(1, f.links + f.biz + f.tour + f.other) : 0;
+      out.push({ ...top, rank: top.result * (1 + IDEA_TIE_X * tied) });
+    }
   }
-  out.sort((p, q) => q.result - p.result || (p.to < q.to ? -1 : 1));
-  const list = out.slice(0, BAL.v019.planner.ideas);
+  out.sort((p, q) => q.rank - p.rank || (p.to < q.to ? -1 : 1));
+  // A varied shortlist: a city once (Istanbul's two airports, the same city from two of our bases), a country twice.
+  const picked: RouteIdea[] = [];
+  const cities = new Set<string>();
+  const countries = new Map<string, number>();
+  for (const { rank: _r, ...x } of out) {
+    void _r;
+    if (picked.length >= BAL.v019.planner.ideas) break;
+    const B = AIRPORT_BY_CODE[x.to];
+    const cityKey = `${B?.country}:${B?.city}`;
+    const n = countries.get(B?.country ?? '') ?? 0;
+    if (cities.has(cityKey) || n >= IDEA_PER_COUNTRY) continue;
+    cities.add(cityKey);
+    countries.set(B?.country ?? '', n + 1);
+    picked.push(x);
+  }
+  const list = picked.sort((p, q) => q.result - p.result || (p.to < q.to ? -1 : 1));
+  const fleet = types.map((t) => typeOf(t)?.short ?? t).join(' and ');
+  const why = list.length ? null
+    : !pre.length ? `Our ${fleet} cannot reach any well-travelled city from ${home} (range, runway or ETOPS).`
+      : `No pair from ${home} earns a healthy margin on our ${fleet} at today's fuel price and fares.`;
   if (ideaCache.size > 20) ideaCache.clear();
-  ideaCache.set(key, list);
-  return list;
+  const res = { list, why };
+  ideaCache.set(key, res);
+  return res;
 }
 
 /** Departures a week of a plan (re-exported for the UI's words). */

@@ -15,7 +15,7 @@ import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
 import {
   bcCapOf, businessCase, caseAdvice, caseDraft, caseVerdict, customId, customMarket, decideCase, devLaunchRoute, fifthOdds, marketOfRoute, parseCustomId,
-  plannerStudyX, project, reopenStudy, routeIdeas, setStop, sharedStop, shareSeats, startStudy, stopoverCompare, studyAccuracy, studyBase, studyList,
+  IDEA_MARGIN, plannerStudyX, project, reopenStudy, routeIdeas, setStop, sharedStop, shareSeats, startStudy, stopoverCompare, studyAccuracy, studyBase, studyList,
   validStudyFor,
 } from '.';
 import type { RoutePlan } from './types';
@@ -329,7 +329,7 @@ describe('v0.21 the verdict, the analyst and the planner', () => {
     expect(ideas.length).toBeGreaterThan(0);
     expect(ideas.length).toBeLessThanOrEqual(BAL.v019.planner.ideas);
     for (const x of ideas) {
-      expect(x.margin).toBeGreaterThanOrEqual(0.06);
+      expect(x.margin).toBeGreaterThanOrEqual(IDEA_MARGIN);
       expect(Object.values(g.fleet).some((a) => a.typeId === x.typeId)).toBe(true);
     }
     expect([...ideas].sort((p, q) => q.result - p.result)).toEqual(ideas);

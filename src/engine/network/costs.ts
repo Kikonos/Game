@@ -5,8 +5,8 @@
 import { routeStation } from '../../data/routes';
 import { BAL } from '../core/balance';
 import { blockMinutes, typeOf } from '../core/perf';
-import { yearOf } from '../core/time';
-import type { Aircraft, Flight, GameState, LedgerCat } from '../core/types';
+import { toDate, yearOf } from '../core/time';
+import type { Aircraft, Flight, GameState, LedgerCat, Minute } from '../core/types';
 import { marketOfRoute } from './model';
 import type { Rotation, Route, SectorLoad } from './types';
 
@@ -51,7 +51,7 @@ function sizeX(typeId: string): number {
 const band = (blk: number) => (blk <= 300 ? 0 : blk <= 540 ? 1 : 2);
 
 /**
- * §G one sector's costs (pure). Fuel at the uplift station's price (or Lisbon's when tankering), charges by station,
+ * §G one sector's costs (pure). Fuel at the uplift station's price (or the route's base when tankering), charges by station,
  * catering by class and length (double when the station has no caterer), passenger services, navigation, distribution.
  */
 export function sectorCost(g: GameState, route: Pick<Route, 'marketId' | 'model' | 'tanker' | 'noCaterer'>, from: string, to: string, typeId: string, ac: Aircraft | null, opt: { j: number; y: number; cargoKg: number; sold: number; blockMin?: number }): RouteLegCost {
@@ -70,9 +70,9 @@ export function sectorCost(g: GameState, route: Pick<Route, 'marketId' | 'model'
   const all = (t?.maintBH ?? 1_500) * (1 + BAL.maintAgeFactor * Math.max(0, age - 12)) * bh;
   const fh = Math.max(0, blk - 20) / 60;
   const reserves = ac && ac.ownership.kind === 'dryLeaseIn' ? Math.min(all, ac.ownership.reservesPerFH * fh) : 0;
-  // Fuel: tankering from home carries the return fuel at Lisbon's price, at a burn penalty.
+  // Fuel: tankering carries the return fuel from the route's base at its price, at a burn penalty.
   const burn = (t?.fuelTBH ?? 5) * bh * g.market.fuelPrice;
-  const home = routeStation(m?.from ?? 'LIS');
+  const home = routeStation(m?.from ?? g.company.homeBase);
   const tanker = !!route.tanker && A.fuelX > home.fuelX;
   const fuel = tanker ? burn * home.fuelX * (1 + C.tankerBurn * bh) : burn * A.fuelX;
   // Airport charges at landing, airline-borne passenger charges at departure.
@@ -82,7 +82,8 @@ export function sectorCost(g: GameState, route: Pick<Route, 'marketId' | 'model'
   const crew = (t?.cockpitMin ?? 2) + Math.ceil(Math.max(50, pax) / 40);
   const noCat = !A.caterer || !!route.noCaterer?.includes(from);
   const catering = (opt.j * C.cateringJ[k] + opt.y * C.cateringY[k] + crew * C.crewMeal) * (noCat ? 1 + C.doubleCatering : 1);
-  const paxServices = (C.pss + C.services + C.insurance) * pax + (from === 'LIS' ? C.lounge * opt.j : 0);
+  // The business lounge: at our home base (any start base, not only Lisbon) and where the station's data says so.
+  const paxServices = (C.pss + C.services + C.insurance) * pax + (A.lounge || from === g.company.homeBase ? C.lounge * opt.j : 0);
   const direct = m ? blockMinutes(typeId, m.from, m.to) : blk;
   const navCharges = (m?.navPerSector ?? 3_000) * sx * Math.min(1.6, blk / Math.max(60, direct));
   const distribution = route.model === 'partner' ? 0
@@ -139,13 +140,23 @@ export function routeDisruptionCost(g: GameState, f: Flight, kind: DisruptionKin
 export function monthlyRouteCosts(g: GameState): Partial<Record<LedgerCat, number>> {
   const out: Partial<Record<LedgerCat, number>> = {};
   for (const r of Object.values(g.network?.routes ?? {})) {
-    for (const [k, v] of Object.entries(routeMonthCosts(r)) as [LedgerCat, number][]) out[k] = (out[k] ?? 0) + v;
+    for (const [k, v] of Object.entries(routeMonthCosts(r, routeResting(r, g.now))) as [LedgerCat, number][]) out[k] = (out[k] ?? 0) + v;
   }
   return out;
 }
 
-/** One route's monthly overheads while it is on sale or flying (none while launching: the stages carry their costs). */
-export function routeMonthCosts(r: Route): Partial<Record<LedgerCat, number>> {
+/** v0.23.2 a seasonal route out of its season at `t`: every series it has flies in other months. */
+export function routeResting(r: Pick<Route, 'series'>, t: Minute): boolean {
+  if (!r.series.length) return false;
+  const bit = 1 << toDate(t).getUTCMonth();
+  return r.series.every((s) => s.months !== undefined && !(s.months & bit));
+}
+
+/**
+ * One route's monthly overheads while it is on sale or flying (none while launching: the stages carry their costs).
+ * `resting` (v0.23.2, a seasonal route out of season): the station kept at half cost and no campaign that month.
+ */
+export function routeMonthCosts(r: Route, resting = false): Partial<Record<LedgerCat, number>> {
   if (r.status !== 'onSale' && r.status !== 'operating' && r.status !== 'suspended') return {};
   const C = BAL.v019.cost;
   const m = marketOfRoute(r);
@@ -157,9 +168,9 @@ export function routeMonthCosts(r: Route): Partial<Record<LedgerCat, number>> {
   overhead += (stops.size - tag) * C.techStopOverhead + tag * Math.round((routeStation(m.stopover?.at ?? m.to).overhead || C.overhead) * BAL.v019.stop.overheadX);
   if (m.rights === 'perFlight') overhead += C.perOperation;
   return {
-    routeSetup: Math.round(r.status === 'suspended' ? overhead * 0.5 : overhead),
+    routeSetup: Math.round(r.status === 'suspended' || resting ? overhead * 0.5 : overhead),
     distribution: r.model === 'partner' ? 0 : C.distributionMonth,
-    marketing: r.model === 'partner' ? 0 : C.marketing[r.marketing] ?? 0,
+    marketing: r.model === 'partner' || resting ? 0 : C.marketing[r.marketing] ?? 0,
   };
 }
 

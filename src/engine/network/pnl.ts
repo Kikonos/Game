@@ -8,7 +8,7 @@ import { DAY, monthKey } from '../core/time';
 import type { GameState } from '../core/types';
 import { insuranceOf, rentOf } from '../ops/finance';
 import { rateMultiplier } from '../contracts/pricing';
-import { costTotal, routeMonthCosts, sectorCost, sectorOf, sectorPax } from './costs';
+import { costTotal, routeMonthCosts, routeResting, sectorCost, sectorOf, sectorPax } from './costs';
 import type { RouteMarket } from '../../data/routes';
 import { blockMinutes } from '../core/perf';
 import { chainOf, marketOfRoute, stopMin, type Dir } from './model';
@@ -78,7 +78,7 @@ export function crewAwayCost(g: GameState, m: RouteMarket, typeId: string, seats
 /** Month end (before ops closes the statement): the month's overheads and aircraft and crew time, the result. */
 export function closePnlMonth(g: GameState, route: Route): void {
   const p = pnlOf(route, g.now - 1);
-  const over = routeMonthCosts(route);
+  const over = routeMonthCosts(route, routeResting(route, g.now - 1));
   const sum = Object.values(over).reduce((a, x) => a + (x ?? 0), 0);
   p.direct += Math.round(sum);
   const s = route.series[0];

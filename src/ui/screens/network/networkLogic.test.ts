@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { fromUTC, monthKey } from '../../../engine/core/time';
 import type { Rotation, Route, RoutePnl, SectorLoad } from '../../../engine/network/types';
 import {
-  cargoLine, chainOf, daysOf, hhmm, isRouteContract, kg, lastQuarters, monthBars, pnlSum, ratios, repWord, rotationLoad, rotationResult, seasonWord,
-  sectorLoad, seatsLine, seriesWords, statusChip, timetableWords, trend, upcoming,
+  cargoLine, chainOf, daysOf, depthHint, hhmm, isRouteContract, kg, lastQuarters, marketKind, monthBars, pnlSum, ratios, repWord, rotationLoad, rotationResult, seasonWord,
+  sectorLoad, seatsLine, seriesWords, stageHint, statusChip, timetableWords, trend, upcoming,
 } from './networkLogic';
+import { ROUTE_MARKETS } from '../../../data/routes';
+import { LAUNCH_STAGES } from '../../../engine/network/types';
 
 const sec = (x: Partial<SectorLoad> = {}): SectorLoad => ({ from: 'LIS', to: 'OXB', capJ: 16, capY: 251, bookedJ: 9, bookedY: 214, cargoKg: 3800, ...x });
 const rot = (x: Partial<Rotation> = {}): Rotation => ({ id: 'r1', routeId: 'R1', seriesId: 's1', dep: fromUTC(2027, 11, 12, 6, 40), status: 'planned', sectors: [sec(), sec({ from: 'OXB', to: 'LIS', bookedJ: 4, bookedY: 120, cargoKg: 0 })], ...x });
@@ -22,6 +24,13 @@ describe('v0.19 network view helpers', () => {
     expect(seriesWords({ days: 1 << 4, every: 1, monthly: { nth: 1, weekday: 4 } })).toBe('Monthly, first Fri');
     expect(seriesWords({ days: 127, every: 1 })).toBe('Daily');
     expect(seriesWords({ days: 0b10101, every: 1 })).toBe('3 a week, Mon · Wed · Fri');
+    // v0.23.2 a seasonal series names its months.
+    expect(seriesWords({ days: 1 << 5, every: 1, months: 0b111000001111 })).toBe('Weekly, Sat, Oct–Apr');
+    expect(seriesWords({ days: 1 << 5, every: 1, months: 4095 })).toBe('Weekly, Sat');
+    const winter = route({ series: [{ id: 's1', days: 1 << 5, every: 1, out: 420, back: 795, nights: 0, typeId: 'a320ceo', layout: 'two-class', from: 0, to: 9e9, months: 0b111000001111 }] });
+    expect(statusChip(winter, fromUTC(2027, 7, 10)).label).toBe('Out of season');
+    expect(statusChip(winter, fromUTC(2027, 12, 10)).label).toBe('Operating');
+    expect(statusChip(winter).label).toBe('Operating');
     expect(daysOf(0b1000001)).toEqual([0, 6]);
     expect(hhmm(400)).toBe('06:40');
     expect(hhmm(-30)).toBe('23:30');
@@ -103,3 +112,29 @@ describe('v0.19 network view helpers', () => {
     expect(isRouteContract({ archetype: 'adhoc' })).toBe(false);
   });
 });
+
+// v0.23.2 review: the study and campaign texts written for Lisbon's diaspora markets showed on every market.
+describe('launch texts follow who travels', () => {
+  const mk = (id: string) => ROUTE_MARKETS.find((m) => m.id === id)!;
+  it('Lisbon\'s Africa keeps its words; a holiday or business market never reads diaspora, churches or NGOs', () => {
+    expect(marketKind(mk('LIS-OXB'))).toBe('aid');
+    expect(depthHint('full', mk('LIS-OXB'))).toBe('Booking data, the diaspora associations, government and NGO interviews.');
+    expect(stageHint('marketing', mk('LIS-OXB'))).toMatch(/churches/);
+    expect(stageHint('study', mk('LIS-OXB'))).toMatch(/NGO/);
+    // No market known: the old words.
+    expect(stageHint('study')).toMatch(/diaspora/);
+    for (const m of ROUTE_MARKETS) {
+      const k = marketKind(m);
+      const text = [depthHint('desk', m), depthHint('full', m), depthHint('survey', m), ...LAUNCH_STAGES.map((id) => stageHint(id, m))].join(' ');
+      for (const id of LAUNCH_STAGES) expect(stageHint(id, m).length, `${m.id} ${id}`).toBeGreaterThan(10);
+      if (k === 'holiday' || k === 'business') expect(text, m.id).not.toMatch(/[Dd]iaspora|church|NGO|government/);
+      if (k === 'family') expect(text, m.id).not.toMatch(/church|NGO|government/);
+      if (k === 'holiday') expect(text, m.id).toMatch(/[Tt]our operators/);
+    }
+    expect(marketKind(mk('MLA-CPH'))).toBe('holiday');
+    expect(marketKind(mk('TLL-ARN'))).not.toBe('aid');
+    expect(marketKind(mk('VNO-LTN'))).toBe('family');
+    expect(marketKind(mk('LIS-SID'))).toBe('holiday');
+  });
+});
+

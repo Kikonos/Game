@@ -106,6 +106,49 @@ export function seasonX(m: RouteMarket, month: number, dir: Dir): number {
   return (dir === 'out' ? out : back)[month] ?? 1;
 }
 
+/** v0.23.2 a month is in a market's season when its index (out and back averaged) reaches this. */
+export const SEASON_ON = 0.6;
+
+/**
+ * v0.23.2 the months (bit 0 = January) a strongly seasonal market is worth flying: those whose season index reaches
+ * SEASON_ON, when at least three months fall below it (Tenerife from the Baltics: October to April; Lourdes: the
+ * pilgrimage months). Null: no dead season, fly it all year. Pure.
+ */
+export function seasonMonths(m: RouteMarket): number | null {
+  let mask = 0;
+  let off = 0;
+  for (let i = 0; i < 12; i++) {
+    if ((seasonX(m, i, 'out') + seasonX(m, i, 'back')) / 2 >= SEASON_ON) mask |= 1 << i;
+    else off++;
+  }
+  return off >= 3 && mask ? mask : null;
+}
+
+/** The months a plan flies on a market (null: all year). */
+export const planMonths = (m: RouteMarket, p: { season?: true }): number | null => (p.season ? seasonMonths(m) : null);
+
+const MONTH_SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+/** "Oct–Apr", "Apr–Oct", "May–Jun, Sep–Oct": the runs of a month mask, a run over the new year first. */
+export function monthsWords(mask: number): string {
+  if ((mask & 4095) === 4095) return 'All year';
+  const runs: [number, number][] = [];
+  for (let i = 0; i < 12; i++) {
+    if (!(mask & (1 << i))) continue;
+    if (runs.length && runs[runs.length - 1][1] === i - 1) runs[runs.length - 1][1] = i;
+    else runs.push([i, i]);
+  }
+  // December joined to January: one run over the new year.
+  if (runs.length > 1 && runs[0][0] === 0 && runs[runs.length - 1][1] === 11) {
+    const last = runs.pop()!;
+    runs[0] = [last[0], runs[0][1]];
+    runs.unshift(runs.splice(0, 1)[0]);
+  }
+  return runs.map(([a, b]) => (a === b ? MONTH_SHORT[a] : `${MONTH_SHORT[a]}–${MONTH_SHORT[b]}`)).join(', ');
+}
+
+/** A market's realised yield against its published fares: the balance table's, else the market's own, else 1. */
+export const marketFareX = (m: Pick<RouteMarket, 'id' | 'fareX'>): number => BAL.v019.fares.marketX[m.id] ?? m.fareX ?? 1;
+
 /** §E.4 base one-way fare (net, USD) for a class in a month: off-peak floor to peak by the season index, × the level. */
 export function baseFare(m: RouteMarket, cls: 'J' | 'Y', month: number, dir: Dir, level: FareLevel = 'market'): number {
   const [lo, hi] = cls === 'J' ? m.fareJ : m.fareY;
@@ -114,7 +157,7 @@ export function baseFare(m: RouteMarket, cls: 'J' | 'Y', month: number, dir: Dir
   const max = Math.max(...s);
   const x = max > min ? (seasonX(m, month, dir) - min) / (max - min) : 0.5;
   const f = lo + (hi - lo) * Math.max(0, Math.min(1, x));
-  return Math.round(f * (BAL.v019.fares.scale ?? 1) * (BAL.v019.fares.marketX[m.id] ?? 1) * (1 + (BAL.v019.fares.level[level] ?? 0)));
+  return Math.round(f * (BAL.v019.fares.scale ?? 1) * marketFareX(m) * (1 + (BAL.v019.fares.level[level] ?? 0)));
 }
 
 /** Share of a market's travellers who want business class. */
@@ -217,6 +260,9 @@ export function localWeekday(ap: string, t: Minute): number {
   const d = toDate(t + localOffset(ap, t));
   return (d.getUTCDay() + 6) % 7;
 }
+
+/** Month (0 = January) of a time at an airport's local calendar. */
+export const localMonth = (ap: string, t: Minute): number => toDate(t + localOffset(ap, t)).getUTCMonth();
 
 /** Departures a week of a series (monthly ≈ 12/52; every N weeks: days ÷ N). */
 export function freqPerWeek(s: Pick<RouteSeries, 'days' | 'every' | 'monthly'>): number {

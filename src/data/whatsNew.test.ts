@@ -55,7 +55,7 @@ describe("v0.9 What's new catch-up (UPDATE-0.9.md §X)", () => {
     expect(v(whatsNewToShow('v0.7.4', false))).toEqual(['v0.23.3', 'v0.23.2', 'v0.23.1', 'v0.23', 'v0.22.1', 'v0.22', 'v0.21', 'v0.20.1', 'v0.20', 'v0.19.5', 'v0.19.4', 'v0.19.3', 'v0.19.2', 'v0.19.1', 'v0.19', 'v0.18.3', 'v0.18.2', 'v0.18.1', 'v0.18', 'v0.17.2', 'v0.17.1', 'v0.17', 'v0.16.4', 'v0.16.3', 'v0.16.2', 'v0.16.1', 'v0.16', 'v0.15', 'v0.14.1', 'v0.14', 'v0.13', 'v0.12', 'v0.11.4', 'v0.11.3', 'v0.11.2', 'v0.11.1', 'v0.11', 'v0.10.1', 'v0.10', 'v0.9.1', 'v0.9', 'v0.8', 'v0.7.4']);
   });
   it('v0.23.3 positioning from the Schedule on top, in short plain lines', () => {
-    expect(`${WHATS_NEW[0].version} ${WHATS_NEW[0].name}`).toBe('v0.23.3 Position aircraft from the Schedule');
+    expect(`${WHATS_NEW[0].version} ${WHATS_NEW[0].name}`).toBe('v0.23.3 Routes for every base, position aircraft');
     const lines = [...WHATS_NEW[0].features, ...WHATS_NEW[0].improvements, ...(WHATS_NEW[0].fixes ?? [])];
     expect(WHATS_NEW[0].features.length).toBeGreaterThan(0);
     expect(lines.join('\n')).toMatch(/idle line/);

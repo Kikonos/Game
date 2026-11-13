@@ -2710,7 +2710,19 @@ export function onFlightsChanged(g: GameState, aircraftId: string, t: Minute): v
       d.flightIds = keep;
       const aug0 = d.augment;
       const max0 = d.maxFdp;
+      const report0 = d.report;
+      const release0 = d.release;
       syncDuty(g, d, p);
+      // v0.23.2 a duty moved to other hours takes them from its crew's standby, as new work does: windows not yet
+      // begun give way, one running at the new report is a call-out (Sofia, seed 1: a positioning to Budapest brought
+      // forward four weeks when another job took the aircraft; its crew flew it at 13:05 from a 09:00-21:00 home
+      // standby never called, and were still "standing by at Sofia" in Budapest that evening).
+      if ((d.report !== report0 || d.release !== release0) && d.release > g.now && !d.done) {
+        for (const x of p.slots) {
+          const c = x.crewId ? g.crew[x.crewId] : undefined;
+          if (c?.standby?.length) dropStandby(g, c, Math.max(g.now, d.report - 60), d.release);
+        }
+      }
       // A leg under way now leaving a night-stop later: the duty ends at the last landing (hotel, then a new duty).
       // v0.14.1 so does a duty not yet reported whose legs moved a night's rest apart (an empty move retimed to the
       // evening before its job): two duties of the trip, the crew at the hotel between.

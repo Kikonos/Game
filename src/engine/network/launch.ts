@@ -5,7 +5,7 @@
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { routeStation, type RouteMarket } from '../../data/routes';
-import { chainProblem, CUSTOM_STUDY_EXTRA, customMarket, customTruth, parseCustomId } from './custom';
+import { chainProblem, CUSTOM_STUDY_EXTRA, customMarket, customTruth, parseCustomId, routeBases } from './custom';
 import { BAL } from '../core/balance';
 import { cashOnly, post } from '../core/ledger';
 import { blockMinutes, typeOf } from '../core/perf';
@@ -15,7 +15,7 @@ import { DAY, fmtDay, fmtTime, monthKey } from '../core/time';
 import type { CabinLayout } from '../../data/acmiTypes';
 import type { Client, GameState, LedgerCat, Minute } from '../core/types';
 import { costTotal, passThrough, routeMonthCosts, sectorCost } from './costs';
-import { baseFare, cabinFor, chainOf, seasonCode, departureDemand, freqPerWeek, localToUtc, MARKET_BY_ID, marketOfRoute, serviceHours, slotX, usd, weeklyMarket, type Dir } from './model';
+import { baseFare, cabinFor, chainOf, seasonCode, departureDemand, freqPerWeek, localMonth, localToUtc, MARKET_BY_ID, marketOfRoute, planMonths, seasonMonths, serviceHours, slotX, usd, weeklyMarket, type Dir } from './model';
 import { pushRouteNote } from './notes';
 import { checkAchievements } from '../ops/achievements';
 import { acmiNetBH, aircraftCostBH, crewAwayCost, crewCostBH } from './pnl';
@@ -89,6 +89,9 @@ export function studyBlock(g: GameState, marketId: string): string | null {
   const r = Object.values(g.network?.routes ?? {}).find((x) => x.status !== 'closed' && (x.marketId === marketId || (marketOfRoute(x)?.from === m.from && marketOfRoute(x)?.to === m.to)));
   if (r) return r.status === 'operating' ? 'You fly it already.' : 'You are launching it already.';
   if (g.gameOver) return 'The company has failed.';
+  // A route leaves from one of our bases (an airline based at Malta opens no Lisbon market); a study bought before
+  // that rule stays good.
+  if (!routeBases(g).includes(m.from) && !validStudyFor(g, marketId)) return `We have no base at ${AIRPORT_BY_CODE[m.from]?.city ?? m.from}.`;
   return null;
 }
 
@@ -266,8 +269,8 @@ export interface Projection {
 export const NO_PARTS: MoneyParts = { tickets: 0, cargo: 0, extras: 0, fee: 0, passed: 0, fuel: 0, airport: 0, service: 0, sales: 0, disruption: 0, maint: 0, overheads: 0, aircraft: 0, crew: 0 };
 
 /** The plan's series (dates from `from`). */
-export function planSeries(p: RoutePlan, from: Minute, id = ''): import('./types').RouteSeries {
-  return { id, days: p.days, every: p.every, monthly: p.monthly, out: p.out, back: p.back, nights: p.nights, typeId: p.typeId, layout: p.layout ?? 'two-class', from, to: from + 365 * DAY };
+export function planSeries(p: RoutePlan, from: Minute, id = '', months: number | null = null): import('./types').RouteSeries {
+  return { id, days: p.days, every: p.every, monthly: p.monthly, out: p.out, back: p.back, nights: p.nights, typeId: p.typeId, layout: p.layout ?? 'two-class', from, to: from + 365 * DAY, ...(months ? { months } : {}) };
 }
 
 /**
@@ -318,9 +321,19 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   const monthly = routeMonthCosts({ ...(r as Route), status: 'operating', marketing: p.marketing } as Route);
   const fixed = Object.values(monthly).reduce((a, x) => a + (x ?? 0), 0);
   const fareMix = r.model === 'tour' ? 1 - BAL.v019.sales.anchors.share * BAL.v019.sales.anchors.fareCut : BAL.v019.fares.caseBucket;
+  // v0.23.2 a seasonal plan: the months out of season have no flights; the station is kept at half cost, no campaign.
+  const flown = planMonths(m, p);
+  const resting = flown ? Object.values(routeMonthCosts({ ...(r as Route), status: 'operating', marketing: p.marketing } as Route, true)).reduce((a, x) => a + (x ?? 0), 0) : 0;
+  let monthsFlown = 0;
   for (let i = 0; i < 12; i++) {
     const at = start + i * 30.4 * DAY;
     let rev = 0, cost = 0, pax = 0, seats = 0;
+    if (flown && !(flown & (1 << new Date(Date.UTC(2000, 0, 1) + at * 60_000).getUTCMonth()))) {
+      parts.overheads += resting;
+      months.push({ rev: 0, cost: Math.round(resting), result: -Math.round(resting), pax: 0, seats: 0 });
+      continue;
+    }
+    monthsFlown++;
     for (const dir of ['out', 'back'] as Dir[]) {
       const x = {
         freqPerWeek: freq, fares: p.fares, awareness: BAL.v019.demand.awareness.campaign[p.marketing] ?? 0.55, reputation: r.reputation ?? 60,
@@ -432,7 +445,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   for (const k of Object.keys(parts) as (keyof MoneyParts)[]) parts[k] = Math.round(parts[k]);
   return {
     months, rev: sum('rev'), cost: sum('cost'), result: sum('result'), pax: sum('pax'), paxJ: Math.round(paxJ), seats: sum('seats'), paxSec, seatSec, bh, sectors,
-    lfOff: offN ? offLf / offN : 0, lfPeak: peakN ? peakLf / peakN : 0, spill, parts, rotations: Math.round(deps * 12),
+    lfOff: offN ? offLf / offN : 0, lfPeak: peakN ? peakLf / peakN : 0, spill, parts, rotations: Math.round(deps * monthsFlown),
     ...(tag && sp.n ? { split: { thr: sp.thr / sp.n, ab: sp.ab / sp.n, bc: sp.bc / sp.n, seats: cab.total } } : {}),
   };
 }
@@ -537,14 +550,7 @@ export function caseVerdict(c: Pick<BusinessCase, 'p10' | 'p50' | 'p90' | 'break
 /** The first flight a Go today would give (16 weeks or the filing + 8 weeks of sales, whichever is later). */
 export function firstFlightOf(g: GameState, r: Pick<Route, 'marketId'>, p: RoutePlan): Minute {
   const m = marketOfRoute(r)!;
-  const t0 = g.now + 16 * 7 * DAY;
-  // The first departure on the plan's day on or after t0.
-  for (let d = 0; d < 60; d++) {
-    const at = localToUtc(m.from, t0 + d * DAY, p.out);
-    const wd = (new Date(Date.UTC(2000, 0, 1) + (at + 0) * 60_000).getUTCDay() + 6) % 7;
-    if (p.monthly ? wd === p.monthly.weekday && new Date(Date.UTC(2000, 0, 1) + at * 60_000).getUTCDate() <= 7 : p.days & (1 << wd)) return at;
-  }
-  return localToUtc(m.from, t0, p.out);
+  return firstFromDate(m, p, g.now + 16 * 7 * DAY);
 }
 
 /**
@@ -738,7 +744,12 @@ export function caseDraft(g: GameState, routeId: string): RoutePlan | null {
   if (r.plan) return { ...r.plan };
   const rec = recommendation(g, routeId);
   if (!rec) return null;
-  return { model: r.model, days: rec.days, every: rec.every ?? 1, monthly: rec.monthly, out: rec.out, back: rec.back, nights: rec.nights, typeId: rec.typeId, layout: 'two-class', fares: 'market', marketing: 'normal' };
+  // v0.23.2 a market with a dead season is planned for its season (winter sun from the Baltics, summer to the islands).
+  const m = marketOfRoute(r);
+  return {
+    model: r.model, days: rec.days, every: rec.every ?? 1, monthly: rec.monthly, out: rec.out, back: rec.back, nights: rec.nights, typeId: rec.typeId, layout: 'two-class', fares: 'market', marketing: 'normal',
+    ...(m && seasonMonths(m) ? { season: true as const } : {}),
+  };
 }
 
 /** What a draft's deviations from the recommendation do (plain words, pure). */
@@ -810,7 +821,7 @@ export function decideCase(g: GameState, routeId: string, decision: CaseDecision
   startStage(g, r, 'stations');
   const first = firstFlightOf(g, r, p);
   r.firstFlight = first;
-  r.series = [planSeries(p, first - 12 * 60, `${r.id}s1`)];
+  r.series = [planSeries(p, first - 12 * 60, `${r.id}s1`, planMonths(m, p))];
   pushRouteNote(g, r, 'good', `Launch under way: ${m.city}`, `Permits, slots, the brand and the airport contracts start now. First flight planned ${fmtDay(first)}.`, null);
   touch(g);
   return null;
@@ -1026,7 +1037,7 @@ export function stepLaunch(g: GameState, r: Route): void {
     const earliest = g.now + C.filing.minDays * DAY;
     if (p && (r.firstFlight ?? 0) < earliest) {
       r.firstFlight = firstFromDate(m, p, earliest);
-      r.series = [planSeries(p, r.firstFlight - 12 * 60, r.series[0]?.id ?? `${r.id}s1`)];
+      r.series = [planSeries(p, r.firstFlight - 12 * 60, r.series[0]?.id ?? `${r.id}s1`, planMonths(m, p))];
     }
     r.status = 'onSale';
     r.slots = { held: 0, flown: 0, season: seasonCode(r.firstFlight ?? g.now).code };
@@ -1051,9 +1062,12 @@ export function stepAwareness(r: Route): void {
   r.awareness = Math.max(0.05, Math.min(0.95, r.awareness * fade + keep));
 }
 
+/** The first departure on the plan's day on or after `from`; a seasonal plan (v0.23.2) waits for its season. */
 function firstFromDate(m: RouteMarket, p: RoutePlan, from: Minute): Minute {
-  for (let d = 0; d < 60; d++) {
+  const months = planMonths(m, p);
+  for (let d = 0; d < (months ? 320 : 60); d++) {
     const at = localToUtc(m.from, from + d * DAY, p.out);
+    if (months && !(months & (1 << localMonth(m.from, at)))) continue;
     const dt = new Date(Date.UTC(2000, 0, 1) + at * 60_000);
     const wd = (dt.getUTCDay() + 6) % 7;
     if (p.monthly ? wd === p.monthly.weekday && dt.getUTCDate() <= 7 : p.days & (1 << wd)) return at;
@@ -1138,7 +1152,7 @@ export function devLaunchRoute(g: GameState, marketId: string, aircraftId?: stri
   r.status = 'onSale';
   r.awareness = BAL.v019.demand.awareness.campaign[r.marketing] ?? 0.55;
   r.firstFlight = firstFromDate(m, p, g.now + 3 * DAY);
-  r.series = [planSeries(p, r.firstFlight - 12 * 60, `${r.id}s1`)];
+  r.series = [planSeries(p, r.firstFlight - 12 * 60, `${r.id}s1`, planMonths(m, p))];
   if (ac) r.series[0].tail = ac.id;
   r.slots = { held: 0, flown: 0, season: seasonCode(r.firstFlight).code };
   g.network!.distribution ??= g.now;

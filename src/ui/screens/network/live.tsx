@@ -118,7 +118,7 @@ export function dragLine(g: GameState, rotId: string, delta: number): { text: st
   if (!delta) return { text: `${routeName(at.route)}: slide it earlier or later`, ok: true };
   const q = net.quoteMove(g, rotId, delta);
   const dep = at.rot.dep + delta;
-  const head = `${fmtDay(dep)} ${fmtTime(dep)} UTC · ${fmtTime(dep, at.rot.sectors[0]?.from ?? 'LIS')} local`;
+  const head = `${fmtDay(dep)} ${fmtTime(dep)} UTC · ${fmtTime(dep, at.rot.sectors[0]?.from ?? g.company.homeBase)} local`;
   return q.ok ? { text: `${head} · ${q.cost > 0 ? `about ${money(q.cost)}` : 'no cost'}`, ok: true } : { text: `${head} · ${q.why ?? 'not possible'}`, ok: false };
 }
 

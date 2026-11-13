@@ -49,6 +49,7 @@ import { devDisruption } from '../engine/ops/disrupt';
 import { CURFEWS } from '../data/opsData';
 import { inspect, rampFindings } from '../engine/ops/ramp';
 import { devAudit } from '../engine/ops/audit';
+import { catalogueFor } from '../engine/network/custom';
 import { devLaunchRoute } from '../engine/network/launch';
 
 export type { GameSpeed } from '../engine/core/time';
@@ -1638,9 +1639,11 @@ class GameStore {
       return id;
     },
     /** v0.19 a scheduled route straight to operating (study, Go and every stage done; on sale), on an aircraft by reg. */
-    route: (marketId = 'LIS-OXB', reg?: string) => {
+    route: (market?: string, reg?: string) => {
       const g = this.game;
       if (!g) return '';
+      // Without a market: the first researched one from our own bases (Lisbon–Bissau in a Lisbon game).
+      const marketId = market ?? catalogueFor(g).find((m) => !m.closed)?.id ?? 'LIS-OXB';
       const ac = reg ? Object.values(g.fleet).find((a) => a.reg === reg) : Object.values(g.fleet).filter((a) => a.status !== 'leasedOut').sort((a, b) => b.cabin.total - a.cabin.total)[0];
       const id = devLaunchRoute(g, marketId, ac?.id);
       settle(g);

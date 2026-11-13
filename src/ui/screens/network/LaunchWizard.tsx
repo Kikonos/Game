@@ -11,7 +11,7 @@ import { BAL } from '../../../engine/core/balance';
 import { typeOf } from '../../../engine/core/perf';
 import { DAY, fmtDate, fmtDayRel, fmtSpan } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
-import { caseAdvice, plannerStudyX, setStop, sharedStop, stopoverCompare, studyBase, validStudyFor, type Advice, type BusinessCase as EngineCase, type StopCompare } from '../../../engine/network';
+import { catalogueFor, caseAdvice, monthsWords, plannerStudyX, seasonMonths, setStop, sharedStop, stopoverCompare, studyBase, validStudyFor, type Advice, type BusinessCase as EngineCase, type StopCompare } from '../../../engine/network';
 import type { FareLevel, MarketingLevel, Route, RouteModel, StudyDepth } from '../../../engine/network/types';
 import { Help } from '../../components/Help';
 import { Modal, Seg, Stepper } from '../../components/ui';
@@ -20,17 +20,12 @@ import { int, money, moneyDelta, pct } from '../../format';
 import { store, useGame } from '../../store';
 import { LaunchProgress } from './bits';
 import { net, type BusinessCase, type CaseDraft, type Recommendation } from './netApi';
-import { DAY_SHORT, daysOf, hhmm, lastQuarters, marketBlock, marketOf, MODEL_HINT, routeCode, routeName, seriesWords, STAGE_LABEL, stopChosen } from './networkLogic';
+import { DAY_SHORT, daysOf, depthHint, hhmm, lastQuarters, marketBlock, marketOf, MODEL_HINT, routeCode, routeName, seriesWords, STAGE_LABEL, stopChosen } from './networkLogic';
 import { RouteMap } from './RouteMap';
 
 const MODEL_WORD: Record<RouteModel, string> = { own: 'Own brand', partner: 'For a partner', tour: 'Holidays charter' };
 const DEPTHS: StudyDepth[] = ['desk', 'full', 'survey'];
 const DEPTH_WORD: Record<StudyDepth, string> = { desk: 'Desk study', full: 'Full study', survey: 'Full + survey' };
-const DEPTH_HINT: Record<StudyDepth, string> = {
-  desk: 'Published traffic data and rivals\' timetables. Cheap and quick, but it can be well off.',
-  full: 'Booking data, the diaspora associations, government and NGO interviews.',
-  survey: 'The full study plus a passenger survey: the closest estimate.',
-};
 
 type StudyCfg = { days: [number, number]; cost: number; accuracy: number };
 function studyCfg(d: StudyDepth): StudyCfg | null {
@@ -73,7 +68,7 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
           <ChevronRight className="sc-ico-s dim" />
         </button>
         <div className="nw-markets nw-pick">
-          {ROUTE_MARKETS.map((x) => {
+          {catalogueFor(g).map((x) => {
             const block = marketBlock(g, x);
             return (
               <button key={x.id} className={`nw-market ${x.closed ? 'off' : ''}`} disabled={!!block} onClick={() => setMid(x.id)}>
@@ -143,7 +138,7 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
                   <b>{DEPTH_WORD[d]}</b>
                   {c && <span className="small num">{money(c.cost)} · {fmtSpan(Math.max(1, Math.round(c.days[0] / 7)), Math.max(1, Math.round(c.days[1] / 7)), 'weeks')}</span>}
                   {c && <span className="tiny muted">estimate within ±{Math.round(c.accuracy * plannerStudyX(g) * 100)} %</span>}
-                  <span className="tiny muted">{DEPTH_HINT[d]}</span>
+                  <span className="tiny muted">{depthHint(d, m)}</span>
                 </button>
               );
             })}
@@ -229,6 +224,7 @@ function DraftEditor({ g, m, d, set }: { g: GameState; m: RouteMarket | undefine
     const days = d.days ^ (1 << i);
     if (days) set({ ...d, days });
   };
+  const season = m ? seasonMonths(m) : null;
   return (
     <div className="nw-draft">
       <div className="nw-draft-row">
@@ -244,6 +240,15 @@ function DraftEditor({ g, m, d, set }: { g: GameState; m: RouteMarket | undefine
           })}
         </div>
       </div>
+      {season && (
+        <div className="nw-draft-row">
+          <span className="small muted">Months <Help title="A seasonal route">
+            <p>Out of season almost nobody travels here. Fly the season only and the route rests for the other months.</p>
+            <p>While it rests there are no flights and no campaign, the station costs half, and the aircraft is free for other work.</p>
+          </Help></span>
+          <Seg<string> value={d.season ? 's' : 'y'} onChange={(v) => set({ ...d, season: v === 's' ? true : undefined })} options={[{ value: 's', label: monthsWords(season) }, { value: 'y', label: 'All year' }]} />
+        </div>
+      )}
       <div className="nw-draft-row">
         <span className="small muted">Leaves {m?.from ?? ''}</span>
         <Stepper value={d.out} min={0} max={DAY - 15} step={15} onChange={(v) => set({ ...d, out: v })} format={(v) => `${hhmm(v)} local`} />
