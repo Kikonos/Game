@@ -4,7 +4,7 @@
 // done. Engine: ops/position.ts (the quote is worked out on a copy of the game; the booking is that same plan).
 
 import { PlaneTakeoff, Search } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { AIRPORTS, AIRPORT_BY_CODE } from '../../data/airports';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
@@ -62,6 +62,11 @@ export function PositionModal({ aircraftId, from }: { aircraftId: string; from: 
   const list = useMemo(() => positionTargets(g, aircraftId, from, 6), [g, aircraftId, from, rev, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
   const first = useMemo(() => (list[0] ? quotePosition(g, aircraftId, list[0].code, { from, quick: true }) : null), [g, aircraftId, from, list, rev, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
   const q = useMemo(() => (to ? quotePosition(g, aircraftId, to, { from, later: later * 60 }) : null), [g, aircraftId, to, from, later, rev, g.now]); // eslint-disable-line react-hooks/exhaustive-deps
+  // On a short screen the plan is under the fold: bring it into view once a destination is picked.
+  const planRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (to) planRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [to, q]);
   if (!ac) return null;
   const at = q?.from || first?.from || ac.at;
   const found = searchAirports(text, at);
@@ -94,7 +99,7 @@ export function PositionModal({ aircraftId, from }: { aircraftId: string; from: 
       footer={
         <>
           <button className="btn" onClick={close}>Cancel</button>
-          <span className="grow small bad ps-why">{q && !q.ok ? q.reason : ''}</span>
+          <span className="grow" />
           <button className="btn btn-primary" onClick={book} disabled={!q?.ok}><PlaneTakeoff /> {q?.ok ? `Position · ${money(q.total)}` : 'Position'}</button>
         </>
       }
@@ -116,8 +121,10 @@ export function PositionModal({ aircraftId, from }: { aircraftId: string; from: 
             {!found.length && <span className="small muted">No airport found.</span>}
           </div>
         )}
-        {q?.ok && <Plan q={q} />}
-        {q && !q.ok && <div className="cv-cost small ps-no"><b className="bad">Not possible</b><span>{q.reason}.</span></div>}
+        <div ref={planRef} className="col gap-12">
+          {q?.ok && <Plan q={q} />}
+          {q && !q.ok && <div className="cv-cost small ps-no"><b className="bad">Not possible</b><span>{q.reason}.</span></div>}
+
         {q && (q.ok || later > 0) && (
           <div className="row between gap-8 ps-later">
             <span className="small muted">Leave</span>
@@ -125,6 +132,7 @@ export function PositionModal({ aircraftId, from }: { aircraftId: string; from: 
           </div>
         )}
         {!q && <div className="small muted">Pick where {ac.reg} should go.</div>}
+        </div>
       </div>
     </Modal>
   );
