@@ -23,6 +23,7 @@ import { dropStandby } from './standby';
 import { block28, crewIx, crewRev, segsOf, touchCrew } from './timeline';
 import type { Seg } from './rules';
 import { lockOf, noteHired } from '../scenario/rules';
+import { crewTypeBlock } from '../leasing/aoc';
 
 export interface HireRequest {
   role: Role;
@@ -96,6 +97,11 @@ export function hireCrew(g: GameState, r: HireRequest): ActionResult<{ crewIds: 
   const fams = hireFamilies(r);
   if (fams.some((f) => !Object.values(ACMI_TYPES).some((t) => t.family === f))) return { ok: false, error: 'Unknown type family' };
   if (fams.length > 3) return { ok: false, error: 'Cabin crew hold up to 3 types' };
+  // v0.24 no crew for a type with no OM-B, MEL or training programme of ours (leasing/aoc.ts crewTypeBlock).
+  for (const f of fams) {
+    const why = crewTypeBlock(g, f);
+    if (why) return { ok: false, error: why };
+  }
   const q = hireQuote(g, r);
   if (g.company.cash < q.cost) return { ok: false, error: 'Not enough cash' };
   const crewIds: string[] = [];

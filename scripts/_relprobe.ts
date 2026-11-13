@@ -1,0 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { deserialize } from '../src/engine/save';
+import { techReliability } from '../src/engine/core/techLog';
+import { etopsRecord } from '../src/engine/ops/etopsRel';
+import { approvalReqs } from '../src/engine/ops';
+import { typeOf } from '../src/engine/core/perf';
+import { aogChance } from '../src/engine/ops/maintenance';
+const g = deserialize(readFileSync(process.argv[2], 'utf8'));
+for (const d of [90, 180, 365]) console.log('tech', d, JSON.stringify(techReliability(g, d)));
+const r = etopsRecord(g, 180, 180); console.log('etops180', r.pct, r.deps, r.fails, JSON.stringify(r.causes), r.byAc.map(x=>`${x.reg} ${x.type} age${x.age} ${x.deps}/${x.fails} def${x.deferred}`).join(' | '));
+console.log(r.advice.join('\n'));
+for (const id of ['etops120','etops180'] as any) console.log(id, approvalReqs(g, id).map(x=>`${x.ok?'OK':'NO'} ${x.label}`).join('\n  '));
+for (const a of Object.values(g.fleet)) console.log(a.reg, a.typeId, typeOf(a.typeId).etopsMax, a.builtYear, 'aog', aogChance(g, a, g.company.homeBase).toFixed(5), 'def', a.maint.deferred.toFixed(3));

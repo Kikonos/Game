@@ -17,7 +17,7 @@ import { dailySpot } from './spot';
 import { baseTight, stepTightness } from './tightness';
 import { minHoursBill } from './terms';
 
-export { aocAuthority, aocMiss, aocView, applyVariation, familyOnAoc, fleetFamilies, needsVariation, variationCrew, variationQuote } from './aoc';
+export { aocAuthority, aocMiss, aocView, applyVariation, crewTypeBlock, familyOnAoc, fleetFamilies, needsVariation, variationCrew, variationQuote } from './aoc';
 export { onAirlineFailure } from './batches';
 export { dailyCalls } from './calls';
 export { capOf, depositMonthsFor, exposureOf, gradeOf, gradeWords, leasebackLessorFor, leasebackLessorOk, lessorRating, lessorStance, rating, widebodiesInAll } from './credit';

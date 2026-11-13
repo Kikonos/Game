@@ -122,6 +122,20 @@ export function needsVariation(g: GameState, family: RatingFamily): boolean {
   return true;
 }
 
+/**
+ * v0.24 why crew may not be hired or converted onto a family (null: they may). Crew study the family's OM-B, MEL and
+ * training programme, which exist once the family is on our AOC or its variation is filed (the manuals are written
+ * while the authority looks at them: the variation itself needs rated pilots before its grant). The first widebody
+ * family rides on Widebody operations, held or filed. Pure.
+ */
+export function crewTypeBlock(g: GameState, family: RatingFamily): string | null {
+  if (!needsVariation(g, family)) return null;
+  if ((g.company.aocVariations ?? []).some((v) => v.family === family && !v.granted)) return null;
+  return isWideFamily(family) && !wideHeld(g)
+    ? `The ${family} is not on our AOC: apply for Widebody operations or file the ${family} variation first`
+    : `The ${family} is not on our AOC: file the variation first (Company › Ladder)`;
+}
+
 /** The variation for a family: cost, days, due date if filed today, rated pilots missing, the line (§H). Null: none needed. Pure. */
 export function variationQuote(g: GameState, family: RatingFamily, typeId?: string): { cost: number; days: number; due: Minute; missing: { CPT: number; FO: number }; text: string } | null {
   if (!needsVariation(g, family)) return null;
