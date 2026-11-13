@@ -198,6 +198,7 @@ export function addDeadhead(g: GameState, d: { crewIds: string[]; from: string; 
 
 /** Moves a scheduled flight (delay or re-plan) and re-queues its departure. */
 export function retimeFlight(g: GameState, f: Flight, std: Minute, sta: Minute): void {
+  (globalThis as any).__rt?.(g, f, std); // DEBUGHOOK
   markFlightsChanged(g, f.aircraftId, Math.min(f.std, std));
   f.std = std;
   f.sta = sta;

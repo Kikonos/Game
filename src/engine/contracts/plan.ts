@@ -98,8 +98,8 @@ export function routeSpan(legs: Hop[], typeId: string, std = 0): number {
 }
 
 /** Times a chain from `std`; a re-routed one (with `typeId`) as ferry days with night stops (ferryDays). */
-export function timeChain(legs: Hop[], std: Minute, typeId?: string): ChainLeg[] {
-  if (typeId && rerouted.has(legs)) return ferryDays(legs, std, typeId).map((l) => ({ from: l.from, to: l.to, std: l.std, sta: l.sta }));
+export function timeChain(legs: Hop[], std: Minute, typeId?: string, clear = false): ChainLeg[] {
+  if (typeId && rerouted.has(legs)) return ferryDays(legs, std, typeId, clear).map((l) => ({ from: l.from, to: l.to, std: l.std, sta: l.sta }));
   let t = std;
   return legs.map((l) => {
     const leg = { from: l.from, to: l.to, std: t, sta: t + l.block };
@@ -176,7 +176,7 @@ export function chainBackward(typeId: string, from: string, to: string, earliest
 export function chainForward(typeId: string, from: string, to: string, earliest: Minute, cap = Infinity, day = Infinity): ChainLeg[] | null {
   const r = route(typeId, from, to, cap, day);
   if (!r) return null;
-  let legs = timeChain(r, earliest, typeId);
+  let legs = timeChain(r, earliest, typeId, true);
   if (!rerouted.has(r) && legs.length) {
     for (let k = 0; k < 4; k++) {
       const d = curfewMove(legs, 'after');
@@ -210,7 +210,28 @@ function nextDay(at: string, landed: Minute, day0: Minute, typeId?: string): Min
  * Ferry days: ≤ 3 sectors and ≤ 10:00 of block plus fuel-stop turns, joined by night stops long enough for the
  * pilots' rest (with `typeId`: its report and post-flight times; see nextDay). Pure.
  */
-export function ferryDays(legs: Hop[], first: Minute, typeId?: string): DayLeg[] {
+export function ferryDays(legs: Hop[], first: Minute, typeId?: string, clear = false): DayLeg[] {
+  const out = ferryDays0(legs, first, typeId);
+  if (!clear) return out;
+  // v0.23.2 `clear` (a late move planned forward): a ferry day that would leave or land inside a strict night curfew
+  // starts when the curfew is over; the days before it keep their times. Landing in it, the chain was no plan (chainOk)
+  // and was planned again on every settle (9H-VZH: Kangerlussuaq–Frankfurt landing 03:35 local).
+  let tries = 0;
+  for (let s = 0; s < out.length && tries < 8; ) {
+    let e = s;
+    while (e < out.length - 1 && !out[e].nightStopAfter) e++;
+    const d = curfewMove(out.slice(s, e + 1), 'after');
+    if (d > 0) {
+      tries++;
+      out.splice(s, out.length - s, ...ferryDays0(legs.slice(s), out[s].std + d, typeId));
+      continue;
+    }
+    s = e + 1;
+  }
+  return out;
+}
+
+function ferryDays0(legs: Hop[], first: Minute, typeId?: string): DayLeg[] {
   const D = BAL.delivery;
   const out: DayLeg[] = [];
   let t = first;
