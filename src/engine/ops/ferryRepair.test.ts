@@ -20,7 +20,7 @@ const DAY = 24 * H;
 /** The save's clock: 27 Jul 2027 21:24 UTC. */
 const NOW = 14500644;
 /** 30 Jul 2027 05:00 UTC, the first London wave the aircraft can fly. */
-const JUL30 = NOW - (21 * H + 24) + 2 * DAY + 5 * H;
+const JUL30 = NOW - (21 * H + 24) + 3 * DAY + 5 * H;
 
 const load = (): GameState => deserialize(fixture('v0231-vzh'));
 /** The save with the one-off repair marked as done: the engine alone. */

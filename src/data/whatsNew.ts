@@ -24,7 +24,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'A flight is no longer pushed days late behind a ferry that does not lead to it. It keeps its time; if the aircraft is still away then, it is cancelled.',
     ],
     fixes: [
-      'An aircraft on a long ferry could sit at a stop for days while its flights were cancelled one by one (9H-VZH at Quito). Each new plan put the ferry two days later, though its crew were there and rested.',
+      'An aircraft on a long ferry could sit at a stop for days while its flights were cancelled one by one (9H-VZH at Quito). Each new plan put the ferry two days later, though its crew were there.',
       'The next day of a ferry now waits for the crew\'s rest. Planned straight on, the crew came off and the aircraft waited for another.',
       'A ferry day no longer lands in a night curfew.',
       '"Flight moved: aircraft not there" named a flight the aircraft could not fly as the one bringing it in.',
