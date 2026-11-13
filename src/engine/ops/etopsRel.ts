@@ -22,6 +22,7 @@ import { post } from '../core/ledger';
 import { typeOf } from '../core/perf';
 import { DAY, fmtDate, fmtDay, monthKey, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, GameState, Minute, TechCause } from '../core/types';
+import { pmFactors } from './pm';
 
 const E = () => BAL.v0194.etops;
 
@@ -270,7 +271,8 @@ export function dailyRelProgramme(g: GameState): void {
 export function etopsCheckChance(g: GameState, ac: Aircraft): number {
   if (!etopsTwin(ac.typeId, 180) || !g.company.approvals.some((a) => a === 'etops120' || a === 'etops180' || a === 'etops240')) return 0;
   const C = E().check;
-  return C.base * (1 + ageOf(g, ac) / 10) * (1 + C.deferredX * ac.maint.deferred) * (relProgState(g) === 'active' ? C.progX : 1);
+  // v0.24 × the preventive maintenance programme's defect factor (ops/pm.ts): fewer findings to hold it.
+  return C.base * (1 + ageOf(g, ac) / 10) * (1 + C.deferredX * ac.maint.deferred) * (relProgState(g) === 'active' ? C.progX : 1) * pmFactors(g).delay;
 }
 
 /** Factors on an aircraft's technical delay and AOG chances, and whether an AOG away from base is fixed as at home. Pure. */
