@@ -193,7 +193,7 @@ export interface Route {
   reputation: number;
   /** Ticket cash taken for sectors not yet flown (§N.2). */
   unearned: number;
-  /** §D.5 the LIS slot series this season. */
+  /** §D.5 the slot series at the route's base this season. */
   slots?: { held: number; flown: number; season: string };
   tanker?: boolean;
   pnl: Record<MonthKey, RoutePnl>;
@@ -209,7 +209,7 @@ export interface Route {
   told?: Record<string, Minute>;
   /** The partner's fee a block hour (partner model), fixed at Go (a better fee won at the brand stage raises it). */
   partnerFeeBH?: number;
-  /** Stations without a caterer up to the standard (double catering from Lisbon); fuel on cash terms. */
+  /** Stations without a caterer up to the standard (double catering from the route's base); fuel on cash terms. */
   noCaterer?: string[];
   /** A rival's reaction to the launch: its fare cut until a date. */
   rivalCut?: { x: number; until: Minute };

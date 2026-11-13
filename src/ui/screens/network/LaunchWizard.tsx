@@ -11,7 +11,7 @@ import { BAL } from '../../../engine/core/balance';
 import { typeOf } from '../../../engine/core/perf';
 import { DAY, fmtDate, fmtDayRel, fmtSpan } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
-import { caseAdvice, plannerStudyX, setStop, sharedStop, stopoverCompare, studyBase, validStudyFor, type Advice, type BusinessCase as EngineCase, type StopCompare } from '../../../engine/network';
+import { catalogueFor, caseAdvice, plannerStudyX, setStop, sharedStop, stopoverCompare, studyBase, validStudyFor, type Advice, type BusinessCase as EngineCase, type StopCompare } from '../../../engine/network';
 import type { FareLevel, MarketingLevel, Route, RouteModel, StudyDepth } from '../../../engine/network/types';
 import { Help } from '../../components/Help';
 import { Modal, Seg, Stepper } from '../../components/ui';
@@ -73,7 +73,7 @@ function NewLaunch({ g, marketId }: { g: GameState; marketId?: string }) {
           <ChevronRight className="sc-ico-s dim" />
         </button>
         <div className="nw-markets nw-pick">
-          {ROUTE_MARKETS.map((x) => {
+          {catalogueFor(g).map((x) => {
             const block = marketBlock(g, x);
             return (
               <button key={x.id} className={`nw-market ${x.closed ? 'off' : ''}`} disabled={!!block} onClick={() => setMid(x.id)}>

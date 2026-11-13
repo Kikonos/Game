@@ -6,11 +6,11 @@ import { ChevronRight, ClipboardList, Compass, Earth, Globe2, PlusCircle, Route 
 import { useMemo } from 'react';
 import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { flag } from '../../../data/countries';
-import { ROUTE_MARKETS, type RouteMarket } from '../../../data/routes';
+import type { RouteMarket } from '../../../data/routes';
 import { typeOf } from '../../../engine/core/perf';
 import { fmtDate, fmtDay } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
-import { marketById, reopenStudy, routeIdeas, routeIdeasNone, studyList, validStudyFor, type StudyRow } from '../../../engine/network';
+import { catalogueFor, marketById, reopenStudy, routeIdeas, routeIdeasNone, studyList, validStudyFor, type StudyRow } from '../../../engine/network';
 import type { Route } from '../../../engine/network/types';
 import { Bar, Empty } from '../../components/ui';
 import { Help } from '../../components/Help';
@@ -47,7 +47,7 @@ function RouteRow({ g, r }: { g: GameState; r: Route }) {
         <div className="nw-row-facts">
           {next && load ? (
             <div className="nw-next">
-              <span className="small muted ellipsis">Next {depWords(next.dep, m?.from ?? 'LIS')}</span>
+              <span className="small muted ellipsis">Next {depWords(next.dep, m?.from ?? g.company.homeBase)}</span>
               <div className="nw-lf"><Bar value={load.lf} tone={lfTone(load.lf)} size="thin" /><span className="small num nowrap">{seatsLine(load)}</span></div>
             </div>
           ) : (
@@ -185,7 +185,8 @@ export default function NetworkView({ g }: { g: GameState }) {
     [g, rev, day], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const tot = useMemo(() => networkTotals(g), [g, rev, day]); // eslint-disable-line react-hooks/exhaustive-deps
-  const markets = ROUTE_MARKETS;
+  // The researched markets from our own bases only (an airline at Malta sees no Lisbon market).
+  const markets = catalogueFor(g);
   return (
     <div className="nw">
       {routes.length > 0 ? (
@@ -203,14 +204,14 @@ export default function NetworkView({ g }: { g: GameState }) {
       <Studies g={g} />
       <Ideas g={g} />
       <div className="row between wrap gap-8 nw-open">
-        <span className="upper dim row gap-6"><Globe2 className="sc-ico-s" /> Suggested markets, researched <Help title="Scheduled routes">
+        <span className="upper dim row gap-6"><Globe2 className="sc-ico-s" /> {markets.length ? 'Suggested markets, researched' : 'New routes'} <Help title="Scheduled routes">
           <p>Fly your own weekly flights on an aircraft that would otherwise stand idle. Launching one takes months of planning; it earns a modest, steady margin.</p>
           <p>Route flights sit on the Schedule beside your ACMI work. When a job wants the aircraft, you choose: swap, sub-charter, move or cancel.</p>
-          <p>These markets are researched already. Your own route can go anywhere, with fuel stops where the aircraft needs them: its study tells how many would fly.</p>
+          <p>{markets.length ? `The suggested markets leave from ${AIRPORT_BY_CODE[g.company.homeBase]?.city ?? 'our base'} and our other bases, and are researched already.` : 'No market from our bases is researched yet.'} Your own route can go anywhere, with fuel stops where the aircraft needs them: its study tells how many would fly.</p>
         </Help></span>
         <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'routeLaunch' })}><PlusCircle /> Open a new route</button>
       </div>
-      <div className="card nw-markets">{markets.map((m) => <MarketRow key={m.id} g={g} m={m} />)}</div>
+      {markets.length > 0 && <div className="card nw-markets">{markets.map((m) => <MarketRow key={m.id} g={g} m={m} />)}</div>}
       <button className="card nw-build-card" onClick={() => store.openModal({ kind: 'routeBuild' })} aria-label="Build your own route to any destination">
         <Compass className="accent" aria-hidden />
         <span className="col grow"><b>Build your own route</b><span className="small muted">Any destination in the world, from one of our bases</span></span>

@@ -3,6 +3,7 @@
 // route's contract (archetype 'scheduled', a charter at price 0: trip moves, sub-charters, crew, positioning and the
 // flight sheet work unchanged). The player moves or cancels single rotations or whole series at a small cost.
 
+import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../core/balance';
 import { inCurfew } from '../core/curfew';
 import { addFlight, liveFlightsOf, nextId, removeFlights, retimeFlight, touchFlights } from '../core/entities';
@@ -359,7 +360,7 @@ export function quoteMoveRotation(g: GameState, rotId: string, deltaMin: number)
   const P = BAL.v019.pax.change;
   const cost = Math.round(pax * P.move[band]);
   const repDelta = P.rep[band];
-  if (Math.abs(deltaMin) > BAL.v019.ops.slotFreeMin && route.model === 'own') notes.push('More than an hour from the held slot: Lisbon gives a new slot for it.');
+  if (Math.abs(deltaMin) > BAL.v019.ops.slotFreeMin && route.model === 'own') notes.push(`More than an hour from the held slot: ${AIRPORT_BY_CODE[rot.sectors[0]?.from ?? '']?.city ?? 'the airport'} gives a new slot for it.`);
   if (pax) notes.push(`${pax} booked passenger${pax === 1 ? '' : 's'} told and rebooked${band ? ' at short notice' : ''}.`);
   if (acId) notes.push('The crew are re-planned for the new times.');
   return { ok: true, dep, cost, repDelta, pax, notes };

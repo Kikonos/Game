@@ -106,6 +106,9 @@ export function seasonX(m: RouteMarket, month: number, dir: Dir): number {
   return (dir === 'out' ? out : back)[month] ?? 1;
 }
 
+/** A market's realised yield against its published fares: the balance table's, else the market's own, else 1. */
+export const marketFareX = (m: Pick<RouteMarket, 'id' | 'fareX'>): number => BAL.v019.fares.marketX[m.id] ?? m.fareX ?? 1;
+
 /** §E.4 base one-way fare (net, USD) for a class in a month: off-peak floor to peak by the season index, × the level. */
 export function baseFare(m: RouteMarket, cls: 'J' | 'Y', month: number, dir: Dir, level: FareLevel = 'market'): number {
   const [lo, hi] = cls === 'J' ? m.fareJ : m.fareY;
@@ -114,7 +117,7 @@ export function baseFare(m: RouteMarket, cls: 'J' | 'Y', month: number, dir: Dir
   const max = Math.max(...s);
   const x = max > min ? (seasonX(m, month, dir) - min) / (max - min) : 0.5;
   const f = lo + (hi - lo) * Math.max(0, Math.min(1, x));
-  return Math.round(f * (BAL.v019.fares.scale ?? 1) * (BAL.v019.fares.marketX[m.id] ?? 1) * (1 + (BAL.v019.fares.level[level] ?? 0)));
+  return Math.round(f * (BAL.v019.fares.scale ?? 1) * marketFareX(m) * (1 + (BAL.v019.fares.level[level] ?? 0)));
 }
 
 /** Share of a market's travellers who want business class. */

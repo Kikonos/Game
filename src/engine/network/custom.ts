@@ -22,6 +22,7 @@ import { gaussian } from '../core/rng';
 import type { GameState } from '../core/types';
 import { route as hopRoute } from '../contracts/plan';
 import { carrierServes, countriesLinked, directCarriers } from '../ops/commercial';
+import { marketFareX } from './model';
 import { netSide } from './side';
 import type { RouteModel, Segment } from './types';
 
@@ -287,10 +288,10 @@ export function customMarket(d: MarketDraft): RouteMarket | null {
   // v0.21 a researched (catalogue) pair flown with fuel stops: the researched market itself, its stops added.
   const cat = catalogueOf(d.from, d.to);
   if (cat && (d.via?.length || d.viaBack?.length)) {
-    const fx = BAL.v019.fares.marketX[cat.id] ?? 1;
+    const fx = marketFareX(cat);
     const r10 = (v: number) => Math.max(10, Math.round(v / 10) * 10);
-    const { partner: _p, stopover: _s, ...b0 } = cat;
-    void _p; void _s;
+    const { partner: _p, stopover: _s, fareX: _f, ...b0 } = cat;
+    void _p; void _s; void _f;
     const via = d.via ?? [];
     const cm: RouteMarket = {
       ...structuredClone(b0), id, via, viaBack: d.viaBack ?? [...via].reverse(), models: ['own'], model: 'own', custom: true,
@@ -438,7 +439,7 @@ function stopoverMarket(from: string, to: string, stop: string): RouteMarket | n
   const ab = legMarket(from, stop);
   const bc = legMarket(stop, to);
   if (!base || !ab || !bc) return null;
-  const fx = cat ? BAL.v019.fares.marketX[cat.id] ?? 1 : 1;
+  const fx = cat ? marketFareX(cat) : 1;
   const r10 = (v: number) => Math.max(10, Math.round(v / 10) * 10);
   const A = AIRPORT_BY_CODE[from];
   const C = AIRPORT_BY_CODE[to];
@@ -450,8 +451,8 @@ function stopoverMarket(from: string, to: string, stop: string): RouteMarket | n
     return { ...rest, models: ['own'], model: 'own' };
   };
   const closed = base.closed ?? ab.closed ?? bc.closed ?? CLOSED_COUNTRY[B.country];
-  const { partner: _p, stopover: _s, ...b0 } = base;
-  void _p; void _s;
+  const { partner: _p, stopover: _s, fareX: _f, ...b0 } = base;
+  void _p; void _s; void _f;
   const m: RouteMarket = {
     ...structuredClone(b0),
     id: customId({ from, to, stop }), via: [stop], viaBack: [stop], models: ['own'], model: 'own',
@@ -480,14 +481,26 @@ export function customTruth(g: GameState, m: Pick<RouteMarket, 'from' | 'to'>): 
 
 // ---------- building a route: bases, fuel stops, fit ----------
 
-/** Where we can fly scheduled routes from: the home base, the crew bases, and the catalogue's origins at home. */
+/**
+ * Where we can fly scheduled routes from: the home base, the crew bases, and the catalogue's origins in the home
+ * country (Porto in a Lisbon game). Never another country's base: a Malta game has no Lisbon.
+ */
 export function routeBases(g: GameState): string[] {
   const home = g.company.homeBase;
   const out = new Set<string>([home]);
   const hc = AIRPORT_BY_CODE[home]?.country;
   for (const c of Object.values(g.crew)) if (c.base && AIRPORT_BY_CODE[c.base]) out.add(c.base);
-  for (const m of ROUTE_MARKETS) if (AIRPORT_BY_CODE[m.from]?.country === hc) out.add(m.from);
+  if (hc) for (const m of ROUTE_MARKETS) if (AIRPORT_BY_CODE[m.from]?.country === hc) out.add(m.from);
   return [home, ...[...out].filter((x) => x !== home).sort()];
+}
+
+/**
+ * The researched markets this game lists (player report: an airline based at Malta was shown Lisbon's markets): those
+ * that leave from one of our route bases, in the catalogue's order. Pure.
+ */
+export function catalogueFor(g: GameState): RouteMarket[] {
+  const bases = new Set(routeBases(g));
+  return ROUTE_MARKETS.filter((m) => bases.has(m.from));
 }
 
 /** Why a type cannot fly a market's chain as drafted (runway, range), or null. ETOPS beyond `cap` too when given. Pure. */

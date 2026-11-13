@@ -10,7 +10,7 @@ export const NET_OPS_BAL = {
     horizonDays: 331,
     /** Tech-stop ground time (min): 767 / bigger widebodies. */
     techStop: 60, techStopBig: 75,
-    /** A move within ±60 min of the held LIS slot is free; more asks for a new slot. */
+    /** A move within ±60 min of the slot held at the route's base is free; more asks for a new slot. */
     slotFreeMin: 60,
     /** 80 % use-it-or-lose-it. */
     slotUse: 0.8,
@@ -21,7 +21,7 @@ export const NET_OPS_BAL = {
   cost: {
     /** Catering per passenger per sector: ≤5 h, 5–9 h, >9 h. */
     cateringY: [10, 16, 28] as number[], cateringJ: [45, 60, 115] as number[], crewMeal: 18, doubleCatering: 0.3,
-    /** Passenger services per boarded passenger (PSS + services + insurance) and the J lounge at LIS. */
+    /** Passenger services per boarded passenger (PSS + services + insurance) and the J lounge at the home base. */
     pss: 3, services: 3, insurance: 1.5, lounge: 30,
     /** Distribution: GDS per segment on agency bookings, card fees on direct, agent commission; monthly fixed. */
     gds: 13, agencyShare: 0.55, cardFee: 0.018, commission: 0.035, distributionMonth: 3_000,

@@ -3,6 +3,7 @@
 
 import { ArrowRightLeft, BarChart3, CalendarClock, CircleSlash, Fuel, Handshake, Megaphone, Pencil, Plane, Plus, Ticket, TrendingUp, Utensils } from 'lucide-react';
 import { useMemo, useState } from 'react';
+import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { ROUTE_STATIONS } from '../../../data/routes';
 import { fmtDay, fmtDayRel, fmtMonth, fmtTime } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
@@ -92,7 +93,7 @@ function Overview({ g, r }: { g: GameState; r: Route }) {
       {cmp && <div className="small nw-acmi"><TrendingUp className="sc-ico-s accent" /><span>{cmp}</span></div>}
       <div className="col gap-6">
         <span className="upper dim">Next departures · booked</span>
-        {next.length ? next.map((rot) => <RotationLoads key={rot.id} g={g} rot={rot} from={m?.from ?? 'LIS'} />) : <span className="small muted">Nothing on sale yet.</span>}
+        {next.length ? next.map((rot) => <RotationLoads key={rot.id} g={g} rot={rot} from={m?.from ?? g.company.homeBase} />) : <span className="small muted">Nothing on sale yet.</span>}
       </div>
       {flown.length > 0 && (
         <div className="col gap-6">
@@ -171,7 +172,7 @@ function TimetableTab({ g, r }: { g: GameState; r: Route }) {
           return (
             <div key={rot.id} className="nw-rotrow">
               <div className="col grow nw-rotrow-main">
-                <span className="small"><b>{depWords(rot.dep, m?.from ?? 'LIS')}</b></span>
+                <span className="small"><b>{depWords(rot.dep, m?.from ?? g.company.homeBase)}</b></span>
                 <span className="tiny muted ellipsis">{chainOf(rot)} · {rival ? `operated by ${rival}` : ac ? `${ac.reg} · ${ac.cabin.label}` : 'aircraft picked nearer the day'} · booked {seatsLine(l)}</span>
               </div>
               <div className="nw-rotrow-act">
@@ -215,7 +216,7 @@ function SalesTab({ g, r }: { g: GameState; r: Route }) {
       )}
       <div className="col gap-6">
         <span className="upper dim">Bookings, next departures</span>
-        {next.length ? next.map((rot) => <RotationLoads key={rot.id} g={g} rot={rot} from={m?.from ?? 'LIS'} />) : <span className="small muted">Nothing on sale yet.</span>}
+        {next.length ? next.map((rot) => <RotationLoads key={rot.id} g={g} rot={rot} from={m?.from ?? g.company.homeBase} />) : <span className="small muted">Nothing on sale yet.</span>}
       </div>
     </div>
   );
@@ -253,6 +254,8 @@ function CostsTab({ g, r }: { g: GameState; r: Route }) {
   const q = lastQuarters(r, g.now);
   const last = history(r).find((x) => x.status === 'flown');
   const stations = [...new Set([m?.from, ...(m?.via ?? []), m?.to, ...(m?.viaBack ?? [])].filter((x): x is string => !!x))];
+  const base = m?.from ?? g.company.homeBase;
+  const baseCity = AIRPORT_BY_CODE[base]?.city ?? base;
   const act = (on: boolean) => store.act((gg) => { const w = net.setTanker(gg, r.id, on); return w ? { ok: false, error: w } : { ok: true, msg: on ? 'Tankering on' : 'Tankering off' }; }, { toastOk: false });
   const rows: [string, number][] = [
     ['Tickets', q.cur.tickets], ['Cargo and mail', q.cur.cargo], ['Bags, seats and onboard', q.cur.ancillary],
@@ -292,7 +295,7 @@ function CostsTab({ g, r }: { g: GameState; r: Route }) {
               <b className="mono small">{code}</b>
               <span className="tiny muted grow">
                 <Fuel className="sc-ico-s" /> fuel {st.fuelX === 1 ? 'at the world price' : `${st.fuelX > 1 ? '+' : '−'}${Math.round(Math.abs(st.fuelX - 1) * 100)} %`}
-                {' · '}<Utensils className="sc-ico-s" /> {st.caterer ? 'local catering' : 'catered from Lisbon'}
+                {' · '}<Utensils className="sc-ico-s" /> {st.caterer ? 'local catering' : `catered from ${baseCity}`}
                 {!st.euCargo && ' · no cargo to Europe'}
                 {st.overhead ? ` · office ${money(st.overhead)}/month` : ''}
               </span>
@@ -300,7 +303,7 @@ function CostsTab({ g, r }: { g: GameState; r: Route }) {
           );
         })}
       </div>
-      <div className="nw-set"><div><b className="small"><Term id="tankering">Tanker fuel</Term> from Lisbon</b></div><Toggle on={!!r.tanker} onChange={act} label="Tanker fuel" /></div>
+      <div className="nw-set"><div><b className="small"><Term id="tankering">Tanker fuel</Term> from {baseCity}</b></div><Toggle on={!!r.tanker} onChange={act} label="Tanker fuel" /></div>
     </div>
   );
 }

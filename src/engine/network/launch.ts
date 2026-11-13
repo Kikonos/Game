@@ -5,7 +5,7 @@
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { routeStation, type RouteMarket } from '../../data/routes';
-import { chainProblem, CUSTOM_STUDY_EXTRA, customMarket, customTruth, parseCustomId } from './custom';
+import { chainProblem, CUSTOM_STUDY_EXTRA, customMarket, customTruth, parseCustomId, routeBases } from './custom';
 import { BAL } from '../core/balance';
 import { cashOnly, post } from '../core/ledger';
 import { blockMinutes, typeOf } from '../core/perf';
@@ -89,6 +89,9 @@ export function studyBlock(g: GameState, marketId: string): string | null {
   const r = Object.values(g.network?.routes ?? {}).find((x) => x.status !== 'closed' && (x.marketId === marketId || (marketOfRoute(x)?.from === m.from && marketOfRoute(x)?.to === m.to)));
   if (r) return r.status === 'operating' ? 'You fly it already.' : 'You are launching it already.';
   if (g.gameOver) return 'The company has failed.';
+  // A route leaves from one of our bases (an airline based at Malta opens no Lisbon market); a study bought before
+  // that rule stays good.
+  if (!routeBases(g).includes(m.from) && !validStudyFor(g, marketId)) return `We have no base at ${AIRPORT_BY_CODE[m.from]?.city ?? m.from}.`;
   return null;
 }
 
