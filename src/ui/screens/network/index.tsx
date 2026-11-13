@@ -207,7 +207,7 @@ export default function NetworkView({ g }: { g: GameState }) {
         <span className="upper dim row gap-6"><Globe2 className="sc-ico-s" /> {markets.length ? 'Suggested markets, researched' : 'New routes'} <Help title="Scheduled routes">
           <p>Fly your own weekly flights on an aircraft that would otherwise stand idle. Launching one takes months of planning; it earns a modest, steady margin.</p>
           <p>Route flights sit on the Schedule beside your ACMI work. When a job wants the aircraft, you choose: swap, sub-charter, move or cancel.</p>
-          <p>{markets.length ? `The suggested markets leave from ${AIRPORT_BY_CODE[g.company.homeBase]?.city ?? 'our base'} and our other bases, and are researched already.` : 'No market from our bases is researched yet.'} Your own route can go anywhere, with fuel stops where the aircraft needs them: its study tells how many would fly.</p>
+          <p>{markets.length ? 'These markets are researched already. ' : ''}Your own route can go anywhere, with fuel stops where the aircraft needs them: its study tells how many would fly.</p>
         </Help></span>
         <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'routeLaunch' })}><PlusCircle /> Open a new route</button>
       </div>
