@@ -750,8 +750,8 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
       return there !== null ? Math.min(t, Math.max(e, there)) : first !== null ? Math.min(t, Math.max(e, first)) : t;
     };
     const ready = farOutstation(g, X) ? freeAt(earliest) : earliest;
-    // v0.23.2 a late move whose crew wait at X leaves when they can fly it, not days later.
-    // v0.23.2 behind on the job it flies to (its flights are being cancelled): the move leaves as soon as it can.
+    // v0.23.2 behind on the job it flies to (its flights are being cancelled): the move leaves as soon as it can. And
+    // a late move whose crew wait at X leaves when they can fly it, not days later.
     const asap = X !== Y && X !== home && behindOn(g, aircraftId, b) && b.std - freeAt(earliest) < AWAY_GAP;
     const soon = asap && legs.length > 0 && legs[0].from === X && legs[0].std - freeAt(earliest) >= PULL_MIN;
     const pull = soon || (there !== null && legs[legs.length - 1].sta > latest && legs[0].std - Math.max(earliest, there) >= PULL_MIN);
