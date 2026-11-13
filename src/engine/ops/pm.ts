@@ -48,7 +48,7 @@ export function pmFactors(g: GameState): PmFactors {
   const p = g.company.pm;
   if (!p) return ONE;
   const k = pmProgress(g);
-  const at = (x: Record<PmLevel, number>) => x[p.from] + (x[p.level] - x[p.from]) * k;
+  const at = (x: Record<PmLevel, number>) => (k >= 1 ? x[p.level] : x[p.from] + (x[p.level] - x[p.from]) * k);
   return { delay: at(P().delayX), aog: at(P().aogX), deferred: at(P().deferredX) };
 }
 
