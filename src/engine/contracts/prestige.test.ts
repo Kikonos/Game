@@ -1,7 +1,7 @@
 // v0.16 the client prestige ladder (UPDATE-0.16.md §B): client levels, the offer draw by level, stretch offers, pay and
 // penalties by level, the visibility credit, level-ups (never down) and an older save's derived record.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 import { BAL } from '../core/balance';
 import { takeCues } from '../core/cues';
 import { DAY } from '../core/time';
@@ -113,6 +113,12 @@ describe('the offer draw by level', () => {
   it('a national carrier asks for IOSA (filed is enough); a major wants it held', () => {
     const g = game();
     setLevel(g, 2);
+    // v0.24 every ask kept for this check (iosa.test.ts covers the thinning before IOSA is filed).
+    const keep = P.iosaKeep;
+    (P as { iosaKeep: number }).iosaKeep = 1;
+    onTestFinished(() => {
+      (P as { iosaKeep: number }).iosaKeep = keep;
+    });
     const d3 = { client: clientAt(g, 3), req: { approvals: [] as string[] } };
     markStretch(g, d3 as never);
     expect(d3.req.approvals).toEqual(['iosa']);

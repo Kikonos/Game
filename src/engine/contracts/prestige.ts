@@ -7,6 +7,7 @@
 // their level against ours (one stretch offer a month from a level up), their pay and penalties follow their level, and
 // a level-up is a message with its card and the `ladder` chime. Nothing here draws from the RNG (offers.ts draws).
 
+import { AIRPORT_BY_CODE } from '../../data/airports';
 import { TENDER_CLIENT_SEEDS } from '../../data/fairs';
 import { CLIENT_SEEDS, CLIENT_SEEDS_B1, CLIENT_SEEDS_V014, CLIENT_SEEDS_V016, CLIENT_SEEDS_V08, CLIENT_SEEDS_V0121, type ClientSeed } from '../../data/naming';
 import { BAL } from '../core/balance';
@@ -46,6 +47,9 @@ for (const s of [...CLIENT_SEEDS, ...CLIENT_SEEDS_B1, ...CLIENT_SEEDS_V08, ...CL
   if (s.role) ROLE_BY_NAME[s.name] = s.role;
 }
 for (const s of TENDER_CLIENT_SEEDS) if (s.prestige) BY_NAME[s.name] = s.prestige;
+
+/** v0.24 seeds whose level changed since they were released (loadPrestige moves an older save's client). */
+const RELEVELLED = new Set(['Frontex']);
 
 /** The level of a client by its seed, else by its kind and role (§B.2). Pure. */
 export function seedPrestige(c: Pick<Client, 'name' | 'kind' | 'country'> & { rivalId?: string }, role: ClientSeed['role'] | undefined = undefined): Prestige {
@@ -180,6 +184,12 @@ export function derivePrestige(g: GameState): PlayerPrestige {
  */
 export function loadPrestige(g: GameState): void {
   for (const c of Object.values(g.clients)) {
+    // v0.24 re-levelled seeds (Frontex 3 → 2: its return flights are bought from charter operators): an older save's
+    // client follows its seed while we have not flown for it.
+    if (RELEVELLED.has(c.name) && !c.jobs && c.prestige !== undefined && BY_NAME[c.name] && c.prestige !== BY_NAME[c.name]) {
+      c.prestige = BY_NAME[c.name];
+      c.stars = seedStars({ ...c, prestige: c.prestige });
+    }
     c.prestige ??= seedPrestige(c, ROLE_BY_NAME[c.name]);
     c.stars ??= seedStars(c);
   }
@@ -241,6 +251,9 @@ export const isStretchClient = (g: GameState, c: Client): boolean => clientPrest
 export function prestigeOfferWeight(g: GameState, c: Client): number {
   if (!PRESTIGE_GATE.on) return 1;
   const cur = g.clients[c.id] ?? c;
+  // v0.24 our own state's ministries (level 3 at most) know the operators at home: they call at our level from the start
+  // (player at Malta: "no government contracts offered"). The big states' level-4 ministries keep the ladder.
+  if (cur.kind === 'government' && clientPrestige(cur) <= 3 && cur.country === AIRPORT_BY_CODE[g.company.homeBase]?.country) return P.weight['0'];
   const diff = clientPrestige(cur) - playerLevel(g);
   if (diff <= 0) return P.weight[String(Math.max(-3, diff))] ?? 0;
   if (cur.jobs) return P.weight['0'];

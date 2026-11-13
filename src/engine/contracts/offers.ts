@@ -1002,7 +1002,10 @@ function troopRotation(ctx: Ctx): Draft | null {
   const client = (o.client && g.clients[o.client]) || un || ministry(g, 'Defence');
   if (!client) return null;
   const home = g.company.homeBase;
-  const mission = o.airport ?? pick(g, F.MISSION_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home));
+  // v0.24 our own state's ministry flies to where its troops really serve (flavor.ts HOME_MISSIONS), now and then elsewhere.
+  const own = !un && client.country === AIRPORT_BY_CODE[home]?.country ? (F.HOME_MISSIONS[client.country] ?? []).filter((c) => AIRPORT_BY_CODE[c] && c !== home) : [];
+  const pool = own.length && chance(sideRng(g, `tmh:${g.seq}:${g.now}`), 0.75) ? own : F.MISSION_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home);
+  const mission = o.airport ?? pick(g, pool);
   const n = o.rotations ?? int(g, 2, 4);
   let spanDays = o.days ?? int(g, 30, 90);
   if (!o.days && ctx.window) spanDays = Math.min(spanDays, roomDays(ctx, Math.max(ctx.window.from, g.now + 30 * DAY)) - 2);

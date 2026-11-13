@@ -214,7 +214,9 @@ function deportation(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
   const client = (o.client && g.clients[o.client]) || nearClient({ ...ctx, window: undefined }, clientsOf(g, ['government', 'agency'], (c) => (roleOf(c) === 'interior' || c.name === 'Frontex') && exists(c.base)));
   if (!client) return null;
-  const from = client.base;
+  // v0.24 a Frontex joint return operation leaves from our own state's airport (the member state organises it).
+  const home = g.company.homeBase;
+  const from = client.name === 'Frontex' && EUROPE.has(AIRPORT_BY_CODE[home]?.country ?? '') ? home : client.base;
   const dests = DEPORT_DESTS.filter((c) => exists(c) && km(from, c) > 1500 && (wide || km(from, c) < 5500));
   const dest = o.airport ?? (dests.length ? pick(g, dests) : null);
   if (!dest) return null;
