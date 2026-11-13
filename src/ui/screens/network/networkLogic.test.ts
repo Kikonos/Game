@@ -24,6 +24,9 @@ describe('v0.19 network view helpers', () => {
     expect(seriesWords({ days: 1 << 4, every: 1, monthly: { nth: 1, weekday: 4 } })).toBe('Monthly, first Fri');
     expect(seriesWords({ days: 127, every: 1 })).toBe('Daily');
     expect(seriesWords({ days: 0b10101, every: 1 })).toBe('3 a week, Mon · Wed · Fri');
+    // v0.23.2 a seasonal series names its months.
+    expect(seriesWords({ days: 1 << 5, every: 1, months: 0b111000001111 })).toBe('Weekly, Sat, Oct–Apr');
+    expect(seriesWords({ days: 1 << 5, every: 1, months: 4095 })).toBe('Weekly, Sat');
     expect(daysOf(0b1000001)).toEqual([0, 6]);
     expect(hhmm(400)).toBe('06:40');
     expect(hhmm(-30)).toBe('23:30');

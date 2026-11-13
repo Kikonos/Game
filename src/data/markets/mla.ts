@@ -196,7 +196,7 @@ export const MLA_MARKETS: RouteMarket[] = [
       { name: 'Turkish Airlines via Istanbul', perWeek: 14, stops: 1, hours: 15.5, fareX: 0.8, seats: 15, via: 'IST' },
       { name: 'ITA Airways via Rome', perWeek: 7, stops: 1, hours: 13.5, fareX: 0.9, seats: 15, via: 'FCO' },
     ],
-    fareY: [420, 850], fareJ: [1_500, 2_900], fareX: 1.3, // tuned: long haul: the range reads as published fares
+    fareY: [420, 850], fareJ: [1_500, 2_900], fareX: 1.1, // tuned: flown in its season only, when fares sit at the top of the range
     // [E] Maltese pharmaceuticals and electronics out, general cargo back.
     cargo: { south: 2_500, north: 2_000, mail: 200 },
     ancillary: 30, bagShare: 0.2,

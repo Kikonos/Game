@@ -17,7 +17,7 @@ import { relinkPositioning } from '../contracts/schedule';
 import { anchorsOf } from '../contracts/plan';
 import { autoRoster } from '../crew/roster';
 import { noteRouteSub } from './costs';
-import { cabinFor, localToUtc, localWeekday, marketOfRoute, rotationTimes, seasonCode, usd } from './model';
+import { cabinFor, localMonth, localToUtc, localWeekday, marketOfRoute, rotationTimes, seasonCode, usd } from './model';
 import { bumpRoute } from './reputation';
 import { pushRouteNote } from './notes';
 import { setRouteCabin } from './cabin';
@@ -36,6 +36,8 @@ export function seriesDates(g: GameState, route: Route, s: RouteSeries): Minute[
   for (let day = Math.floor(from / DAY) * DAY - DAY; day <= to + DAY; day += DAY) {
     const dep = localToUtc(m.from, day + 12 * 60, s.out);
     if (dep < from || dep > to) continue;
+    // v0.23.2 a seasonal series flies only in its months.
+    if (s.months !== undefined && !(s.months & (1 << localMonth(m.from, dep)))) continue;
     const wd = localWeekday(m.from, dep);
     if (s.monthly) {
       if (wd !== s.monthly.weekday) continue;

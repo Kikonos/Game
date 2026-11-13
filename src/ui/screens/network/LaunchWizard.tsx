@@ -11,7 +11,7 @@ import { BAL } from '../../../engine/core/balance';
 import { typeOf } from '../../../engine/core/perf';
 import { DAY, fmtDate, fmtDayRel, fmtSpan } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
-import { catalogueFor, caseAdvice, plannerStudyX, setStop, sharedStop, stopoverCompare, studyBase, validStudyFor, type Advice, type BusinessCase as EngineCase, type StopCompare } from '../../../engine/network';
+import { catalogueFor, caseAdvice, monthsWords, plannerStudyX, seasonMonths, setStop, sharedStop, stopoverCompare, studyBase, validStudyFor, type Advice, type BusinessCase as EngineCase, type StopCompare } from '../../../engine/network';
 import type { FareLevel, MarketingLevel, Route, RouteModel, StudyDepth } from '../../../engine/network/types';
 import { Help } from '../../components/Help';
 import { Modal, Seg, Stepper } from '../../components/ui';
@@ -224,6 +224,7 @@ function DraftEditor({ g, m, d, set }: { g: GameState; m: RouteMarket | undefine
     const days = d.days ^ (1 << i);
     if (days) set({ ...d, days });
   };
+  const season = m ? seasonMonths(m) : null;
   return (
     <div className="nw-draft">
       <div className="nw-draft-row">
@@ -239,6 +240,15 @@ function DraftEditor({ g, m, d, set }: { g: GameState; m: RouteMarket | undefine
           })}
         </div>
       </div>
+      {season && (
+        <div className="nw-draft-row">
+          <span className="small muted">Months <Help title="A seasonal route">
+            <p>Out of season almost nobody travels here. Fly the season only and the route rests for the other months.</p>
+            <p>While it rests there are no flights and no campaign, the station costs half, and the aircraft is free for other work.</p>
+          </Help></span>
+          <Seg<string> value={d.season ? 's' : 'y'} onChange={(v) => set({ ...d, season: v === 's' ? true : undefined })} options={[{ value: 's', label: monthsWords(season) }, { value: 'y', label: 'All year' }]} />
+        </div>
+      )}
       <div className="nw-draft-row">
         <span className="small muted">Leaves {m?.from ?? ''}</span>
         <Stepper value={d.out} min={0} max={DAY - 15} step={15} onChange={(v) => set({ ...d, out: v })} format={(v) => `${hhmm(v)} local`} />

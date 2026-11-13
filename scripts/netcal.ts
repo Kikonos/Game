@@ -27,7 +27,8 @@ for (const mk of markets) {
   if (!g.network?.routes[id]) { console.log(`${mk}: ${id}`); continue; }
   const r = g.network!.routes[id];
   for (const typeId of types) {
-    const d = { ...caseDraft(g, id)!, typeId, layout: 'two-class' as const };
+    // SEASON=1: fly only the market's season (v0.23.2).
+    const d = { ...caseDraft(g, id)!, typeId, layout: 'two-class' as const, ...(process.env.SEASON === '1' ? { season: true as const } : process.env.SEASON === '0' ? { season: undefined } : {}) };
     const p = project(g, r, d, g.now + 30 * DAY, 1);
     const fixed = Object.values(routeMonthCosts(r)).reduce((a, x) => a + (x ?? 0), 0) * 12;
     const direct = p.cost; // includes fixed + acTime in project

@@ -168,7 +168,7 @@ export const SOF_MARKETS: RouteMarket[] = [
       { name: 'Wizz Air', perWeek: 1, stops: 0, hours: 2.9, fareX: 0.8, seats: 230 },
       { name: 'European Air Charter', perWeek: 0.5, stops: 0, hours: 2.9, fareX: 1.0, seats: 180 },
     ],
-    fareY: [110, 260], fareJ: [240, 460], fareX: 1.75,
+    fareY: [110, 260], fareJ: [240, 460], fareX: 1.39, // tuned: flown in its season only, when fares sit at the top of the range
     cargo: { south: 100, north: 0 },
     ancillary: 18, bagShare: 0.12,
     timetable: { pattern: 'weekly', day: 5, out: 360, back: 600, nights: 0 },
@@ -191,7 +191,7 @@ export const SOF_MARKETS: RouteMarket[] = [
       { name: 'Turkish Airlines via Istanbul', perWeek: 21, stops: 1, hours: 4.5, fareX: 1.15, seats: 15, via: 'IST' },
     ],
     // [F] from USD 69 one way (Skyscanner, 2026).
-    fareY: [70, 200], fareJ: [170, 360], fareX: 1.75,
+    fareY: [70, 200], fareJ: [170, 360], fareX: 1.13, // tuned: flown in its season only, when fares sit at the top of the range
     cargo: { south: 100, north: 200, perish: 200 },
     ancillary: 16, bagShare: 0.12,
     timetable: { pattern: 'weekly', day: 1, out: 900, back: 1_080, nights: 0 },

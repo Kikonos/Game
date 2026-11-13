@@ -7,6 +7,7 @@ import { ROUTE_MARKETS, type RouteMarket } from '../../../data/routes';
 import { typeOf } from '../../../engine/core/perf';
 import { DAY, fmtDay, fmtTime, localMinuteOfDay, monthKey, toDate } from '../../../engine/core/time';
 import type { GameState, Minute, MonthKey } from '../../../engine/core/types';
+import { monthsWords } from '../../../engine/network/model';
 import type { LaunchStageId, Rotation, Route, RoutePnl, RouteSeries, SectorLoad } from '../../../engine/network/types';
 
 export const MARKET_BY_ID: Record<string, RouteMarket> = Object.fromEntries(ROUTE_MARKETS.map((m) => [m.id, m]));
@@ -154,7 +155,13 @@ export function daysOf(mask: number): number[] {
 }
 
 /** 'Weekly, Fri' · 'Twice weekly, Wed · Fri' · 'Every 2 weeks, Sat' · 'Monthly, first Fri' · 'Daily'. */
-export function seriesWords(s: Pick<RouteSeries, 'days' | 'every' | 'monthly'>): string {
+export function seriesWords(s: Pick<RouteSeries, 'days' | 'every' | 'monthly' | 'months'>): string {
+  // v0.23.2 a seasonal series names its months ("Weekly, Sat, Oct–Apr").
+  const base = patternWords(s);
+  return s.months !== undefined && (s.months & 4095) !== 4095 ? `${base}, ${monthsWords(s.months)}` : base;
+}
+
+function patternWords(s: Pick<RouteSeries, 'days' | 'every' | 'monthly'>): string {
   if (s.monthly) {
     const nth = s.monthly.nth === -1 ? 'last' : NTH[s.monthly.nth] ?? `${s.monthly.nth}th`;
     return `Monthly, ${nth} ${DAY_SHORT[s.monthly.weekday] ?? ''}`.trim();

@@ -73,7 +73,7 @@ export const MAD_MARKETS: RouteMarket[] = [
       { name: 'Ryanair', perWeek: 14, stops: 0, hours: 1.2, fareX: 0.75, seats: 189 },
       { name: 'Vueling', perWeek: 7, stops: 0, hours: 1.2, fareX: 0.85, seats: 180 },
     ],
-    fareY: [55, 210], fareJ: [150, 450], fareX: 1.4, // tuned: four rivals: a newcomer sells under them
+    fareY: [55, 210], fareJ: [150, 450], fareX: 1.16, // tuned: flown in its season only, when fares sit at the top of the range
     cargo: { south: 600, north: 100 },
     ancillary: 18, bagShare: 0.2,
     timetable: { pattern: 'weekly', day: 4, out: 1_020, back: 1_145, nights: 0 },

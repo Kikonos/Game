@@ -11,7 +11,11 @@ import { START_SETUPS } from '../../data/setups';
 import { WORLD_ZONES } from '../../data/worldZones';
 import { DAY } from '../core/time';
 import { createGame } from '../newGame';
-import { caseDraft, catalogueFor, chainOf, chainProblem, devLaunchRoute, marketFareX, project } from '.';
+import { hireHead, unlockHead } from '../ops/heads';
+import {
+  caseAdvice, caseDraft, catalogueFor, chainOf, chainProblem, customMarket, devLaunchRoute, localMonth, marketFareX, monthsWords, project, routeMonthCosts, routeResting,
+  seasonMonths, seriesDates,
+} from '.';
 
 const country = (code: string) => AIRPORT_BY_CODE[code]?.country;
 const fromBase = (base: string) => ROUTE_MARKETS.filter((m) => country(m.from) === country(base));
@@ -132,3 +136,113 @@ describe('v0.23.2 the researched markets of every start base', () => {
     }
   }, 120_000);
 });
+
+// v0.23.2 review: Tenerife from Vilnius, Riga and Tallinn could not pay on any narrowbody (−43 to −61 % on the A320),
+// because the timetable flew all year through a summer when almost nobody goes. A market with a dead season is now
+// planned, costed and flown for its season only.
+describe('v0.23.2 a seasonal route flies its season only', () => {
+  const mk = (id: string) => ROUTE_MARKETS.find((m) => m.id === id)!;
+  const OCT_APR = [0, 1, 2, 3, 9, 10, 11].reduce((a, i) => a | (1 << i), 0);
+
+  it('the season of a market: winter sun October to April, the beach in summer, none where people travel all year', () => {
+    for (const id of ['VNO-TFS', 'RIX-TFS', 'TLL-TFS', 'RIX-SSH', 'TLL-HRG']) {
+      expect(seasonMonths(mk(id)), id).toBe(OCT_APR);
+      expect(monthsWords(seasonMonths(mk(id))!), id).toBe('Oct–Apr');
+    }
+    expect(monthsWords(seasonMonths(mk('PRG-HER'))!)).toBe('May–Oct');
+    expect(monthsWords(seasonMonths(mk('VNO-AYT'))!)).toBe('Apr–Oct');
+    // Families, business and the islands of Cabo Verde fly all year; so does every market of Lisbon's and every pair
+    // nobody researched.
+    for (const m of ROUTE_MARKETS.filter((x) => x.from === 'LIS' || x.from === 'OPO')) expect(seasonMonths(m), m.id).toBeNull();
+    for (const id of ['VNO-LTN', 'MLA-MAN', 'SOF-FRA', 'TLL-ARN', 'PRG-TFS']) expect(seasonMonths(mk(id)), id).toBeNull();
+    for (const [a, b] of [['MLA', 'CAG'], ['PRG', 'IST'], ['LIS', 'FNC'], ['RIX', 'AYT']]) expect(seasonMonths(customMarket({ from: a, to: b })!), `${a}-${b}`).toBeNull();
+    expect(monthsWords(4095)).toBe('All year');
+    expect(monthsWords(0b100000000001)).toBe('Dec–Jan');
+    expect(monthsWords(0b000110110000)).toBe('May–Jun, Aug–Sep');
+  });
+
+  it('the business case plans the season: no flights out of it, and Tenerife from the Baltics pays on a new narrowbody', () => {
+    for (const id of ['VNO-TFS', 'RIX-TFS', 'TLL-TFS']) {
+      const g = game(id.slice(0, 3));
+      const rid = devLaunchRoute(g, id);
+      const r = g.network!.routes[rid];
+      const d0 = caseDraft(g, rid)!;
+      expect(d0.season, id).toBe(true);
+      const year = (typeId: string, season: boolean) => {
+        const d = { ...d0, typeId, layout: 'two-class' as const };
+        if (!season) delete d.season;
+        return project(g, r, d, g.now + 30 * DAY, 1);
+      };
+      const all = year('a320ceo', false);
+      const ceo = year('a320ceo', true);
+      const neo = year('a320neo', true);
+      // Five months of the year without a flight, a seat or a passenger; the station kept, at a cost.
+      const quiet = ceo.months.filter((x) => x.seats === 0);
+      expect(quiet.length, id).toBe(5);
+      for (const x of quiet) {
+        expect(x.rev, id).toBe(0);
+        expect(x.cost, id).toBeGreaterThan(0);
+      }
+      expect(ceo.rotations, id).toBeLessThan(all.rotations * 0.65);
+      // Far better than flying it all year (it lost 43–61 %), and it pays on an A320neo; the older A320 is short of
+      // payload at six hours and still loses a little.
+      expect(ceo.result, id).toBeGreaterThan(all.result + 700_000);
+      expect(ceo.result / ceo.rev, id).toBeGreaterThan(-0.25);
+      expect(neo.result, id).toBeGreaterThan(0);
+      expect(neo.result / neo.rev, id).toBeLessThan(0.2);
+      r.status = 'closed';
+    }
+    // A market with no dead season has no such plan.
+    const g = game('VNO');
+    const rid = devLaunchRoute(g, 'VNO-LTN');
+    expect(caseDraft(g, rid)!.season).toBeUndefined();
+  });
+
+  it('the timetable flies in the season only, starts in it, and the route rests at half its station cost', () => {
+    const g = game('RIX');
+    const rid = devLaunchRoute(g, 'RIX-TFS');
+    const r = g.network!.routes[rid];
+    const s = r.series[0];
+    expect(s.months).toBe(OCT_APR);
+    // The game starts in March: the first flight is in March or April, never in the summer.
+    expect(OCT_APR & (1 << localMonth('RIX', r.firstFlight!))).toBeTruthy();
+    const dates = seriesDates(g, r, s);
+    expect(dates.length).toBeGreaterThan(20);
+    for (const dep of dates) expect(OCT_APR & (1 << localMonth('RIX', dep)), String(dep)).toBeTruthy();
+    // The same series flown all year has about 52 dates.
+    expect(seriesDates(g, r, { ...s, months: undefined }).length).toBeGreaterThan(dates.length + 15);
+    for (const rot of r.rotations) expect(OCT_APR & (1 << localMonth('RIX', rot.dep))).toBeTruthy();
+    // July: resting. January: flying.
+    const july = g.started + 130 * DAY;
+    const jan = g.started + 320 * DAY;
+    expect(routeResting(r, july)).toBe(true);
+    expect(routeResting(r, jan)).toBe(false);
+    const on = routeMonthCosts(r, false);
+    const off = routeMonthCosts(r, true);
+    expect(off.routeSetup).toBe(Math.round(on.routeSetup! / 2));
+    expect(off.marketing).toBe(0);
+    expect(on.marketing).toBeGreaterThan(0);
+    // A route flown all year never rests.
+    const r2 = g.network!.routes[devLaunchRoute(g, 'RIX-OSL')];
+    expect(r2.series[0].months).toBeUndefined();
+    expect(routeResting(r2, july)).toBe(false);
+  });
+
+  it('the analyst names the season when the plan flies all year', () => {
+    const g = game('TLL');
+    unlockHead(g, 'analyst', true);
+    hireHead(g, 'analyst', 2);
+    const rid = devLaunchRoute(g, 'TLL-HRG');
+    const r = g.network!.routes[rid];
+    r.status = 'case';
+    const d0 = caseDraft(g, rid)!;
+    const allYear = { ...d0 };
+    delete allYear.season;
+    const a = caseAdvice(g, rid, allYear).list.find((x) => x.key === 'season');
+    expect(a?.title).toBe('Fly Oct–Apr only');
+    expect(a?.patch).toEqual({ season: true });
+    expect(a!.gain).toBeGreaterThan(100_000);
+    expect(caseAdvice(g, rid, { ...d0, season: true }).list.find((x) => x.key === 'season')).toBeUndefined();
+  });
+});
+

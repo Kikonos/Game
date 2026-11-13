@@ -123,7 +123,7 @@ export const VNO_MARKETS: RouteMarket[] = [
     timetable: { pattern: 'weekly', day: 5, out: 420, back: 795, nights: 0 },
     // [F] EU261: a flight inside the EU pays the middle band whatever its length.
     navPerSector: 5_600, rights: 'open', eu261: 'mid',
-    blurb: 'Winter sun, sold as holidays by a tour operator. Six hours each way; nearly nothing in summer.',
+    blurb: 'Winter sun for a tour operator, October to April. Six hours each way: too far for a full older A320.',
   },
   {
     id: 'VNO-AYT', from: 'VNO', to: 'AYT', city: 'Antalya', country: 'Türkiye',
@@ -141,7 +141,7 @@ export const VNO_MARKETS: RouteMarket[] = [
       { name: 'Novaturas charters', perWeek: 4, stops: 0, hours: 3.4, fareX: 1.0, seats: 180 },
       { name: 'Turkish Airlines via Istanbul', perWeek: 14, stops: 1, hours: 6.5, fareX: 1.15, seats: 15, via: 'IST' },
     ],
-    fareY: [95, 240], fareJ: [220, 450], fareX: 1.75,
+    fareY: [95, 240], fareJ: [220, 450], fareX: 1.34, // tuned: flown in its season only, when fares sit at the top of the range
     cargo: { south: 100, north: 300, perish: 200 },
     ancillary: 16, bagShare: 0.12,
     timetable: { pattern: 'weekly', day: 5, out: 360, back: 630, nights: 0 },

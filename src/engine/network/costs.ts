@@ -5,8 +5,8 @@
 import { routeStation } from '../../data/routes';
 import { BAL } from '../core/balance';
 import { blockMinutes, typeOf } from '../core/perf';
-import { yearOf } from '../core/time';
-import type { Aircraft, Flight, GameState, LedgerCat } from '../core/types';
+import { toDate, yearOf } from '../core/time';
+import type { Aircraft, Flight, GameState, LedgerCat, Minute } from '../core/types';
 import { marketOfRoute } from './model';
 import type { Rotation, Route, SectorLoad } from './types';
 
@@ -140,13 +140,23 @@ export function routeDisruptionCost(g: GameState, f: Flight, kind: DisruptionKin
 export function monthlyRouteCosts(g: GameState): Partial<Record<LedgerCat, number>> {
   const out: Partial<Record<LedgerCat, number>> = {};
   for (const r of Object.values(g.network?.routes ?? {})) {
-    for (const [k, v] of Object.entries(routeMonthCosts(r)) as [LedgerCat, number][]) out[k] = (out[k] ?? 0) + v;
+    for (const [k, v] of Object.entries(routeMonthCosts(r, routeResting(r, g.now))) as [LedgerCat, number][]) out[k] = (out[k] ?? 0) + v;
   }
   return out;
 }
 
-/** One route's monthly overheads while it is on sale or flying (none while launching: the stages carry their costs). */
-export function routeMonthCosts(r: Route): Partial<Record<LedgerCat, number>> {
+/** v0.23.2 a seasonal route out of its season at `t`: every series it has flies in other months. */
+export function routeResting(r: Pick<Route, 'series'>, t: Minute): boolean {
+  if (!r.series.length) return false;
+  const bit = 1 << toDate(t).getUTCMonth();
+  return r.series.every((s) => s.months !== undefined && !(s.months & bit));
+}
+
+/**
+ * One route's monthly overheads while it is on sale or flying (none while launching: the stages carry their costs).
+ * `resting` (v0.23.2, a seasonal route out of season): the station kept at half cost and no campaign that month.
+ */
+export function routeMonthCosts(r: Route, resting = false): Partial<Record<LedgerCat, number>> {
   if (r.status !== 'onSale' && r.status !== 'operating' && r.status !== 'suspended') return {};
   const C = BAL.v019.cost;
   const m = marketOfRoute(r);
@@ -158,9 +168,9 @@ export function routeMonthCosts(r: Route): Partial<Record<LedgerCat, number>> {
   overhead += (stops.size - tag) * C.techStopOverhead + tag * Math.round((routeStation(m.stopover?.at ?? m.to).overhead || C.overhead) * BAL.v019.stop.overheadX);
   if (m.rights === 'perFlight') overhead += C.perOperation;
   return {
-    routeSetup: Math.round(r.status === 'suspended' ? overhead * 0.5 : overhead),
+    routeSetup: Math.round(r.status === 'suspended' || resting ? overhead * 0.5 : overhead),
     distribution: r.model === 'partner' ? 0 : C.distributionMonth,
-    marketing: r.model === 'partner' ? 0 : C.marketing[r.marketing] ?? 0,
+    marketing: r.model === 'partner' || resting ? 0 : C.marketing[r.marketing] ?? 0,
   };
 }
 

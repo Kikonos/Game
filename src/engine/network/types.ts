@@ -73,6 +73,8 @@ export interface RouteSeries {
   /** The dates the series runs (normally one IATA season). */
   from: Minute;
   to: Minute;
+  /** v0.23.2 the months it flies (bit 0 = January, at the origin's local date); absent = every month. */
+  months?: number;
 }
 
 /** §J.1 one sector of a rotation: seats, bookings, what flew, its money. */
@@ -237,6 +239,8 @@ export interface RoutePlan {
   layout?: CabinLayout;
   fares: FareLevel;
   marketing: MarketingLevel;
+  /** v0.23.2 fly only the market's season (model.seasonMonths: winter sun from the Baltics, summer to the islands). */
+  season?: true;
 }
 
 /** A temporary dent in a route's demand (J only, or all passengers). */

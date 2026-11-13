@@ -11,7 +11,7 @@ import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
 import { catalogueOf, chainProblem, customFacts, customMarket, routeBases, sisters } from './custom';
 import { firstFlightOf, project, studyBase, type Projection } from './launch';
-import { cabinFor, freqPerWeek, marketOfRoute, serviceHours } from './model';
+import { cabinFor, freqPerWeek, marketOfRoute, monthsWords, seasonMonths, serviceHours } from './model';
 import { crewAwayCost } from './pnl';
 import type { FifthRights, Route, RouteModel, RoutePlan } from './types';
 
@@ -180,7 +180,7 @@ export function stopoverCompare(g: GameState, from: string, to: string, at: stri
 // ---------- the analyst and the planner on a business case ----------
 
 export interface Advice {
-  key: 'freq' | 'fares' | 'campaign' | 'aircraft' | 'cabin' | 'nights' | 'stop';
+  key: 'freq' | 'fares' | 'campaign' | 'aircraft' | 'cabin' | 'nights' | 'stop' | 'season';
   who: 'analyst' | 'planner';
   /** What to do, in a few words. */
   title: string;
@@ -234,6 +234,7 @@ export function caseAdvice(g: GameState, routeId: string, draft: RoutePlan): Cas
       for (const o of opts) {
         const plan = { ...draft, ...o.patch };
         if ('monthly' in o.patch && !o.patch.monthly) delete plan.monthly;
+        if ('season' in o.patch && !o.patch.season) delete plan.season;
         if (chainProblem(m, plan.typeId)) continue;
         const p = project(g, view, plan, start, x);
         const gain = Math.round(p.result - cur.result - (o.extra ?? 0));
@@ -242,6 +243,13 @@ export function caseAdvice(g: GameState, routeId: string, draft: RoutePlan): Cas
       if (top) list.push(top);
     };
     const lfWhy = (gain: number, p: Projection) => `About ${k$(gain)} more a year; flights ${Math.round((p.seatSec ? p.paxSec / p.seatSec : 0) * 100)} % full.`;
+    // v0.23.2 a market with a dead season: fly the season only, or all year where the quiet months still pay.
+    const season = seasonMonths(m);
+    if (season && draft.model !== 'partner') {
+      best('season', [draft.season
+        ? { title: 'Fly all year', patch: { season: undefined }, why: (gain: number) => `About ${k$(gain)} more a year: the quiet months still cover their costs.` }
+        : { title: `Fly ${monthsWords(season)} only`, patch: { season: true }, why: (gain: number) => `About ${k$(gain)} more a year: out of season the flights go half empty.` }]);
+    }
     // How often (a partner sets its own timetable).
     if (draft.model !== 'partner') {
       const f: { title: string; patch: Partial<RoutePlan>; why: typeof lfWhy }[] = [];

@@ -121,7 +121,7 @@ export const RIX_MARKETS: RouteMarket[] = [
     timetable: { pattern: 'weekly', day: 5, out: 420, back: 800, nights: 0 },
     // [F] EU261: a flight inside the EU pays the middle band whatever its length.
     navPerSector: 5_700, rights: 'open', eu261: 'mid',
-    blurb: 'Winter sun, sold as holidays by a tour operator. Six and a half hours each way.',
+    blurb: 'Winter sun for a tour operator, October to April. Six hours each way: too far for a full older A320.',
   },
   {
     id: 'RIX-SSH', from: 'RIX', to: 'SSH', city: 'Sharm el-Sheikh', country: 'Egypt',
@@ -136,7 +136,7 @@ export const RIX_MARKETS: RouteMarket[] = [
       { name: 'airBaltic', perWeek: 1.5, stops: 0, hours: 5.0, fareX: 1.0, seats: 148 },
       { name: 'Turkish Airlines via Istanbul', perWeek: 7, stops: 1, hours: 9, fareX: 1.1, seats: 10, via: 'IST' },
     ],
-    fareY: [140, 300], fareJ: [300, 560], fareX: 1.75,
+    fareY: [140, 300], fareJ: [300, 560], fareX: 1.53, // tuned: flown in its season only, when fares sit at the top of the range
     cargo: { south: 100, north: 0 },
     ancillary: 18, bagShare: 0.12,
     timetable: { pattern: 'weekly', day: 2, out: 480, back: 840, nights: 0 },

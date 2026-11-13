@@ -59,7 +59,7 @@ export const PRG_MARKETS: RouteMarket[] = [
       { name: 'Turkish Airlines via Istanbul', perWeek: 21, stops: 1, hours: 6, fareX: 1.2, seats: 15, via: 'IST' },
     ],
     // [F] from USD 85 one way (Skyscanner, summer 2026).
-    fareY: [85, 230], fareJ: [200, 420], fareX: 1.75,
+    fareY: [85, 230], fareJ: [200, 420], fareX: 1.45, // tuned: flown in its season only, when fares sit at the top of the range
     cargo: { south: 100, north: 300, perish: 200 },
     ancillary: 16, bagShare: 0.12,
     timetable: { pattern: 'weekly', day: 5, out: 360, back: 650, nights: 0 },
@@ -147,7 +147,7 @@ export const PRG_MARKETS: RouteMarket[] = [
       { name: 'Aegean via Athens', perWeek: 9, stops: 1, hours: 5.5, fareX: 1.15, seats: 15, via: 'ATH' },
     ],
     // [F] from USD 117 one way (Expedia, 2026).
-    fareY: [90, 240], fareJ: [210, 440], fareX: 1.75,
+    fareY: [90, 240], fareJ: [210, 440], fareX: 1.4, // tuned: flown in its season only, when fares sit at the top of the range
     cargo: { south: 100, north: 200, perish: 200 },
     ancillary: 16, bagShare: 0.12,
     timetable: { pattern: 'weekly', day: 0, out: 330, back: 615, nights: 0 },
@@ -167,7 +167,7 @@ export const PRG_MARKETS: RouteMarket[] = [
       // Over the year: 3 a week from May to October.
       { name: 'Smartwings', perWeek: 1.5, stops: 0, hours: 2.8, fareX: 1.0, seats: 189 },
     ],
-    fareY: [95, 240], fareJ: [210, 430], fareX: 1.75,
+    fareY: [95, 240], fareJ: [210, 430], fareX: 1.39, // tuned: flown in its season only, when fares sit at the top of the range
     cargo: { south: 100, north: 0 },
     ancillary: 16, bagShare: 0.12,
     timetable: { pattern: 'weekly', day: 3, out: 840, back: 1_005, nights: 0 },

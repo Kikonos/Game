@@ -143,7 +143,7 @@ export const TLL_MARKETS: RouteMarket[] = [
     timetable: { pattern: 'weekly', day: 5, out: 465, back: 835, nights: 0 },
     // [F] EU261: a flight inside the EU pays the middle band whatever its length.
     navPerSector: 5_900, rights: 'open', eu261: 'mid',
-    blurb: 'Winter sun, sold as holidays by a tour operator. Six and a half hours: check the aircraft’s range.',
+    blurb: 'Winter sun for a tour operator, October to April. Six hours each way: too far for a full older A320.',
   },
   {
     id: 'TLL-AYT', from: 'TLL', to: 'AYT', city: 'Antalya', country: 'Türkiye',
@@ -161,7 +161,7 @@ export const TLL_MARKETS: RouteMarket[] = [
       { name: 'Novatours charters', perWeek: 3, stops: 0, hours: 3.8, fareX: 1.0, seats: 180 },
       { name: 'Turkish Airlines via Istanbul', perWeek: 10, stops: 1, hours: 7, fareX: 1.15, seats: 12, via: 'IST' },
     ],
-    fareY: [100, 250], fareJ: [230, 460], fareX: 1.75,
+    fareY: [100, 250], fareJ: [230, 460], fareX: 1.5, // tuned: flown in its season only, when fares sit at the top of the range
     cargo: { south: 100, north: 300, perish: 200 },
     ancillary: 16, bagShare: 0.12,
     timetable: { pattern: 'weekly', day: 5, out: 375, back: 670, nights: 0 },
@@ -183,7 +183,7 @@ export const TLL_MARKETS: RouteMarket[] = [
       { name: 'Tour operators’ charters', perWeek: 0.8, stops: 0, hours: 5.4, fareX: 1.0, seats: 180 },
       { name: 'Turkish Airlines via Istanbul', perWeek: 7, stops: 1, hours: 9.5, fareX: 1.15, seats: 10, via: 'IST' },
     ],
-    fareY: [150, 320], fareJ: [320, 580], fareX: 1.75,
+    fareY: [150, 320], fareJ: [320, 580], fareX: 1.55, // tuned: flown in its season only, when fares sit at the top of the range
     cargo: { south: 100, north: 0 },
     ancillary: 18, bagShare: 0.12,
     timetable: { pattern: 'weekly', day: 6, out: 450, back: 840, nights: 0 },
@@ -204,7 +204,7 @@ export const TLL_MARKETS: RouteMarket[] = [
       { name: 'Finnair via Helsinki', perWeek: 7, stops: 1, hours: 14, fareX: 1.0, seats: 20, via: 'HEL' },
       { name: 'Turkish Airlines via Istanbul', perWeek: 10, stops: 1, hours: 16.5, fareX: 0.9, seats: 15, via: 'IST' },
     ],
-    fareY: [430, 780], fareJ: [1_300, 2_300], fareX: 1.75,
+    fareY: [430, 780], fareJ: [1_300, 2_300], fareX: 1.39, // tuned: flown in its season only, when fares sit at the top of the range
     cargo: { south: 500, north: 1_500, perish: 800 },
     ancillary: 24, bagShare: 0.15,
     timetable: { pattern: 'weekly', day: 5, out: 1_200, back: 840, nights: 1 },
