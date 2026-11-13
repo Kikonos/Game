@@ -4,15 +4,27 @@
 import { BAL } from '../src/engine/core/balance';
 import { createGame } from '../src/engine/newGame';
 import { DAY } from '../src/engine/core/time';
+import { ROUTE_MARKETS } from '../src/data/routes';
 import { acmiNetBH, cabinFor, caseDraft, devLaunchRoute, project, routeMonthCosts } from '../src/engine/network';
 const B = BAL as unknown as { v019: { demand: { scale: number }; fares: { scale: number } } };
 if (process.env.SCALE) B.v019.demand.scale = Number(process.env.SCALE);
 if (process.env.FARES) B.v019.fares.scale = Number(process.env.FARES);
-const g = createGame({ name: 'Cal', code: 'CA', livery: { primary: '#000', secondary: '#fff', tail: 'sweep' }, base: 'LIS', seed: 1 } as never);
-const markets = (process.env.MKT ?? 'LIS-OXB,LIS-TMS,LIS-DIL,LIS-RAI').split(',');
+// MKT=all: every catalogue market; MKT=MLA: every market from that airport; else a list of ids. The game is based
+// where the market leaves from (a market is studied only from one of our bases).
+const mkt = process.env.MKT ?? 'LIS-OXB,LIS-TMS,LIS-DIL,LIS-RAI';
+const markets = mkt === 'all' ? ROUTE_MARKETS.filter((m) => !m.closed).map((m) => m.id)
+  : /^[A-Z]{3}$/.test(mkt) ? ROUTE_MARKETS.filter((m) => m.from === mkt && !m.closed).map((m) => m.id) : mkt.split(',');
 const types = (process.env.TYPES ?? 'b763,a332,a321ceo,a320ceo').split(',');
+const games = new Map<string, ReturnType<typeof createGame>>();
+const gameAt = (base: string) => {
+  let x = games.get(base);
+  if (!x) games.set(base, (x = createGame({ name: 'Cal', code: 'CA', livery: { primary: '#000', secondary: '#fff', tail: 'sweep' }, base, seed: 1 } as never)));
+  return x;
+};
 for (const mk of markets) {
+  const g = gameAt(process.env.BASE ?? mk.replace(/^X:/, '').slice(0, 3));
   const id = devLaunchRoute(g, mk);
+  if (!g.network?.routes[id]) { console.log(`${mk}: ${id}`); continue; }
   const r = g.network!.routes[id];
   for (const typeId of types) {
     const d = { ...caseDraft(g, id)!, typeId, layout: 'two-class' as const };
