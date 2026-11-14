@@ -397,6 +397,10 @@ export interface Aircraft {
   bhDays?: [number, number][];
   /** v0.7.2 day index bhDays tracking began (game start or the first load of an older save). load: ??= today */
   bhSince?: number;
+  /** v0.24 sold block minutes (revenue legs and their fuel stops) per UTC day [dayIndex, min], the last 400 days (ops/booked.ts). load: from the flights in the save */
+  bookDays?: [number, number][];
+  /** v0.24 day index the sold-flying record begins (game start, or the oldest leg an older save still holds). */
+  bookSince?: number;
   /** v0.7.2 an agreed sale (closes with 'aircraft.sale'). */
   sale?: { buyer: string; price: number; agreed: Minute; closes: Minute; ferryIds?: string[] };
 }
