@@ -24,7 +24,7 @@ import { paintWindow, type PaintSlot } from './paintTerms';
 import { termsProduct } from './cabinTerms';
 import { bookClientCabin, cancelClientCabinFor } from '../ops/clientCabin';
 import { replyTime } from './counter';
-import { bumpClient, noteJobDone, statsV08 } from './relations';
+import { bumpClient, markMet, noteJobDone, statsV08 } from './relations';
 import { noteHiredUs } from './rivals';
 import { rollRepeat } from './missions';
 import { onContractDoneVisibility } from './prestige';
@@ -53,6 +53,8 @@ export function setPrice(o: { product: Product }, price: number): void {
 export function closeOffer(g: GameState, o: ContractOffer, status: OfferStatus, lostTo?: string): void {
   o.status = status;
   o.closedAt = g.now;
+  // v0.24 an offer that reached us, whatever became of it: a client we have dealt with.
+  markMet(g, o.clientId);
   if (lostTo) o.lostTo = lostTo;
 }
 

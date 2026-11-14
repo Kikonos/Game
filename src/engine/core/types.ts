@@ -458,6 +458,11 @@ export interface Client {
   stars?: Stars;
   /** v0.19 our own sales record (scheduled routes, own brand and tour operator): never in client lists or offers. */
   own?: true;
+  /**
+   * v0.24 when we first dealt with them in this save (an offer, a contract, a visit or a fair, any relation change):
+   * the clients a sales trip can visit. load: ??= from the offers, contracts, leads, tenders and relation log in the save.
+   */
+  met?: Minute;
 }
 
 /** v0.8 client relationship level (contracts/relations.ts). */

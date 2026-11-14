@@ -47,6 +47,7 @@ describe('COMM-H1 a lead offer lapses at its (longer) expiry', () => {
       const g = newGame(seed);
       const clients = Object.values(g.clients).filter((c) => !c.rivalId && c.base !== 'LIS' && (c.kind === 'airline' || c.kind === 'tourOperator'));
       for (const c of clients.slice(0, 8)) {
+        c.met = g.now;
         const r = bookTrip(g, 'ceo', { clientId: c.id });
         if (!r.ok) continue;
         const t = com(g).trips.find((x) => x.id === r.data!.tripId)!;
@@ -221,6 +222,7 @@ describe('COMM-M3 a fair (or a client) in our home city', () => {
     // A client based here can be visited too.
     const g2 = newGame(32);
     const tap = Object.values(g2.clients).find((c) => c.base === 'LIS' && c.kind === 'airline' && !c.rivalId)!;
+    tap.met = g2.now;
     const v = tripQuote(g2, 'ceo', { clientId: tap.id });
     expect(v.ok).toBe(true);
     expect(v.local).toBe(true);

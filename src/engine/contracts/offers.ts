@@ -35,7 +35,7 @@ import { cabinTarget, cabinTermsText, rollCabin } from './cabinTerms';
 import { anchorsOf, computeWaves, flownRotations, localToUTC, longestChains, maxPax, programmeOf, route, routeMinutes, seatNeed, type ChainShape } from './plan';
 export { maxPax, seatNeed };
 import { ARCH_MULT, defaultSeats, flownTypes, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
-import { LEVEL_PERKS, levelOf, standingRate } from './relations';
+import { LEVEL_PERKS, levelOf, markMet, standingRate } from './relations';
 import { clientPrestige, markStretch, noteStretch, prestigeOfferWeight, prestigePayPct, prestigePenaltyX } from './prestige';
 import { brokerIdOf, brokerName } from '../commercial/sales';
 import { offerHidden } from './filter';
@@ -1879,6 +1879,8 @@ export function fmtPrice(p: Product): string {
 /** Daily: drop closed offers after 14 days (the "missed" list keeps them that long); the quiet-week floor. */
 export function dailyOffers(g: GameState): void {
   for (const o of Object.values(g.offers)) {
+    // v0.24 an offer on the desk: a client we have dealt with (kept once the offer is gone).
+    markMet(g, o.clientId);
     if (o.status === 'open' || o.status === 'countered') continue;
     o.closedAt ??= g.now;
     if (g.now - o.closedAt > 14 * DAY) delete g.offers[o.id];

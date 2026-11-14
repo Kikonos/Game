@@ -104,6 +104,7 @@ describe('tickets as crew deadheads', () => {
     const g = newGame(26);
     const cl = Object.values(g.clients).find((c) => c.name === 'Condor')!;
     const rel = cl.relation;
+    cl.met = g.now;
     const r = bookTrip(g, 'ceo', { clientId: cl.id });
     expect(r.ok).toBe(true);
     const t = com(g).trips[0];
