@@ -160,6 +160,8 @@ export type ModalSpec =
   | { kind: 'settings' }
   /** Offer review / accept / counter flow (B5). */
   | { kind: 'offer'; offerId: string }
+  /** v0.24 a signed contract read back (Contracts › Active). */
+  | { kind: 'contract'; contractId: string }
   | { kind: 'confirm'; title: string; body: string; confirm: string; danger?: boolean; onConfirm: () => void }
   /** B5: a decision opened from the Inbox (closable); hire, training and check planning dialogs. */
   | { kind: 'decision'; decisionId: string }

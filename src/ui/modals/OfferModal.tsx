@@ -59,7 +59,7 @@ import { SpecsLink } from '../specs/SpecsLink';
 const LEVEL_TONE = { ok: 'good', warn: 'warn', no: 'bad' } as const;
 const usd = (v: number) => `$${Math.round(v).toLocaleString('en-US')}`;
 
-function effectChips(o: ContractOffer): Chip[] {
+export function effectChips(o: Pick<ContractOffer, 'effects'>): Chip[] {
   const e = o.effects;
   const out: Chip[] = [];
   const add = (v: number | undefined, label: string) => {
@@ -119,7 +119,8 @@ function Terms({ g, o, deposit, onDeposit }: { g: GameState; o: ContractOffer; /
   );
 }
 
-function Programme({ o }: { o: ContractOffer }) {
+/** v0.24 also the signed contract's sheet (ContractModal). */
+export function Programme({ o }: { o: Pick<ContractOffer, 'pattern'> }) {
   const p = o.pattern;
   if (p.kind === 'base') {
     const waves = p.waves.map((w) => `${String(Math.floor(w / 60)).padStart(2, '0')}:${String(w % 60).padStart(2, '0')}`).join(', ');

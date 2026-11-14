@@ -7,3 +7,7 @@
 .sc-msg-acts { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 12px 44px; }
 .sc-msg-acts .btn svg { width: 15px; height: 15px; }
 @media (max-width: 560px) { .sc-msg-acts { padding-left: 16px; } }
+
+/* (2) The contract sheet: the footer's buttons on one line; the card's sheet button even on a finished contract. */
+.v24-contract-foot { width: 100%; align-items: center; }
+.sc-contract.closed .sc-contract-actions { opacity: 1; }
