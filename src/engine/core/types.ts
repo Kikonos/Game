@@ -260,8 +260,9 @@ export interface Company {
   /**
    * v0.24 the fleet's preventive maintenance programme (ops/pm.ts): its level, the level before and when it changed
    * (the effects move over BAL.pm.rampDays). Absent: 'low', the approved programme's minimum (the behaviour before).
+   * `at`: the factors in force when it changed (the ramp starts there; a record without it starts at `from`'s).
    */
-  pm?: { level: PmLevel; from: PmLevel; since: Minute; billed?: number };
+  pm?: { level: PmLevel; from: PmLevel; since: Minute; billed?: number; at?: { delay: number; aog: number; deferred: number } };
 }
 
 /** v0.24 preventive maintenance: the approved minimum, an enhanced programme, an intensive reliability programme. */

@@ -171,6 +171,9 @@ export interface OfferOpts {
   /** v0.16 sales: the broker that brought the job (named on the offer, its commission) and the pipeline lead it answers. */
   brokerId?: BrokerId;
   leadId?: string;
+  /** v0.24 the client already said yes (a pitch answered yes): its IOSA ask is never thinned out (markStretch). A lead's
+   *  own offer (leadId) is not thinned either. */
+  asked?: boolean;
   /** v0.19.4 a base programme flown from this airport (not the client's own hub: a tender's long-haul base). */
   baseAt?: string;
   /** v0.19.4 the seats the client asks for (a lead's job kept; a tender sized to our aircraft). */
@@ -1678,7 +1681,9 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     // v0.16 a draft from a client one level above ours is a stretch offer, a national carrier or a major asks for IOSA
     // (contracts/prestige.ts); the hand-shaped opening offers are a new company's fair first jobs and ask nothing.
     // v0.24 an IOSA ask thinned out while we have none filed: dropped like an impossible draft (another is drawn).
-    const thinned = !!d && !opening && markStretch(g, d) === 'drop';
+    // A lead's offer (the client said yes in principle) or a pitch answered yes is never thinned: the roll was made
+    // when the lead was quoted, and a second one would lose a lead the client already agreed to.
+    const thinned = !!d && !opening && markStretch(g, d, !!opts.leadId || !!opts.asked) === 'drop';
     if (thinned) fixDropped = true;
     const o = d && !thinned && finalize(g, d, ctx.aspire);
     if (o) {

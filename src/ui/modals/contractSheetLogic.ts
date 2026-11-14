@@ -71,10 +71,9 @@ export function contractSheet(g: GameState, c: Contract): ContractSheet {
     if (c.legsFlown) status.push(['On time', `${c.legsOnTime ?? 0} of ${c.legsFlown}`]);
     status.push([p.kind === 'charter' ? 'Earned so far' : 'Revenue so far', money(pr.revenueToDate)]);
     if (p.kind === 'charter') status.push(['Invoiced so far', `${money(c.invoiced ?? 0)} of ${money(p.price)}`]);
-    if (p.kind === 'wet' && open) {
-      const k = monthKey(g.now);
-      status.push(['This month', `${pr.bhMonth.toFixed(0)} of ${Math.round(mghFor(c, k))} BH guaranteed`]);
-    }
+    // The month's guarantee only while it applies (a signed lease not yet started has none this month).
+    const mgh = p.kind === 'wet' && open ? Math.round(mghFor(c, monthKey(g.now))) : 0;
+    if (mgh > 0) status.push(['This month', `${pr.bhMonth.toFixed(0)} of ${mgh} BH guaranteed`]);
     const next = pr.nextFlightId ? g.flights[pr.nextFlightId] : undefined;
     if (next && open) status.push(['Next', `${next.no} ${next.from}→${next.to} · ${fmtDateTime(next.std)} UTC`]);
   }

@@ -27,7 +27,9 @@ export const pmLevel = (g: GameState): PmLevel => g.company.pm?.level ?? 'low';
 /** How far a change has come in (0 just changed, 1 in full). Pure. */
 export function pmProgress(g: GameState): number {
   const p = g.company.pm;
-  if (!p || p.from === p.level) return 1;
+  if (!p) return 1;
+  const to = levelFactors(p.level);
+  if (p.at ? p.at.delay === to.delay && p.at.aog === to.aog && p.at.deferred === to.deferred : p.from === p.level) return 1;
   return Math.max(0, Math.min(1, (g.now - p.since) / (P().rampDays * DAY)));
 }
 
@@ -42,13 +44,19 @@ export interface PmFactors {
 
 const ONE: PmFactors = { delay: 1, aog: 1, deferred: 1 };
 
-/** The factors in force now (moving from the old level's to the new one's over the ramp). Pure. */
+/** The full factors of a level. Pure. */
+const levelFactors = (level: PmLevel): PmFactors => ({ delay: P().delayX[level], aog: P().aogX[level], deferred: P().deferredX[level] });
+
+/** The factors in force now (moving from those in force at the change to the new level's over the ramp). Pure. */
 export function pmFactors(g: GameState): PmFactors {
   const p = g.company.pm;
   if (!p) return ONE;
   const k = pmProgress(g);
-  const at = (x: Record<PmLevel, number>) => (k >= 1 ? x[p.level] : x[p.from] + (x[p.level] - x[p.from]) * k);
-  return { delay: at(P().delayX), aog: at(P().aogX), deferred: at(P().deferredX) };
+  const to = levelFactors(p.level);
+  if (k >= 1) return to;
+  const from = p.at ?? levelFactors(p.from);
+  const mix = (f: keyof PmFactors) => from[f] + (to[f] - from[f]) * k;
+  return { delay: mix('delay'), aog: mix('aog'), deferred: mix('deferred') };
 }
 
 /** The share of maintBH added per block hour at the level set (the cost moves at once). Pure. */
@@ -95,10 +103,11 @@ export function setPmLevel(g: GameState, level: PmLevel): ActionResult {
   if (!PM_LEVELS.includes(level)) return { ok: false, error: 'Unknown level' };
   const cur = pmLevel(g);
   if (cur === level) return { ok: true };
-  // Mid-change: start from the level nearer to what is in force now (a change never jumps the factors far).
+  // The new ramp starts from the factors in force now, mid-change included: a change never jumps them (a switch back
+  // to High after a spell at Low does not bring High's full effect back at once).
   const p = g.company.pm;
-  const from = p && pmProgress(g) < 0.5 ? p.from : cur;
-  g.company.pm = { level, from, since: g.now, ...(p?.billed !== undefined ? { billed: p.billed } : {}) };
+  const at = pmFactors(g);
+  g.company.pm = { level, from: cur, since: g.now, at, ...(p?.billed !== undefined ? { billed: p.billed } : {}) };
   return { ok: true, msg: `Maintenance programme: ${PM_LABEL[level]} · in full in about ${P().rampDays} days` };
 }
 

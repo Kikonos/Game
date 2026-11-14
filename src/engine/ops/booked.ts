@@ -91,8 +91,14 @@ function pastOf(g: GameState, ac: Aircraft, from: Minute): [number, number, Minu
   const since = Math.max(from, ac.bookSince !== undefined ? ac.bookSince * DAY : -Infinity, ac.deliveredAt);
   if (since >= g.now) return [0, 0, g.now];
   const d0 = Math.floor(since / DAY);
+  // The record is by UTC day: a window that starts inside a day (a rolling 7 days from now) takes that first day's
+  // flying pro rata, so the sold hours and the hours available cover the same span. A start set by the aircraft's
+  // arrival keeps the whole day (it flew nothing for us before it).
+  const dayEnd = Math.min(g.now, (d0 + 1) * DAY);
+  const part = since === from && since > d0 * DAY ? (dayEnd - since) / (dayEnd - d0 * DAY) : 1;
   let min = 0;
-  for (const [d, m] of ac.bookDays ?? []) if (d >= d0) min += m;
+  for (const [d, m] of ac.bookDays ?? []) if (d > d0) min += m;
+  else if (d === d0) min += m * part;
   return [min, g.now - since, since];
 }
 

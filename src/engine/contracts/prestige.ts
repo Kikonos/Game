@@ -260,9 +260,13 @@ export function prestigeOfferWeight(g: GameState, c: Client): number {
   const diff = clientPrestige(cur) - playerLevel(g);
   if (diff <= 0) return P.weight[String(Math.max(-3, diff))] ?? 0;
   if (cur.jobs) return P.weight['0'];
-  // v0.24 an airline one or two levels up shows itself now and then before IOSA is filed: its offer asks for IOSA
-  // (markStretch), a look at what the registration opens (not a stretch offer: we cannot take it yet).
-  const show = diff <= 2 && asksIosa(cur) && !cur.rivalId && !g.company.approvals.includes('iosa') && !g.company.pendingApprovals.some((p) => p.id === 'iosa') ? P.iosaShow : 0;
+  // v0.24 a national carrier or a major (a level 3–4 airline) one or two levels up shows itself now and then, outside
+  // the monthly stretch slot (not a stretch offer). Before IOSA is filed its offer asks for IOSA (markStretch, thinned
+  // by iosaKeep, and for a Newcomer by newcomerReach): a look at what the registration opens. Once filed or held it
+  // keeps calling at the same weight, no longer thinned (a national carrier takes the filing, so its work can be
+  // flown; a major still wants IOSA held): filing opens that work up instead of hiding it. A level-2 airline asks no
+  // IOSA: it keeps the ladder (the stretch slot only).
+  const show = diff <= 2 && clientPrestige(cur) >= 3 && asksIosa(cur) && !cur.rivalId ? P.iosaShow : 0;
   if (diff === 1) return stretchOpen(g) ? Math.max(P.weight['1'], show) : show;
   return show;
 }
@@ -282,9 +286,10 @@ export const asksIosa = (c: Pick<Client, 'kind'>): boolean => c.kind === 'airlin
  * v0.24 stage-aware (player: "a lot of IOSA contracts offered when I don't have IOSA yet"): with IOSA neither held
  * nor filed, only a share of those asks reach us (BAL.v016.prestige.iosaKeep, a side roll): enough to show what IOSA
  * brings. Returns 'drop' for the others (offers.ts draws another job; a lead, tender or event asked of that client
- * does not come). Once IOSA is filed or held, they all come.
+ * does not come). Once IOSA is filed or held, they all come. `agreed`: the client already said yes (a lead's own
+ * offer, a pitch answered yes): the roll was made when the lead was quoted, so the ask always comes.
  */
-export function markStretch(g: GameState, d: { client: Client; stretch?: true; iosaAsked?: true; req?: { approvals: ApprovalId[] } }): 'drop' | undefined {
+export function markStretch(g: GameState, d: { client: Client; stretch?: true; iosaAsked?: true; req?: { approvals: ApprovalId[] } }, agreed = false): 'drop' | undefined {
   const cur = g.clients[d.client.id] ?? d.client;
   if (!PRESTIGE_GATE.on || cur.jobs) return undefined;
   const lv = clientPrestige(cur);
@@ -292,7 +297,7 @@ export function markStretch(g: GameState, d: { client: Client; stretch?: true; i
   if (lv >= 3 && asksIosa(cur) && d.req && !d.req.approvals.includes('iosa') && !g.company.approvals.includes('iosa')) {
     const filed = g.company.pendingApprovals.some((p) => p.id === 'iosa');
     if (lv === 4 || !filed) {
-      if (!filed && !chance({ rng: hash(`${g.seed}:iosa:${g.seq}:${g.now}:${cur.id}`) | 0 }, P.iosaKeep)) return 'drop';
+      if (!filed && !agreed && !chance({ rng: hash(`${g.seed}:iosa:${g.seq}:${g.now}:${cur.id}`) | 0 }, P.iosaKeep)) return 'drop';
       d.req.approvals.push('iosa');
       d.iosaAsked = true;
     }

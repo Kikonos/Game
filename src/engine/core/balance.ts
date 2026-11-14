@@ -644,9 +644,12 @@ export const BAL = {
       /** v0.24 with IOSA neither held nor filed: the share of a new airline client's IOSA asks that reach us (the rest are
        *  drawn again): a taste of what IOSA brings, not a flood. */
       iosaKeep: 0.75,
-      /** v0.24 and an airline one or two levels up (a national carrier or a major) shows itself in the draw at this weight
-       *  while IOSA is neither held nor filed: its offer asks for IOSA, a look at what IOSA opens. */
-      iosaShow: 0.8,
+      /** v0.24 and a level 3–4 airline (a national carrier or a major) one or two levels up shows itself in the draw at
+       *  this weight, outside the stretch slot. Before IOSA is filed its offer asks for IOSA, a look at what IOSA opens
+       *  (thinned by iosaKeep, and for a Newcomer without a widebody by v08.standing.newcomerReach); once filed or held,
+       *  the same weight unthinned (a national carrier takes the filing). 0.2: an Established level-1 company at Malta
+       *  sees about 12 % of offers ask for IOSA before it files, and national carriers' work rises after. */
+      iosaShow: 0.2,
       /** v0.24 a Newcomer's share of the repatriation and troop-rotation weights (offers.ts weights). */
       stateNewcomer: 0.5,
       /** What a level 3 / 4 client checks before it signs: reliable, fleet average age (years), clean (4). */

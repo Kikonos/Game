@@ -800,7 +800,7 @@ function pitchOffer(g: GameState, p: Pitch): void {
     return;
   }
   const sd = seasonDates(p.season, sideOf(g, `pitch:${p.id}:season`));
-  const lead = newLead(g, c, { source: 'pitch', archetypes: ['seasonBase'], key: `pitcho:${p.id}`, stage: 'proposal', why: (t) => `After our ${seasonLabel(p.season)} pitch: ${c.name} wants our cover. ${t}.`, opts: sd.start > g.now + 10 * DAY ? { start: sd.start, days: sd.days } : {}, ...(p.body ? { body: p.body } : {}) });
+  const lead = newLead(g, c, { source: 'pitch', archetypes: ['seasonBase'], key: `pitcho:${p.id}`, stage: 'proposal', why: (t) => `After our ${seasonLabel(p.season)} pitch: ${c.name} wants our cover. ${t}.`, opts: { asked: true, ...(sd.start > g.now + 10 * DAY ? { start: sd.start, days: sd.days } : {}) }, ...(p.body ? { body: p.body } : {}) });
   if (!lead) {
     p.leadId = '';
     return;
