@@ -875,4 +875,29 @@ export const BAL = {
       check: { base: 0.0025, deferredX: 2.5, progX: 0.5 },
     },
   },
+  /**
+   * v0.24 the fleet's preventive maintenance programme (ops/pm.ts), three levels. 'low' is the approved programme's
+   * minimum (the manufacturer's intervals, defects deferred under the MEL as allowed): the game before v0.24, all
+   * factors 1. 'medium' (enhanced): extra daily and weekly checks, defects fixed at the night stop instead of deferred,
+   * hard-time items swapped a little early. 'high' (intensive reliability programme): soft-time replacement of the
+   * components that fail most (bleed valves, starters, brakes, packs, IDGs), engine trend monitoring and borescopes,
+   * a reliability engineer per fleet and a rotable spares pool. [E] figures, sized on: all-in direct maintenance cost
+   * of an A320 about $900–1,100 a block hour (Aircraft Commerce DMC surveys; our maintBH 900), of which line
+   * maintenance and component support about 30–40 %; an enhanced programme adds about 5–8 % of DMC, an intensive one
+   * 12–18 % (more task hours and parts replaced before failure). Technical dispatch reliability: A320 fleets average
+   * about 99.5–99.7 % (Airbus in-service figures); operators of older fleets on the minimum programme sit nearer 98 %.
+   * - costX: share of the type's maintBH added per block hour flown (posted with the leg's maintenance);
+   * - fee: a month per aircraft in service [narrow, wide] (spares pool, reliability engineering; accrued daily);
+   * - delayX / aogX: technical delays at the gate and AOGs per departure; deferredX: deferred defects building up;
+   * - rampDays: a change takes this long to show in full (components replaced at the coming checks, crews and
+   *   engineers settling into the programme); the cost moves at once.
+   */
+  pm: {
+    rampDays: 45,
+    costX: { low: 0, medium: 0.06, high: 0.14 },
+    fee: { low: [0, 0], medium: [4_000, 8_000], high: [10_000, 20_000] } as Record<'low' | 'medium' | 'high', [number, number]>,
+    delayX: { low: 1, medium: 0.8, high: 0.5 },
+    aogX: { low: 1, medium: 0.75, high: 0.45 },
+    deferredX: { low: 1, medium: 0.7, high: 0.35 },
+  },
 } as const;

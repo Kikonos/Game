@@ -27,6 +27,7 @@ import { cancelLegs } from './flights';
 import { bookCCheck } from './cHub';
 import { ageOf, contractOf, isRevenue, stats, usd } from './util';
 import { bumpClient } from '../contracts/relations';
+import { pmFactors } from './pm';
 
 export interface CheckStatus {
   /** A-check: flight hours remaining and due date (FH limit reached by planned flying, or the calendar, whichever first). */
@@ -149,7 +150,8 @@ export function aogChance(g: GameState, ac: Aircraft, airport: string): number {
   // v0.19.4 the ETOPS twins' programmes (ops/etopsRel.ts): fewer AOGs, and none likelier away from base with the spares pool.
   const rf = relFactors(g, ac);
   const out = engineersAt(g, ac.id, airport) || rf.noOutstation ? 1 : BAL.aogOutstation;
-  return BAL.aogBase * (1 + ageOf(g, ac) / 10) * (1 + 4 * ac.maint.deferred) * out * (typeOf(ac.typeId).aogMult ?? 1) * rf.aog;
+  // v0.24 × the preventive maintenance programme's factor (ops/pm.ts).
+  return BAL.aogBase * (1 + ageOf(g, ac) / 10) * (1 + 4 * ac.maint.deferred) * out * (typeOf(ac.typeId).aogMult ?? 1) * rf.aog * pmFactors(g).aog;
 }
 
 /**

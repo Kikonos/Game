@@ -38,11 +38,16 @@ import { dailyTreasury, loadTreasury, monthlyTreasury } from '../finance';
 import { DAY as DAY_MIN } from '../core/time';
 // v0.17 the aircraft market (engine/leasing; UPDATE-0.17.md §Q.1).
 import { dailyLeasing, loadLeasing } from '../leasing';
+import { resolveTypeCrew } from '../leasing/aoc';
+import { dailyPm } from './pm';
+export { PM_LABEL, PM_LEVELS, pmFactors, pmLevel, pmProgress, pmQuote, setPmLevel, type PmQuote } from './pm';
 
 // v0.11 Operations: the disruption cards' resolvers join the decision table (wired here, after every module loaded).
 registerResolvers(DISRUPT_RESOLVERS);
 // v0.12.1 a leg that needs an approval we won't hold by its departure.
 registerResolvers({ approvalLate: resolveApprovalLate }, 'company');
+// v0.24 crew hired on a type not on our AOC (an older save): keep them or let them go.
+registerResolvers({ typeCrew: resolveTypeCrew }, 'crew');
 // v0.14 a move home from a far outstation that lands after the work it was planned for: one card (ops/world.ts).
 setFarLateHook(farStrandedAsk);
 
@@ -137,6 +142,8 @@ function daily(g: GameState) {
   dailyWorld(g);
   dailyEvents(g);
   dailyFinance(g);
+  // v0.24 the preventive maintenance programme's fees (ops/pm.ts).
+  dailyPm(g);
   dailyApprovals(g);
   // v0.12.1 legs that need an approval we won't hold by their departure: the card and the decision ahead of time.
   dailyApprovalGate(g);

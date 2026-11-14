@@ -1,5 +1,6 @@
 // Test fixtures for the crew module (not used by the game): a wet season base, crew additions, checks.
 
+import { ACMI_TYPES_LIST } from '../../data/acmiTypes';
 import { addFlight } from '../core/entities';
 import { blockMinutes, typeOf } from '../core/perf';
 import { DAY, localOffset } from '../core/time';
@@ -10,6 +11,15 @@ import { planOffDays } from './dayPlan';
 
 export const fixtureGame = (seed = 5): GameState =>
   createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: 'LIS', seed });
+
+/**
+ * v0.24 every type family on our AOC (crew tests that hire or convert onto other types: the AOC gate,
+ * leasing/aoc.ts crewTypeBlock, would refuse a family the start fleet does not hold).
+ */
+export function everyTypeOnAoc(g: GameState): GameState {
+  g.company.aocFamilies = [...new Set(ACMI_TYPES_LIST.map((t) => t.family))];
+  return g;
+}
 
 /** A contract record for crew tests (B1 builds real ones). */
 export function fixtureContract(g: GameState, over: Partial<Contract> & Pick<Contract, 'pattern' | 'aircraftIds' | 'start' | 'end'>): Contract {

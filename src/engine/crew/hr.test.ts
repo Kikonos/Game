@@ -10,7 +10,10 @@ import { stats } from '../ops/util';
 import { advanceTo } from '../sim';
 import { dailyCrewCosts, monthlySalaries } from './costs';
 import { dailySickness } from './hr';
-import { addCrew, fixtureContract, fixtureGame } from './fixtures';
+import { addCrew, fixtureContract, everyTypeOnAoc, fixtureGame as fixtureGame0 } from './fixtures';
+
+/** v0.24 these tests hire and convert onto other types: every family on our AOC. */
+const fixtureGame = (seed?: number) => everyTypeOnAoc(fixtureGame0(seed));
 import { autoRoster, checkAssignment, conversionEarliest, crewAvailability, flightCrewStatus, hireCrew, hireQuote, makeCrewMember, ratedMarket, removeCrew, resignNow, rosterOf, staffing, startConversion, trainCrew } from '.';
 
 const run = (g: GameState, t: number) => advanceTo(g, t, new Set());

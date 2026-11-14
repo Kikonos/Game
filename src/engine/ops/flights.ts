@@ -44,6 +44,7 @@ import { isActive, noteHiredThem } from '../contracts/rivals';
 import { atGate, curfewAtGate, delayCard, RUSH_MAX, rollEnRoute } from './disrupt';
 import { clearOfCurfews, inCurfew } from '../core/curfew';
 import { delayOf, excusedLate, latePenalty } from './latePolicy';
+import { pmCostX, pmFactors } from './pm';
 
 /** v0.7.1: the problem ref and hurt snapshot of a message about legs lost or handed over (after the fact). */
 function penaltyMeta(g: GameState, rev: Flight[], money: number): Pick<Message, 'problem' | 'hurt'> {
@@ -820,7 +821,8 @@ function rollDelay(g: GameState, ac: Aircraft, f?: Flight): { min: number; reaso
     return { min, reason: pick(g, OPS_REASONS) };
   }
   // v0.19.4 the ETOPS twins' programmes (ops/etopsRel.ts): fewer defects at the gate.
-  if (chance(g, BAL.techDelayChance * ageF(g, ac) * relFactors(g, ac).delay)) {
+  // v0.24 the preventive maintenance programme (ops/pm.ts): fewer defects at the gate.
+  if (chance(g, BAL.techDelayChance * ageF(g, ac) * relFactors(g, ac).delay * pmFactors(g).delay)) {
     const min = Math.min(240, Math.max(15, Math.round(-BAL.techDelayMean * Math.log(1 - next(g)))));
     return { min, reason: pick(g, TECH_REASONS) };
   }
@@ -1590,7 +1592,8 @@ export function legCostEstimate(g: GameState, f: Flight, ac: Aircraft, blockMin 
   const reserves = ac.ownership.kind === 'dryLeaseIn' ? Math.min(all, ac.ownership.reservesPerFH * fh) : 0;
   const pays = paysFuel(g, f);
   return {
-    maint: all - reserves,
+    // v0.24 the preventive maintenance programme's extra work and parts, ours (never the lessor's reserves).
+    maint: all - reserves + all * pmCostX(g),
     reserves,
     fuel: pays ? t.fuelTBH * bh * g.market.fuelPrice : 0,
     fees: pays ? BAL.airportFees[wide] + (isRevenue(f) ? BAL.catering[wide] : 0) : 0,
@@ -1638,7 +1641,8 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
   while (bd.length && bd[0][0] <= day - 90) bd.shift();
   ac.maint.fhSinceA += fh;
   ac.maint.fhSinceC += fh;
-  ac.maint.deferred = Math.min(1, ac.maint.deferred + 0.0005 * ageF(g, ac));
+  // v0.24 the preventive maintenance programme fixes more at the night stop: fewer defects deferred.
+  ac.maint.deferred = Math.min(1, ac.maint.deferred + 0.0005 * ageF(g, ac) * pmFactors(g).deferred);
   // Costs (v0.12.1 legCostEstimate: the same sums the cash forecast reads).
   const cost = legCostEstimate(g, f, ac, block);
   if (ac.ownership.kind === 'dryLeaseIn') post(g, 'reserves', -Math.round(cost.reserves));

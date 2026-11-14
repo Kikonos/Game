@@ -9,6 +9,7 @@ import { toDate, yearOf } from '../core/time';
 import type { Aircraft, Flight, GameState, LedgerCat, Minute } from '../core/types';
 import { marketOfRoute } from './model';
 import type { Rotation, Route, SectorLoad } from './types';
+import { pmCostX } from '../ops/pm';
 
 /** §G the cost lines of one route sector (USD, positive), same shape as legCostEstimate plus the route lines. */
 export interface RouteLegCost {
@@ -89,7 +90,8 @@ export function sectorCost(g: GameState, route: Pick<Route, 'marketId' | 'model'
   const distribution = route.model === 'partner' ? 0
     : route.model === 'tour' ? opt.sold * (BAL.v019.fares.tourMargin + C.cardFee)
       : C.gds * C.agencyShare * pax + opt.sold * (C.cardFee * (1 - C.agencyShare) + C.commission);
-  return { maint: all - reserves, reserves, fuel, fees, handling, catering, paxServices, navCharges, distribution };
+  // v0.24 the preventive maintenance programme's extra per block hour (ops/pm.ts), as legCostEstimate.
+  return { maint: all - reserves + all * pmCostX(g), reserves, fuel, fees, handling, catering, paxServices, navCharges, distribution };
 }
 
 /** §G a route sector's cost (pure): the flight's own aircraft, passengers and cargo. */

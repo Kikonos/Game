@@ -61,7 +61,8 @@ export function AocModal({ family: wanted }: { family?: RatingFamily }) {
             <div className="row gap-8 small"><b className="nowrap">Needs</b><span>{need ? `${need.CPT} rated captains and ${need.FO} first officers before the grant${q && (q.missing.CPT || q.missing.FO) ? ` (${q.missing.CPT + q.missing.FO} more to rate)` : ''}` : ''}</span></div>
           </div>
         )}
-        {q && (q.missing.CPT > 0 || q.missing.FO > 0) && (
+        {/* v0.24 conversions onto the type open once the variation is filed (leasing/aoc.ts crewTypeBlock). */}
+        {q && pending && (q.missing.CPT > 0 || q.missing.FO > 0) && (
           <div className="row gap-8"><span className="small muted grow">Conversions take about 6 weeks</span><button className="btn btn-sm" onClick={() => { close(); store.navigate('crew'); }}><Users /> Book conversions</button></div>
         )}
       </div>

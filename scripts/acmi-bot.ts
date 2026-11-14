@@ -57,6 +57,8 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import LZString from 'lz-string';
 import { BAL } from '../src/engine/core/balance';
 import { techReliability } from '../src/engine/core/techLog';
+import { pmLevel, setPmLevel } from '../src/engine/ops/pm';
+import type { PmLevel } from '../src/engine/core/types';
 import { statementTotals } from '../src/engine/core/ledger';
 import { complement, typeOf } from '../src/engine/core/perf';
 import { DAY, dayIndex, fmtDateTime, fmtDay, fmtMonth, fromUTC, monthKey, toDate, yearOf } from '../src/engine/core/time';
@@ -189,11 +191,14 @@ function reserveNote(g: GameState, r: ReturnType<typeof crossCheck>): string {
 }
 /** v0.12 --setup=<id>: another New Game start setup (data/setups.ts: boeing, leisure, newtech, mixed, veterans, shoestring). */
 const SETUP = process.argv.find((a) => a.startsWith('--setup='))?.slice(8) as SetupId | undefined;
+const PM = process.argv.find((a) => a.startsWith('--pm='))?.slice(5) as PmLevel | undefined;
 
 const newGame = () => {
   if (SCEN) return createScenario(SCEN);
   const g = createGame({ name: 'Atlântica Wings', code: 'AW', livery: { primary: '#0b1f4d', secondary: '#f5c451', tail: 'sweep' }, base: BASE, seed, ...(SETUP ? { setup: SETUP } : {}) });
   if (AUG || JUMBO) for (const id of ['widebody', 'augmented'] as const) devGrantApproval(g, id);
+  // v0.24 --pm=medium|high: the fleet's preventive maintenance programme from day one (ops/pm.ts; default low).
+  if (PM) setPmLevel(g, PM);
   // v0.9 fix (JUMBO=1): an old 747-400 from day one, to test its economics and the crew changes at fuel stops.
   if (JUMBO) {
     for (const id of ['etops120', 'etops180'] as const) devGrantApproval(g, id);
@@ -2928,6 +2933,11 @@ console.log(
   const tl = Object.values(g.stats.techDisp ?? {}).reduce((a, [d, f]) => [a[0] + d, a[1] + f], [0, 0]);
   const td = [...TDR].sort((a, b) => a - b);
   console.log(`technical reliability (90 days, weekly): min ${td[0] ?? '-'}% median ${td[Math.floor(td.length / 2)] ?? '-'}% max ${td.at(-1) ?? '-'}% · year ${tl[0] ? (100 * (1 - tl[1] / tl[0])).toFixed(1) : '-'}% (${Math.round(tl[1])} technical failures in ${Math.round(tl[0])} departures)`);
+  {
+    const sum = (k: 'maintenance' | 'checks') => [...g.finance.history, g.finance.current].reduce((x, st) => x + (st.lines[k] ?? 0), 0);
+    const aogs = Object.values(g.maintenance).filter((m) => m.kind === 'AOG').length;
+    console.log(`maintenance programme ${pmLevel(g)}: maintenance ${k$(sum('maintenance'))}, checks ${k$(sum('checks'))}, AOGs ${aogs}`);
+  }
   console.log(`ladder record: ${[...REC].map(([id, r]) => `${id} first met day ${r.first ?? 'never'} (met on ${r.ok} of ${r.n} days)`).join(' · ')}`);
   console.log(`ladder v0.7: filed [${tally.filed.join(', ') || '-'}], granted [${granted.join(', ') || '-'}], pending [${g.company.pendingApprovals.map((p) => `${p.id}${p.waiting ? ' (waiting)' : ''}`).join(', ') || '-'}], findings ${s.findings ?? 0}`);
   const byMonth = new Map<number, number>();

@@ -252,7 +252,20 @@ export interface Company {
   aocFamilies?: RatingFamily[];
   /** v0.17 AOC variations filed (granted or waiting). load: ??= [] */
   aocVariations?: AocVariation[];
+  /**
+   * v0.24 families whose crew, hired before the AOC gate (leasing/aoc.ts crewTypeBlock), were put to the player once
+   * (keep them or let them go at no cost). Absent: none asked.
+   */
+  typeCrewAsked?: RatingFamily[];
+  /**
+   * v0.24 the fleet's preventive maintenance programme (ops/pm.ts): its level, the level before and when it changed
+   * (the effects move over BAL.pm.rampDays). Absent: 'low', the approved programme's minimum (the behaviour before).
+   */
+  pm?: { level: PmLevel; from: PmLevel; since: Minute; billed?: number };
 }
+
+/** v0.24 preventive maintenance: the approved minimum, an enhanced programme, an intensive reliability programme. */
+export type PmLevel = 'low' | 'medium' | 'high';
 
 // ======================================================================
 // v0.16 client prestige ladder (UPDATE-0.16.md §B; contracts/prestige.ts)
