@@ -1,5 +1,6 @@
 // B3 — Operations, maintenance, finance, events, goals, market. Public API.
 
+import { loadBooked } from './booked';
 import { airframeVariant, variantsOf } from '../../data/variants';
 import type { SimModule } from '../core/module';
 import type { GameState } from '../core/types';
@@ -38,11 +39,16 @@ import { dailyTreasury, loadTreasury, monthlyTreasury } from '../finance';
 import { DAY as DAY_MIN } from '../core/time';
 // v0.17 the aircraft market (engine/leasing; UPDATE-0.17.md §Q.1).
 import { dailyLeasing, loadLeasing } from '../leasing';
+import { resolveTypeCrew } from '../leasing/aoc';
+import { dailyPm } from './pm';
+export { PM_LABEL, PM_LEVELS, pmFactors, pmLevel, pmProgress, pmQuote, setPmLevel, type PmQuote } from './pm';
 
 // v0.11 Operations: the disruption cards' resolvers join the decision table (wired here, after every module loaded).
 registerResolvers(DISRUPT_RESOLVERS);
 // v0.12.1 a leg that needs an approval we won't hold by its departure.
 registerResolvers({ approvalLate: resolveApprovalLate }, 'company');
+// v0.24 crew hired on a type not on our AOC (an older save): keep them or let them go.
+registerResolvers({ typeCrew: resolveTypeCrew }, 'crew');
 // v0.14 a move home from a far outstation that lands after the work it was planned for: one card (ops/world.ts).
 setFarLateHook(farStrandedAsk);
 
@@ -74,6 +80,7 @@ export { addRestToCCheck, bookRefit, bookRestRefit, bookRestSeats, cabinOptions,
 export { clientCabinSlot, dailyClientCabin } from './clientCabin';
 // v0.7.2 (UPDATE-0.7.2.md §12).
 export { opsStripFacts, type OpsStripFacts } from './strip';
+export { BOOK_KEEP_DAYS, bookedPct, bookedPeriods, isSoldLeg, type BookedPeriod, type BookedPeriodId } from './booked';
 export { cancelSale, leastUsed, saleQuote, sellAircraft, type LeastUsedRow, type SaleQuote } from './sale';
 import { onSaleClose } from './sale';
 export { bookCCheck, cCheckOptions, cCheckSlots, checkLogistics, type CCheckOption, type CheckTicket } from './cHub';
@@ -137,6 +144,8 @@ function daily(g: GameState) {
   dailyWorld(g);
   dailyEvents(g);
   dailyFinance(g);
+  // v0.24 the preventive maintenance programme's fees (ops/pm.ts).
+  dailyPm(g);
   dailyApprovals(g);
   // v0.12.1 legs that need an approval we won't hold by their departure: the card and the decision ahead of time.
   dailyApprovalGate(g);
@@ -174,6 +183,8 @@ export const opsModule: SimModule = {
       ac.restV ??= 2;
     }
     for (const ac of Object.values(g.fleet)) ac.bhSince ??= Math.floor(g.now / DAY);
+    // v0.24 the sold-flying record behind the 'booked' figure (from the legs an older save still holds).
+    loadBooked(g);
     loadVariants(g);
     // v0.9 heads locked, nothing earned yet.
     loadHeads(g);
@@ -211,6 +222,8 @@ export const opsModule: SimModule = {
     loadRest074(g);
     // v0.7.2 utilisation counts from the first load that tracks it (older saves have no bhDays).
     for (const ac of Object.values(g.fleet)) ac.bhSince ??= Math.floor(g.now / DAY);
+    // v0.24 the sold-flying record behind the 'booked' figure (from the legs an older save still holds).
+    loadBooked(g);
     g.company.livery = normaliseLivery(g.company.livery);
     // v0.10 airframe variants (engines, door layout): a stable one for aircraft from before v0.10.
     loadVariants(g);

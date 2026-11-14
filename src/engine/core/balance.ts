@@ -641,6 +641,17 @@ export const BAL = {
       payPct: { 1: -0.04, 2: 0, 3: 0.04, 4: 0.08 } as Record<number, number>, penaltyX: { 1: 0.8, 2: 1, 3: 1.3, 4: 1.6 } as Record<number, number>, relationX: { 1: 1, 2: 1, 3: 1.3, 4: 1.5 } as Record<number, number>,
       /** Offer weight by (client level − our level): −3 … +1; +2 and more never. A stretch offer at most once in `stretchDays`. */
       weight: { '-3': 0.1, '-2': 0.25, '-1': 0.5, '0': 1, '1': 0.1 } as Record<string, number>, stretchDays: 30,
+      /** v0.24 with IOSA neither held nor filed: the share of a new airline client's IOSA asks that reach us (the rest are
+       *  drawn again): a taste of what IOSA brings, not a flood. */
+      iosaKeep: 0.75,
+      /** v0.24 and a level 3–4 airline (a national carrier or a major) one or two levels up shows itself in the draw at
+       *  this weight, outside the stretch slot. Before IOSA is filed its offer asks for IOSA, a look at what IOSA opens
+       *  (thinned by iosaKeep, and for a Newcomer without a widebody by v08.standing.newcomerReach); once filed or held,
+       *  the same weight unthinned (a national carrier takes the filing). 0.2: an Established level-1 company at Malta
+       *  sees about 12 % of offers ask for IOSA before it files, and national carriers' work rises after. */
+      iosaShow: 0.2,
+      /** v0.24 a Newcomer's share of the repatriation and troop-rotation weights (offers.ts weights). */
+      stateNewcomer: 0.5,
       /** What a level 3 / 4 client checks before it signs: reliable, fleet average age (years), clean (4). */
       reqs: { 3: { reliable: 65, maxAge: 22, clean: 0 }, 4: { reliable: 75, maxAge: 18, clean: 60 } } as Record<number, { reliable: number; maxAge: number; clean: number }>,
       /** Far-flung routes (missions.ts farRoute): the archetype multiplier on top. */
@@ -866,5 +877,30 @@ export const BAL = {
        */
       check: { base: 0.0025, deferredX: 2.5, progX: 0.5 },
     },
+  },
+  /**
+   * v0.24 the fleet's preventive maintenance programme (ops/pm.ts), three levels. 'low' is the approved programme's
+   * minimum (the manufacturer's intervals, defects deferred under the MEL as allowed): the game before v0.24, all
+   * factors 1. 'medium' (enhanced): extra daily and weekly checks, defects fixed at the night stop instead of deferred,
+   * hard-time items swapped a little early. 'high' (intensive reliability programme): soft-time replacement of the
+   * components that fail most (bleed valves, starters, brakes, packs, IDGs), engine trend monitoring and borescopes,
+   * a reliability engineer per fleet and a rotable spares pool. [E] figures, sized on: all-in direct maintenance cost
+   * of an A320 about $900–1,100 a block hour (Aircraft Commerce DMC surveys; our maintBH 900), of which line
+   * maintenance and component support about 30–40 %; an enhanced programme adds about 5–8 % of DMC, an intensive one
+   * 12–18 % (more task hours and parts replaced before failure). Technical dispatch reliability: A320 fleets average
+   * about 99.5–99.7 % (Airbus in-service figures); operators of older fleets on the minimum programme sit nearer 98 %.
+   * - costX: share of the type's maintBH added per block hour flown (posted with the leg's maintenance);
+   * - fee: a month per aircraft in service [narrow, wide] (spares pool, reliability engineering; accrued daily);
+   * - delayX / aogX: technical delays at the gate and AOGs per departure; deferredX: deferred defects building up;
+   * - rampDays: a change takes this long to show in full (components replaced at the coming checks, crews and
+   *   engineers settling into the programme); the cost moves at once.
+   */
+  pm: {
+    rampDays: 45,
+    costX: { low: 0, medium: 0.06, high: 0.14 },
+    fee: { low: [0, 0], medium: [4_000, 8_000], high: [10_000, 20_000] } as Record<'low' | 'medium' | 'high', [number, number]>,
+    delayX: { low: 1, medium: 0.8, high: 0.5 },
+    aogX: { low: 1, medium: 0.75, high: 0.45 },
+    deferredX: { low: 1, medium: 0.7, high: 0.35 },
   },
 } as const;

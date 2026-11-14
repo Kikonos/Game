@@ -35,7 +35,7 @@ import { cabinTarget, cabinTermsText, rollCabin } from './cabinTerms';
 import { anchorsOf, computeWaves, flownRotations, localToUTC, longestChains, maxPax, programmeOf, route, routeMinutes, seatNeed, type ChainShape } from './plan';
 export { maxPax, seatNeed };
 import { ARCH_MULT, defaultSeats, flownTypes, isJumboType, isWetArchetype, isWideJob, priceProduct, productValue, referenceType, tripTickets } from './pricing';
-import { LEVEL_PERKS, levelOf, standingRate } from './relations';
+import { LEVEL_PERKS, levelOf, markMet, standingRate } from './relations';
 import { clientPrestige, markStretch, noteStretch, prestigeOfferWeight, prestigePayPct, prestigePenaltyX } from './prestige';
 import { brokerIdOf, brokerName } from '../commercial/sales';
 import { offerHidden } from './filter';
@@ -51,7 +51,7 @@ import { afterOfferDays, isQuiet, QUIET_MARKET_OFFERS } from '../ops/director';
 import { marketTilt, presenceWeight } from '../commercial/presence';
 import { clientCrewOnCabin, fuelFactor, MISSION_BUILDERS, missionWeights, presidential, rollClientCabin, WINDOW_FIT_V08 } from './missions';
 import { lockOf, themeWeight, unreachableApproval } from '../scenario/rules';
-import { fleetOutlook, noteReach, reachOpen, seatsFor, targetUnit } from './fleetFit';
+import { clientFlies, clientTakes, fleetOutlook, noteReach, reachOpen, seatsFor, targetUnit } from './fleetFit';
 
 // ---------- process ----------
 
@@ -171,6 +171,9 @@ export interface OfferOpts {
   /** v0.16 sales: the broker that brought the job (named on the offer, its commission) and the pipeline lead it answers. */
   brokerId?: BrokerId;
   leadId?: string;
+  /** v0.24 the client already said yes (a pitch answered yes): its IOSA ask is never thinned out (markStretch). A lead's
+   *  own offer (leadId) is not thinned either. */
+  asked?: boolean;
   /** v0.19.4 a base programme flown from this airport (not the client's own hub: a tender's long-haul base). */
   baseAt?: string;
   /** v0.19.4 the seats the client asks for (a lead's job kept; a tender sized to our aircraft). */
@@ -440,7 +443,8 @@ function seasonBase(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
   // v0.14 an ordinary market offer may also come from the market-presence airlines' hubs.
   const hubs = [...(wide ? F.BASE_HUBS_WB : F.BASE_HUBS_NB), ...(o.ordinary ? F.BASE_HUBS_MARKET : [])];
-  const cands = clientsOf(g, ['airline'], (c) => (o.airport ? c.base === o.airport : hubs.includes(c.base)) && !!AIRPORT_BY_CODE[c.base]);
+  // v0.24 only an airline that flies this body asks for it (Iberojet, all A330s and A350s, never an A320-size base).
+  const cands = clientsOf(g, ['airline'], (c) => (o.airport ? c.base === o.airport : hubs.includes(c.base)) && !!AIRPORT_BY_CODE[c.base] && clientTakes(c, wide ? 'wide' : 'narrow'));
   const client = nearClient(ctx, cands);
   if (!client) return null;
   const base = o.baseAt && AIRPORT_BY_CODE[o.baseAt] ? o.baseAt : client.base;
@@ -540,7 +544,7 @@ function aogCover(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
   if (ctx.window && ctx.window.from > g.now + 20 * 60) return null;
   const at = ctx.window?.at ?? g.company.homeBase;
-  const cands = clientsOf(g, ['airline'], (c) => !!AIRPORT_BY_CODE[c.base] && (o.airport ? c.base === o.airport : wide || km(c.base, at) < 3500));
+  const cands = clientsOf(g, ['airline'], (c) => !!AIRPORT_BY_CODE[c.base] && (o.airport ? c.base === o.airport : wide || km(c.base, at) < 3500) && clientTakes(c, wide ? 'wide' : 'narrow'));
   const client = nearClient(ctx, cands);
   if (!client) return null;
   const base = client.base;
@@ -1001,7 +1005,10 @@ function troopRotation(ctx: Ctx): Draft | null {
   const client = (o.client && g.clients[o.client]) || un || ministry(g, 'Defence');
   if (!client) return null;
   const home = g.company.homeBase;
-  const mission = o.airport ?? pick(g, F.MISSION_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home));
+  // v0.24 our own state's ministry flies to where its troops really serve (flavor.ts HOME_MISSIONS), now and then elsewhere.
+  const own = !un && client.country === AIRPORT_BY_CODE[home]?.country ? (F.HOME_MISSIONS[client.country] ?? []).filter((c) => AIRPORT_BY_CODE[c] && c !== home) : [];
+  const pool = own.length && chance(sideRng(g, `tmh:${g.seq}:${g.now}`), 0.75) ? own : F.MISSION_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home);
+  const mission = o.airport ?? pick(g, pool);
   const n = o.rotations ?? int(g, 2, 4);
   let spanDays = o.days ?? int(g, 30, 90);
   if (!o.days && ctx.window) spanDays = Math.min(spanDays, roomDays(ctx, Math.max(ctx.window.from, g.now + 30 * DAY)) - 2);
@@ -1107,9 +1114,11 @@ function weights(g: GameState, ordinary = false): [Archetype, number][] {
     ['aogCover', mo >= 5 && mo <= 8 ? 0.17 : 0.13],
     ['adhoc', 0.25],
     ['sports', mo === 5 || mo === 6 ? 0.04 : 0.11],
-    ['repatriation', 0.06],
+    // v0.24 state work no longer asks for IOSA (it reached a newcomer at a quarter of its weight before): a new AOC gets
+    // about half of it, the ministries preferring operators they know (BAL.v016.prestige.stateNewcomer).
+    ['repatriation', 0.06 * (standingOf(g) === 0 ? BAL.v016.prestige.stateNewcomer : 1)],
     ['tourSeries', (mo >= 1 && mo <= 5) || mo === 8 || mo === 9 ? 0.13 : 0.08],
-    ['troopRotation', 0.06],
+    ['troopRotation', 0.06 * (standingOf(g) === 0 ? BAL.v016.prestige.stateNewcomer : 1)],
     // v0.7: VIP work, twice as often once we fly a VIP cabin. v0.8: not for a Newcomer.
     ['vip', standingOf(g) === 0 ? 0 : Object.values(g.fleet).some((a) => a.cabin.layout === 'vip') ? 0.08 : 0.04],
   ];
@@ -1342,6 +1351,12 @@ function finalize(g: GameState, d: Draft, aspire: boolean): ContractOffer | null
     ...(d.req.clientCabin ? { clientCabin: d.req.clientCabin } : {}),
   };
   if (d.req.body) requirements.body = d.req.body;
+  // v0.24 (player: "Iberojet is widebody only and was offered as a narrowbody lead") an airline only asks for the body
+  // and the families it flies, whichever way the job was asked for (a lead, a tender, a repeat, an event).
+  if (!clientFlies(d.client, requirements)) {
+    fixDropped = true;
+    return null;
+  }
   // v0.8 fix pack (newcomer noise): a Newcomer without a widebody sees only a few jobs it can never fly.
   if (newcomerNarrow(g) && !d.repeatOf && !d.eventId && (isWideJob(requirements) || requirements.approvals.some((a) => !g.company.approvals.includes(a) && !g.company.pendingApprovals.some((p) => p.id === a)))
     && !chance(sideRng(g, `reach:${g.seq}:${g.now}:${d.archetype}`), BAL.v08.standing.newcomerReach)) {
@@ -1665,8 +1680,12 @@ export function generateOffer(g: GameState, archetype?: Archetype, opts: OfferOp
     if (d && opts.leadId) d.leadId = opts.leadId;
     // v0.16 a draft from a client one level above ours is a stretch offer, a national carrier or a major asks for IOSA
     // (contracts/prestige.ts); the hand-shaped opening offers are a new company's fair first jobs and ask nothing.
-    if (d && !opening) markStretch(g, d);
-    const o = d && finalize(g, d, ctx.aspire);
+    // v0.24 an IOSA ask thinned out while we have none filed: dropped like an impossible draft (another is drawn).
+    // A lead's offer (the client said yes in principle) or a pitch answered yes is never thinned: the roll was made
+    // when the lead was quoted, and a second one would lose a lead the client already agreed to.
+    const thinned = !!d && !opening && markStretch(g, d, !!opts.leadId || !!opts.asked) === 'drop';
+    if (thinned) fixDropped = true;
+    const o = d && !thinned && finalize(g, d, ctx.aspire);
     if (o) {
       // v0.16 a stretch offer made: the next one waits a month (contracts/prestige.ts).
       noteStretch(g, o);
@@ -1879,6 +1898,8 @@ export function fmtPrice(p: Product): string {
 /** Daily: drop closed offers after 14 days (the "missed" list keeps them that long); the quiet-week floor. */
 export function dailyOffers(g: GameState): void {
   for (const o of Object.values(g.offers)) {
+    // v0.24 an offer on the desk: a client we have dealt with (kept once the offer is gone).
+    markMet(g, o.clientId);
     if (o.status === 'open' || o.status === 'countered') continue;
     o.closedAt ??= g.now;
     if (g.now - o.closedAt > 14 * DAY) delete g.offers[o.id];

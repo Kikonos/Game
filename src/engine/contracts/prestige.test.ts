@@ -1,7 +1,7 @@
 // v0.16 the client prestige ladder (UPDATE-0.16.md §B): client levels, the offer draw by level, stretch offers, pay and
 // penalties by level, the visibility credit, level-ups (never down) and an older save's derived record.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, onTestFinished } from 'vitest';
 import { BAL } from '../core/balance';
 import { takeCues } from '../core/cues';
 import { DAY } from '../core/time';
@@ -63,8 +63,16 @@ describe('the offer draw by level', () => {
     setLevel(g, 2);
     expect(prestigeOfferWeight(g, clientAt(g, 2))).toBe(1);
     expect(prestigeOfferWeight(g, clientAt(g, 1))).toBe(P.weight['-1']);
-    expect(prestigeOfferWeight(g, clientAt(g, 3))).toBe(P.weight['1']);
-    expect(prestigeOfferWeight(g, clientAt(g, 4))).toBe(0);
+    // v0.24 a level 3–4 airline up shows itself at iosaShow (iosa.test.ts); any other client keeps the ladder.
+    const notAirline = (lv: Prestige) => {
+      const c = { ...clientAt(g, lv), id: `ta${lv}`, kind: 'agency' as const };
+      g.clients[c.id] = c;
+      return c;
+    };
+    expect(prestigeOfferWeight(g, notAirline(3))).toBe(P.weight['1']);
+    expect(prestigeOfferWeight(g, notAirline(4))).toBe(0);
+    expect(prestigeOfferWeight(g, clientAt(g, 3))).toBe(Math.max(P.weight['1'], P.iosaShow));
+    expect(prestigeOfferWeight(g, clientAt(g, 4))).toBe(P.iosaShow);
     setLevel(g, 4);
     expect(prestigeOfferWeight(g, clientAt(g, 1))).toBe(P.weight['-3']);
     expect(prestigeOfferWeight(g, clientAt(g, 2))).toBe(P.weight['-2']);
@@ -73,6 +81,7 @@ describe('the offer draw by level', () => {
   it('one stretch offer a month: after one is made the level above weighs nothing until the window passes', () => {
     const g = game();
     setLevel(g, 1);
+    g.company.pendingApprovals.push({ id: 'iosa', started: g.now, done: g.now + 240 * DAY, cost: 0 });
     const up = clientAt(g, 2);
     expect(stretchOpen(g)).toBe(true);
     const d = { client: up, req: { approvals: [] } };
@@ -113,6 +122,12 @@ describe('the offer draw by level', () => {
   it('a national carrier asks for IOSA (filed is enough); a major wants it held', () => {
     const g = game();
     setLevel(g, 2);
+    // v0.24 every ask kept for this check (iosa.test.ts covers the thinning before IOSA is filed).
+    const keep = P.iosaKeep;
+    (P as { iosaKeep: number }).iosaKeep = 1;
+    onTestFinished(() => {
+      (P as { iosaKeep: number }).iosaKeep = keep;
+    });
     const d3 = { client: clientAt(g, 3), req: { approvals: [] as string[] } };
     markStretch(g, d3 as never);
     expect(d3.req.approvals).toEqual(['iosa']);

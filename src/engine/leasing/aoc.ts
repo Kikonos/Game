@@ -10,10 +10,10 @@
 import { ACMI_TYPES_LIST, type RatingFamily } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { post } from '../core/ledger';
-import { pushMessage } from '../core/messages';
+import { pushDecision, pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
 import { DAY, fmtDay } from '../core/time';
-import type { ActionResult, AocVariation, GameState, Minute } from '../core/types';
+import type { ActionResult, AocVariation, Decision, GameState, Minute, Role } from '../core/types';
 import { ratedPilots } from '../ops/company';
 import { regCountry } from '../ops/registration';
 import { lockOf } from '../scenario/rules';
@@ -122,6 +122,20 @@ export function needsVariation(g: GameState, family: RatingFamily): boolean {
   return true;
 }
 
+/**
+ * v0.24 why crew may not be hired or converted onto a family (null: they may). Crew study the family's OM-B, MEL and
+ * training programme, which exist once the family is on our AOC or its variation is filed (the manuals are written
+ * while the authority looks at them: the variation itself needs rated pilots before its grant). The first widebody
+ * family rides on Widebody operations, held or filed. Pure.
+ */
+export function crewTypeBlock(g: GameState, family: RatingFamily): string | null {
+  if (!needsVariation(g, family)) return null;
+  if ((g.company.aocVariations ?? []).some((v) => v.family === family && !v.granted)) return null;
+  return isWideFamily(family) && !wideHeld(g)
+    ? `The ${family} is not on our AOC: apply for Widebody operations or file the ${family} variation first`
+    : `The ${family} is not on our AOC: file the variation first (Company › Ladder)`;
+}
+
 /** The variation for a family: cost, days, due date if filed today, rated pilots missing, the line (§H). Null: none needed. Pure. */
 export function variationQuote(g: GameState, family: RatingFamily, typeId?: string): { cost: number; days: number; due: Minute; missing: { CPT: number; FO: number }; text: string } | null {
   if (!needsVariation(g, family)) return null;
@@ -197,4 +211,87 @@ export function dailyAoc(g: GameState): void {
     const first = firstWideFamily(g);
     if (first && !co.aocFamilies.includes(first)) co.aocFamilies.push(first);
   }
+  // v0.24 crew hired on a type before the gate: put to the player once.
+  askTypeCrew(g);
+}
+
+// ---------- v0.24 crew hired for a type before the AOC gate ----------
+
+/**
+ * Crew (not leaving) whose every type is one we may not crew (crewTypeBlock), by their first type: hired before the
+ * gate (v0.24) on a family with no AOC variation. Pure.
+ */
+export function waitingTypeCrew(g: GameState): Map<RatingFamily, string[]> {
+  const out = new Map<RatingFamily, string[]>();
+  const block = new Map<RatingFamily, boolean>();
+  const blocked = (f: RatingFamily) => {
+    let b = block.get(f);
+    if (b === undefined) block.set(f, (b = !!crewTypeBlock(g, f)));
+    return b;
+  };
+  for (const c of Object.values(g.crew)) {
+    if (c.notice || !c.ratings.length || !c.ratings.every(blocked)) continue;
+    const f = c.ratings[0];
+    out.set(f, [...(out.get(f) ?? []), c.id]);
+  }
+  return out;
+}
+
+const ROLE_WORD: Record<Role, [string, string]> = { CPT: ['captain', 'captains'], FO: ['first officer', 'first officers'], PUR: ['purser', 'pursers'], CC: ['cabin crew', 'cabin crew'] };
+
+/** '4 captains, 4 first officers'. Pure. */
+function whoText(g: GameState, ids: string[]): string {
+  const n: Partial<Record<Role, number>> = {};
+  for (const id of ids) {
+    const r = g.crew[id]?.role;
+    if (r) n[r] = (n[r] ?? 0) + 1;
+  }
+  return (['CPT', 'FO', 'PUR', 'CC'] as Role[]).filter((r) => n[r]).map((r) => `${n[r]} ${ROLE_WORD[r][n[r] === 1 ? 0 : 1]}`).join(', ');
+}
+
+/**
+ * Daily (after a save from before the gate is loaded): crew hired on a type not on our AOC are put to the player once
+ * per family: keep them (they wait for the type) or let them go at no cost (the hire undone: fees back, no severance).
+ */
+export function askTypeCrew(g: GameState): void {
+  if (!BAL.v017.on) return;
+  for (const [family, ids] of waitingTypeCrew(g)) {
+    const asked = (g.company.typeCrewAsked ??= []);
+    if (asked.includes(family)) continue;
+    asked.push(family);
+    const pay = ids.reduce((s, id) => s + (g.crew[id]?.salary ?? 0), 0);
+    pushDecision(g, {
+      kind: 'typeCrew', title: `${family} crew with no ${family} on our AOC`,
+      body: `${whoText(g, ids)} were hired on the ${family}, but it is not on our AOC: no OM-B, MEL or training programme for them yet. Keep them while we add the type, or let them go now at no cost.`,
+      options: [
+        { id: 'keep', label: 'Keep them', desc: `They wait for the type. File the ${family} variation in Company › Ladder.`, chips: [`${usdK(pay)} a month in salaries`] },
+        { id: 'release', label: 'Let them go', desc: 'The hire is undone: fees back for those not yet joined, no severance.', tone: 'warn' },
+      ],
+      defaultOption: 'keep', expires: g.now + 3 * DAY, data: { family, paced: true },
+    });
+  }
+}
+
+/** The 'typeCrew' card: keep (nothing changes) or let them go (notice ends today; fees back for those joining). */
+export function resolveTypeCrew(g: GameState, d: Decision, opt: string): ActionResult {
+  const family = String(d.data?.family ?? '') as RatingFamily;
+  if (opt !== 'release') return { ok: true, msg: `The ${family} crew wait for the type` };
+  const ids = waitingTypeCrew(g).get(family) ?? [];
+  let back = 0;
+  for (const id of ids) {
+    const c = g.crew[id];
+    if (c.status === 'joining') {
+      back += g.hires.filter((h) => h.crewId === id).reduce((s, h) => s + h.cost, 0);
+      g.hires = g.hires.filter((h) => h.crewId !== id);
+    }
+    c.notice = { given: g.now, leaves: g.now, redundant: true };
+  }
+  if (back > 0) post(g, 'hiring', Math.round(back));
+  if (ids.length) {
+    pushMessage(g, {
+      tone: 'info', cat: 'crew', title: `${family} crew let go`,
+      body: `${whoText(g, ids)} leave today at no cost${back > 0 ? `; ${usdK(back)} of hiring fees back` : ''}.`,
+    });
+  }
+  return { ok: true, msg: `${ids.length} ${family} crew let go` };
 }

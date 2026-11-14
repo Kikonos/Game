@@ -273,6 +273,7 @@ describe('fairs build presence', () => {
     const g = newGame(10);
     const cl = Object.values(g.clients).find((c) => c.name === 'Royal Air Maroc')!;
     const before = presenceIn(g, 'naf');
+    cl.met = g.now;
     expect(bookTrip(g, 'ceo', { clientId: cl.id }).ok).toBe(true);
     const t = com(g).trips[0];
     run(g, t.back.sta + DAY);

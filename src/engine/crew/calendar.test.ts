@@ -8,7 +8,10 @@ import { DAY, fmtDate } from '../core/time';
 import type { Flight, GameState } from '../core/types';
 import { advanceTo } from '../sim';
 import { autoRoster, crewCalendar, crewStatusView, hireCrew, trainCrew } from '.';
-import { addCrew, at, fixtureContract, fixtureGame } from './fixtures';
+import { addCrew, at, fixtureContract, everyTypeOnAoc, fixtureGame as fixtureGame0 } from './fixtures';
+
+/** v0.24 these tests hire and convert onto other types: every family on our AOC. */
+const fixtureGame = (seed?: number) => everyTypeOnAoc(fixtureGame0(seed));
 import { breathe } from '../../test/breathe';
 
 function trip(g: GameState) {

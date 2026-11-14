@@ -10,7 +10,7 @@ import { flag } from '../../data/countries';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { MARKET_BY_ID, MARKETS, type MarketId } from '../../data/markets';
 import {
-  bookTrip, cancelTrip, fairsAhead, homeMarket, presenceIn, presenceText, presenceView, presenceWord, travellers, tripNow, tripQuote, tripsView, tripTitle,
+  bookTrip, cancelTrip, fairsAhead, homeMarket, presenceIn, presenceText, presenceView, presenceWord, travellers, tripNow, tripQuote, tripsView, tripTitle, visitableClients,
   type FairView, type Traveller, type TripQuote,
 } from '../../engine/commercial';
 import type { CommercialLeg } from '../../engine/ops/commercial';
@@ -151,8 +151,9 @@ export function MarketsView({ g }: { g: GameState }) {
     return [...by.values()].sort((a, b) => order(a) - order(b));
   }, [fairs, home]); // eslint-disable-line react-hooks/exhaustive-deps
   const q = useMemo(() => (pick ? tripQuote(g, who, pick) : null), [g, who, pick, Math.floor(g.now / 60), store.editCount]); // eslint-disable-line react-hooks/exhaustive-deps
-  const clients = useMemo(() => Object.values(g.clients).filter((c) => (c.kind === 'airline' || c.kind === 'tourOperator') && !c.rivalId && c.ceased === undefined && AIRPORT_BY_CODE[c.base])
-    .sort((a, b) => b.relation - a.relation || a.name.localeCompare(b.name)), [g, day]); // eslint-disable-line react-hooks/exhaustive-deps
+  // v0.24 (the player: "Visit clients should show the clients I have interacted with in this save") only the clients
+  // we have dealt with (offers, contracts, leads, bids, visits, fairs); new ones are met at the fairs above.
+  const clients = useMemo(() => visitableClients(g), [g, day]); // eslint-disable-line react-hooks/exhaustive-deps
   const trips = tripsView(g);
   const book = () => {
     if (!pick) return;
@@ -230,11 +231,16 @@ export function MarketsView({ g }: { g: GameState }) {
         {free.length > 0 && (
           <section className="card v14-mk-card">
             <div className="set-row v14-field">
-              <div><b className="row gap-6" style={{ alignItems: 'center' }}>Visit a client <Help title="Visit a client">A day at their office: a better relation, maybe work.</Help></b></div>
-              <select className="select" value={pick?.clientId ?? ''} aria-label="Client to visit" onChange={(e) => setPick(e.target.value ? { clientId: e.target.value } : null)}>
-                <option value="">Choose…</option>
-                {clients.map((c) => <option key={c.id} value={c.id}>{flag(c.country)} {c.name} · {city(c.base)}</option>)}
-              </select>
+              <div><b className="row gap-6" style={{ alignItems: 'center' }}>Visit a client <Help title="Visit a client">
+                <p>A day at their office: a better relation, maybe work.</p>
+                <p>Only clients you have dealt with are listed: an offer, a contract, a lead, a bid or a meeting. Meet new ones at a trade fair.</p>
+              </Help></b></div>
+              {clients.length ? (
+                <select className="select" value={pick?.clientId ?? ''} aria-label="Client to visit" onChange={(e) => setPick(e.target.value ? { clientId: e.target.value } : null)}>
+                  <option value="">Choose…</option>
+                  {clients.map((c) => <option key={c.id} value={c.id}>{flag(c.country)} {c.name} · {city(c.base)}</option>)}
+                </select>
+              ) : <span className="small dim">No clients met yet</span>}
             </div>
             {pick?.clientId && q && <QuoteCard q={q} who={who} onBook={book} onClose={() => setPick(null)} />}
           </section>

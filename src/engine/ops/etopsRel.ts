@@ -22,6 +22,7 @@ import { post } from '../core/ledger';
 import { typeOf } from '../core/perf';
 import { DAY, fmtDate, fmtDay, monthKey, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, GameState, Minute, TechCause } from '../core/types';
+import { pmFactors } from './pm';
 
 const E = () => BAL.v0194.etops;
 
@@ -178,6 +179,11 @@ export function etopsAdvice(g: GameState, r: EtopsRecord): string[] {
     const n = etopsTwins(g, r.min).length;
     out.push(`Join the ETOPS reliability programme (${usdK(E().programme.costPerTwin * n)} a month for ${n} twin${n === 1 ? '' : 's'}): spares along the ETOPS routes and an engineer on call cut defects by ${Math.round((1 - E().programme.delayX) * 100)} % and AOGs by ${Math.round((1 - E().programme.aogX) * 100)} %, and an AOG away from base is fixed as fast as at home.`);
   }
+  // v0.24 the fleet's preventive maintenance programme (ops/pm.ts).
+  const pm = g.company.pm?.level ?? 'low';
+  if (pm !== 'high') {
+    out.push(`Raise the maintenance programme to High (Company › Policies): defects ${Math.round((1 - BAL.pm.delayX.high) * 100)} % and AOGs ${Math.round((1 - BAL.pm.aogX.high) * 100)} % fewer than at Low, in full after about ${BAL.pm.rampDays} days.`);
+  }
   const worst = r.byAc[0];
   if (worst && r.fails >= 3 && worst.fails / r.fails >= 0.4 && r.byAc.length >= 1) {
     out.push(`${worst.reg} (${worst.type}, ${worst.age} years) caused ${worst.fails} of the ${r.fails} failures. Age adds about 10 % a year to defects and AOGs: keep its checks early, or replace it with a younger twin (an aircraft that leaves the fleet takes its record with it).`);
@@ -270,7 +276,8 @@ export function dailyRelProgramme(g: GameState): void {
 export function etopsCheckChance(g: GameState, ac: Aircraft): number {
   if (!etopsTwin(ac.typeId, 180) || !g.company.approvals.some((a) => a === 'etops120' || a === 'etops180' || a === 'etops240')) return 0;
   const C = E().check;
-  return C.base * (1 + ageOf(g, ac) / 10) * (1 + C.deferredX * ac.maint.deferred) * (relProgState(g) === 'active' ? C.progX : 1);
+  // v0.24 × the preventive maintenance programme's defect factor (ops/pm.ts): fewer findings to hold it.
+  return C.base * (1 + ageOf(g, ac) / 10) * (1 + C.deferredX * ac.maint.deferred) * (relProgState(g) === 'active' ? C.progX : 1) * pmFactors(g).delay;
 }
 
 /** Factors on an aircraft's technical delay and AOG chances, and whether an AOG away from base is fixed as at home. Pure. */

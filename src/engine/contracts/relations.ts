@@ -66,6 +66,8 @@ export const perksOf = (g: GameState, clientId: string): LevelPerks => LEVEL_PER
 export function bumpClient(g: GameState, clientId: string | undefined, delta: number, why: string): void {
   const c = clientId ? g.clients[clientId] : undefined;
   if (!c || !delta) return;
+  // v0.24 a change with a reason is a dealing with them (the monthly drift, told with no reason, is not).
+  if (why) c.met ??= g.now;
   // v0.16 a hit from a national carrier, a major or a government lands harder (× 1.3 / × 1.5; the monthly drift, told
   // with no reason, is not a hit).
   if (delta < 0 && why) delta *= prestigeRelationX(c.prestige ?? 2);
@@ -80,12 +82,34 @@ export function bumpClient(g: GameState, clientId: string | undefined, delta: nu
   if (log.length > 8) log.splice(0, log.length - 8);
 }
 
+/** v0.24 we have dealt with this client in this save (an offer received, a contract, a visit, a lead, a tender bid). */
+export function markMet(g: GameState, clientId: string | undefined): void {
+  const c = clientId ? g.clients[clientId] : undefined;
+  if (c) c.met ??= g.now;
+}
+
+/**
+ * v0.24 (the player: "Visit clients should show the clients I have interacted with in this save") the clients we have
+ * dealt with: met before, or with an offer, a contract, a lead or a tender bid in the save now. Pure.
+ */
+export function metClientIds(g: GameState): Set<string> {
+  const out = new Set<string>();
+  for (const c of Object.values(g.clients)) if (c.met !== undefined) out.add(c.id);
+  for (const o of Object.values(g.offers)) out.add(o.clientId);
+  for (const k of Object.values(g.contracts)) out.add(k.clientId);
+  for (const l of g.com?.leads ?? []) out.add(l.clientId);
+  for (const t of g.com?.tenders ?? []) if (t.bid) out.add(t.clientId);
+  for (const t of g.com?.trips ?? []) for (const id of t.met ?? []) out.add(id);
+  return out;
+}
+
 /** A completed job for the client (accept.ts completeContract). */
 export function noteJobDone(g: GameState, clientId: string): void {
   const c = g.clients[clientId];
   if (!c) return;
   c.jobs = (c.jobs ?? 0) + 1;
   c.firstJob ??= g.now;
+  c.met ??= g.now;
   c.lastJob = g.now;
 }
 
@@ -422,6 +446,17 @@ export function loadRelations(g: GameState): void {
     if (c.lastJob === undefined) c.lastJob = ks.length ? Math.max(...ks.map((k) => k.end)) : null;
     c.log ??= [];
     c.level ??= levelFor(g, c, undefined);
+  }
+  // v0.24 the clients met in an older save: from what it holds (the first job or the first relation change when known).
+  // Once only (a save from this version keeps its own record).
+  const v024 = (g.stats.v024 ??= {});
+  if (!v024.met) {
+    v024.met = true;
+    const met = metClientIds(g);
+    for (const c of Object.values(g.clients)) {
+      if (c.met !== undefined || !(met.has(c.id) || (c.jobs ?? 0) > 0 || (c.log?.length ?? 0) > 0)) continue;
+      c.met = Math.min(c.firstJob ?? g.now, c.log?.[0]?.[0] ?? g.now, g.now);
+    }
   }
   g.company.standing ??= standingFor(g);
   statsV08(g);

@@ -232,6 +232,18 @@ export const BASE_HUBS_MARKET = ['LOS', 'ABJ', 'LFW', 'ACC', 'NBO', 'KGL', 'DAR'
 
 export const CRISIS_AIRPORTS = ['KBL', 'BKO', 'JUB', 'MGQ', 'BGF', 'GOM', 'LAD', 'OXB', 'TMS', 'DIL', 'BEY', 'ADA'];
 export const MISSION_AIRPORTS = ['BKO', 'BGF', 'MGQ', 'JUB', 'DJI'];
+/**
+ * v0.24 where each start base's state really sends its troops (2024–2026 deployments), for its own defence
+ * ministry's rotations; the generic missions above stay the rarer pick. Airports not in airports.ts are left out
+ * (Pristina for KFOR, Sarajevo for EUFOR, Bratislava for the Slovak eFP).
+ * PT [F] the MINUSCA quick reaction force (Bangui) and the NATO forward presence in Romania;
+ * ES [F] UNIFIL Sector East (Spain leads it), the NATO battle group in Latvia, EU Atalanta at Djibouti;
+ * CZ [F] the NATO battle group in Lithuania; EE [E] UNIFIL; MT [E] UNIFIL with the Italian contingent;
+ * LT [E] EU Atalanta vessel protection; LV and BG: KFOR and EUFOR only, so the generic list.
+ */
+export const HOME_MISSIONS: Record<string, string[]> = {
+  PT: ['BGF', 'OTP'], ES: ['BEY', 'RIX', 'DJI'], CZ: ['VNO'], EE: ['BEY'], MT: ['BEY'], LT: ['DJI'],
+};
 export const DIASPORA = ['OXB', 'TMS', 'LAD', 'SID', 'RAI', 'BVC'];
 
 /** Pre-season tour cities for clubs (widebody). */
@@ -311,6 +323,9 @@ export const MISSION_NAMES: Record<string, Mission> = {
   FIH: { name: 'MONUSCO', org: 'UN', pk: true }, BEY: { name: 'UNIFIL', org: 'UN', pk: true }, LCA: { name: 'UNFICYP', org: 'UN', pk: true },
   SJJ: { name: 'EUFOR Althea', org: 'EU', pk: true }, PRN: { name: 'KFOR', org: 'NATO', pk: true },
   MGQ: { name: 'AUSSOM', org: 'AU', pk: false }, DJI: { name: 'EU Atalanta', org: 'EU', pk: false },
+  // v0.24 NATO's forward land forces (HOME_MISSIONS).
+  RIX: { name: 'NATO battle group Latvia', org: 'NATO', pk: false }, VNO: { name: 'NATO battle group Lithuania', org: 'NATO', pk: false },
+  OTP: { name: 'NATO forward presence Romania', org: 'NATO', pk: false },
 };
 /** Tour operators that fly long-haul (widebody programmes); Jet2, Novatours, Čedok and Sunweb stay short-haul. */
 export const LONGHAUL_BRANDS = ['TUI', 'Corendon', 'Schauinsland', 'Sunwing', 'Abercrombie & Kent',

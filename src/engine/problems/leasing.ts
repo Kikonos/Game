@@ -116,11 +116,11 @@ export function variationNeededCard(g: GameState, id: string): ProblemCard | nul
   const what = `The ${t.short} needs our AOC varied`;
   return {
     subject: { kind: 'variationNeeded', ref: ac ? { kind: 'aircraft', id: ac.id } : { kind: 'deal', id } }, severity: 'amber', title: what, what,
-    why: `No ${t.family} on our AOC: the authority takes ${q.days} days.`,
+    why: `No ${t.family} on our AOC: the authority takes ${q.days} days. Crew can be hired and trained on it once it is filed.`,
     hurt: mkHurt({ extra: `${handover ? `handover ${fmtDay(handover)}; ` : ''}revenue flights only after the variation (about ${fmtDay(q.due)} if filed today)` }),
     actions: [
       { id: 'aocApply', label: `Apply (${usd(q.cost)})`, open: { tab: 'company', view: 'ladder' }, primary: true },
-      { id: 'conversions', label: 'Book conversions', open: { tab: 'crew' } },
+      // v0.24 no 'Book conversions' here: crew are trained onto the type once the variation is filed (crewTypeBlock).
     ],
     details: [q.text], visuals: {}, terms: [], by: q.due,
   };

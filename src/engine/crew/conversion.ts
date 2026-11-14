@@ -22,6 +22,7 @@ import { dropStandby } from './standby';
 import { offsetAt } from './rules';
 import { touchCrew, typeIdOf } from './timeline';
 import { lockOf } from '../scenario/rules';
+import { crewTypeBlock } from '../leasing/aoc';
 
 export interface ConversionRequest {
   crewIds: string[];
@@ -371,6 +372,9 @@ export function conversionPlan(g: GameState, r: ConversionRequest, opts?: { quic
   const tooFar = start > g.now + BAL.conv.maxAheadDays * DAY;
   if (tooFar) warnings.push({ level: 'bad', text: `Classes can be booked at most ${BAL.conv.maxAheadDays} days ahead` });
   if (total > g.company.cash) warnings.push({ level: 'bad', text: `Costs ${usd(total)}, more than the cash on hand (${usd(g.company.cash)})` });
+  // v0.24 no course for a type with no OM-B, MEL or training programme of ours (leasing/aoc.ts crewTypeBlock).
+  const aocWhy = crewTypeBlock(g, r.family);
+  if (aocWhy && out.length) warnings.push({ level: 'bad', text: aocWhy });
   const inFleet = Object.values(g.fleet).some((a) => typeOf(a.typeId).family === r.family);
   if (!inFleet && out.length) warnings.push({ level: 'warn', text: `No ${familyLabel(r.family)} in the fleet or on order` });
   const included = out.flatMap((k) => k.crewIds);
@@ -392,7 +396,7 @@ export function conversionPlan(g: GameState, r: ConversionRequest, opts?: { quic
   if (!opts?.quick) for (const k of out) for (const id of k.crewIds) dutiesAffected += rosterOf(g, id, k.start, k.end).filter((d) => !d.done).length;
   if (dutiesAffected) warnings.push({ level: 'warn', text: `${dutiesAffected} rostered dut${dutiesAffected === 1 ? 'y loses' : 'ies lose'} crew; the auto-roster will re-crew ${dutiesAffected === 1 ? 'it' : 'them'}` });
   warnings.sort((a, b) => (a.level === b.level ? 0 : a.level === 'bad' ? -1 : 1));
-  const ok = out.length > 0 && total <= g.company.cash && !tooFar;
+  const ok = out.length > 0 && total <= g.company.cash && !tooFar && !aocWhy;
   return { ok, classes: out, cost: total, skipped, warnings, dutiesAffected, ratingsAfter, dropDefault, earliest };
 }
 

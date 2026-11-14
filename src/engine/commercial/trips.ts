@@ -23,7 +23,7 @@ import { itinerary, ticketBlock, type CommercialLeg } from '../ops/commercial';
 import { closedAirport } from '../ops/world';
 import { generateOffer, setClosureTripsHook } from '../contracts/offers';
 import { hajjTender } from '../contracts/missions';
-import { bumpClient } from '../contracts/relations';
+import { bumpClient, metClientIds } from '../contracts/relations';
 import { issueTender, roundAt } from './tenders';
 import { clientByName, com, comStats, sideOf, usdK, withStream } from './state';
 import { bumpPresence, clientMarket, fairPresence, PRESENCE } from './presence';
@@ -160,6 +160,17 @@ export interface TripQuote {
   local?: boolean;
 }
 
+/**
+ * v0.24 the clients a sales trip can visit: airlines and tour operators we have dealt with in this save (an offer, a
+ * contract, a lead, a bid, a meeting), best relation first. Pure.
+ */
+export function visitableClients(g: GameState): Client[] {
+  const met = metClientIds(g);
+  return Object.values(g.clients)
+    .filter((c) => met.has(c.id) && (c.kind === 'airline' || c.kind === 'tourOperator') && !c.rivalId && !c.own && c.ceased === undefined && AIRPORT_BY_CODE[c.base])
+    .sort((a, b) => b.relation - a.relation || a.name.localeCompare(b.name));
+}
+
 /** What a trip would cost and when it would fly (the planner's card). Pure. */
 export function tripQuote(g: GameState, who: Traveller, target: { fairId?: string; clientId?: string }): TripQuote {
   const home = g.company.homeBase;
@@ -183,6 +194,9 @@ export function tripQuote(g: GameState, who: Traveller, target: { fairId?: strin
     const c = target.clientId ? g.clients[target.clientId] : undefined;
     if (!c || !AIRPORT_BY_CODE[c.base]) return emptyQuote('Choose a client to visit');
     if (c.ceased !== undefined) return emptyQuote(`${c.name} no longer flies`);
+    // v0.24 a visit is to a client we have dealt with (the player: "only the clients I have interacted with"); new
+    // clients are met at the fairs.
+    if (!metClientIds(g).has(c.id)) return emptyQuote(`Meet ${c.name} first: at a fair, or through an offer`);
     kind = 'visit';
     at = c.base;
     where = `${city(c.base)}, ${c.name}`;

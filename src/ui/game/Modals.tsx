@@ -24,6 +24,7 @@ import { DecisionModal } from '../modals/DecisionModal';
 import { CheckModal } from '../modals/CheckModal';
 import { HireModal } from '../modals/HireModal';
 import { RoundUpModal } from '../modals/RoundUpModal';
+import { ContractModal } from '../modals/ContractModal';
 import { OfferModal } from '../modals/OfferModal';
 import { BlockSheet } from '../modals/BlockSheet';
 import { DutyModal } from '../modals/DutyModal';
@@ -391,6 +392,7 @@ export function GlobalModals() {
     case 'settings': return <SettingsModal />;
     case 'confirm': return <ConfirmModal {...m} />;
     case 'offer': return s.game ? <OfferModal offerId={m.offerId} /> : null;
+    case 'contract': return s.game ? <ContractModal contractId={m.contractId} /> : null;
     case 'decision': return s.game ? <DecisionModal decisionId={m.decisionId} /> : null;
     case 'hire': return s.game ? <HireModal {...m} /> : null;
     case 'roundUp': return s.game ? <RoundUpModal family={m.family} target={m.target} /> : null;

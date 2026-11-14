@@ -8,6 +8,7 @@ import type { RatingFamily } from '../../data/acmiTypes';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, fmtDay } from '../../engine/core/time';
 import { crewPlan, familyName, hireBatch, roundUpQuote } from '../../engine/crew';
+import { crewTypeBlock } from '../../engine/leasing';
 import { Modal } from '../components/ui';
 import { money } from '../format';
 import { isPilotRole } from '../screens/screenLogic';
@@ -24,7 +25,9 @@ const ROLE_ONE: Record<string, [string, string]> = {
 export function RoundUpModal({ family, target }: { family: RatingFamily; target: number }) {
   const g = useGame();
   const plan = crewPlan(g).find((p) => p.family === family);
-  const fleetFams = [...new Set(Object.values(g.fleet).map((a) => typeOf(a.typeId).family))].filter((f) => f !== family);
+  // v0.24 only types we may crew (on our AOC, or a variation filed) as extra cabin types.
+  const fleetFams = [...new Set(Object.values(g.fleet).map((a) => typeOf(a.typeId).family))].filter((f) => f !== family && !crewTypeBlock(g, f));
+  const blocked = crewTypeBlock(g, family);
   const [types, setTypes] = useState<RatingFamily[]>([family]);
   if (!plan) return null;
   const q = roundUpQuote(g, plan, target, types);
@@ -41,11 +44,12 @@ export function RoundUpModal({ family, target }: { family: RatingFamily; target:
       <>
         <button className="btn" onClick={() => store.closeModal()}>Cancel</button>
         <span className="grow small muted">{n ? `${plan.setsComplete} → ${target} complete sets` : ''}</span>
-        <button className="btn btn-primary" onClick={hire} disabled={!n || g.company.cash < q.cost || !!lockOf(g, 'hiring', { count: n })}><UserPlus /> Hire {n} for {money(q.cost)}</button>
+        <button className="btn btn-primary" onClick={hire} disabled={!n || g.company.cash < q.cost || !!lockOf(g, 'hiring', { count: n }) || !!blocked}><UserPlus /> Hire {n} for {money(q.cost)}</button>
       </>
     }>
       <div className="col gap-12">
         <LockNote why={n ? lockOf(g, 'hiring', { count: n }) : null} />
+        {blocked && n > 0 && <div className="small warn">{blocked}.</div>}
         <div className="small muted">{target} complete sets of the {plan.label}: needed {plan.setsNeeded}, complete with the joiners {plan.setsComplete}.</div>
         {!n ? (
           <div className="small good">Nothing to hire: you already have {target} complete sets.</div>

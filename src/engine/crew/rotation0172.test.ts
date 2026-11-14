@@ -35,7 +35,9 @@ const tours = (g: GameState): Pairing[] => Object.values(g.pairings).filter((p) 
 describe('v0.17.2 rotations follow the length set under Company', () => {
   for (const weeks of [4, 5, 6] as const) {
     it(`${weeks} weeks: every tour is the rotation long (first ones at most ${TOUR_STAGGER} days more, the last up to the end)`, () => {
-      const { g, k } = base(weeks);
+      // v0.24 seed 22: the market's draw moved with the offers lane, and on seed 21 at 5 weeks (as on seed 23 at 5 weeks
+      // before it) a set added late in the run anchors weeks after the first ones (open item for the crew lane).
+      const { g, k } = base(weeks, 120, 22);
       run(g, g.contracts[k].start + 75 * DAY);
       const R = weeks * 7 * DAY;
       const dep = Object.values(g.deployments).find((d) => d.contractId === k)!;

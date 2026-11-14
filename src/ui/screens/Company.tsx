@@ -6,9 +6,9 @@ import { Award, BadgeCheck, Building2, ChevronRight, Flag as FlagIcon, Medal, Pa
 import { rivalSummary, standing, STANDING_NAME } from '../../engine/contracts';
 import { BAL } from '../../engine/core/balance';
 import { fmtDate } from '../../engine/core/time';
-import type { BuyBackMode, GameState, Policies } from '../../engine/core/types';
+import type { BuyBackMode, GameState, PmLevel, Policies } from '../../engine/core/types';
 import { artFor } from '../../data/acmiTypes';
-import { APPROVALS, applyApproval, approvalBlocker, GOALS, liveryOf, paintStatus, setFleetLivery, setPolicies, type ApprovalDef } from '../../engine/ops';
+import { APPROVALS, applyApproval, approvalBlocker, GOALS, liveryOf, paintStatus, PM_LABEL, PM_LEVELS, pmLevel, pmProgress, pmQuote, setFleetLivery, setPmLevel, setPolicies, type ApprovalDef } from '../../engine/ops';
 import { moraleSummary, policyPreview } from '../../engine/crew';
 import { AircraftArt } from '../components/AircraftArt';
 import { ScenarioPanel } from '../modals/ScenarioModals';
@@ -139,6 +139,21 @@ function effect(g: GameState, market: Partial<Policies>, up: Partial<Policies>, 
   return atMarket ? `${label}: ${parts.join(' · ')}` : `${parts.join(' · ')} vs market`;
 }
 
+/** v0.24 the '?' of the maintenance programme row. */
+export const PM_NOTE = 'Low is the approved minimum: checks at their intervals, small defects deferred under the MEL. Medium adds daily and weekly checks and fixes defects at the night stop. High is a full reliability programme: parts that fail most are changed before they fail, engines are trend-monitored, and a spares pool and a reliability engineer support the fleet. Each step costs more per block hour plus a monthly fee per aircraft. The effect builds over about six weeks, and the technical reliability the Ladder reads is a 90- or 180-day record, so it climbs over months.';
+
+/** v0.24 the line under the maintenance programme row: what the level costs and does (vs Low), and when in full. */
+function pmEffect(g: GameState): string {
+  const level = pmLevel(g);
+  const q = pmQuote(g, level === 'low' ? 'high' : level);
+  const parts = [`AOGs −${q.aogLess} %`, `defects −${q.delayLess} %`];
+  if (q.monthly >= 500) parts.push(`≈ ${signedK(q.monthly)}/month`);
+  const k = pmProgress(g);
+  const since = g.company.pm?.since ?? g.now;
+  const full = k < 1 ? ` · in full ${fmtDate(since + BAL.pm.rampDays * 24 * 60)}` : '';
+  return level === 'low' ? `At High: ${parts.join(' · ')}` : `${parts.join(' · ')} vs Low${full}`;
+}
+
 /** Days a month crew spend away from base (hotel nights, per diems) in the start-of-game estimate. */
 const AWAY_DAYS = 14;
 
@@ -170,6 +185,8 @@ function PolicyForm({ g }: { g: GameState }) {
       {/* v0.12.1 day-off buy-back (crew/buyBack.ts) */}
       {row('Buy back days off', "Twice a day's pay · the day is given back later", <Seg<BuyBackMode> value={p.buyBack ?? 'auto'} onChange={(v) => set({ buyBack: v })} options={[{ value: 'auto', label: 'Automatically' }, { value: 'ask', label: 'Ask me' }, { value: 'never', label: 'Never' }]} />, undefined, 'Crew held back only by a day off are asked to work it. Never against the rest rules, and at most once a month each.')}
       {row('Auto A-checks', 'Plan A-checks in free slots (C-checks need you)', <Toggle on={p.autoMaintenance} onChange={(v) => set({ autoMaintenance: v })} label="Auto A-checks" />)}
+      {/* v0.24 the fleet's preventive maintenance programme (ops/pm.ts). */}
+      {row('Maintenance programme', 'More checks and parts changed early: fewer AOGs and defects', <Seg<PmLevel> value={pmLevel(g)} onChange={(v) => store.act((gg) => setPmLevel(gg, v))} options={PM_LEVELS.map((v) => ({ value: v, label: PM_LABEL[v] }))} />, pmEffect(g), PM_NOTE)}
       {row('Default extra cabin crew', 'Above the legal minimum', <Stepper value={p.extraCabin} min={0} max={BAL.crewExtra.cabinMax} onChange={(v) => set({ extraCabin: v })} />)}
       {row('Crew hotels', 'Wet leases: client hotels', <Seg<number> value={p.hotelTier} onChange={(v) => set({ hotelTier: v as Policies['hotelTier'] })} options={[3, 4, 5].map((v) => ({ value: v, label: `${v}★` }))} />, effect(g, { hotelTier: 4 }, { hotelTier: 5 }, 'At 5★', hotelMorale))}
       {row('Per diems', '100% is the market rate', <Stepper value={p.perDiemPct} min={80} max={150} step={10} onChange={(v) => set({ perDiemPct: v })} format={(v) => `${v}%`} />, effect(g, { perDiemPct: 100 }, { perDiemPct: 110 }, 'At 110%', () => null))}

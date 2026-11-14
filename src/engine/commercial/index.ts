@@ -27,7 +27,7 @@ export {
   TENDER, aircraftWanted, bidAircraft, bidQuote, decideTender, hajjTenderFor, issueTender, issueWideTender, offerWithBid, ourScore, placeBid, ramadanOf, roundAt, roundName, tenderBoard, tenderById, tenderRow, umrahTenderFor, wideKindsNow, wideTenderEligible, wideTenderWant, withdrawBid,
   type BidAircraft, type BidQuote, type BidTerms, type TenderRow, type TenderRound,
 } from './tenders';
-export { TRIPS, bookTrip, cancelTrip, fairDays, fairMeets, fairsAhead, inAudience, nextEdition, planTickets, presenceText, travelLegs, travellers, tripNow, tripQuote, tripTitle, tripsView, type FairView, type TravellerView, type TripQuote } from './trips';
+export { TRIPS, bookTrip, cancelTrip, fairDays, fairMeets, fairsAhead, inAudience, nextEdition, planTickets, presenceText, travelLegs, travellers, tripNow, tripQuote, tripTitle, tripsView, visitableClients, type FairView, type TravellerView, type TripQuote } from './trips';
 export { PRESENCE, bumpPresence, clientMarket, dailyPresence, fairPresence, homeMarket, marketTilt, presence, presenceIn, presenceView, presenceWeight, presenceWord, type PresenceRow } from './presence';
 export { CRISIS, clientCrisisCard, crisesOf, crisisKindName, crisisLive, crisisOfEvent, devCrisis, knowsUs, startCrisis } from './crises';
 // v0.16 sales (UPDATE-0.16.md §C): brokers, the leads pipeline, pitches, sales managers.

@@ -46,6 +46,7 @@ import { headsBill } from './finance';
 import { usd } from './util';
 import { closedAirport } from './world';
 import { curfewShift } from '../core/curfew';
+import { crewTypeBlock } from '../leasing/aoc';
 
 const H = () => BAL.v09.heads;
 
@@ -807,6 +808,8 @@ function crewDeskHires(g: GameState): void {
   const u = crewUtilisation(g);
   for (const p of crewPlan(g)) {
     if (p.setsComplete >= p.setsNeeded) continue;
+    // v0.24 not for a type we may not crew yet (no AOC variation filed): the variation card says what to do.
+    if (crewTypeBlock(g, p.family)) continue;
     const target = roundTargets(p).complete ?? p.setsNeeded;
     const q0 = roundUpQuote(g, p, target);
     const held = new Set(heldHires(g, p.family, u).map((x) => x.role));
@@ -836,6 +839,7 @@ function crewDeskHires(g: GameState): void {
   // (Not held: the forecast counts the crew-days the busy month needs against the crew there, idle ones included.)
   for (const xs of peakGroups(peakForecast(g))) {
     const x0 = xs[0];
+    if (crewTypeBlock(g, x0.family)) continue;
     const who = xs.map((x) => `${x.short} ${x.role}`).join(', ');
     const reqs = xs.map((x) => ({ role: x.role, family: x.family, base: g.company.homeBase, count: x.short, ...(x.role === 'PUR' || x.role === 'CC' ? { families: [x.family] } : {}) }));
     if (rulesOf(h).autoHire) {

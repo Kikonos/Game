@@ -40,7 +40,7 @@ import { type Ambience, sound, type SoundEvent } from './sound';
 import { activeTheme, applyTheme, type Theme, type ThemePref } from './theme';
 import { deviceNow, type DevicePref, onDeviceChange, setDevicePrefs, type UiSizePref } from './device';
 import { cue, takeCueEvents, takeCues, type CueEvent } from '../engine/core/cues';
-import { logToast, pushStack, resumeMs, stickyCue, toastMs, TOAST_MS as TOAST_TONE_MS, type ToastLogEntry } from './toastLogic';
+import { logToast, pushStack, resumeAfterPause, resumeMs, stickyCue, toastMs, toastsFreeze, TOAST_MS as TOAST_TONE_MS, type ToastLogEntry } from './toastLogic';
 import type { HeadId } from '../engine/core/types';
 import { devAchievement, devCrewHours, devJumbo, devPeak, devPosition, devRestAtDeparture, devRoster, devSlipOffer, devUnlockHead } from '../engine/dev';
 import type { OohLimit, Pace } from '../engine/core/types';
@@ -160,6 +160,8 @@ export type ModalSpec =
   | { kind: 'settings' }
   /** Offer review / accept / counter flow (B5). */
   | { kind: 'offer'; offerId: string }
+  /** v0.24 a signed contract read back (Contracts › Active). */
+  | { kind: 'contract'; contractId: string }
   | { kind: 'confirm'; title: string; body: string; confirm: string; danger?: boolean; onConfirm: () => void }
   /** B5: a decision opened from the Inbox (closable); hire, training and check planning dialogs. */
   | { kind: 'decision'; decisionId: string }
@@ -356,6 +358,8 @@ class GameStore {
   toastLog: ToastLogEntry[] = [];
   /** v0.12.1 running timers: when each toast goes, or how long it has left while held. */
   private toastTimers = new Map<number, { timer?: ReturnType<typeof setTimeout>; due: number; left: number }>();
+  /** v0.24 the toasts' clocks are stopped while the game is paused (they stay on screen; resumed, they carry on). */
+  private toastsFrozen = false;
   settings: Settings = loadSettings();
   /** v0.11 the colour theme on screen (Settings › Appearance; 'system' follows the device live). */
   theme: Theme = applyTheme(this.settings.theme, () => this.onSystemTheme());
@@ -404,8 +408,27 @@ class GameStore {
     this.drainCues();
     // v0.15 whatever path answered it (the card, the Inbox, Crew Control, operations), the hold sees it here.
     this.reviewHold();
+    this.syncToastClock();
     this.version++;
     for (const fn of this.listeners) fn();
+  }
+
+  /**
+   * v0.24 (the player: "pausing the game should freeze the current notifications") paused, the toasts in the lower
+   * right keep what they had left and stay; resumed, they carry on from there and go as usual.
+   */
+  private syncToastClock() {
+    const freeze = toastsFreeze(!!this.game, this.paused, !!this.game?.gameOver);
+    if (freeze === this.toastsFrozen) return;
+    this.toastsFrozen = freeze;
+    const now = Date.now();
+    for (const [id, x] of [...this.toastTimers]) {
+      if (freeze) {
+        if (!x.timer) continue;
+        clearTimeout(x.timer);
+        this.toastTimers.set(id, { due: 0, left: Math.max(0, x.due - now) });
+      } else if (!this.toasts.find((t) => t.id === id && !t.leaving)?.held) this.armToast(id, resumeAfterPause(x.left));
+    }
   }
 
   /**
@@ -1219,6 +1242,8 @@ class GameStore {
 
   private armToast(id: number, ms: number) {
     this.clearToastTimer(id);
+    // v0.24 paused: the toast waits with its time left (syncToastClock arms it on resume).
+    if (this.toastsFrozen) return void this.toastTimers.set(id, { due: 0, left: ms });
     this.toastTimers.set(id, { timer: setTimeout(() => this.dismissToast(id), ms), due: Date.now() + ms, left: ms });
   }
 

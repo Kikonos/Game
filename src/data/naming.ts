@@ -68,7 +68,10 @@ export const RIVALS: RivalSeed[] = [
 
 /**
  * v0.8 rating families each airline client flies (approximate 2026 fleets; dry-lease lessees and family checks).
- * Missing: any family; [] none of ours (A220 / Embraer operators).
+ * Missing: any family; [] none of ours (A220 / Embraer operators: they wet-lease narrowbodies, never a widebody).
+ * v0.24 checked again against the 2026 fleets: IndiGo flies 787-9s damp-leased from Norse (2025), not A330s; US-Bangla
+ * two A330-300s; Qantas A321XLRs (2025) and A380s; Austrian 777-200ERs; Cyprus Airways A220-300s only. Every airline
+ * client must have a row (contracts/clientFleets.test.ts): the offers ask only for the bodies it flies.
  */
 export const AIRLINE_FAMILIES: Record<string, RatingFamily[]> = {
   'SAS Scandinavian Airlines': ['A320', 'A330/340', 'A350'], 'Aer Lingus': ['A320', 'A330/340'], airBaltic: [], 'Croatia Airlines': ['A320'],
@@ -81,9 +84,9 @@ export const AIRLINE_FAMILIES: Record<string, RatingFamily[]> = {
   'Aegean Airlines': ['A320'], 'Garuda Indonesia': ['B737', 'A330/340', 'B777'], 'Biman Bangladesh Airlines': ['B737', 'B777', 'B787'], 'Air Algérie': ['B737', 'A330/340'],
   // v0.14 the market-presence airlines.
   'Air Peace': ['B737', 'B777'], 'Air Côte d’Ivoire': ['A320', 'A330/340'], 'ASKY Airlines': ['B737'], 'Africa World Airlines': [], 'Kenya Airways': ['B737', 'B787'],
-  RwandAir: ['B737', 'A330/340'], 'Air Tanzania': ['B737', 'B787'], IndiGo: ['A320', 'A330/340'], SpiceJet: ['B737'], 'SriLankan Airlines': ['A320', 'A330/340'],
-  'US-Bangla Airlines': ['B737'], 'Jeju Air': ['B737'], 'Hong Kong Airlines': ['A320', 'A330/340'], 'Juneyao Air': ['A320', 'B787'], 'Cebu Pacific': ['A320', 'A330/340'],
-  AirAsia: ['A320'], 'VietJet Air': ['A320', 'A330/340'], Qantas: ['B737', 'A330/340', 'B787'], 'Virgin Australia': ['B737'], 'Jetstar Airways': ['A320', 'B787'],
+  RwandAir: ['B737', 'A330/340'], 'Air Tanzania': ['B737', 'B787'], IndiGo: ['A320', 'B787'], SpiceJet: ['B737'], 'SriLankan Airlines': ['A320', 'A330/340'],
+  'US-Bangla Airlines': ['B737', 'A330/340'], 'Jeju Air': ['B737'], 'Hong Kong Airlines': ['A320', 'A330/340'], 'Juneyao Air': ['A320', 'B787'], 'Cebu Pacific': ['A320', 'A330/340'],
+  AirAsia: ['A320'], 'VietJet Air': ['A320', 'A330/340'], Qantas: ['B737', 'A320', 'A330/340', 'B787', 'A380'], 'Virgin Australia': ['B737'], 'Jetstar Airways': ['A320', 'B787'],
   'Air Transat': ['A320', 'A330/340'], WestJet: ['B737', 'B787'], 'Sun Country Airlines': ['B737'], Avianca: ['A320', 'B787'], 'Viva Aerobus': ['A320'],
   'Aerolíneas Argentinas': ['B737', 'A330/340'], 'Sky Airline': ['A320'], Arajet: ['B737'], 'Kuwait Airways': ['A320', 'A330/340', 'B777'], 'Oman Air': ['B737', 'B787'],
   Tunisair: ['A320', 'A330/340'], EgyptAir: ['A320', 'B737', 'A330/340', 'B787'],
@@ -229,7 +232,9 @@ export const CLIENT_SEEDS_B1: ClientSeed[] = [
   { name: 'Čedok', kind: 'tourOperator', country: 'CZ', base: 'PRG', prestige: 1, stars: 0 },
   { name: 'Bulgaria Air', kind: 'airline', country: 'BG', base: 'SOF', prestige: 3 },
   { name: 'Novatours', kind: 'tourOperator', country: 'LT', base: 'VNO', prestige: 1, stars: 0 },
-  { name: 'Frontex', kind: 'agency', country: 'PL', base: 'WAW', role: 'aid', prestige: 3 },
+  // v0.24 level 2: Frontex buys its return flights through framework contracts with brokers, flown by small charter
+  // operators [E]; no IOSA asked (an EU AOC, insurance and the escorts' own checks).
+  { name: 'Frontex', kind: 'agency', country: 'PL', base: 'WAW', role: 'aid', prestige: 2 },
   { name: 'EU Civil Protection and Humanitarian Aid (ECHO)', kind: 'agency', country: 'BE', base: 'BRU', role: 'aid', prestige: 3 },
   { name: 'Fiji Airways', kind: 'airline', country: 'FJ', base: 'NAN', prestige: 3 },
   { name: 'Jet2.com', kind: 'airline', country: 'GB', base: 'MAN', prestige: 2 },
@@ -538,6 +543,16 @@ export const CLIENT_SEEDS_V016: ClientSeed[] = [
   { name: 'Rio Tinto', kind: 'corporate', country: 'AU', base: 'PER', prestige: 2, market: true },
   // v0.19.4 a Hajj airlift tenderer (widebody tenders), last so no other id moves.
   { name: 'Pakistan International Airlines', kind: 'airline', country: 'PK', base: 'KHI', role: 'hajj', prestige: 3 },
+  // v0.24 state and national work for every start base (after the rest, so no other id moves). Malta's return flights:
+  // [E] Malta joins Frontex-coordinated return operations, run by its Ministry for Home Affairs; the national football
+  // associations fly their teams to away qualifiers by charter [E].
+  { name: 'Maltese Ministry for Home Affairs', kind: 'government', country: 'MT', base: 'MLA', role: 'interior', prestige: 3 },
+  { name: 'Malta Football Association', kind: 'sports', country: 'MT', base: 'MLA', prestige: 2 },
+  { name: 'Football Association of the Czech Republic', kind: 'sports', country: 'CZ', base: 'PRG', prestige: 2 },
+  { name: 'Bulgarian Football Union', kind: 'sports', country: 'BG', base: 'SOF', prestige: 2 },
+  { name: 'Latvian Football Federation', kind: 'sports', country: 'LV', base: 'RIX', prestige: 2 },
+  { name: 'Estonian Football Association', kind: 'sports', country: 'EE', base: 'TLL', prestige: 2 },
+  { name: 'Lithuanian Football Federation', kind: 'sports', country: 'LT', base: 'VNO', prestige: 2 },
 ];
 
 /** v0.16 the rating families the new airlines fly (approximate 2026 fleets); [] none of ours. */
@@ -546,9 +561,9 @@ export const AIRLINE_FAMILIES_V016: Record<string, RatingFamily[]> = {
   'Pakistan International Airlines': ['A320', 'B777'],
   'Air France': ['A320', 'A350', 'B777', 'B787', 'A330/340'], KLM: ['B737', 'A320', 'B777', 'B787', 'A330/340'], 'British Airways': ['A320', 'B777', 'B787', 'A350', 'A380'],
   'Virgin Atlantic': ['A330/340', 'A350', 'B787'], Iberia: ['A320', 'A330/340', 'A350'], SWISS: ['A320', 'A330/340', 'B777', 'A350'], 'Turkish Airlines': ['A320', 'B737', 'A330/340', 'A350', 'B777', 'B787'],
-  'Air New Zealand': ['A320', 'B787', 'B777'], 'French bee': ['A350'], 'Air Caraïbes': ['A350', 'A330/340'], 'Austrian Airlines': ['A320', 'B787'], 'Brussels Airlines': ['A320', 'A330/340'],
+  'Air New Zealand': ['A320', 'B787', 'B777'], 'French bee': ['A350'], 'Air Caraïbes': ['A350', 'A330/340'], 'Austrian Airlines': ['A320', 'B777', 'B787'], 'Brussels Airlines': ['A320', 'A330/340'],
   Luxair: ['B737'], 'ITA Airways': ['A320', 'A330/340', 'A350'], Finnair: ['A320', 'A330/340', 'A350'], Icelandair: ['B737', 'B757/767', 'A320'], 'Air Europa': ['B737', 'B787'],
-  'Air Serbia': ['A320', 'A330/340'], TAROM: ['B737'], 'KM Malta Airlines': ['A320'], 'Cyprus Airways': ['A320'], 'El Al': ['B737', 'B787', 'B777'],
+  'Air Serbia': ['A320', 'A330/340'], TAROM: ['B737'], 'KM Malta Airlines': ['A320'], 'Cyprus Airways': [], 'El Al': ['B737', 'B787', 'B777'],
   Aircalin: ['A320', 'A330/340'], 'Air Tahiti Nui': ['B787'], 'Air Austral': ['B737', 'B777', 'B787'], 'Caribbean Airlines': ['B737'], 'Ethiopian Airlines': ['B737', 'A350', 'B777', 'B787'],
   'South African Airways': ['A320', 'A330/340'], 'Air Mauritius': ['A330/340', 'A350'], 'Air Seychelles': ['A320'], 'Cabo Verde Airlines': ['B737', 'B757/767'], 'Air Niugini': ['B737', 'B757/767'],
   'Solomon Airlines': ['A320'], 'Copa Airlines': ['B737'], Bahamasair: ['B737'], 'Cayman Airways': ['B737'],

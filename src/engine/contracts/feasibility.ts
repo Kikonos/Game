@@ -34,6 +34,7 @@ import { netHooks } from '../core/netHooks';
 import { checkAirportOk } from '../ops/maintenance';
 import { emptyDay } from './schedule';
 import { curfewOk } from '../core/curfew';
+import { pmCostX } from '../ops/pm';
 
 export type CheckId = 'seats' | 'layout' | 'family' | /** v0.8 fix pack */ 'body' | 'range' | 'runway' | 'etops' | 'approvals' | 'availability' | 'maintenance' | 'crew' | 'positioning' | 'lease' | 'paint' | 'restSeats' | /** v0.7.3 */ 'rest'
   /** v0.7.4 client cabin request */ | 'cabinReq'
@@ -797,7 +798,8 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   // v0.9 §Y.2 fuel at cost: the client pays this aircraft's own burn on the revenue legs after flying.
   if (product.kind === 'charter' && product.fuelAtCost) rep.estRevenue += Math.round(revBH * t.fuelTBH * g.market.fuelPrice);
   const age = Math.max(0, toDate(g.now).getUTCFullYear() - ac.builtYear - 12);
-  let cost = t.maintBH * bh * (1 + age * BAL.maintAgeFactor);
+  // v0.24 with the preventive maintenance programme's extra per block hour (ops/pm.ts).
+  let cost = t.maintBH * bh * (1 + age * BAL.maintAgeFactor) * (1 + pmCostX(g));
   const crewN = complement(t.id, seats, { extraCabin: xc.cabin, augment: rn.need?.mode === 'aug2' ? 2 : rn.need?.mode === 'aug1' ? 1 : 0, restCabin: rn.need?.plan?.extraCabin ?? 0 }).length + xc.pilot;
   const perDiem = ((BAL.perDiem.CPT + BAL.perDiem.FO + (crewN - 2) * BAL.perDiem.CC) / crewN) * (g.company.policies.perDiemPct / 100);
   const hotel = BAL.hotelPerNight[g.company.policies.hotelTier] ?? 140;
