@@ -542,3 +542,17 @@ export function offerCrewLine(r: Pick<FeasibilityReport, 'crew' | 'checks'>, dry
   const list = short.map(([role, v]) => `${v!.short} ${role}`).join(', ');
   return { text: `Short ${list}${r.crew.firstShort ? ` from ${fmtDay(r.crew.firstShort)}` : ''}`, tone: 'warn' };
 }
+
+/** v0.24 the button under an unfolded Inbox message: where it leads ('Open offer', 'Decide'); null when nowhere. Pure. */
+export function messageGoLabel(g: GameState, ref: Ref | undefined): string | null {
+  if (!ref) return null;
+  // Nowhere to go: a decision already taken, a ref with no page (what openMessage would do nothing with).
+  if (ref.kind === 'decision' ? !g.decisions.some((d) => d.id === ref.id) : ref.kind !== 'cash' && ref.kind !== 'statement' && !refTarget(g, ref)) return null;
+  const L: Partial<Record<Ref['kind'], string>> = {
+    flight: 'Open flight', aircraft: 'Open aircraft', contract: 'Open contract', offer: 'Open offer', crew: 'Open', maint: 'Open check',
+    airport: 'Show on map', market: 'Open listing', cash: 'Open Finance', statement: 'Open Finance', decision: 'Decide', client: 'Open client',
+    rival: 'Open rival', event: 'Show on map', head: 'Open Team', receivable: 'Open Finance', tender: 'Open tender', trip: 'Open trips', loan: 'Open Finance',
+    lead: 'Open lead', rfp: 'Open request', deal: 'Open deal', route: 'Open route', debt: 'Open Finance',
+  };
+  return L[ref.kind] ?? 'Open';
+}

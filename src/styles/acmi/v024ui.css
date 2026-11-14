@@ -1,0 +1,9 @@
+/* v0.24 UI lane: Inbox messages unfold in place; the contract sheet; visit list; booked figures. */
+
+/* (1) Inbox: an unfolded message shows its whole text and its actions under it. */
+.sc-msg-full { white-space: pre-line; overflow-wrap: anywhere; }
+.sc-msg-title-open { overflow-wrap: anywhere; min-width: 0; }
+.sc-msg-wrap.open > .sc-msg-line .sc-msg { background: none; }
+.sc-msg-acts { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 12px 44px; }
+.sc-msg-acts .btn svg { width: 15px; height: 15px; }
+@media (max-width: 560px) { .sc-msg-acts { padding-left: 16px; } }
