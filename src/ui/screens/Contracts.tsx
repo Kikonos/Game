@@ -1,7 +1,7 @@
 // Contracts (B5): Market (offer cards, urgent first), Active (MGH progress, next flight, crew problems,
 // cancel with penalty) and Missed. DESIGN.md §6.3.
 
-import { AlertTriangle, CalendarRange, ChevronDown, ChevronRight, CircleSlash, Clock, Crown, FileSearch, Handshake, Inbox as InboxIcon, Medal, Palette, PhoneIncoming, Users } from 'lucide-react';
+import { AlertTriangle, CalendarRange, ChevronDown, ChevronRight, CircleSlash, Clock, Crown, FileSearch, FileText, Handshake, Inbox as InboxIcon, Medal, Palette, PhoneIncoming, Users } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { flag } from '../../data/countries';
 import { cancelContract, cancelCost, contractProgress, counterView, idleWindows, type IdleWindow, leadDays, offerClientLine, offerCompetition, standing } from '../../engine/contracts';
@@ -241,7 +241,8 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
       <div className="sc-contract-main">
         <div className="row gap-8 sc-contract-head">
           <ArchIcon a={c.archetype} />
-          <b className="ellipsis">{c.title}</b>
+          {/* v0.24 the title opens the whole contract too. */}
+          <button className="v24-contract-title ellipsis" onClick={() => store.openModal({ kind: 'contract', contractId: c.id })}>{c.title}</button>
           <span className={`badge ${c.status === 'active' ? 'good' : c.status === 'cancelled' ? 'bad' : ''}`}>{STATUS_LABEL[c.status]}</span>
           <ShapeTags s={shapeOf(c, (id) => g.fleet[id]?.typeId)} compact className="sc-contract-shape" />
           <OriginTag v={contractOrigin(g, c)} help />
@@ -274,13 +275,15 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
           <Bar value={mghR} tone={mghR >= 1 ? 'good' : 'warn'} size="thin" />
         </div>
       )}
-      {open && (
-        <div className="sc-contract-actions">
+      <div className="sc-contract-actions">
+          {/* v0.24 the whole contract, read back (terms, programme, how it stands). */}
+          <button className="btn" onClick={() => store.openModal({ kind: 'contract', contractId: c.id })} aria-label="View the contract"><FileText /></button>
+          {open && <>
           <button className="btn" onClick={() => store.navigate('schedule', { sel: { kind: 'aircraft', id: c.aircraftIds[0] }, view: String(Math.max(g.now, next?.std ?? c.start)) })} aria-label="Show on schedule"><CalendarRange /></button>
           <button className={`btn ${lockSub ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'subcharter', contractId: c.id })} aria-label="Sub-charter legs to a rival" data-tip="Hand legs to a rival operator" {...lockedProps(lockSub)}><Handshake /></button>
           <button className={`btn btn-danger ${lockCancel ? 'locked' : ''}`} onClick={() => confirmCancel(g, c)} aria-label="Cancel contract" {...lockedProps(lockCancel)}><CircleSlash /></button>
-        </div>
-      )}
+          </>}
+      </div>
     </div>
   );
 }

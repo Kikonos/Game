@@ -410,6 +410,10 @@ export interface Aircraft {
   bhDays?: [number, number][];
   /** v0.7.2 day index bhDays tracking began (game start or the first load of an older save). load: ??= today */
   bhSince?: number;
+  /** v0.24 sold block minutes (revenue legs and their fuel stops) per UTC day [dayIndex, min], the last 400 days (ops/booked.ts). load: from the flights in the save */
+  bookDays?: [number, number][];
+  /** v0.24 day index the sold-flying record begins (game start, or the oldest leg an older save still holds). */
+  bookSince?: number;
   /** v0.7.2 an agreed sale (closes with 'aircraft.sale'). */
   sale?: { buyer: string; price: number; agreed: Minute; closes: Minute; ferryIds?: string[] };
 }
@@ -471,6 +475,11 @@ export interface Client {
   stars?: Stars;
   /** v0.19 our own sales record (scheduled routes, own brand and tour operator): never in client lists or offers. */
   own?: true;
+  /**
+   * v0.24 when we first dealt with them in this save (an offer, a contract, a visit or a fair, any relation change):
+   * the clients a sales trip can visit. load: ??= from the offers, contracts, leads, tenders and relation log in the save.
+   */
+  met?: Minute;
 }
 
 /** v0.8 client relationship level (contracts/relations.ts). */
@@ -1865,6 +1874,9 @@ export interface SimEvent {
 // ======================================================================
 
 export interface Stats {
+  /** v0.24 clients met (Client.met) and sold flying (Aircraft.bookDays) are recorded as they happen: an older save is
+   *  backfilled once on load, then never again (a reload must play on exactly as the game would have). */
+  v024?: { met?: true; booked?: true };
   /** v0.18.1 annual leave requests: made, approved, declined (by the peak-month rule, by the share away, by the player), withdrawn. */
   leave?: { asked: number; approved: number; declined: number; peak: number; share: number; byYou: number; withdrawn: number; /** v0.19.3 tickets home / back booked inside annual leave begun away. */ tripsHome?: number; tripsBack?: number };
   /** v0.12.1 approvals at departure: when each job ('<contract>|<aircraft>') last got the 'approvalLate' decision; revenue legs stopped at the gate. */

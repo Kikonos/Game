@@ -27,7 +27,7 @@ export { mghLabel, priceProduct, productValue, rateMultiplier } from './pricing'
 export { generateFlights, planPositioning, relinkPositioning } from './schedule';
 // v0.8 (UPDATE-0.8.md §12).
 export {
-  bumpClient, clientList, clientView, LEVEL_NAME, LEVEL_ORDER, LEVEL_PERKS, levelChip, levelFor, levelOf, offerClientLine, perkLines, standing, standingFor, STANDING_NAME,
+  bumpClient, clientList, clientView, LEVEL_NAME, LEVEL_ORDER, LEVEL_PERKS, levelChip, levelFor, levelOf, metClientIds, offerClientLine, perkLines, standing, standingFor, STANDING_NAME,
   type ClientLevel, type ClientView, type LevelPerks, type Standing,
 } from './relations';
 export { markOfferSeen, offerCompetition, rivalList, rivalSummary, rivalView, STYLE_NAME, type RivalStyle, type RivalView } from './rivals';

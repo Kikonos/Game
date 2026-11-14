@@ -1,9 +1,9 @@
 // Inbox (B5): open decisions pinned on top, then messages with category filters; tapping a message marks it
-// read and follows its ref. DESIGN.md §6.3. v0.7.1: a 'Problems only' filter, a severity badge on every warning
+// read and follows its ref (v0.24: a tap unfolds it; its Open button follows the ref). DESIGN.md §6.3. v0.7.1: a 'Problems only' filter, a severity badge on every warning
 // (money / passengers / lateness) and an Explain button that unfolds the four-line card in place.
 
 import type { RatingFamily } from '../../data/acmiTypes';
-import { CheckCheck, ChevronRight, HelpCircle, History, Hourglass, Inbox as InboxIcon, PencilLine, ShieldAlert, TimerOff, Trophy, Users, X } from 'lucide-react';
+import { CheckCheck, ChevronDown, ChevronRight, ChevronUp, HelpCircle, History, Hourglass, Inbox as InboxIcon, PencilLine, ShieldAlert, TimerOff, Trophy, Users, X } from 'lucide-react';
 import { HEAD_DEFS } from '../../data/heads';
 import type { HeadId } from '../../engine/core/types';
 import { NamedIcon } from '../components/NamedIcon';
@@ -19,7 +19,7 @@ import { store, useGame, useStore } from '../store';
 import { openToast } from '../game/Toasts';
 import type { ToastLogEntry } from '../toastLogic';
 import { Dot, ScreenHead, useRenderCount } from './common';
-import { expiryLabel, filterMessages, isOpportunity, isProblemMessage, MSG_CATS, offerModal, PROBLEM_RECENT, refTarget, type MsgFilter } from './screenLogic';
+import { expiryLabel, filterMessages, isOpportunity, isProblemMessage, messageGoLabel, MSG_CATS, offerModal, PROBLEM_RECENT, refTarget, type MsgFilter } from './screenLogic';
 import { ScreenHint } from '../components/ScreenHint';
 
 const PAGE = 80;
@@ -220,6 +220,8 @@ export function InboxScreen() {
   }, [st.nav]);
   const [more, setMore] = useState(false);
   const [explain, setExplain] = useState<string | null>(null);
+  // v0.24 the message unfolded (one at a time).
+  const [openId, setOpenId] = useState<string | null>(null);
   // v0.7: market alerts off hides their messages (they stay in the save).
   const msgs = store.settings.marketAlerts ? g.messages : g.messages.filter((m) => store.shows(m));
   const hour = Math.floor(g.now / 60);
@@ -265,32 +267,43 @@ export function InboxScreen() {
         <div className="card sc-list">
           {shown.map((m) => {
             const prob = !!m.problem || m.tone === 'bad' || m.tone === 'warn';
-            const on = explain === m.id;
-            const change = changeOf(g, m);
+            // v0.24 (the player: "tapping a message should expand the full message") a tap unfolds it in place: the
+            // whole text and what can be done with it (open what it is about, explain, change); a second tap folds it.
+            const open = openId === m.id;
+            const on = open && explain === m.id;
+            const change = open ? changeOf(g, m) : null;
+            const go = open ? messageGoLabel(g, m.ref) : null;
+            const toggle = () => {
+              if (open) return setOpenId(null);
+              setOpenId(m.id);
+              setExplain(null);
+              if (!m.read) store.update((gg) => void markRead(gg, [m.id]));
+            };
             return (
-              <div key={m.id} className={`sc-msg-wrap ${on ? 'on' : ''}`}>
+              <div key={m.id} className={`sc-msg-wrap ${open ? 'on open' : ''}`}>
                 <div className="sc-msg-line">
-                  <button className={`sc-msg ${m.read ? 'read' : ''}`} onClick={() => openMessage(g, m)}>
+                  <button className={`sc-msg ${m.read ? 'read' : ''}`} onClick={toggle} aria-expanded={open}>
                     <MsgIcon m={m} />
                     <span className="grow col gap-4" style={{ minWidth: 0 }}>
                       {/* v0.12.1 title on its own line, badges and the date below it (iPad tiles showed 'C.'). */}
-                      <b className="sc-tile-title">{m.title}</b>
+                      <b className={open ? 'sc-msg-title-open' : 'sc-tile-title'}>{m.title}</b>
                       <span className="row gap-8 wrap"><MsgBadges m={m} />{m.checked && <span className="sc-checked tiny good nowrap" title={m.checked.join('\n')}>Checked ✓</span>}<span className="tiny dim nowrap">{fmtDateTime(m.t)}</span></span>
-                      <span className="small muted sc-clamp">{m.body}</span>
+                      <span className={`small muted ${open ? 'sc-msg-full' : 'sc-clamp'}`}>{m.body}</span>
                     </span>
-                    {m.ref && <ChevronRight className="sc-ico-s dim" />}
+                    {open ? <ChevronUp className="sc-ico-s dim" /> : <ChevronDown className="sc-ico-s dim" />}
                   </button>
-                  {prob && (
-                    <button className={`btn btn-ghost sc-explain ${on ? 'btn-on' : ''}`} onClick={() => setExplain(on ? null : m.id)} aria-expanded={on} aria-label={on ? 'Hide the story' : 'Explain'}>
-                      {on ? <X /> : <HelpCircle />}<span className="sc-explain-t">{on ? 'Hide' : 'Explain'}</span>
-                    </button>
-                  )}
-                  {change && (
-                    <button className="btn btn-ghost sc-explain" onClick={change} aria-label="Change what the head did">
-                      <PencilLine /><span className="sc-explain-t">Change</span>
-                    </button>
-                  )}
                 </div>
+                {open && (go || prob || change) && (
+                  <div className="sc-msg-acts">
+                    {go && <button className="btn btn-primary btn-sm" onClick={() => openMessage(g, m)}>{go}<ChevronRight /></button>}
+                    {prob && (
+                      <button className={`btn btn-sm ${on ? 'btn-on' : ''}`} onClick={() => setExplain(on ? null : m.id)} aria-expanded={on}>
+                        {on ? <X /> : <HelpCircle />}{on ? 'Hide' : 'Explain'}
+                      </button>
+                    )}
+                    {change && <button className="btn btn-sm" onClick={change} aria-label="Change what the head did"><PencilLine />Change</button>}
+                  </div>
+                )}
                 {on && <div className="sc-msg-card"><Explain g={g} m={m} /></div>}
               </div>
             );

@@ -1,5 +1,6 @@
 // B3 — Operations, maintenance, finance, events, goals, market. Public API.
 
+import { loadBooked } from './booked';
 import { airframeVariant, variantsOf } from '../../data/variants';
 import type { SimModule } from '../core/module';
 import type { GameState } from '../core/types';
@@ -79,6 +80,7 @@ export { addRestToCCheck, bookRefit, bookRestRefit, bookRestSeats, cabinOptions,
 export { clientCabinSlot, dailyClientCabin } from './clientCabin';
 // v0.7.2 (UPDATE-0.7.2.md §12).
 export { opsStripFacts, type OpsStripFacts } from './strip';
+export { BOOK_KEEP_DAYS, bookedPct, bookedPeriods, isSoldLeg, type BookedPeriod, type BookedPeriodId } from './booked';
 export { cancelSale, leastUsed, saleQuote, sellAircraft, type LeastUsedRow, type SaleQuote } from './sale';
 import { onSaleClose } from './sale';
 export { bookCCheck, cCheckOptions, cCheckSlots, checkLogistics, type CCheckOption, type CheckTicket } from './cHub';
@@ -181,6 +183,8 @@ export const opsModule: SimModule = {
       ac.restV ??= 2;
     }
     for (const ac of Object.values(g.fleet)) ac.bhSince ??= Math.floor(g.now / DAY);
+    // v0.24 the sold-flying record behind the 'booked' figure (from the legs an older save still holds).
+    loadBooked(g);
     loadVariants(g);
     // v0.9 heads locked, nothing earned yet.
     loadHeads(g);
@@ -218,6 +222,8 @@ export const opsModule: SimModule = {
     loadRest074(g);
     // v0.7.2 utilisation counts from the first load that tracks it (older saves have no bhDays).
     for (const ac of Object.values(g.fleet)) ac.bhSince ??= Math.floor(g.now / DAY);
+    // v0.24 the sold-flying record behind the 'booked' figure (from the legs an older save still holds).
+    loadBooked(g);
     g.company.livery = normaliseLivery(g.company.livery);
     // v0.10 airframe variants (engines, door layout): a stable one for aircraft from before v0.10.
     loadVariants(g);

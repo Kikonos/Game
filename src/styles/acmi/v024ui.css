@@ -1,0 +1,40 @@
+/* v0.24 UI lane: Inbox messages unfold in place; the contract sheet; visit list; booked figures. */
+
+/* (1) Inbox: an unfolded message shows its whole text and its actions under it. */
+.sc-msg-full { white-space: pre-line; overflow-wrap: anywhere; }
+.sc-msg-title-open { overflow-wrap: anywhere; min-width: 0; }
+.sc-msg-wrap.open > .sc-msg-line .sc-msg { background: none; }
+.sc-msg-acts { display: flex; flex-wrap: wrap; gap: 8px; padding: 0 16px 12px 44px; }
+.sc-msg-acts .btn svg { width: 15px; height: 15px; }
+@media (max-width: 560px) { .sc-msg-acts { padding-left: 16px; } }
+
+/* (2) The contract sheet: the footer's buttons on one line; the card's sheet button even on a finished contract. */
+.v24-contract-foot { width: 100%; align-items: center; }
+.sc-contract.closed .sc-contract-actions { opacity: 1; }
+
+/* (6) Booked: a small pill on each aircraft card and in the Fleet header; the periods in its popover. */
+.v24-booked { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; min-height: 24px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text-2); font-size: 12px; cursor: pointer; white-space: nowrap; vertical-align: middle; }
+.v24-booked b { color: var(--text); font-weight: 600; }
+.v24-booked.on { border-color: var(--accent); }
+.v24-booked-row { margin-top: 4px; }
+:where(.touch) .v24-booked { min-height: 32px; padding: 4px 12px; position: relative; }
+:where(.touch) .v24-booked::after { content: ''; position: absolute; inset: -6px -2px; }
+.v24-booked-table { border-collapse: collapse; width: 100%; margin: 6px 0; }
+.v24-booked-table th { text-align: left; font-weight: 600; color: var(--text-2); padding: 6px 6px 2px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.v24-booked-table td { padding: 3px 6px 3px 0; }
+.v24-booked-table .num { text-align: right; }
+.v24-booked-pop { min-width: 260px; }
+/* In the Inbox's tile grid (iPad, Mac) the unfolded message takes the whole row, so its neighbours keep their size. */
+.sc-inbox .sc-list .sc-msg-wrap.open { grid-column: 1 / -1; }
+.sc-inbox .sc-list .sc-msg-wrap.open .sc-msg-full { max-width: 70ch; }
+.v24-contract-title { all: unset; font-weight: 700; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; min-height: 28px; display: inline-flex; align-items: center; }
+.v24-contract-title:hover { text-decoration: underline; text-underline-offset: 3px; }
+.v24-contract-title:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
+.v24-contract .of-shape-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.v24-booked-table th { white-space: nowrap; }
+.v24-booked-since { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--text-3, var(--text-2)); }
+.v24-booked-pop { min-width: 300px; }
+.v24-fleet-sub { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+.v24-fleet-sub > .ellipsis { min-width: 0; flex: 0 1 auto; }
+.v24-fleet-sub > .v24-booked { flex: 0 0 auto; }
+.subtitle:has(> .v24-fleet-sub) { overflow: visible; white-space: normal; }

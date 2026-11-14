@@ -4,6 +4,7 @@
 // the last leg of a duty under way). A hold never lets a leg slip entirely into the past: contracts treats such
 // legs as gone and plans a duplicate.
 
+import { noteBooked } from './booked';
 import { BAL } from '../core/balance';
 import { cancelFlight, flightsOf, removeFlights, retimeFlight, subcharterFlights, touchFlights, touchStatus, touchTickets } from '../core/entities';
 import { cashOnly, invoice, post } from '../core/ledger';
@@ -1639,6 +1640,8 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
   if (bd.length && bd[bd.length - 1][0] === day) bd[bd.length - 1][1] += Math.round(block);
   else bd.push([day, Math.round(block)]);
   while (bd.length && bd[0][0] <= day - 90) bd.shift();
+  // v0.24 the sold flying behind the 'booked' figure (ops/booked.ts).
+  noteBooked(ac, f, block, g.now);
   ac.maint.fhSinceA += fh;
   ac.maint.fhSinceC += fh;
   // v0.24 the preventive maintenance programme fixes more at the night stop: fewer defects deferred.

@@ -829,7 +829,11 @@ Object.assign(ACTIONS, {
     const tab = page.getByRole('tab', { name: /^Problems only/ });
     if (await tab.count()) await press(page, tab.first(), d);
     await settle(page, 300);
-    const ex = page.locator('.sc-explain').first();
+    // v0.24 a message unfolds on a tap; its Explain button is under it.
+    const msg = page.locator('.sc-inbox .sc-list .sc-msg').first();
+    if (await msg.count()) await press(page, msg, d);
+    await settle(page, 200);
+    const ex = page.locator('.sc-msg-acts .btn', { hasText: 'Explain' }).first();
     if (await ex.count()) await press(page, ex, d);
     await settle(page, 500);
   },

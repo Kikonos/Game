@@ -168,3 +168,17 @@ describe('v0.14.1 (merge) workDays: a contract by the client\'s days (Clients sc
     expect(workDays({ pattern: { kind: 'legs', legs: [] } as never, start: fromUTC(2027, 6, 2, 8, 0), end: fromUTC(2027, 6, 2, 20, 0) })).toBe('2 Jun');
   });
 });
+
+describe('v0.24 an unfolded Inbox message: where its button leads', () => {
+  it('names the page, or none when there is nowhere to go', async () => {
+    const { messageGoLabel } = await import('./screenLogic');
+    const g = newGame();
+    expect(messageGoLabel(g, undefined)).toBeNull();
+    expect(messageGoLabel(g, { kind: 'cash', id: '' })).toBe('Open Finance');
+    expect(messageGoLabel(g, { kind: 'decision', id: 'gone' })).toBeNull();
+    const acId = Object.keys(g.fleet)[0];
+    expect(messageGoLabel(g, { kind: 'aircraft', id: acId })).toBe('Open aircraft');
+    expect(messageGoLabel(g, { kind: 'offer', id: 'old' })).toBe('Open offer');
+    expect(messageGoLabel(g, { kind: 'loan', id: 'x' })).toBeNull();
+  });
+});

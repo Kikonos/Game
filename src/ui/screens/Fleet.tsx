@@ -2,6 +2,7 @@
 // Fleet · Market switch (the scarce aircraft market, Market.tsx); cards add the delivery, the lease end
 // (extend or return) and the cabin with refits. DESIGN.md §6.3, UPDATE-0.7.md §F6.7, §F7.5.
 
+import { BookedPill } from '../components/Booked';
 import { BadgeDollarSign, BedDouble, CalendarRange, HelpCircle, Lock, Palette, Pencil, Plane, Sofa, TimerOff, Undo2, Wrench, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { FinanceButtons } from './fleet/FinanceButtons';
@@ -204,6 +205,8 @@ function AircraftCard({ g, ac, sel, least, onLeastClose }: { g: GameState; ac: A
             {!out && cs && cs.risk >= 0.5 && <span className={`badge ${cs.risk >= 0.9 ? 'bad' : 'warn'}`} data-tip="Chance of a technical fault grows with deferred defects and overdue checks">AOG risk</span>}
           </div>
           <div className="small muted ellipsis">{t.name} · {ac.cabin.label} · {yearOf(g.now) - ac.builtYear} years</div>
+          {/* v0.24 sold flying, last 30 days; a tap: the periods back and ahead. */}
+          {!out && ac.status !== 'stored' && <div className="v24-booked-row"><BookedPill g={g} ids={[ac.id]} title={`${ac.reg} booked`} /></div>}
         </div>
       </div>
       {least && <LeastUsedLine g={g} ac={ac} least={least} onClose={onLeastClose} />}
@@ -378,7 +381,7 @@ export function FleetScreen() {
   const monthly = fleet.reduce((s, a) => s + (a.ownership.kind === 'dryLeaseIn' ? a.ownership.rentPerMonth : 0), 0);
   return (
     <div className="screen sc-fleet">
-      <ScreenHead hint="fleet" title={view === 'market' ? 'Aircraft market' : 'Fleet'} sub={view === 'market' ? `${offers.length} open offer${offers.length === 1 ? '' : 's'} · cash ${money(g.company.cash)}` : `${fleet.length} aircraft · rent ${money(monthly)}/month`}>
+      <ScreenHead hint="fleet" title={view === 'market' ? 'Aircraft market' : 'Fleet'} sub={view === 'market' ? `${offers.length} open offer${offers.length === 1 ? '' : 's'} · cash ${money(g.company.cash)}` : <span className="v24-fleet-sub"><span className="ellipsis">{fleet.length} aircraft · rent {money(monthly)}/month</span>{fleet.length > 0 && <BookedPill g={g} title="Fleet booked" />}</span>}>
         {view === 'fleet' && fleet.length > 0 && <Seg<FleetLook> value={look} onChange={setLook} options={[{ value: 'cards', label: 'Cards' }, { value: 'hangar', label: 'Hangar' }]} />}
         {view === 'fleet' && look === 'cards' && fleet.length > 1 && <button className="btn" onClick={pickLeast} aria-label="Which one? Show the least used aircraft"><HelpCircle /> Which one?</button>}
         <Seg<FleetView> value={view} onChange={setView} options={[
