@@ -11,3 +11,16 @@
 /* (2) The contract sheet: the footer's buttons on one line; the card's sheet button even on a finished contract. */
 .v24-contract-foot { width: 100%; align-items: center; }
 .sc-contract.closed .sc-contract-actions { opacity: 1; }
+
+/* (6) Booked: a small pill on each aircraft card and in the Fleet header; the periods in its popover. */
+.v24-booked { display: inline-flex; align-items: center; gap: 4px; padding: 2px 9px; min-height: 24px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-2); color: var(--text-2); font-size: 12px; cursor: pointer; white-space: nowrap; vertical-align: middle; }
+.v24-booked b { color: var(--text); font-weight: 600; }
+.v24-booked.on { border-color: var(--accent); }
+.v24-booked-row { margin-top: 4px; }
+:where(.touch) .v24-booked { min-height: 32px; padding: 4px 12px; position: relative; }
+:where(.touch) .v24-booked::after { content: ''; position: absolute; inset: -6px -2px; }
+.v24-booked-table { border-collapse: collapse; width: 100%; margin: 6px 0; }
+.v24-booked-table th { text-align: left; font-weight: 600; color: var(--text-2); padding: 6px 6px 2px 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.v24-booked-table td { padding: 3px 6px 3px 0; }
+.v24-booked-table .num { text-align: right; }
+.v24-booked-pop { min-width: 260px; }
