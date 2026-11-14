@@ -74,15 +74,102 @@ describe('IOSA asks by the game stage', () => {
     expect(kept).toBeLessThan(P.iosaKeep + 0.1);
   });
 
-  it('before IOSA is filed an airline one or two levels up shows itself at iosaShow (not two levels up a ministry); after, the ladder as before', () => {
+  it('a national carrier or a major one or two levels up shows itself at iosaShow, outside the stretch slot; a level-2 airline keeps the ladder', () => {
     const g = game();
+    const shut = () => {
+      g.company.prestige!.stretchAt = g.now;
+    };
+    shut();
+    // Level 1: a level-2 airline asks no IOSA, so it comes only in the monthly stretch slot (as before v0.24).
+    expect(prestigeOfferWeight(g, airlineAt(g, 2))).toBe(0);
     expect(prestigeOfferWeight(g, airlineAt(g, 3))).toBe(P.iosaShow);
     expect(prestigeOfferWeight(g, airlineAt(g, 4))).toBe(0);
+    delete g.company.prestige!.stretchAt;
+    expect(prestigeOfferWeight(g, airlineAt(g, 2))).toBe(P.weight['1']);
+    // Level 2: both a level-3 and a level-4 airline show themselves; a ministry two up does not.
     g.company.prestige = { level: 2, visibility: 0, levelAt: { 1: g.started } };
+    shut();
+    expect(prestigeOfferWeight(g, airlineAt(g, 3))).toBe(P.iosaShow);
     expect(prestigeOfferWeight(g, airlineAt(g, 4))).toBe(P.iosaShow);
-    expect(prestigeOfferWeight(g, named(g, 'Lithuanian Ministry of Foreign Affairs'))).toBeLessThanOrEqual(P.weight['1']);
-    g.company.pendingApprovals.push({ id: 'iosa', started: g.now, done: g.now + 240 * DAY, cost: 0 });
-    expect(prestigeOfferWeight(g, airlineAt(g, 4))).toBe(0);
+    expect(prestigeOfferWeight(g, named(g, 'Lithuanian Ministry of Foreign Affairs'))).toBe(0);
+    // A small weight, well under the at-level one.
+    expect(P.iosaShow).toBeLessThanOrEqual(0.25 * P.weight['0']);
+  });
+
+  it('filing or holding IOSA never hides them: the same weight, and their offers keep coming', () => {
+    for (const level of [1, 2] as const) {
+      const g = game();
+      g.company.prestige = { level, visibility: 0, levelAt: { 1: g.started } };
+      g.company.prestige.stretchAt = g.now;
+      const c3 = airlineAt(g, 3);
+      const c4 = airlineAt(g, 4);
+      const before = [prestigeOfferWeight(g, c3), prestigeOfferWeight(g, c4)];
+      g.company.pendingApprovals.push({ id: 'iosa', started: g.now, done: g.now + 240 * DAY, cost: 0 });
+      expect([prestigeOfferWeight(g, c3), prestigeOfferWeight(g, c4)]).toEqual(before);
+      g.company.pendingApprovals = [];
+      g.company.approvals.push('iosa');
+      expect([prestigeOfferWeight(g, c3), prestigeOfferWeight(g, c4)]).toEqual(before);
+    }
+  });
+
+  it('the market draw at level 1 (stretch slot closed): no level-2 airline; national carriers ask IOSA before filing and come more often after', () => {
+    const draw = (filed: boolean) => {
+      const g = game('MLA', 5);
+      g.company.standing = 1;
+      if (filed) g.company.pendingApprovals.push({ id: 'iosa', started: g.now, done: g.now + 400 * DAY, cost: 0 });
+      const by = { n: 0, l2: 0, l3: 0, iosa: 0, stretch: 0 };
+      for (let i = 0; i < 300; i++) {
+        g.now += DAY;
+        g.company.prestige!.stretchAt = g.now;
+        for (const o of Object.values(g.offers)) if (o.status === 'open') delete g.offers[o.id];
+        const o = generateOffer(g, undefined, { ordinary: true, window: false, paint: false, cabin: false });
+        if (!o) continue;
+        by.n++;
+        const c = g.clients[o.clientId];
+        if (c.kind === 'airline' && c.prestige === 2) by.l2++;
+        if (c.kind === 'airline' && c.prestige === 3) by.l3++;
+        if (o.requirements.approvals.includes('iosa')) by.iosa++;
+        if (o.stretch) by.stretch++;
+      }
+      return by;
+    };
+    const none = draw(false);
+    const filed = draw(true);
+    expect(none.l2).toBe(0);
+    expect(filed.l2).toBe(0);
+    expect(none.stretch + filed.stretch).toBe(0);
+    expect(none.l3).toBeGreaterThan(0);
+    expect(none.iosa / none.n).toBeLessThan(0.2);
+    expect(filed.iosa).toBe(0);
+    expect(filed.l3).toBeGreaterThanOrEqual(none.l3);
+  });
+
+  it('a lead the client said yes to, or a pitch answered yes, is never thinned out at the answer', () => {
+    const g = game();
+    const c = airlineAt(g, 3);
+    for (let i = 0; i < 200; i++) {
+      g.now += 61;
+      const d = draft(c);
+      expect(markStretch(g, d as never, true)).toBeUndefined();
+      expect(d.req.approvals).toEqual(['iosa']);
+    }
+    // Through generateOffer, as sales.ts leadOffer (leadId) and pitchOffer (asked) ask: every offer comes.
+    const g2 = game('MLA', 5);
+    g2.company.standing = 1;
+    g2.company.prestige = { level: 2, visibility: 0, levelAt: { 1: g2.started } };
+    const km = named(g2, 'KM Malta Airlines');
+    expect(km.prestige).toBe(3);
+    let n = 0;
+    for (let i = 0; i < 60; i++) {
+      for (const o of Object.values(g2.offers)) if (o.status === 'open') delete g2.offers[o.id];
+      g2.now += 37;
+      const o = generateOffer(g2, 'seasonBase', { client: km.id, ...(i % 2 ? { leadId: `ld${i}` } : { asked: true }), window: false, wide: false, paint: false, cabin: false });
+      if (o) {
+        n++;
+        expect(o.requirements.approvals).toContain('iosa');
+      }
+    }
+    expect(n).toBe(60);
   });
 
   it('filed: national carriers take that (nothing asked, nothing dropped); the majors still want it held, every time', () => {

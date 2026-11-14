@@ -58,6 +58,50 @@ describe('v0.24 preventive maintenance programme', () => {
     expect(pmFactors(g).aog).toBe(BAL.pm.aogX.high);
   });
 
+  it('a change mid-ramp starts from the factors in force: no jump either way, and a Low/High toggle does not buy High for free', () => {
+    const g = newGame(3);
+    setPmLevel(g, 'high');
+    g.now += 23 * DAY;
+    const mid = pmFactors(g);
+    expect(mid.aog).toBeGreaterThan(BAL.pm.aogX.high);
+    expect(mid.aog).toBeLessThan(1);
+    // High → Low half way: the factors stay where they were (not High's full 0.45), then drift back to Low.
+    setPmLevel(g, 'low');
+    expect(pmFactors(g)).toEqual(mid);
+    g.now += 10 * DAY;
+    const later = pmFactors(g);
+    expect(later.aog).toBeGreaterThan(mid.aog);
+    // Back to High before that ramp is half done: no snap to High in full either.
+    setPmLevel(g, 'high');
+    expect(pmFactors(g)).toEqual(later);
+    expect(pmProgress(g)).toBe(0);
+    // The level survives a save with its starting point.
+    expect(pmFactors(clone(g))).toEqual(later);
+    // The toggle the review found: High in full, then Low 22 days / High 1 day, over 92 days.
+    const t = newGame(3);
+    setPmLevel(t, 'high');
+    ramped(t);
+    let sum = 0;
+    let n = 0;
+    for (let cycle = 0; cycle < 4; cycle++) {
+      setPmLevel(t, 'low');
+      for (let d = 0; d < 22; d++, n++) {
+        t.now += DAY;
+        sum += pmFactors(t).aog;
+      }
+      setPmLevel(t, 'high');
+      t.now += DAY;
+      sum += pmFactors(t).aog;
+      n++;
+    }
+    // Mostly at Low: the average AOG factor ends up worse than Medium's (it was 0.58 before the fix).
+    expect(sum / n).toBeGreaterThan(BAL.pm.aogX.medium);
+    // Settles in full after a ramp.
+    run(g, g.now + BAL.pm.rampDays * DAY + DAY);
+    expect(pmProgress(g)).toBe(1);
+    expect(pmFactors(g)).toEqual({ delay: BAL.pm.delayX.high, aog: BAL.pm.aogX.high, deferred: BAL.pm.deferredX.high });
+  });
+
   it('AOGs per departure fall with the level over a seeded sample', () => {
     const counts: Record<PmLevel, number> = { low: 0, medium: 0, high: 0 };
     for (const level of ['low', 'medium', 'high'] as PmLevel[]) {

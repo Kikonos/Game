@@ -25,6 +25,17 @@ describe('v0.24 contract sheet', () => {
     expect(row(s.status, 'Cancel now')).toMatch(/\$/);
   });
 
+  it('a signed wet lease that starts next month shows no "0 of 0 BH" this month; it does once it flies', () => {
+    const g = newGame();
+    const o = hamBase(g, g.now + 40 * DAY, 60);
+    const r = acceptOffer(g, o.id, [owned(g).id]);
+    expect(r.ok).toBe(true);
+    const c = g.contracts[r.ok ? r.data!.contractId : ''];
+    expect(row(contractSheet(g, c).status, 'This month')).toBeUndefined();
+    g.now = c.start + 2 * DAY;
+    expect(row(contractSheet(g, c).status, 'This month')).toMatch(/^\d+ of [1-9]\d* BH guaranteed$/);
+  });
+
   it('a charter: the price, its deposit and what has been invoiced', () => {
     const g = newGame();
     const o = offer(g, 'adhoc', { start: g.now + 10 * DAY });

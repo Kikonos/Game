@@ -29,6 +29,29 @@ describe('v0.24 booked', () => {
     expect(ac.bookDays).toEqual([[Math.floor(g.now / DAY), 180]]);
   });
 
+  it('a rolling window that starts inside a day counts that day\'s flying pro rata (not the whole day)', () => {
+    const g = newGame();
+    const ac = owned(g);
+    // The record covers 40 days back; 10 sold hours on each day.
+    const today = Math.floor(g.now / DAY);
+    ac.bookSince = today - 40;
+    ac.deliveredAt = Math.min(ac.deliveredAt, (today - 40) * DAY);
+    ac.bookDays = Array.from({ length: 41 }, (_, i) => [today - 40 + i, 600] as [number, number]);
+    // 21:00 UTC: the 7-day window opens at 21:00 a week ago, 3 h before that day ends.
+    g.now = today * DAY + 21 * 60;
+    const l7 = by(g, 'last7', [ac.id]);
+    // 7 days and 3 hours' worth of a 10 h day: 6 whole days, today (10 h), and 3/24 of the first day.
+    expect(l7.bh).toBeCloseTo(6 * 10 + 10 + (10 * 3) / 24, 1);
+    expect(l7.hours).toBe(7 * 24);
+    // The same rate over 7 and 30 days (it read 7 days higher before: a whole extra day of flying in the week).
+    const l30 = by(g, 'last30', [ac.id]);
+    expect(Math.abs(l7.share! - l30.share!)).toBeLessThan(0.01);
+    // An aircraft that arrived inside the window keeps its whole first day (it flew nothing for us before).
+    const b = { ...ac, id: 'nb', deliveredAt: (today - 3) * DAY + 18 * 60, bookSince: undefined, bookDays: [[today - 3, 120], [today - 2, 600]] as [number, number][] };
+    g.fleet.nb = b;
+    expect(by(g, 'last7', ['nb']).bh).toBeCloseTo(2 + 10, 1);
+  });
+
   it('a signed base programme is booked ahead past the four weeks filed, and flown back once it has flown', () => {
     const g = newGame();
     const ac = owned(g);

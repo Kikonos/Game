@@ -61,12 +61,18 @@ describe('the offer draw by level', () => {
   it('weighs clients by their level against ours: 1 at ours, less below, a stretch one up, never two up', () => {
     const g = game();
     setLevel(g, 2);
-    // v0.24 with IOSA filed (before it, an airline up shows itself at iosaShow: iosa.test.ts).
-    g.company.pendingApprovals.push({ id: 'iosa', started: g.now, done: g.now + 240 * DAY, cost: 0 });
     expect(prestigeOfferWeight(g, clientAt(g, 2))).toBe(1);
     expect(prestigeOfferWeight(g, clientAt(g, 1))).toBe(P.weight['-1']);
-    expect(prestigeOfferWeight(g, clientAt(g, 3))).toBe(P.weight['1']);
-    expect(prestigeOfferWeight(g, clientAt(g, 4))).toBe(0);
+    // v0.24 a level 3–4 airline up shows itself at iosaShow (iosa.test.ts); any other client keeps the ladder.
+    const notAirline = (lv: Prestige) => {
+      const c = { ...clientAt(g, lv), id: `ta${lv}`, kind: 'agency' as const };
+      g.clients[c.id] = c;
+      return c;
+    };
+    expect(prestigeOfferWeight(g, notAirline(3))).toBe(P.weight['1']);
+    expect(prestigeOfferWeight(g, notAirline(4))).toBe(0);
+    expect(prestigeOfferWeight(g, clientAt(g, 3))).toBe(Math.max(P.weight['1'], P.iosaShow));
+    expect(prestigeOfferWeight(g, clientAt(g, 4))).toBe(P.iosaShow);
     setLevel(g, 4);
     expect(prestigeOfferWeight(g, clientAt(g, 1))).toBe(P.weight['-3']);
     expect(prestigeOfferWeight(g, clientAt(g, 2))).toBe(P.weight['-2']);
