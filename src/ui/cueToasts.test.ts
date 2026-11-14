@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { CUES, cue, takeCueEvents } from '../engine/core/cues';
 import { sound } from './sound';
 import { store, TOAST_MS } from './store';
-import { LOG_MAX, logToast, pushStack, shownToasts, stickyCue, toastMs, withoutOpenSubject, type ToastLogEntry } from './toastLogic';
+import { LOG_MAX, logToast, pushStack, resumeAfterPause, shownToasts, stickyCue, toastMs, toastsFreeze, withoutOpenSubject, type ToastLogEntry } from './toastLogic';
 
 describe('v0.9.1 every cue comes with its message', () => {
   it('each cue kind shows a toast naming it, and only then plays', () => {
@@ -127,5 +127,49 @@ describe('v0.12.1 what a dialog shows', () => {
     expect(withoutOpenSubject(list, { ref: { kind: 'offer', id: 'o9' } }).map((t) => t.id)).toEqual([1, 2]);
     expect(withoutOpenSubject(list, { ref: { kind: 'flight', id: 'f1' } }).map((t) => t.id)).toEqual([1, 3]);
     expect(withoutOpenSubject(list, null).map((t) => t.id)).toEqual([1, 2, 3]);
+  });
+});
+
+describe('v0.24 pausing freezes the toasts', () => {
+  it('paused they stay with the time they had left; resumed they carry on and go as usual', async () => {
+    const { fixtureGame } = await import('../engine/crew/fixtures');
+    vi.stubGlobal('requestAnimationFrame', () => 0);
+    vi.stubGlobal('cancelAnimationFrame', () => {});
+    vi.useFakeTimers();
+    store.loadGame(fixtureGame(5));
+    store.paused = false;
+    store.emit();
+    store.toasts = [];
+    store.toast('info', 'Read me');
+    const [t] = store.toasts;
+    vi.advanceTimersByTime(5000);
+    store.paused = true;
+    store.emit();
+    vi.advanceTimersByTime(120_000);
+    expect(store.toasts.find((x) => x.id === t.id)?.leaving).toBeFalsy();
+    // A toast that arrives while paused waits too.
+    store.toast('warn', 'While paused');
+    vi.advanceTimersByTime(60_000);
+    expect(store.toasts.filter((x) => x.leaving)).toEqual([]);
+    store.paused = false;
+    store.emit();
+    vi.advanceTimersByTime(2900);
+    expect(store.toasts.find((x) => x.id === t.id)?.leaving).toBeFalsy();
+    vi.advanceTimersByTime(200);
+    expect(store.toasts.find((x) => x.id === t.id)?.leaving).toBe(true);
+    vi.advanceTimersByTime(15_000);
+    expect(store.toasts.map((x) => x.title)).toEqual([]);
+    store.quitToTitle();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('no freeze on the title screen or once the game is over', () => {
+    expect(toastsFreeze(false, true, false)).toBe(false);
+    expect(toastsFreeze(true, true, true)).toBe(false);
+    expect(toastsFreeze(true, true, false)).toBe(true);
+    expect(toastsFreeze(true, false, false)).toBe(false);
+    expect(resumeAfterPause(200)).toBe(1000);
+    expect(resumeAfterPause(4200)).toBe(4200);
   });
 });

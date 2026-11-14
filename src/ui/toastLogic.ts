@@ -28,6 +28,11 @@ export function toastMs(kind: ToastKind, sticky = false): number | null {
 /** Time left after a pause (hover, touch): what was left, never under RESUME_MIN_MS. */
 export const resumeMs = (left: number): number => Math.max(RESUME_MIN_MS, left);
 
+/** v0.24 the toasts' clocks stop while a game is paused (not on the title screen, not once the game is over). */
+export const toastsFreeze = (hasGame: boolean, paused: boolean, over: boolean): boolean => hasGame && paused && !over;
+/** v0.24 after a pause a toast carries on with what it had left (a second at least, to see it go). */
+export const resumeAfterPause = (left: number): number => Math.max(1000, left);
+
 export interface StackToast { id: number; sticky?: boolean; leaving?: boolean }
 
 /** The stack after a new toast: at most STACK_MAX, the oldest that may go first (a sticky one only when all are). */
