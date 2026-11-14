@@ -16,6 +16,34 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.24',
+    name: 'Player requests: offers, maintenance, inbox',
+    features: [
+      'Maintenance programme in Company › Policies: Low, Medium or High. Higher costs more each month and cuts defects and AOGs, so technical reliability climbs.',
+      'The cost starts the day you switch. The full effect builds over about 45 days, as parts are replaced at the coming checks.',
+      'Tap a message in the Inbox to read it in full. Its buttons sit under the text. Tap again to close it.',
+      'Contracts › Active: tap a contract\'s title or its sheet button to see the whole contract. How it stands, the terms, the programme. Finished contracts too.',
+      'Booked: each aircraft card and the Fleet header show how much of the time is sold. Tap it for the last 7, 30 and 90 days, the year, and what is on the books ahead.',
+      'Pausing the game now holds the notes in the lower right. They stay on screen and go on as usual when you resume.',
+    ],
+    improvements: [
+      'Visit a client lists only the clients you have dealt with in this game. New clients are met at trade fairs or through their offers.',
+      'Ministries, UN agencies and aid bodies no longer ask for IOSA. Only airlines do, and fewer of their asks reach you before you hold it.',
+      'Your own state\'s foreign and defence ministries call from day one. In Malta: the Foreign Ministry and the Armed Forces of Malta.',
+      'Troop rotations go where that state really sends troops, such as UNIFIL in Lebanon or the NATO battle groups in the Baltics.',
+      'Frontex buys return flights from your home base at an earlier level. New clients include Malta Home Affairs and six national football associations.',
+      'Once IOSA is filed, national carriers accept it. Majors still want it held.',
+      'Crew can only be hired or converted onto a type on our AOC, or once its variation is filed. Without it there are no manuals to train them on.',
+      'The Ladder\'s reliability line and the ETOPS advice point to the maintenance programme.',
+    ],
+    fixes: [
+      'Iberojet, French bee, World2fly, Corsair and Norse Atlantic asked for narrowbodies. An airline now only asks for the aircraft it flies.',
+      'Fleet lists corrected for IndiGo, US-Bangla, Qantas, Austrian and Cyprus Airways.',
+      'Most government offers at Malta asked for IOSA, so a new company almost never saw them.',
+      'Crew already hired on a type not on the AOC are kept. One message asks once whether to keep them waiting or let them go.',
+    ],
+  },
+  {
     version: 'v0.23.3',
     name: 'Routes for every base, position aircraft',
     features: [
