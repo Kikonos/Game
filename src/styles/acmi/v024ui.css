@@ -24,3 +24,17 @@
 .v24-booked-table td { padding: 3px 6px 3px 0; }
 .v24-booked-table .num { text-align: right; }
 .v24-booked-pop { min-width: 260px; }
+/* In the Inbox's tile grid (iPad, Mac) the unfolded message takes the whole row, so its neighbours keep their size. */
+.sc-inbox .sc-list .sc-msg-wrap.open { grid-column: 1 / -1; }
+.sc-inbox .sc-list .sc-msg-wrap.open .sc-msg-full { max-width: 70ch; }
+.v24-contract-title { all: unset; font-weight: 700; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; min-height: 28px; display: inline-flex; align-items: center; }
+.v24-contract-title:hover { text-decoration: underline; text-underline-offset: 3px; }
+.v24-contract-title:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
+.v24-contract .of-shape-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.v24-booked-table th { white-space: nowrap; }
+.v24-booked-since { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--text-3, var(--text-2)); }
+.v24-booked-pop { min-width: 300px; }
+.v24-fleet-sub { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 100%; }
+.v24-fleet-sub > .ellipsis { min-width: 0; flex: 0 1 auto; }
+.v24-fleet-sub > .v24-booked { flex: 0 0 auto; }
+.subtitle:has(> .v24-fleet-sub) { overflow: visible; white-space: normal; }

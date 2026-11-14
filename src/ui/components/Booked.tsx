@@ -22,7 +22,7 @@ function Rows({ list }: { list: BookedPeriod[] }) {
     <>
       {list.map((p) => (
         <tr key={p.id}>
-          <td>{p.label}{p.since !== undefined && <span className="dim"> (from {fmtDay(p.since)})</span>}</td>
+          <td className="nowrap">{p.label}</td>
           <td className="num"><b>{bookedPct(p.share)}</b></td>
           <td className="num dim">{p.perDay === null ? '–' : p.perDay.toFixed(1)}</td>
         </tr>
@@ -38,6 +38,8 @@ export function BookedPill({ g, ids, title }: { g: GameState; ids?: string[]; /*
   const ref = useRef<HTMLSpanElement>(null);
   const head = list.find((p) => p.id === 'last30')!;
   const ahead = list.find((p) => p.id === 'next30')!;
+  // The record's first day when it is younger than a period (a young company, an older save): said once, in the head.
+  const since = list.find((p) => p.id === 'ytd')?.since;
   // Nothing flown yet (a new aircraft, a new company): the next 30 days instead.
   const show = head.share === null || (head.bh === 0 && ahead.bh > 0) ? ahead : head;
   return (
@@ -50,7 +52,7 @@ export function BookedPill({ g, ids, title }: { g: GameState; ids?: string[]; /*
         <PopBox anchor={ref.current} onClose={close} label={title} className="v24-booked-pop">
           <b>{title}</b>
           <table className="v24-booked-table small">
-            <thead><tr><th>Flown</th><th className="num">Booked</th><th className="num">BH a day</th></tr></thead>
+            <thead><tr><th>Flown{since !== undefined && <span className="v24-booked-since"> · since {fmtDay(since)}</span>}</th><th className="num">Booked</th><th className="num">BH a day</th></tr></thead>
             <tbody><Rows list={list.filter((p) => p.past)} /></tbody>
             <thead><tr><th>On the books</th><th /><th /></tr></thead>
             <tbody><Rows list={list.filter((p) => !p.past)} /></tbody>

@@ -45,11 +45,11 @@ export function ContractModal({ contractId }: { contractId: string }) {
           <span className="row gap-8"><b>{cl ? `${flag(cl.country)} ${cl.name}` : 'Client'}</b>{cl && <ClientStars n={clientStars(cl)} size={12} />}{c.broker && <span className="chip sc-chip sc-broker">via {c.broker}</span>}</span>
           {cl && !cl.own && <button className="btn btn-ghost btn-sm" onClick={() => store.openModal({ kind: 'client', clientId: cl.id })}>Client <ChevronRight /></button>}
         </div>
+        <div className="upper dim">How it stands</div>
+        <KV rows={sheet.status} />
         <div className="of-shape-head">{routeSummary(c.pattern) && <span className="small muted mono">{routeSummary(c.pattern)}</span>}<ShapeTags s={shapeOf(c, (id) => g.fleet[id]?.typeId)} /></div>
         <DurationStrip now={g.now} first={days[0]} last={c.pattern.kind === 'base' ? days[1] : Math.max(c.start, c.end - 1)} className="of-dur" />
         <Chips chips={[...reqChips(c.requirements, c.pattern, { shape: true }), ...effectChips(c)]} />
-        <div className="upper dim">How it stands</div>
-        <KV rows={sheet.status} />
         <div className="upper dim">Terms</div>
         <KV rows={sheet.terms} />
         {c.product.kind !== 'dry' && <>

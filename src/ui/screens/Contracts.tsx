@@ -241,7 +241,8 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
       <div className="sc-contract-main">
         <div className="row gap-8 sc-contract-head">
           <ArchIcon a={c.archetype} />
-          <b className="ellipsis">{c.title}</b>
+          {/* v0.24 the title opens the whole contract too. */}
+          <button className="v24-contract-title ellipsis" onClick={() => store.openModal({ kind: 'contract', contractId: c.id })}>{c.title}</button>
           <span className={`badge ${c.status === 'active' ? 'good' : c.status === 'cancelled' ? 'bad' : ''}`}>{STATUS_LABEL[c.status]}</span>
           <ShapeTags s={shapeOf(c, (id) => g.fleet[id]?.typeId)} compact className="sc-contract-shape" />
           <OriginTag v={contractOrigin(g, c)} help />
@@ -276,7 +277,7 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
       )}
       <div className="sc-contract-actions">
           {/* v0.24 the whole contract, read back (terms, programme, how it stands). */}
-          <button className="btn" onClick={() => store.openModal({ kind: 'contract', contractId: c.id })} aria-label="View the contract" data-tip="The contract: terms, programme, money so far"><FileText /></button>
+          <button className="btn" onClick={() => store.openModal({ kind: 'contract', contractId: c.id })} aria-label="View the contract"><FileText /></button>
           {open && <>
           <button className="btn" onClick={() => store.navigate('schedule', { sel: { kind: 'aircraft', id: c.aircraftIds[0] }, view: String(Math.max(g.now, next?.std ?? c.start)) })} aria-label="Show on schedule"><CalendarRange /></button>
           <button className={`btn ${lockSub ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'subcharter', contractId: c.id })} aria-label="Sub-charter legs to a rival" data-tip="Hand legs to a rival operator" {...lockedProps(lockSub)}><Handshake /></button>
