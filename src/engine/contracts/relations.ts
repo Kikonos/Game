@@ -448,10 +448,15 @@ export function loadRelations(g: GameState): void {
     c.level ??= levelFor(g, c, undefined);
   }
   // v0.24 the clients met in an older save: from what it holds (the first job or the first relation change when known).
-  const met = metClientIds(g);
-  for (const c of Object.values(g.clients)) {
-    if (c.met !== undefined || !(met.has(c.id) || (c.jobs ?? 0) > 0 || (c.log?.length ?? 0) > 0)) continue;
-    c.met = Math.min(c.firstJob ?? g.now, c.log?.[0]?.[0] ?? g.now, g.now);
+  // Once only (a save from this version keeps its own record).
+  const v024 = (g.stats.v024 ??= {});
+  if (!v024.met) {
+    v024.met = true;
+    const met = metClientIds(g);
+    for (const c of Object.values(g.clients)) {
+      if (c.met !== undefined || !(met.has(c.id) || (c.jobs ?? 0) > 0 || (c.log?.length ?? 0) > 0)) continue;
+      c.met = Math.min(c.firstJob ?? g.now, c.log?.[0]?.[0] ?? g.now, g.now);
+    }
   }
   g.company.standing ??= standingFor(g);
   statsV08(g);

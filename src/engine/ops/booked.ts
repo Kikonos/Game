@@ -27,10 +27,14 @@ export function noteBooked(ac: Aircraft, f: Flight, blockMin: number, now: Minut
 }
 
 /**
- * Load (and new game): an aircraft without the record gets one from the sold legs still in the save (the last week),
+ * Load (once) and new game: an aircraft without the record gets one from the sold legs still in the save (the last week),
  * and counts from the earliest day those cover (today when there are none).
  */
 export function loadBooked(g: GameState): void {
+  // Once only: an aircraft that joins later starts its record at its first sold leg and counts from its arrival.
+  const v024 = (g.stats.v024 ??= {});
+  if (v024.booked) return;
+  v024.booked = true;
   const today = Math.floor(g.now / DAY);
   const fresh = Object.values(g.fleet).filter((ac) => ac.bookDays === undefined);
   if (!fresh.length) return;

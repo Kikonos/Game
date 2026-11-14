@@ -45,9 +45,15 @@ describe('v0.24 clients met', () => {
     a.log = [[g.now - 30 * DAY, 4, 'Helped at short notice']];
     b.jobs = 2;
     b.firstJob = g.now - 60 * DAY;
+    // As a save from before v0.24: no marker yet.
+    delete g.stats.v024;
     loadRelations(g);
     expect(a.met).toBe(g.now - 30 * DAY);
     expect(b.met).toBe(g.now - 60 * DAY);
+    expect(c.met).toBeUndefined();
+    // Once only: a later load leaves the record as it is.
+    c.jobs = 1;
+    loadRelations(g);
     expect(c.met).toBeUndefined();
   });
 

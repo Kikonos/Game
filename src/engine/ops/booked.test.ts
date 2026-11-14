@@ -66,6 +66,7 @@ describe('v0.24 booked', () => {
     const kept = ac.bookDays!.reduce((s, d) => s + d[1], 0);
     expect(kept).toBeGreaterThan(0);
     for (const a of Object.values(g.fleet)) { delete a.bookDays; delete a.bookSince; }
+    delete g.stats.v024;
     loadBooked(g);
     const rebuilt = ac.bookDays!.reduce((s, d) => s + d[1], 0);
     expect(Math.abs(rebuilt - kept)).toBeLessThan(kept * 0.1);
