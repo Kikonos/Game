@@ -126,6 +126,8 @@ export function HireModal({ role: role0, family: fam0, base: base0, count: count
             </div>
           </>
         )}
+        {/* Right under the type, so a phone shows why Hire is off without scrolling. */}
+        {blocked && <div className="small warn">{blocked}.</div>}
         <div className="row between gap-16">
           <div className="row gap-16">
             <div className="field"><label>How many</label><Stepper value={count} min={1} max={30} onChange={setCount} /></div>
@@ -152,7 +154,6 @@ export function HireModal({ role: role0, family: fam0, base: base0, count: count
             <div className="small muted">Salary {money(salary)} / month each</div>
           </div>
         )}
-        {blocked && <div className="small warn">{blocked}.</div>}
         {q.beyondPool > 0 && <div className="small warn">The market has few rated {req.family} {role} free: {q.beyondPool} of these come through an agency (+{money(q.fee)} fee) and take longer to join.</div>}
       </div>
     </Modal>
