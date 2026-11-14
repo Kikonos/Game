@@ -61,6 +61,8 @@ describe('the offer draw by level', () => {
   it('weighs clients by their level against ours: 1 at ours, less below, a stretch one up, never two up', () => {
     const g = game();
     setLevel(g, 2);
+    // v0.24 with IOSA filed (before it, an airline up shows itself at iosaShow: iosa.test.ts).
+    g.company.pendingApprovals.push({ id: 'iosa', started: g.now, done: g.now + 240 * DAY, cost: 0 });
     expect(prestigeOfferWeight(g, clientAt(g, 2))).toBe(1);
     expect(prestigeOfferWeight(g, clientAt(g, 1))).toBe(P.weight['-1']);
     expect(prestigeOfferWeight(g, clientAt(g, 3))).toBe(P.weight['1']);
@@ -73,6 +75,7 @@ describe('the offer draw by level', () => {
   it('one stretch offer a month: after one is made the level above weighs nothing until the window passes', () => {
     const g = game();
     setLevel(g, 1);
+    g.company.pendingApprovals.push({ id: 'iosa', started: g.now, done: g.now + 240 * DAY, cost: 0 });
     const up = clientAt(g, 2);
     expect(stretchOpen(g)).toBe(true);
     const d = { client: up, req: { approvals: [] } };

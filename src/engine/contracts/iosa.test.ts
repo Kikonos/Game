@@ -74,6 +74,17 @@ describe('IOSA asks by the game stage', () => {
     expect(kept).toBeLessThan(P.iosaKeep + 0.1);
   });
 
+  it('before IOSA is filed an airline one or two levels up shows itself at iosaShow (not two levels up a ministry); after, the ladder as before', () => {
+    const g = game();
+    expect(prestigeOfferWeight(g, airlineAt(g, 3))).toBe(P.iosaShow);
+    expect(prestigeOfferWeight(g, airlineAt(g, 4))).toBe(0);
+    g.company.prestige = { level: 2, visibility: 0, levelAt: { 1: g.started } };
+    expect(prestigeOfferWeight(g, airlineAt(g, 4))).toBe(P.iosaShow);
+    expect(prestigeOfferWeight(g, named(g, 'Lithuanian Ministry of Foreign Affairs'))).toBeLessThanOrEqual(P.weight['1']);
+    g.company.pendingApprovals.push({ id: 'iosa', started: g.now, done: g.now + 240 * DAY, cost: 0 });
+    expect(prestigeOfferWeight(g, airlineAt(g, 4))).toBe(0);
+  });
+
   it('filed: national carriers take that (nothing asked, nothing dropped); the majors still want it held, every time', () => {
     const g = game();
     g.company.pendingApprovals.push({ id: 'iosa', started: g.now, done: g.now + 240 * DAY, cost: 0 });
@@ -123,7 +134,8 @@ describe('government work at every start base', () => {
     const g = game('MLA');
     expect(prestigeOfferWeight(g, named(g, 'Maltese Ministry for Foreign Affairs'))).toBe(P.weight['0']);
     expect(prestigeOfferWeight(g, named(g, 'Armed Forces of Malta'))).toBe(P.weight['0']);
-    expect(prestigeOfferWeight(g, named(g, 'Maltese Ministry for Home Affairs'))).toBe(P.weight['0']);
+    // Its home affairs (return flights) waits for the ladder like any level-3 client.
+    expect(prestigeOfferWeight(g, named(g, 'Maltese Ministry for Home Affairs'))).toBe(0);
     expect(prestigeOfferWeight(g, named(g, 'Lithuanian Ministry of Foreign Affairs'))).toBe(0);
     // A big state's level-4 ministry keeps the ladder even at home.
     const fr = game('LIS');

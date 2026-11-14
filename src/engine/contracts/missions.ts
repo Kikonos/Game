@@ -135,8 +135,6 @@ const TCC = ['DAC', 'KTM', 'ISB', 'ADD', 'KGL', 'ACC'];
 function unRotation(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
   if (standingOf(g) < 1) return null;
-  // v0.24 stage-aware: with IOSA neither held nor filed, only a share of these reach us (prestige.ts markStretch).
-  if (!o.client && !has(g, 'iosa') && !chance(sideRng(g, `uniosa:${g.seq}:${g.now}`), BAL.v016.prestige.iosaKeep)) return null;
   const client = (o.client && g.clients[o.client]) || nearClient({ ...ctx, window: undefined }, clientsOf(g, ['government', 'agency'], (c) => /^UN (Department of Peace|World Food)/.test(c.name)));
   if (!client) return null;
   const tcc = o.airport ?? pick(g, TCC.filter(exists));
@@ -1055,7 +1053,9 @@ export function missionWeights(g: GameState): [Archetype, number][] {
   const polar = has(g, 'polar');
   const out: [Archetype, number][] = [
     ['hajj', hajjTender(g.now) ? (wide ? 0.1 : 0.04) : 0],
-    ['unRotation', st >= 1 ? 0.04 : 0],
+    // v0.24 stage-aware: the UN registers IOSA operators; with IOSA neither held nor filed only a share comes (as the
+    // airlines' IOSA asks, prestige.ts markStretch).
+    ['unRotation', st >= 1 ? 0.04 * (has(g, 'iosa') ? 1 : BAL.v016.prestige.iosaKeep) : 0],
     ['deportation', 0.04 * (st === 0 ? 2 : 1)],
     ['evacuation', 0.02],
     ['medical', 0.02],

@@ -48,6 +48,9 @@ for (const s of [...CLIENT_SEEDS, ...CLIENT_SEEDS_B1, ...CLIENT_SEEDS_V08, ...CL
 }
 for (const s of TENDER_CLIENT_SEEDS) if (s.prestige) BY_NAME[s.name] = s.prestige;
 
+/** v0.24 the home state's ministries that call a local operator from the start (prestigeOfferWeight). */
+const HOME_ROLES = new Set<string>(['foreign', 'defence']);
+
 /** v0.24 seeds whose level changed since they were released (loadPrestige moves an older save's client). */
 const RELEVELLED = new Set(['Frontex']);
 
@@ -251,14 +254,17 @@ export const isStretchClient = (g: GameState, c: Client): boolean => clientPrest
 export function prestigeOfferWeight(g: GameState, c: Client): number {
   if (!PRESTIGE_GATE.on) return 1;
   const cur = g.clients[c.id] ?? c;
-  // v0.24 our own state's ministries (level 3 at most) know the operators at home: they call at our level from the start
+  // v0.24 our own state's foreign and defence ministries (level 3 at most) know the operators at home: they call at our level from the start
   // (player at Malta: "no government contracts offered"). The big states' level-4 ministries keep the ladder.
-  if (cur.kind === 'government' && clientPrestige(cur) <= 3 && cur.country === AIRPORT_BY_CODE[g.company.homeBase]?.country) return P.weight['0'];
+  if (cur.kind === 'government' && HOME_ROLES.has(ROLE_BY_NAME[cur.name] ?? '') && clientPrestige(cur) <= 3 && cur.country === AIRPORT_BY_CODE[g.company.homeBase]?.country) return P.weight['0'];
   const diff = clientPrestige(cur) - playerLevel(g);
   if (diff <= 0) return P.weight[String(Math.max(-3, diff))] ?? 0;
   if (cur.jobs) return P.weight['0'];
-  if (diff === 1) return stretchOpen(g) ? P.weight['1'] : 0;
-  return 0;
+  // v0.24 an airline one or two levels up shows itself now and then before IOSA is filed: its offer asks for IOSA
+  // (markStretch), a look at what the registration opens (not a stretch offer: we cannot take it yet).
+  const show = diff <= 2 && asksIosa(cur) && !cur.rivalId && !g.company.approvals.includes('iosa') && !g.company.pendingApprovals.some((p) => p.id === 'iosa') ? P.iosaShow : 0;
+  if (diff === 1) return stretchOpen(g) ? Math.max(P.weight['1'], show) : show;
+  return show;
 }
 
 /** v0.24 the clients that ask a new operator for IOSA registration: airlines (IATA members audit their wet lessors to

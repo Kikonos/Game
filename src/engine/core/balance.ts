@@ -643,7 +643,12 @@ export const BAL = {
       weight: { '-3': 0.1, '-2': 0.25, '-1': 0.5, '0': 1, '1': 0.1 } as Record<string, number>, stretchDays: 30,
       /** v0.24 with IOSA neither held nor filed: the share of a new airline client's IOSA asks that reach us (the rest are
        *  drawn again): a taste of what IOSA brings, not a flood. */
-      iosaKeep: 0.5,
+      iosaKeep: 0.75,
+      /** v0.24 and an airline one or two levels up (a national carrier or a major) shows itself in the draw at this weight
+       *  while IOSA is neither held nor filed: its offer asks for IOSA, a look at what IOSA opens. */
+      iosaShow: 0.8,
+      /** v0.24 a Newcomer's share of the repatriation and troop-rotation weights (offers.ts weights). */
+      stateNewcomer: 0.5,
       /** What a level 3 / 4 client checks before it signs: reliable, fleet average age (years), clean (4). */
       reqs: { 3: { reliable: 65, maxAge: 22, clean: 0 }, 4: { reliable: 75, maxAge: 18, clean: 60 } } as Record<number, { reliable: number; maxAge: number; clean: number }>,
       /** Far-flung routes (missions.ts farRoute): the archetype multiplier on top. */

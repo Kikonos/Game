@@ -1111,9 +1111,11 @@ function weights(g: GameState, ordinary = false): [Archetype, number][] {
     ['aogCover', mo >= 5 && mo <= 8 ? 0.17 : 0.13],
     ['adhoc', 0.25],
     ['sports', mo === 5 || mo === 6 ? 0.04 : 0.11],
-    ['repatriation', 0.06],
+    // v0.24 state work no longer asks for IOSA (it reached a newcomer at a quarter of its weight before): a new AOC gets
+    // about half of it, the ministries preferring operators they know (BAL.v016.prestige.stateNewcomer).
+    ['repatriation', 0.06 * (standingOf(g) === 0 ? BAL.v016.prestige.stateNewcomer : 1)],
     ['tourSeries', (mo >= 1 && mo <= 5) || mo === 8 || mo === 9 ? 0.13 : 0.08],
-    ['troopRotation', 0.06],
+    ['troopRotation', 0.06 * (standingOf(g) === 0 ? BAL.v016.prestige.stateNewcomer : 1)],
     // v0.7: VIP work, twice as often once we fly a VIP cabin. v0.8: not for a Newcomer.
     ['vip', standingOf(g) === 0 ? 0 : Object.values(g.fleet).some((a) => a.cabin.layout === 'vip') ? 0.08 : 0.04],
   ];
