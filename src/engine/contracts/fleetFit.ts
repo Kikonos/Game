@@ -12,7 +12,8 @@ import { AIRLINE_FAMILIES } from '../../data/naming';
 import { BAL } from '../core/balance';
 import { typeOf } from '../core/perf';
 import { DAY } from '../core/time';
-import type { Aircraft, Client, GameState, Minute } from '../core/types';
+import type { Aircraft, Client, GameState, Minute, Requirements } from '../core/types';
+import { bodyOfReq } from './shape';
 import { anchorsOf } from './plan';
 import { playerLevel, playerPrestige, PRESTIGE_GATE } from './prestige';
 
@@ -141,18 +142,38 @@ export function noteReach(g: GameState): void {
 const WIDE_FAMS = new Set(ACMI_TYPES_LIST.filter((t) => t.body === 'wide').map((t) => t.family as string));
 const NARROW_FAMS = new Set(ACMI_TYPES_LIST.filter((t) => t.body === 'narrow').map((t) => t.family as string));
 
-/** The bodies a client could use from us: an airline by the families it flies (crew, slots, stands), anyone else either. Pure. */
+/**
+ * The bodies a client could use from us: an airline by the families it flies (crew, slots, stands, its passengers'
+ * expectations), anyone else either. An airline that flies none of our families (airBaltic's A220s, Airlink's
+ * Embraers) wet-leases narrowbodies to fill in, never a widebody. A widebody-only airline (Iberojet, World2fly,
+ * Corsair, French bee, Norse) never asks for a narrowbody. Pure.
+ */
 export function clientBodies(c: Pick<Client, 'name' | 'kind'>): { narrow: boolean; wide: boolean } {
   const fams = c.kind === 'airline' ? AIRLINE_FAMILIES[c.name] : undefined;
-  if (!fams?.length) return { narrow: true, wide: true };
+  if (!fams) return { narrow: true, wide: true };
   const narrow = fams.some((f) => NARROW_FAMS.has(f));
   const wide = fams.some((f) => WIDE_FAMS.has(f));
-  return narrow || wide ? { narrow, wide } : { narrow: true, wide: true };
+  return narrow || wide ? { narrow, wide } : { narrow: true, wide: false };
+}
+
+/** Whether the client would ask for a job of this body (clientBodies). Pure. */
+export const clientTakes = (c: Pick<Client, 'name' | 'kind'>, body: 'narrow' | 'wide'): boolean => clientBodies(c)[body];
+
+/**
+ * Whether a client would ask for this job: an airline the body it flies (clientBodies) and, when the job names
+ * families, one of its own (crew commonality; an airline with no family of ours named takes any). Anyone else: yes. Pure.
+ */
+export function clientFlies(c: Pick<Client, 'name' | 'kind'>, req: Pick<Requirements, 'minSeats' | 'body' | 'families'>): boolean {
+  if (c.kind !== 'airline') return true;
+  if (!clientTakes(c, bodyOfReq(req))) return false;
+  const fams = AIRLINE_FAMILIES[c.name];
+  return !req.families?.length || !fams?.length || req.families.some((f) => fams.includes(f));
 }
 
 /**
  * The bodies we could offer a client: what we have (in service or delivering) and what it flies; a fleet without a
- * widebody offers narrowbodies only (the newcomer rules). Narrowbody first. Pure.
+ * widebody offers narrowbodies only (the newcomer rules). Narrowbody first. Empty when nothing of ours suits it (a
+ * widebody-only airline and a narrowbody fleet): no lead, no pitch. Pure.
  */
 export function bodiesFor(g: GameState, c: Pick<Client, 'name' | 'kind'>): ('narrow' | 'wide')[] {
   const cb = clientBodies(c);
@@ -160,12 +181,15 @@ export function bodiesFor(g: GameState, c: Pick<Client, 'name' | 'kind'>): ('nar
   const out: ('narrow' | 'wide')[] = [];
   if (cb.narrow && units.some((u) => u.body === 'narrow')) out.push('narrow');
   if (cb.wide && holdsWide(g)) out.push('wide');
-  return out.length ? out : ['narrow'];
+  // A company with no aircraft at all (a scenario's opening, a test) still talks narrowbodies to whoever flies them.
+  if (!out.length && !units.length && cb.narrow) out.push('narrow');
+  return out;
 }
 
-/** The body a client asks for, from a draw in [0, 1): our weighted widebody share among the bodies it could use. Pure. */
-export function pickBody(g: GameState, c: Pick<Client, 'name' | 'kind'>, roll: number): 'narrow' | 'wide' {
+/** The body a client asks for, from a draw in [0, 1): our weighted widebody share among the bodies it could use;
+ *  undefined when none suits it (bodiesFor). Pure. */
+export function pickBody(g: GameState, c: Pick<Client, 'name' | 'kind'>, roll: number): 'narrow' | 'wide' | undefined {
   const b = bodiesFor(g, c);
-  if (b.length === 1) return b[0];
+  if (b.length <= 1) return b[0];
   return roll < fleetOutlook(g).wideShare ? 'wide' : 'narrow';
 }

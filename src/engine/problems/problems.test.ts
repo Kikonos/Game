@@ -194,7 +194,9 @@ describe('cards', () => {
     if (!o) return;
     const c = problemFor(g, { kind: 'offerFit', ref: { kind: 'offer', id: o.id } });
     expect(c).not.toBeNull();
-    expect(c!.what).toMatch(/^You can't fly .+ as it stands$|needs care$/);
+    // v0.24 the draw now builds an offer here (it returned null before, so this was never reached): the card's words as
+    // offerFitCard writes them since v0.18.
+    expect(c!.what).toMatch(/: not flyable yet$|: check before signing$/);
     expect(c!.why.length).toBeGreaterThan(10);
     expect(c!.actions.length).toBeGreaterThan(0);
     expect(c!.details.length).toBeGreaterThan(0);

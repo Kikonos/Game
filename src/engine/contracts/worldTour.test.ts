@@ -345,7 +345,8 @@ describe('v0.14 world tours: no permit delay', () => {
     // v0.16 seeds 3 and 11 (the new clients moved the draws: seed 7's tour now loses its crew after the first leg).
     // v0.17 seeds 3 and 13 (the lessor rating's messages moved the draws: seed 11's tour now loses a sick captain).
     // v0.17 merge: seeds 9 and 13 (with the whole aircraft market in, seed 3's tour runs out of legal crew at Sydney).
-    for (const seed of [9, 13]) {
+    // v0.24 seeds 4 and 13 (the offers lane moved the draws: seed 9's tour now loses its crew after the second leg).
+    for (const seed of [4, 13]) {
       const { g, acId } = tourGame(seed);
       const o = g.offers[devWorldTour(g)];
       expect(o.risk.permit).toBe(0);
@@ -387,7 +388,8 @@ describe('v0.12.1 world tours: a stop closed', () => {
 
   it('the card: another stop on the same dates, the same crew; told in four lines; the tour keeps its price', () => {
     // v0.14 seed 9 (seed 3's tour now meets a sick first officer on day one; see 'a whole tour played').
-    const { g, contractId, legIn } = closed(9)!;
+    // v0.24 seed 4 (the offers lane moved the draws: seed 9's tour no longer flies every leg after the stop).
+    const { g, contractId, legIn } = closed(4)!;
     const d = g.decisions.find((x) => x.kind === 'tourStop')!;
     expect(d).toBeDefined();
     expect(d.options.map((o) => o.id)).toContain('alternate');

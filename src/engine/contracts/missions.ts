@@ -36,6 +36,7 @@ import { sideRng } from './paintTerms';
 import { computeWaves, programmeOf, route, routeMinutes } from './plan';
 import { ARCH_MULT, defaultSeats, flownTypes, referenceType } from './pricing';
 import { markStretch } from './prestige';
+import { clientTakes } from './fleetFit';
 import { isQuiet } from '../ops/director';
 import { warRiskCost } from './missionChecks';
 import { levelOf } from './relations';
@@ -211,7 +212,9 @@ function deportation(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
   const client = (o.client && g.clients[o.client]) || nearClient({ ...ctx, window: undefined }, clientsOf(g, ['government', 'agency'], (c) => (roleOf(c) === 'interior' || c.name === 'Frontex') && exists(c.base)));
   if (!client) return null;
-  const from = client.base;
+  // v0.24 a Frontex joint return operation leaves from our own state's airport (the member state organises it).
+  const home = g.company.homeBase;
+  const from = client.name === 'Frontex' && EUROPE.has(AIRPORT_BY_CODE[home]?.country ?? '') ? home : client.base;
   const dests = DEPORT_DESTS.filter((c) => exists(c) && km(from, c) > 1500 && (wide || km(from, c) < 5500));
   const dest = o.airport ?? (dests.length ? pick(g, dests) : null);
   if (!dest) return null;
@@ -1005,7 +1008,7 @@ export function dailyFarRoute(g: GameState): ContractOffer | null {
 export function makeFarRoute(g: GameState, id?: string, opts: Parameters<typeof farRoute>[2] = {}): ContractOffer | null {
   const d = farRoute(g, id, opts);
   if (!d) return null;
-  markStretch(g, d);
+  if (markStretch(g, d) === 'drop') return null;
   return finalizeDraft(g, d);
 }
 
@@ -1050,7 +1053,9 @@ export function missionWeights(g: GameState): [Archetype, number][] {
   const polar = has(g, 'polar');
   const out: [Archetype, number][] = [
     ['hajj', hajjTender(g.now) ? (wide ? 0.1 : 0.04) : 0],
-    ['unRotation', st >= 1 ? 0.04 : 0],
+    // v0.24 stage-aware: the UN registers IOSA operators; with IOSA neither held nor filed only a share comes (as the
+    // airlines' IOSA asks, prestige.ts markStretch).
+    ['unRotation', st >= 1 ? 0.04 * (has(g, 'iosa') ? 1 : BAL.v016.prestige.iosaKeep) : 0],
     ['deportation', 0.04 * (st === 0 ? 2 : 1)],
     ['evacuation', 0.02],
     ['medical', 0.02],
@@ -1109,7 +1114,8 @@ export function dailySubIn(g: GameState): ContractOffer | null {
   const rivals = g.rivals.filter((x) => isActive(x) && rivalClient(g, x) && x.fleet.some((f) => f.count > 0 && typeOf(f.typeId).family === fam));
   const rival = weightedPick(r, rivals, (x) => x.fleet.reduce((s, f) => s + f.count, 0) * (x.load ?? 0.7));
   if (!rival) return null;
-  const ends = clientsOf(g, ['airline'], (c) => exists(c.base) && !c.rivalId);
+  // v0.24 the end client flies this body (a rival's A320 never covers Virgin Atlantic's all-widebody schedule).
+  const ends = clientsOf(g, ['airline'], (c) => exists(c.base) && !c.rivalId && clientTakes(c, wide ? 'wide' : 'narrow'));
   const end = weightedPick(r, ends, (c) => 1 / (1 + km(c.base, rival.base) / 1500));
   if (!end) return null;
   // v0.14 paced: a rival's request at short notice waits for a busy spell (a quiet spell rings no phone).

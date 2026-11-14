@@ -265,6 +265,8 @@ export const CLIENT_LIVERIES: Record<string, ClientLiveryRecipe> = {
   'German Federal Police': { basis: 'Bundespolizei: white and blue', fin: ['#004b93', '#004b93', 'solid'], body: { stripes: cheat('#004b93'), engines: W }, titles: ['BUNDESPOLIZEI', '#004b93', 700], mark: { code: ['BP', W] }, decalInk: '#004b93' },
   'Maltese Ministry for Foreign Affairs': state('Maltese state: white and red', 'REPUBLIC OF MALTA', ['#cf142b', '#cf142b']),
   'Armed Forces of Malta': state('Maltese state: white and red', 'ARMED FORCES OF MALTA', ['#cf142b', '#cf142b']),
+  // v0.24
+  'Maltese Ministry for Home Affairs': state('Maltese state: white and red', 'REPUBLIC OF MALTA', ['#cf142b', '#cf142b']),
   'Latvian Ministry of Foreign Affairs': state('Latvian state: white and carmine', 'LATVIJAS REPUBLIKA', ['#9e3039', '#9e3039']),
   'Latvian Ministry of Defence': state('Latvian state: white and carmine', 'LATVIJAS REPUBLIKA', ['#9e3039', '#9e3039']),
   'Czech Ministry of Foreign Affairs': state('Czech state: white, blue and red', 'ČESKÁ REPUBLIKA', ['#11457e', '#d7141a']),
@@ -557,6 +559,13 @@ export const CLIENT_LIVERIES: Record<string, ClientLiveryRecipe> = {
   'Rugby Football Union (RFU)': brand('RFU: white and navy', 'ENGLAND RUGBY', '#002147', 'RFU'),
   'French Rugby Federation (FFR)': brand('FFR: blue', 'FFR', '#0055a4', 'FFR'),
   'Lithuanian Basketball Federation': brand('Lithuanian basketball: green and yellow', 'LIETUVA', '#006a44', 'LTU', '#fdb913'),
+  // v0.24 the national football associations of the start bases.
+  'Malta Football Association': brand('Malta FA: red and white', 'MALTA', '#cf142b', 'MFA'),
+  'Football Association of the Czech Republic': brand('Czech FA: blue and red', 'ČESKÁ REPREZENTACE', '#11457e', 'FAČR', '#d7141a'),
+  'Bulgarian Football Union': brand('Bulgarian FU: green and red', 'BULGARIA', '#00966e', 'BFU', '#d62612'),
+  'Latvian Football Federation': brand('Latvian FF: carmine and white', 'LATVIJA', '#9e3039', 'LFF'),
+  'Estonian Football Association': brand('Estonian FA: blue and black', 'EESTI', '#0072ce', 'EJL', '#000000'),
+  'Lithuanian Football Federation': brand('Lithuanian FF: yellow and green', 'LIETUVA', '#006a44', 'LFF', '#fdb913'),
 
   // ---------- v0.16 promoters and companies (decals) ----------
   'CAA Touring': brand('CAA: black', 'CAA TOURING', '#000000', 'CAA'),
