@@ -46,9 +46,9 @@ describe('v0.24.1 key bindings', () => {
 
   it('rebind: a free key binds; a taken key reports the conflict; swap trades keys', () => {
     const m = { ...DEFAULT_KEYS };
-    const a = rebind(m, 'tab.finance', '4');
+    const a = rebind(m, 'tab.finance', '7');
     expect(a.conflict).toBeUndefined();
-    expect(a.map['tab.finance']).toBe('4');
+    expect(a.map['tab.finance']).toBe('7');
     expect(m['tab.finance']).toBe('b');
     const b = rebind(m, 'tab.finance', 'm');
     expect(b.conflict).toBe('tab.map');
@@ -82,6 +82,6 @@ describe('v0.24.1 key bindings', () => {
 
   it('nav tooltips name the live key', () => {
     expect(navTitle('Map', DEFAULT_KEYS, 'map')).toBe('Map (M)');
-    expect(navTitle('Finance', swapKeys({ ...DEFAULT_KEYS }, 'tab.finance', '4'), 'finance')).toBe('Finance (4)');
+    expect(navTitle('Finance', swapKeys({ ...DEFAULT_KEYS }, 'tab.finance', '7'), 'finance')).toBe('Finance (7)');
   });
 });

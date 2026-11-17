@@ -85,6 +85,29 @@ function overheadIn(r: Route, status: Route['status'], closing = false): number 
   return Object.values(routeMonthCosts(x)).reduce((a, v) => a + (v ?? 0), 0);
 }
 
+/**
+ * A wind-down plan: the booked rotations up to a last date fly (`fly`), the later ones are cancelled and refunded
+ * (`later`: far off, few booked, refunded with weeks of notice and no compensation).
+ */
+export interface WindQuote {
+  fly: number;
+  flyPax: number;
+  /** Direct cost of flying them (fuel, charges, handling, catering, maintenance). */
+  flyCost: number;
+  /** What they earn besides the tickets already sold (bags, seats, onboard, cargo). */
+  flyRev: number;
+  /** The overheads until the last flight (station, distribution) while they fly. */
+  flyOverhead: number;
+  later: number;
+  laterPax: number;
+  /** Refunding the later ones (their tickets and passenger costs). */
+  laterCost: number;
+  /** Arrival of the last flight flown (or under way). */
+  lastFlight?: Minute;
+  /** Against close now (positive: this plan costs less). */
+  saved: number;
+}
+
 export interface RouteLifeQuote {
   ok: boolean;
   why?: string;
@@ -98,38 +121,105 @@ export interface RouteLifeQuote {
   underWay: number;
   /** Passengers booked on the booked rotations (each way counted). */
   pax: number;
-  /** Cancel the booked rotations now: ticket money back, passenger costs (notice, re-protection), a sub-charter's price back. */
+  /** Cancel every booked rotation now: ticket money back, passenger costs (notice, re-protection), a sub-charter's price back. */
   refunds: number;
   comp: number;
   subBack: number;
-  /** refunds + comp − subBack: what refunding everyone costs. */
+  /** refunds + comp − subBack: what refunding everyone costs (Close now). */
   refundCost: number;
-  /** Fly the booked rotations: their direct costs (fuel, charges, handling, catering, maintenance). */
-  flyCost: number;
-  /** The overheads until the last booked flight (the station, distribution) while they fly. */
-  flyOverhead: number;
-  /** Departure of the first and arrival of the last booked rotation. */
-  firstFlight?: Minute;
-  lastFlight?: Minute;
-  /** Wind down against close now (positive: winding down costs less). */
-  saved: number;
+  /** Wind down, cheapest: the next 14 days always fly (short notice is dear), then up to the last date that costs least. */
+  best: WindQuote;
+  /** Wind down flying every booked rotation. */
+  all: WindQuote;
   /** Monthly overheads: as now, suspended, while winding down. */
   monthNow: number;
   monthSuspended: number;
   monthClosing: number;
   /** On sale and flying again (resume). */
   monthLive: number;
-  /** A suspension: the date the slots lapse when the booked flights fly, and when they are refunded. */
+  /** A suspension: the date the slots lapse when the booked flights fly (cheapest plan), and when they are refunded. */
   slotsKeep: Minute;
   slotsRefund: Minute;
   /** Resume: the first departure filed again. */
   resumeFirst?: Minute;
 }
 
+interface PlanRow { rot: Rotation; pax: number; refund: number; comp: number; subBack: number; fly: number; rev: number; end: Minute }
+
+/** What flying a rotation earns besides its tickets: bags, seats and onboard sales, and the cargo it usually carries. */
+function extraRev(route: Route, rot: Rotation, pax: number): number {
+  if (rot.operatedBy || route.model === 'partner') return 0;
+  const m = marketOfRoute(route);
+  return Math.round(pax * (m?.ancillary ?? 20) + (m?.cargo.south ?? 0) * 2 + (m?.cargo.north ?? 0) * 1.4);
+}
+
+/** The booked rotations not yet started, in date order, with what refunding and flying each one means (pure). */
+function planRows(g: GameState, r: Route): PlanRow[] {
+  const rows: PlanRow[] = [];
+  for (const rot of r.rotations) {
+    if (!ahead(rot) || started(g, rot) || !hasPax(rot)) continue;
+    const c = quoteCancelRotation(g, rot.id);
+    const pax = rotationPax(r, rot);
+    rows.push({ rot, pax, refund: c.ok ? c.refunds : 0, comp: c.ok ? c.cost : 0, subBack: c.ok ? c.subBack ?? 0 : 0, fly: rotationFlyCost(g, r, rot), rev: extraRev(r, rot, pax), end: lastArr(g, r, rot) });
+  }
+  return rows.sort((a, b) => a.rot.dep - b.rot.dep);
+}
+
+/**
+ * How many of the rows fly (pure). `all`: every one. Else the next 14 days always fly (passengers told at short notice
+ * are owed care and rebooking, and it is how airlines close a route), then up to the last date that saves the most
+ * against refunding: each one flown keeps its tickets and earns its extras, but costs its flying and the overheads
+ * until it lands.
+ */
+function planCut(g: GameState, rows: PlanRow[], underWayEnd: Minute, monthClosing: number, all: boolean): number {
+  if (all) return rows.length;
+  const notice = g.now + BAL.v019.pax.change.days[0] * DAY;
+  const must = rows.filter((x) => x.rot.dep < notice).length;
+  const perMin = monthClosing / (30 * DAY);
+  let best = -Infinity;
+  let bestN = must;
+  let sum = 0;
+  let prevEnd = underWayEnd;
+  rows.forEach((x, i) => {
+    sum += x.refund + x.comp - x.subBack + x.rev - x.fly - Math.max(0, x.end - prevEnd) * perMin;
+    prevEnd = Math.max(prevEnd, x.end);
+    if (i + 1 >= must && sum > best) { best = sum; bestN = i + 1; }
+  });
+  return rows.length ? bestN : 0;
+}
+
+function windQuote(g: GameState, rows: PlanRow[], cut: number, underWayEnd: Minute, underWay: number, monthClosing: number, refundCost: number): WindQuote {
+  const w: WindQuote = { fly: 0, flyPax: 0, flyCost: 0, flyRev: 0, flyOverhead: 0, later: 0, laterPax: 0, laterCost: 0, saved: 0 };
+  rows.forEach((x, i) => {
+    if (i < cut) {
+      w.fly++;
+      w.flyPax += x.pax;
+      w.flyCost += x.fly;
+      w.flyRev += x.rev;
+      w.lastFlight = Math.max(w.lastFlight ?? 0, x.end);
+    } else {
+      w.later++;
+      w.laterPax += x.pax;
+      w.laterCost += x.refund + x.comp - x.subBack;
+    }
+  });
+  if (underWay) w.lastFlight = Math.max(w.lastFlight ?? 0, underWayEnd);
+  w.flyOverhead = Math.round((w.lastFlight ? Math.max(0, w.lastFlight - g.now) / (30 * DAY) : 0) * monthClosing);
+  w.saved = Math.round(refundCost - (w.flyCost - w.flyRev) - w.flyOverhead - w.laterCost);
+  return w;
+}
+
+const underWayEndOf = (g: GameState, r: Route) => r.rotations.filter((x) => ahead(x) && started(g, x)).reduce((a, x) => Math.max(a, lastArr(g, r, x)), g.now);
+const closingMonth = (r: Route) => overheadIn(r, r.status === 'suspended' ? 'suspended' : r.status, true);
+
 /** Every number the four actions need (pure). */
 export function quoteRouteLife(g: GameState, routeId: string): RouteLifeQuote {
   const r = g.network?.routes[routeId];
-  const z: RouteLifeQuote = { ok: false, ahead: 0, booked: 0, empty: 0, underWay: 0, pax: 0, refunds: 0, comp: 0, subBack: 0, refundCost: 0, flyCost: 0, flyOverhead: 0, saved: 0, monthNow: 0, monthSuspended: 0, monthClosing: 0, monthLive: 0, slotsKeep: g.now, slotsRefund: g.now };
+  const w0: WindQuote = { fly: 0, flyPax: 0, flyCost: 0, flyRev: 0, flyOverhead: 0, later: 0, laterPax: 0, laterCost: 0, saved: 0 };
+  const z: RouteLifeQuote = {
+    ok: false, ahead: 0, booked: 0, empty: 0, underWay: 0, pax: 0, refunds: 0, comp: 0, subBack: 0, refundCost: 0, best: w0, all: w0,
+    monthNow: 0, monthSuspended: 0, monthClosing: 0, monthLive: 0, slotsKeep: g.now, slotsRefund: g.now,
+  };
   if (!r) return { ...z, why: 'This route no longer exists.' };
   if (routeLife(r) === 'other') return { ...z, why: r.status === 'closed' ? 'This route is closed.' : 'Not on sale yet.' };
   const q = { ...z, ok: true };
@@ -137,32 +227,27 @@ export function quoteRouteLife(g: GameState, routeId: string): RouteLifeQuote {
     if (!ahead(rot)) continue;
     if (started(g, rot)) { q.underWay++; continue; }
     q.ahead++;
-    if (!hasPax(rot)) { q.empty++; continue; }
-    q.booked++;
-    q.pax += rotationPax(r, rot);
-    const c = quoteCancelRotation(g, rot.id);
-    if (c.ok) {
-      q.refunds += c.refunds;
-      q.comp += c.cost;
-      q.subBack += c.subBack ?? 0;
-    }
-    q.flyCost += rotationFlyCost(g, r, rot);
-    q.firstFlight = Math.min(q.firstFlight ?? rot.dep, rot.dep);
-    q.lastFlight = Math.max(q.lastFlight ?? 0, lastArr(g, r, rot));
+    if (!hasPax(rot)) q.empty++;
   }
-  for (const rot of r.rotations) if (ahead(rot) && started(g, rot)) q.lastFlight = Math.max(q.lastFlight ?? 0, lastArr(g, r, rot));
-  q.refundCost = q.refunds + q.comp - q.subBack;
   q.monthNow = overheadIn(r, r.status, !!r.closing);
   q.monthSuspended = overheadIn(r, 'suspended');
   q.monthLive = overheadIn(r, r.status === 'suspended' ? r.suspended?.prev ?? 'operating' : r.status);
-  q.monthClosing = overheadIn(r, r.status === 'suspended' ? 'suspended' : r.status, true);
-  const months = q.lastFlight ? Math.max(0, q.lastFlight - g.now) / (30 * DAY) : 0;
-  q.flyOverhead = Math.round(months * q.monthClosing);
-  q.saved = Math.round(q.refundCost - q.flyCost - q.flyOverhead);
+  q.monthClosing = closingMonth(r);
+  const rows = planRows(g, r);
+  const end = underWayEndOf(g, r);
+  for (const x of rows) {
+    q.booked++;
+    q.pax += x.pax;
+    q.refunds += x.refund;
+    q.comp += x.comp;
+    q.subBack += x.subBack;
+  }
+  q.refundCost = q.refunds + q.comp - q.subBack;
+  q.best = windQuote(g, rows, planCut(g, rows, end, q.monthClosing, false), end, q.underWay, q.monthClosing, q.refundCost);
+  q.all = windQuote(g, rows, rows.length, end, q.underWay, q.monthClosing, q.refundCost);
   const hold = LIFE().slotHoldDays * DAY;
-  q.slotsKeep = Math.max(g.now, q.lastFlight ?? g.now) + hold;
-  const underWayEnd = r.rotations.filter((x) => ahead(x) && started(g, x)).reduce((a, x) => Math.max(a, lastArr(g, r, x)), g.now);
-  q.slotsRefund = underWayEnd + hold;
+  q.slotsKeep = Math.max(g.now, q.best.lastFlight ?? g.now) + hold;
+  q.slotsRefund = end + hold;
   if (r.status === 'suspended' || r.closing) q.resumeFirst = resumeFirst(g, r);
   return q;
 }
@@ -196,12 +281,18 @@ function dropEmpty(g: GameState, r: Route, rot: Rotation): void {
   }
 }
 
-/** Stops sales: the empty rotations go, the booked ones fly or are refunded (`refund`). */
-function stopSelling(g: GameState, r: Route, refund: boolean, why: string): void {
+/**
+ * Stops sales: the empty rotations go; the booked ones are all refunded ('refund'), or fly up to the cheapest last
+ * date ('best', the later ones refunded), or all fly ('all').
+ */
+function stopSelling(g: GameState, r: Route, mode: 'refund' | 'best' | 'all', why: string): void {
+  const rows = mode === 'refund' ? [] : planRows(g, r);
+  const cut = mode === 'refund' ? 0 : planCut(g, rows, underWayEndOf(g, r), closingMonth(r), mode === 'all');
+  const keep = new Set(rows.slice(0, cut).map((x) => x.rot.id));
   for (const rot of [...r.rotations]) {
     if (!ahead(rot) || started(g, rot)) continue;
     if (!hasPax(rot)) dropEmpty(g, r, rot);
-    else if (refund) cancelRotation(g, rot.id, why);
+    else if (!keep.has(rot.id)) cancelRotation(g, rot.id, why);
   }
   delete r.fares.saleUntil;
 }
@@ -243,7 +334,7 @@ export function suspendRoute(g: GameState, routeId: string, refund: boolean): st
   const r = g.network?.routes[routeId];
   if (!r || routeLife(r) !== 'live') return 'Only a route on sale or flying can be suspended.';
   const prev = r.status === 'operating' ? 'operating' : 'onSale';
-  stopSelling(g, r, refund, 'Route suspended');
+  stopSelling(g, r, refund ? 'refund' : 'best', 'Route suspended');
   r.status = 'suspended';
   const last = lastLive(g, r);
   r.suspended = { at: g.now, prev, slotsUntil: Math.max(g.now, last ?? g.now) + LIFE().slotHoldDays * DAY };
@@ -279,11 +370,11 @@ export function resumeRoute(g: GameState, routeId: string): string | null {
  * Winds a route down: sales stop now, the empty rotations go at no cost, every booked one flies and nobody is
  * refunded; the route closes by itself after its last flight. Nothing booked: it closes now. Null when done.
  */
-export function windDownRoute(g: GameState, routeId: string): string | null {
+export function windDownRoute(g: GameState, routeId: string, all = false): string | null {
   const r = g.network?.routes[routeId];
   const life = r ? routeLife(r) : 'other';
   if (!r || (life !== 'live' && life !== 'suspended')) return 'Only a route on sale, flying or suspended can be wound down.';
-  stopSelling(g, r, false, 'Route closing');
+  stopSelling(g, r, all ? 'all' : 'best', 'Route closing');
   const last = lastLive(g, r);
   if (last === undefined) {
     finishClose(g, r);
@@ -301,7 +392,7 @@ export function closeRoute(g: GameState, routeId: string): string | null {
   const r = g.network?.routes[routeId];
   if (!r || routeLife(r) === 'other') return r?.status === 'closed' ? 'This route is already closed.' : 'Not on sale yet.';
   const q = quoteRouteLife(g, routeId);
-  stopSelling(g, r, true, 'Route closed');
+  stopSelling(g, r, 'refund', 'Route closed');
   finishClose(g, r);
   pushRouteNote(g, r, 'info', `${city(r)} closed`, q.pax ? `${q.pax.toLocaleString('en-US')} booked passengers refunded or rebooked (${usd(q.refundCost)}).` : 'No one was booked.', null, 'silent');
   return null;

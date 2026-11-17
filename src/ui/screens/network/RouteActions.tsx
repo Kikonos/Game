@@ -52,6 +52,7 @@ export function RouteActionModal({ routeId, action, back }: { routeId: string; a
   const g = useGame();
   const r = g.network?.routes[routeId];
   const [refund, setRefund] = useState(false);
+  const [all, setAll] = useState(false);
   const close = () => (back ? store.openModal(back) : store.closeModal());
   if (!r) return <Modal title="Route" onClose={close}><p className="muted">This route no longer exists.</p></Modal>;
   const q = net.quoteLife(g, routeId);
@@ -68,20 +69,23 @@ export function RouteActionModal({ routeId, action, back }: { routeId: string; a
   let danger = false;
   switch (action) {
     case 'suspend': {
+      const w = q.best;
       title = `Suspend ${code}?`;
       confirm = refund ? 'Suspend and refund' : 'Suspend';
       go = () => run((gg) => net.suspend(gg, routeId, refund), 'Route suspended');
       body = (
         <>
-          <p className="small">Sales stop now. {q.empty ? `${flights(q.empty)} with no one booked come off at no cost.` : ''}</p>
+          <p className="small">Sales stop now.{q.empty ? ` ${flights(q.empty)} with no one booked come off at no cost.` : ''}</p>
           {q.booked > 0 && (
             <div className="col gap-6">
-              <span className="upper dim row gap-6">Booked: {flights(q.booked)}, {int(q.pax)} passengers</span>
+              <span className="upper dim">Booked: {flights(q.booked)}, {int(q.pax)} passengers</span>
               <Seg<'fly' | 'refund'> value={refund ? 'refund' : 'fly'} onChange={(v) => setRefund(v === 'refund')} options={[
-                { value: 'fly', label: `Fly them · about ${money(q.flyCost)}` },
+                { value: 'fly', label: `Fly them · ${money(Math.max(0, w.flyCost - w.flyRev + w.laterCost))}` },
                 { value: 'refund', label: `Refund · ${money(q.refundCost)}` },
               ]} />
-              <span className="tiny muted">{refund ? `Tickets ${money(q.refunds)} back, passenger costs ${money(q.comp)}.` : `Last flight ${q.lastFlight ? fmtDay(q.lastFlight) : '—'}. No refunds.`}</span>
+              <span className="tiny muted">{refund
+                ? `Tickets ${money(q.refunds)} back, passenger costs ${money(q.comp)}.`
+                : `${flights(w.fly)} fly, the last on ${w.lastFlight ? fmtDay(w.lastFlight) : '—'}.${w.later ? ` ${flights(w.later)} further ahead refunded (${money(w.laterCost)}).` : ' No refunds.'}`}</span>
             </div>
           )}
           <div className="nw-pl">
@@ -93,23 +97,32 @@ export function RouteActionModal({ routeId, action, back }: { routeId: string; a
       break;
     }
     case 'windDown': {
+      const w = all ? q.all : q.best;
+      const flies = w.fly + q.underWay > 0;
       title = `Wind down ${code}?`;
-      confirm = q.booked || q.underWay ? 'Wind down' : 'Close it';
-      go = () => run((gg) => net.windDown(gg, routeId), q.booked || q.underWay ? 'Route closing' : 'Route closed');
-      body = q.booked || q.underWay ? (
+      confirm = flies ? 'Wind down' : 'Close it';
+      go = () => run((gg) => net.windDown(gg, routeId, all), flies ? 'Route closing' : 'Route closed');
+      body = (
         <>
-          <p className="small">Sales stop now. Every booked flight flies, nobody is refunded. The route closes after the last one.</p>
+          <p className="small">Sales stop now. The booked flights fly with no refunds, then the route closes by itself.</p>
+          {q.all.fly > q.best.fly && (
+            <Seg<'best' | 'all'> value={all ? 'all' : 'best'} onChange={(v) => setAll(v === 'all')} options={[
+              { value: 'best', label: `Cheapest · ${q.best.lastFlight ? fmtDay(q.best.lastFlight) : 'now'}` },
+              { value: 'all', label: `All booked · ${q.all.lastFlight ? fmtDay(q.all.lastFlight) : 'now'}` },
+            ]} />
+          )}
           <div className="nw-pl">
-            <Row k="Flights left to fly" v={flights(q.booked + q.underWay)} />
-            <Row k="Passengers carried" v={int(q.pax)} />
-            <Row k="Last flight" v={q.lastFlight ? fmtDay(q.lastFlight) : '—'} />
+            <Row k="Flights left to fly" v={flights(w.fly + q.underWay)} />
+            <Row k="Passengers carried" v={int(w.flyPax)} />
+            <Row k="Last flight" v={w.lastFlight ? fmtDay(w.lastFlight) : 'none: closes now'} />
+            {w.later > 0 && <Row k="Further ahead, refunded" v={`${flights(w.later)} · ${money(w.laterCost)}`} />}
             {q.empty > 0 && <Row k="Empty, taken off" v={`${flights(q.empty)} · no cost`} />}
-            <Row k="Flying cost" v={`about ${money(q.flyCost + q.flyOverhead)}`} />
-            <div className="nw-pl-row total"><b className="small">Against Close now</b><b className={`num ${q.saved >= 0 ? 'good' : 'bad'}`}>{q.saved >= 0 ? `saves ${money(q.saved)}` : `costs ${money(-q.saved)} more`}</b></div>
+            <Row k="Flying cost, less extras" v={`about ${money(Math.max(0, w.flyCost - w.flyRev + w.flyOverhead))}`} />
+            <div className="nw-pl-row total"><b className="small">Against Close now</b><b className={`num ${w.saved >= 0 ? 'good' : 'bad'}`}>{w.saved >= 0 ? `saves ${money(w.saved)}` : `costs ${money(-w.saved)} more`}</b></div>
           </div>
-          <span className="tiny muted">You can keep the route until the last flight.</span>
+          {flies && <span className="tiny muted">You can keep the route until the last flight.</span>}
         </>
-      ) : <p className="small">No one is booked, so it closes now at no cost.</p>;
+      );
       break;
     }
     case 'close': {
@@ -129,7 +142,7 @@ export function RouteActionModal({ routeId, action, back }: { routeId: string; a
             <div className="nw-pl-row total"><b className="small">Total</b><b className="num bad">{money(q.refundCost)}</b></div>
           </div>
           {q.underWay > 0 && <span className="tiny muted">{flights(q.underWay)} already under way fly home first.</span>}
-          {q.booked > 0 && q.saved > 0 && <span className="tiny muted">Wind down instead saves about {money(q.saved)}.</span>}
+          {q.booked > 0 && q.best.saved > 0 && <span className="tiny muted">Wind down instead saves about {money(q.best.saved)}.</span>}
         </>
       );
       break;
@@ -169,15 +182,17 @@ function LifeHelp({ action }: { action: Action }) {
   switch (action) {
     case 'suspend': return (
       <Help title="Suspend">
-        <p>Sales stop. Flights with no one booked are taken off at no cost. The booked ones either fly, or are cancelled with refunds and the usual passenger costs (cheaper with 14 days' notice or more).</p>
+        <p>Sales stop. Flights with no one booked are taken off at no cost. The booked ones either fly, or are cancelled with refunds and the usual passenger costs (cheaper with 14 days' notice or more). Flying them works like a wind down: the ones far ahead that cost more to fly than to refund are refunded.</p>
         <p>The station runs at half cost and there is no marketing. Bookings fade while you are off sale.</p>
         <p>Slots: the airport lets a series miss about a fifth of a season (the 80/20 rule), so you keep them 6 weeks after the last flight. Resume before then, or the route closes by itself.</p>
       </Help>
     );
     case 'windDown': return (
       <Help title="Wind down">
-        <p>Stop selling and fly out what is already sold. Nobody is refunded and there is no compensation, so it is usually much cheaper than closing at once.</p>
-        <p>Filed flights with no one on them are taken off at no cost. The flying cost counts fuel, airport, handling, catering and maintenance until the last flight. Aircraft and crew are paid either way.</p>
+        <p>Stop selling and fly out what is already sold. The booked flights coming up fly with no refunds and no compensation, which is usually much cheaper than closing at once.</p>
+        <p>Cheapest: the next 14 days always fly. Flights further ahead often have only a few people booked: where flying one costs more than refunding it, it is cancelled with weeks of notice (tickets back, no compensation). The last flight is the date that costs least.</p>
+        <p>All booked: every flight with someone on it flies, however far ahead.</p>
+        <p>Filed flights with no one on them are taken off at no cost. The flying cost counts fuel, airport, handling, catering, maintenance and the station until the last flight. Aircraft and crew are paid either way.</p>
         <p>Until the last flight you can keep the route and sell again.</p>
       </Help>
     );

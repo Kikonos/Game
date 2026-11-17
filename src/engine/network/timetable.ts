@@ -99,7 +99,9 @@ export function fileRotations(g: GameState, route: Route): number {
   if ((route.status !== 'onSale' && route.status !== 'operating') || route.closing) return 0;
   const until = g.now + HORIZON();
   let n = 0;
-  const have = new Set(route.rotations.map((r) => `${r.seriesId}@${r.dep}`));
+  // v0.24.1 a resumed route: the dates cancelled when it was suspended or wound down are sold again.
+  const back = route.resumed;
+  const have = new Set(route.rotations.filter((r) => !(back !== undefined && r.status === 'cancelled' && (r.notice ?? 0) <= back && r.dep >= (route.refileFrom ?? 0))).map((r) => `${r.seriesId}@${r.dep}`));
   for (const s of route.series) {
     if (s.from > until) continue;
     for (const dep of seriesDates(g, route, { ...s, to: Math.min(s.to, until) })) {

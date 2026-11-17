@@ -140,7 +140,7 @@ export const net = {
   actions: (r: Route): NET.RouteAction[] => NET.routeActions(r),
   suspend: (g: GameState, routeId: string, refund: boolean): string | null => NET.suspendRoute(g, routeId, refund),
   resume: (g: GameState, routeId: string): string | null => NET.resumeRoute(g, routeId),
-  windDown: (g: GameState, routeId: string): string | null => NET.windDownRoute(g, routeId),
+  windDown: (g: GameState, routeId: string, all = false): string | null => NET.windDownRoute(g, routeId, all),
   closeRoute: (g: GameState, routeId: string): string | null => NET.closeRoute(g, routeId),
 };
 

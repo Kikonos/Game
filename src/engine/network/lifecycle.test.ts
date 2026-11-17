@@ -39,11 +39,19 @@ describe('v0.24.1 route lifecycle', () => {
     expect(q.pax).toBeGreaterThan(0);
     expect(q.refunds).toBeGreaterThan(0);
     expect(q.refundCost).toBe(q.refunds + q.comp - q.subBack);
-    expect(q.flyCost).toBeGreaterThan(0);
-    expect(q.saved).toBe(Math.round(q.refundCost - q.flyCost - q.flyOverhead));
-    expect(q.lastFlight).toBeGreaterThan(g.now);
+    const b = q.best;
+    // The next 14 days always fly (short notice is dear); the rest up to the cheapest last date.
+    expect(b.fly).toBeGreaterThan(0);
+    expect(b.fly + b.later).toBe(q.booked);
+    expect(q.all.fly).toBe(q.booked);
+    expect(q.all.later).toBe(0);
+    expect(b.flyCost).toBeGreaterThan(0);
+    expect(b.saved).toBe(Math.round(q.refundCost - (b.flyCost - b.flyRev) - b.flyOverhead - b.laterCost));
+    expect(b.saved).toBeGreaterThanOrEqual(q.all.saved);
+    expect(b.lastFlight).toBeGreaterThan(g.now);
+    expect(q.all.lastFlight).toBeGreaterThanOrEqual(b.lastFlight!);
     expect(q.monthSuspended).toBeLessThan(q.monthNow);
-    expect(q.slotsKeep).toBe(q.lastFlight! + BAL.v019.life.slotHoldDays * DAY);
+    expect(q.slotsKeep).toBe(b.lastFlight! + BAL.v019.life.slotHoldDays * DAY);
     expect(routeActions(g.network!.routes[id])).toEqual(['suspend', 'windDown', 'close']);
   });
 
@@ -81,13 +89,15 @@ describe('v0.24.1 route lifecycle', () => {
     expect(routeActions(r)).toEqual(['resume', 'windDown', 'close']);
   });
 
-  it('suspend and fly the booked: no refunds, the booked rotations fly, no new sales; the slots lapse and the route closes', () => {
+  it('suspend and fly the booked: the plan flights fly, no new sales; the slots lapse and the route closes', () => {
     const { g, r, id } = setup(24);
-    const keep = booked(r).map((x) => x.id);
+    const q = quoteRouteLife(g, id);
+    const keep = booked(r).slice(0, q.best.fly).map((x) => x.id);
     const cash0 = g.company.cash;
     expect(suspendRoute(g, id, false)).toBeNull();
     expect(live(r).map((x) => x.id)).toEqual(keep);
-    expect(g.company.cash).toBe(cash0);
+    // Only the later ones (if any) are refunded.
+    expect(cash0 - g.company.cash).toBeLessThanOrEqual(q.best.later ? q.refunds + 2 : 0);
     const pax0 = keep.map((k) => r.rotations.find((x) => x.id === k)!.sectors[0].bookedY);
     run(g, 3);
     // No new bookings while suspended.
@@ -123,13 +133,12 @@ describe('v0.24.1 route lifecycle', () => {
   it('wind down: no refunds, empty rotations dropped, the booked fly; it closes by itself after the last flight; resume undoes it', () => {
     const { g, r, id } = setup(26);
     const q = quoteRouteLife(g, id);
-    const keep = booked(r).map((x) => x.id);
-    const cash0 = g.company.cash;
+    const keep = booked(r).slice(0, q.best.fly).map((x) => x.id);
     const cancels0 = g.network!.stats.cancels;
     expect(windDownRoute(g, id)).toBeNull();
-    expect(g.company.cash).toBe(cash0);
-    expect(g.network!.stats.cancels).toBe(cancels0);
-    expect(r.closing?.last).toBe(q.lastFlight);
+    // The later ones are refunded, the rest fly.
+    expect(g.network!.stats.cancels - cancels0).toBe(q.best.later);
+    expect(r.closing?.last).toBe(q.best.lastFlight);
     expect(live(r).map((x) => x.id)).toEqual(keep);
     expect(routeActions(r)).toEqual(['resume', 'close']);
     // Undo, then wind down again.
@@ -161,6 +170,18 @@ describe('v0.24.1 route lifecycle', () => {
     expect(windDownRoute(g, id)).toBeNull();
     expect(r.status).toBe('closed');
     expect(g.company.cash).toBe(cash0);
+  });
+
+  it('wind down, all booked: every booked rotation flies, nobody refunded', () => {
+    const { g, r, id } = setup(29);
+    const q = quoteRouteLife(g, id);
+    const cash0 = g.company.cash;
+    const cancels0 = g.network!.stats.cancels;
+    expect(windDownRoute(g, id, true)).toBeNull();
+    expect(g.company.cash).toBe(cash0);
+    expect(g.network!.stats.cancels).toBe(cancels0);
+    expect(live(r).length).toBe(q.all.fly + q.underWay);
+    expect(r.closing?.last).toBe(q.all.lastFlight);
   });
 
   it('deterministic: the same seed and actions give the same money', () => {
