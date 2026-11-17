@@ -23,9 +23,13 @@ import { netHooks } from '../core/netHooks';
 import { marketOfRoute, usd } from './model';
 import { pushRouteNote } from './notes';
 import { clearForJob, routeConflicts } from './conflicts';
+import { coverRotations, releasableRouteFlight, releaseRouteRotations } from './release';
 
 netHooks.conflicts = routeConflicts;
 netHooks.clearForJob = clearForJob;
+netHooks.routeFree = releasableRouteFlight;
+netHooks.releaseRoutes = releaseRouteRotations;
+netHooks.coverRoutes = coverRotations;
 
 export { netSide, netRoll } from './side';
 export * from './model';

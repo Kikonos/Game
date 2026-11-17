@@ -28,6 +28,7 @@ import { bookCCheck } from './cHub';
 import { ageOf, contractOf, isRevenue, stats, usd } from './util';
 import { bumpClient } from '../contracts/relations';
 import { pmFactors } from './pm';
+import { netHooks } from '../core/netHooks';
 
 export interface CheckStatus {
   /** A-check: flight hours remaining and due date (FH limit reached by planned flying, or the calendar, whichever first). */
@@ -248,6 +249,7 @@ export function scheduleCheck(
     /** v0.7.2 a C-check at an MRO hub (cHub.ts books it, the ferry home and the message). */ hub?: CHub;
     /** v0.7.2 an overdue check forced while grounded (allowed on a sold or returning aircraft). */ forced?: boolean;
     /** v0.7.2.2 a booked check moved along the timeline (maintMove.ts): same airport (an older booking stays valid there), no message (the caller posts one). */ moved?: boolean;
+    /** r3-fix route flights up to here also leave the aircraft (a hub C-check's ferry home). */ releaseTo?: Minute;
   } = {},
 ): ActionResult<{ maintId: string }> {
   const ac = g.fleet[aircraftId];
@@ -273,7 +275,10 @@ export function scheduleCheck(
   start = Math.round(Math.max(start, g.now));
   const end = start + (pt ? pt.days * DAY : durationOf(ac, kind as 'A' | 'C'));
   const turn = typeOf(ac.typeId).turnMin;
-  const clash = flightsOf(g, ac.id).filter((f) => (f.status === 'scheduled' || f.status === 'enroute') && f.std < end + 30 && (f.eta ?? f.sta) > start - 30);
+  const clash0 = flightsOf(g, ac.id).filter((f) => (f.status === 'scheduled' || f.status === 'enroute') && f.std < Math.max(end, opts.releaseTo ?? 0) + 30 && (f.eta ?? f.sta) > start - 30);
+  // r3-fix a C-check takes its aircraft's route rotations off it (another aircraft or a sub-charter flies them).
+  const routeOff = kind === 'C' ? clash0.filter((f) => routeFree(g, f)) : [];
+  const clash = clash0.filter((f) => !routeOff.includes(f) && f.std < end + 30);
   const hard = clash.filter((f) => f.kind !== 'positioning');
   if (hard.some((f) => f.status === 'enroute')) return { ok: false, error: `${ac.reg} is flying then` };
   if (hard.length && !(opts.dropLegs && hard.every((f) => droppableForCheck(g, f)))) {
@@ -292,6 +297,7 @@ export function scheduleCheck(
   const drop = hard.filter((f) => f.status === 'scheduled');
   if (needFerry && drop.length) return { ok: false, error: `Clashes with ${drop.length} flight${drop.length > 1 ? 's' : ''} (${drop[0].no} ${fmtDateTime(drop[0].std)})` };
   const soft = clash.filter((f) => f.kind === 'positioning' && f.status === 'scheduled');
+  const released = routeOff.length && netHooks.releaseRoutes ? netHooks.releaseRoutes(g, routeOff) : [];
   const m: MaintenanceEvent = {
     id: nextId(g, 'mx'), aircraftId: ac.id, kind, at, start, end, cost: pt ? pt.cost : checkCostOf(ac, kind as 'A' | 'C', at, g.company.homeBase), status: 'planned', planned: true, ev: 0, booked: g.now, bookedStart: start,
   };
@@ -326,6 +332,7 @@ export function scheduleCheck(
   }
   schedule(g, start, 'maint.start', m.id, m.ev);
   touchFlights(g);
+  if (released.length) netHooks.coverRoutes?.(g, released, ac.reg, start, end);
   if (pt || opts.moved) return { ok: true, msg: `${kind === 'paint' ? 'Paint shop' : kind === 'refit' ? 'Cabin shop' : 'Return check'} at ${AIRPORT_BY_CODE[at]?.city ?? at}`, data: { maintId: m.id } };
   // v0.7.2 hub C-checks: cHub.ts posts the one message (with the ferries and tickets).
   if (m.hub) return { ok: true, msg: `C-check at ${m.hub.name}`, data: { maintId: m.id } };
@@ -419,11 +426,13 @@ interface Gap {
 }
 
 /** Ground gaps of an aircraft in [from, until): between legs, checks and the not-yet-generated tail of base programmes. */
-export function groundGaps(g: GameState, ac: Aircraft, from: Minute, until: Minute): Gap[] {
+export function groundGaps(g: GameState, ac: Aircraft, from: Minute, until: Minute, routesFree = false): Gap[] {
   type Busy = { s: Minute; e: Minute; from: string; to: string };
   const busy: Busy[] = [];
   for (const f of flightsOf(g, ac.id)) {
     if (f.status !== 'scheduled' && f.status !== 'enroute') continue;
+    // r3-fix a C-check window: route flights can go to another aircraft or a sub-charter (network/release.ts).
+    if (routesFree && routeFree(g, f)) continue;
     busy.push({ s: f.status === 'enroute' ? (f.atd ?? f.std) : f.std, e: f.status === 'enroute' ? (f.eta ?? f.sta) : f.sta, from: f.from, to: f.to });
   }
   for (const m of Object.values(g.maintenance)) {
@@ -496,7 +505,7 @@ export function planA(g: GameState, ac: Aircraft, due: Minute, noDrop = false): 
 /** First gap of at least the C-check length before `due`, preferring November–March. */
 export function suggestC(g: GameState, ac: Aircraft, due: Minute): Gap | null {
   const need = durationOf(ac, 'C') + DAY;
-  const gaps = groundGaps(g, ac, g.now + DAY, due).filter((x) => x.to - x.from >= need);
+  const gaps = groundGaps(g, ac, g.now + DAY, due, true).filter((x) => x.to - x.from >= need);
   const winter = gaps.find((x) => {
     const m = toDate(x.from).getUTCMonth();
     return m >= 10 || m <= 2;
@@ -562,10 +571,15 @@ function forceCheck(g: GameState, ac: Aircraft, st: CheckStatus): void {
   const at = checkAirportOk(g, kind, ac.at, ac.id) ? ac.at : kind === 'C' && near ? near.code : g.company.homeBase;
   const dur = durationOf(ac, kind);
   const start = g.now + (at === ac.at ? 60 : BAL.ferryLeadMin + typeOf(ac.typeId).turnMin + blockMinutes(ac.typeId, ac.at, at));
-  const legs = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled' && f.std < start + dur + 60);
+  const all = flightsOf(g, ac.id).filter((f) => f.status === 'scheduled' && f.std < start + dur + 60);
+  // r3-fix route rotations go to another aircraft or a sub-charter, not cancelled on the day with EU261.
+  const routeOff = all.filter((f) => routeFree(g, f));
+  const released = routeOff.length && netHooks.releaseRoutes ? netHooks.releaseRoutes(g, routeOff) : [];
+  const legs = all.filter((f) => !routeOff.includes(f));
   if (legs.length) cancelLegs(g, legs, `${ac.reg} grounded`, 0);
   const r = kind === 'C' && cHubAt(typeOf(ac.typeId).family, at) ? bookCCheck(g, ac.id, at, start, true) : scheduleCheck(g, ac.id, kind, start, at, { forced: true });
-  if (r.ok) pushMessage(g, { tone: 'bad', cat: 'tech', title: `${ac.reg} grounded for its ${kind}-check`, body: `The check was overdue. ${legs.length} legs cancelled.`, ref: { kind: 'aircraft', id: ac.id }, problem: { kind: 'grounded', ref: { kind: 'aircraft', id: ac.id } }, hurt: { money: 0, pax: 0, delayMin: 0, level: legs.length ? 'high' : 'low' } });
+  if (released.length) netHooks.coverRoutes?.(g, released, ac.reg, start, start + dur);
+  if (r.ok) pushMessage(g, { tone: 'bad', cat: 'tech', title: `${ac.reg} grounded for its ${kind}-check`, body: `The check was overdue. ${legs.length ? `${legs.length} legs cancelled.` : 'No legs cancelled.'}${released.length ? ` ${released.length} route round trip${released.length === 1 ? '' : 's'} moved off it.` : ''}`, ref: { kind: 'aircraft', id: ac.id }, problem: { kind: 'grounded', ref: { kind: 'aircraft', id: ac.id } }, hurt: { money: 0, pax: 0, delayMin: 0, level: legs.length ? 'high' : 'low' } });
 }
 
 // ---------- events ----------
@@ -575,6 +589,10 @@ let maintStartHook: ((g: GameState, m: MaintenanceEvent) => void) | null = null;
 let restFitHook: ((g: GameState, m: MaintenanceEvent) => void) | null = null;
 export function setRestFitHook(f: (g: GameState, m: MaintenanceEvent) => void): void {
   restFitHook = f;
+}
+/** Route flights an aircraft can hand over in a window (for C-check windows and booking). Pure. */
+export function routeFree(g: GameState, f: Flight): boolean {
+  return !!netHooks.routeFree?.(g, f);
 }
 let maintEndHook: ((g: GameState, m: MaintenanceEvent) => void) | null = null;
 /** v0.7: cabin.ts (refit end) and leaseReturn.ts (return check start and end) hook in here. */
