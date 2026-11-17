@@ -8,7 +8,7 @@ import { DAY } from '../src/engine/core/time';
 import { ROUTE_MARKETS } from '../src/data/routes';
 import { distanceNm } from '../src/engine/core/geo';
 import { typeOf } from '../src/engine/core/perf';
-import { cabinFor, caseDraft, chainOf, chainProblem, devLaunchRoute, launchCost, marketOfRoute, project, sectorCost, freqPerWeek, type Dir } from '../src/engine/network';
+import { acmiNetBH, aircraftCostBH, crewCostBH, cabinFor, caseDraft, chainOf, chainProblem, devLaunchRoute, launchCost, marketOfRoute, project, sectorCost, freqPerWeek, type Dir } from '../src/engine/network';
 import type { GameState } from '../src/engine/core/types';
 
 const B = BAL.v019 as unknown as { demand: { scale: number; freqCap: { x: number; all: boolean }; beta: { freq: number } }; fares: { scale: number } };
@@ -34,7 +34,7 @@ const k = (v: number) => `${Math.round(v / 1000)}k`;
 
 const rows: string[] = [];
 const costRows: string[] = [];
-const summary: { id: string; type: string; margin: number; lf: number; bh: number; result: number; perBH: number; long: boolean }[] = [];
+const summary: { id: string; type: string; margin: number; lf: number; bh: number; result: number; perBH: number; long: boolean; contrib: number; acmi: number }[] = [];
 for (const m0 of markets) {
   const g = gameAt(m0.from);
   const id = devLaunchRoute(g, m0.id);
@@ -82,7 +82,8 @@ for (const m0 of markets) {
     }
     const perRot = (v: number) => v * rotYear / p.bh;
     costRows.push(`| ${m.id} | ${typeOf(typeId).short} | ${Math.round(P.fuel / p.bh)} | ${Math.round(p.parts.crew / p.bh)} | ${Math.round(P.maint / p.bh)} | ${Math.round(P.aircraft / p.bh)} | ${Math.round(perRot(nav))} | ${Math.round(perRot(land))} | ${Math.round(perRot(hand))} | ${Math.round(P.service / p.bh)} | ${Math.round(P.sales / p.bh)} | ${Math.round(P.overheads / p.bh)} | ${Math.round(P.disruption / p.bh)} | ${Math.round(p.cost / p.bh)} | ${Math.round(p.rev / p.bh)} |`);
-    summary.push({ id: m.id, type: typeId, margin, lf: p.paxSec / Math.max(1, p.seatSec), bh: p.bh, result: p.result, perBH: p.result / Math.max(1, p.bh), long });
+    const contrib = (p.rev - (p.cost - P.aircraft - P.crew)) / Math.max(1, p.bh);
+    summary.push({ id: m.id, type: typeId, margin, lf: p.paxSec / Math.max(1, p.seatSec), bh: p.bh, result: p.result, perBH: p.result / Math.max(1, p.bh), long, contrib, acmi: acmiNetBH(g, typeId) - aircraftCostBH(g, null, typeId) - crewCostBH(typeId, cab.total) });
   }
   r.status = 'closed';
 }
@@ -107,5 +108,7 @@ for (const t of [...NARROW, ...WIDE]) {
   const big = xs.filter((s) => s.margin > 0.2).length;
   const bh = xs.reduce((a, s) => a + s.bh, 0);
   const res = xs.reduce((a, s) => a + s.result, 0);
-  console.log(`- ${typeOf(t).short}: ${xs.length} markets, median margin ${pc(med)}, ${pos} positive, ${good} in 5–15 %, ${big} above 20 %; result per BH over all ${Math.round(res / Math.max(1, bh))} USD.`);
+  const cs = xs.map((x) => x.perBH).sort((a, b) => a - b);
+  const pos2 = xs.filter((x) => x.margin > 0).map((x) => x.perBH).sort((a, b) => a - b);
+  console.log(`- ${typeOf(t).short}: ${xs.length} markets, median margin ${pc(med)}, ${pos} positive, ${good} in 5–15 %, ${big} above 20 %; result per BH over all ${Math.round(res / Math.max(1, bh))} USD; median result per BH ${Math.round(cs[Math.floor(cs.length / 2)])}, of the paying ones ${Math.round(pos2[Math.floor(pos2.length / 2)] ?? 0)}; ACMI after aircraft and crew ${Math.round(xs[0].acmi)} a BH (when there is work).`);
 }
