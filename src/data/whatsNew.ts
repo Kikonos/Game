@@ -39,6 +39,10 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'Routes crowded with low-cost airlines, the wrong aircraft size and very short hops still lose money. Long-haul is harder in its first year.',
       'The study and the planner now also try 4 a week and daily, when one aircraft can fly it.',
       'The slow bookings card no longer shows on flights that are already full.',
+      'A route now keeps flying after its first year. Its timetable has no end date until you give it one.',
+      'A C-check can now be booked over route flights. They move to another of your aircraft, or are sub-chartered close to the day. Passengers keep their tickets.',
+      'The business case plans the first flight when the launch steps usually finish, about 5 months after Go. Tour operator seats are priced as they really sell, so tour routes look less rosy.',
+      'The route card on the map shows this month\'s result so far, not $0.',
     ],
   },
   {
