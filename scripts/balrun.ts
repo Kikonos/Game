@@ -63,7 +63,7 @@ let cum = 0;
 for (const [m, p] of Object.entries(r.pnl).sort((a, b) => +a[0] - +b[0])) {
   if (+m >= monthKey(g.now)) continue;
   cum += p.result - p.launch;
-  console.log(`  ${m} sec ${p.sectors} LF ${p.seats ? Math.round(p.pax / p.seats * 100) : 0}% rev ${k(p.rev)} direct ${k(p.direct)} acTime ${k(p.acTime)} result ${k(p.result)} launch ${k(p.launch)} margin ${p.rev ? Math.round(p.result / p.rev * 100) : 0}% cum ${k(cum)}`);
+  console.log(`  ${m} sec ${p.sectors} LF ${p.seats ? Math.round(p.pax / p.seats * 100) : 0}% rev ${k(p.rev)} direct ${k(p.direct)} acTime ${k(p.acTime)} result ${k(p.result)} launch ${k(p.launch)} margin ${p.rev ? Math.round(p.result / p.rev * 100) : 0}% yield ${p.pax ? Math.round(p.tickets / p.pax) : 0} cargo ${k(p.cargo)} cum ${k(cum)}`);
 }
 console.log('fixes', JSON.stringify(fixes));
 console.log('cash delta', k(g.company.cash - cash0 - topUp), 'secs', Math.round((Date.now() - t0) / 1000));

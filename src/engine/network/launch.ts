@@ -337,7 +337,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
     for (const dir of ['out', 'back'] as Dir[]) {
       const x = {
         freqPerWeek: freq, fares: p.fares, awareness: BAL.v019.demand.awareness.campaign[p.marketing] ?? 0.55, reputation: r.reputation ?? 60,
-        hours: serviceHours(m, p.typeId, dir), truth: demandX, slotX: slotX(outDay, p.out), rampX: i < 2 ? 0.85 : 1,
+        hours: serviceHours(m, p.typeId, dir), truth: demandX, slotX: slotX(outDay, p.out), rampX: caseRamp(i),
       };
       const d = departureDemand(g, m, at, dir, tag ? { ...x, stop: true } : x);
       const month = new Date(Date.UTC(2000, 0, 1) + at * 60_000).getUTCMonth();
@@ -451,6 +451,13 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
 }
 
 const baseFareOf = baseFare;
+
+/** r3-bal the launch ramp the case expects in its month `i` (the middle of the month on demand.ramp2, as sales.rampOf). */
+function caseRamp(i: number): number {
+  const R = BAL.v019.demand.ramp2;
+  const w = (i + 0.5) * (30.4 / 7);
+  return w >= R.weeks ? 1 : R.from + (1 - R.from) * w / R.weeks;
+}
 
 function lowestDay(mask: number): number {
   for (let i = 0; i < 7; i++) if (mask & (1 << i)) return i;
@@ -817,6 +824,7 @@ export function decideCase(g: GameState, routeId: string, decision: CaseDecision
   r.fares.level = p.fares;
   r.marketing = p.marketing;
   r.status = 'launching';
+  r.ramp2 = true;
   const cs = stage(r, 'case');
   cs.state = 'done';
   cs.due = g.now;

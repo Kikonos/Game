@@ -93,11 +93,12 @@ export function dirCap(route: Route, rot: Rotation, dir: Dir, typeId: string): {
 /** The launch ramp (§E.5): 0.7 → 1 over the first 8 weeks of flying, × 0.85 more when sales opened late. */
 export function rampOf(route: Route, dep: Minute): number {
   const R = BAL.v019.demand.ramp;
+  const R2 = route.ramp2 ? BAL.v019.demand.ramp2 : R;
   const first = route.firstFlight ?? dep;
   const weeks = (dep - first) / (7 * DAY);
-  let x = weeks >= R.weeks ? 1 : R.from + (1 - R.from) * Math.max(0, weeks) / R.weeks;
+  let x = weeks >= R2.weeks ? 1 : R2.from + (1 - R2.from) * Math.max(0, weeks) / R2.weeks;
   const opened = route.stages.find((s) => s.id === 'filing')?.due;
-  if (opened !== undefined && first - opened < BAL.v019.launch.filing.shortDays * DAY && weeks < R.weeks) x *= R.late;
+  if (opened !== undefined && first - opened < BAL.v019.launch.filing.shortDays * DAY && weeks < R2.weeks) x *= R.late;
   // v0.24.1 back on sale after a suspension or a wind-down: travellers come back over a few weeks.
   if (route.resumed !== undefined) {
     const Q = BAL.v019.life.ramp;

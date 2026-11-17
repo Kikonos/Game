@@ -92,6 +92,13 @@ export const NET_ENGINE_BAL = {
     awareness: { campaign: { low: 0.35, normal: 0.55, high: 0.7 } as Record<string, number>, perMonth: { low: 0.04, normal: 0.08, high: 0.13 } as Record<string, number>, halfLife: 120, start: 0.1 },
     /** §E.5 the launch ramp: share × 0.7 → 1 over 8 weeks (× 0.85 more when sales opened under 12 weeks before). */
     ramp: { from: 0.7, weeks: 8, late: 0.85 },
+    /**
+     * r3-bal the launch ramp of a route launched from now on (Route.ramp2): half the travellers at first, all of them
+     * after 20 weeks. A new route takes months to be known (search rankings, agents, word of mouth): the old ramp was
+     * over in 8 weeks and every new route was full by its third month [E: carriers plan a new route to mature over its
+     * first one or two seasons].
+     */
+    ramp2: { from: 0.5, weeks: 20 },
     /** §E.3 a rival's reaction: fare cut and length. */
     rivalCut: { fare: 0.15, days: [90, 180] as [number, number], freq: 1 },
     /** Monthly drift of rival fares (±). */
