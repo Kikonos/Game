@@ -70,6 +70,11 @@ export const NET_ENGINE_BAL = {
     /** The back (northbound) direction: early January and late August/September peaks (students). */
     seasonBack: [1.20, 0.70, 0.70, 0.80, 0.70, 0.80, 0.95, 1.10, 1.15, 0.75, 0.75, 0.95] as number[],
     growth: 0.03,
+    /**
+     * The newcomer's cap: at most `x` × its share of the market's departures (one-stop rivals count `oneStop`). Custom
+     * markets since v0.19.2; r3-bal every market (`all`).
+     */
+    freqCap: { x: 1.6, oneStop: 0.15, all: true as boolean },
     /** Logit weights [E]. */
     beta: { fare: 2.0, nonstop: 1.2, freq: 0.35, rep: 0.5, bags: 0.3, mkt: 0.4, hours: 0.08 },
     /** Fare elasticity by segment (bucket choice) and how far each segment moves its date (± days) to fly with us. */
@@ -143,8 +148,17 @@ export const NET_ENGINE_BAL = {
     /** Passenger + bags (kg) and structural payload (kg) by body when the type has no figure. */
     /** Passenger + bags (kg): VFR travellers fly with two full bags (the allowance is the selling point). */
     paxKg: 108, payload: { narrow: 20_000, wide: 40_000 },
-    /** Structural payload (kg) by type where known [E]. */
-    payloadType: { b763: 40_000, b752: 25_000, a332: 45_000, a333: 48_000, a343: 46_000, a321neo: 22_000, a321ceo: 21_000, a320ceo: 18_000, a320neo: 19_000, b738: 19_000, b739: 20_000, b772: 55_000, b77w: 65_000 } as Record<string, number>,
+    /**
+     * r3-bal a market's passenger + bags (model.paxKgOf): the EASA standard adult with hand baggage (84 kg, CS/AMC
+     * standard masses) and a 16 kg checked bag, two for the VFR share (the 108 kg above was a VFR passenger everywhere:
+     * a holiday A321 of 220 seats could only sell 178).
+     */
+    paxBody: 84, bagKg: 16,
+    /**
+     * Structural payload (kg) by type where known: MZFW less a typical operating empty weight [F Airbus / Boeing ACAP;
+     * r3-bal: A320ceo 62.5–64.3 t MZFW, ~42.5 t OEW; A321ceo 73.8–75.6 t, ~48.5 t; 737-800 62.7 t, ~41.4 t].
+     */
+    payloadType: { b763: 40_000, b752: 25_000, a332: 45_000, a333: 48_000, a343: 46_000, a321neo: 25_000, a321ceo: 25_000, a320ceo: 20_000, a320neo: 20_000, b738: 21_000, b739: 21_000, b772: 55_000, b77w: 65_000 } as Record<string, number>,
     /** Range: a sector at the range limit keeps this share of payload. Runway: (available ÷ needed)^exp. */
     rangeKeep: 0.7, runwayExp: 1.5,
     /** Cargo left behind: share that waits for the next rotation. */

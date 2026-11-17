@@ -11,7 +11,7 @@ import { distanceNm } from '../core/geo';
 import { DAY, fmtDay } from '../core/time';
 import type { GameState, Minute } from '../core/types';
 import type { RouteMarket } from '../../data/routes';
-import { baseFare, chainOf, departureDemand, freqPerWeek, localMinute, localWeekday, marketOfRoute, monthOf, serviceHours, slotX, type DemandInput, type Dir } from './model';
+import { baseFare, chainOf, departureDemand, freqPerWeek, localMinute, localWeekday, marketOfRoute, monthOf, paxKgOf, serviceHours, slotX, type DemandInput, type Dir } from './model';
 import { bcCapOf, fifthOf, gateBC, legMarkets, NO_PAX, shareSeats, type Pax } from './stopover';
 import { pushRouteNote } from './notes';
 import { netRoll } from './side';
@@ -80,10 +80,11 @@ export function dirCap(route: Route, rot: Rotation, dir: Dir, typeId: string): {
   const idx = dirSectors(route, rot, dir);
   if (!idx.length) return { j: 0, y: 0 };
   const s0 = rot.sectors[idx[0]];
+  const kg = paxKgOf(marketOfRoute(route));
   let paxMax = Infinity;
   for (const i of idx) {
     const s = rot.sectors[i];
-    paxMax = Math.min(paxMax, Math.floor(payloadMax(typeId, s.from, s.to) * 0.92 / BAL.v019.cargo.paxKg));
+    paxMax = Math.min(paxMax, Math.floor(payloadMax(typeId, s.from, s.to) * 0.92 / kg));
   }
   const j = Math.min(s0.capJ, paxMax);
   return { j, y: Math.max(0, Math.min(s0.capY, paxMax - j)) };
@@ -262,10 +263,13 @@ export function dailySales(g: GameState, route: Route): void {
     // §E.4 a weak pace three weeks out: run a sale?
     if (own && d <= S.weakDays && d > S.weakDays - 1) {
       const head = rot.sectors[0];
-      const cap = head.capJ + head.capY;
+      // r3-bal: against the seats it can really sell (the payload's cap) and never above full: a full flight whose
+      // demand runs past its seats was told "81 % booked, usually 149 %" every other day.
+      const k = dirCap(route, rot, 'out', acType);
+      const cap = Math.max(1, k.j + k.y);
       const e = expectedPax(g, route, rot, 'out');
-      const usual = ((e.j + e.y) / Math.max(1, cap)) * curveAt(S.weakDays, isPeak(month), front);
-      const now = (head.bookedJ + head.bookedY) / Math.max(1, cap);
+      const usual = Math.min(1, (Math.min(k.j, e.j) + Math.min(k.y, e.y + Math.max(0, e.j - k.j) * BAL.v019.demand.jToY)) / cap) * curveAt(S.weakDays, isPeak(month), front);
+      const now = (head.bookedJ + head.bookedY) / cap;
       if (now < usual * S.weakPace && usual > 0.2) {
         pushRouteNote(g, route, 'warn', `${route.marketId.replace('-', '–')} ${fmtDay(rot.dep)}: slow bookings`, `${Math.round(now * 100)} % booked, usually ${Math.round(usual * 100)} % by now. A sale (Saver −25 % for 10 days) can fill it.`, `pace:${rot.id}`);
       }
@@ -276,8 +280,8 @@ export function dailySales(g: GameState, route: Route): void {
 const sectorBlock = (typeId: string, s: SectorLoad) => blockMinutes(typeId, s.from, s.to);
 
 /** v0.21 the seats one sector can really sell: its cabin, capped by its own payload (bags in). */
-export function sectorCap(s: SectorLoad, typeId: string): Pax {
-  const paxMax = Math.floor(payloadMax(typeId, s.from, s.to) * 0.92 / BAL.v019.cargo.paxKg);
+export function sectorCap(s: SectorLoad, typeId: string, kg: number = BAL.v019.cargo.paxKg): Pax {
+  const paxMax = Math.floor(payloadMax(typeId, s.from, s.to) * 0.92 / kg);
   const j = Math.min(s.capJ, paxMax);
   return { j, y: Math.max(0, Math.min(s.capY, paxMax - j)) };
 }
@@ -297,8 +301,8 @@ function stopoverSales(g: GameState, route: Route, rot: Rotation, dir: Dir, idx:
   const e = expectedPax(g, route, rot, dir);
   const loc = expectedLocal(g, route, rot, dir);
   const ob = route.fares.overbook ? 1 + S.overbook : 1;
-  const k1 = sectorCap(s1, acType);
-  const k2 = sectorCap(s2, acType);
+  const k1 = sectorCap(s1, acType, paxKgOf(m));
+  const k2 = sectorCap(s2, acType, paxKgOf(m));
   const c1 = { j: k1.j, y: Math.floor(k1.y * ob) };
   const c2 = { j: k2.j, y: Math.floor(k2.y * ob) };
   const at = (p: Pax): Pax => ({ j: p.j * nf * F, y: p.y * nf * F });

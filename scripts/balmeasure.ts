@@ -3,6 +3,7 @@
 // cents per passenger-km and $ a passenger), margin, the best and worst season quarters, and the cost per block hour by
 // kind. Markdown out.  npx tsx scripts/balmeasure.ts [MKT=all|MLA|ids] [LAYOUT=two-class|all-economy] [> file]
 import { createGame } from '../src/engine/newGame';
+import { BAL } from '../src/engine/core/balance';
 import { DAY } from '../src/engine/core/time';
 import { ROUTE_MARKETS } from '../src/data/routes';
 import { distanceNm } from '../src/engine/core/geo';
@@ -10,6 +11,11 @@ import { typeOf } from '../src/engine/core/perf';
 import { cabinFor, caseDraft, chainOf, chainProblem, devLaunchRoute, launchCost, marketOfRoute, project, sectorCost, freqPerWeek, type Dir } from '../src/engine/network';
 import type { GameState } from '../src/engine/core/types';
 
+const B = BAL.v019 as unknown as { demand: { scale: number; freqCap: { x: number; all: boolean }; beta: { freq: number } }; fares: { scale: number } };
+if (process.env.SCALE) B.demand.scale = Number(process.env.SCALE);
+if (process.env.CAPALL) B.demand.freqCap.all = process.env.CAPALL === '1';
+if (process.env.CAPX) B.demand.freqCap.x = Number(process.env.CAPX);
+if (process.env.FREQB) B.demand.beta.freq = Number(process.env.FREQB);
 const mkt = process.env.MKT ?? 'all';
 const layout = (process.env.LAYOUT ?? 'two-class') as 'two-class' | 'all-economy';
 const markets = mkt === 'all' ? ROUTE_MARKETS.filter((m) => !m.closed) : /^[A-Z]{3}$/.test(mkt) ? ROUTE_MARKETS.filter((m) => m.from === mkt && !m.closed) : ROUTE_MARKETS.filter((m) => mkt.split(',').includes(m.id));

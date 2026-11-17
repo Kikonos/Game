@@ -10,7 +10,7 @@ import { typeOf } from '../core/perf';
 import { DAY, monthKey } from '../core/time';
 import type { Flight, GameState } from '../core/types';
 import { costTotal, passThrough, routeDisruptionCost, routeLegCost, sectorPax } from './costs';
-import { marketOfRoute, routeStation, type Dir } from './model';
+import { marketOfRoute, paxKgOf, routeStation, type Dir } from './model';
 import { pushRouteNote } from './notes';
 import { bumpRoute } from './reputation';
 import { dirSectors, fareFor, payloadMax } from './sales';
@@ -53,7 +53,7 @@ export function cargoFor(g: GameState, route: Route, rot: Rotation, dir: Dir, ty
   const avi = north ? 0 : Math.min(m.cargo.avi ?? 0, wide ? C.aviMax : C.aviMax / 2);
   // Payload left after passengers and bags on the tightest sector of the direction.
   let room = Infinity;
-  for (const i of idx) room = Math.min(room, payloadMax(typeId, rot.sectors[i].from, rot.sectors[i].to) - pax * C.paxKg);
+  for (const i of idx) room = Math.min(room, payloadMax(typeId, rot.sectors[i].from, rot.sectors[i].to) - pax * paxKgOf(m));
   room = Math.max(0, room);
   // Mail first, then live animals (they can't wait), then by rate.
   let left = room;

@@ -15,7 +15,7 @@ import { DAY, fmtDay, fmtTime, monthKey } from '../core/time';
 import type { CabinLayout } from '../../data/acmiTypes';
 import type { Client, GameState, LedgerCat, Minute } from '../core/types';
 import { costTotal, passThrough, routeMonthCosts, sectorCost } from './costs';
-import { baseFare, cabinFor, chainOf, seasonCode, departureDemand, freqPerWeek, localMonth, localToUtc, MARKET_BY_ID, marketOfRoute, planMonths, seasonMonths, serviceHours, slotX, usd, weeklyMarket, type Dir } from './model';
+import { baseFare, cabinFor, chainOf, seasonCode, departureDemand, freqPerWeek, localMonth, localToUtc, MARKET_BY_ID, marketOfRoute, paxKgOf, planMonths, seasonMonths, serviceHours, slotX, usd, weeklyMarket, type Dir } from './model';
 import { pushRouteNote } from './notes';
 import { checkAchievements } from '../ops/achievements';
 import { acmiNetBH, aircraftCostBH, crewAwayCost, crewCostBH } from './pnl';
@@ -303,14 +303,14 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   const secBack = chainOf(m, 'back').length - 1;
   /** Seats a sector can sell: the cabin within its payload. */
   const secCap = (a: string, b: string) => {
-    const paxMax = Math.floor(payloadMax(p.typeId, a, b) * 0.92 / BAL.v019.cargo.paxKg);
+    const paxMax = Math.floor(payloadMax(p.typeId, a, b) * 0.92 / paxKgOf(m));
     const j = Math.min(cab.j, paxMax);
     return { j, y: Math.max(0, Math.min(cab.y, paxMax - j)) };
   };
   const capPax = (dir: Dir) => {
     const c = chainOf(m, dir);
     let x = Infinity;
-    for (let i = 1; i < c.length; i++) x = Math.min(x, Math.floor(payloadMax(p.typeId, c[i - 1], c[i]) * 0.92 / BAL.v019.cargo.paxKg));
+    for (let i = 1; i < c.length; i++) x = Math.min(x, Math.floor(payloadMax(p.typeId, c[i - 1], c[i]) * 0.92 / paxKgOf(m)));
     return x;
   };
   const capOut = Math.min(cab.total, capPax('out'));
@@ -399,7 +399,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
       const above = r.model === 'partner' ? secPax.reduce((a, q) => a + Math.max(0, q.j + q.y - Math.ceil(cab.total * PF.shareAbove)), 0) * baseFareOf(m, 'Y', month, 'out', p.fares) * PF.share : 0;
       const fee = r.model === 'partner' ? (r.partnerFeeBH ?? (t?.rateBH ?? 5_000) * PF.feeOfRate) * (blk / 60) + pass + above : 0;
       const onBoard = Math.max(...secPax.map((q) => q.j + q.y));
-      const cargoKg = Math.min(dir === 'out' ? m.cargo.south + (m.cargo.mail ?? 0) + (m.cargo.ngo ?? 0) + (m.cargo.avi ?? 0) : routeStation(m.to).euCargo ? m.cargo.north + (m.cargo.perish ?? 0) : 0, Math.max(0, payloadMax(p.typeId, m.from, m.to) - onBoard * BAL.v019.cargo.paxKg));
+      const cargoKg = Math.min(dir === 'out' ? m.cargo.south + (m.cargo.mail ?? 0) + (m.cargo.ngo ?? 0) + (m.cargo.avi ?? 0) : routeStation(m.to).euCargo ? m.cargo.north + (m.cargo.perish ?? 0) : 0, Math.max(0, payloadMax(p.typeId, m.from, m.to) - onBoard * paxKgOf(m)));
       const cargo = cargoKg * (dir === 'out' ? 2.1 : 1.6) * (r.model === 'partner' ? BAL.v019.fares.partner.cargoShare : 1);
       const anc = r.model === 'partner' ? 0 : boarded * m.ancillary;
       rev += (tickets + fee + cargo + anc) * deps;
