@@ -3,7 +3,7 @@
 import { createGame } from '../src/engine/newGame';
 import { DAY } from '../src/engine/core/time';
 import { aircraftCostBH, businessCase, caseDraft, crewCostBH, cabinFor, devLaunchRoute, project, marketOfRoute, freqPerWeek } from '../src/engine/network';
-const g = createGame({ name: 'Cal', code: 'CA', livery: { primary: '#000', secondary: '#fff', tail: 'sweep' }, base: 'LIS', seed: 1 } as never);
+const g = createGame({ name: 'Cal', code: 'CA', livery: { primary: '#000', secondary: '#fff', tail: 'sweep' }, base: process.env.BASE ?? "LIS", seed: 1 } as never);
 const markets = (process.env.MKT ?? 'LIS-OXB,LIS-TMS,LIS-RAI,LIS-MPM,LIS-REC,LIS-LAD').split(',');
 const types = (process.env.TYPES ?? 'b763,a332,a321ceo,a320ceo').split(',');
 const k = (v: number) => `${Math.round(v / 1000)}k`;

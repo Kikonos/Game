@@ -255,10 +255,11 @@ describe('v0.21 the verdict, the analyst and the planner', () => {
     expect(oxb.word).toBe('Worth it');
     // The same route on an aircraft too big for it: thin.
     expect(margin('LIS-OXB', 'a332').m).toBeLessThan(0.05);
-    // A full widebody to Luanda or Recife: a healthy margin.
+    // A full widebody to Luanda or Recife: it pays. r3-bal: 3–5 % in the case's first year (the 20-week launch ramp
+    // and crew at 62 BH a month), more once known: long-haul is harder, not closed.
     for (const id of ['LIS-LAD', 'LIS-REC']) {
       const x = margin(id, 'a332');
-      expect(x.m).toBeGreaterThan(0.06);
+      expect(x.m).toBeGreaterThan(0.03);
       expect(x.m).toBeLessThan(0.2);
     }
     // Bad choices lose money.

@@ -15,7 +15,7 @@ import { DAY, fmtDay, fmtTime, monthKey } from '../core/time';
 import type { CabinLayout } from '../../data/acmiTypes';
 import type { Client, GameState, LedgerCat, Minute } from '../core/types';
 import { costTotal, passThrough, routeMonthCosts, sectorCost } from './costs';
-import { baseFare, cabinFor, chainOf, seasonCode, departureDemand, freqPerWeek, localMonth, localToUtc, MARKET_BY_ID, marketOfRoute, planMonths, seasonMonths, serviceHours, slotX, usd, weeklyMarket, type Dir } from './model';
+import { baseFare, cabinFor, chainOf, seasonCode, departureDemand, freqPerWeek, localMonth, localToUtc, MARKET_BY_ID, marketOfRoute, paxKgOf, cargoDepX, planMonths, seasonMonths, serviceHours, slotX, usd, weeklyMarket, type Dir } from './model';
 import { pushRouteNote } from './notes';
 import { checkAchievements } from '../ops/achievements';
 import { acmiNetBH, aircraftCostBH, crewAwayCost, crewCostBH } from './pnl';
@@ -277,7 +277,7 @@ export function planSeries(p: RoutePlan, from: Minute, id = '', months: number |
  * 12 months of a plan at a demand multiple (the study's P10/P50/P90), from `start`. Pure. A stopover route's three
  * markets share the seats (`fifth`: the B–C rights assumed; default the route's own, else none).
  */
-export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tanker' | 'noCaterer' | 'study' | 'reputation' | 'partnerFeeBH'> & { custom?: RouteMarket; fifth?: FifthRights }, p: RoutePlan, start: Minute, demandX: number, opt: { fifth?: FifthRights } = {}): Projection {
+export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tanker' | 'noCaterer' | 'study' | 'reputation' | 'partnerFeeBH'> & { custom?: RouteMarket; fifth?: FifthRights }, p: RoutePlan, start: Minute, demandX: number, opt: { fifth?: FifthRights; mature?: boolean } = {}): Projection {
   const m = marketOfRoute(r)!;
   const t = typeOf(p.typeId);
   const cab = cabinFor(p.typeId, p.layout ?? 'two-class');
@@ -303,14 +303,14 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   const secBack = chainOf(m, 'back').length - 1;
   /** Seats a sector can sell: the cabin within its payload. */
   const secCap = (a: string, b: string) => {
-    const paxMax = Math.floor(payloadMax(p.typeId, a, b) * 0.92 / BAL.v019.cargo.paxKg);
+    const paxMax = Math.floor(payloadMax(p.typeId, a, b) * 0.92 / paxKgOf(m));
     const j = Math.min(cab.j, paxMax);
     return { j, y: Math.max(0, Math.min(cab.y, paxMax - j)) };
   };
   const capPax = (dir: Dir) => {
     const c = chainOf(m, dir);
     let x = Infinity;
-    for (let i = 1; i < c.length; i++) x = Math.min(x, Math.floor(payloadMax(p.typeId, c[i - 1], c[i]) * 0.92 / BAL.v019.cargo.paxKg));
+    for (let i = 1; i < c.length; i++) x = Math.min(x, Math.floor(payloadMax(p.typeId, c[i - 1], c[i]) * 0.92 / paxKgOf(m)));
     return x;
   };
   const capOut = Math.min(cab.total, capPax('out'));
@@ -337,7 +337,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
     for (const dir of ['out', 'back'] as Dir[]) {
       const x = {
         freqPerWeek: freq, fares: p.fares, awareness: BAL.v019.demand.awareness.campaign[p.marketing] ?? 0.55, reputation: r.reputation ?? 60,
-        hours: serviceHours(m, p.typeId, dir), truth: demandX, slotX: slotX(outDay, p.out), rampX: i < 2 ? 0.85 : 1,
+        hours: serviceHours(m, p.typeId, dir), truth: demandX, slotX: slotX(outDay, p.out), rampX: opt.mature ? 1 : caseRamp(i),
       };
       const d = departureDemand(g, m, at, dir, tag ? { ...x, stop: true } : x);
       const month = new Date(Date.UTC(2000, 0, 1) + at * 60_000).getUTCMonth();
@@ -399,7 +399,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
       const above = r.model === 'partner' ? secPax.reduce((a, q) => a + Math.max(0, q.j + q.y - Math.ceil(cab.total * PF.shareAbove)), 0) * baseFareOf(m, 'Y', month, 'out', p.fares) * PF.share : 0;
       const fee = r.model === 'partner' ? (r.partnerFeeBH ?? (t?.rateBH ?? 5_000) * PF.feeOfRate) * (blk / 60) + pass + above : 0;
       const onBoard = Math.max(...secPax.map((q) => q.j + q.y));
-      const cargoKg = Math.min(dir === 'out' ? m.cargo.south + (m.cargo.mail ?? 0) + (m.cargo.ngo ?? 0) + (m.cargo.avi ?? 0) : routeStation(m.to).euCargo ? m.cargo.north + (m.cargo.perish ?? 0) : 0, Math.max(0, payloadMax(p.typeId, m.from, m.to) - onBoard * BAL.v019.cargo.paxKg));
+      const cargoKg = Math.min((dir === 'out' ? m.cargo.south + (m.cargo.mail ?? 0) + (m.cargo.ngo ?? 0) + (m.cargo.avi ?? 0) : routeStation(m.to).euCargo ? m.cargo.north + (m.cargo.perish ?? 0) : 0) * cargoDepX(freq), Math.max(0, payloadMax(p.typeId, m.from, m.to) - onBoard * paxKgOf(m)));
       const cargo = cargoKg * (dir === 'out' ? 2.1 : 1.6) * (r.model === 'partner' ? BAL.v019.fares.partner.cargoShare : 1);
       const anc = r.model === 'partner' ? 0 : boarded * m.ancillary;
       rev += (tickets + fee + cargo + anc) * deps;
@@ -451,6 +451,16 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
 }
 
 const baseFareOf = baseFare;
+
+/**
+ * r3-bal the launch ramp the case expects in its month `i` (the middle of the month on demand.ramp2, as sales.rampOf),
+ * with the late-sales dent: a Go today flies in 16 weeks, so its tickets go on sale under 12 weeks before (filing).
+ */
+function caseRamp(i: number): number {
+  const R = BAL.v019.demand.ramp2;
+  const w = (i + 0.5) * (30.4 / 7);
+  return w >= R.weeks ? 1 : (R.from + (1 - R.from) * w / R.weeks) * BAL.v019.demand.ramp.late;
+}
 
 function lowestDay(mask: number): number {
   for (let i = 0; i < 7; i++) if (mask & (1 << i)) return i;
@@ -674,6 +684,9 @@ function searchPlan(g: GameState, r: Route, x: number): { plan: RoutePlan; resul
     pats.push({ days: 1 << bestDays[0], every: 1 });
     pats.push({ days: (1 << bestDays[0]) | (1 << 2), every: 1 });
     pats.push({ days: (1 << 0) | (1 << 2) | (1 << 4), every: 1 });
+    // r3-bal four a week and daily too (a trunk market's loads ran at 98–100 % because the study stopped at three).
+    if (S.freqs.includes(4)) pats.push({ days: (1 << 0) | (1 << 2) | (1 << 4) | (1 << 6), every: 1 });
+    if (S.freqs.includes(7)) pats.push({ days: 127, every: 1 });
   }
   const gauges: ['narrow' | 'mid' | 'big', string][] = [];
   const fleetTypes = new Set(Object.values(g.fleet).map((a) => a.typeId));
@@ -690,6 +703,9 @@ function searchPlan(g: GameState, r: Route, x: number): { plan: RoutePlan; resul
     for (let i = 1; i < c.length && ok; i++) if (payloadMax(typeId, c[i - 1], c[i]) <= 0 || blockMinutes(typeId, c[i - 1], c[i]) <= 0) ok = false;
     // v0.19.2 nor one whose runway or full-payload range rules a sector out (payloadMax never reaches zero past the range).
     if (!ok || chainProblem(m, typeId)) continue;
+    // One aircraft flies the series: its rotations must fit the week (block, stops, the turn, nights away).
+    const rotH = serviceHours(m, typeId, 'out') + serviceHours(m, typeId, 'back') + (typeOf(typeId)?.turnMin ?? 60) / 60 + m.timetable.nights * 24;
+    if (freqPerWeek(pat) > 3 && rotH * freqPerWeek(pat) > 7 * S.maxDayH) continue;
     for (const out of times.slice(0, 2)) {
       const plan: RoutePlan = { model: r.model, days: pat.days, every: pat.every, monthly: pat.monthly, out, back: m.timetable.back, nights: m.timetable.nights, typeId, layout: 'two-class', fares: 'market', marketing: 'normal' };
       const pr = project(g, r, plan, g.now + 120 * DAY, x);
@@ -811,6 +827,7 @@ export function decideCase(g: GameState, routeId: string, decision: CaseDecision
   r.fares.level = p.fares;
   r.marketing = p.marketing;
   r.status = 'launching';
+  r.ramp2 = true;
   const cs = stage(r, 'case');
   cs.state = 'done';
   cs.due = g.now;

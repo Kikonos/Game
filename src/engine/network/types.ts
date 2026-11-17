@@ -228,6 +228,8 @@ export interface Route {
   suspended?: { at: Minute; prev: 'onSale' | 'operating'; slotsUntil: Minute };
   /** v0.24.1 winding down (lifecycle.ts): no sales, the booked flights fly, the route closes after its last one. */
   closing?: { at: Minute; last: Minute };
+  /** r3-bal launched with the longer launch ramp (demand.ramp2); routes launched before keep the old one. */
+  ramp2?: true;
   /** v0.24.1 resumed after a suspension or a wind-down: bookings build up again from this date (sales.ts rampOf). */
   resumed?: Minute;
   /** v0.24.1 the timetable is filed again only from this date (a resumed route needs time to sell). */
