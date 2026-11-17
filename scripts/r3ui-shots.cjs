@@ -165,8 +165,17 @@ async function dateShots(page, v) {
     await sleep(900);
     await shot(page, `${v}-${name}`, '.screen *, .shell main *');
   }
+  // Active contracts (their dates), the fleet, the crew roster.
+  await page.evaluate(() => window.__contrail.navigate('contracts', { view: 'active' }));
+  await sleep(900);
+  await shot(page, `${v}-contracts-active`, '.screen *');
+  for (const tab of ['fleet', 'crew']) {
+    await page.evaluate((t) => window.__contrail.navigate(t, {}), tab);
+    await sleep(900);
+    await shot(page, `${v}-${tab}`, '.screen *');
+  }
   // Schedule at its widest zoom (dates on the axis).
-  const z = page.locator('.seg button', { hasText: /^28 days$/ }).first();
+  const z = page.getByRole('button', { name: /^28 days$/ }).first();
   if (await z.count()) { await page.evaluate(() => window.__contrail.navigate('schedule', {})); await z.click().catch(() => {}); await sleep(600); await shot(page, `${v}-schedule-wide`, '.screen *'); }
 }
 
