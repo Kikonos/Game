@@ -674,6 +674,9 @@ function searchPlan(g: GameState, r: Route, x: number): { plan: RoutePlan; resul
     pats.push({ days: 1 << bestDays[0], every: 1 });
     pats.push({ days: (1 << bestDays[0]) | (1 << 2), every: 1 });
     pats.push({ days: (1 << 0) | (1 << 2) | (1 << 4), every: 1 });
+    // r3-bal four a week and daily too (a trunk market's loads ran at 98–100 % because the study stopped at three).
+    if (S.freqs.includes(4)) pats.push({ days: (1 << 0) | (1 << 2) | (1 << 4) | (1 << 6), every: 1 });
+    if (S.freqs.includes(7)) pats.push({ days: 127, every: 1 });
   }
   const gauges: ['narrow' | 'mid' | 'big', string][] = [];
   const fleetTypes = new Set(Object.values(g.fleet).map((a) => a.typeId));
@@ -690,6 +693,9 @@ function searchPlan(g: GameState, r: Route, x: number): { plan: RoutePlan; resul
     for (let i = 1; i < c.length && ok; i++) if (payloadMax(typeId, c[i - 1], c[i]) <= 0 || blockMinutes(typeId, c[i - 1], c[i]) <= 0) ok = false;
     // v0.19.2 nor one whose runway or full-payload range rules a sector out (payloadMax never reaches zero past the range).
     if (!ok || chainProblem(m, typeId)) continue;
+    // One aircraft flies the series: its rotations must fit the week (block, stops, the turn, nights away).
+    const rotH = serviceHours(m, typeId, 'out') + serviceHours(m, typeId, 'back') + (typeOf(typeId)?.turnMin ?? 60) / 60 + m.timetable.nights * 24;
+    if (freqPerWeek(pat) > 3 && rotH * freqPerWeek(pat) > 7 * S.maxDayH) continue;
     for (const out of times.slice(0, 2)) {
       const plan: RoutePlan = { model: r.model, days: pat.days, every: pat.every, monthly: pat.monthly, out, back: m.timetable.back, nights: m.timetable.nights, typeId, layout: 'two-class', fares: 'market', marketing: 'normal' };
       const pr = project(g, r, plan, g.now + 120 * DAY, x);

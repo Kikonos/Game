@@ -18,7 +18,7 @@ if (process.env.CAPX) B.demand.freqCap.x = Number(process.env.CAPX);
 if (process.env.FREQB) B.demand.beta.freq = Number(process.env.FREQB);
 const mkt = process.env.MKT ?? 'all';
 const layout = (process.env.LAYOUT ?? 'two-class') as 'two-class' | 'all-economy';
-const markets = mkt === 'all' ? ROUTE_MARKETS.filter((m) => !m.closed) : /^[A-Z]{3}$/.test(mkt) ? ROUTE_MARKETS.filter((m) => m.from === mkt && !m.closed) : ROUTE_MARKETS.filter((m) => mkt.split(',').includes(m.id));
+const markets = mkt === 'all' ? ROUTE_MARKETS.filter((m) => !m.closed && !(process.env.EXCL ?? '').split(',').includes(m.from)) : /^[A-Z]{3}$/.test(mkt) ? ROUTE_MARKETS.filter((m) => m.from === mkt && !m.closed) : ROUTE_MARKETS.filter((m) => mkt.split(',').includes(m.id));
 const NARROW = ['a320ceo', 'a321ceo'];
 const WIDE = ['b763', 'a332'];
 const games = new Map<string, GameState>();

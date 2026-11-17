@@ -2,6 +2,7 @@
 // lines at arrival from routeLegCost (the same sums the cash forecast and the sector P&L read); network/index.ts posts
 // the monthly overheads at month end.
 
+import { AIRCRAFT_BY_ID } from '../../data/aircraft';
 import { routeStation } from '../../data/routes';
 import { BAL } from '../core/balance';
 import { blockMinutes, typeOf } from '../core/perf';
@@ -48,6 +49,16 @@ function sizeX(typeId: string): number {
   return Math.sqrt(Math.max(80, t?.maxSeats ?? 290) / 290);
 }
 
+/**
+ * r3-bal the en-route charge's weight factor against the 767-300ER reference: √(MTOW ÷ 50 t) as Eurocontrol bills it
+ * (CRCO route charges formula), so √(MTOW ÷ 186.9 t). The seat count stood for weight before: an A321 paid 0.89 of a
+ * 767's charge where its weight factor is 0.71.
+ */
+function navX(typeId: string): number {
+  const mtow = AIRCRAFT_BY_ID[typeOf(typeId)?.catalog ?? '']?.mtow;
+  return mtow ? Math.sqrt(mtow / 186.9) : sizeX(typeId);
+}
+
 /** Catering band by block: ≤ 5 h, 5–9 h, more. */
 const band = (blk: number) => (blk <= 300 ? 0 : blk <= 540 ? 1 : 2);
 
@@ -86,7 +97,7 @@ export function sectorCost(g: GameState, route: Pick<Route, 'marketId' | 'model'
   // The business lounge: at our home base (any start base, not only Lisbon) and where the station's data says so.
   const paxServices = (C.pss + C.services + C.insurance) * pax + (A.lounge || from === g.company.homeBase ? C.lounge * opt.j : 0);
   const direct = m ? blockMinutes(typeId, m.from, m.to) : blk;
-  const navCharges = (m?.navPerSector ?? 3_000) * sx * Math.min(1.6, blk / Math.max(60, direct));
+  const navCharges = (m?.navPerSector ?? 3_000) * navX(typeId) * Math.min(1.6, blk / Math.max(60, direct));
   const distribution = route.model === 'partner' ? 0
     : route.model === 'tour' ? opt.sold * (BAL.v019.fares.tourMargin + C.cardFee)
       : C.gds * C.agencyShare * pax + opt.sold * (C.cardFee * (1 - C.agencyShare) + C.commission);

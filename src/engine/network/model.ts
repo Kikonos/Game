@@ -216,7 +216,10 @@ export function shareOf(m: RouteMarket, x: ShareInput): number {
   const Q = BAL.v019.demand.freqCap;
   if (!m.custom && !Q.all) return logit;
   let rivalF = 0;
-  for (const c of m.competitors) rivalF += c.stops === 0 ? c.perWeek : Q.oneStop * c.perWeek;
+  // A catalogue market counts nonstop rivals only (its one-stop itineraries are in the logit already): the cap bites
+  // where low-cost carriers fly the pair many times a week, not on the diaspora routes nobody flies nonstop.
+  const one = m.custom ? Q.oneStop : 0;
+  for (const c of m.competitors) rivalF += c.stops === 0 ? c.perWeek : one * c.perWeek;
   const f = Math.max(0.25, x.freqPerWeek);
   return Math.min(logit, Q.x * (f / (f + rivalF)));
 }

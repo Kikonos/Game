@@ -48,7 +48,9 @@ export const NET_ENGINE_BAL = {
   /** UPDATE-0.19 additions 3: the study recommends a timetable (searched for the best fully costed profit at mid demand). */
   study: {
     /** Weekly frequencies tried, and every-N-weeks for a thin market (DIL: every 2–4 weeks). */
-    freqs: [1, 2, 3] as number[], thinEvery: [2, 3, 4] as number[],
+    freqs: [1, 2, 3, 4, 7] as number[], thinEvery: [2, 3, 4] as number[],
+    /** r3-bal four a week or daily only when one aircraft's rotations fit: at most this many hours a day on average. */
+    maxDayH: 16,
     /** Local departure times tried for the first out sector (min after midnight). */
     times: [400, 600, 840, 1_320] as number[],
     /** Demand by departure weekday (Mon … Sun): Friday and Saturday best for VFR, Tuesday weakest [E]. */
@@ -208,8 +210,12 @@ export const NET_ENGINE_BAL = {
   pnl: {
     /** Monthly block hours an aircraft's rent and insurance are spread over (route P&L only). */
     utilBH: 250,
-    /** Block hours a month a crew member is paid for (salaries per BH). */
-    crewBH: 75,
+    /**
+     * Block hours a month a crew member is paid for (salaries per BH). r3-bal 62 (was 75): EASA FTL allows 900 block
+     * hours a year and 100 in 28 days, but leave, training, standby and reserve leave a European short-haul pilot or
+     * cabin crew member about 700–800 a year [E].
+     */
+    crewBH: 62,
     /**
      * v0.21 the business case's allowance for the bad days a year brings (share of ticket, cargo and extras revenue):
      * late flights and EU261, a sub-charter when the aircraft is away, a rival's fare cut after the launch [E 2–3 %].
