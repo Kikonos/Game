@@ -7,8 +7,9 @@ import type { ModalSpec } from '../../store';
 import { LaunchWizard } from './LaunchWizard';
 import { RouteBuilder } from './RouteBuilder';
 import { RoutePage } from './RoutePage';
+import { RouteActionModal } from './RouteActions';
 
-export type NetworkModalSpec = Extract<ModalSpec, { kind: 'route' | 'routeLaunch' | 'routeBuild' | 'rotationMove' }>;
+export type NetworkModalSpec = Extract<ModalSpec, { kind: 'route' | 'routeLaunch' | 'routeBuild' | 'rotationMove' | 'routeAction' }>;
 
 export default function NetworkModals({ m }: { m: NetworkModalSpec }) {
   switch (m.kind) {
@@ -16,5 +17,6 @@ export default function NetworkModals({ m }: { m: NetworkModalSpec }) {
     case 'routeLaunch': return <LaunchWizard key={`${m.routeId ?? ''}:${m.marketId ?? ''}`} routeId={m.routeId} marketId={m.marketId} />;
     case 'routeBuild': return <RouteBuilder key="build" from={m.from} to={m.to} />;
     case 'rotationMove': return <RotationMoveModal key={`${m.rotId}@${m.delta}`} rotId={m.rotId} delta={m.delta} back={m.back} />;
+    case 'routeAction': return <RouteActionModal key={`${m.routeId}:${m.action}`} routeId={m.routeId} action={m.action} back={m.back} />;
   }
 }

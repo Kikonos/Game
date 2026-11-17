@@ -130,6 +130,8 @@ export type Tone = 'good' | 'warn' | 'bad' | 'info' | 'off';
 
 /** The status chip (Study · Business case · Launching (stage x of 11) · On sale · Operating · Suspended · Closed). */
 export function statusChip(r: Route, now?: Minute): { label: string; tone: Tone } {
+  // v0.24.1 winding down: the booked flights fly, then it closes.
+  if (r.closing && r.status !== 'closed') return { label: `Closing · last flight ${fmtDay(r.closing.last)}`, tone: 'warn' };
   // v0.23.2 a seasonal route out of its season: no flights until its months come round.
   if (now !== undefined && r.status === 'operating' && routeResting(r, now)) return { label: 'Out of season', tone: 'info' };
   switch (r.status) {

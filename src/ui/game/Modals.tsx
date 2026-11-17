@@ -439,6 +439,6 @@ export function GlobalModals() {
     case 'routeNews': return s.game ? <RouteNewsModal routeId={m.routeId} what={m.what} title={m.title} body={m.body} /> : null;
     case 'followDelivery': return s.game ? <FollowDeliveryModal aircraftId={m.aircraftId} /> : null;
     case 'welcome': return s.game ? <WelcomeModal /> : null;
-    case 'route': case 'routeLaunch': case 'routeBuild': case 'rotationMove': return s.game ? <Suspense fallback={null}><NetworkModals m={m} /></Suspense> : null;
+    case 'route': case 'routeLaunch': case 'routeBuild': case 'rotationMove': case 'routeAction': return s.game ? <Suspense fallback={null}><NetworkModals m={m} /></Suspense> : null;
   }
 }

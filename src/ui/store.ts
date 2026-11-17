@@ -51,6 +51,7 @@ import { inspect, rampFindings } from '../engine/ops/ramp';
 import { devAudit } from '../engine/ops/audit';
 import { catalogueFor } from '../engine/network/custom';
 import { devLaunchRoute } from '../engine/network/launch';
+import { DEFAULT_KEYS, keymapFrom, type KeyMap } from './keymap';
 
 export type { GameSpeed } from '../engine/core/time';
 export type AppScreen = 'loading' | 'title' | 'newgame' | 'game' | /** v0.12 */ 'scenarios';
@@ -109,6 +110,8 @@ export interface Settings {
   globeView: boolean;
   /** v0.15 the globe turns slowly by itself after a few idle seconds. */
   globeSpin: boolean;
+  /** v0.24.1 Settings › Key bindings: the key of every shortcut on this device (keymap.ts). */
+  keys: KeyMap;
 }
 
 export interface ScenarioBest { stars: number; value: number; at: number }
@@ -140,6 +143,7 @@ const DEFAULT_SETTINGS: Settings = {
   globe: true,
   globeView: false,
   globeSpin: false,
+  keys: { ...DEFAULT_KEYS },
 };
 
 export interface Nav {
@@ -240,7 +244,11 @@ export type ModalSpec =
   | { kind: 'routeLaunch'; routeId?: string; marketId?: string }
   /** v0.19.2 build a route to any destination (Network › Build your own route). */
   | { kind: 'routeBuild'; from?: string; to?: string }
-  | { kind: 'rotationMove'; rotId: string; delta: number; back?: ModalSpec };
+  | { kind: 'rotationMove'; rotId: string; delta: number; back?: ModalSpec }
+  /** v0.24.1 suspend, resume, wind down or close a route (the confirm with its money). */
+  | { kind: 'routeAction'; routeId: string; action: 'suspend' | 'resume' | 'windDown' | 'close'; back?: ModalSpec }
+  /** v0.24.1 Settings › Key bindings on its own (the '?' key). */
+  | { kind: 'keys' };
 
 export interface Toast {
   id: number;
@@ -306,6 +314,8 @@ export function settingsFrom(s: Partial<Settings>): Settings {
   if (typeof out.globe !== 'boolean') out.globe = DEFAULT_SETTINGS.globe;
   if (typeof out.globeView !== 'boolean') out.globeView = DEFAULT_SETTINGS.globeView;
   if (typeof out.globeSpin !== 'boolean') out.globeSpin = DEFAULT_SETTINGS.globeSpin;
+  // v0.24.1 settings saved before key bindings: the defaults (and any stored map checked: every action, no key twice).
+  out.keys = keymapFrom(s.keys);
   return out;
 }
 

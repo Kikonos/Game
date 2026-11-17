@@ -117,6 +117,8 @@ export interface RouteLifeQuote {
   monthNow: number;
   monthSuspended: number;
   monthClosing: number;
+  /** On sale and flying again (resume). */
+  monthLive: number;
   /** A suspension: the date the slots lapse when the booked flights fly, and when they are refunded. */
   slotsKeep: Minute;
   slotsRefund: Minute;
@@ -127,7 +129,7 @@ export interface RouteLifeQuote {
 /** Every number the four actions need (pure). */
 export function quoteRouteLife(g: GameState, routeId: string): RouteLifeQuote {
   const r = g.network?.routes[routeId];
-  const z: RouteLifeQuote = { ok: false, ahead: 0, booked: 0, empty: 0, underWay: 0, pax: 0, refunds: 0, comp: 0, subBack: 0, refundCost: 0, flyCost: 0, flyOverhead: 0, saved: 0, monthNow: 0, monthSuspended: 0, monthClosing: 0, slotsKeep: g.now, slotsRefund: g.now };
+  const z: RouteLifeQuote = { ok: false, ahead: 0, booked: 0, empty: 0, underWay: 0, pax: 0, refunds: 0, comp: 0, subBack: 0, refundCost: 0, flyCost: 0, flyOverhead: 0, saved: 0, monthNow: 0, monthSuspended: 0, monthClosing: 0, monthLive: 0, slotsKeep: g.now, slotsRefund: g.now };
   if (!r) return { ...z, why: 'This route no longer exists.' };
   if (routeLife(r) === 'other') return { ...z, why: r.status === 'closed' ? 'This route is closed.' : 'Not on sale yet.' };
   const q = { ...z, ok: true };
@@ -152,6 +154,7 @@ export function quoteRouteLife(g: GameState, routeId: string): RouteLifeQuote {
   q.refundCost = q.refunds + q.comp - q.subBack;
   q.monthNow = overheadIn(r, r.status, !!r.closing);
   q.monthSuspended = overheadIn(r, 'suspended');
+  q.monthLive = overheadIn(r, r.status === 'suspended' ? r.suspended?.prev ?? 'operating' : r.status);
   q.monthClosing = overheadIn(r, r.status === 'suspended' ? 'suspended' : r.status, true);
   const months = q.lastFlight ? Math.max(0, q.lastFlight - g.now) / (30 * DAY) : 0;
   q.flyOverhead = Math.round(months * q.monthClosing);
