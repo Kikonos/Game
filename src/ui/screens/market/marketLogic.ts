@@ -16,7 +16,7 @@ import { tightNow, tightWord } from '../../../engine/leasing';
 import { aircraftGate } from '../../../engine/ops/company';
 
 /** '12 Jan', or '12 Jan 2028' outside the current year. */
-const dayIn = (now: Minute, t: Minute) => (yearOf(t) === yearOf(now) ? fmtDay(t) : `${fmtDay(t)} ${yearOf(t)}`);
+const dayIn = (_now: Minute, t: Minute) => fmtDay(t);
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 

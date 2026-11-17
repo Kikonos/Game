@@ -4,7 +4,7 @@ import { sourceBadge } from './market/marketLogic';
 import type { RatingFamily } from '../../data/acmiTypes';
 import { COST_CATS, REVENUE_CATS, statementTotals } from '../../engine/core/ledger';
 import { problemFor } from '../../engine/problems';
-import { DAY, HOUR, fmtDay, monthKey, toLocal } from '../../engine/core/time';
+import { DAY, HOUR, fmtDay, joinDays, monthKey, toLocal } from '../../engine/core/time';
 import { mghLabel } from '../../engine/contracts/pricing';
 import { jobDays } from '../../engine/contracts/accept';
 import { wetMonthLines } from '../../engine/contracts/billing';
@@ -44,7 +44,7 @@ export function offerDays(o: Pick<ContractOffer, 'pattern' | 'start' | 'end'>): 
  */
 export const workDays = (c: Pick<Contract, 'pattern' | 'start' | 'end'>): string => {
   const [a, b] = jobDays(c);
-  return a === b ? a : `${a} – ${b}`;
+  return joinDays(a, b);
 };
 
 export const ROLES: Role[] = ['CPT', 'FO', 'PUR', 'CC'];

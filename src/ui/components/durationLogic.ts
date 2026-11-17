@@ -50,13 +50,13 @@ export const STACK_OVER = 14;
 
 const plural = (n: number, w: string) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
-/** '3–14 Mar', '21 Mar – 26 May', '21 Nov 2029 – 26 Jan 2030' (the year named whenever it is not this year's). Pure. */
-export function spanDates(now: Minute, first: Minute, last: Minute): string {
+/** '3–14 Mar 2027', '21 Mar – 26 May 2027', '21 Nov 2029 – 26 Jan 2030' (v0.24.1 always with the year). Pure. */
+export function spanDates(_now: Minute, first: Minute, last: Minute): string {
   const a = toDate(first), b = toDate(last);
-  const ya = a.getUTCFullYear(), yb = b.getUTCFullYear(), yn = toDate(now).getUTCFullYear();
+  const ya = a.getUTCFullYear(), yb = b.getUTCFullYear();
   const da = `${a.getUTCDate()} ${MONTHS[a.getUTCMonth()]}`, db = `${b.getUTCDate()} ${MONTHS[b.getUTCMonth()]}`;
   if (ya !== yb) return `${da} ${ya} – ${db} ${yb}`;
-  const y = ya !== yn ? ` ${ya}` : '';
+  const y = ` ${ya}`;
   if (dayIndex(first) === dayIndex(last)) return `${da}${y}`;
   if (a.getUTCMonth() === b.getUTCMonth()) return `${a.getUTCDate()}–${db}${y}`;
   return `${da} – ${db}${y}`;

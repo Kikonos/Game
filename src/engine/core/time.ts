@@ -122,16 +122,34 @@ export function fmtDate(t: Minute, weekday = false): string {
   return weekday ? `${WEEKDAYS[d.getUTCDay()]} ${s}` : s;
 }
 
-/** '1 Mar' */
+/** '1 Mar 2027': v0.24.1 every calendar date shown to the player carries its year (the player asked: always). */
 export function fmtDay(t: Minute): string {
-  const d = toDate(t);
-  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}`;
+  return fmtDate(t);
 }
 
-/** v0.11 '4 Nov–7 Nov', or just '4 Nov' when both ends fall on the same day. */
+/** v0.24.1 '1 Mar 27': the compact form for narrow columns and chips (still with the year). */
+export function fmtDayShort(t: Minute): string {
+  const d = toDate(t);
+  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]} ${p2(d.getUTCFullYear() % 100)}`;
+}
+
+/**
+ * v0.11 a span of days: '4–7 Nov 2027' in one month, '28 Oct–3 Nov 2027' in one year, '28 Dec 2027–3 Jan 2028'
+ * across a new year, just '4 Nov 2027' when both ends fall on the same day (v0.24.1 always with the year).
+ */
 export function fmtDayRange(a: Minute, b: Minute): string {
-  const x = fmtDay(a), y = fmtDay(b);
-  return x === y ? x : `${x}–${y}`;
+  const x = toDate(a), y = toDate(b);
+  const yx = x.getUTCFullYear(), yy = y.getUTCFullYear();
+  if (yx !== yy) return `${fmtDate(a)}–${fmtDate(b)}`;
+  if (x.getUTCMonth() !== y.getUTCMonth()) return `${x.getUTCDate()} ${MONTHS[x.getUTCMonth()]}–${fmtDate(b)}`;
+  return x.getUTCDate() === y.getUTCDate() ? fmtDate(a) : `${x.getUTCDate()}–${fmtDate(b)}`;
+}
+
+/** v0.24.1 two written dates as a span, the year once when both carry the same one: '1 Jun – 31 Aug 2027'. */
+export function joinDays(a: string, b: string, sep = ' – '): string {
+  if (a === b) return a;
+  const ya = / \d{4}$/.exec(a)?.[0];
+  return ya && b.endsWith(ya) ? `${a.slice(0, -ya.length)}${sep}${b}` : `${a}${sep}${b}`;
 }
 
 /**
@@ -145,7 +163,7 @@ export function fmtSpan(lo: number, hi: number, unit = ''): string {
   return `${n} ${b === 1 && unit.endsWith('s') ? unit.slice(0, -1) : unit}`;
 }
 
-/** '1 Mar' / '1 Mar 2027' on the local calendar at an airport (home-base dates in messages: classes, leave dates). */
+/** '1 Mar 2027' on the local calendar at an airport (home-base dates in messages: classes, leave dates). */
 export const fmtDayAt = (code: string, t: Minute): string => fmtDay(toLocal(code, t));
 export const fmtDateAt = (code: string, t: Minute): string => fmtDate(toLocal(code, t));
 
@@ -160,15 +178,12 @@ export function fmtWeekdayTime(t: Minute): string {
   return `${WEEKDAYS[toDate(t).getUTCDay()]} ${fmtTime(t)}`;
 }
 
-/**
- * v0.12.1 a date far off or in another year carries the year ('28 Nov 2028'); one within the coming months reads
- * '28 Nov' as before (an early-return notice for next year's November read like this November).
- */
-export function fmtDayRel(t: Minute, now: Minute): string {
-  return yearOf(t) !== yearOf(now) || Math.abs(t - now) > 300 * DAY ? fmtDate(t) : fmtDay(t);
+/** v0.12.1 a date relative to now; v0.24.1 every date carries its year now ('28 Nov 2028'), so this is fmtDate. */
+export function fmtDayRel(t: Minute, _now: Minute): string {
+  return fmtDate(t);
 }
 
-/** '1 Mar 14:05' */
+/** '1 Mar 2027 14:05' */
 export function fmtDateTime(t: Minute): string {
   return `${fmtDay(t)} ${fmtTime(t)}`;
 }
@@ -181,7 +196,8 @@ export function fmtDuration(min: number, clock = false): string {
   return h ? `${h}h ${p2(m % 60)}m` : `${m % 60}m`;
 }
 
-export function fmtMonth(k: MonthKey, short = true): string {
+/** 'Oct 2027'; v0.24.1 always with the full year unless `short` ('Oct 27', narrow columns and chart axes). */
+export function fmtMonth(k: MonthKey, short = false): string {
   const y = Math.floor(k / 12);
-  return short ? `${MONTHS[k % 12]} ’${String(y).slice(2)}` : `${MONTHS[k % 12]} ${y}`;
+  return short ? `${MONTHS[k % 12]} ${String(y).slice(2)}` : `${MONTHS[k % 12]} ${y}`;
 }

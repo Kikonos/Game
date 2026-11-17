@@ -6,7 +6,7 @@ import { flightsOf } from '../../engine/core/entities';
 import { haversine } from '../../engine/core/geo';
 import { isPilot } from '../../engine/core/perf';
 import { flightTimes } from '../../engine/core/query';
-import { DAY, fmtDay, fmtTime, fmtWeekdayTime } from '../../engine/core/time';
+import { DAY, fmtDayShort, fmtTime, fmtWeekdayTime } from '../../engine/core/time';
 import type { AcRest, Aircraft, Archetype, ContractOffer, CrewMember, Flight, GameState, Minute, OohLimit, Ref, RestFacility, RestKind, WorldEventKind } from '../../engine/core/types';
 import { type CrewAlertKind, crewAway, LIMIT_NAME, shortFlights, type SlipView } from '../../engine/crew';
 import { clientCode, clientLivery, clientTitles, commercialFlightsBetween, type CommercialFlight, commercialItinerary, dryLeaseOf, type FlightType, flightType, liveryOf, type ResolvedLivery } from '../../engine/ops';
@@ -607,7 +607,7 @@ export type Tone = 'good' | 'warn' | 'bad' | 'air' | 'idle';
 
 export interface ChipInfo {
   tone: Tone;
-  /** State line, ≤ 18 chars to fit a fixed chip: "LIS→OPO ETA 15:20", "LIS→OPO 14:05", "LIS→OPO · 5 Apr", "C-check → 9 Mar", "AOG at FAO". */
+  /** State line, about 18 chars to fit a fixed chip: "LIS→OPO ETA 15:20", "LIS→OPO 14:05", "LIS→OPO · 5 Apr 27", "C-check → 9 Mar 27", "AOG at FAO" (v0.24.1 dates in the short form, with the year). */
   line: string;
   /** Compact chip line, ≤ 10 chars: "LIS→OPO", "→OPO 14:05", "AOG FAO", "Idle LIS". */
   short: string;
@@ -631,38 +631,38 @@ export function chipInfo(g: GameState, ac: Aircraft, t: Minute, short?: ShortRow
   if (ac.status === 'aog') return { tone: 'bad', line: `AOG at ${ac.at}`, short: `AOG ${ac.at}` };
   if (ac.status === 'maintenance') {
     const m = ac.maintId ? g.maintenance[ac.maintId] : undefined;
-    if (m?.kind === 'paint') return { tone: 'warn', line: `Paint shop → ${fmtDay(m.end)}`, short: `Paint ${ac.at}` };
-    if (m?.kind === 'refit') return { tone: 'warn', line: `Refit ${m.at} ${fmtDay(m.end)}`, short: `Refit ${m.at}` };
-    if (m?.kind === 'return') return { tone: 'warn', line: `Return → ${fmtDay(m.end)}`, short: `Return ${m.at}` };
-    return { tone: 'warn', line: m ? `${m.kind === 'AOG' ? 'Repair' : m.kind === 'line' ? 'Inspection' : `${m.kind}-check`} → ${fmtDay(m.end)}` : `Hangar ${ac.at}`, short: `Hangar ${ac.at}` };
+    if (m?.kind === 'paint') return { tone: 'warn', line: `Paint → ${fmtDayShort(m.end)}`, short: `Paint ${ac.at}` };
+    if (m?.kind === 'refit') return { tone: 'warn', line: `Refit → ${fmtDayShort(m.end)}`, short: `Refit ${m.at}` };
+    if (m?.kind === 'return') return { tone: 'warn', line: `Return → ${fmtDayShort(m.end)}`, short: `Return ${m.at}` };
+    return { tone: 'warn', line: m ? `${m.kind === 'AOG' ? 'Repair' : m.kind === 'line' ? 'Inspection' : `${m.kind}-check`} → ${fmtDayShort(m.end)}` : `Hangar ${ac.at}`, short: `Hangar ${ac.at}` };
   }
   // v0.8: with the lessee ('Leased LAD 14 Mar').
   if (ac.status === 'leasedOut') {
     const v = dryLeaseOf(g, ac.id);
-    const full = v ? `Leased ${ac.at} ${fmtDay(v.lease[1])}` : `Leased ${ac.at}`;
-    return { tone: 'idle', line: full.length <= 17 ? full : `Leased ${ac.at}`, short: `Leased ${ac.at}` };
+    const full = v ? `Leased ${ac.at} ${fmtDayShort(v.lease[1])}` : `Leased ${ac.at}`;
+    return { tone: 'idle', line: full.length <= 18 ? full : `Leased ${ac.at}`, short: `Leased ${ac.at}` };
   }
   const dl = ac.delivery;
   if (ac.status === 'delivering') {
-    if (!dl) return { tone: 'idle', line: `Delivery ${fmtDay(ac.deliveredAt)}`, short: 'Delivery' };
-    // Fits the fixed chip (≈ 17 chars): 'Handover SCL 2 May', else 'Handover 12 May' (the site is in the short line and title).
-    const full = `Handover ${dl.site} ${fmtDay(dl.handover)}`;
-    return { tone: 'idle', line: full.length <= 17 ? full : `Handover ${fmtDay(dl.handover)}`, short: `Dlvy ${dl.site}` };
+    if (!dl) return { tone: 'idle', line: `Delivery ${fmtDayShort(ac.deliveredAt)}`, short: 'Delivery' };
+    // Fits the fixed chip (≈ 18 chars): 'Handover SCL 2 May 27', else 'Handover 12 May 27' (the site is in the short line and title).
+    const full = `Handover ${dl.site} ${fmtDayShort(dl.handover)}`;
+    return { tone: 'idle', line: full.length <= 18 ? full : `Handover ${fmtDayShort(dl.handover)}`, short: `Dlvy ${dl.site}` };
   }
   const next = upcomingLegs(g, ac.id, 1)[0];
   if (dl && dl.arrived === undefined) {
     if (dl.waitingSince !== undefined) return { tone: 'warn', line: 'Waiting for crew', short: `Wait ${ac.at}` };
     if (next?.purpose === 'delivery') {
       const dep = next.std + next.delay;
-      return { tone: dep - t < 24 * 60 ? 'good' : 'idle', line: `Ferry home ${fmtDay(dep)}`, short: `Dlv ${fmtDay(dep)}` };
+      return { tone: dep - t < 24 * 60 ? 'good' : 'idle', line: `Ferry home ${fmtDayShort(dep)}`, short: `Dlv ${fmtDayShort(dep)}` };
     }
   }
   if (!next) return { tone: 'idle', line: `Idle at ${ac.at}`, short: `Idle ${ac.at}` };
   const dep = next.std + next.delay;
   const soon = dep - t < 20 * 60;
-  const when = soon ? fmtTime(dep) : `· ${fmtDay(dep)}`;
+  const when = soon ? fmtTime(dep) : `· ${fmtDayShort(dep)}`;
   // v0.12.1 '→OPO 14:05': the arrow says it is the next departure there, not a time at OPO.
-  return { tone: dep - t < 24 * 60 ? 'good' : 'idle', line: `${next.from}→${next.to} ${when}`, short: soon ? `→${next.to} ${fmtTime(dep)}` : `${next.to} ${fmtDay(dep)}` };
+  return { tone: dep - t < 24 * 60 ? 'good' : 'idle', line: `${next.from}→${next.to} ${when}`, short: soon ? `→${next.to} ${fmtTime(dep)}` : `${next.to} ${fmtDayShort(dep)}` };
 }
 
 // ---------- v0.18.3 all aircraft (the fleet strip's sheet for large fleets) ----------

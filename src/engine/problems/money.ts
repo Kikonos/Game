@@ -233,13 +233,13 @@ export function lossMonthCard(g: GameState): ProblemCard | null {
   // Only the running costs (rent, insurance, overhead, pay) behind it: too little work for the fleet.
   const idle = fewer || rises.every((x) => FIXED.includes(x.c));
   const named = rises.map((x) => `${COST_WORD[x.c] ?? x.c} ${prev ? `+${usd(x.d)}` : usd(x.v)}`).join(', ');
-  const pm = prev ? fmtMonth(prev.month, false) : '';
+  const pm = prev ? fmtMonth(prev.month) : '';
   const why = `Revenue ${usd(tot.revenue)} did not cover costs of ${usd(-tot.costs)}.`
     + (fewer ? ` Revenue fell ${usd(revDrop)} on ${pm}: ${bh} block hours flown (${Math.round(prev!.bh)} before).` : '')
     + (named ? ` ${prev ? `Costs up on ${pm}` : 'Biggest costs'}: ${named}.` : '');
   return {
     subject: { kind: 'lossMonth', ref: { kind: 'statement', id: String(st.month) } }, severity: 'amber',
-    title: `${fmtMonth(st.month, false)} lost ${usd(-tot.profit)}`, what: `${fmtMonth(st.month, false)} lost ${usd(-tot.profit)}`,
+    title: `${fmtMonth(st.month)} lost ${usd(-tot.profit)}`, what: `${fmtMonth(st.month)} lost ${usd(-tot.profit)}`,
     why,
     hurt: mkHurt({ money: -tot.profit, what: 'lost' }),
     actions: idle
