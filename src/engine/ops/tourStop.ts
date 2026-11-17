@@ -7,7 +7,7 @@ import { AIRPORT_BY_CODE, AIRPORTS } from '../../data/airports';
 import { removeFlights, retimeFlight } from '../core/entities';
 import { distance } from '../core/geo';
 import { blockMinutes, etopsCap, planSector, runwayFit, withinEtops } from '../core/perf';
-import { DAY, fmtDay } from '../core/time';
+import { DAY, fmtDay, joinDays } from '../core/time';
 import type { ActionResult, Contract, Decision, Flight, GameState, Minute, WorldEvent } from '../core/types';
 import { tourAlternates, tourSight } from '../contracts/missions';
 import { ask } from './events';
@@ -117,7 +117,7 @@ export function tourStopAsk(g: GameState, e: WorldEvent, k: Contract): boolean {
     chips: ['No penalty', 'Late'],
   });
   const what = `${city(stop)} is closed: the tour can't land there`;
-  const why = `${e.title}, until about ${fmtDay(until)}. ${k.title} is due there ${fmtDay(legIn.sta)} to ${fmtDay(legOut.std)}.`;
+  const why = `${e.title}, until about ${fmtDay(until)}. ${k.title} is due there ${joinDays(fmtDay(legIn.sta), fmtDay(legOut.std), ' to ')}.`;
   const hurt = `Not much if we change the plan: force majeure, the client pays the full tour; the guests miss ${sight}.`;
   ask(g, {
     kind: 'tourStop', title: `${k.title}: ${city(stop)} is closed`,

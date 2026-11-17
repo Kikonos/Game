@@ -164,8 +164,8 @@ describe('v0.14.1 (merge) workDays: a contract by the client\'s days (Clients sc
     const { fromUTC } = await import('../../engine/core/time');
     const pattern = { kind: 'base', base: 'LIS' } as never;
     // Lisbon summer time (UTC+1): 1 Jun 00:00 local is 31 May 23:00 UTC; the job ends at local midnight after 31 Aug.
-    expect(workDays({ pattern, start: fromUTC(2027, 5, 31, 23, 0), end: fromUTC(2027, 8, 31, 23, 0) })).toBe('1 Jun – 31 Aug');
-    expect(workDays({ pattern: { kind: 'legs', legs: [] } as never, start: fromUTC(2027, 6, 2, 8, 0), end: fromUTC(2027, 6, 2, 20, 0) })).toBe('2 Jun');
+    expect(workDays({ pattern, start: fromUTC(2027, 5, 31, 23, 0), end: fromUTC(2027, 8, 31, 23, 0) })).toBe('1 Jun – 31 Aug 2027');
+    expect(workDays({ pattern: { kind: 'legs', legs: [] } as never, start: fromUTC(2027, 6, 2, 8, 0), end: fromUTC(2027, 6, 2, 20, 0) })).toBe('2 Jun 2027');
   });
 });
 

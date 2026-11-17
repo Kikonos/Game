@@ -16,7 +16,7 @@ import { pushMessage } from '../core/messages';
 import { blockMinutes, complement, etopsCap, maxSectorNm, planSector, typeOf, usableRangeNm } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick } from '../core/rng';
-import { DAY, fmtDay, fromUTC, toDate, yearOf } from '../core/time';
+import { DAY, fmtDay, fromUTC, toDate, yearOf, joinDays } from '../core/time';
 import type { CabinLayout } from '../../data/acmiTypes';
 import type { Aircraft, Archetype, ApprovalId, Client, ContractOffer, GameState, LegTemplate, Minute, Requirements, Rival } from '../core/types';
 import { segIndex } from '../ops/market';
@@ -113,7 +113,7 @@ function hajj(ctx: Ctx): Draft | null {
   const days = terms.reduce((s, [a, b]) => s + (b - a), 0) / DAY;
   const planned = (legs.reduce((s, l) => s + blk(l.from, l.to), 0) / 60 / Math.max(1, days)) * 30.44;
   const mgh = Math.max(100, Math.min(wide ? 300 : 240, Math.floor((planned * 0.95) / 10) * 10));
-  const tn = (a: Minute, b: Minute) => `${fmtDay(a)} – ${fmtDay(b)}`;
+  const tn = (a: Minute, b: Minute) => `${joinDays(fmtDay(a), fmtDay(b))}`;
   return {
     archetype: 'hajj', client,
     title: `Hajj ${h.ah} airlift ${origin}–JED/MED`,
@@ -1235,7 +1235,7 @@ export function makeDryLeaseOffer(g: GameState, w?: IdleWindow, clientId?: strin
     payment: { basis: 'advance', dueDays: 5, depositPct: 0 },
     effects: {}, risk: { payment: Math.round((1 - client.payReliability) * 100) / 100, disruption: V.dry.late, politics: 0, permit: 0 },
     estBH: 0, estValue: Math.round(rent * months + reserves * fh * months), floor: Math.round(range(r, BAL.counterFloor[0], BAL.counterFloor[1]) * 100) / 100,
-    status: 'open', pin: site, hook: `Fits ${ac.reg}: free ${fmtDay(win.from)} – ${fmtDay(win.to)}`, dryFor: ac.id,
+    status: 'open', pin: site, hook: `Fits ${ac.reg}: free ${joinDays(fmtDay(win.from), fmtDay(win.to))}`, dryFor: ac.id,
     dry: { site, fhPerMonth: fh, deposit: rent, consent, months, ...(paint ? { paint } : {}) },
   };
   g.offers[o.id] = o;

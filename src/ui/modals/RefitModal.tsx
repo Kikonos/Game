@@ -13,7 +13,7 @@ import type { GameState, Minute, RestRefitId } from '../../engine/core/types';
 import { flightsOf, flightsRev } from '../../engine/core/entities';
 import { route } from '../../engine/contracts/plan';
 import { etopsCap, typeOf } from '../../engine/core/perf';
-import { DAY, HOUR, dayStart, fmtDay, fmtDuration, fmtTime, toDate } from '../../engine/core/time';
+import { DAY, HOUR, dayStart, fmtDay, fmtDuration, fmtTime, toDate, joinDays } from '../../engine/core/time';
 import { bookRefit, bookRestRefit, cabinOptions, cancelCheck, refitKindText, refitQuote, refitSlots, refitStations, refitTerms, restRefitOptions, twoClassInstead, restRefitQuote, type RefitQuote, type RestRefitOption } from '../../engine/ops';
 import { longestDay, restOf, restShort, restText } from '../../engine/crew';
 import { longestDetail, restTerm } from '../components/RestLines';
@@ -174,7 +174,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
     <Modal size="wide" className="rf-modal" title={`${mode === 'rest' ? 'Crew rest' : 'Cabin refit'} · ${ac.reg}`} icon={mode === 'rest' ? <BedDouble className="accent" /> : <Sofa className="accent" />} onClose={close} footer={
       <>
         <button className="btn" onClick={close}>Cancel</button>
-        <span className="grow small muted">{viaCheck ? 'Fitted during the C-check at an MRO hub' : q.ok ? `${fmtDay(q.start)} – ${fmtDay(q.end)} at ${station}` : ''}</span>
+        <span className="grow small muted">{viaCheck ? 'Fitted during the C-check at an MRO hub' : q.ok ? `${joinDays(fmtDay(q.start), fmtDay(q.end))} at ${station}` : ''}</span>
         <button className="btn btn-primary" onClick={book} disabled={!canBook}>{viaCheck ? <Wrench /> : mode === 'rest' ? <BedDouble /> : <Sofa />} {bookLabel}</button>
       </>
     }>

@@ -13,7 +13,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRightLeft, Handshake, Menu, TriangleAlert, X } from 'lucide-react';
-import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
+import { DAY, fmtDay, fmtTime, joinDays } from '../../engine/core/time';
 import type { ContractOffer, GameState, Minute } from '../../engine/core/types';
 import type { FeasibilityReport } from '../../engine/contracts';
 import { quoteTripMove, tripOf } from '../../engine/ops/tripMove';
@@ -358,7 +358,7 @@ export function SchedulePortal({ g, o, aircraftId, candidates, report, open = fa
   const listed = open && !!picked && trips.some((t) => t.legIds.includes(picked));
   return (
     <div className="v91-portal-wrap">
-      <div className="v91-portal" ref={scrollRef} data-ac={aircraftId} aria-label={`${g.fleet[aircraftId]?.reg ?? ''} schedule ${fmtDay(from)} to ${fmtDay(to)}`}>
+      <div className="v91-portal" ref={scrollRef} data-ac={aircraftId} aria-label={`${g.fleet[aircraftId]?.reg ?? ''} schedule ${joinDays(fmtDay(from), fmtDay(to), ' to ')}`}>
         <div className="v12-portal-in" style={{ width }}>
           {days.map((t, i) => (
             <span key={t} className={`v91-day ${i % 2 ? 'odd' : ''}`} style={{ left: x(t), width: (DAY / span) * width }}>

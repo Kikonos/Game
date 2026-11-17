@@ -9,7 +9,7 @@ import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { flag } from '../../data/countries';
 import type { RatingFamily } from '../../data/acmiTypes';
 import { flightsRev } from '../../engine/core/entities';
-import { DAY, HOUR, fmtDate, fmtDay, fmtDayAt, fmtDayRange, fmtTime, monthKey, monthStart, toDate } from '../../engine/core/time';
+import { DAY, HOUR, fmtDate, fmtDay, fmtDayAt, fmtDayRange, fmtTime, monthKey, monthStart, toDate, joinDays } from '../../engine/core/time';
 import type { CrewMember, GameState } from '../../engine/core/types';
 import {
   crewCalendar, crewGauges, crewMonth, crewName, crewRev, pairOfCrew, crewStatusView, crewWindows, leaveBalance, LIMITS, moraleOf, publishDayOf, publishedTo, type CalBlock,
@@ -284,7 +284,7 @@ function DayDetail({ g, c, data, k }: { g: GameState; c: CrewMember; data: Month
     const trips = ow.kind === 'leave' ? cell.blocks.filter((x) => !!x.leaveTrip) : [];
     return (
       <div className="ps-dd">
-        {head(DAY_KIND_LABEL[ow.kind], `${fmtDay(b.start)} – ${fmtDay(b.end - 1)}`, ow.kind)}
+        {head(DAY_KIND_LABEL[ow.kind], `${joinDays(fmtDay(b.start), fmtDay(b.end - 1))}`, ow.kind)}
         <div className="small muted">{b.detail}</div>
         {trips.map((x) => (
           <Fragment key={`lt-${x.start}`}>

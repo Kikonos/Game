@@ -55,8 +55,8 @@ describe('v0.20.1 sub-lease advice only when it makes room (bmwbb036sdk6l)', () 
     const r = report(g, GUIANA, 'CS-TTD');
     const fv = freeUpVerdict(g, GUIANA, r.aircraftId, r.conflicts.flights);
     expect(fv.fits).toBe(false);
-    expect(fv.still).toBe('still busy with Overflow: Edelweiss Air at Zurich (31 Jan–25 Feb)');
-    expect(freeUpWarning(fv)).toBe("Sub-leasing these trips won't make room for this job on its own: still busy with Overflow: Edelweiss Air at Zurich (31 Jan–25 Feb).");
+    expect(fv.still).toBe('still busy with Overflow: Edelweiss Air at Zurich (31 Jan–25 Feb 2029)');
+    expect(freeUpWarning(fv)).toBe("Sub-leasing these trips won't make room for this job on its own: still busy with Overflow: Edelweiss Air at Zurich (31 Jan–25 Feb 2029).");
     // The game state is untouched (the verdict works on a copy).
     expect(r.conflicts.flights.every((id) => g.flights[id].status === 'scheduled' && g.flights[id].aircraftId === r.aircraftId)).toBe(true);
     expect(report(g, GUIANA, 'CS-TTD').conflicts.flights.length).toBe(4);

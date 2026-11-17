@@ -9,7 +9,7 @@ import { dryLeaseView, marketOutlook } from '../../engine/ops';
 import { OutlookTiles } from '../modals/V08Modals';
 import { v08Chips } from './v08Logic';
 import { flightsRev } from '../../engine/core/entities';
-import { DAY, fmtDateTime, fmtDay } from '../../engine/core/time';
+import { DAY, fmtDateTime, fmtDay, joinDays } from '../../engine/core/time';
 import type { Contract, ContractOffer, CrewExtra, GameState } from '../../engine/core/types';
 import { crewExtraFor, extraCabinMax, setCrewExtra, shortFlights } from '../../engine/crew';
 import { problemAt } from '../../engine/problems';
@@ -248,7 +248,7 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
           <OriginTag v={contractOrigin(g, c)} help />
         </div>
         {/* v0.14.1 (merge) a dry lease by its lease dates (fx-money UI-5); other work by the client's local days (fx-comm). */}
-        <div className="small muted ellipsis">{cl?.name ?? 'Client'} · <span className="mono">{regs}</span> · {dry ? `${fmtDay(dry.lease[0])} – ${fmtDay(dry.lease[1])}` : offerDays(c).map(fmtDay).join(' – ')} · {productLine(c.product, c)}</div>
+        <div className="small muted ellipsis">{cl?.name ?? 'Client'} · <span className="mono">{regs}</span> · {dry ? `${joinDays(fmtDay(dry.lease[0]), fmtDay(dry.lease[1]))}` : offerDays(c).map(fmtDay).join(' – ')} · {productLine(c.product, c)}</div>
         {c.paint?.accepted && open && <div className="small muted ellipsis row gap-4"><Palette className="sc-ico-s" />{paintLine(g, c)}</div>}
         {c.cabin?.accepted && open && <div className="small muted ellipsis">Their cabin: {c.cabin.layout === 'two-class' ? 'two-class' : 'all economy'} · {c.cabin.clientShare >= 1 ? 'they pay' : 'they pay half'}{c.cabin.revert ? ' · put back after' : ''}</div>}
         {open && (

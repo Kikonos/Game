@@ -12,7 +12,7 @@ import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { isPilot, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
-import { DAY, fmtDateAt, fmtDayAt } from '../core/time';
+import { DAY, fmtDateAt, fmtDayAt, joinDays } from '../core/time';
 import type { ActionResult, CrewMember, GameState, Minute, Role, TrainingClass, TrainingItem } from '../core/types';
 import { staffing } from './hr';
 import { crewName, crewPay } from './generate';
@@ -303,7 +303,7 @@ interface Pool {
 
 const usd = (v: number) => (Math.abs(v) >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : `$${Math.round(v / 1000)}K`);
 /** Class dates on the home-base calendar (classes run base-local midnight to midnight). */
-const span = (g: GameState, a: Minute, b: Minute) => `${fmtDayAt(g.company.homeBase, a)} – ${fmtDayAt(g.company.homeBase, b - 1)}`;
+const span = (g: GameState, a: Minute, b: Minute) => `${joinDays(fmtDayAt(g.company.homeBase, a), fmtDayAt(g.company.homeBase, b - 1))}`;
 
 /** Plan a conversion without booking it: classes, dates, cost, skipped crew and fleet-short warnings. Pure. */
 export function conversionPlan(g: GameState, r: ConversionRequest, opts?: { quick?: true }): ConversionPlan {

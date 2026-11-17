@@ -6,7 +6,7 @@ import { LESSOR_BY_ID } from '../../../data/lessors';
 import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { BAL } from '../../../engine/core/balance';
 import { typeOf } from '../../../engine/core/perf';
-import { DAY, fmtDay, fmtDayAt, yearOf } from '../../../engine/core/time';
+import { DAY, fmtDay, fmtDayAt, fmtDayShort, yearOf } from '../../../engine/core/time';
 import type { Aircraft, AircraftOffer, CreditGrade, GameState, LeaseDeal, LessorRating, Minute, Rfp, RfpAnswer } from '../../../engine/core/types';
 import { siteCity } from '../../../engine/ops/market';
 import { money } from '../../format';
@@ -125,7 +125,7 @@ export function answerName(a: Pick<RfpAnswer, 'lessorId'>, typeId?: string): str
 /** One answer chip: 'AerCap ✓ proposal' · 'Avolon: no aircraft' · 'Carlyle: rating' · 'Doric: due 14 Mar'. */
 export function answerChip(now: Minute, a: RfpAnswer, typeId?: string): { text: string; tone: 'good' | 'warn' | 'bad' | ''; tip?: string } {
   const name = answerName(a, typeId);
-  if (a.at === undefined || !a.kind) return { text: `${name}: by ${dayIn(now, a.due)}`, tone: '' };
+  if (a.at === undefined || !a.kind) return { text: `${name}: by ${fmtDayShort(a.due)}`, tone: '' };
   const n = a.offerIds?.length ?? 0;
   if (a.kind === 'proposal') return { text: `${name} ✓ ${n > 1 ? `${n} proposals` : 'proposal'}`, tone: 'good', ...(a.text ? { tip: a.text } : {}) };
   if (a.kind === 'later') return { text: `${name} ✓ later`, tone: 'good', ...(a.text ? { tip: a.text } : {}) };

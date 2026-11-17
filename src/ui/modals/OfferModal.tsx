@@ -27,7 +27,7 @@ import { clientCode, clientLivery, clientTitles, restRefitOptions } from '../../
 import { AircraftArt } from '../components/AircraftArt';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
-import { DAY, fmtDate, fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
+import { DAY, fmtDate, fmtDay, fmtDuration, fmtTime, joinDays } from '../../engine/core/time';
 import type { ContractOffer, CrewExtra, GameState } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
 import { extraCabinMax, offerExtra } from '../../engine/crew';
@@ -102,7 +102,7 @@ function Terms({ g, o, deposit, onDeposit }: { g: GameState; o: ContractOffer; /
   // v0.16 (G) who pays the fuel, on every kind of offer (the rule is ops/flights.ts paysFuel).
   rows.push(['Fuel', fuelLine(p)]);
   const [d0, d1] = offerDays(o);
-  rows.push(['Dates', `${fmtDate(d0)} – ${fmtDate(d1)}${o.pattern.kind === 'base' ? ` (${o.pattern.base} local)` : ''}`], ['Lead time', lead <= 0 ? 'Starts now' : `${lead} day${lead === 1 ? '' : 's'}`]);
+  rows.push(['Dates', `${joinDays(fmtDate(d0), fmtDate(d1))}${o.pattern.kind === 'base' ? ` (${o.pattern.base} local)` : ''}`], ['Lead time', lead <= 0 ? 'Starts now' : `${lead} day${lead === 1 ? '' : 's'}`]);
   // A dry lease bills no block hours (rent and reserves only).
   rows.push(['Estimate', p.kind === 'dry' ? money(o.estValue) : `Billable ≈ ${Math.round(o.estBH)} BH · ${money(o.estValue)}`]);
   const arrears = p.kind === 'charter' ? 'Invoiced after the job' : 'Monthly in arrears';

@@ -363,7 +363,7 @@ describe('v0.7 deliveries on the map', () => {
     expect(deliveryTag(ac)).toBe(true);
     expect(awaitingDelivery(g, 'SCL').map((a) => a.id)).toEqual([ac.id]);
     expect(awaitingDelivery(g, 'LIS')).toEqual([]);
-    expect(chipInfo(g, ac, g.now).line).toMatch(/^Ferry home \d{1,2} [A-Z][a-z]{2}$/);
+    expect(chipInfo(g, ac, g.now).line).toMatch(/^Ferry home \d{1,2} [A-Z][a-z]{2} \d{2}$/);
     expect(mapAirports(g).map((a) => a.code)).toContain('SCL');
 
     const first = g.flights[dl.ferryIds[0]];

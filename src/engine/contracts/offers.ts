@@ -20,7 +20,7 @@ import { bestSlip, slipCost, type SlipPlan } from '../crew/slip';
 import { cabinPresets } from '../../data/cabins';
 import { schedule } from '../core/queue';
 import { chance, int, next, pick, range, weightedPick, type RngHolder } from '../core/rng';
-import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, localMinuteOfDay, toDate, toLocal } from '../core/time';
+import { DAY, dayIndex, fmtDay, fmtTime, fromUTC, localMinuteOfDay, toDate, toLocal, joinDays } from '../core/time';
 import type {
   AcRest, ApprovalId, Archetype, BrokerId, Client, ContractOffer, GameState, LegTemplate, Minute, OfferEffects, PaintKind, Product, Requirements, SchedulePattern, SimEvent, WorldEvent,
 } from '../core/types';
@@ -525,7 +525,7 @@ function seasonBase(ctx: Ctx): Draft | null {
     archetype: 'seasonBase', client,
     title: titleFor(ctx, 'seasonBase', client, { from: base, to: base, n: days, wide, start: from }, wide ? `Long-haul base at ${city(base)}` : days >= 120 ? `Long-term base at ${city(base)}` : `${season} base at ${city(base)}`),
     blurb:
-      `${client.name} wants ${fam} (${seatsText(minSeats, layout)}) based at ${base} from ${fmtDay(toLocal(base, from))} to ${fmtDay(toLocal(base, to - 1))}, ` +
+      `${client.name} wants ${fam} (${seatsText(minSeats, layout)}) based at ${base} from ${joinDays(fmtDay(toLocal(base, from)), fmtDay(toLocal(base, to - 1)), ' to ')}, ` +
       `flying to ${listCities(dests)}: ${waves.length} wave${waves.length > 1 ? 's' : ''} a day from ${hhmm(waves[0])} local${odd ? ` (the last at ${hhmm(waves[waves.length - 1])}: the slots nobody else wants)` : ''} and a maintenance night every 7 days. ` +
       `MGH ${mgh} BH a month; they plan about ${targetBH}. ${base === g.company.homeBase ? 'Crews fly from home; no hotels needed.' : `Crews live in ${city(base)} hotels at the client's cost.`}`,
     pattern: { kind: 'base', base, dests, from, to, targetBH, waves, prefix: clientPrefix(client.name), maintEvery: 7 },
