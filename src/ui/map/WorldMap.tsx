@@ -8,7 +8,7 @@ import { store, useTheme } from '../store';
 import { paleOnLight } from '../theme';
 import { isTouch, useTouch } from '../useMedia';
 import { MAP_H, MAP_W, basePaths, projection } from './mapData';
-import { type LabelBox, placeLabels } from './mapLogic';
+import { HIT_ROUTE, type LabelBox, placeLabels, segDist2 } from './mapLogic';
 import { cssRect, toCss, uiZoomNow } from '../device';
 import { TILT_MAX_DEG, tiltBleed, tiltCss, tiltDeg, untilt } from './depth';
 import { FRAME_EDGE_BUSY_U, FRAME_EDGE_U, frameRot, frameX, landOffset, lonCentre, nearX, nextFrame } from './wrap';
@@ -183,8 +183,6 @@ const MAX_PLANES = 60;
 const MAX_PLANES_TOUCH = 44;
 /** Hit radii in screen px: generous for fingers, tight for a mouse. */
 const HIT_AP = { touch: 26, mouse: 12 };
-// v0.24.1 a finger gets 24 px each side of a route line, a mouse 8.
-const HIT_ROUTE = { touch: 24, mouse: 8 };
 
 const BaseLayers = memo(function BaseLayers({ rotate, id }: { rotate: number; id?: string }) {
   const p = basePaths(rotate);
@@ -361,17 +359,6 @@ const AirportsLayer = memo(function AirportsLayer({ els, unit, selected, hover, 
     </g>
   );
 });
-
-/** Squared distance from p to segment ab. */
-function segDist2(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
-  const dx = bx - ax;
-  const dy = by - ay;
-  const l2 = dx * dx + dy * dy;
-  const t = l2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0;
-  const qx = ax + t * dx - px;
-  const qy = ay + t * dy - py;
-  return qx * qx + qy * qy;
-}
 
 interface Gesture {
   mode: 'pan' | 'pinch';

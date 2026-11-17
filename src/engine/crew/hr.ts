@@ -9,7 +9,7 @@ import { pushDecision, pushMessage } from '../core/messages';
 import { isPilot, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, int } from '../core/rng';
-import { DAY, dayStart, fmtDate, fmtDateTime, monthKey, monthStart, yearOf } from '../core/time';
+import { DAY, dayStart, fmtDate, fmtDateTime, monthKey, monthStart, yearOf, joinDays } from '../core/time';
 import type { ActionResult, CrewExtra, CrewMember, GameState, Minute, Role, SimEvent, TrainingKind } from '../core/types';
 import { hashUnit } from '../core/util';
 import { classOf, conversionClasses, conversionEarliest, onClassItemDone, ratingsLost, startConversion } from './conversion';
@@ -150,7 +150,7 @@ export function hireBatch(g: GameState, reqs: HireRequest[]): ActionResult<{ cre
   }
   const first = Math.min(...crewIds.map((id) => g.crew[id]?.hired ?? Infinity));
   const last = Math.max(...crewIds.map((id) => g.crew[id]?.hired ?? 0));
-  return { ok: true, msg: `${crewIds.length} crew hired · joining ${first === last ? fmtDate(first) : `${fmtDate(first)} – ${fmtDate(last)}`}`, data: { crewIds, lines } };
+  return { ok: true, msg: `${crewIds.length} crew hired · joining ${first === last ? fmtDate(first) : `${joinDays(fmtDate(first), fmtDate(last))}`}`, data: { crewIds, lines } };
 }
 
 const TRAINING: Record<'command' | 'sccm', () => { days: number; cost: number }> = {

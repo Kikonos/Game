@@ -247,7 +247,7 @@ div.worldmap { overflow: clip; }
   border-radius: 14px; border: 1px solid var(--border); background: var(--op-bg); color: var(--text); box-shadow: 0 6px 20px rgba(var(--shade-rgb), calc(0.35 * var(--shade-k)));
   font-variant-numeric: tabular-nums;
 }
-.ops-strip.compact .ops-chip { flex-basis: 112px; width: 112px; gap: 7px; padding: 5px 10px; }
+.ops-strip.compact .ops-chip { flex-basis: 136px; width: 136px; gap: 7px; padding: 5px 10px; } /* v0.24.1 fits "MAN 20 Aug 27" */
 .ops-chip.on { border-color: rgba(var(--ink-rgb), 0.55); }
 .ops-chip-t { display: flex; flex-direction: column; line-height: 1.25; min-width: 0; flex: 1; }
 .ops-chip-t b { font-size: 13px; }

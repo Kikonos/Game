@@ -167,7 +167,7 @@ export function onMonthEnd(g: GameState, ev: SimEvent): void {
   const s = stats(g);
   s.bestMonthProfit = Math.max(s.bestMonthProfit, profit);
   pushMessage(g, {
-    tone: profit >= 0 ? 'good' : 'warn', cat: 'finance', title: `${fmtMonth(cur.month, false)} statement`, cue: 'monthEnd',
+    tone: profit >= 0 ? 'good' : 'warn', cat: 'finance', title: `${fmtMonth(cur.month)} statement`, cue: 'monthEnd',
     body: `Revenue ${usd(revenue)}, costs ${usd(-costs)}: ${profit >= 0 ? 'profit' : 'loss'} ${usd(Math.abs(profit))}. ${Math.round(cur.bh)} block hours. Cash ${usd(g.company.cash)}.`,
   });
   requestPause('monthEnd');

@@ -84,7 +84,7 @@ describe('conversion classes', () => {
     // LIS summer: local midnight of 4 Jun is 3 Jun 23:00 UTC.
     expect(fmtDate(s0)).toBe('3 Jun 2027');
     expect(startConversion(g, { crewIds: ids, family: 'A330/340', start: s0 }).ok).toBe(true);
-    expect(g.messages[0].body).toMatch(/A330-P1 \(2\) 4 Jun – 15 Jul/);
+    expect(g.messages[0].body).toMatch(/A330-P1 \(2\) 4 Jun – 15 Jul 2027/);
     expect(g.messages[0].body).toMatch(/A330-C1 \(4\) 4 Jun – 11 Jun/);
     const b = crewCalendar(g, ids[0], s0, s0 + DAY).find((x) => x.kind === 'training')!;
     expect(b.detail).toMatch(/ends 15 Jul 2027/);

@@ -4,7 +4,7 @@ import { sourceBadge } from './market/marketLogic';
 import type { RatingFamily } from '../../data/acmiTypes';
 import { COST_CATS, REVENUE_CATS, statementTotals } from '../../engine/core/ledger';
 import { problemFor } from '../../engine/problems';
-import { DAY, HOUR, fmtDay, monthKey, toLocal } from '../../engine/core/time';
+import { DAY, HOUR, fmtDay, joinDays, monthKey, toLocal } from '../../engine/core/time';
 import { mghLabel } from '../../engine/contracts/pricing';
 import { jobDays } from '../../engine/contracts/accept';
 import { wetMonthLines } from '../../engine/contracts/billing';
@@ -38,13 +38,19 @@ export function offerDays(o: Pick<ContractOffer, 'pattern' | 'start' | 'end'>): 
   return o.pattern.kind === 'base' ? [toLocal(o.pattern.base, o.start), toLocal(o.pattern.base, o.end - 1)] : [o.start, o.end];
 }
 
+/** v0.24.1 a job's days as one span, the year once when both share it: '20 Jul – 23 Aug 2027'. */
+export const offerSpan = (o: Pick<ContractOffer, 'pattern' | 'start' | 'end'>): string => {
+  const [a, b] = offerDays(o);
+  return joinDays(fmtDay(a), fmtDay(b));
+};
+
 /**
  * v0.14.1 (merge) a contract's days as the client says them (contracts/accept jobDays): a base programme on the base's
  * local calendar ('1 Jun – 31 Aug', never the UTC '31 May' of its local-midnight start), other work by its UTC days. Pure.
  */
 export const workDays = (c: Pick<Contract, 'pattern' | 'start' | 'end'>): string => {
   const [a, b] = jobDays(c);
-  return a === b ? a : `${a} – ${b}`;
+  return joinDays(a, b);
 };
 
 export const ROLES: Role[] = ['CPT', 'FO', 'PUR', 'CC'];

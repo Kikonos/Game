@@ -9,7 +9,7 @@ import { ACMI_TYPES_LIST, type RatingFamily } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { pushMessage } from '../core/messages';
 import { isPilot, typeOf } from '../core/perf';
-import { DAY, fmtDay } from '../core/time';
+import { DAY, fmtDay, joinDays } from '../core/time';
 import type { ActionResult, CrewMember, GameState, Minute, Role } from '../core/types';
 import { previewCopy } from './atomic';
 import { ccqKeeps, classOf, classStartFor, conversionClasses, conversionEarliest, conversionPlan, courseOf, familyLabel, startConversion } from './conversion';
@@ -305,7 +305,7 @@ export function convertOptions(g: GameState, candidates: string[], want: number,
     const plan = conversionPlan(g, { crewIds: ids, family: target, start: classes[0].start });
     const rc = recrew(g, classes);
     const ready = Math.max(...classes.map((k) => k.end));
-    const span = (k: ConvertClass) => `${fmtDay(k.start)} – ${fmtDay(k.end - 1)}`;
+    const span = (k: ConvertClass) => `${joinDays(fmtDay(k.start), fmtDay(k.end - 1))}`;
     const n = classes.length;
     const who = ids.length === want ? `all ${ids.length}` : `${ids.length} of ${want}`;
     const title = n === 1 ? `One class ${span(classes[0])}: ${who}` : `${n === 2 ? 'Two' : n} classes: ${classes.map((k) => `${k.crewIds.length} from ${fmtDay(k.start)}`).join(', ')}`;

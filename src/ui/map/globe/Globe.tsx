@@ -17,7 +17,7 @@ import type { Theme } from '../../theme';
 import { isTouch } from '../../useMedia';
 import { airlineType } from '../airlineTypes';
 import { HIT_R } from '../LiveLayers';
-import { groupCommercial, type LegArc, pickNearest, placeLabels, regMark, type SlipArc, standOffsets, TYPE_STROKE, type LabelBox } from '../mapLogic';
+import { groupCommercial, HIT_ROUTE, type LegArc, nearestLine, pickNearest, placeLabels, regMark, type SlipArc, standOffsets, TYPE_STROKE, type LabelBox } from '../mapLogic';
 import { contrailWindow } from '../spotter';
 import { loadMapData, worldGeo } from '../mapData';
 import { silColour } from '../silhouettes';
@@ -46,6 +46,12 @@ export interface GlobeProps {
   marks: Omit<GlobeMarkProps, 'selected' | 'touch'>;
   /** v0.18 the selected aircraft's slip crews' airline legs (as on the flat map). */
   slipLegs: SlipArc[];
+  /** v0.24.1 our scheduled routes' sectors (faint dashed lines on the ground, as on the flat map). */
+  routeLines?: { id: string; from: string; to: string; routes: string[] }[];
+  /** v0.24.1 the routes whose card is open: their lines stand out. */
+  routeSel?: string[];
+  /** v0.24.1 a tap on a route line (its routes), or on empty ground (null): the route card opens or closes. */
+  onRoute?: (routes: string[] | null) => void;
   /** v0.18 spotter mode: the camera follows this aircraft (a new key flies to it first). */
   follow?: { key: string; id: string } | null;
   sel?: Ref;
@@ -97,6 +103,8 @@ const FOLLOW_DIST = 1.9;
 const FOLLOW_WAIT_MS = 4000;
 /** Labels, rings and taps only where the ground faces the camera well (not foreshortened at the limb). */
 const LABEL_COS = 0.28;
+/** v0.24.1 a route line can be tapped only where it faces the camera this well (not on the back of the globe). */
+const ROUTE_COS = 0.06;
 /** Airline legs are fetched for this many game minutes at a time, as on the flat map. */
 const CM_BUCKET = 10;
 /** Dash of the part still to fly (screen px), as on the flat map. */
@@ -106,7 +114,7 @@ const AHEAD_DASH: Record<FlightType, string> = { operating: '6 5', positioning: 
 const orbits = new WeakMap<GameState, Orbit>();
 
 /** Frame cost stats for perf checks (console: __bhGlobe); `aim` turns the open globe to a place (checks, screenshots). */
-const stats = { frames: 0, avgMs: 0, maxMs: 0, landMs: 0, reset() { this.frames = 0; this.avgMs = 0; this.maxMs = 0; }, aim: null as null | ((lon: number, lat: number, dist?: number) => void), orbit: null as null | (() => Orbit), fleet: null as null | (() => { id: string; pos: [number, number]; airborne: boolean; progress: number }[]) };
+const stats = { frames: 0, avgMs: 0, maxMs: 0, landMs: 0, reset() { this.frames = 0; this.avgMs = 0; this.maxMs = 0; }, aim: null as null | ((lon: number, lat: number, dist?: number) => void), orbit: null as null | (() => Orbit), routes: null as null | (() => { id: string; pts: ([number, number] | null)[] }[]), fleet: null as null | (() => { id: string; pos: [number, number]; airborne: boolean; progress: number }[]) };
 (globalThis as unknown as { __bhGlobe?: typeof stats }).__bhGlobe = stats;
 
 const cssVar = (name: string) => (typeof document !== 'undefined' ? getComputedStyle(document.documentElement).getPropertyValue(name) : '');
@@ -292,6 +300,9 @@ export default function Globe(props: GlobeProps) {
     const ownArcs = new Map<string, ArcObj>();
     const cms = new Map<string, CmObj>();
     let statics: { obj: ArcObj; st: ArcStyle }[] = [];
+    /** v0.24.1 the route lines' tracks (taps), and their screen points for the camera they were worked out for. */
+    let routeTracks: { id: string; routes: string[]; pts: [number, number][] }[] = [];
+    let routeScreen: { cv: CamView | null; lines: { id: string; pts: ([number, number] | null)[] }[] } = { cv: null, lines: [] };
     let marks: MarkEl[] = [];
     const markScreen = new Map<string, { x: number; y: number }>();
 
@@ -511,12 +522,20 @@ export default function Globe(props: GlobeProps) {
       flowT = t;
       // Static arcs: the selected aircraft's next legs, the world tours, v0.18 the slip crews' airline legs, the
       // diversions (alternate to the planned airport, on the ground) and the world-event zones' edges (on the ground).
-      if (staticKey[0] !== p.nextArcs || staticKey[1] !== p.tours || staticKey[2] !== p.slipLegs || staticKey[3] !== p.marks.divs || staticKey[4] !== p.marks.zones || staticKey[5] !== p.sel?.id) {
-        staticKey = [p.nextArcs, p.tours, p.slipLegs, p.marks.divs, p.marks.zones, p.sel?.id];
+      if (staticKey[0] !== p.nextArcs || staticKey[1] !== p.tours || staticKey[2] !== p.slipLegs || staticKey[3] !== p.marks.divs || staticKey[4] !== p.marks.zones || staticKey[5] !== p.sel?.id || staticKey[6] !== p.routeLines || staticKey[7] !== p.routeSel) {
+        staticKey = [p.nextArcs, p.tours, p.slipLegs, p.marks.divs, p.marks.zones, p.sel?.id, p.routeLines, p.routeSel];
         for (const s of statics) dropArc(s.obj);
         statics = [];
         const add = (pts: [number, number][], id: string, st: ArcStyle, lifted = true) => { if (pts.length > 1) statics.push({ obj: newArc(pts, id, staticArcs, lifted), st }); };
         const rgb = (c: RGBA): [number, number, number] => [c[0], c[1], c[2]];
+        // v0.24.1 our scheduled routes first (lowest): faint dashes on the ground, the open card's routes brighter.
+        routeTracks = (p.routeLines ?? []).map((l) => ({ id: l.id, routes: l.routes, pts: gcTrack(l.from, l.to) })).filter((l) => l.pts.length > 1);
+        routeScreen = { cv: null, lines: [] };
+        const acc = rgb(colourOf('var(--accent)', [0.24, 0.9, 1, 1]));
+        for (const l of routeTracks) {
+          const on = !!p.routeSel && l.routes.some((x) => p.routeSel!.includes(x));
+          add(l.pts, `rt:${l.id}`, { color: acc, opacity: on ? 0.9 : 0.4, width: on ? 2.2 : 1.3, before: null, after: on ? [4, 5] : [2, 5], split: -1 }, false);
+        }
         p.tours.forEach((r) => add(gcTrack(r.from, r.to), r.id, { color: rgb(colourOf(r.color ?? 'var(--map-route)')), opacity: 0.75, width: 1.6, before: null, after: r.dashed ? [5, 5] : null, split: -1 }));
         p.nextArcs.forEach((l, i) => add(gcTrack(l.from, l.to), l.id, { color: rgb(colourOf(l.color ?? 'var(--map-route)')), opacity: Math.max(0.3, 0.6 - i * 0.08), width: 1.5, before: null, after: l.dashed ? [5, 5] : null, split: -1 }));
         const dh = TYPE_STROKE.deadhead;
@@ -886,7 +905,8 @@ export default function Globe(props: GlobeProps) {
       }
     };
     const onMove = (e: PointerEvent) => {
-      if (!pts.has(e.pointerId) || !gesture) return;
+      if (!pts.has(e.pointerId)) { hoverAt(e); return; }
+      if (!gesture) return;
       pts.set(e.pointerId, local(e));
       lastInteract = performance.now();
       const dpp = degPerPx(orbit.dist, h);
@@ -950,10 +970,11 @@ export default function Globe(props: GlobeProps) {
       dirty = true;
       kick();
     };
-    const tap = (x: number, y: number, finger: boolean) => {
+    /** What a tap at (x, y) would open: a mark, an aircraft, an airline leg or an airport (nearest within reach). */
+    const pickAt = (x: number, y: number, finger: boolean): Ref | (() => void) | undefined => {
       const r = finger ? HIT_R.touch : HIT_R.mouse;
       const game = store.game;
-      if (!game) return;
+      if (!game) return undefined;
       const cam = cv.pos;
       const items: { x: number; y: number; item: Ref | (() => void) }[] = [];
       // v0.18 the marks first, as on the flat map: weather (opens what the game has on it), pins, events, crew changes.
@@ -982,11 +1003,42 @@ export default function Globe(props: GlobeProps) {
         const q = projectView(v, cv, w, h);
         if (q) items.push({ x: q.x, y: q.y, item: { kind: 'airport', id: a.code } });
       }
-      const hit = pickNearest(items, x, y, r);
+      return pickNearest(items, x, y, r);
+    };
+    /** v0.24.1 the route line under (x, y) (its routes), on the side of the globe facing us; aircraft and airports win. */
+    const routeAt = (x: number, y: number, finger: boolean): string[] | undefined => {
+      if (!propsRef.current.onRoute || !routeTracks.length) return undefined;
+      if (routeScreen.cv !== cv) {
+        const cam = cv.pos;
+        routeScreen = {
+          cv,
+          lines: routeTracks.map((l) => ({
+            id: l.id,
+            pts: l.pts.map(([lon, lat]) => {
+              const v = vecOf(lon, lat, R_ARC);
+              const q = facing(v, cam, ROUTE_COS) ? projectView(v, cv, w, h) : null;
+              return q ? [q.x, q.y] as [number, number] : null;
+            }),
+          })),
+        };
+      }
+      const id = nearestLine(routeScreen.lines, x, y, finger ? HIT_ROUTE.touch : HIT_ROUTE.mouse);
+      return id ? routeTracks.find((l) => l.id === id)?.routes : undefined;
+    };
+    const tap = (x: number, y: number, finger: boolean) => {
+      if (!store.game) return;
+      const hit = pickAt(x, y, finger);
       const now = performance.now();
       if (hit) {
         if (typeof hit === 'function') hit();
         else store.select(hit);
+        lastTap = { t: 0, x, y };
+        return;
+      }
+      const rt = routeAt(x, y, finger);
+      if (rt) {
+        if (store.nav.sel) store.select(undefined);
+        propsRef.current.onRoute?.(rt);
         lastTap = { t: 0, x, y };
         return;
       }
@@ -997,6 +1049,18 @@ export default function Globe(props: GlobeProps) {
       }
       lastTap = { t: now, x, y };
       if (store.nav.sel) store.select(undefined);
+      propsRef.current.onRoute?.(null);
+    };
+    /** v0.24.1 a mouse over something that opens on a click: the pointer cursor (Mac, Windows). */
+    let hoverOn = false;
+    const hoverAt = (e: PointerEvent) => {
+      if (e.pointerType === 'touch' || gesture) return;
+      const p = local(e);
+      const on = !!pickAt(p.x, p.y, false) || !!routeAt(p.x, p.y, false);
+      if (on !== hoverOn) {
+        hoverOn = on;
+        stage.classList.toggle('hovering', on);
+      }
     };
     stage.addEventListener('pointerdown', onDown);
     stage.addEventListener('pointermove', onMove);
@@ -1075,6 +1139,8 @@ export default function Globe(props: GlobeProps) {
       return A ? [A.lon, A.lat] : null;
     };
     stats.orbit = () => ({ ...orbit });
+    // v0.24.1 the route lines' screen points (null: behind the globe), for checks and screenshots.
+    stats.routes = () => { routeAt(-1e6, -1e6, false); return routeScreen.lines; };
     stats.fleet = () => fleetNow.map((a) => ({ id: a.id, pos: a.pos, airborne: a.airborne, progress: a.progress }));
     stats.aim = (lon, lat, dist) => flyTo({ lon: wrap180(lon), lat: clampLat(lat), dist: clampDist(dist ?? orbit.dist) }, 600);
     selKey = propsRef.current.sel ? `${propsRef.current.sel.kind}:${propsRef.current.sel.id}` : '';
@@ -1089,6 +1155,7 @@ export default function Globe(props: GlobeProps) {
       stats.aim = null;
       stats.fleet = null;
       stats.orbit = null;
+      stats.routes = null;
       cancelAnimationFrame(raf);
       window.clearTimeout(spinTimer);
       ro.disconnect();
@@ -1130,7 +1197,7 @@ export default function Globe(props: GlobeProps) {
   }, []);
 
   // Props reach the loop by ref; a change wakes it (and a new selection may turn the globe to it).
-  useEffect(() => { api.current?.propsChanged(); }, [props.sel?.kind, props.sel?.id, props.airports, props.nextArcs, props.tours, props.theme, props.accent, props.panelOpen, props.g, props.marks, props.slipLegs, props.follow?.key]);
+  useEffect(() => { api.current?.propsChanged(); }, [props.sel?.kind, props.sel?.id, props.airports, props.nextArcs, props.tours, props.theme, props.accent, props.panelOpen, props.g, props.marks, props.slipLegs, props.follow?.key, props.routeLines, props.routeSel]);
   // v0.18 the marks React drew: the loop places them every frame.
   useLayoutEffect(() => {
     const svg = marksRef.current;

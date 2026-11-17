@@ -432,7 +432,7 @@ describe('UI-4 / UI-8 / UI-12 wording', () => {
     const [a, b] = jobDays(o);
     expect(a).toBe(fmtDay(toLocal('HAM', o.start)));
     expect(b).toBe(fmtDay(toLocal('HAM', o.end - 1)));
-    expect(a).toBe('1 Jun');
+    expect(a).toBe('1 Jun 2027');
   });
 
   it("separate flights read 'MGQ–LIS ×3', a chain stays a chain", () => {

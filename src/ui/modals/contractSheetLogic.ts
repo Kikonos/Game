@@ -5,7 +5,7 @@
 import { cancelCost, contractProgress } from '../../engine/contracts';
 import { mghFor } from '../../engine/contracts/billing';
 import { dryLeaseView } from '../../engine/ops';
-import { DAY, fmtDate, fmtDateTime, monthKey } from '../../engine/core/time';
+import { DAY, fmtDate, fmtDateTime, monthKey, joinDays } from '../../engine/core/time';
 import type { Contract, GameState } from '../../engine/core/types';
 import { money } from '../format';
 import { fuelLine, offerDays } from '../screens/screenLogic';
@@ -47,7 +47,7 @@ export function contractSheet(g: GameState, c: Contract): ContractSheet {
   }
   terms.push(['Fuel', fuelLine(p)]);
   const [d0, d1] = offerDays(c);
-  terms.push(['Dates', `${fmtDate(d0)} – ${fmtDate(d1)}${c.pattern.kind === 'base' ? ` (${c.pattern.base} local)` : ''}`]);
+  terms.push(['Dates', `${joinDays(fmtDate(d0), fmtDate(d1))}${c.pattern.kind === 'base' ? ` (${c.pattern.base} local)` : ''}`]);
   terms.push(['Signed', fmtDate(c.signed)]);
   terms.push(['Payment', paymentLine(c)]);
   terms.push(['If we cancel', c.penalties.cancelScale.map(([d, f]) => `${d} d ${Math.round(f * 100)}%`).join(' · ') || '—']);

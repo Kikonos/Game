@@ -1,6 +1,6 @@
 // v0.7.2 top bar ops strip (UPDATE-0.7.2.md F8): the pure parts (drop order, fit, 'when'). No React.
 
-import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
+import { DAY, fmtDayShort, fmtTime } from '../../engine/core/time';
 
 /** v0.9 'crewHours': crew out of hours (§T.4), next to the crew shortage; both fold last. */
 export type StripId = 'crewShort' | 'crewHours' | 'aog' | 'market' | 'next' | 'airborne' | 'onTime' | 'crew';
@@ -15,7 +15,8 @@ export const DROP: StripId[] = ['crew', 'onTime', 'airborne', 'next'];
 export function countdown(dep: number, now: number): string {
   const m = Math.round(dep - now);
   if (m <= 0) return 'now';
-  if (m >= DAY) return `${fmtDay(dep)} ${fmtTime(dep)}`;
+  // v0.24.1 the short date with its year: the strip is narrow.
+  if (m >= DAY) return `${fmtDayShort(dep)} ${fmtTime(dep)}`;
   const h = Math.floor(m / 60);
   const mm = m % 60;
   return `in ${h ? (mm ? `${h}h ${mm}m` : `${h}h`) : `${mm}m`}`;

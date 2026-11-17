@@ -7,7 +7,7 @@
 
 import { ArrowDownRight, ArrowUpRight, ChevronRight, X } from 'lucide-react';
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { DAY, fmtDay, monthKey, monthStart } from '../../../engine/core/time';
+import { DAY, fmtDay, fmtMonth, monthKey, monthStart } from '../../../engine/core/time';
 import type { GameState, LedgerCat, MonthKey, MonthStatement } from '../../../engine/core/types';
 import {
   biggestChanges, cashPath, COST_GROUPS, financeTips, groupMonth, monthVerdict, perBlockHour, REV_GROUPS, type CashPath, type Change,
@@ -27,7 +27,8 @@ import { LEDGER_LABEL } from '../screenLogic';
 
 const LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const SHORT = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const longName = (k: MonthKey) => LONG[k % 12];
+// v0.24.1 month names carry their year ('October 2027'; the pills 'Oct 2027').
+const longName = (k: MonthKey) => `${LONG[k % 12]} ${Math.floor(k / 12)}`;
 
 /** Group colours by fixed slot (theme tokens --cat-N, both themes); 'Other' is grey. */
 const COST_COLOR: Record<CostGroupId, string> = {
@@ -378,7 +379,7 @@ export default function Glance({ g, forecast }: { g: GameState; forecast: { t: n
       <div className="gl-months" role="tablist" aria-label="Month" ref={pills}>
         {choices.map((k) => (
           <button key={k} role="tab" aria-selected={k === month} className={`gl-month ${k === month ? 'on' : ''}`} onClick={() => { setSel(k); setPick(null); }}>
-            {k === cur.month ? `${SHORT[k % 12]} so far` : SHORT[k % 12]}
+            {k === cur.month ? `${fmtMonth(k)} so far` : fmtMonth(k)}
           </button>
         ))}
       </div>

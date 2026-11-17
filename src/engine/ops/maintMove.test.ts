@@ -65,7 +65,7 @@ describe('checkMaintMove (the live drag)', () => {
     expect(later.level).toBe('good');
     const over = checkMaintMove(g, m.id, d + 7 * HOUR);
     expect(over.ok).toBe(false);
-    expect(over.reason).toMatch(new RegExp(`^${a.reg} is flying LIS–DUS \\d+ \\w+ \\d\\d:\\d\\d then$`));
+    expect(over.reason).toMatch(new RegExp(`^${a.reg} is flying LIS–DUS \\d+ \\w+ \\d{4} \\d\\d:\\d\\d then$`));
     expect(checkMaintMove(g, m.id, g.now + 10).reason).toMatch(/^Too soon/);
     // Over the interval by then: red, not allowed.
     a.maint.fhSinceA = typeOf(a.typeId).aCheckFH - 1;
@@ -184,7 +184,7 @@ describe('gapCheck (book from an idle gap)', () => {
     expect(ok.ok).toBe(true);
     expect(ok.start! >= from && ok.start! < from + DAY).toBe(true);
     expect(ok.at).toBe('LIS');
-    expect(ok.text).toMatch(/^A-check \d+% used then · next due \d+ \w+$/);
+    expect(ok.text).toMatch(/^A-check \d+% used then · next due \d+ \w+ \d{4}$/);
     const short = gapCheck(g, a.id, 'A', from, from + 6 * HOUR, 'LIS');
     expect(short.ok).toBe(false);
     expect(short.why).toBe(`The gap is too short for an A-check (${typeOf(a.typeId).aCheckHours} h)`);

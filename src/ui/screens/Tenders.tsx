@@ -5,7 +5,7 @@ import { CalendarClock, FileSignature, Gavel, Trophy } from 'lucide-react';
 import { useMemo } from 'react';
 import { flag } from '../../data/countries';
 import { roundAt, roundName, tenderBoard, type TenderRow } from '../../engine/commercial';
-import { DAY, fmtDay, fmtDayAt, toDate, toLocal } from '../../engine/core/time';
+import { DAY, fmtDay, fmtDayRange, toDate, toLocal } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import { Empty } from '../components/ui';
 import { store } from '../store';
@@ -22,7 +22,7 @@ export const tenderFacts = (t: Pick<TenderRow, 'rivals' | 'deadline' | 'resultAt
 };
 // v0.14.1 the programme's days on the base's local calendar (it starts at local midnight: the evening before in UTC),
 // as the airline's own text says them.
-const span = (t: TenderRow) => `${fmtDayAt(t.base, t.start)} – ${fmtDayAt(t.base, t.end - 1)} ${toDate(toLocal(t.base, t.start)).getUTCFullYear()}`;
+const span = (t: TenderRow) => fmtDayRange(toLocal(t.base, t.start), toLocal(t.base, t.end - 1));
 
 /** The season line: the round open now, or when the next one opens. */
 export function seasonLine(now: number): string {

@@ -169,7 +169,7 @@ export function OutlookModal() {
         <div className="small dim">{o.offersText}.</div>
         <div className="upper dim">Next 12 months</div>
         <Calendar g={g} o={o} />
-        <div className="small muted"><Term id="arafah">Hajj</Term>: {o.hajj.map((h) => `${fmtDay(h.arafah)} ${new Date(Date.UTC(2000, 0, 1) + h.arafah * 60_000).getUTCFullYear()}`).join(' · ')}</div>
+        <div className="small muted"><Term id="arafah">Hajj</Term>: {o.hajj.map((h) => fmtDay(h.arafah)).join(' · ')}</div>
         {/* v0.17 aircraft supply (§A.4): the tightest and easiest types near us, with the month's trend. */}
         {o.supplyText && (
           <div className="col gap-4">

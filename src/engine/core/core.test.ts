@@ -184,8 +184,25 @@ describe('v0.12.1 time zones and long dates', () => {
   it('D13 a date in another year, or far off, carries its year', async () => {
     const { fmtDayRel, fmtWeekdayTime, fromUTC } = await import('./time');
     expect(fmtDayRel(fromUTC(2028, 11, 28), fromUTC(2027, 11, 18))).toBe('28 Nov 2028');
-    expect(fmtDayRel(fromUTC(2027, 12, 2), fromUTC(2027, 11, 18))).toBe('2 Dec');
+    expect(fmtDayRel(fromUTC(2027, 12, 2), fromUTC(2027, 11, 18))).toBe('2 Dec 2027');
     expect(fmtDayRel(fromUTC(2028, 1, 2), fromUTC(2027, 12, 20))).toBe('2 Jan 2028');
     expect(fmtWeekdayTime(fromUTC(2027, 10, 29, 7, 20))).toBe('Fri 07:20');
+  });
+
+  it('v0.24.1 every calendar date carries its year (the short form for narrow places)', async () => {
+    const { fmtDay, fmtDayShort, fmtDayRange, fmtDateTime, fmtMonth, joinDays, fromUTC } = await import('./time');
+    expect(fmtDay(fromUTC(2027, 10, 29))).toBe('29 Oct 2027');
+    expect(fmtDayShort(fromUTC(2027, 10, 29))).toBe('29 Oct 27');
+    expect(fmtDayShort(fromUTC(2030, 1, 5))).toBe('5 Jan 30');
+    expect(fmtDateTime(fromUTC(2027, 10, 29, 14, 5))).toBe('29 Oct 2027 14:05');
+    expect(fmtDayRange(fromUTC(2027, 11, 4), fromUTC(2027, 11, 7))).toBe('4–7 Nov 2027');
+    expect(fmtDayRange(fromUTC(2027, 10, 28), fromUTC(2027, 11, 3))).toBe('28 Oct–3 Nov 2027');
+    expect(fmtDayRange(fromUTC(2027, 12, 28), fromUTC(2028, 1, 3))).toBe('28 Dec 2027–3 Jan 2028');
+    expect(fmtDayRange(fromUTC(2027, 11, 4, 1), fromUTC(2027, 11, 4, 20))).toBe('4 Nov 2027');
+    expect(fmtMonth(2027 * 12 + 9)).toBe('Oct 2027');
+    expect(fmtMonth(2027 * 12 + 9, true)).toBe('Oct 27');
+    expect(joinDays('1 Jun 2027', '31 Aug 2027')).toBe('1 Jun – 31 Aug 2027');
+    expect(joinDays('20 Dec 2027', '5 Jan 2028', '–')).toBe('20 Dec 2027–5 Jan 2028');
+    expect(joinDays('4 Jun 2027', '4 Jun 2027')).toBe('4 Jun 2027');
   });
 });

@@ -6,7 +6,7 @@ import { BAL } from '../core/balance';
 import { flightsOf, removeFlights, touchFlights } from '../core/entities';
 import { invoice } from '../core/ledger';
 import { pushMessage } from '../core/messages';
-import { DAY, fmtDay } from '../core/time';
+import { DAY, fmtDay, joinDays } from '../core/time';
 import type { Contract, GameState, MaintenanceEvent, Minute } from '../core/types';
 import { cabinPresets } from '../../data/cabins';
 import { cabinQuote, cabinTarget } from '../contracts/cabinTerms';
@@ -108,4 +108,4 @@ export function dailyClientCabin(g: GameState): void {
 export { cabinQuote };
 
 /** 'Reconfiguration 12 Mar – 14 Mar' for the booked in-window. */
-export const slotText = (s: RefitSlot) => `${fmtDay(s.start)} – ${fmtDay(s.end)}`;
+export const slotText = (s: RefitSlot) => `${joinDays(fmtDay(s.start), fmtDay(s.end))}`;

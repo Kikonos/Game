@@ -28,7 +28,7 @@ const raw = (): GameState => {
   return deserialize(JSON.stringify(data));
 };
 const ctx = (g: GameState): BugContext => ({ version: 'v0.22.1', gameTime: `${fmtDateTime(g.now)} UTC`, gameTimeLocal: '', now: g.now, company: g.company.name, seed: g.seed, screen: { tab: 'map' }, inbox: [], settings: {}, device: { viewport: '1180×820', dpr: 2, ua: 'test' } });
-const entry = (over: Partial<CrewAlarmEntry> = {}): CrewAlarmEntry => ({ t: 1000, kind: 'short', flightId: 'f1', no: 'CVE166', leg: 'JED–LGW 4 May 10:15', title: 'CVE166 has no crew', why: 'Nobody is free.', evidence: ['pilots 0 of 2'], verdict: 'confirmed', ...over });
+const entry = (over: Partial<CrewAlarmEntry> = {}): CrewAlarmEntry => ({ t: 1000, kind: 'short', flightId: 'f1', no: 'CVE166', leg: 'JED–LGW 4 May 2027 10:15', title: 'CVE166 has no crew', why: 'Nobody is free.', evidence: ['pilots 0 of 2'], verdict: 'confirmed', ...over });
 
 describe('v0.22.1 crew alarms: the engine keeps a record of every alarm that fires', () => {
   it('a confirmed alarm is queued with its flight, kind, title and evidence; taking the records empties the queue', () => {
@@ -42,7 +42,7 @@ describe('v0.22.1 crew alarms: the engine keeps a record of every alarm that fir
     expect(q.length).toBe(before + 1);
     const rec = q[q.length - 1];
     expect(rec).toMatchObject({ t: g.now, kind: 'short', flightId: 'f39l', no: 'CVE166', title: 'CREW SHORTAGE: CVE166 in 4 h' });
-    expect(rec.leg).toBe('JED–LGW 4 May 10:15');
+    expect(rec.leg).toBe('JED–LGW 4 May 2027 10:15');
     expect(rec.evidence.join(' ')).toMatch(/2 seats empty \(CPT, FO\)/);
     // It survives a save (the UI may file it after a reload) and is taken once.
     const again = deserialize(serialize(g));

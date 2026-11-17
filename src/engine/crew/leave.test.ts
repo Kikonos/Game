@@ -126,7 +126,7 @@ describe('v0.18.1 the monthly roster (out on the 15th for the whole next month)'
     g.now = midnight('LIS', k(2027, 3, 12)) + 60;
     expect(rosterHorizon(g)).toBe(midnight('LIS', k(2027, 5, 1)));
     expect(fmtDay(publishDayOf(g, k(2027, 5, 3)))).toBe(fmtDay(fromUTC(2027, 4, 15)));
-    expect(rosterOutLine(g, fromUTC(2027, 5, 3, 12))).toBe('the May roster comes out on 15 Apr');
+    expect(rosterOutLine(g, fromUTC(2027, 5, 3, 12))).toBe('the May roster comes out on 15 Apr 2027');
   });
 
   it('played to the 15th: the next month is published with its days off and standby; the month after reads "Roster out on 15 …"', () => {

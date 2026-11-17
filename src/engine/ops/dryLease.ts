@@ -12,7 +12,7 @@ import { etopsCap, typeOf } from '../core/perf';
 import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
 import { chance, int, next, range, type RngHolder } from '../core/rng';
-import { DAY, fmtDay, fmtMonth, monthKey, monthStart, fmtDayRange } from '../core/time';
+import { DAY, fmtDay, fmtMonth, monthKey, monthStart, fmtDayRange, joinDays } from '../core/time';
 import { hash } from '../core/util';
 import type { ActionResult, Aircraft, Contract, ContractOffer, Flight, GameState, Minute, SimEvent } from '../core/types';
 import type { CheckLevel, FeasibilityCheck, FeasibilityReport } from '../contracts/feasibility';
@@ -186,7 +186,7 @@ export function dryFeasibility(g: GameState, o: ContractOffer, ac: Aircraft, rep
   else if (base) add('availability', 'no', `Busy: ${base.title} (${fmtDayRange(base.start, base.end)})`, 'The aircraft must be free from the ferry out to two days after it is back.');
   else if (busy.length) add('availability', 'no', `Busy: ${busy[0].no} ${busy[0].from}–${busy[0].to} ${fmtDay(busy[0].std)}${busy.length > 1 ? ` and ${busy.length - 1} more` : ''}`, 'The aircraft must be free from the ferry out to two days after it is back.');
   else if (mx.length) add('availability', 'no', `${mx[0].kind === 'line' ? 'Inspection' : `${mx[0].kind}-check`} at ${mx[0].at} ${fmtDay(mx[0].start)} falls inside`);
-  else add('availability', 'ok', `Free ${fmtDay(from)} – ${fmtDay(to)}`);
+  else add('availability', 'ok', `Free ${joinDays(fmtDay(from), fmtDay(to))}`);
   // The C-check stays ours: not due before the return + 30 days.
   const due = cCheckDue(g, ac, o.start, d.fhPerMonth);
   if (due < o.end + 30 * DAY) rep.checks.push({ id: 'dryLease', level: 'no', label: `C-check due ${fmtMonth(monthKey(due))}, during the lease: book it before`, detail: 'The lessee flies about ' + d.fhPerMonth + ' FH a month on our airframe.', action: { kind: 'cCheck', aircraftId: ac.id } });
@@ -281,7 +281,7 @@ function billRent(g: GameState, c: Contract, from: Minute, to: Minute, mult = 1,
   if (c.product.kind !== 'dry' || to <= from) return;
   const amount = Math.round((c.product.rentPerMonth * mult * (to - from)) / MONTH);
   if (amount <= 0) return;
-  invoice(g, { clientId: c.clientId, contractId: c.id, desc: `${what}: ${c.title} (${fmtDay(from)} – ${fmtDay(to - 1)})`, amount, cat: 'leaseIncome', dueDays: c.payment.dueDays });
+  invoice(g, { clientId: c.clientId, contractId: c.id, desc: `${what}: ${c.title} (${joinDays(fmtDay(from), fmtDay(to - 1))})`, amount, cat: 'leaseIncome', dueDays: c.payment.dueDays });
   c.invoiced = (c.invoiced ?? 0) + amount;
 }
 

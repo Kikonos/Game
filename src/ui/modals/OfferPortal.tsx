@@ -13,13 +13,13 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRightLeft, Handshake, Menu, TriangleAlert, X } from 'lucide-react';
-import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
+import { DAY, fmtDay, fmtTime, joinDays } from '../../engine/core/time';
 import type { ContractOffer, GameState, Minute } from '../../engine/core/types';
 import type { FeasibilityReport } from '../../engine/contracts';
 import { quoteTripMove, tripOf } from '../../engine/ops/tripMove';
 import { subleaseTrip } from '../../engine/ops/sublease';
 import { contractColor } from '../screens/palette';
-import { offerDays } from '../screens/screenLogic';
+import { offerSpan } from '../screens/screenLogic';
 import { store, type ModalSpec } from '../store';
 import { toCss } from '../device';
 import { money } from '../format';
@@ -358,7 +358,7 @@ export function SchedulePortal({ g, o, aircraftId, candidates, report, open = fa
   const listed = open && !!picked && trips.some((t) => t.legIds.includes(picked));
   return (
     <div className="v91-portal-wrap">
-      <div className="v91-portal" ref={scrollRef} data-ac={aircraftId} aria-label={`${g.fleet[aircraftId]?.reg ?? ''} schedule ${fmtDay(from)} to ${fmtDay(to)}`}>
+      <div className="v91-portal" ref={scrollRef} data-ac={aircraftId} aria-label={`${g.fleet[aircraftId]?.reg ?? ''} schedule ${joinDays(fmtDay(from), fmtDay(to), ' to ')}`}>
         <div className="v12-portal-in" style={{ width }}>
           {days.map((t, i) => (
             <span key={t} className={`v91-day ${i % 2 ? 'odd' : ''}`} style={{ left: x(t), width: (DAY / span) * width }}>
@@ -366,7 +366,7 @@ export function SchedulePortal({ g, o, aircraftId, candidates, report, open = fa
             </span>
           ))}
           {/* v0.12 the job as one block only when it has no flights yet (a base programme); otherwise its flights, ghosted */}
-          {(o.pattern.kind !== 'legs' || !ghosts.some((x) => x.kind === 'rev')) && jobTo > jobFrom && <span className="v91-job" style={{ left: x(jobFrom), width: x(jobTo) - x(jobFrom) }} title={`This job: ${offerDays(o).map(fmtDay).join(' – ')}`} />}
+          {(o.pattern.kind !== 'legs' || !ghosts.some((x) => x.kind === 'rev')) && jobTo > jobFrom && <span className="v91-job" style={{ left: x(jobFrom), width: x(jobTo) - x(jobFrom) }} title={`This job: ${offerSpan(o)}`} />}
           {blocks.map((b) => {
             const w = Math.max(b.kind === 'cont' ? 12 : 4, x(Math.min(b.end, to)) - x(Math.max(b.start, from)));
             const style: React.CSSProperties = { left: x(b.start), width: w };
