@@ -40,7 +40,7 @@ describe('v0.7.2 ops strip fit', () => {
     expect(at24).not.toMatch(/^in /);
     expect(at24).toMatch(/ 08:30$/);
     const far = countdown(now + 40 * 60, now);
-    expect(far).toMatch(/^\d{1,2} [A-Z][a-z]{2} 00:30$/);
+    expect(far).toMatch(/^\d{1,2} [A-Z][a-z]{2} \d{2} 00:30$/);
   });
   it('slims warning chips before dropping ON TIME, so two facts sit beside a warning', () => {
     const it = [{ id: 'market' as const, warn: true, w: 170, ws: 120 }, ...items([])];

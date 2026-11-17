@@ -53,6 +53,6 @@ describe('v0.14.1 the duty sheet release', () => {
     const { releaseText } = await import('./rosterActions');
     const day = 20 * 1440;
     expect(releaseText(day + 7 * 60, day + 19 * 60 + 45)).toBe('19:45');
-    expect(releaseText(day + 23 * 60, day + 1440 + 6 * 60 + 50)).toMatch(/^\w{3} \d+ \w{3} 06:50$|^\d+ \w{3} 06:50$/);
+    expect(releaseText(day + 23 * 60, day + 1440 + 6 * 60 + 50)).toMatch(/^\w{3} \d+ \w{3} \d{4} 06:50$|^\d+ \w{3} \d{4} 06:50$/);
   });
 });
