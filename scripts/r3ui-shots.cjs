@@ -42,6 +42,13 @@ async function load(page, file) {
   await sleep(800);
 }
 
+/** Turns the globe and waits until it is there (software WebGL draws slowly under load). */
+async function aim(page, lon, lat, dist) {
+  await page.evaluate(([a, b, c]) => window.__bhGlobe.aim(a, b, c), [lon, lat, dist]);
+  await page.waitForFunction(([a, b]) => { const o = window.__bhGlobe.orbit(); return Math.abs(o.lon - a) < 0.01 && Math.abs(o.lat - b) < 0.01; }, [lon, lat], { timeout: 20000 });
+  await sleep(800);
+}
+
 const routeId = (page) => page.evaluate(() => Object.values(window.__contrail.game.network.routes).find((r) => r.status !== 'closed')?.id);
 
 async function shot(page, name, sel = '.modal *, .ops-route-card *') {
@@ -86,11 +93,13 @@ async function globeShots(page, v) {
   });
   if (!mid) problems.push(`${v}: the globe has no route lines`);
   // Turn the globe so the line runs through the middle of the screen (MLA 14.5E 35.9N, MAN 2.3W 53.4N).
-  await page.evaluate(() => window.__bhGlobe.aim(6, 44, 1.9));
-  await sleep(1500);
+  await aim(page, 6, 44, 1.9);
   const pt = await page.evaluate(() => {
     const ls = window.__bhGlobe.routes();
-    const box = document.querySelector('.globe-stage').getBoundingClientRect();
+    const st = document.querySelector('.globe-stage');
+    const box = st.getBoundingClientRect();
+    // Settings › Size zooms the page: the globe's points are in its own css px.
+    const k = box.width / (st.offsetWidth || box.width);
     for (const l of ls) {
       const pts = l.pts.filter(Boolean);
       if (pts.length < 4) continue;
@@ -99,7 +108,7 @@ async function globeShots(page, v) {
       const [x0, y0] = pts[i];
       const [x1, y1] = pts[i + 1] ?? pts[i - 1];
       const len = Math.hypot(x1 - x0, y1 - y0) || 1;
-      return { x: box.left + x0, y: box.top + y0, nx: -(y1 - y0) / len, ny: (x1 - x0) / len };
+      return { x: box.left + x0 * k, y: box.top + y0 * k, nx: -(y1 - y0) / len, ny: (x1 - x0) / len };
     }
     return null;
   });
@@ -122,8 +131,7 @@ async function globeShots(page, v) {
   await sleep(500);
   if (await page.locator('.ops-route-card').count()) problems.push(`${v}: route card still open after a tap on empty space`);
   // The back of the globe: turned away, the line cannot be hit (no screen points).
-  await page.evaluate(() => window.__bhGlobe.aim(-174, -44, 1.9));
-  await sleep(1500);
+  await aim(page, -174, -44, 1.9);
   const back = await page.evaluate(() => window.__bhGlobe.routes().every((l) => l.pts.every((p) => p === null)));
   if (!back) problems.push(`${v}: route line hittable on the back of the globe`);
   // Back to the flat map for the next contexts (the setting is per device).
@@ -158,7 +166,7 @@ async function dateShots(page, v) {
     await shot(page, `${v}-${name}`, '.screen *, .shell main *');
   }
   // Schedule at its widest zoom (dates on the axis).
-  const z = page.locator('.seg button', { hasText: /^14 ?d|^28 ?d|2 wk|4 wk/ }).first();
+  const z = page.locator('.seg button', { hasText: /^28 days$/ }).first();
   if (await z.count()) { await page.evaluate(() => window.__contrail.navigate('schedule', {})); await z.click().catch(() => {}); await sleep(600); await shot(page, `${v}-schedule-wide`, '.screen *'); }
 }
 
