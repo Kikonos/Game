@@ -10,10 +10,10 @@ import { typeOf } from '../core/perf';
 import { DAY, monthKey } from '../core/time';
 import type { Flight, GameState } from '../core/types';
 import { costTotal, passThrough, routeDisruptionCost, routeLegCost, sectorPax } from './costs';
-import { marketOfRoute, paxKgOf, routeStation, type Dir } from './model';
+import { cargoDepX, freqPerWeek, marketOfRoute, paxKgOf, routeStation, type Dir } from './model';
 import { pushRouteNote } from './notes';
 import { bumpRoute } from './reputation';
-import { dirSectors, fareFor, payloadMax } from './sales';
+import { dirSectors, fareFor, payloadMax, seriesOf } from './sales';
 import { netRoll } from './side';
 import type { Rotation, Route, RoutePnl, SectorLoad } from './types';
 
@@ -40,14 +40,17 @@ export function cargoFor(g: GameState, route: Route, rot: Rotation, dir: Dir, ty
   const idx = dirSectors(route, rot, dir);
   const first = rot.sectors[idx[0]];
   if (!first) return { kg: 0, avi: 0, mail: 0, rev: 0 };
-  const noise = 1 + C.noise * (netRoll(g, `cargo:${rot.id}:${dir}`) * 2 - 1);
+  const sr = seriesOf(route, rot);
+  // r3-bal a departure's share of the market's week (model.cargoDepX).
+  const fx = sr ? cargoDepX(freqPerWeek(sr)) : 1;
+  const noise = (1 + C.noise * (netRoll(g, `cargo:${rot.id}:${dir}`) * 2 - 1)) * fx;
   const month = new Date(Date.UTC(2000, 0, 1) + rot.dep * 60_000).getUTCMonth();
   const xmas = dir === 'out' && month === 11 ? 1 + C.xmas : 1;
   const north = dir === 'back';
   const blockedNorth = north && !routeStation(first.from).euCargo;
   const general = blockedNorth ? 0 : (north ? m.cargo.north : m.cargo.south) * noise * xmas;
-  const mail = (m.cargo.mail ?? 0) * (blockedNorth ? 0 : 1);
-  const perish = north && !blockedNorth ? m.cargo.perish ?? 0 : 0;
+  const mail = (m.cargo.mail ?? 0) * (blockedNorth ? 0 : 1) * fx;
+  const perish = north && !blockedNorth ? (m.cargo.perish ?? 0) * fx : 0;
   const ngo = north ? 0 : (m.cargo.ngo ?? 0) * noise;
   const wide = typeOf(typeId)?.body === 'wide';
   const avi = north ? 0 : Math.min(m.cargo.avi ?? 0, wide ? C.aviMax : C.aviMax / 2);

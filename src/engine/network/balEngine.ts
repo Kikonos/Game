@@ -163,6 +163,8 @@ export const NET_ENGINE_BAL = {
     payloadType: { b763: 40_000, b752: 25_000, a332: 45_000, a333: 48_000, a343: 46_000, a321neo: 25_000, a321ceo: 25_000, a320ceo: 20_000, a320neo: 20_000, b738: 21_000, b739: 21_000, b772: 55_000, b77w: 65_000 } as Record<string, number>,
     /** Range: a sector at the range limit keeps this share of payload. Runway: (available ÷ needed)^exp. */
     rangeKeep: 0.7, runwayExp: 1.5,
+    /** r3-bal the week's cargo on a market grows with our flights a week ^ this (model.cargoDepX); was × flights. */
+    freqExp: 0.3,
     /** Cargo left behind: share that waits for the next rotation. */
     waits: 0.5,
     /** OXB ACC3 certification project. */

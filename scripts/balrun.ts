@@ -29,6 +29,7 @@ else {
   d.typeId = ac.typeId; d.layout = ac.cabin.layout as never;
   const bc = businessCase(g, id, d)!;
   console.log('case', d.typeId, JSON.stringify({ plan: { days: d.days, every: d.every, out: d.out, nights: d.nights, season: d.season }, p50: bc.p50, launch: bc.launchCost, payback: bc.paybackWeeks, verdict: bc.verdict?.word, parts: bc.parts, months: undefined }));
+  if (process.env.CASEONLY) process.exit(0);
   const why = decideCase(g, id, 'go', d);
   if (why) throw new Error(why);
   if (r.series[0]) r.series[0].tail = ac.id;

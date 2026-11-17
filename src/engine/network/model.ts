@@ -167,6 +167,15 @@ export function paxKgOf(m: Pick<RouteMarket, 'segments'> | undefined): number {
   return C.paxBody + C.bagKg * (1 + (m.segments.vfr ?? 0));
 }
 
+/**
+ * r3-bal the share of a market's weekly cargo one departure carries: the catalogue's cargo is a week's flow for a weekly
+ * flight, and more flights win only a little more of it (forwarders like frequency): the week's total grows with
+ * frequency^`freqExp`. A flight every two weeks or a month carries the flow that waited for it (× 1).
+ */
+export function cargoDepX(freq: number): number {
+  return freq <= 1 ? 1 : Math.pow(freq, BAL.v019.cargo.freqExp - 1);
+}
+
 /** Share of a market's travellers who want business class. */
 export function jWant(m: RouteMarket): number {
   let w = 0;
