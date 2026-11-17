@@ -2,7 +2,7 @@
 
 import { WelcomeModal } from '../modals/WelcomeModal';
 import { TenderModal } from '../modals/TenderModal';
-import { BookOpenText, ClipboardList, Download, FolderOpen, Home, Lightbulb, Play, PlusCircle, RefreshCw, Save, Settings as SettingsIcon, Sparkles, Trash2, Upload, Volume2 } from 'lucide-react';
+import { BookOpenText, ClipboardList, Download, FolderOpen, Home, Keyboard, Lightbulb, Play, PlusCircle, RefreshCw, Save, Settings as SettingsIcon, Sparkles, Trash2, Upload, Volume2 } from 'lucide-react';
 import { BugReportsModal } from '../modals/BugReportModals';
 import { sound, SOUND_MEANING } from '../sound';
 import { TERMINAL, TRACKS } from '../music';
@@ -20,6 +20,7 @@ import { SCENARIO_BY_ID } from '../../engine/scenario';
 import { ScenarioModal, ScenarioResultModal } from '../modals/ScenarioModals';
 import { Modal, Seg, Toggle } from '../components/ui';
 import { Help } from '../components/Help';
+import { KeyBindings, KeysModal } from './KeyBindings';
 import { DecisionModal } from '../modals/DecisionModal';
 import { CheckModal } from '../modals/CheckModal';
 import { HireModal } from '../modals/HireModal';
@@ -142,6 +143,7 @@ function MenuModal() {
         <button className="menu-item" onClick={exportSave}><Download /> Export save file</button>
         <button className="menu-item" onClick={() => fileRef.current?.click()}><Upload /> Import save file</button>
         <button className="menu-item" onClick={() => store.openModal({ kind: 'settings' })}><SettingsIcon /> Settings</button>
+        <button className="menu-item" onClick={() => store.openModal({ kind: 'keys' })}><Keyboard /> Key bindings</button>
         {/* v0.16.1 bug reports: the list (Export all). v0.17.1 a report is made with the corner button (ui/BugCorner.tsx). */}
         <button className="menu-item" onClick={() => store.openModal({ kind: 'bugReports' })}><ClipboardList /> Bug reports</button>
         {offline.updateReady && <button className="menu-item" onClick={() => { store.saveAuto(true); location.reload(); }}><RefreshCw /> Save & restart to update</button>}
@@ -311,16 +313,6 @@ function DeviceSettings() {
           <Seg value={st.uiSize} onChange={(v) => store.setSettings({ uiSize: v })} options={[{ value: 'auto', label: 'Auto' }, { value: 'small', label: 'Smaller' }, { value: 'normal', label: 'Normal' }, { value: 'large', label: 'Larger' }]} />
         </div>
       )}
-      {d.input !== 'touch' && (
-        <div className="set-row dv-keys">
-          <div><b>Keyboard</b><div className="tiny dim">Not while you type in a field</div></div>
-          <dl className="dv-keylist">
-            <dt><kbd>Space</kbd></dt><dd>Pause / play</dd>
-            <dt><kbd>1</kbd> <kbd>2</kbd> <kbd>4</kbd></dt><dd>Speed 1× 2× 4×</dd>
-            <dt><kbd>Esc</kbd></dt><dd>Close a window · Menu</dd>
-          </dl>
-        </div>
-      )}
     </>
   );
 }
@@ -353,6 +345,11 @@ function SettingsModal() {
         {st.globe && <div className="set-row"><div><b>Globe turns when idle</b></div><Toggle on={st.globeSpin} onChange={(v) => store.setSettings({ globeSpin: v })} /></div>}
         <div className="set-row"><div><b>Map tilt</b><div className="tiny dim">When zoomed in close</div></div><Toggle on={st.mapTilt} onChange={(v) => store.setSettings({ mapTilt: v })} /></div>
         <DeviceSettings />
+        {/* v0.24.1 Key bindings: every shortcut and its key, changed here (on this device). Touch-only: tucked behind a button. */}
+        <div className="set-head upper dim">Key bindings</div>
+        {deviceNow().input === 'touch'
+          ? <div className="set-row"><div><b>Keyboard shortcuts</b> <Help title="Key bindings">For a keyboard: a Mac, a PC, or an iPad with a keyboard attached.</Help></div><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'keys' })}><Keyboard /> Show</button></div>
+          : <div className="set-row kb-set"><KeyBindings /></div>}
         {(deviceNow().kind === 'ipad' || st.topGap !== 'auto') && <div className="set-row"><div><b>Top bar spacing</b> <Help title="Top bar spacing">Moves the game below the frosted strip iPadOS adds at the top of the screen.</Help></div><Seg value={String(st.topGap)} onChange={(v) => store.setSettings({ topGap: v === 'auto' ? 'auto' : (Number(v) as 0 | 16 | 28 | 40) })} options={[{ value: 'auto', label: 'Auto' }, { value: '0', label: 'Off' }, { value: '16', label: '16' }, { value: '28', label: '28' }, { value: '40', label: '40' }]} /></div>}
         <div className="set-row"><div><b>Pop-up notifications</b></div><Toggle on={st.toasts} onChange={(v) => store.setSettings({ toasts: v })} /></div>
         <div className="set-row"><div><b>What's new</b><div className="tiny dim">{CURRENT.version} {CURRENT.name}</div></div><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'whatsNew', all: true })}><Sparkles /> Show</button></div>
@@ -372,7 +369,7 @@ function ConfirmModal({ title, body, confirm, danger, onConfirm }: { title: stri
     <Modal title={title} onClose={() => store.closeModal()} footer={
       <>
         <button className="btn" onClick={() => store.closeModal()}>Cancel</button>
-        <button className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`} onClick={() => { store.closeModal(); onConfirm(); }}>{confirm}</button>
+        <button className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`} data-enter onClick={() => { store.closeModal(); onConfirm(); }}>{confirm}</button>
       </>
     }>
       <p className="muted">{body}</p>
@@ -391,6 +388,7 @@ export function GlobalModals() {
     case 'saves': return <SavesModal mode={m.mode} />;
     case 'settings': return <SettingsModal />;
     case 'confirm': return <ConfirmModal {...m} />;
+    case 'keys': return <KeysModal />;
     case 'offer': return s.game ? <OfferModal offerId={m.offerId} /> : null;
     case 'contract': return s.game ? <ContractModal contractId={m.contractId} /> : null;
     case 'decision': return s.game ? <DecisionModal decisionId={m.decisionId} /> : null;
@@ -439,6 +437,6 @@ export function GlobalModals() {
     case 'routeNews': return s.game ? <RouteNewsModal routeId={m.routeId} what={m.what} title={m.title} body={m.body} /> : null;
     case 'followDelivery': return s.game ? <FollowDeliveryModal aircraftId={m.aircraftId} /> : null;
     case 'welcome': return s.game ? <WelcomeModal /> : null;
-    case 'route': case 'routeLaunch': case 'routeBuild': case 'rotationMove': return s.game ? <Suspense fallback={null}><NetworkModals m={m} /></Suspense> : null;
+    case 'route': case 'routeLaunch': case 'routeBuild': case 'rotationMove': case 'routeAction': return s.game ? <Suspense fallback={null}><NetworkModals m={m} /></Suspense> : null;
   }
 }

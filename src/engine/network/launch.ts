@@ -87,7 +87,7 @@ export function studyBlock(g: GameState, marketId: string): string | null {
   if (m.closed) return m.closed;
   // v0.19.2 the same city pair counts once, whatever its fuel stops.
   const r = Object.values(g.network?.routes ?? {}).find((x) => x.status !== 'closed' && (x.marketId === marketId || (marketOfRoute(x)?.from === m.from && marketOfRoute(x)?.to === m.to)));
-  if (r) return r.status === 'operating' ? 'You fly it already.' : 'You are launching it already.';
+  if (r) return r.status === 'operating' ? 'You fly it already.' : r.status === 'suspended' ? 'It is suspended: resume it on its route page.' : 'You are launching it already.';
   if (g.gameOver) return 'The company has failed.';
   // A route leaves from one of our bases (an airline based at Malta opens no Lisbon market); a study bought before
   // that rule stays good.

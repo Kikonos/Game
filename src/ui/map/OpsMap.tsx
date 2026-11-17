@@ -31,7 +31,8 @@ import { SIL_COLOURS, silhouette } from './silhouettes';
 import { nextDeparture, SPOT_SECONDS, spotList, spotNext } from './spotter';
 import { wxMarks, type WxMark } from './weather';
 import { MapPanel, TypeKey } from './MapPanels';
-import { RouteLinesLayer, routeSectors } from '../screens/network/live';
+import { RouteCard, RouteLinesLayer, routeSectors } from '../screens/network/live';
+import { KEY_EVENT } from '../keymap';
 import { ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, fleetGroups, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, parseSlipId, pickNearest, placeEventPins, placeSlipMarks, selectedLegs, shortIndex, slipArcs, slipWindow, tourRoutes, upNextRows } from './mapLogic';
 import { EventPinsLayer, hatchUnit, ZoneGround, ZoneLabels } from './WorldLayer';
 import { type FocusAt, type MapAirport, type MapLayerCtx, type Pad, type View, WorldMap } from './WorldMap';
@@ -319,6 +320,19 @@ export function OpsMap() {
   const sel = store.nav.sel;
   // v0.12 spotter mode (a view only: never touches the game or its clock).
   const [spot, setSpot] = useState<Spot | null>(null);
+  // v0.24.1 a tapped route line: its route card (the routes flying that sector).
+  const [routeCard, setRouteCard] = useState<string[] | null>(null);
+  useEffect(() => { if (sel) setRouteCard(null); }, [sel]);
+  // v0.24.1 the + and - keys (Shell.tsx): the map's own zoom buttons, flat or globe.
+  useEffect(() => {
+    const h = (e: Event) => {
+      const a = (e as CustomEvent<string>).detail;
+      if (a !== 'zoomIn' && a !== 'zoomOut') return;
+      document.querySelector<HTMLButtonElement>(`.ops-map [aria-label="${a === 'zoomIn' ? 'Zoom in' : 'Zoom out'}"]`)?.click();
+    };
+    window.addEventListener(KEY_EVENT, h);
+    return () => window.removeEventListener(KEY_EVENT, h);
+  }, []);
   const spotNav = useRef('');
   // v0.15 the 3D globe (lazy; the flat map stays the default and keeps its view).
   const globe = useGlobe();
@@ -351,7 +365,7 @@ export function OpsMap() {
   const selSlip = sel?.kind === 'flight' ? parseSlipId(sel.id) : null;
   const slipAc = selSlip ? g.flights[selSlip]?.aircraftId ?? undefined : undefined;
   const arcAc = sel?.kind === 'aircraft' ? sel.id : slipAc;
-  const panelOpen = !!spot || (!!sel && (sel.kind === 'aircraft' || sel.kind === 'airport' || sel.kind === 'offer' || sel.kind === 'event' || !!selCm || !!selSlip));
+  const panelOpen = !!spot || (!sel && !!routeCard) || (!!sel && (sel.kind === 'aircraft' || sel.kind === 'airport' || sel.kind === 'offer' || sel.kind === 'event' || !!selCm || !!selSlip));
   const sharedRef = useRef<LiveShared | null>(null);
   const shared = (sharedRef.current ??= newShared());
   let memo = views.get(g);
@@ -459,7 +473,14 @@ export function OpsMap() {
     return true;
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const onSelect = useCallback((code: string | null) => store.select(code ? { kind: 'airport', id: code } : undefined), []);
+  const onSelect = useCallback((code: string | null) => { if (code) setRouteCard(null); store.select(code ? { kind: 'airport', id: code } : undefined); }, []);
+  const routeLinesRef = useRef(routeLines);
+  routeLinesRef.current = routeLines;
+  const onSelectRoute = useCallback((id: string | null) => {
+    const l = id ? routeLinesRef.current.find((x) => x.id === id) : undefined;
+    setRouteCard(l ? l.routes : null);
+    if (l) store.select(undefined);
+  }, []);
   const fitFn = useCallback(() => fitCodes(refs.current.g), []);
   const fitCentre = useCallback(() => (fitFresh(refs.current.g) ? refs.current.g.company.homeBase : undefined), []);
   const revealPad = useCallback((): Pad => {
@@ -561,6 +582,8 @@ export function OpsMap() {
         accent={g.company.livery.secondary}
         selected={sel?.kind === 'airport' ? sel.id : null}
         onSelect={onSelect}
+        onSelectRoute={routeLines.length ? onSelectRoute : undefined}
+        hitRoutes={routeLines}
         onTap={onTap}
         revealPad={revealPad}
         focus={focus}
@@ -584,7 +607,7 @@ export function OpsMap() {
           return (
             <>
               <ZoneLabels zones={zones} proj={ctx.proj} unit={ctx.unit} selected={selEv ? zones.find((z) => z.eventId === selEv)?.eventId : undefined} />
-              {routeLines.length > 0 && <RouteLinesLayer lines={routeLines} proj={ctx.proj} />}
+              {routeLines.length > 0 && <RouteLinesLayer lines={routeLines} proj={ctx.proj} selected={routeCard ?? undefined} />}
               <PathsLayer shared={shared} />
               <SlipArcsLayer arcs={slipLegs} proj={ctx.proj} />
               <ArcsLayer legs={nextArcs} proj={ctx.proj} />
@@ -608,7 +631,7 @@ export function OpsMap() {
       <UpNext g={g} />
       <FleetStrip g={g} sel={sel} panelOpen={panelOpen} />
       {spot && <SpotWatch id={spot.id} onMove={nextSpot} />}
-      {spot ? <SpotterPanel g={g} id={spot.id} onNext={nextSpot} onClose={() => setSpot(null)} canNext={spotList(g).length > 1} /> : <MapPanel g={g} sel={sel} />}
+      {spot ? <SpotterPanel g={g} id={spot.id} onNext={nextSpot} onClose={() => setSpot(null)} canNext={spotList(g).length > 1} /> : !sel && routeCard ? <RouteCard g={g} routeIds={routeCard} onClose={() => setRouteCard(null)} /> : <MapPanel g={g} sel={sel} />}
       {!spot && <button className="btn btn-icon ops-spot-btn" onClick={startSpot} aria-label="Spotter: watch the planes" title="Spotter: watch the planes"><Binoculars /></button>}
     </div>
   );

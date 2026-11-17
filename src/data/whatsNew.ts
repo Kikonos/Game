@@ -16,6 +16,25 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.24.1',
+    name: 'Route suspend, wind down, keyboard shortcuts',
+    features: [
+      'A route on sale or flying can now be suspended, wound down or closed from its route page. Each one shows the money and what happens before you confirm.',
+      'Suspend: sales stop and empty flights come off. Fly the booked ones or refund them. The station runs at half cost and the slots are kept 6 weeks after the last flight.',
+      'Wind down: sales stop, the booked flights fly with no refunds, then the route closes by itself. The route shows Closing with its last flight date.',
+      'Resume puts a suspended or closing route back on sale. The timetable is filed again from 14 days out and bookings build up over a few weeks.',
+      'Close now cancels every flight not yet flown, refunds the passengers and gives up the slots.',
+      'Tap a dashed route line on the map for its card: status, this month\'s load and result, the next flight, the route page and the actions.',
+      'Keyboard shortcuts: M map, C contracts, N network, S schedule, R crew, F fleet, B finance, O company, I inbox. Space pauses, 1, 2 and 4 set the speed.',
+      'Map: + and − zoom. Schedule and crew board: [ and ] or the arrows step a day, T goes back to today. Enter confirms a dialog, ⌘S or Ctrl+S saves now.',
+      'Key bindings in Settings, or press ?, lists every shortcut. Tap a key to change it. It warns when the key is taken and offers to swap. Reset puts them back.',
+    ],
+    improvements: [
+      'The menu buttons on the left show their key when you hover over them.',
+      'A wind down keeps the next 14 days of booked flights. Flights far ahead that cost more to fly than to refund are refunded with weeks of notice.',
+    ],
+  },
+  {
     version: 'v0.24',
     name: 'Player requests: offers, maintenance, inbox',
     features: [

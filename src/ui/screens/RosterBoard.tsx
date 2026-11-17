@@ -8,6 +8,7 @@ import { BoardingPasses } from '../components/BoardingPass';
 import { RankMark } from '../components/RankMark';
 import { BedDouble, CalendarDays, Check, ChevronDown, Rows3, Rows4 } from 'lucide-react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { KEY_EVENT } from '../keymap';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, HOUR, dayStart, fmtDay, monthKey, toDate } from '../../engine/core/time';
 import type { GameState, Role } from '../../engine/core/types';
@@ -445,6 +446,18 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
     scrollDW.current = dw;
   }, []);
   useLayoutEffect(goToday, [goToday]);
+  // v0.24.1 keys (Shell.tsx): [ and ] (or the arrows) a day either way, T back to today.
+  useEffect(() => {
+    const h = (e: Event) => {
+      const a = (e as CustomEvent<string>).detail;
+      const el = scroller.current;
+      if (!el) return;
+      if (a === 'boardToday') goToday();
+      else if (a === 'boardBack' || a === 'boardFwd') el.scrollBy({ left: (a === 'boardFwd' ? 1 : -1) * dayWidth(zoomRef.current, el.clientWidth), behavior: 'smooth' });
+    };
+    window.addEventListener(KEY_EVENT, h);
+    return () => window.removeEventListener(KEY_EVENT, h);
+  }, [goToday]);
   useLayoutEffect(() => {
     const el = scroller.current;
     if (el && scrollDW.current !== dayW) el.scrollLeft = Math.round(el.scrollLeft / scrollDW.current) * dayW;

@@ -5,6 +5,7 @@
 
 import { CalendarRange, Crosshair } from 'lucide-react';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { KEY_EVENT } from '../keymap';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
 import { DAY, fmtDay, fmtTime, localOffset } from '../../engine/core/time';
@@ -242,6 +243,20 @@ export function ScheduleScreen() {
     el.scrollLeft = Math.max(0, (t - from) * ppm - el.clientWidth * frac);
     syncWin();
   };
+  // v0.24.1 keys (Shell.tsx): [ and ] (or the arrows) a day either way, T back to today.
+  const keyRef = useRef({ ppm, now: g.now, scrollTo });
+  keyRef.current = { ppm, now: g.now, scrollTo };
+  useEffect(() => {
+    const h = (e: Event) => {
+      const a = (e as CustomEvent<string>).detail;
+      const el = scroller.current;
+      if (!el) return;
+      if (a === 'boardToday') keyRef.current.scrollTo(keyRef.current.now);
+      else if (a === 'boardBack' || a === 'boardFwd') el.scrollBy({ left: (a === 'boardFwd' ? 1 : -1) * DAY * keyRef.current.ppm, behavior: 'smooth' });
+    };
+    window.addEventListener(KEY_EVENT, h);
+    return () => window.removeEventListener(KEY_EVENT, h);
+  }, []);
 
   // Measure the view (before paint); a resize keeps the time at the centre.
   useLayoutEffect(() => {

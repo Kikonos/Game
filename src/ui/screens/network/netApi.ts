@@ -135,6 +135,13 @@ export const net = {
   setTanker: (g: GameState, routeId: string, on: boolean) => setRoute(g, routeId, 'setTanker', (r) => { r.tanker = on || undefined; }, on),
   runSale: (g: GameState, routeId: string): string | null => call<string | null>('runSale', 'Not available yet.', g, routeId),
   saleBlock: (g: GameState, routeId: string): string | null => call<string | null>('saleBlock', null, g, routeId),
+  /** v0.24.1 the lifecycle (lifecycle.ts): every number the four actions need, and the actions (change the game). */
+  quoteLife: (g: GameState, routeId: string): NET.RouteLifeQuote => NET.quoteRouteLife(g, routeId),
+  actions: (r: Route): NET.RouteAction[] => NET.routeActions(r),
+  suspend: (g: GameState, routeId: string, refund: boolean): string | null => NET.suspendRoute(g, routeId, refund),
+  resume: (g: GameState, routeId: string): string | null => NET.resumeRoute(g, routeId),
+  windDown: (g: GameState, routeId: string, all = false): string | null => NET.windDownRoute(g, routeId, all),
+  closeRoute: (g: GameState, routeId: string): string | null => NET.closeRoute(g, routeId),
 };
 
 /** A route setting: the engine's own setter when it has one, else the field itself (no money moves). */

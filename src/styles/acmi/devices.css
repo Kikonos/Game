@@ -203,6 +203,26 @@ kbd {
   display: inline-block; min-width: 24px; padding: 1px 7px; border-radius: 6px; border: 1px solid var(--border-strong);
   border-bottom-width: 2px; background: var(--panel-2); color: var(--text); font: 600 12px/1.6 var(--font-mono); text-align: center;
 }
+/* v0.24.1 Key bindings (Settings and the '?' sheet): the list and the editor. */
+.kb { display: flex; flex-direction: column; gap: 10px; width: 100%; }
+.kb-top { align-items: center; }
+.kb-group { display: flex; flex-direction: column; }
+.kb-gh { padding: 4px 0 2px; }
+.kb-row { display: flex; align-items: center; gap: 10px; min-height: 36px; border-top: 1px solid rgba(var(--line-rgb), 0.08); }
+.kb-row.on { background: rgba(var(--accent-rgb, 90, 160, 255), 0.08); }
+.kb-chip {
+  min-width: 44px; min-height: 30px; padding: 2px 10px; border-radius: 7px; border: 1px solid var(--border-strong); border-bottom-width: 2px;
+  background: var(--panel-2); color: var(--text); font: 600 13px/1.4 var(--font-mono); text-align: center; cursor: pointer; white-space: nowrap;
+}
+.kb-chip.fixed { cursor: default; color: var(--text-2); font-weight: 500; }
+.kb-chip.none { color: var(--text-3, var(--text-2)); }
+.kb-chip.wait { border-color: var(--accent); color: var(--accent); font-family: inherit; font-weight: 600; animation: kb-pulse 1.2s ease-in-out infinite; }
+@keyframes kb-pulse { 50% { opacity: 0.6; } }
+@media (prefers-reduced-motion: reduce) { .kb-chip.wait { animation: none; } }
+.kb-reset { width: 32px; flex: none; display: inline-flex; justify-content: center; }
+.kb-clash { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--warn); background: rgba(var(--line-rgb), 0.04); }
+.kb-touch .kb-row { opacity: 0.8; }
+.set-row.kb-set { flex-direction: column; align-items: stretch; }
 .set-row.dv-device .seg, .set-row.dv-size .seg { flex-wrap: wrap; justify-content: flex-end; }
 
 /* ---------- big windows (a 27" screen, a 1920 px browser) ---------- */
