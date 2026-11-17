@@ -74,6 +74,19 @@ export function Modal({
   useEffect(() => {
     if (!onClose) return;
     const h = (e: KeyboardEvent) => {
+      // v0.24.1 Enter confirms: the dialog's primary button (marked data-enter), unless typing or a button has focus.
+      if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat) {
+        const el = e.target as HTMLElement | null;
+        const tag = el?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || tag === 'BUTTON' || el?.isContentEditable || el?.getAttribute?.('role') === 'button') return;
+        if (document.querySelector('.bug-layer, .spec-layer, .term-pop')) return;
+        const b = sheet.current?.querySelector<HTMLButtonElement>('[data-enter]:not(:disabled)');
+        if (!b) return;
+        e.preventDefault();
+        e.stopPropagation();
+        b.click();
+        return;
+      }
       if (e.key === 'Escape') {
         // v0.17.1 the bug report form sits above any open dialog: Escape closes the form only. v0.18 so does a spec
         // sheet (ui/specs/SpecsLink.tsx): only the topmost layer's dialog closes.

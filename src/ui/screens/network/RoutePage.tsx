@@ -24,6 +24,7 @@ import {
 import { TimetableEditor } from './TimetableEditor';
 import { CabinRow } from './CabinChange';
 import { confirmCancelRotation } from './live';
+import { RouteActionButtons } from './RouteActions';
 
 type Tab = 'overview' | 'timetable' | 'sales' | 'costs';
 
@@ -323,6 +324,9 @@ export function RoutePage({ routeId, tab: tab0 }: { routeId: string; tab?: Tab }
           <span className="mono">{routeCode(m)}</span> · {modelLabel(g, r)}{s0 ? ` · ${seriesAircraft(g, s0)}` : ''}
           {r.firstFlight && r.firstFlight > g.now ? ` · first flight ${fmtDayRel(r.firstFlight, g.now)} ${fmtTime(r.firstFlight)} UTC` : ''}
         </div>
+        {/* v0.24.1 suspend, wind down, close, resume: each opens its confirm with the money. */}
+        {r.suspended && r.status === 'suspended' && !r.closing && <div className="small warn">Suspended since {fmtDay(r.suspended.at)} · slots kept until {fmtDay(r.suspended.slotsUntil)}</div>}
+        <RouteActionButtons r={r} back={{ kind: 'route', routeId: r.id, tab }} />
         <Seg<Tab> value={tab} onChange={setTab} options={[
           { value: 'overview', label: <><BarChart3 className="sc-ico-s" /> Overview</> },
           { value: 'timetable', label: <><CalendarClock className="sc-ico-s" /> Timetable</> },

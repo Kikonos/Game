@@ -4,6 +4,9 @@
 
 import type { Tab } from './store';
 
+/** The window event Shell.tsx sends for a map or board key (OpsMap, Schedule and the roster board listen). */
+export const KEY_EVENT = 'acmi-key';
+
 export type KeyGroup = 'Time' | 'Screens' | 'Map' | 'Boards' | 'Dialogs';
 
 export type KeyAction =
@@ -43,7 +46,7 @@ export type KeyMap = Record<KeyAction, string>;
 
 /** The defaults (keys as normKey gives them). */
 export const DEFAULT_KEYS: KeyMap = {
-  pause: 'Space', speed1: '1', speed2: '2', speed3: '3',
+  pause: 'Space', speed1: '1', speed2: '2', speed3: '4',
   'tab.map': 'm', 'tab.contracts': 'c', 'tab.network': 'n', 'tab.schedule': 's', 'tab.crew': 'r', 'tab.fleet': 'f',
   'tab.finance': 'b', 'tab.company': 'o', 'tab.inbox': 'i',
   zoomIn: '=', zoomOut: '-',
@@ -150,6 +153,8 @@ export function eventAction(map: KeyMap, e: { key: string; code?: string; metaKe
   const k = normKey(e);
   const a = actionOf(map, k);
   if (a) return a;
+  // 3 has always meant the third speed too (4×), unless bound to something else.
+  if (k === '3') return 'speed3';
   // The fixed board arrows.
   if (k === 'ArrowLeft') return 'boardBack';
   if (k === 'ArrowRight') return 'boardFwd';

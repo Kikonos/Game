@@ -4,17 +4,18 @@
 
 import '../../../styles/acmi/v019live.css';
 import { geoPath, type GeoProjection } from 'd3-geo';
-import { CalendarClock, CircleSlash, Route as RouteIcon } from 'lucide-react';
+import { CalendarClock, CircleSlash, Route as RouteIcon, X } from 'lucide-react';
 import { memo, useMemo } from 'react';
 import { AIRPORT_BY_CODE } from '../../../data/airports';
-import { DAY, fmtDay, fmtTime, fmtWeekdayTime } from '../../../engine/core/time';
+import { DAY, fmtDay, fmtTime, fmtWeekdayTime, monthKey } from '../../../engine/core/time';
 import type { Flight, GameState } from '../../../engine/core/types';
 import type { Rotation, Route } from '../../../engine/network/types';
 import { Bar } from '../../components/ui';
 import { int, money, moneyDelta } from '../../format';
 import { store } from '../../store';
 import { net, type SectorLive } from './netApi';
-import { cargoLine, kg, lfTone, marketOf, routeCode, routeName, sectorLoad, seatsLine } from './networkLogic';
+import { cargoLine, kg, lfTone, marketOf, routeCode, routeName, sectorLoad, seatsLine, statusChip, upcoming } from './networkLogic';
+import { RouteActionButtons } from './RouteActions';
 
 /** The route, rotation and sector of a route flight (undefined for any other flight). */
 export function routeOfFlight(g: GameState, f: Flight | undefined): { route: Route; rot: Rotation; idx: number } | undefined {
@@ -135,23 +136,26 @@ export function confirmCancelRotation(g: GameState, r: Route, rot: Rotation) {
 
 
 /** §K the map's routes overlay: each operating (or on-sale) route's sectors as a faint dashed line, under everything. */
-export function routeSectors(g: GameState): { id: string; from: string; to: string }[] {
-  const out = new Map<string, { id: string; from: string; to: string }>();
+export function routeSectors(g: GameState): { id: string; from: string; to: string; routes: string[] }[] {
+  const out = new Map<string, { id: string; from: string; to: string; routes: string[] }>();
   for (const r of Object.values(g.network?.routes ?? {})) {
-    if (r.status !== 'operating' && r.status !== 'onSale') continue;
+    // v0.24.1 a suspended route keeps its line (tap it to resume); a closing one is on sale or flying still.
+    if (r.status !== 'operating' && r.status !== 'onSale' && r.status !== 'suspended') continue;
     const m = marketOf(r);
     if (!m) continue;
     const chain = [m.from, ...(m.via ?? []), m.to];
     const back = [m.to, ...(m.viaBack ?? []), m.from];
     for (const c of [chain, back]) for (let i = 1; i < c.length; i++) {
       const [a, b] = [c[i - 1], c[i]].sort();
-      out.set(`${a}-${b}`, { id: `${a}-${b}`, from: a, to: b });
+      const have = out.get(`${a}-${b}`);
+      if (have) { if (!have.routes.includes(r.id)) have.routes.push(r.id); }
+      else out.set(`${a}-${b}`, { id: `${a}-${b}`, from: a, to: b, routes: [r.id] });
     }
   }
   return [...out.values()];
 }
 
-export const RouteLinesLayer = memo(function RouteLinesLayer({ lines, proj }: { lines: { id: string; from: string; to: string }[]; proj: GeoProjection }) {
+export const RouteLinesLayer = memo(function RouteLinesLayer({ lines, proj, selected }: { lines: { id: string; from: string; to: string; routes?: string[] }[]; proj: GeoProjection; selected?: string[] }) {
   const path = useMemo(() => geoPath(proj), [proj]);
   if (!lines.length) return null;
   return (
@@ -160,8 +164,54 @@ export const RouteLinesLayer = memo(function RouteLinesLayer({ lines, proj }: { 
         const A = AIRPORT_BY_CODE[l.from];
         const B = AIRPORT_BY_CODE[l.to];
         const d = A && B ? path({ type: 'LineString', coordinates: [[A.lon, A.lat], [B.lon, B.lat]] }) : null;
-        return d ? <path key={l.id} d={d} fill="none" stroke="var(--accent)" strokeOpacity={0.32} strokeWidth={1.3} strokeDasharray="2 5" strokeLinecap="round" /> : null;
+        const on = !!selected && !!l.routes?.some((x) => selected.includes(x));
+        return d ? <path key={l.id} d={d} fill="none" stroke="var(--accent)" strokeOpacity={on ? 0.9 : 0.32} strokeWidth={on ? 2.2 : 1.3} strokeDasharray="2 5" strokeLinecap="round" vectorEffect="non-scaling-stroke" /> : null;
       })}
     </g>
   );
 });
+
+/** v0.24.1 the map's route card (a tap on a dashed route line): status, this month, the next flight, the actions. */
+export function RouteCard({ g, routeIds, onClose }: { g: GameState; routeIds: string[]; onClose: () => void }) {
+  const routes = routeIds.map((id) => g.network?.routes[id]).filter((r): r is Route => !!r);
+  if (!routes.length) return null;
+  const k = monthKey(g.now);
+  return (
+    <aside className="ops-panel card ops-route-card" aria-label="Route">
+      <header className="op-head">
+        <div className="col" style={{ minWidth: 0 }}>
+          <span className="upper dim">{routes.length > 1 ? `${routes.length} routes` : 'Route'}</span>
+          <h2 className="ellipsis">{routes.length > 1 ? routeCode(marketOf(routes[0])) : routeName(routes[0])}</h2>
+        </div>
+        <button className="op-close btn btn-ghost btn-icon" onClick={onClose} aria-label="Close panel"><X /></button>
+      </header>
+      <div className="op-body">
+        {routes.map((r) => {
+          const chip = statusChip(r, g.now);
+          const p = r.pnl[k];
+          const lf = p && p.seats ? (p.paxSec ?? p.pax) / p.seats : null;
+          const next = upcoming(r, g.now)[0];
+          const back = undefined;
+          return (
+            <section key={r.id} className="op-sec nwl-rc">
+              <div className="row gap-8 nwl-rc-head">
+                <span className="mono small">{routeCode(marketOf(r))}</span>
+                {routes.length > 1 && <span className="small ellipsis grow">{routeName(r)}</span>}
+                <span className={`nwl-chip ${chip.tone}`}>{chip.label}</span>
+              </div>
+              <div className="nwl-grid">
+                <div><span>Load this month</span><b className={`num ${lf === null ? '' : lfTone(lf)}`}>{lf === null ? '—' : `${Math.round(lf * 100)} %`}</b></div>
+                <div><span>Result this month</span><b className={`num ${p && p.result < 0 ? 'bad' : p && p.result > 0 ? 'good' : ''}`}>{p && p.sectors ? moneyDelta(p.result) : '—'}</b></div>
+                <div className="nwl-wide"><span>Next flight</span><b className="num">{next ? `${fmtDay(next.dep)} ${fmtTime(next.dep)} UTC` : 'none planned'}</b></div>
+              </div>
+              <div className="row wrap gap-6">
+                <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'route', routeId: r.id })}><RouteIcon /> Route page</button>
+              </div>
+              <RouteActionButtons r={r} back={back} />
+            </section>
+          );
+        })}
+      </div>
+    </aside>
+  );
+}

@@ -93,6 +93,8 @@ interface Props {
   onSelect?: (code: string | null) => void;
   /** Makes route lines tappable; called with null on a tap on empty map. */
   onSelectRoute?: (id: string | null) => void;
+  /** v0.24.1 the lines a tap can pick (ops map: our scheduled routes), when not `routes`. */
+  hitRoutes?: { id: string; from: string; to: string }[];
   onHover?: (code: string | null) => void;
   tooltip?: (a: Airport) => ReactNode;
   regionLabels?: { id: string; locked: boolean }[];
@@ -181,7 +183,8 @@ const MAX_PLANES = 60;
 const MAX_PLANES_TOUCH = 44;
 /** Hit radii in screen px: generous for fingers, tight for a mouse. */
 const HIT_AP = { touch: 26, mouse: 12 };
-const HIT_ROUTE = { touch: 16, mouse: 7 };
+// v0.24.1 a finger gets 24 px each side of a route line, a mouse 8.
+const HIT_ROUTE = { touch: 24, mouse: 8 };
 
 const BaseLayers = memo(function BaseLayers({ rotate, id }: { rotate: number; id?: string }) {
   const p = basePaths(rotate);
@@ -397,7 +400,7 @@ interface Gesture {
  * backdrop, overlay: CSS transforms), and a pan that keeps the zoom re-renders nothing at all.
  */
 export function WorldMap({
-  rotate = 0, routes, airports, fit, fitPad, interactive = true, animate = true, accent: accentIn = 'var(--accent)', selected, onSelect, onSelectRoute, onHover,
+  rotate = 0, routes, hitRoutes, airports, fit, fitPad, interactive = true, animate = true, accent: accentIn = 'var(--accent)', selected, onSelect, onSelectRoute, onHover,
   tooltip, regionLabels, className, planesKey, controls = true, revealPad, layers, underlay, ground, backdrop, glow, onTap, fitFn, fitCentre, focus, memo, follow, extraControls, tilt, wrap,
 }: Props) {
   const wrapOn = !!wrap;
@@ -465,6 +468,7 @@ export function WorldMap({
   /** v0.12 when the player last panned or zoomed (follow waits a few seconds after). */
   const userAt = useRef(0);
   const [hover, setHover] = useState<{ code: string; x: number; y: number } | null>(null);
+  const [overRoute, setOverRoute] = useState(false);
   // v0.15 the tilt: the stage (land, backdrop, glow and the SVG overlay) leans back at close zoom. Taps and pans are
   // un-tilted in vbOf, so hit-testing stays exact; `bleed` grows the overlay past the box while tilted.
   const stageRef = useRef<HTMLDivElement>(null);
@@ -878,9 +882,10 @@ export function WorldMap({
   }).filter(Boolean) as { r: MapRoute; d: string }[], [routeKey, path]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const tappableRoutes = !!onSelectRoute;
+  const hitKey = hitRoutes ? hitRoutes.map((r) => r.id).join(',') : routeKey;
   const routeLines = useMemo(() => {
     if (!tappableRoutes) return [];
-    return routes.map((r) => {
+    return (hitRoutes ?? routes).map((r) => {
       const A = AIRPORT_BY_CODE[r.from];
       const B = AIRPORT_BY_CODE[r.to];
       if (!A || !B) return null;
@@ -892,7 +897,7 @@ export function WorldMap({
       }
       return { id: r.id, pts };
     }).filter(Boolean) as { id: string; pts: [number, number][] }[];
-  }, [routeKey, proj, tappableRoutes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hitKey, proj, tappableRoutes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const hitTest = (cx: number, cy: number, finger: boolean): { airport?: string; route?: string } => {
     const [vx, vy] = vbOf(cx, cy);
@@ -983,7 +988,11 @@ export function WorldMap({
 
   const hoverAt = (cx: number, cy: number) => {
     measure();
-    const code = hitTest(cx, cy, false).airport ?? null;
+    const hit = hitTest(cx, cy, false);
+    const code = hit.airport ?? null;
+    // v0.24.1 a pointer over a tappable route line.
+    const over = !!hit.route;
+    if (over !== overRoute) setOverRoute(over);
     if ((hover?.code ?? null) === code) return;
     const g = geoRef.current;
     setHover(code ? { code, x: cx - g.left, y: cy - g.top } : null);
@@ -1418,7 +1427,7 @@ export function WorldMap({
   return (
     <div
       ref={wrapRef}
-      className={`worldmap ${interactive ? 'interactive' : ''} ${hover ? 'hovering' : ''} ${className ?? ''}`}
+      className={`worldmap ${interactive ? 'interactive' : ''} ${hover || overRoute ? 'hovering' : ''} ${className ?? ''}`}
       style={{ background: OCEAN }}
       onPointerDown={interactive ? onPointerDown : undefined}
       onPointerMove={interactive ? onPointerMove : undefined}

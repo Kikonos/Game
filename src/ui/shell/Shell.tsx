@@ -30,6 +30,9 @@ import { useMedia, useTier } from '../useMedia';
 import { CLOCK_STEP, SPEEDS } from '../../engine/core/time';
 import type { PauseReason } from '../../engine/core/pause';
 import { ScreenHint } from '../components/ScreenHint';
+import { eventAction, isSaveCombo, KEY_EVENT, navTitle, type KeyAction } from '../keymap';
+import { keyCapture } from '../game/KeyBindings';
+import { deviceNow } from '../device';
 
 export const NAV: { tab: Tab; label: string; short: string; icon: ReactNode }[] = [
   { tab: 'map', label: 'Ops Map', short: 'Map', icon: <Globe2 /> },
@@ -74,8 +77,9 @@ function Clock() {
   );
 }
 
-/** v0.12 keys 1, 2 and 4 pick the speed they name (3 stays 4×, the third button, as before). */
-const SPEED_KEYS: Record<string, GameSpeed> = { 1: SPEEDS[0], 2: SPEEDS[1], 3: SPEEDS[2], 4: SPEEDS[2] };
+/** v0.24.1 the speed actions (keymap.ts; by default 1, 2 and 4, and 3 for 4× as before). */
+const SPEED_OF: Partial<Record<KeyAction, GameSpeed>> = { speed1: SPEEDS[0], speed2: SPEEDS[1], speed3: SPEEDS[2] };
+
 
 /** Pause + labelled speeds (1× 2× 4×); static amber while a decision holds time. */
 function SpeedControl() {
@@ -225,13 +229,15 @@ function TopBar({ compact }: { compact: boolean }) {
 function Rail() {
   const s = useStore();
   const badges = useNavBadges();
+  // v0.24.1 a keyboard's shortcut in each button's tooltip (not on touch-only devices: no hover, no keys).
+  const keyTips = deviceNow().input !== 'touch';
   return (
     <nav className="sidebar rail" aria-label="Sections">
       {NAV.map((n) => {
         const active = s.nav.tab === n.tab;
         const b = badges[n.tab];
         return (
-          <button key={n.tab} className={`nav-item ${active ? 'active' : ''}`} onClick={() => s.navigate(n.tab)} data-nav={n.tab} aria-current={active ? 'page' : undefined} aria-label={b ? `${n.label}, ${b}` : b === '' ? `${n.label}, unread` : n.label}>
+          <button key={n.tab} className={`nav-item ${active ? 'active' : ''}`} onClick={() => s.navigate(n.tab)} data-nav={n.tab} title={keyTips ? navTitle(n.label, s.settings.keys, n.tab) : undefined} aria-current={active ? 'page' : undefined} aria-label={b ? `${n.label}, ${b}` : b === '' ? `${n.label}, unread` : n.label}>
             <span className="ico">
               {n.icon}
               {b !== undefined && <span className={`nb ${b ? '' : 'dot'}`}>{b}</span>}
@@ -250,19 +256,44 @@ export function Shell() {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // v0.24.1 Settings › Key bindings is waiting for a key: that press is its.
+      if (keyCapture.on) return;
       const el = e.target as HTMLElement | null;
       const tag = el?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el?.isContentEditable) return;
-      // v0.12 ⌘1 / Ctrl+1 belong to the browser (tabs), and a held key repeats nothing here.
-      if (e.metaKey || e.ctrlKey || e.altKey || e.repeat) return;
-      if (e.code === 'Space') {
+      // v0.24.1 ⌘S / Ctrl+S saves now (the browser's "save page" is no use here).
+      if (isSaveCombo(e)) {
+        e.preventDefault();
+        if (e.repeat || !store.game || store.game.gameOver) return;
+        const ok = store.saveAuto(true);
+        store.toast(ok ? 'good' : 'bad', ok ? 'Saved' : 'Could not save', ok ? undefined : 'Browser storage is full or unavailable.');
+        return;
+      }
+      // v0.12 ⌘1 / Ctrl+1 belong to the browser (tabs).
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'Escape') {
+        if (!store.modal && !e.repeat) store.openModal({ kind: 'menu' });
+        return;
+      }
+      const a = eventAction(store.settings.keys, e);
+      if (!a) return;
+      const free = !store.modal;
+      const tab = store.nav.tab;
+      // Held keys repeat only the zoom and the day steps.
+      if (e.repeat && !(a === 'zoomIn' || a === 'zoomOut' || a === 'boardBack' || a === 'boardFwd')) return;
+      if (a === 'pause') {
         e.preventDefault();
         (document.activeElement as HTMLElement | null)?.blur?.();
         store.togglePause();
-      } else if (SPEED_KEYS[e.key] && !store.modal) {
-        store.setSpeed(SPEED_KEYS[e.key]);
-      } else if (e.key === 'Escape' && !store.modal) {
-        store.openModal({ kind: 'menu' });
+      } else if (SPEED_OF[a]) {
+        if (free) store.setSpeed(SPEED_OF[a]!);
+      } else if (a.startsWith('tab.')) {
+        if (free) store.navigate(a.slice(4) as Tab);
+      } else if (a === 'keys') {
+        if (free || store.modal?.kind === 'menu' || store.modal?.kind === 'settings') store.openModal({ kind: 'keys' });
+      } else if (free && (((a === 'zoomIn' || a === 'zoomOut') && tab === 'map') || (a.startsWith('board') && (tab === 'schedule' || tab === 'crew')))) {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent(KEY_EVENT, { detail: a }));
       }
     };
     window.addEventListener('keydown', onKey);
