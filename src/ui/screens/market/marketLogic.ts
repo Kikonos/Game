@@ -123,7 +123,7 @@ export function answerName(a: Pick<RfpAnswer, 'lessorId'>, typeId?: string): str
 }
 
 /** One answer chip: 'AerCap ✓ proposal' · 'Avolon: no aircraft' · 'Carlyle: rating' · 'Doric: due 14 Mar'. */
-export function answerChip(now: Minute, a: RfpAnswer, typeId?: string): { text: string; tone: 'good' | 'warn' | 'bad' | ''; tip?: string } {
+export function answerChip(_now: Minute, a: RfpAnswer, typeId?: string): { text: string; tone: 'good' | 'warn' | 'bad' | ''; tip?: string } {
   const name = answerName(a, typeId);
   if (a.at === undefined || !a.kind) return { text: `${name}: by ${fmtDayShort(a.due)}`, tone: '' };
   const n = a.offerIds?.length ?? 0;
