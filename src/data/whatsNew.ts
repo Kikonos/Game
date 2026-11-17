@@ -16,6 +16,25 @@ export interface WhatsNewEntry {
 
 export const WHATS_NEW: WhatsNewEntry[] = [
   {
+    version: 'v0.24.2',
+    name: 'Globe routes, dates with years, route balance',
+    features: [
+      'The 3D globe now shows your routes as dashed lines too. Tap one for the same route card as on the flat map.',
+      'Every date now shows its year, such as 29 Oct 2027. Narrow places use the short form, 29 Oct 27.',
+    ],
+    improvements: [
+      'Route balance: A320 and A321 high-density cabins can now fill. Busy flights reach 95 to 100 % in season and drop in winter.',
+      'A new route takes a season to build up. Expect a few losing months, then a summer profit. A well-run route pays back its launch in about a year.',
+      'Routes crowded with low-cost airlines, the wrong aircraft size and very short hops still lose money. Long-haul is harder in its first year.',
+      'The study and the planner now also try 4 a week and daily, when one aircraft can fly it.',
+      'The slow bookings card no longer shows on flights that are already full.',
+      'A route now keeps flying after its first year. Its timetable has no end date until you give it one.',
+      'A C-check can now be booked over route flights. They move to another of your aircraft, or are sub-chartered close to the day. Passengers keep their tickets.',
+      'The business case plans the first flight when the launch steps usually finish, about 5 months after Go. Tour operator seats are priced as they really sell, so tour routes look less rosy.',
+      'The route card on the map shows this month\'s result so far, not $0.',
+    ],
+  },
+  {
     version: 'v0.24.1',
     name: 'Route suspend, wind down, keyboard shortcuts',
     features: [
@@ -28,21 +47,10 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'Keyboard shortcuts: M map, C contracts, N network, S schedule, R crew, F fleet, B finance, O company, I inbox. Space pauses, 1, 2 and 4 set the speed.',
       'Map: + and − zoom. Schedule and crew board: [ and ] or the arrows step a day, T goes back to today. Enter confirms a dialog, ⌘S or Ctrl+S saves now.',
       'Key bindings in Settings, or press ?, lists every shortcut. Tap a key to change it. It warns when the key is taken and offers to swap. Reset puts them back.',
-      'The 3D globe now shows your routes as dashed lines too. Tap one for the same route card as on the flat map.',
-      'Every date now shows its year, such as 29 Oct 2027. Narrow places use the short form, 29 Oct 27.',
     ],
     improvements: [
       'The menu buttons on the left show their key when you hover over them.',
       'A wind down keeps the next 14 days of booked flights. Flights far ahead that cost more to fly than to refund are refunded with weeks of notice.',
-      'Route balance: A320 and A321 high-density cabins can now fill. Busy flights reach 95 to 100 % in season and drop in winter.',
-      'A new route takes a season to build up. Expect a few losing months, then a summer profit. A well-run route pays back its launch in about a year.',
-      'Routes crowded with low-cost airlines, the wrong aircraft size and very short hops still lose money. Long-haul is harder in its first year.',
-      'The study and the planner now also try 4 a week and daily, when one aircraft can fly it.',
-      'The slow bookings card no longer shows on flights that are already full.',
-      'A route now keeps flying after its first year. Its timetable has no end date until you give it one.',
-      'A C-check can now be booked over route flights. They move to another of your aircraft, or are sub-chartered close to the day. Passengers keep their tickets.',
-      'The business case plans the first flight when the launch steps usually finish, about 5 months after Go. Tour operator seats are priced as they really sell, so tour routes look less rosy.',
-      'The route card on the map shows this month\'s result so far, not $0.',
     ],
   },
   {
