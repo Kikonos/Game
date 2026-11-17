@@ -28,7 +28,7 @@ import { feasibilityAll, mghLabel, typeMisfit } from '../../engine/contracts';
 import { clientless, jobName } from '../../engine/contracts/flavor';
 import { flightsOf } from '../../engine/core/entities';
 import { currentFlight, flightTimes } from '../../engine/core/query';
-import { DAY, fmtDay, fmtDayRel, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
+import { DAY, fmtDay, fmtDayIn, fmtDayRange, fmtDayShort, fmtDayRel, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
 import type { Aircraft, CrewMember, Flight, GameState, MaintenanceEvent, ProblemRef, Ref, Role } from '../../engine/core/types';
 import type { DryLeaseView } from '../../engine/ops';
 import { type CrewAlertKind, crewName, crewShortCard, crewTravelNow, dutyCrew, flightCrewStatus, outOfHours, restNow, restOf, restSeatsBlocked, restText, ridersText, sellableSeats, seatsText, slipOfFlight, slipsOfAircraft, standbyNow } from '../../engine/crew';
@@ -174,7 +174,7 @@ function LegRow({ g, f, onTap, short }: { g: GameState; f: Flight; onTap?: () =>
         <span className="col" style={{ minWidth: 0, flex: 1 }}>
           <span className="row op-tight"><b className="mono">{f.from}→{f.to}</b><span className="small muted mono">{f.no}</span></span>
           <span className="small muted ellipsis">
-            {fmtDay(dep)} {fmtTime(dep)} UTC · {fmtDuration(f.block)}{f.kind === 'techstop' ? ' · fuel stop' : ''}{f.delay ? ` · +${fmtDuration(f.delay)}` : ''}
+            {fmtDayShort(dep)} {fmtTime(dep)} UTC · {fmtDuration(f.block)}{f.kind === 'techstop' ? ' · fuel stop' : ''}{f.delay ? ` · +${fmtDuration(f.delay)}` : ''}
           </span>
           {zone && <span className={`small ellipsis op-zone ${zone.effect}`}>{zone.text}</span>}
         </span>
@@ -292,7 +292,7 @@ function plannedOf(g: GameState, ac: Aircraft, kind: 'refit' | 'return'): Mainte
 /** v0.7.2 first scheduled ferry home of a C-check at an MRO hub: "ferry home 2 Apr". */
 const ferryHomeOf = (g: GameState, m: MaintenanceEvent) => {
   const f = (m.homeIds ?? []).map((id) => g.flights[id]).find((x) => x?.status === 'scheduled');
-  return f ? `ferry home ${fmtDay(f.std + f.delay)}` : '';
+  return f ? `ferry home ${fmtDayIn(f.std + f.delay, m.end)}` : '';
 };
 
 /** Planned refit, lease return and (v0.7.2) C-check at an MRO hub lines (in-work ones show under Now). */
@@ -303,26 +303,26 @@ function PlannedBlocks({ g, ac }: { g: GameState; ac: Aircraft }) {
   if (!rf && !rt && !cc) return null;
   const ferryTo = (m: MaintenanceEvent) => {
     const f = (m.ferryIds ?? ac.returning?.ferryIds ?? []).map((id) => g.flights[id]).find((x) => x?.status === 'scheduled');
-    return f ? `ferry ${fmtDay(f.std + f.delay)}, ` : '';
+    return f ? `ferry ${fmtDayIn(f.std + f.delay, m.end)}, ` : '';
   };
   return (
     <Section title="Planned">
       {rf && (
         <div className="op-note">
           <Wrench />
-          <span>Cabin refit to {rf.refit?.cabin.label ?? 'a new layout'} at {shopOf(rf.at)}: {ferryTo(rf)}{fmtDay(rf.start)} – {fmtDay(rf.end)}</span>
+          <span>Cabin refit to {rf.refit?.cabin.label ?? 'a new layout'} at {shopOf(rf.at)}: {ferryTo(rf)}{fmtDayRange(rf.start, rf.end)}</span>
         </div>
       )}
       {rt && (
         <div className="op-note">
           <Undo2 />
-          <span>Lease return at {cityOf(rt.at)}: {ferryTo(rt)}return check {fmtDay(rt.start)} – {fmtDay(rt.end)}</span>
+          <span>Lease return at {cityOf(rt.at)}: {ferryTo(rt)}return check {fmtDayRange(rt.start, rt.end)}</span>
         </div>
       )}
       {cc?.hub && (
         <div className="op-note">
           <Wrench />
-          <span>C-check at {cc.hub.name}: {ferryTo(cc)}check {fmtDay(cc.start)} – {fmtDay(cc.end)}{ferryHomeOf(g, cc) ? `, ${ferryHomeOf(g, cc)}` : ''}</span>
+          <span>C-check at {cc.hub.name}: {ferryTo(cc)}check {fmtDayRange(cc.start, cc.end)}{ferryHomeOf(g, cc) ? `, ${ferryHomeOf(g, cc)}` : ''}</span>
         </div>
       )}
     </Section>

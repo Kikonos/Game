@@ -270,7 +270,7 @@ export const NO_PARTS: MoneyParts = { tickets: 0, cargo: 0, extras: 0, fee: 0, p
 
 /** The plan's series (dates from `from`). */
 export function planSeries(p: RoutePlan, from: Minute, id = '', months: number | null = null): import('./types').RouteSeries {
-  return { id, days: p.days, every: p.every, monthly: p.monthly, out: p.out, back: p.back, nights: p.nights, typeId: p.typeId, layout: p.layout ?? 'two-class', from, to: from + 365 * DAY, ...(months ? { months } : {}) };
+  return { id, days: p.days, every: p.every, monthly: p.monthly, out: p.out, back: p.back, nights: p.nights, typeId: p.typeId, layout: p.layout ?? 'two-class', from, to: from + 365 * DAY, roll: true, ...(months ? { months } : {}) };
 }
 
 /**
@@ -320,7 +320,9 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   const away = crewAwayCost(g, m, p.typeId, cab.total, p.nights);
   const monthly = routeMonthCosts({ ...(r as Route), status: 'operating', marketing: p.marketing } as Route);
   const fixed = Object.values(monthly).reduce((a, x) => a + (x ?? 0), 0);
-  const fareMix = r.model === 'tour' ? 1 - BAL.v019.sales.anchors.share * BAL.v019.sales.anchors.fareCut : BAL.v019.fares.caseBucket;
+  // r3-fix the open fare bucket's mix (Saver / Classic) applies to a tour series too: sales charge the bucket times the
+  // tour operators' cut (sales.fareOf), so the case did not count the buckets and ran about a fifth too rich.
+  const fareMix = BAL.v019.fares.caseBucket * (r.model === 'tour' ? 1 - BAL.v019.sales.anchors.share * BAL.v019.sales.anchors.fareCut : 1);
   // v0.23.2 a seasonal plan: the months out of season have no flights; the station is kept at half cost, no campaign.
   const flown = planMonths(m, p);
   const resting = flown ? Object.values(routeMonthCosts({ ...(r as Route), status: 'operating', marketing: p.marketing } as Route, true)).reduce((a, x) => a + (x ?? 0), 0) : 0;
@@ -454,7 +456,7 @@ const baseFareOf = baseFare;
 
 /**
  * r3-bal the launch ramp the case expects in its month `i` (the middle of the month on demand.ramp2, as sales.rampOf),
- * with the late-sales dent: a Go today flies in 16 weeks, so its tickets go on sale under 12 weeks before (filing).
+ * with the late-sales dent: tickets usually go on sale under 12 weeks before the first flight (filing).
  */
 function caseRamp(i: number): number {
   const R = BAL.v019.demand.ramp2;
@@ -557,10 +559,14 @@ export function caseVerdict(c: Pick<BusinessCase, 'p10' | 'p50' | 'p90' | 'break
   return { word, tone: word === 'Worth it' ? 'good' : word === 'Marginal' ? 'warn' : 'bad', reasons: out.slice(0, 3).map((x) => x[1]) };
 }
 
-/** The first flight a Go today would give (16 weeks or the filing + 8 weeks of sales, whichever is later). */
+/**
+ * The first flight a Go today plans (r3-fix: the stages' usual length by model, launch.caseLeadWeeks; the filing + 8
+ * weeks of sales moves it later when the stages run long).
+ */
 export function firstFlightOf(g: GameState, r: Pick<Route, 'marketId'>, p: RoutePlan): Minute {
   const m = marketOfRoute(r)!;
-  return firstFromDate(m, p, g.now + 16 * 7 * DAY);
+  const weeks = L().caseLeadWeeks[p.model] ?? L().caseLeadWeeks.own;
+  return firstFromDate(m, p, g.now + weeks * 7 * DAY);
 }
 
 /**

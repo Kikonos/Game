@@ -14,7 +14,7 @@ import {
   type FairView, type Traveller, type TripQuote,
 } from '../../engine/commercial';
 import type { CommercialLeg } from '../../engine/ops/commercial';
-import { DAY, fmtDay, fmtTime, joinDays } from '../../engine/core/time';
+import { DAY, fmtDay, fmtDayRange, fmtTime } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import { Seg } from '../components/ui';
 import { money } from '../format';
@@ -24,7 +24,7 @@ import { lockOf } from '../../engine/scenario';
 import { LockedPanel } from '../components/Locked';
 
 const city = (c: string) => AIRPORT_BY_CODE[c]?.city ?? c;
-const span = (a: number, b: number) => (fmtDay(a) === fmtDay(b) ? fmtDay(a) : `${joinDays(fmtDay(a), fmtDay(b))}`);
+const span = (a: number, b: number) => fmtDayRange(a, b);
 
 /** Company › Team: one line, who is away (or nobody), linking to Contracts › Markets. */
 export function AwayLine({ g }: { g: GameState }) {

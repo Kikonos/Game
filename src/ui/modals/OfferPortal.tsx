@@ -13,7 +13,7 @@
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { ArrowRightLeft, Handshake, Menu, TriangleAlert, X } from 'lucide-react';
-import { DAY, fmtDay, fmtTime, joinDays } from '../../engine/core/time';
+import { DAY, fmtDay, fmtDayRange, fmtTime, joinDays } from '../../engine/core/time';
 import type { ContractOffer, GameState, Minute } from '../../engine/core/types';
 import type { FeasibilityReport } from '../../engine/contracts';
 import { quoteTripMove, tripOf } from '../../engine/ops/tripMove';
@@ -145,7 +145,7 @@ function ClashList({ g, o, r, trips, picked, onPick, others, back }: { g: GameSt
         </div>
       ))}
       {checks.map((m) => (
-        <div key={m.id} className="small muted v12-clash-prog"><b>{m.kind === 'AOG' ? 'AOG' : m.kind === 'line' ? 'Inspection' : `${m.kind}-check`} at {m.at}</b> {fmtDay(m.start)}–{fmtDay(m.end)}: move it on the Schedule.</div>
+        <div key={m.id} className="small muted v12-clash-prog"><b>{m.kind === 'AOG' ? 'AOG' : m.kind === 'line' ? 'Inspection' : `${m.kind}-check`} at {m.at}</b> {fmtDayRange(m.start, m.end)}: move it on the Schedule.</div>
       ))}
     </div>
   );

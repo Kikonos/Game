@@ -27,7 +27,7 @@ import { clientCode, clientLivery, clientTitles, restRefitOptions } from '../../
 import { AircraftArt } from '../components/AircraftArt';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
-import { DAY, fmtDate, fmtDay, fmtDuration, fmtTime, joinDays } from '../../engine/core/time';
+import { DAY, fmtDate, fmtDay, fmtDayRange, fmtDuration, fmtTime, joinDays } from '../../engine/core/time';
 import type { ContractOffer, CrewExtra, GameState } from '../../engine/core/types';
 import { BAL } from '../../engine/core/balance';
 import { extraCabinMax, offerExtra } from '../../engine/crew';
@@ -435,7 +435,7 @@ function HajjPanel({ o }: { o: ContractOffer }) {
   return (
     <div className="v8-panel">
       <b>Hajj airlift</b>
-      {t.length >= 2 && <div className="small">In: {fmtDay(t[0][0])} – {fmtDay(t[0][1])} · home: {fmtDay(t[1][0])} – {fmtDay(t[1][1])}. The days around the <Term id="arafah">Day of Arafah</Term> are free.</div>}
+      {t.length >= 2 && <div className="small">In: {fmtDayRange(t[0][0], t[0][1])} · home: {fmtDayRange(t[1][0], t[1][1])}. The days around the <Term id="arafah">Day of Arafah</Term> are free.</div>}
       <div className="small muted">{empty ? `${empty} of ${legs.length} legs fly empty` : 'Every other leg flies empty'}; the client pays those hours too. Max-seat cabin, no alcohol on board.</div>
     </div>
   );

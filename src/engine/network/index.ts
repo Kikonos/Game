@@ -57,6 +57,8 @@ export function loadNetwork(g: GameState): void {
     r.rotations ??= [];
     r.pnl ??= {};
     r.contractIds ??= [];
+    // r3-fix a launch's own series (made before series rolled on, its end untouched) keeps flying past its first year.
+    if (r.status !== 'closed' && !r.closing) for (const x of r.series) if (x.id === `${r.id}s1` && x.to - x.from === 365 * DAY) x.roll ??= true;
   }
   repairRouteCabins(g);
 }

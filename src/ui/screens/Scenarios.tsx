@@ -3,7 +3,7 @@
 
 import { ArrowLeft, Clock, MapPin, Plane, Play, Target } from 'lucide-react';
 import { DIFFICULTY_LABEL } from '../../data/setups';
-import { DAY, fmtDay } from '../../engine/core/time';
+import { DAY, fmtDayRange } from '../../engine/core/time';
 import { fmtValue, METRICS, SCENARIOS, scenarioStart } from '../../engine/scenario';
 import { LogoMark } from '../components/Logo';
 import { Stars } from '../modals/ScenarioModals';
@@ -42,7 +42,7 @@ export function Scenarios() {
                 <li><MapPin aria-hidden /><span>{d.region}</span></li>
                 <li><Plane aria-hidden /><span>{d.aircraft}</span></li>
                 <li><Target aria-hidden /><span>{d.goal}: {fmtValue(m.unit, d.stars[0])} for ★</span></li>
-                <li><Clock aria-hidden /><span>{d.days} days, {fmtDay(start)} – {fmtDay(start + d.days * DAY - 1)}</span></li>
+                <li><Clock aria-hidden /><span>{d.days} days, {fmtDayRange(start, start + d.days * DAY - 1)}</span></li>
               </ul>
               <div className="sc-card-foot">
                 <span className="small">{b ? <><Stars n={b.stars} size={14} /> <span className="dim">best</span></> : <span className="dim">Not played yet</span>}</span>

@@ -75,6 +75,11 @@ export interface RouteSeries {
   to: Minute;
   /** v0.23.2 the months it flies (bit 0 = January, at the origin's local date); absent = every month. */
   months?: number;
+  /**
+   * r3-fix the launch's series rolls on a year at a time (no end date) until the player gives it one, ends it or the
+   * route closes. Without it a route's timetable stopped a year after the first flight and the route kept its overheads.
+   */
+  roll?: boolean;
 }
 
 /** §J.1 one sector of a rotation: seats, bookings, what flew, its money. */

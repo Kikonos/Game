@@ -11,7 +11,7 @@ import { COUNTRIES } from '../../data/countries';
 import { MARKET_LIVERY } from '../../data/livery';
 import { BAL } from '../../engine/core/balance';
 import { typeOf } from '../../engine/core/perf';
-import { fmtDay, fmtSpan } from '../../engine/core/time';
+import { fmtDayRange, fmtSpan } from '../../engine/core/time';
 import { loiQuote, paintCost, signLoi, type LoiOpts } from '../../engine/leasing';
 import { whyText } from '../../engine/leasing/terms';
 import { checkRegistration, cleanRegInput, marketView, NAME_MAX, problemFor, regCountry, suggestRegistration, type ProblemAction } from '../../engine/ops';
@@ -120,7 +120,7 @@ export function LoiModal({ offerId }: { offerId: string }) {
           <div className="upper dim">Ready ~{dayIn(g.now, q.ready)} (UTC)</div>
           {q.steps.length > 0 && (
             <div className="lo-steps">
-              {q.steps.map((s) => <div key={s.label} className="lo-step"><span>{s.label}</span><span className="num muted">{fmtDay(s.from)} – {fmtDay(s.to)}</span></div>)}
+              {q.steps.map((s) => <div key={s.label} className="lo-step"><span>{s.label}</span><span className="num muted">{fmtDayRange(s.from, s.to)}</span></div>)}
             </div>
           )}
           <KV rows={[

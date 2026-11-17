@@ -39,6 +39,12 @@ export const NET_ENGINE_BAL = {
     distribution: { days: [42, 70] as [number, number], cost: 35_000, laterX: 0.5, bspHold: 50_000, bspMonths: 12 },
     /** Sales should open 6–11 months before the first flight; under 12 weeks the first weeks lose demand (§E.5). */
     filing: { idealDays: 200, minDays: 56, shortDays: 84 },
+    /**
+     * r3-fix the first flight a Go plans, in weeks: the stages' usual length (rights, or brand then distribution) plus
+     * 8 weeks of sales, at about the 3-in-4 mark so most launches fly on the planned date (a measured median of 21 weeks
+     * for an own brand; the old 16 weeks was the fastest case and every launch slipped 3 to 7 weeks).
+     */
+    caseLeadWeeks: { own: 22, tour: 24, partner: 17 } as Record<string, number>,
     campaign: { cost: { low: 50_000, normal: 100_000, high: 150_000 } as Record<string, number>, days: [42, 84] as [number, number], rival: 0.3 },
     stations: { days: [21, 56] as [number, number], outstation: 25_000, techStop: 8_000, noCaterer: 0.4, cashFuel: 0.15 },
     familiarisation: { B: 800, C: 3_500 } as Record<string, number>,

@@ -19,6 +19,7 @@ import { autoRoster } from '../crew/roster';
 import { noteRouteSub } from './costs';
 import { cabinFor, localMonth, localToUtc, localWeekday, marketOfRoute, rotationTimes, seasonCode, usd } from './model';
 import { bumpRoute } from './reputation';
+import { pnlOf } from './revenue';
 import { pushRouteNote } from './notes';
 import { setRouteCabin } from './cabin';
 import type { Rotation, Route, RouteSeries, SectorLoad } from './types';
@@ -98,6 +99,7 @@ export function rotationSchedule(g: GameState, route: Route, rot: Rotation): { s
 export function fileRotations(g: GameState, route: Route): number {
   if ((route.status !== 'onSale' && route.status !== 'operating') || route.closing) return 0;
   const until = g.now + HORIZON();
+  rollSeries(route, until);
   let n = 0;
   // v0.24.1 a resumed route: the dates cancelled when it was suspended or wound down are sold again.
   const back = route.resumed;
@@ -119,6 +121,17 @@ export function fileRotations(g: GameState, route: Route): number {
   const keep = g.now - 400 * DAY;
   if (route.rotations.length > 60) route.rotations = route.rotations.filter((r) => r.dep >= keep || (r.status !== 'flown' && r.status !== 'cancelled'));
   return n;
+}
+
+/**
+ * r3-fix a rolling series (the launch's) carries on: its end moves on 52 weeks at a time (the weekdays stay) to keep
+ * ahead of the sales horizon, as an airline files each season's timetable on from the last.
+ */
+export function rollSeries(route: Route, until: Minute): void {
+  for (const s of route.series) {
+    if (!s.roll) continue;
+    while (s.to < until + DAY) s.to += 364 * DAY;
+  }
 }
 
 /** The route's contract (one per route): created at the first flights. */
@@ -383,7 +396,11 @@ export function moveRotation(g: GameState, rotId: string, deltaMin: number): boo
   rot.dep += deltaMin;
   rot.moved = (rot.moved ?? 0) + deltaMin;
   rot.notice = g.now;
-  if (q.cost) post(g, 'paxComp', -q.cost);
+  // r3-fix the route's own P&L carries its passenger costs too (as the on-the-day paths do).
+  if (q.cost) {
+    post(g, 'paxComp', -q.cost);
+    pnlOf(route, g.now).direct += q.cost;
+  }
   if (q.repDelta) bumpRoute(g, route.id, q.repDelta, 'A flight moved at short notice');
   g.network!.stats.moves++;
   route.rotations.sort((a, b) => a.dep - b.dep);
@@ -446,7 +463,10 @@ export function cancelRotation(g: GameState, rotId: string, why = 'Cancelled by 
     route.unearned = Math.max(0, Math.round(route.unearned - s.sold));
     s.sold = 0;
   }
-  if (q.cost) post(g, 'paxComp', -q.cost);
+  if (q.cost) {
+    post(g, 'paxComp', -q.cost);
+    pnlOf(route, g.now).direct += q.cost;
+  }
   // Final debug round: another operator was to fly it: its price comes back less its fee (cash), and the statement ends
   // with the fee alone (a price not yet booked, subPre, books only the fee; one already booked is credited back).
   if (rot.operatedBy) {
@@ -568,6 +588,7 @@ export function removeSeries(g: GameState, routeId: string, seriesId: string, fr
     else cancelRotation(g, rot.id, 'Series ended');
   }
   s.to = Math.max(s.from, from);
+  s.roll = false;
   touchNet(g);
   return null;
 }

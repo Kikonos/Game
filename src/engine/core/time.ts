@@ -145,6 +145,15 @@ export function fmtDayRange(a: Minute, b: Minute): string {
   return x.getUTCDate() === y.getUTCDate() ? fmtDate(a) : `${x.getUTCDate()}–${fmtDate(b)}`;
 }
 
+/**
+ * v0.24.1 a date inside a sentence that already names `ref`'s year (a check's span, a series): '23 Aug' in that year,
+ * '23 Aug 2027' otherwise, so the year shows once ('ferry 23 Aug, check 24 Aug–7 Sep 2027').
+ */
+export function fmtDayIn(t: Minute, ref: Minute): string {
+  const d = toDate(t);
+  return yearOf(t) === yearOf(ref) ? `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()]}` : fmtDate(t);
+}
+
 /** v0.24.1 two written dates as a span, the year once when both carry the same one: '1 Jun – 31 Aug 2027'. */
 export function joinDays(a: string, b: string, sep = ' – '): string {
   if (a === b) return a;
