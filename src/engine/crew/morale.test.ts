@@ -218,7 +218,7 @@ describe('notice and leaving', () => {
     const leaves = c.notice!.leaves;
     expect(leaves - g.now).toBe(30 * DAY);
     expect(crewStatusView(g, c.id).leaves).toBe(leaves);
-    expect(crewStatusView(g, c.id).text).toMatch(/Leaves \d+ \w+$/);
+    expect(crewStatusView(g, c.id).text).toMatch(/Leaves \d+ \w+ \d{4}$/);
     expect(resignChance(g, c)).toBe(0);
     // Nothing rostered from the leave date.
     expect(rosterOf(g, c.id, leaves, leaves + 60 * DAY)).toEqual([]);

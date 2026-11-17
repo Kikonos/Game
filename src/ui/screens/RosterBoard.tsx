@@ -10,7 +10,7 @@ import { BedDouble, CalendarDays, Check, ChevronDown, Rows3, Rows4 } from 'lucid
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { KEY_EVENT } from '../keymap';
 import { flightsRev } from '../../engine/core/entities';
-import { DAY, HOUR, dayStart, fmtDay, monthKey, toDate } from '../../engine/core/time';
+import { DAY, HOUR, dayStart, fmtDay, fmtDayShort, monthKey, toDate } from '../../engine/core/time';
 import type { GameState, Role } from '../../engine/core/types';
 import type { RatingFamily } from '../../data/acmiTypes';
 import { clientCrewRows, crewMonth, crewRev, dropTargets, familyLabel, moveDuty, publishedTo, rosterBoard, type BoardBlock, type BoardRow, type DropTarget, type MoveScope } from '../../engine/crew';
@@ -92,7 +92,7 @@ function measure(s: string): number {
   return w;
 }
 
-const fmtLeave = (t: number) => fmtDay(t - 1);
+const fmtLeave = (t: number) => fmtDayShort(t - 1);
 /** v0.9 §R.8 footer legend: the board codes with their meaning. */
 const BOARD_LEGEND: Partial<Record<CalKey, string>> = Object.fromEntries(
   (Object.entries(CAL_KEY_CODE) as [CalKey, string][]).map(([k, code]) => [k, k === 'leave' ? 'LEAVE' : k === 'sbyHotel' ? 'SBY + station: hotel' : `${code} ${k === 'off' ? 'day off' : k === 'standby' ? 'home' : k === 'asby' ? 'airport' : 'reserve'}`]),
@@ -159,8 +159,8 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
           <span className="row gap-6 rb-name-1"><span className={`rb-morale ${moraleTone(row.morale)}`} aria-label={`Morale ${row.morale}`} title={`Morale ${row.morale}`} /><b className="ellipsis">{row.name}</b><RankMark role={row.role} /></span>
           {!compact && (
             <span className="row gap-4 tiny muted rb-name-2">
-              <span className="rb-rank">{row.role}</span>
-              {row.leaves !== null ? <span className="rb-leaves">· Leaves {fmtLeave(row.leaves)}</span> : <span>· {row.base}</span>}
+              {/* r3-fix leaving: the date with its year has the line (the rank shows as the mark beside the name). */}
+              {row.leaves !== null ? <span className="rb-leaves">Leaves {fmtLeave(row.leaves)}</span> : <><span className="rb-rank">{row.role}</span><span>· {row.base}</span></>}
             </span>
           )}
         </span>
@@ -820,7 +820,7 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
     const wd = dt.getUTCDay();
     return (
       <span key={i} className={`rb-day ${wd === 0 || wd === 6 ? 'we' : ''} ${i === today ? 'today' : ''}`} style={{ left: LEFT_W + i * dayW, width: dayW }}>
-        {zoom === 'week' ? <>{WD_SHORT.format(dt)} <b>{dt.getUTCDate()}</b> {MON_SHORT.format(dt)}</>
+        {zoom === 'week' ? <>{WD_SHORT.format(dt)} <b>{dt.getUTCDate()}</b> {MON_SHORT.format(dt)} {String(dt.getUTCFullYear() % 100).padStart(2, '0')}</>
           : <><span className="rb-wd">{WD_NARROW.format(dt)}</span><b>{dt.getUTCDate()}</b></>}
       </span>
     );

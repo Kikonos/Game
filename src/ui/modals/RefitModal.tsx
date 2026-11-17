@@ -13,7 +13,7 @@ import type { GameState, Minute, RestRefitId } from '../../engine/core/types';
 import { flightsOf, flightsRev } from '../../engine/core/entities';
 import { route } from '../../engine/contracts/plan';
 import { etopsCap, typeOf } from '../../engine/core/perf';
-import { DAY, HOUR, dayStart, fmtDay, fmtDuration, fmtTime, toDate } from '../../engine/core/time';
+import { DAY, HOUR, dayStart, fmtDay, fmtDayRange, fmtDuration, fmtTime, toDate, joinDays } from '../../engine/core/time';
 import { bookRefit, bookRestRefit, cabinOptions, cancelCheck, refitKindText, refitQuote, refitSlots, refitStations, refitTerms, restRefitOptions, twoClassInstead, restRefitQuote, type RefitQuote, type RestRefitOption } from '../../engine/ops';
 import { longestDay, restOf, restShort, restText } from '../../engine/crew';
 import { longestDetail, restTerm } from '../components/RestLines';
@@ -174,7 +174,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
     <Modal size="wide" className="rf-modal" title={`${mode === 'rest' ? 'Crew rest' : 'Cabin refit'} · ${ac.reg}`} icon={mode === 'rest' ? <BedDouble className="accent" /> : <Sofa className="accent" />} onClose={close} footer={
       <>
         <button className="btn" onClick={close}>Cancel</button>
-        <span className="grow small muted">{viaCheck ? 'Fitted during the C-check at an MRO hub' : q.ok ? `${fmtDay(q.start)} – ${fmtDay(q.end)} at ${station}` : ''}</span>
+        <span className="grow small muted">{viaCheck ? 'Fitted during the C-check at an MRO hub' : q.ok ? `${joinDays(fmtDay(q.start), fmtDay(q.end))} at ${station}` : ''}</span>
         <button className="btn btn-primary" onClick={book} disabled={!canBook}>{viaCheck ? <Wrench /> : mode === 'rest' ? <BedDouble /> : <Sofa />} {bookLabel}</button>
       </>
     }>
@@ -220,7 +220,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
           <div className="upper dim">{booked ? 'Booked' : 'Earliest start'}</div>
           {booked ? (
             <div className="rf-booked">
-              <span className="small">{ac.reg} already has {bookedWhat} booked: <b>{fmtDay(booked.start)} – {fmtDay(booked.end)}</b> at {stations.find((x) => x.code === booked.at)?.name ?? booked.at}{booked.status === 'inWork' ? ' · in work now' : ''}.</span>
+              <span className="small">{ac.reg} already has {bookedWhat} booked: <b>{fmtDayRange(booked.start, booked.end)}</b> at {stations.find((x) => x.code === booked.at)?.name ?? booked.at}{booked.status === 'inWork' ? ' · in work now' : ''}.</span>
               <span className="small muted">{booked.status === 'planned' ? 'One refit at a time: cancel it (free before the work starts) to book a different one.' : 'The work has started; book the next one when it is done.'}</span>
               {booked.status === 'planned' && <button className="btn btn-sm" onClick={cancelBooked}>Cancel that refit</button>}
             </div>
@@ -249,7 +249,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
                 <span className="upper dim">Start day</span>
                 <span className="row gap-4 rf-nav">
                   <button className="btn btn-sm btn-icon" onClick={() => setPg(page - 1)} disabled={page <= 0} aria-label="Earlier weeks"><ChevronLeft /></button>
-                  <span className="small muted nowrap">{fmtDay(Math.max(cells[0], days[0]))} – {fmtDay(Math.min(cells[PAGE - 1], days[days.length - 1]))}</span>
+                  <span className="small muted nowrap">{fmtDayRange(Math.max(cells[0], days[0]), Math.min(cells[PAGE - 1], days[days.length - 1]))}</span>
                   <button className="btn btn-sm btn-icon" onClick={() => setPg(page + 1)} disabled={page >= lastPage} aria-label="Later weeks"><ChevronRight /></button>
                 </span>
               </div>
@@ -263,7 +263,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
                     <button key={d} className={`cv-day ${dt.getUTCDay() === 1 ? 'mon' : ''} ${on ? 'on' : ''} ${dq.ok ? '' : 'rf-off'}`} onClick={() => setPicked(d)} aria-pressed={on} title={dq.ok ? undefined : dq.why ?? undefined}>
                       <span className="tiny">{dt.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' })}</span>
                       <b>{dt.getUTCDate()}</b>
-                      <span className="tiny dim">{dt.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })}</span>
+                      <span className="tiny dim">{dt.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })} {String(dt.getUTCFullYear() % 100).padStart(2, '0')}</span>
                     </button>
                   );
                 })}

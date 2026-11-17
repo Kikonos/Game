@@ -59,8 +59,8 @@ describe('BLU1565: the captains are on days off, not out of reach', () => {
   it('timeline labels carry the date whenever it is not the day of Now', () => {
     const now = Math.floor(14_600_000 / DAY) * DAY + 60;
     expect(tickTimes(now + 7 * H, 'FNC', now)[0]).toBe(`${tickTimes(now + 7 * H, 'FNC')[0]}`);
-    expect(tickTimes(now + 3 * DAY + 19 * H, 'FNC', now)[0]).toMatch(/^\d+ \w{3} \d\d:\d\d UTC$/);
-    expect(tickTimes(now + 3 * DAY + 19 * H, 'FNC', now)[1]).toMatch(/^\d+ \w{3} \d\d:\d\d FNC$/);
-    expect(legText({ no: 'FR 1474', airline: 'Ryanair', from: 'LIS', to: 'SOF', dep: now + DAY + H, arr: now + DAY + 5 * H }, now)).toMatch(/LIS–SOF \d+ \w{3} \d\d:\d\d→\d+ \w{3} \d\d:\d\d$/);
+    expect(tickTimes(now + 3 * DAY + 19 * H, 'FNC', now)[0]).toMatch(/^\d+ \w{3} \d{2} \d\d:\d\d UTC$/);
+    expect(tickTimes(now + 3 * DAY + 19 * H, 'FNC', now)[1]).toMatch(/^\d+ \w{3} \d{2} \d\d:\d\d FNC$/);
+    expect(legText({ no: 'FR 1474', airline: 'Ryanair', from: 'LIS', to: 'SOF', dep: now + DAY + H, arr: now + DAY + 5 * H }, now)).toMatch(/LIS–SOF \d+ \w{3} \d{4} \d\d:\d\d→\d\d:\d\d$/);
   });
 });

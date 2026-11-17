@@ -368,8 +368,8 @@ export interface RouteIdea {
   why: string;
 }
 
-/** v0.23.2 flights a week the planner tries on a pair. */
-const IDEA_FREQ = [1, 2, 3];
+/** v0.23.2 flights a week the planner tries on a pair (r3-bal: four a week and daily too, as the study). */
+const IDEA_FREQ = [1, 2, 3, 4, 7];
 /** How much the travellers' ties weigh in the shortlist (× 1 … 1 + this), and the most ideas to one country. */
 const IDEA_TIE_X = 2;
 const IDEA_PER_COUNTRY = 2;
@@ -379,7 +379,8 @@ export const IDEA_MARGIN = 0.05;
 
 /** `n` departures a week from `day` (0 = Monday), spread through the week. */
 function spreadDays(day: number, n: number): number {
-  const steps = n >= 3 ? [0, 2, 4] : n === 2 ? [0, 3] : [0];
+  if (n >= 7) return 127;
+  const steps = n >= 4 ? [0, 2, 4, 6] : n >= 3 ? [0, 2, 4] : n === 2 ? [0, 3] : [0];
   return steps.reduce((mask, k) => mask | (1 << ((day + k) % 7)), 0);
 }
 
@@ -457,17 +458,22 @@ function ideasOf(g: GameState): { list: RouteIdea[]; why: string | null } {
     let top: RouteIdea | null = null;
     for (const t of c.fit) {
       // A weekly flight, or two or three a week (short-haul fills more often); own sale or a tour operator's.
+      // One aircraft flies it: four a week or daily only when its rotations fit (as the study's search).
+      const rotH = serviceHours(m, t, 'out') + serviceHours(m, t, 'back') + (typeOf(t)?.turnMin ?? 60) / 60 + m.timetable.nights * 24;
       for (const n of IDEA_FREQ) {
+        if (n > 3 && rotH * n > 7 * BAL.v019.study.maxDayH) continue;
         for (const model of m.models.filter((x) => x !== 'partner')) {
           const plan = { ...firstPlan(m, t), model, days: spreadDays(m.timetable.day, n) };
-          const p = project(g, { ...viewOf(m), model }, plan, g.now + 120 * DAY, 1);
+          // r3-bal a year once the route is known (no launch ramp): the planner pitches what a route earns; the
+          // study's case then counts the first year's ramp too.
+          const p = project(g, { ...viewOf(m), model }, plan, g.now + 120 * DAY, 1, { mature: true });
           const margin = p.rev ? p.result / p.rev : 0;
           if (!top || p.result > top.result) {
             const rivals = m.competitors.filter((v) => v.stops === 0);
             const lf = p.seatSec ? p.paxSec / p.seatSec : 0;
             top = {
               from: c.from, to: c.to, marketId: m.id, typeId: t, result: Math.round(p.result), margin, lf, perWeek: n, model,
-              why: `${rivals.length ? `${rivals.length} nonstop rival${rivals.length > 1 ? 's' : ''}` : 'Nobody flies it nonstop'}; ${n === 1 ? 'a weekly' : `${n} a week on the`} ${typeOf(t)?.short ?? t} about ${Math.round(lf * 100)} % full${model === 'tour' ? ', sold as holidays' : ''}.`,
+              why: `${rivals.length ? `${rivals.length} nonstop rival${rivals.length > 1 ? 's' : ''}` : 'Nobody flies it nonstop'}; ${n === 1 ? 'a weekly' : n >= 7 ? 'daily on the' : `${n} a week on the`} ${typeOf(t)?.short ?? t} about ${Math.round(lf * 100)} % full${model === 'tour' ? ', sold as holidays' : ''}.`,
             };
           }
         }

@@ -11,7 +11,7 @@ import { DAY, fmtDay, fmtDayRange } from '../core/time';
 import type { ActionResult, Aircraft, Flight, GameState, Minute } from '../core/types';
 import { rerosterFrom } from '../crew';
 import { ferryCap, ferryCost, ferryCrewCost, ferryDays, ferryRoute, noFerryText, type DeliveryLeg } from './delivery';
-import { checkCostOf, disposalWhy, durationOf, groundGaps, scheduleCheck } from './maintenance';
+import { checkCostOf, disposalWhy, durationOf, groundGaps, routeFree, scheduleCheck } from './maintenance';
 import { usd } from './util';
 
 export interface CCheckOption {
@@ -72,7 +72,8 @@ export function cCheckSlots(g: GameState, aircraftId: string, hub: string, n = 6
   const out: Minute[] = [];
   const turn = typeOf(ac.typeId).turnMin;
   // v0.7.2.2 `after`: windows from an idle gap's start (Schedule gap panel).
-  for (const gp of groundGaps(g, ac, Math.max(g.now + BAL.ferryLeadMin, after), Math.max(g.now, after) + 365 * DAY)) {
+  // r3-fix route flights do not block a window: they go to another aircraft or a sub-charter (network/release.ts).
+  for (const gp of groundGaps(g, ac, Math.max(g.now + BAL.ferryLeadMin, after), Math.max(g.now, after) + 365 * DAY, true)) {
     const o = ferryLegs(g, ac, gp.at, hub, 0);
     if (!o) continue;
     let start = up(Math.max(gp.from, g.now + BAL.ferryLeadMin) + turn + span(o) + turn + 30);
@@ -110,7 +111,7 @@ export function cCheckOptions(g: GameState, aircraftId: string, start?: Minute, 
       out.push({ ...none, why: 'No free window long enough in the next year' });
       continue;
     }
-    const gp = groundGaps(g, ac, g.now, s + 365 * DAY).find((x) => x.from <= s && x.to > s);
+    const gp = groundGaps(g, ac, g.now, s + 365 * DAY, true).find((x) => x.from <= s && x.to > s);
     const at = gp?.at ?? ac.at;
     const w = windowAt(g, ac, hub.code, at, s, restFit);
     if (!w) {
@@ -155,9 +156,9 @@ export function bookCCheck(g: GameState, aircraftId: string, hub: string, start:
   const end = Math.round(Math.max(start, g.now)) + durationOf(ac, 'C') + addOf(restFit) * DAY;
   const homeLegs = ferryDays(homeR, end + BAL.v072.cHub.homeAfterMin, ac.typeId);
   const homeBy = homeLegs.length ? homeLegs[homeLegs.length - 1].sta : end;
-  const clash = flightsOf(g, ac.id).find((f) => (f.status === 'scheduled' || f.status === 'enroute') && f.kind !== 'positioning' && f.std < homeBy + 30 && f.sta > end);
+  const clash = flightsOf(g, ac.id).find((f) => (f.status === 'scheduled' || f.status === 'enroute') && f.kind !== 'positioning' && f.std < homeBy + 30 && f.sta > end && !routeFree(g, f));
   if (clash) return { ok: false, error: `The ferry home clashes with ${clash.no} ${fmtDay(clash.std)}` };
-  const r = scheduleCheck(g, ac.id, 'C', start, hub, { hub: h, forced });
+  const r = scheduleCheck(g, ac.id, 'C', start, hub, { hub: h, forced, releaseTo: homeBy });
   if (!r.ok) return r;
   const m = g.maintenance[r.data!.maintId];
   // v0.7.3 a crew rest compartment fitted with the check: longer, dearer, fitted at its end.

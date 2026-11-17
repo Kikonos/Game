@@ -7,21 +7,21 @@ const d = (y: number, m: number, day: number, hh = 12) => fromUTC(y, m, day, hh)
 describe('v0.20.1 the duration strip', () => {
   it('says the length in days and in months, with the dates', () => {
     const now = d(2029, 1, 18);
-    expect(durationView(now, d(2029, 3, 21), d(2029, 5, 26)).text).toBe('67 days · about 2 months · 21 Mar – 26 May');
-    expect(durationView(now, d(2029, 3, 3), d(2029, 3, 14)).text).toBe('12 days · 3–14 Mar');
-    expect(durationView(now, d(2029, 3, 3), d(2029, 3, 3)).text).toBe('1 day · 3 Mar');
-    expect(durationView(now, d(2029, 6, 1), d(2029, 8, 31)).text).toBe('92 days · 3 months · 1 Jun – 31 Aug');
+    expect(durationView(now, d(2029, 3, 21), d(2029, 5, 26)).text).toBe('67 days · about 2 months · 21 Mar – 26 May 2029');
+    expect(durationView(now, d(2029, 3, 3), d(2029, 3, 14)).text).toBe('12 days · 3–14 Mar 2029');
+    expect(durationView(now, d(2029, 3, 3), d(2029, 3, 3)).text).toBe('1 day · 3 Mar 2029');
+    expect(durationView(now, d(2029, 6, 1), d(2029, 8, 31)).text).toBe('92 days · 3 months · 1 Jun – 31 Aug 2029');
     expect(durationView(now, d(2029, 11, 1), d(2030, 12, 30)).text).toBe('425 days · 14 months (1 year 2 months) · 1 Nov 2029 – 30 Dec 2030');
     expect(spanLength(d(2029, 1, 1), d(2029, 12, 31)).monthsText).toBe('12 months (1 year)');
     expect(spanLength(d(2029, 2, 1), d(2029, 3, 31)).monthsText).toBe('2 months');
   });
 
-  it('names the year whenever the dates are not all in this year', () => {
+  it('v0.24.1 always names the year', () => {
     const now = d(2029, 11, 20);
     expect(spanDates(now, d(2029, 12, 20), d(2030, 1, 5))).toBe('20 Dec 2029 – 5 Jan 2030');
     expect(spanDates(now, d(2030, 2, 3), d(2030, 2, 14))).toBe('3–14 Feb 2030');
     expect(spanDates(now, d(2030, 2, 3), d(2030, 4, 14))).toBe('3 Feb – 14 Apr 2030');
-    expect(spanDates(now, d(2029, 12, 3), d(2029, 12, 14))).toBe('3–14 Dec');
+    expect(spanDates(now, d(2029, 12, 3), d(2029, 12, 14))).toBe('3–14 Dec 2029');
   });
 
   it('twelve month cells from this month, each year a labelled group', () => {

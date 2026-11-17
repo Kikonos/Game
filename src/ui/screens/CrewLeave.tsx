@@ -4,7 +4,7 @@
 
 import { Check, Palmtree, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
-import { DAY, fmtDay, monthKey, monthStart, yearOf } from '../../engine/core/time';
+import { DAY, fmtDay, monthKey, monthStart, yearOf, joinDays } from '../../engine/core/time';
 import type { CrewMember, GameState, LeaveRequest, Role } from '../../engine/core/types';
 import { answerLeave, crewName, crewRev, dayIndex, decideBy, leaveBalance, leaveDaysFor, leavePolicy, leaveVerdict, setLeavePolicy } from '../../engine/crew';
 import { Seg, Stepper } from '../components/ui';
@@ -19,7 +19,7 @@ const ROLE_PLURAL: Record<Role, string> = { CPT: 'Captains', FO: 'First officers
 
 const REFUSAL_NOTE = 'A refusal costs a little morale.';
 
-const dayRange = (from: number, days: number) => `${fmtDay(from + 720)} – ${fmtDay(from + (days - 1) * DAY + 720)}`;
+const dayRange = (from: number, days: number) => `${joinDays(fmtDay(from + 720), fmtDay(from + (days - 1) * DAY + 720))}`;
 
 /** Per rank: people, the year's allowance, booked, asked, left, away today; and the busiest day of each of the next 6 months. */
 export function leaveSummary(g: GameState) {

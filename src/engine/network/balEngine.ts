@@ -39,6 +39,12 @@ export const NET_ENGINE_BAL = {
     distribution: { days: [42, 70] as [number, number], cost: 35_000, laterX: 0.5, bspHold: 50_000, bspMonths: 12 },
     /** Sales should open 6–11 months before the first flight; under 12 weeks the first weeks lose demand (§E.5). */
     filing: { idealDays: 200, minDays: 56, shortDays: 84 },
+    /**
+     * r3-fix the first flight a Go plans, in weeks: the stages' usual length (rights, or brand then distribution) plus
+     * 8 weeks of sales, at about the 3-in-4 mark so most launches fly on the planned date (a measured median of 21 weeks
+     * for an own brand; the old 16 weeks was the fastest case and every launch slipped 3 to 7 weeks).
+     */
+    caseLeadWeeks: { own: 22, tour: 24, partner: 17 } as Record<string, number>,
     campaign: { cost: { low: 50_000, normal: 100_000, high: 150_000 } as Record<string, number>, days: [42, 84] as [number, number], rival: 0.3 },
     stations: { days: [21, 56] as [number, number], outstation: 25_000, techStop: 8_000, noCaterer: 0.4, cashFuel: 0.15 },
     familiarisation: { B: 800, C: 3_500 } as Record<string, number>,
@@ -48,7 +54,9 @@ export const NET_ENGINE_BAL = {
   /** UPDATE-0.19 additions 3: the study recommends a timetable (searched for the best fully costed profit at mid demand). */
   study: {
     /** Weekly frequencies tried, and every-N-weeks for a thin market (DIL: every 2–4 weeks). */
-    freqs: [1, 2, 3] as number[], thinEvery: [2, 3, 4] as number[],
+    freqs: [1, 2, 3, 4, 7] as number[], thinEvery: [2, 3, 4] as number[],
+    /** r3-bal four a week or daily only when one aircraft's rotations fit: at most this many hours a day on average. */
+    maxDayH: 16,
     /** Local departure times tried for the first out sector (min after midnight). */
     times: [400, 600, 840, 1_320] as number[],
     /** Demand by departure weekday (Mon … Sun): Friday and Saturday best for VFR, Tuesday weakest [E]. */
@@ -70,6 +78,13 @@ export const NET_ENGINE_BAL = {
     /** The back (northbound) direction: early January and late August/September peaks (students). */
     seasonBack: [1.20, 0.70, 0.70, 0.80, 0.70, 0.80, 0.95, 1.10, 1.15, 0.75, 0.75, 0.95] as number[],
     growth: 0.03,
+    /**
+     * The newcomer's cap: at most `x` × its share of the market's departures (one-stop rivals count `oneStop`). Custom
+     * markets since v0.19.2. `all`: catalogue markets too (nonstop rivals only). r3-bal tried it and keeps it off: the
+     * catalogue's rivals are researched one by one and its LCC-crowded markets already lose (SOF–STN, MAD–OTP); the cap
+     * turned Lisbon's widebody routes against TAP's daily flights (Recife, Luanda) to −20 %.
+     */
+    freqCap: { x: 1.6, oneStop: 0.15, all: false as boolean },
     /** Logit weights [E]. */
     beta: { fare: 2.0, nonstop: 1.2, freq: 0.35, rep: 0.5, bags: 0.3, mkt: 0.4, hours: 0.08 },
     /** Fare elasticity by segment (bucket choice) and how far each segment moves its date (± days) to fly with us. */
@@ -85,6 +100,13 @@ export const NET_ENGINE_BAL = {
     awareness: { campaign: { low: 0.35, normal: 0.55, high: 0.7 } as Record<string, number>, perMonth: { low: 0.04, normal: 0.08, high: 0.13 } as Record<string, number>, halfLife: 120, start: 0.1 },
     /** §E.5 the launch ramp: share × 0.7 → 1 over 8 weeks (× 0.85 more when sales opened under 12 weeks before). */
     ramp: { from: 0.7, weeks: 8, late: 0.85 },
+    /**
+     * r3-bal the launch ramp of a route launched from now on (Route.ramp2): half the travellers at first, all of them
+     * after 20 weeks. A new route takes months to be known (search rankings, agents, word of mouth): the old ramp was
+     * over in 8 weeks and every new route was full by its third month [E: carriers plan a new route to mature over its
+     * first one or two seasons].
+     */
+    ramp2: { from: 0.5, weeks: 20 },
     /** §E.3 a rival's reaction: fare cut and length. */
     rivalCut: { fare: 0.15, days: [90, 180] as [number, number], freq: 1 },
     /** Monthly drift of rival fares (±). */
@@ -143,10 +165,21 @@ export const NET_ENGINE_BAL = {
     /** Passenger + bags (kg) and structural payload (kg) by body when the type has no figure. */
     /** Passenger + bags (kg): VFR travellers fly with two full bags (the allowance is the selling point). */
     paxKg: 108, payload: { narrow: 20_000, wide: 40_000 },
-    /** Structural payload (kg) by type where known [E]. */
-    payloadType: { b763: 40_000, b752: 25_000, a332: 45_000, a333: 48_000, a343: 46_000, a321neo: 22_000, a321ceo: 21_000, a320ceo: 18_000, a320neo: 19_000, b738: 19_000, b739: 20_000, b772: 55_000, b77w: 65_000 } as Record<string, number>,
+    /**
+     * r3-bal a market's passenger + bags (model.paxKgOf): the EASA standard adult with hand baggage (84 kg, CS/AMC
+     * standard masses) and a 16 kg checked bag, two for the VFR share (the 108 kg above was a VFR passenger everywhere:
+     * a holiday A321 of 220 seats could only sell 178).
+     */
+    paxBody: 84, bagKg: 16,
+    /**
+     * Structural payload (kg) by type where known: MZFW less a typical operating empty weight [F Airbus / Boeing ACAP;
+     * r3-bal: A320ceo 62.5–64.3 t MZFW, ~42.5 t OEW; A321ceo 73.8–75.6 t, ~48.5 t; 737-800 62.7 t, ~41.4 t].
+     */
+    payloadType: { b763: 40_000, b752: 25_000, a332: 45_000, a333: 48_000, a343: 46_000, a321neo: 25_000, a321ceo: 25_000, a320ceo: 20_000, a320neo: 20_000, b738: 21_000, b739: 21_000, b772: 55_000, b77w: 65_000 } as Record<string, number>,
     /** Range: a sector at the range limit keeps this share of payload. Runway: (available ÷ needed)^exp. */
     rangeKeep: 0.7, runwayExp: 1.5,
+    /** r3-bal the week's cargo on a market grows with our flights a week ^ this (model.cargoDepX); was × flights. */
+    freqExp: 0.3,
     /** Cargo left behind: share that waits for the next rotation. */
     waits: 0.5,
     /** OXB ACC3 certification project. */
@@ -194,8 +227,12 @@ export const NET_ENGINE_BAL = {
   pnl: {
     /** Monthly block hours an aircraft's rent and insurance are spread over (route P&L only). */
     utilBH: 250,
-    /** Block hours a month a crew member is paid for (salaries per BH). */
-    crewBH: 75,
+    /**
+     * Block hours a month a crew member is paid for (salaries per BH). r3-bal 62 (was 75): EASA FTL allows 900 block
+     * hours a year and 100 in 28 days, but leave, training, standby and reserve leave a European short-haul pilot or
+     * cabin crew member about 700–800 a year [E].
+     */
+    crewBH: 62,
     /**
      * v0.21 the business case's allowance for the bad days a year brings (share of ticket, cargo and extras revenue):
      * late flights and EU261, a sub-charter when the aircraft is away, a rival's fare cut after the launch [E 2–3 %].

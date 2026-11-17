@@ -120,6 +120,8 @@ export const net = {
   answerSlot: (g: GameState, routeId: string, accept: boolean): string | null => call<string | null>('answerSlot', 'Not available yet.', g, routeId, accept),
   sectorLive: (g: GameState, flightId: string): SectorLive | null => call<SectorLive | null>('sectorLive', null, g, flightId),
   acmiCompare: (g: GameState, routeId: string): string | null => call<string | null>('acmiCompare', null, g, routeId),
+  /** v0.24.1 the running month's result so far (the map's route card). */
+  monthSoFar: (g: GameState, r: Route): number | null => call<number | null>('monthSoFar', null, g, r),
   quoteMove: (g: GameState, rotId: string, delta: number): MoveQuoteView => NET.quoteMoveRotation(g, rotId, delta) as MoveQuoteView,
   move: (g: GameState, rotId: string, delta: number): boolean => NET.moveRotation(g, rotId, delta),
   cancel: (g: GameState, rotId: string): boolean => NET.cancelRotation(g, rotId),

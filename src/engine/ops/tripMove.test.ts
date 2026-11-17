@@ -161,7 +161,7 @@ describe('quoteTripMove', () => {
     g.maintenance.mc = { id: 'mc', aircraftId: b.id, kind: 'C', at: 'SOF', start: t0 - 2 * DAY, end: t0 + 12 * DAY, cost: 900_000, status: 'planned', planned: true, ev: 0 };
     const q = quoteTripMove(g, legs[0].id, b.id);
     expect(q.ok).toBe(false);
-    expect(q.reasons[0]).toMatch(new RegExp(`^${b.reg} is in a C-check until \\d+ \\w+$`));
+    expect(q.reasons[0]).toMatch(new RegExp(`^${b.reg} is in a C-check until \\d+ \\w+ \\d{4}$`));
   });
 
   it('refuses a leg beyond the target type’s range', () => {

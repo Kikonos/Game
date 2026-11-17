@@ -10,7 +10,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { BAL } from '../../engine/core/balance';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
-import { DAY, HOUR, dayStart, fmtDate, fmtDateTime, fmtDay, fmtDayRel, fmtDuration, fmtTime } from '../../engine/core/time';
+import { DAY, HOUR, dayStart, fmtDate, fmtDateTime, fmtDay, fmtDayIn, fmtDayRange, fmtDayRel, fmtDuration, fmtTime } from '../../engine/core/time';
 import type { ActionResult, GameState } from '../../engine/core/types';
 import { addRestToCCheck, bookCCheck, cCheckOptions, cCheckSlots, cancelCheck, checkAirportOk, checkBeforeReturn, checkLogistics, checkCostOf, checkStatus, checkUsedAt, groundGaps, restRefitOptions, scheduleCheck, type CCheckOption, type CheckBeforeReturn } from '../../engine/ops';
 import { Term } from '../components/Term';
@@ -196,7 +196,7 @@ function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit, hub0,
         {ac.returning && !old && <ReturnNote g={g} aircraftId={aircraftId} cbr={cbr} due={st.cDue} />}
         {old && (
           <div className="ck-booked small">
-            <b>{inWork ? 'In work' : 'Booked'}: {old.hub ? `${old.hub.name}, ` : ''}{AIRPORT_BY_CODE[old.at]?.city ?? old.at} {fmtDay(old.start)}–{fmtDay(old.end)}</b>
+            <b>{inWork ? 'In work' : 'Booked'}: {old.hub ? `${old.hub.name}, ` : ''}{AIRPORT_BY_CODE[old.at]?.city ?? old.at} {fmtDayRange(old.start, old.end)}</b>
             {lg && (
               <div className="col gap-4 mt-4">
                 {[...lg.ferryOut.map((f) => ['Ferry out', f] as const), ...lg.ferryHome.map((f) => ['Ferry home', f] as const)].map(([k, f]) => (
@@ -246,7 +246,7 @@ function CCheckModal({ aircraftId, replace, setKind, restFit, backToRefit, hub0,
         </div>
         {opt && start !== undefined && (
           <div className="cv-cost small ck-plan">
-            <span>{fo.length ? <>Ferry out <b>{fmtDay(fo[0].std)} {fmtTime(fo[0].std)}</b> {fo[0].from}→{fo[fo.length - 1].to} ({fmtDuration(legsBlock(fo))}) · </> : null}check <b>{fmtDay(opt.start)}–{fmtDay(opt.end)}</b>{fh.length ? <> · ferry home <b>{fmtDay(fh[0].std)} {fmtTime(fh[0].std)}</b></> : null}</span>
+            <span>{fo.length ? <>Ferry out <b>{fmtDayIn(fo[0].std, opt.end)} {fmtTime(fo[0].std)}</b> {fo[0].from}→{fo[fo.length - 1].to} ({fmtDuration(legsBlock(fo))}) · </> : null}check <b>{fmtDayRange(opt.start, opt.end)}</b>{fh.length ? <> · ferry home <b>{fmtDayIn(fh[0].std, opt.end)} {fmtTime(fh[0].std)}</b></> : null}</span>
             <span className="muted">{planCost(opt, fitAdd, fitWord)}</span>
             {proj && <span className={proj.used > 1 ? 'bad' : proj.used > 0.9 ? 'warn' : 'good'}>By then: {Math.round(proj.calUsed * 100)}% of the calendar interval used · {proj.fh} / {proj.limitFH} FH</span>}
             {proj && proj.used < 0.5 && <span className="muted">Early: the check restarts the count, so you lose most of the current check's life.</span>}

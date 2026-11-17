@@ -3,7 +3,7 @@
 
 import { CalendarRange, ChevronRight, Globe2, Map as MapIcon, PlaneTakeoff, TrendingUp, Users } from 'lucide-react';
 import { clientView, rivalView } from '../../engine/contracts';
-import { DAY, fmtDay, fmtMonth, monthKey, monthStart, nextMonthStart } from '../../engine/core/time';
+import { DAY, fmtDay, fmtDayRange, fmtMonth, monthKey, monthStart, nextMonthStart } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import { marketOutlook, worldEvent, worldEvents, type MarketOutlook } from '../../engine/ops';
 import { Modal } from '../components/ui';
@@ -169,7 +169,7 @@ export function OutlookModal() {
         <div className="small dim">{o.offersText}.</div>
         <div className="upper dim">Next 12 months</div>
         <Calendar g={g} o={o} />
-        <div className="small muted"><Term id="arafah">Hajj</Term>: {o.hajj.map((h) => `${fmtDay(h.arafah)} ${new Date(Date.UTC(2000, 0, 1) + h.arafah * 60_000).getUTCFullYear()}`).join(' · ')}</div>
+        <div className="small muted"><Term id="arafah">Hajj</Term>: {o.hajj.map((h) => fmtDay(h.arafah)).join(' · ')}</div>
         {/* v0.17 aircraft supply (§A.4): the tightest and easiest types near us, with the month's trend. */}
         {o.supplyText && (
           <div className="col gap-4">
@@ -206,7 +206,7 @@ export function WorldEventModal({ eventId }: { eventId: string }) {
       <div className="col gap-12">
         <div className="row gap-8 wrap">
           <span className={`badge ${e.active ? 'warn' : ''}`}>{e.active ? 'Happening now' : g.now < e.start ? 'Starts soon' : 'Over'}</span>
-          <span className="small muted">{e.place} · {fmtDay(e.start)} – {fmtDay(e.end)}</span>
+          <span className="small muted">{e.place} · {fmtDayRange(e.start, e.end)}</span>
         </div>
         <p className="muted sc-blurb">{e.body}</p>
         {e.effects.length > 0 && (

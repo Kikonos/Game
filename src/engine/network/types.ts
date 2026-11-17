@@ -75,6 +75,11 @@ export interface RouteSeries {
   to: Minute;
   /** v0.23.2 the months it flies (bit 0 = January, at the origin's local date); absent = every month. */
   months?: number;
+  /**
+   * r3-fix the launch's series rolls on a year at a time (no end date) until the player gives it one, ends it or the
+   * route closes. Without it a route's timetable stopped a year after the first flight and the route kept its overheads.
+   */
+  roll?: boolean;
 }
 
 /** §J.1 one sector of a rotation: seats, bookings, what flew, its money. */
@@ -228,6 +233,8 @@ export interface Route {
   suspended?: { at: Minute; prev: 'onSale' | 'operating'; slotsUntil: Minute };
   /** v0.24.1 winding down (lifecycle.ts): no sales, the booked flights fly, the route closes after its last one. */
   closing?: { at: Minute; last: Minute };
+  /** r3-bal launched with the longer launch ramp (demand.ramp2); routes launched before keep the old one. */
+  ramp2?: true;
   /** v0.24.1 resumed after a suspension or a wind-down: bookings build up again from this date (sales.ts rampOf). */
   resumed?: Minute;
   /** v0.24.1 the timetable is filed again only from this date (a resumed route needs time to sell). */

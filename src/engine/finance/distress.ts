@@ -19,7 +19,7 @@ import { cashOnly, post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { typeOf } from '../core/perf';
 import { chance } from '../core/rng';
-import { DAY, fmtDate, fmtDay, monthKey, monthStart, nextMonthStart, fmtSpan } from '../core/time';
+import { DAY, fmtDate, fmtDay, monthKey, monthStart, nextMonthStart, fmtSpan, joinDays } from '../core/time';
 import type { ActionResult, CreditorGroup, Distress, GameState, Instalment, Minute, MonthKey, PaymentPlan, RentDeferral } from '../core/types';
 import { clamp, hashUnit } from '../core/util';
 import { cancelByClient } from '../contracts/accept';
@@ -492,7 +492,7 @@ export function furloughCrew(g: GameState, share: number, weeks: number): Action
   const names = q.crewIds.slice(0, 3).map((id) => crewName(g.crew[id])).join(', ');
   pushMessage(g, {
     tone: 'warn', cat: 'crew', title: `${q.crewIds.length} crew on unpaid leave for ${q.weeks} weeks`, cue: 'notice', ref: { kind: 'debt', id: 'furlough' },
-    body: `${names}${q.crewIds.length > 3 ? ` and ${q.crewIds.length - 3} more` : ''} stay home from ${fmtDay(q.from)} to ${fmtDay(q.until - 1)} without pay: about ${usd(q.total)} saved. Their morale ${F.morale}, everyone else's ${F.moraleOthers}; expect resignations. Fewer crew can fly: check the roster.`,
+    body: `${names}${q.crewIds.length > 3 ? ` and ${q.crewIds.length - 3} more` : ''} stay home from ${joinDays(fmtDay(q.from), fmtDay(q.until - 1), ' to ')} without pay: about ${usd(q.total)} saved. Their morale ${F.morale}, everyone else's ${F.moraleOthers}; expect resignations. Fewer crew can fly: check the roster.`,
   });
   return { ok: true, msg: `${q.crewIds.length} crew furloughed; about ${usd(q.total)} saved` };
 }

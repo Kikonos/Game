@@ -28,7 +28,7 @@ import { feasibilityAll, mghLabel, typeMisfit } from '../../engine/contracts';
 import { clientless, jobName } from '../../engine/contracts/flavor';
 import { flightsOf } from '../../engine/core/entities';
 import { currentFlight, flightTimes } from '../../engine/core/query';
-import { DAY, fmtDay, fmtDayRel, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
+import { DAY, fmtDay, fmtDayIn, fmtDayRange, fmtDayShort, fmtDayRel, fmtDuration, fmtTime, localOffset } from '../../engine/core/time';
 import type { Aircraft, CrewMember, Flight, GameState, MaintenanceEvent, ProblemRef, Ref, Role } from '../../engine/core/types';
 import type { DryLeaseView } from '../../engine/ops';
 import { type CrewAlertKind, crewName, crewShortCard, crewTravelNow, dutyCrew, flightCrewStatus, outOfHours, restNow, restOf, restSeatsBlocked, restText, ridersText, sellableSeats, seatsText, slipOfFlight, slipsOfAircraft, standbyNow } from '../../engine/crew';
@@ -45,7 +45,7 @@ import { paintLabel } from '../screens/scheduleLogic';
 import { ShapeTags } from '../components/ShapeTags';
 import { shapeOf } from '../../engine/contracts/shape';
 import { topBlocker } from '../../engine/contracts/blockers';
-import { archLabel, capFirst, expiryLabel, hangarWord, offerDays, offerModal } from '../screens/screenLogic';
+import { archLabel, capFirst, expiryLabel, hangarWord, offerSpan, offerModal } from '../screens/screenLogic';
 import { ALERT_BANNER, ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, deliveryTag, EVENT_KIND_LABEL, EVENT_TONE, hotelCount, leasedOut, mapLivery, OOH_SHORT, oohLine, parseCommercialId, parseSlipId, PURPOSE_LABEL, purposeChain, restChip, restingLine, restSeatNoun, shortIndex, type ShortRow, slipLine, slipSelId, slipWindow, upcomingLegs } from './mapLogic';
 import { RouteLive } from '../screens/network/live';
 import { MiniMap } from './MiniMap';
@@ -173,8 +173,9 @@ function LegRow({ g, f, onTap, short }: { g: GameState; f: Flight; onTap?: () =>
         <span className="op-leg-k" style={{ background: c ? contractColor(c.color) : 'var(--text-3)' }} />
         <span className="col" style={{ minWidth: 0, flex: 1 }}>
           <span className="row op-tight"><b className="mono">{f.from}→{f.to}</b><span className="small muted mono">{f.no}</span></span>
-          <span className="small muted ellipsis">
-            {fmtDay(dep)} {fmtTime(dep)} UTC · {fmtDuration(f.block)}{f.kind === 'techstop' ? ' · fuel stop' : ''}{f.delay ? ` · +${fmtDuration(f.delay)}` : ''}
+          {/* r3-fix whole pieces wrap to a second line on a narrow panel (the block time is never cut off). */}
+          <span className="small muted op-leg-when">
+            <span>{fmtDayShort(dep)} {fmtTime(dep)} UTC</span> <span>· {fmtDuration(f.block)}</span>{f.kind === 'techstop' ? <> <span>· fuel stop</span></> : null}{f.delay ? <> <span>· +{fmtDuration(f.delay)}</span></> : null}
           </span>
           {zone && <span className={`small ellipsis op-zone ${zone.effect}`}>{zone.text}</span>}
         </span>
@@ -292,7 +293,7 @@ function plannedOf(g: GameState, ac: Aircraft, kind: 'refit' | 'return'): Mainte
 /** v0.7.2 first scheduled ferry home of a C-check at an MRO hub: "ferry home 2 Apr". */
 const ferryHomeOf = (g: GameState, m: MaintenanceEvent) => {
   const f = (m.homeIds ?? []).map((id) => g.flights[id]).find((x) => x?.status === 'scheduled');
-  return f ? `ferry home ${fmtDay(f.std + f.delay)}` : '';
+  return f ? `ferry home ${fmtDayIn(f.std + f.delay, m.end)}` : '';
 };
 
 /** Planned refit, lease return and (v0.7.2) C-check at an MRO hub lines (in-work ones show under Now). */
@@ -303,26 +304,26 @@ function PlannedBlocks({ g, ac }: { g: GameState; ac: Aircraft }) {
   if (!rf && !rt && !cc) return null;
   const ferryTo = (m: MaintenanceEvent) => {
     const f = (m.ferryIds ?? ac.returning?.ferryIds ?? []).map((id) => g.flights[id]).find((x) => x?.status === 'scheduled');
-    return f ? `ferry ${fmtDay(f.std + f.delay)}, ` : '';
+    return f ? `ferry ${fmtDayIn(f.std + f.delay, m.end)}, ` : '';
   };
   return (
     <Section title="Planned">
       {rf && (
         <div className="op-note">
           <Wrench />
-          <span>Cabin refit to {rf.refit?.cabin.label ?? 'a new layout'} at {shopOf(rf.at)}: {ferryTo(rf)}{fmtDay(rf.start)} – {fmtDay(rf.end)}</span>
+          <span>Cabin refit to {rf.refit?.cabin.label ?? 'a new layout'} at {shopOf(rf.at)}: {ferryTo(rf)}{fmtDayRange(rf.start, rf.end)}</span>
         </div>
       )}
       {rt && (
         <div className="op-note">
           <Undo2 />
-          <span>Lease return at {cityOf(rt.at)}: {ferryTo(rt)}return check {fmtDay(rt.start)} – {fmtDay(rt.end)}</span>
+          <span>Lease return at {cityOf(rt.at)}: {ferryTo(rt)}return check {fmtDayRange(rt.start, rt.end)}</span>
         </div>
       )}
       {cc?.hub && (
         <div className="op-note">
           <Wrench />
-          <span>C-check at {cc.hub.name}: {ferryTo(cc)}check {fmtDay(cc.start)} – {fmtDay(cc.end)}{ferryHomeOf(g, cc) ? `, ${ferryHomeOf(g, cc)}` : ''}</span>
+          <span>C-check at {cc.hub.name}: {ferryTo(cc)}check {fmtDayRange(cc.start, cc.end)}{ferryHomeOf(g, cc) ? `, ${ferryHomeOf(g, cc)}` : ''}</span>
         </div>
       )}
     </Section>
@@ -573,7 +574,7 @@ function AircraftPanel({ g, ac }: { g: GameState; ac: Aircraft }) {
         {csKnown && cs ? (
           <div className="op-kv">
             <div><span>A-check</span><b className={`num ${cs.aDue - t < 7 * DAY || cs.aHoursLeft < 50 ? 'warn-t' : ''}`}>{cs.nextA ? 'planned · ' : ''}due {fmtDay(cs.aDue)} · {Math.round(cs.aHoursLeft)} FH</b></div>
-            <div><span>C-check</span><b className="num">{cs.nextC ? 'planned · ' : ''}due {fmtDay(cs.cDue)} {new Date(Date.UTC(2000, 0, 1) + cs.cDue * 60000).getUTCFullYear()}</b></div>
+            <div><span>C-check</span><b className="num">{cs.nextC ? 'planned · ' : ''}due {fmtDay(cs.cDue)}</b></div>
             <div><span>AOG risk</span><b className={`num ${cs.risk >= 0.9 ? 'bad-t' : cs.risk >= 0.5 ? 'warn-t' : ''}`}>{cs.risk >= 0.9 ? 'High' : cs.risk >= 0.5 ? 'Elevated' : 'Low'}</b></div>
           </div>
         ) : (
@@ -711,7 +712,7 @@ function OfferPanel({ g, id }: { g: GameState; id: string }) {
       <div className="op-kv">
         <div><span>Client</span><b className="ellipsis">{client?.name ?? '—'}</b></div>
         <div><span>Route</span><b className="mono">{routeSummary(o)}</b></div>
-        <div><span>Dates</span><b className="num">{offerDays(o).map(fmtDay).join(' – ')}</b></div>
+        <div><span>Dates</span><b className="num">{offerSpan(o)}</b></div>
         <div><span>Product</span><b className="num">{product}</b></div>
         <div><span>Est. value</span><b className="num">{money(o.estValue)} · {Math.round(o.estBH)} BH</b></div>
         {o.paint && <div><span>Livery</span><b className={o.paint.required ? 'warn-t' : ''}>Their colours{o.paint.required ? ' · required' : ' · optional'}</b></div>}

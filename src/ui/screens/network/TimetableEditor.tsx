@@ -110,8 +110,8 @@ export function TimetableEditor({ g, r, series, onDone }: { g: GameState; r: Rou
         <span className="small muted">Runs</span>
         <span className="row gap-6 wrap">
           <input className="nw-date" type="date" value={dateInput(s.from)} onChange={(e) => { const t = fromInput(e.target.value); if (t !== null) set({ from: t }); }} aria-label="From" />
-          <span className="small muted">to</span>
-          <input className="nw-date" type="date" value={dateInput(s.to)} onChange={(e) => { const t = fromInput(e.target.value); if (t !== null) set({ to: t + DAY - 1 }); }} aria-label="To" />
+          <Seg<string> value={s.roll ? 'on' : 'end'} onChange={(v) => set({ roll: v === 'on' })} options={[{ value: 'on', label: 'No end' }, { value: 'end', label: 'Ends' }]} />
+          {!s.roll && <input className="nw-date" type="date" value={dateInput(s.to)} onChange={(e) => { const t = fromInput(e.target.value); if (t !== null) set({ to: t + DAY - 1, roll: false }); }} aria-label="To" />}
         </span>
       </div>
       <div className="small"><b>{seriesWords(s)}</b> · {hhmm(s.out)} local · {s.nights ? `${s.nights} night${s.nights > 1 ? 's' : ''} at ${m?.to ?? 'the destination'}` : 'back the same day'}</div>

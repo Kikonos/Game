@@ -267,7 +267,7 @@ describe('what each level brings (§1.4)', () => {
       seen++;
       const m = g.messages.filter((x) => x.title === `Repeat business from ${c.name}`).pop()!;
       expect(m.body).not.toContain(c.name);
-      expect(m.body).toMatch(/^They liked Summer programme Hamburg–Palma and ask for it again( as .+)? from \d+ \w+\.$/);
+      expect(m.body).toMatch(/^They liked Summer programme Hamburg–Palma and ask for it again( as .+)? from \d+ \w+ \d{4}\.$/);
       if (o.title === k.title || o.title.startsWith(`${k.title} (`)) expect(m.body).not.toContain(' as ');
       else expect(m.body).toContain(` as ${o.title} from`);
     }

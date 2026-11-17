@@ -10,7 +10,7 @@ import { artFor } from '../../data/acmiTypes';
 import { enginesOf, variantOf } from '../../data/variants';
 import { MRO_STATIONS } from '../../data/market';
 import { cabinCrewSeats, cabinMinimum, typeOf } from '../../engine/core/perf';
-import { DAY, fmtDate, fmtDay, fmtDayRel, yearOf } from '../../engine/core/time';
+import { DAY, fmtDate, fmtDay, fmtDayRange, fmtDayRel, yearOf } from '../../engine/core/time';
 import type { Aircraft, CrewExtra, GameState, LiveryRef, MaintenanceEvent } from '../../engine/core/types';
 import { crewAlertKind, crewExtraQuote, extraCabinMax, restOf, setCrewExtra, shortFlights } from '../../engine/crew';
 import { cancelCheck, checkStatus, deliveryStatus, dryLeaseOf, etopsLine, leastUsed, type LeastUsedRow, leaseView, NAME_MAX, paintStatus, renameAircraft, restRefitOptions, setAircraftLivery } from '../../engine/ops';
@@ -161,7 +161,7 @@ function DryLeaseRow({ g, acId }: { g: GameState; acId: string }) {
       <span className="upper dim">Dry lease</span>
       <span className="col grow gap-4" style={{ minWidth: 0 }}>
         <span>to {v.lessee} · {when}</span>
-        {on && <span className="fl-dry-run"><Bar value={run} size="thin" /><span className="tiny dim nowrap">{fmtDay(v.lease[0])} – {fmtDay(v.lease[1])}</span></span>}
+        {on && <span className="fl-dry-run"><Bar value={run} size="thin" /><span className="tiny dim nowrap">{fmtDayRange(v.lease[0], v.lease[1])}</span></span>}
         <span className="dim">{money(v.rent)}/month to us{v.reservesPerFH ? ` + ${money(v.reservesPerFH)}/FH reserves` : ''} · {v.cCheck}</span>
       </span>
     </button>
@@ -317,7 +317,7 @@ function CabinRow({ g, ac, out }: { g: GameState; ac: Aircraft; out?: boolean })
     <div className="fl-row fl-cabin">
       <div className="col grow" style={{ minWidth: 0 }}>
         <span className="small"><span className="upper dim">Cabin</span> <b>{ac.cabin.label}</b> {layoutLabel(ac.cabin.layout)} · crew minimum {cabinMinimum(ac.typeId, ac.cabin.total)} cabin</span>
-        {m?.refit && <span className="small accent">{m.restFit ? `${REST_FIT_LABEL[m.restFit]}${m.restFit === 'removeRecliners' ? '' : ' fitted'}` : m.refit.restSeats !== undefined ? (m.refit.restSeats ? 'Crew rest seats fitted' : 'Crew rest seats removed') : `${m.clientCabin ? 'Client cabin: ' : ''}${m.end - m.start <= 3 * DAY ? 'Quick reconfiguration' : 'Refit'} to ${m.refit.cabin.label}`} at {st?.city ?? m.at} {fmtDay(m.start)}–{fmtDay(m.end)}{m.status === 'inWork' ? ' · in work' : ''}</span>}
+        {m?.refit && <span className="small accent">{m.restFit ? `${REST_FIT_LABEL[m.restFit]}${m.restFit === 'removeRecliners' ? '' : ' fitted'}` : m.refit.restSeats !== undefined ? (m.refit.restSeats ? 'Crew rest seats fitted' : 'Crew rest seats removed') : `${m.clientCabin ? 'Client cabin: ' : ''}${m.end - m.start <= 3 * DAY ? 'Quick reconfiguration' : 'Refit'} to ${m.refit.cabin.label}`} at {st?.city ?? m.at} {fmtDayRange(m.start, m.end)}{m.status === 'inWork' ? ' · in work' : ''}</span>}
       </div>
       {m ? (m.status === 'planned' && <button className="btn btn-sm" onClick={cancel}>Cancel refit</button>)
         : !out && <span className="row gap-8">

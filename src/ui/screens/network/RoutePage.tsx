@@ -5,7 +5,7 @@ import { ArrowRightLeft, BarChart3, CalendarClock, CircleSlash, Fuel, Handshake,
 import { useMemo, useState } from 'react';
 import { AIRPORT_BY_CODE } from '../../../data/airports';
 import { ROUTE_STATIONS } from '../../../data/routes';
-import { fmtDay, fmtDayRel, fmtMonth, fmtTime } from '../../../engine/core/time';
+import { fmtDay, fmtDayRange, fmtDayRel, fmtMonth, fmtTime } from '../../../engine/core/time';
 import type { GameState } from '../../../engine/core/types';
 import type { FareLevel, MarketingLevel, Rotation, Route } from '../../../engine/network/types';
 import { BarChart } from '../../components/charts';
@@ -88,7 +88,7 @@ function Overview({ g, r }: { g: GameState; r: Route }) {
       <div className="col gap-6">
         <div className="row between"><span className="upper dim">Result by month</span>{spend > 0 && <span className="tiny muted">launch spend {money(spend)}</span>}</div>
         {bars.result.some((v) => v !== 0)
-          ? <BarChart values={bars.result} labels={bars.keys.map((k) => fmtMonth(k))} height={150} format={(v) => money(v)} name="Result" />
+          ? <BarChart values={bars.result} labels={bars.keys.map((k) => fmtMonth(k, true))} height={150} format={(v) => money(v)} name="Result" />
           : <span className="small muted">No flights flown yet.</span>}
       </div>
       {cmp && <div className="small nw-acmi"><TrendingUp className="sc-ico-s accent" /><span>{cmp}</span></div>}
@@ -147,7 +147,7 @@ function TimetableTab({ g, r }: { g: GameState; r: Route }) {
             <div key={s.id} className="nw-series">
               <div className="col grow">
                 <b className="small">{seriesWords(s)} · {hhmm(s.out)} local{s.nights ? `, ${s.nights} night${s.nights > 1 ? 's' : ''}` : ', same day'}</b>
-                <span className="tiny muted">{seriesAircraft(g, s)} · {fmtDayRel(s.from, g.now)} – {fmtDayRel(s.to, g.now)}{s.tail ? ` · ${g.fleet[s.tail]?.reg ?? s.tail}` : ''}</span>
+                <span className="tiny muted">{seriesAircraft(g, s)} · {s.roll ? `from ${fmtDayRel(s.from, g.now)}, no end date` : fmtDayRange(s.from, s.to)}{s.tail ? ` · ${g.fleet[s.tail]?.reg ?? s.tail}` : ''}</span>
               </div>
               <button className="btn btn-sm" onClick={() => setEdit(s.id)} aria-label="Change this series"><Pencil /> Change</button>
             </div>

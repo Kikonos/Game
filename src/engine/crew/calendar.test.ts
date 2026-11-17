@@ -147,7 +147,7 @@ describe('crew calendar', () => {
     g.crew[a].status = 'sick';
     const v = crewStatusView(g, a);
     expect(v.label).toBe('Sick');
-    expect(v.text).toMatch(/^Sick · back ~\d+ \w+$/);
+    expect(v.text).toMatch(/^Sick · back ~\d+ \w+ \d{4}$/);
     expect(v.restUntil).toBeNull();
     const cal = crewCalendar(g, a, g.now, g.now + 14 * DAY);
     expect(cal.find((x) => x.kind === 'sick')?.detail).toMatch(/expected back/);
@@ -163,7 +163,7 @@ describe('crew calendar', () => {
     advanceTo(g, k.start + 60);
     const t = crewStatusView(g, b);
     expect(t.label).toBe('Training');
-    expect(t.text).toMatch(/^Conversion A330 · until \d+ \w+$/);
+    expect(t.text).toMatch(/^Conversion A330 · until \d+ \w+ \d{4}$/);
   });
 
   it('duties with typed legs, rest, a deadhead on a real airline and days off', () => {

@@ -160,6 +160,22 @@ export function baseFare(m: RouteMarket, cls: 'J' | 'Y', month: number, dir: Dir
   return Math.round(f * (BAL.v019.fares.scale ?? 1) * marketFareX(m) * (1 + (BAL.v019.fares.level[level] ?? 0)));
 }
 
+/** r3-bal passenger and bags (kg) on a market: a standard adult and a checked bag, two for those visiting family. */
+export function paxKgOf(m: Pick<RouteMarket, 'segments'> | undefined): number {
+  const C = BAL.v019.cargo;
+  if (!m) return C.paxKg;
+  return C.paxBody + C.bagKg * (1 + (m.segments.vfr ?? 0));
+}
+
+/**
+ * r3-bal the share of a market's weekly cargo one departure carries: the catalogue's cargo is a week's flow for a weekly
+ * flight, and more flights win only a little more of it (forwarders like frequency): the week's total grows with
+ * frequency^`freqExp`. A flight every two weeks or a month carries the flow that waited for it (× 1).
+ */
+export function cargoDepX(freq: number): number {
+  return freq <= 1 ? 1 : Math.pow(freq, BAL.v019.cargo.freqExp - 1);
+}
+
 /** Share of a market's travellers who want business class. */
 export function jWant(m: RouteMarket): number {
   let w = 0;
@@ -203,13 +219,18 @@ export function shareOf(m: RouteMarket, x: ShareInput): number {
     sum += Math.exp(u);
   }
   const logit = Math.exp(ours) / sum;
-  if (!m.custom) return logit;
   // v0.19.2 a custom market against busy rivals: a newcomer's share follows its share of the departures (one-stop
-  // itineraries count a little), so one weekly flight never takes a fifth of a trunk route.
+  // itineraries count a little), so one weekly flight never takes a fifth of a trunk route. r3-bal: every market (the
+  // QSI rule airlines plan with: share follows frequency share; a weekly flight against 16 low-cost ones took 15 %).
+  const Q = BAL.v019.demand.freqCap;
+  if (!m.custom && !Q.all) return logit;
   let rivalF = 0;
-  for (const c of m.competitors) rivalF += c.stops === 0 ? c.perWeek : 0.15 * c.perWeek;
+  // A catalogue market counts nonstop rivals only (its one-stop itineraries are in the logit already): the cap bites
+  // where low-cost carriers fly the pair many times a week, not on the diaspora routes nobody flies nonstop.
+  const one = m.custom ? Q.oneStop : 0;
+  for (const c of m.competitors) rivalF += c.stops === 0 ? c.perWeek : one * c.perWeek;
   const f = Math.max(0.25, x.freqPerWeek);
-  return Math.min(logit, 1.6 * (f / (f + rivalF)));
+  return Math.min(logit, Q.x * (f / (f + rivalF)));
 }
 
 /** Hours door to door of our service in a direction (block + stops). */

@@ -213,7 +213,7 @@ export function ConvertModal({ crewIds, family: fam0, onBooked, advice }: { crew
                 <button key={t} className={`cv-day ${mon ? 'mon' : ''} ${on ? 'on' : ''}`} onClick={() => { leave(); setStart(t); }} aria-pressed={on}>
                   <span className="tiny">{d.toLocaleDateString('en-GB', { weekday: 'short', timeZone: 'UTC' })}</span>
                   <b>{d.getUTCDate()}</b>
-                  <span className="tiny dim">{d.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })}</span>
+                  <span className="tiny dim">{d.toLocaleDateString('en-GB', { month: 'short', timeZone: 'UTC' })} {String(d.getUTCFullYear() % 100).padStart(2, '0')}</span>
                 </button>
               );
             })}

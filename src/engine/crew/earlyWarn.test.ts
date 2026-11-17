@@ -105,7 +105,7 @@ describe('the early heads-up', () => {
     const f = g.flights[flightId];
     const c = Object.values(g.crew).find((x) => x.role === 'FO')!;
     f.crewLost = { crewId: c.id, why: 'sick', t: g.now };
-    expect(lateChangeNote(g, f)).toBe(`Late change: ${c.first} ${c.last} fell sick on ${new Date(Date.UTC(2000, 0, 1) + g.now * 60000).getUTCDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][new Date(Date.UTC(2000, 0, 1) + g.now * 60000).getUTCMonth()]}. `);
+    expect(lateChangeNote(g, f)).toBe(`Late change: ${c.first} ${c.last} fell sick on ${new Date(Date.UTC(2000, 0, 1) + g.now * 60000).getUTCDate()} ${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][new Date(Date.UTC(2000, 0, 1) + g.now * 60000).getUTCMonth()]} ${new Date(Date.UTC(2000, 0, 1) + g.now * 60000).getUTCFullYear()}. `);
     // (The roster's own run already gave the heads-up: read again as if the sickness came first.)
     for (const y of Object.values(g.flights)) delete y.crewEarly;
     g.messages = [];

@@ -6,7 +6,7 @@
 
 import { CalendarClock, Undo2 } from 'lucide-react';
 import { useState } from 'react';
-import { DAY, fmtDate, fmtDayRange, fmtDayRel, yearOf } from '../../engine/core/time';
+import { DAY, fmtDate, fmtDayRange, fmtDayRel } from '../../engine/core/time';
 import type { GameState } from '../../engine/core/types';
 import { chooseLease, earlyReturnQuote, leaseView, returnEarly, returnQuote, type EarlyReturnQuote, type LeaseChoice } from '../../engine/ops';
 import { mkHurt, type ProblemCard } from '../../engine/problems';
@@ -126,7 +126,7 @@ export function LeaseModal({ aircraftId, tab: tab0 }: { aircraftId: string; tab?
     }>
       <p className="muted small">
         {lv.lessor} · {money(lv.rent)}/month · ends {fmtDate(lv.ends)} ({lv.daysLeft} days).
-        {lv.returning && m ? ` ${early0 ? 'Early return' : 'Return'} booked: check at ${lv.returning.site} ${fmtDayRange(m.start, m.end)}${yearOf(m.start) !== yearOf(g.now) ? ` ${yearOf(m.start)}` : ''}${early0 ? ` (the lease ran to ${fmtDate(fullEnd)})` : ''}.${inWork ? ' The check is under way: it can no longer change.' : ' You can still change it until the check starts.'}` : ' If nothing is chosen, the lessor extends 12 months.'}
+        {lv.returning && m ? ` ${early0 ? 'Early return' : 'Return'} booked: check at ${lv.returning.site} ${fmtDayRange(m.start, m.end)}${early0 ? ` (the lease ran to ${fmtDate(fullEnd)})` : ''}.${inWork ? ' The check is under way: it can no longer change.' : ' You can still change it until the check starts.'}` : ' If nothing is chosen, the lessor extends 12 months.'}
       </p>
       {earlyOk && (
         <div className="mt-12"><Seg<Tab> value={tab} onChange={setTab} options={[{ value: 'renew', label: 'At the lease end' }, { value: 'early', label: 'Return early' }]} /></div>

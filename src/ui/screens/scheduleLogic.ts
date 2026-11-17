@@ -3,7 +3,7 @@
 
 import { BAL } from '../../engine/core/balance';
 import { flightsOf } from '../../engine/core/entities';
-import { DAY, HOUR, dayStart, fmtDay, fmtTime } from '../../engine/core/time';
+import { DAY, HOUR, dayStart, fmtDay, fmtDayShort, fmtTime } from '../../engine/core/time';
 import type { Flight, GameState, MaintenanceEvent, Minute, Ref } from '../../engine/core/types';
 import { crewRev, dutyLegality, flightCrewStatus, rosterHorizon } from '../../engine/crew';
 import { flightType, type FlightType } from '../../engine/ops/flightType';
@@ -438,7 +438,7 @@ export function axisTicks(from: Minute, to: Minute, zoom: ZoomDays, ppm?: number
     const major = t % DAY === 0;
     // 28 d: a day is ~30 px, too narrow for a date each; label the Mondays (epoch day 0, 1 Jan 2000, is a Saturday).
     const weekly = zoom === 28 && (Math.floor(t / DAY) + 5) % 7 !== 0;
-    out.push({ t, major, label: weekly ? '' : major ? fmtDay(t) : hours ? fmtTime(t) : '' });
+    out.push({ t, major, label: weekly ? '' : major ? fmtDayShort(t) : hours ? fmtTime(t) : '' });
   }
   return out;
 }

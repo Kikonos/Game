@@ -10,7 +10,7 @@ import { accrue, cashOnly, invoice, post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
-import { DAY, fmtDay, fmtDayAt, monthKey, monthStart, fmtDayRange } from '../core/time';
+import { DAY, fmtDay, fmtDayAt, monthKey, monthStart, fmtDayRange, joinDays } from '../core/time';
 import { clamp } from '../core/util';
 import type { ActionResult, BrokerId, Contract, ContractOffer, CrewExtra, Flight, GameState, Minute, OfferStatus, Product, Receivable, SimEvent } from '../core/types';
 import { autoRoster, crewExtraFor, flightCrewStatus, onContractDoneMorale } from '../crew';
@@ -349,7 +349,7 @@ export function jobDays(x: { pattern: { kind: string; base?: string }; start: Mi
 }
 export const jobDayRange = (x: Parameters<typeof jobDays>[0]): string => {
   const [a, b] = jobDays(x);
-  return a === b ? a : `${a}–${b}`;
+  return joinDays(a, b, '–');
 };
 
 /** v0.14.1 the offer a won tender put back on the market (signed at our bid; never countered). Pure. */

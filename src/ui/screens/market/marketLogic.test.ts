@@ -24,8 +24,8 @@ describe('offer cards (§N.2)', () => {
     expect(depositMonthsOf({ deposit: 220_000, rentPerMonth: 220_000 })).toBe(1);
   });
   it('ready line: stored aircraft at the site, flying ones with their airline', () => {
-    expect(offerReadyLine(now, { site: 'SNN' }, now + 30 * DAY, now + 32 * DAY)).toMatch(/^Ready ~31 Mar at Shannon · home ~2 Apr$/);
-    expect(offerReadyLine(now, { site: 'SNN', freeAt: now + 60 * DAY, exOperator: 'Air Europa' }, now + 90 * DAY, null)).toMatch(/^With Air Europa until 30 Apr · ready ~30 May$/);
+    expect(offerReadyLine(now, { site: 'SNN' }, now + 30 * DAY, now + 32 * DAY)).toMatch(/^Ready ~31 Mar 2027 at Shannon · home ~2 Apr 2027$/);
+    expect(offerReadyLine(now, { site: 'SNN', freeAt: now + 60 * DAY, exOperator: 'Air Europa' }, now + 90 * DAY, null)).toMatch(/^With Air Europa until 30 Apr 2027 · ready ~30 May 2027$/);
   });
   it('filters and days left', () => {
     expect(offerMatches({ typeId: 'a332' }, 'wide', false)).toBe(true);
@@ -49,7 +49,7 @@ describe('rating line (§N.1)', () => {
 describe('requests (§N.1)', () => {
   const a = (x: Partial<RfpAnswer>): RfpAnswer => ({ lessorId: 'aercap', due: now + 10 * DAY, ...x });
   it('answer chips', () => {
-    expect(answerChip(now, a({})).text).toBe('AerCap: by 11 Mar');
+    expect(answerChip(now, a({})).text).toBe('AerCap: by 11 Mar 27');
     expect(answerChip(now, a({ at: now, kind: 'proposal', offerIds: ['m1'] })).text).toBe('AerCap ✓ proposal');
     expect(answerChip(now, a({ lessorId: 'avolon', at: now, kind: 'none' })).text).toBe('Avolon: no aircraft');
     expect(answerChip(now, a({ lessorId: 'carlyle', at: now, kind: 'credit', text: 'We need rating B' }))).toMatchObject({ text: 'Carlyle Aviation Partners: rating', tone: 'warn', tip: 'We need rating B' });
@@ -57,8 +57,8 @@ describe('requests (§N.1)', () => {
   });
   const r: Rfp = { id: 'r1', typeId: 'a332', band: 'mid', months: 36, count: 1, from: now + 92 * DAY, asap: false, flex: true, sent: now, replyBy: now + 20 * DAY, answers: [a({ at: now, kind: 'proposal', offerIds: ['m1'] }), a({ lessorId: 'avolon' })], status: 'open' };
   it('title and status', () => {
-    expect(rfpTitle(now, r)).toBe('A330-200 · mid-life · 36 months · from 1 Jun (± a month)');
-    expect(rfpStatus(now, r)).toBe('Answers by 21 Mar · 1 of 2 in · 1 proposal');
+    expect(rfpTitle(now, r)).toBe('A330-200 · mid-life · 36 months · from 1 Jun 2027 (± a month)');
+    expect(rfpStatus(now, r)).toBe('Answers by 21 Mar 2027 · 1 of 2 in · 1 proposal');
     expect(rfpStatus(now, { ...r, status: 'done' })).toBe('Answered: 1 proposal');
     expect(rfpTitle(now, { ...r, asap: true, count: 2 })).toBe('A330-200 · mid-life · 36 months · as soon as possible · 2 aircraft');
   });
@@ -77,17 +77,17 @@ describe('in progress (§N.1)', () => {
     expect(stageChips('credit', true)[1].state).toBe('bad');
   });
   it('deal lines', () => {
-    expect(dealLine(now, { stage: 'committee', committeeAt: now + 14 * DAY, holding: 1 }).text).toBe('Credit check · answer by 15 Mar');
+    expect(dealLine(now, { stage: 'committee', committeeAt: now + 14 * DAY, holding: 1 }).text).toBe('Credit check · answer by 15 Mar 2027');
     expect(dealLine(now, { stage: 'approved', committeeAt: now, signBy: now + 7 * DAY, holding: 1 })).toMatchObject({ at: 'lease', tone: 'warn' });
     expect(dealLine(now, { stage: 'declined', committeeAt: now, why: 'Rating fell from B to D', holding: 1 }).text).toBe('Declined: Rating fell from B to D · holding deposit back');
   });
   it('transition and short-term lines', () => {
     const ind = { slot: now, records: [now, now + 20 * DAY], check: [now + 10 * DAY, now + 20 * DAY], reg: [now, now], ready: now + 30 * DAY, waitedCamo: 0, waitedFree: 0 } as const;
-    expect(transitionLine({ induction: { ...ind, records: [...ind.records], check: [...ind.check], reg: [...ind.reg] }, at: 'SNN', delivery: undefined }, 'check')).toBe('Transition at Shannon: transition check · ready 31 Mar (UTC)');
+    expect(transitionLine({ induction: { ...ind, records: [...ind.records], check: [...ind.check], reg: [...ind.reg] }, at: 'SNN', delivery: undefined }, 'check')).toBe('Transition at Shannon: transition check · ready 31 Mar 2027 (UTC)');
     // Late UTC evening at Shannon in summer time: the local day is the next.
     const late = fromUTC(2027, 6, 14) + 23 * 60 + 30;
-    expect(transitionLine({ induction: { ...ind, records: [...ind.records], check: [...ind.check], reg: [...ind.reg], ready: late }, at: 'SNN', delivery: undefined }, 'paint')).toBe('Transition at Shannon: paint · ready 14 Jun (UTC) · 15 Jun local');
-    expect(spotLine({ ownership: { kind: 'dryLeaseIn', lessor: 'TUI fly', rentPerMonth: 1, reservesPerFH: 1, leaseStart: now, leaseEnd: fromUTC(2027, 3, 31), deposit: 1, spot: { airline: 'TUI fly', base: 'FRA' } } as never })).toBe('Back to TUI fly 31 Mar');
+    expect(transitionLine({ induction: { ...ind, records: [...ind.records], check: [...ind.check], reg: [...ind.reg], ready: late }, at: 'SNN', delivery: undefined }, 'paint')).toBe('Transition at Shannon: paint · ready 14 Jun 2027 (UTC) · 15 Jun 2027 local');
+    expect(spotLine({ ownership: { kind: 'dryLeaseIn', lessor: 'TUI fly', rentPerMonth: 1, reservesPerFH: 1, leaseStart: now, leaseEnd: fromUTC(2027, 3, 31), deposit: 1, spot: { airline: 'TUI fly', base: 'FRA' } } as never })).toBe('Back to TUI fly 31 Mar 2027');
   });
 });
 

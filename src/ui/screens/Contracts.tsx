@@ -9,7 +9,7 @@ import { dryLeaseView, marketOutlook } from '../../engine/ops';
 import { OutlookTiles } from '../modals/V08Modals';
 import { v08Chips } from './v08Logic';
 import { flightsRev } from '../../engine/core/entities';
-import { DAY, fmtDateTime, fmtDay } from '../../engine/core/time';
+import { DAY, fmtDateTime, fmtDay, joinDays } from '../../engine/core/time';
 import type { Contract, ContractOffer, CrewExtra, GameState } from '../../engine/core/types';
 import { crewExtraFor, extraCabinMax, setCrewExtra, shortFlights } from '../../engine/crew';
 import { problemAt } from '../../engine/problems';
@@ -20,7 +20,7 @@ import { money } from '../format';
 import { store, useClock, useGame } from '../store';
 import { ArchIcon, Chips, ScreenHead, useRenderCount } from './common';
 import { contractColor } from './palette';
-import { archLabel, COUNTDOWN_MIN, expiryLabel, fuelLine, offerModal, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerDays, v09Chips } from './screenLogic';
+import { archLabel, COUNTDOWN_MIN, expiryLabel, fuelLine, offerModal, liveHook, marketOffers, missedOffers, productLine, reqChips, riskChips, routeSummary, offerSpan, v09Chips } from './screenLogic';
 import { LeadsView, leadsUrgent, salesTabCount } from './contracts/SalesView';
 import { FilterView, HiddenOffersRow, OfferQuickChips } from './contracts/FilterView';
 import { hiddenOffers } from '../../engine/contracts/filter';
@@ -104,7 +104,7 @@ function OfferCard({ g, o, windows }: { g: GameState; o: ContractOffer; windows:
       </div>
       {/* v0.18 body and haul at a glance, beside the route. */}
       <div className="sc-offer-route-row"><span className="sc-offer-route mono ellipsis">{routeSummary(o.pattern)}</span><ShapeTags s={shapeOf(o)} compact /></div>
-      <div className="small muted">{offerDays(o).map(fmtDay).join(' – ')} · {lead <= 0 ? 'starts now' : `starts in ${lead} d`}</div>
+      <div className="small muted">{offerSpan(o)} · {lead <= 0 ? 'starts now' : `starts in ${lead} d`}</div>
       <div className="row between sc-offer-money">
         <b>{productLine(o.product, o)}</b>
         <span className="muted small">est. <b className="num">{money(o.estValue)}</b></span>
@@ -248,7 +248,7 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
           <OriginTag v={contractOrigin(g, c)} help />
         </div>
         {/* v0.14.1 (merge) a dry lease by its lease dates (fx-money UI-5); other work by the client's local days (fx-comm). */}
-        <div className="small muted ellipsis">{cl?.name ?? 'Client'} · <span className="mono">{regs}</span> · {dry ? `${fmtDay(dry.lease[0])} – ${fmtDay(dry.lease[1])}` : offerDays(c).map(fmtDay).join(' – ')} · {productLine(c.product, c)}</div>
+        <div className="small muted ellipsis">{cl?.name ?? 'Client'} · <span className="mono">{regs}</span> · {dry ? `${joinDays(fmtDay(dry.lease[0]), fmtDay(dry.lease[1]))}` : offerSpan(c)} · {productLine(c.product, c)}</div>
         {c.paint?.accepted && open && <div className="small muted ellipsis row gap-4"><Palette className="sc-ico-s" />{paintLine(g, c)}</div>}
         {c.cabin?.accepted && open && <div className="small muted ellipsis">Their cabin: {c.cabin.layout === 'two-class' ? 'two-class' : 'all economy'} · {c.cabin.clientShare >= 1 ? 'they pay' : 'they pay half'}{c.cabin.revert ? ' · put back after' : ''}</div>}
         {open && (
@@ -351,7 +351,7 @@ function Missed({ g }: { g: GameState }) {
           <ArchIcon a={o.archetype} />
           <div className="grow">
             <div className="row gap-8"><b className="ellipsis">{o.title}</b><ShapeTags s={shapeOf(o)} compact /></div>
-            <div className="small muted ellipsis">{[g.clients[o.clientId]?.name, routeSummary(o.pattern), offerDays(o).map(fmtDay).join(' – ')].filter(Boolean).join(' · ')}</div>
+            <div className="small muted ellipsis">{[g.clients[o.clientId]?.name, routeSummary(o.pattern), offerSpan(o)].filter(Boolean).join(' · ')}</div>
             {o.lostWhy && <div className="small warn ellipsis">{o.lostTo ?? 'A rival'} {o.lostWhy}</div>}
           </div>
           <div className="right small nowrap">

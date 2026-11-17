@@ -4,7 +4,7 @@
 
 import { BAL } from '../core/balance';
 import { complement, typeOf } from '../core/perf';
-import { DAY, monthKey } from '../core/time';
+import { DAY, monthKey, monthStart, nextMonthStart } from '../core/time';
 import type { GameState } from '../core/types';
 import { insuranceOf, rentOf } from '../ops/finance';
 import { rateMultiplier } from '../contracts/pricing';
@@ -75,30 +75,52 @@ export function crewAwayCost(g: GameState, m: RouteMarket, typeId: string, seats
   return { hotel, extraPilot, longDay, dutyH: Math.round(dutyH * 10) / 10 };
 }
 
-/** Month end (before ops closes the statement): the month's overheads and aircraft and crew time, the result. */
-export function closePnlMonth(g: GameState, route: Route): void {
-  const p = pnlOf(route, g.now - 1);
-  const over = routeMonthCosts(route, routeResting(route, g.now - 1));
-  const sum = Object.values(over).reduce((a, x) => a + (x ?? 0), 0);
-  p.direct += Math.round(sum);
+/** The overheads, aircraft and crew time of the month holding `t`, as month end books them (`frac`: the share of the overheads). */
+function monthCharges(g: GameState, route: Route, t: number, frac = 1): { over: number; acTime: number } {
+  const over = Object.values(routeMonthCosts(route, routeResting(route, t))).reduce((a, x) => a + (x ?? 0), 0) * frac;
+  const p = route.pnl[monthKey(t)];
   const s = route.series[0];
   const recent = route.rotations.filter((r) => r.aircraftId && r.status === 'flown').slice(-1)[0];
   const typeId = recent?.aircraftId ? g.fleet[recent.aircraftId]?.typeId ?? s?.typeId ?? 'b763' : s?.typeId ?? 'b763';
   const seats = recent?.sectors[0] ? recent.sectors[0].capJ + recent.sectors[0].capY : 260;
-  p.acTime = Math.round(p.bh * (aircraftCostBH(g, recent?.aircraftId, typeId) + crewCostBH(typeId, seats)));
+  let acTime = Math.round((p?.bh ?? 0) * (aircraftCostBH(g, recent?.aircraftId, typeId) + crewCostBH(typeId, seats)));
   // v0.21 the crew away from base: nights there and long days with a third pilot (the business case counts the same).
   const m = marketOfRoute(route);
-  const mk = monthKey(g.now - 1);
+  const mk = monthKey(t);
   if (m) {
     for (const rot of route.rotations) {
       if (rot.status !== 'flown' || rot.operatedBy || monthKey(rot.dep) !== mk) continue;
       const sr = route.series.find((x) => x.id === rot.seriesId) ?? s;
       const ac = rot.aircraftId ? g.fleet[rot.aircraftId] : undefined;
       const w = crewAwayCost(g, m, ac?.typeId ?? sr?.typeId ?? typeId, ac?.cabin.total ?? seats, sr?.nights ?? 0);
-      p.acTime += w.hotel + w.extraPilot;
+      acTime += w.hotel + w.extraPilot;
     }
   }
+  return { over: Math.round(over), acTime };
+}
+
+/** Month end (before ops closes the statement): the month's overheads and aircraft and crew time, the result. */
+export function closePnlMonth(g: GameState, route: Route): void {
+  const p = pnlOf(route, g.now - 1);
+  const c = monthCharges(g, route, g.now - 1);
+  p.direct += c.over;
+  p.acTime = c.acTime;
   p.result = Math.round(p.rev - p.direct - p.acTime);
+}
+
+/**
+ * v0.24.1 the running month's result so far (pure; the map's route card): the money in and the direct costs booked
+ * up to now, the month's overheads for the days gone, and the aircraft and crew time of the hours flown. Month end
+ * books the same, so the last day matches the closed month. Null before the month has any route money.
+ */
+export function monthSoFar(g: GameState, route: Route, t = g.now): number | null {
+  const k = monthKey(t);
+  const p = route.pnl[k];
+  if (!p || (!p.sectors && !p.rev && !p.direct)) return null;
+  const a = monthStart(k);
+  const frac = Math.min(1, Math.max(0, (t - a) / Math.max(1, nextMonthStart(t) - a)));
+  const c = monthCharges(g, route, t, frac);
+  return Math.round(p.rev - p.direct - c.over - c.acTime);
 }
 
 /** The ACMI net a block hour of a type now (rate × the market's multiplier, less maintenance). */

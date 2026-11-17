@@ -10,7 +10,6 @@ import { flag } from '../../../data/countries';
 import { MARKETS, type MarketId } from '../../../data/markets';
 import { clearOfferFilter, FILTER_KINDS, filterEmpty, hiddenOffers, KIND_LABEL, setOfferFilter } from '../../../engine/contracts/filter';
 import { STARS_NAME } from '../../../engine/contracts/prestige';
-import { fmtDay } from '../../../engine/core/time';
 import type { ClientKind, GameState, OfferFilter, Stars } from '../../../engine/core/types';
 import { Card, Seg, Stepper, Toggle } from '../../components/ui';
 import { money } from '../../format';
@@ -19,7 +18,7 @@ import { ArchIcon } from '../common';
 import { ShapeTags } from '../../components/ShapeTags';
 import { Help } from '../../components/Help';
 import { BODIES, BODY_LABEL, HAUL_LABEL, HAUL_RANGE, HAULS, shapeOf, type Body, type Haul } from '../../../engine/contracts/shape';
-import { marketOffers, offerDays, offerModal, productLine, routeSummary } from '../screenLogic';
+import { marketOffers, offerSpan, offerModal, productLine, routeSummary } from '../screenLogic';
 
 const FAMILIES: RatingFamily[] = [...new Set(ACMI_TYPES_LIST.map((t) => t.family))];
 
@@ -139,7 +138,7 @@ export function HiddenOffersRow({ g }: { g: GameState }) {
                 <ArchIcon a={o.archetype} />
                 <div className="grow" style={{ minWidth: 0 }}>
                   <div className="row gap-8"><b className="ellipsis">{o.title}</b><ShapeTags s={shapeOf(o)} compact /></div>
-                  <div className="small muted ellipsis">{[cl ? `${flag(cl.country)} ${cl.name}` : '', routeSummary(o.pattern), offerDays(o).map(fmtDay).join(' – ')].filter(Boolean).join(' · ')}</div>
+                  <div className="small muted ellipsis">{[cl ? `${flag(cl.country)} ${cl.name}` : '', routeSummary(o.pattern), offerSpan(o)].filter(Boolean).join(' · ')}</div>
                 </div>
                 <div className="right small nowrap">
                   <div>{productLine(o.product, o)}</div>

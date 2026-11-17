@@ -190,6 +190,8 @@ export function RouteCard({ g, routeIds, onClose }: { g: GameState; routeIds: st
           const chip = statusChip(r, g.now);
           const p = r.pnl[k];
           const lf = p && p.seats ? (p.paxSec ?? p.pax) / p.seats : null;
+          // v0.24.1 the running month (pnl[k].result is only filled at month end).
+          const res = p && p.sectors ? net.monthSoFar(g, r) : null;
           const next = upcoming(r, g.now)[0];
           const back = undefined;
           return (
@@ -201,7 +203,7 @@ export function RouteCard({ g, routeIds, onClose }: { g: GameState; routeIds: st
               </div>
               <div className="nwl-grid">
                 <div><span>Load this month</span><b className={`num ${lf === null ? '' : lfTone(lf)}`}>{lf === null ? '—' : `${Math.round(lf * 100)} %`}</b></div>
-                <div><span>Result this month</span><b className={`num ${p && p.result < 0 ? 'bad' : p && p.result > 0 ? 'good' : ''}`}>{p && p.sectors ? moneyDelta(p.result) : '—'}</b></div>
+                <div><span>Result this month</span><b className={`num ${res !== null && res < 0 ? 'bad' : res !== null && res > 0 ? 'good' : ''}`}>{res === null ? '—' : moneyDelta(res)}</b></div>
                 <div className="nwl-wide"><span>Next flight</span><b className="num">{next ? `${fmtDay(next.dep)} ${fmtTime(next.dep)} UTC` : 'none planned'}</b></div>
               </div>
               <div className="row wrap gap-6">

@@ -111,21 +111,25 @@ describe('v0.23.2 the researched markets of every start base', () => {
         expect(r, `${m.id}: ${id}`).toBeDefined();
         const d0 = caseDraft(g, id)!;
         expect(d0, m.id).toBeTruthy();
-        // The best of one, two and three a week (a thin market and a partner keep their own pattern).
-        const pats = d0.monthly || (d0.every ?? 1) > 1 || r.model === 'partner' ? [null] : [1, 2, 3];
+        // The best of one, two, three, four a week and daily (a thin market and a partner keep their own pattern).
+        // r3-bal: four a week and daily too (as the study): with the real payload a busy market's weekly flight is full.
+        const pats = d0.monthly || (d0.every ?? 1) > 1 || r.model === 'partner' ? [null] : [1, 2, 3, 4, 7];
         let best: ReturnType<typeof project> | null = null;
         for (const n of pats) {
           const d = { ...d0, typeId, layout: 'two-class' as const };
-          if (n) { d.days = [4, 2, 0].slice(0, n).reduce((a, x) => a | (1 << x), 0); d.every = 1; delete d.monthly; }
+          if (n) { d.days = n === 7 ? 127 : [4, 2, 0, 6].slice(0, n).reduce((a, x) => a | (1 << x), 0); d.every = 1; delete d.monthly; }
           const p = project(g, r, d, g.now + 30 * DAY, 1);
           if (!best || p.result > best.result) best = p;
         }
         const lf = best!.paxSec / best!.seatSec;
         const margin = best!.result / best!.rev;
         expect(lf, `${m.id} load factor`).toBeGreaterThanOrEqual(0.45);
-        expect(lf, `${m.id} load factor`).toBeLessThanOrEqual(0.95);
+        // r3-bal: the real payload lets a busy market's flight fill (it was capped at 77–91 %).
+        expect(lf, `${m.id} load factor`).toBeLessThanOrEqual(1);
         // Nothing is a gold mine (Lisbon's best on this aircraft is about 20 %), nothing is absurd.
-        expect(margin, `${m.id} margin`).toBeLessThanOrEqual(0.3);
+        // r3-bal: Tripoli (a 55-minute sector at fares the EU ban on Libyan airlines holds up, with war risk) is the
+        // richest at about 32 %; the rest stay under 30 %.
+        expect(margin, `${m.id} margin`).toBeLessThanOrEqual(m.id === 'MLA-MJI' ? 0.35 : 0.3);
         expect(margin, `${m.id} margin`).toBeGreaterThanOrEqual(-0.7);
         if (margin > 0.02) pays++;
         if (margin < -0.02) loses++;
@@ -161,7 +165,7 @@ describe('v0.23.2 a seasonal route flies its season only', () => {
     expect(monthsWords(0b000110110000)).toBe('May–Jun, Aug–Sep');
   });
 
-  it('the business case plans the season: no flights out of it, and Tenerife from the Baltics pays on a new narrowbody', () => {
+  it('the business case plans the season: no flights out of it, and Tenerife from the Baltics is near break-even on a new narrowbody', () => {
     for (const id of ['VNO-TFS', 'RIX-TFS', 'TLL-TFS']) {
       const g = game(id.slice(0, 3));
       const rid = devLaunchRoute(g, id);
@@ -184,12 +188,14 @@ describe('v0.23.2 a seasonal route flies its season only', () => {
         expect(x.cost, id).toBeGreaterThan(0);
       }
       expect(ceo.rotations, id).toBeLessThan(all.rotations * 0.65);
-      // Far better than flying it all year (it lost 43–61 %), and it pays on an A320neo; the older A320 is short of
-      // payload at six hours and still loses a little.
+      // Far better than flying it all year (it lost 43–61 %). r3-fix the tour case now prices the seats as sales do
+      // (the bucket mix and the tour cut): a charter series sits near break-even on an A320neo (UPDATE-0.19 §M: −5 to
+      // +3 %), the older A320 is short of payload at six hours and loses more.
       expect(ceo.result, id).toBeGreaterThan(all.result + 700_000);
-      expect(ceo.result / ceo.rev, id).toBeGreaterThan(-0.25);
-      expect(neo.result, id).toBeGreaterThan(0);
-      expect(neo.result / neo.rev, id).toBeLessThan(0.2);
+      expect(ceo.result / ceo.rev, id).toBeGreaterThan(-0.3);
+      expect(neo.result, id).toBeGreaterThan(ceo.result);
+      expect(neo.result / neo.rev, id).toBeGreaterThan(-0.08);
+      expect(neo.result / neo.rev, id).toBeLessThan(0.05);
       r.status = 'closed';
     }
     // A market with no dead season has no such plan.
