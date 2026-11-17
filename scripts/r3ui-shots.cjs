@@ -175,7 +175,7 @@ async function dateShots(page, v) {
     await shot(page, `${v}-${tab}`, '.screen *');
   }
   // Schedule at its widest zoom (dates on the axis).
-  const z = page.getByRole('button', { name: /^28 days$/ }).first();
+  const z = page.getByText('28 days', { exact: true }).first();
   if (await z.count()) { await page.evaluate(() => window.__contrail.navigate('schedule', {})); await z.click().catch(() => {}); await sleep(600); await shot(page, `${v}-schedule-wide`, '.screen *'); }
 }
 
