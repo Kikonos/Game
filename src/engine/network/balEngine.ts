@@ -74,9 +74,11 @@ export const NET_ENGINE_BAL = {
     growth: 0.03,
     /**
      * The newcomer's cap: at most `x` × its share of the market's departures (one-stop rivals count `oneStop`). Custom
-     * markets since v0.19.2; r3-bal every market (`all`).
+     * markets since v0.19.2. `all`: catalogue markets too (nonstop rivals only). r3-bal tried it and keeps it off: the
+     * catalogue's rivals are researched one by one and its LCC-crowded markets already lose (SOF–STN, MAD–OTP); the cap
+     * turned Lisbon's widebody routes against TAP's daily flights (Recife, Luanda) to −20 %.
      */
-    freqCap: { x: 1.6, oneStop: 0.15, all: true as boolean },
+    freqCap: { x: 1.6, oneStop: 0.15, all: false as boolean },
     /** Logit weights [E]. */
     beta: { fare: 2.0, nonstop: 1.2, freq: 0.35, rep: 0.5, bags: 0.3, mkt: 0.4, hours: 0.08 },
     /** Fare elasticity by segment (bucket choice) and how far each segment moves its date (± days) to fly with us. */

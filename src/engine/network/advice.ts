@@ -375,7 +375,7 @@ const IDEA_TIE_X = 2;
 const IDEA_PER_COUNTRY = 2;
 /** The well-travelled pairs the planner costs (the rest are too thin to look at), and the first guess's margin worth a study. */
 const IDEA_SHORTLIST = 180;
-export const IDEA_MARGIN = 0.03;
+export const IDEA_MARGIN = 0.05;
 
 /** `n` departures a week from `day` (0 = Monday), spread through the week. */
 function spreadDays(day: number, n: number): number {
@@ -464,7 +464,9 @@ function ideasOf(g: GameState): { list: RouteIdea[]; why: string | null } {
         if (n > 3 && rotH * n > 7 * BAL.v019.study.maxDayH) continue;
         for (const model of m.models.filter((x) => x !== 'partner')) {
           const plan = { ...firstPlan(m, t), model, days: spreadDays(m.timetable.day, n) };
-          const p = project(g, { ...viewOf(m), model }, plan, g.now + 120 * DAY, 1);
+          // r3-bal a year once the route is known (no launch ramp): the planner pitches what a route earns; the
+          // study's case then counts the first year's ramp too.
+          const p = project(g, { ...viewOf(m), model }, plan, g.now + 120 * DAY, 1, { mature: true });
           const margin = p.rev ? p.result / p.rev : 0;
           if (!top || p.result > top.result) {
             const rivals = m.competitors.filter((v) => v.stops === 0);

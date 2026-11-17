@@ -111,21 +111,25 @@ describe('v0.23.2 the researched markets of every start base', () => {
         expect(r, `${m.id}: ${id}`).toBeDefined();
         const d0 = caseDraft(g, id)!;
         expect(d0, m.id).toBeTruthy();
-        // The best of one, two and three a week (a thin market and a partner keep their own pattern).
-        const pats = d0.monthly || (d0.every ?? 1) > 1 || r.model === 'partner' ? [null] : [1, 2, 3];
+        // The best of one, two, three, four a week and daily (a thin market and a partner keep their own pattern).
+        // r3-bal: four a week and daily too (as the study): with the real payload a busy market's weekly flight is full.
+        const pats = d0.monthly || (d0.every ?? 1) > 1 || r.model === 'partner' ? [null] : [1, 2, 3, 4, 7];
         let best: ReturnType<typeof project> | null = null;
         for (const n of pats) {
           const d = { ...d0, typeId, layout: 'two-class' as const };
-          if (n) { d.days = [4, 2, 0].slice(0, n).reduce((a, x) => a | (1 << x), 0); d.every = 1; delete d.monthly; }
+          if (n) { d.days = n === 7 ? 127 : [4, 2, 0, 6].slice(0, n).reduce((a, x) => a | (1 << x), 0); d.every = 1; delete d.monthly; }
           const p = project(g, r, d, g.now + 30 * DAY, 1);
           if (!best || p.result > best.result) best = p;
         }
         const lf = best!.paxSec / best!.seatSec;
         const margin = best!.result / best!.rev;
         expect(lf, `${m.id} load factor`).toBeGreaterThanOrEqual(0.45);
-        expect(lf, `${m.id} load factor`).toBeLessThanOrEqual(0.95);
+        // r3-bal: the real payload lets a busy market's flight fill (it was capped at 77–91 %).
+        expect(lf, `${m.id} load factor`).toBeLessThanOrEqual(1);
         // Nothing is a gold mine (Lisbon's best on this aircraft is about 20 %), nothing is absurd.
-        expect(margin, `${m.id} margin`).toBeLessThanOrEqual(0.3);
+        // r3-bal: Tripoli (a 55-minute sector at fares the EU ban on Libyan airlines holds up, with war risk) is the
+        // richest at about 32 %; the rest stay under 30 %.
+        expect(margin, `${m.id} margin`).toBeLessThanOrEqual(m.id === 'MLA-MJI' ? 0.35 : 0.3);
         expect(margin, `${m.id} margin`).toBeGreaterThanOrEqual(-0.7);
         if (margin > 0.02) pays++;
         if (margin < -0.02) loses++;

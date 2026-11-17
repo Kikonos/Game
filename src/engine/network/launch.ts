@@ -277,7 +277,7 @@ export function planSeries(p: RoutePlan, from: Minute, id = '', months: number |
  * 12 months of a plan at a demand multiple (the study's P10/P50/P90), from `start`. Pure. A stopover route's three
  * markets share the seats (`fifth`: the B–C rights assumed; default the route's own, else none).
  */
-export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tanker' | 'noCaterer' | 'study' | 'reputation' | 'partnerFeeBH'> & { custom?: RouteMarket; fifth?: FifthRights }, p: RoutePlan, start: Minute, demandX: number, opt: { fifth?: FifthRights } = {}): Projection {
+export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tanker' | 'noCaterer' | 'study' | 'reputation' | 'partnerFeeBH'> & { custom?: RouteMarket; fifth?: FifthRights }, p: RoutePlan, start: Minute, demandX: number, opt: { fifth?: FifthRights; mature?: boolean } = {}): Projection {
   const m = marketOfRoute(r)!;
   const t = typeOf(p.typeId);
   const cab = cabinFor(p.typeId, p.layout ?? 'two-class');
@@ -337,7 +337,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
     for (const dir of ['out', 'back'] as Dir[]) {
       const x = {
         freqPerWeek: freq, fares: p.fares, awareness: BAL.v019.demand.awareness.campaign[p.marketing] ?? 0.55, reputation: r.reputation ?? 60,
-        hours: serviceHours(m, p.typeId, dir), truth: demandX, slotX: slotX(outDay, p.out), rampX: caseRamp(i),
+        hours: serviceHours(m, p.typeId, dir), truth: demandX, slotX: slotX(outDay, p.out), rampX: opt.mature ? 1 : caseRamp(i),
       };
       const d = departureDemand(g, m, at, dir, tag ? { ...x, stop: true } : x);
       const month = new Date(Date.UTC(2000, 0, 1) + at * 60_000).getUTCMonth();
