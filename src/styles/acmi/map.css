@@ -225,6 +225,7 @@ div.worldmap { overflow: clip; }
 .op-leg:disabled { opacity: 1; cursor: default; }
 .op-row.static { cursor: default; }
 .op-row .ellipsis { flex: 1; min-width: 0; }
+.op-leg-when > span { white-space: nowrap; }
 .op-leg-k { width: 4px; align-self: stretch; border-radius: 2px; flex-shrink: 0; }
 .op-dia { width: 10px; height: 10px; background: var(--warn); transform: rotate(45deg); flex-shrink: 0; border-radius: 1px; }
 .op-dia.urgent { box-shadow: 0 0 0 2px var(--op-bg), 0 0 0 3.5px var(--warn); }

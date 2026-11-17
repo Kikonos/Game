@@ -157,7 +157,7 @@ describe('r3-fix route economics and operations', () => {
     expect(rot).toBeTruthy();
     const start = rot.dep - DAY;
     const res = bookCCheck(g, ac.id, hub.code, start);
-    expect(res.ok, res.error).toBe(true);
+    if (!res.ok) throw new Error(res.error);
     const m = g.maintenance[res.data!.maintId];
     expect(rot.aircraftId).not.toBe(ac.id);
     expect(['planned', 'flights']).toContain(rot.status);

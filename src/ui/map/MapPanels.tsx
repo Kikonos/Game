@@ -173,8 +173,9 @@ function LegRow({ g, f, onTap, short }: { g: GameState; f: Flight; onTap?: () =>
         <span className="op-leg-k" style={{ background: c ? contractColor(c.color) : 'var(--text-3)' }} />
         <span className="col" style={{ minWidth: 0, flex: 1 }}>
           <span className="row op-tight"><b className="mono">{f.from}→{f.to}</b><span className="small muted mono">{f.no}</span></span>
-          <span className="small muted ellipsis">
-            {fmtDayShort(dep)} {fmtTime(dep)} UTC · {fmtDuration(f.block)}{f.kind === 'techstop' ? ' · fuel stop' : ''}{f.delay ? ` · +${fmtDuration(f.delay)}` : ''}
+          {/* r3-fix whole pieces wrap to a second line on a narrow panel (the block time is never cut off). */}
+          <span className="small muted op-leg-when">
+            <span>{fmtDayShort(dep)} {fmtTime(dep)} UTC</span> <span>· {fmtDuration(f.block)}</span>{f.kind === 'techstop' ? <> <span>· fuel stop</span></> : null}{f.delay ? <> <span>· +{fmtDuration(f.delay)}</span></> : null}
           </span>
           {zone && <span className={`small ellipsis op-zone ${zone.effect}`}>{zone.text}</span>}
         </span>

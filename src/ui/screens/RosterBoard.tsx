@@ -159,8 +159,8 @@ const Row = memo(function Row({ row, from, dayW, d0, d1, zoom, tone, selecting, 
           <span className="row gap-6 rb-name-1"><span className={`rb-morale ${moraleTone(row.morale)}`} aria-label={`Morale ${row.morale}`} title={`Morale ${row.morale}`} /><b className="ellipsis">{row.name}</b><RankMark role={row.role} /></span>
           {!compact && (
             <span className="row gap-4 tiny muted rb-name-2">
-              <span className="rb-rank">{row.role}</span>
-              {row.leaves !== null ? <span className="rb-leaves">· Leaves {fmtLeave(row.leaves)}</span> : <span>· {row.base}</span>}
+              {/* r3-fix leaving: the date with its year has the line (the rank shows as the mark beside the name). */}
+              {row.leaves !== null ? <span className="rb-leaves">Leaves {fmtLeave(row.leaves)}</span> : <><span className="rb-rank">{row.role}</span><span>· {row.base}</span></>}
             </span>
           )}
         </span>
