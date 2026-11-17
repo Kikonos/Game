@@ -60,7 +60,7 @@ describe("v0.9 What's new catch-up (UPDATE-0.9.md §X)", () => {
     expect(`${WHATS_NEW[0].version} ${WHATS_NEW[0].name}`).toBe('v0.24.1 Route suspend, wind down, keyboard shortcuts');
     const lines = [...WHATS_NEW[0].features, ...WHATS_NEW[0].improvements, ...(WHATS_NEW[0].fixes ?? [])];
     const txt = lines.join('\n');
-    for (const w of ['Suspend', 'Wind down', 'Close now', 'Resume', 'dashed', 'Key bindings', 'Settings', '⌘S']) expect(txt).toContain(w);
+    for (const w of ['Suspend', 'Wind down', 'Close now', 'Resume', 'dashed', 'Key bindings', 'Settings', '⌘S', '3D globe', '29 Oct 2027', 'Route balance', 'low-cost', 'daily']) expect(txt).toContain(w);
     expect(txt).not.toMatch(/[—;]|BAL\.|§/);
     for (const l of lines) expect(l.length).toBeLessThanOrEqual(200);
   });
