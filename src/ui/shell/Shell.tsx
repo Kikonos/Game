@@ -30,8 +30,7 @@ import { useMedia, useTier } from '../useMedia';
 import { CLOCK_STEP, SPEEDS } from '../../engine/core/time';
 import type { PauseReason } from '../../engine/core/pause';
 import { ScreenHint } from '../components/ScreenHint';
-import { eventAction, isSaveCombo, KEY_EVENT, navTitle, type KeyAction } from '../keymap';
-import { keyCapture } from '../game/KeyBindings';
+import { eventAction, isSaveCombo, KEY_EVENT, keyCapture, navTitle, type KeyAction } from '../keymap';
 import { deviceNow } from '../device';
 
 export const NAV: { tab: Tab; label: string; short: string; icon: ReactNode }[] = [

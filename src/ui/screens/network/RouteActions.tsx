@@ -164,14 +164,13 @@ export function RouteActionModal({ routeId, action, back }: { routeId: string; a
     }
   }
   return (
-    <Modal title={title} onClose={close} className="nw-modal nw-life-modal" footer={
+    <Modal title={<span className="row gap-8 nw-life-title">{title}<LifeHelp action={action} /></span>} onClose={close} className="nw-modal nw-life-modal" footer={
       <>
         <button className="btn" onClick={close}>Cancel</button>
         <button className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`} data-enter disabled={!ok} onClick={go}>{confirm}</button>
       </>
     }>
       <div className="col gap-10">
-        <div className="row gap-6 nw-life-head"><span className="small muted grow">{WORD[action]}</span><LifeHelp action={action} /></div>
         {ok ? body : <p className="small muted">{q.why ?? 'Not possible now.'}</p>}
       </div>
     </Modal>

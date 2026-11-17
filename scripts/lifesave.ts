@@ -21,6 +21,7 @@ const q = quoteRouteLife(g, id);
 console.log(JSON.stringify({ booked: q.booked, empty: q.empty, pax: q.pax, refundCost: q.refundCost, best: q.best, all: q.all }));
 const cash0 = g.company.cash;
 let res: string | null = null;
+// 'none': the route left on sale (for screenshots).
 if (action === 'suspend') res = suspendRoute(g, id, false);
 else if (action === 'suspendRefund') res = suspendRoute(g, id, true);
 else if (action === 'windDown') res = windDownRoute(g, id);

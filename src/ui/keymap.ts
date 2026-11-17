@@ -4,6 +4,9 @@
 
 import type { Tab } from './store';
 
+/** True while Settings › Key bindings waits for a key: the shortcuts and the dialogs' Esc and Enter leave that press alone. */
+export const keyCapture = { on: false };
+
 /** The window event Shell.tsx sends for a map or board key (OpsMap, Schedule and the roster board listen). */
 export const KEY_EVENT = 'acmi-key';
 

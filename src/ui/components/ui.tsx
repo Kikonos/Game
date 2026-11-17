@@ -3,6 +3,7 @@ import { type ReactNode, type RefObject, type TouchEvent, useEffect, useMemo, us
 import { flag } from '../../data/countries';
 import { tierNow } from '../useMedia';
 import { toCss } from '../device';
+import { keyCapture } from '../keymap';
 
 const FIELD = 'input:not([type="checkbox"]):not([type="radio"]):not([type="range"]), select, textarea';
 
@@ -74,6 +75,8 @@ export function Modal({
   useEffect(() => {
     if (!onClose) return;
     const h = (e: KeyboardEvent) => {
+      // v0.24.1 Settings › Key bindings is waiting for a key: that press is its own.
+      if (keyCapture.on) return;
       // v0.24.1 Enter confirms: the dialog's primary button (marked data-enter), unless typing or a button has focus.
       if (e.key === 'Enter' && !e.metaKey && !e.ctrlKey && !e.altKey && !e.repeat) {
         const el = e.target as HTMLElement | null;

@@ -6,11 +6,9 @@ import { useEffect, useState } from 'react';
 import { Help } from '../components/Help';
 import { Modal } from '../components/ui';
 import { deviceNow } from '../device';
-import { DEFAULT_KEYS, FIXED_KEYS, KEY_ACTIONS, KEY_GROUPS, keyLabel, normKey, rebind, resetKey, swapKeys, unbindable, type KeyAction } from '../keymap';
+import { DEFAULT_KEYS, FIXED_KEYS, keyCapture, KEY_ACTIONS, KEY_GROUPS, keyLabel, normKey, rebind, resetKey, swapKeys, unbindable, type KeyAction } from '../keymap';
 import { store, useStore } from '../store';
 
-/** True while the editor waits for a key: the shortcuts and dialogs ignore that press. */
-export const keyCapture = { on: false };
 
 const LABEL = Object.fromEntries(KEY_ACTIONS.map((a) => [a.id, a.label])) as Record<KeyAction, string>;
 
