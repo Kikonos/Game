@@ -452,11 +452,14 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
 
 const baseFareOf = baseFare;
 
-/** r3-bal the launch ramp the case expects in its month `i` (the middle of the month on demand.ramp2, as sales.rampOf). */
+/**
+ * r3-bal the launch ramp the case expects in its month `i` (the middle of the month on demand.ramp2, as sales.rampOf),
+ * with the late-sales dent: a Go today flies in 16 weeks, so its tickets go on sale under 12 weeks before (filing).
+ */
 function caseRamp(i: number): number {
   const R = BAL.v019.demand.ramp2;
   const w = (i + 0.5) * (30.4 / 7);
-  return w >= R.weeks ? 1 : R.from + (1 - R.from) * w / R.weeks;
+  return w >= R.weeks ? 1 : (R.from + (1 - R.from) * w / R.weeks) * BAL.v019.demand.ramp.late;
 }
 
 function lowestDay(mask: number): number {
