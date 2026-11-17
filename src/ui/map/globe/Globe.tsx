@@ -114,7 +114,7 @@ const AHEAD_DASH: Record<FlightType, string> = { operating: '6 5', positioning: 
 const orbits = new WeakMap<GameState, Orbit>();
 
 /** Frame cost stats for perf checks (console: __bhGlobe); `aim` turns the open globe to a place (checks, screenshots). */
-const stats = { frames: 0, avgMs: 0, maxMs: 0, landMs: 0, reset() { this.frames = 0; this.avgMs = 0; this.maxMs = 0; }, aim: null as null | ((lon: number, lat: number, dist?: number) => void), orbit: null as null | (() => Orbit), fleet: null as null | (() => { id: string; pos: [number, number]; airborne: boolean; progress: number }[]) };
+const stats = { frames: 0, avgMs: 0, maxMs: 0, landMs: 0, reset() { this.frames = 0; this.avgMs = 0; this.maxMs = 0; }, aim: null as null | ((lon: number, lat: number, dist?: number) => void), orbit: null as null | (() => Orbit), routes: null as null | (() => { id: string; pts: ([number, number] | null)[] }[]), fleet: null as null | (() => { id: string; pos: [number, number]; airborne: boolean; progress: number }[]) };
 (globalThis as unknown as { __bhGlobe?: typeof stats }).__bhGlobe = stats;
 
 const cssVar = (name: string) => (typeof document !== 'undefined' ? getComputedStyle(document.documentElement).getPropertyValue(name) : '');
@@ -1139,6 +1139,8 @@ export default function Globe(props: GlobeProps) {
       return A ? [A.lon, A.lat] : null;
     };
     stats.orbit = () => ({ ...orbit });
+    // v0.24.1 the route lines' screen points (null: behind the globe), for checks and screenshots.
+    stats.routes = () => { routeAt(-1e6, -1e6, false); return routeScreen.lines; };
     stats.fleet = () => fleetNow.map((a) => ({ id: a.id, pos: a.pos, airborne: a.airborne, progress: a.progress }));
     stats.aim = (lon, lat, dist) => flyTo({ lon: wrap180(lon), lat: clampLat(lat), dist: clampDist(dist ?? orbit.dist) }, 600);
     selKey = propsRef.current.sel ? `${propsRef.current.sel.kind}:${propsRef.current.sel.id}` : '';
@@ -1153,6 +1155,7 @@ export default function Globe(props: GlobeProps) {
       stats.aim = null;
       stats.fleet = null;
       stats.orbit = null;
+      stats.routes = null;
       cancelAnimationFrame(raf);
       window.clearTimeout(spinTimer);
       ro.disconnect();

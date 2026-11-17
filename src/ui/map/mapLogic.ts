@@ -660,7 +660,7 @@ export function chipInfo(g: GameState, ac: Aircraft, t: Minute, short?: ShortRow
   if (!next) return { tone: 'idle', line: `Idle at ${ac.at}`, short: `Idle ${ac.at}` };
   const dep = next.std + next.delay;
   const soon = dep - t < 20 * 60;
-  const when = soon ? fmtTime(dep) : `· ${fmtDayShort(dep)}`;
+  const when = soon ? fmtTime(dep) : fmtDayShort(dep);
   // v0.12.1 '→OPO 14:05': the arrow says it is the next departure there, not a time at OPO.
   return { tone: dep - t < 24 * 60 ? 'good' : 'idle', line: `${next.from}→${next.to} ${when}`, short: soon ? `→${next.to} ${fmtTime(dep)}` : `${next.to} ${fmtDayShort(dep)}` };
 }

@@ -56,7 +56,7 @@ const slipAcOf = (g: GameState, id: string) => {
 /** View per game, so a tab switch returns to the same framing. */
 const views = new WeakMap<GameState, { view: View | null }>();
 
-/** Full chips (172 px) up to this many aircraft (fewer with the panel open), compact ones (112 px) beyond. */
+/** Full chips (172 px) up to this many aircraft (fewer with the panel open), compact ones (130 px) beyond. */
 const FULL_CHIPS = 5;
 
 /**
