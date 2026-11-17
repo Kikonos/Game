@@ -17,6 +17,13 @@ export const NET_OPS_BAL = {
     /** No aircraft for a rotation: the red card this many days out. */
     noAircraftDays: 10,
   },
+  /**
+   * v0.24.1 suspend, resume, wind down, close (lifecycle.ts). Slots: the 80/20 series rule lets about a fifth of a
+   * ~30-week season go unflown, so a suspended route keeps its slots 6 weeks after its last flight, then they lapse
+   * and the route closes. A resumed route files again from 14 days out; its bookings build from half the usual
+   * demand back to all of it over 8 weeks.
+   */
+  life: { slotHoldDays: 42, slotWarnDays: 7, refileDays: 14, ramp: { from: 0.5, weeks: 8 } },
   /** §G costs per sector and per month (USD). */
   cost: {
     /** Catering per passenger per sector: ≤5 h, 5–9 h, >9 h. */

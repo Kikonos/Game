@@ -97,6 +97,12 @@ export function rampOf(route: Route, dep: Minute): number {
   let x = weeks >= R.weeks ? 1 : R.from + (1 - R.from) * Math.max(0, weeks) / R.weeks;
   const opened = route.stages.find((s) => s.id === 'filing')?.due;
   if (opened !== undefined && first - opened < BAL.v019.launch.filing.shortDays * DAY && weeks < R.weeks) x *= R.late;
+  // v0.24.1 back on sale after a suspension or a wind-down: travellers come back over a few weeks.
+  if (route.resumed !== undefined) {
+    const Q = BAL.v019.life.ramp;
+    const w = (dep - route.resumed) / (7 * DAY);
+    if (w < Q.weeks) x *= Q.from + (1 - Q.from) * Math.max(0, w) / Q.weeks;
+  }
   return x;
 }
 
@@ -191,7 +197,8 @@ const noiseOf = (g: GameState, rot: Rotation, dir: Dir) => 0.82 + 0.36 * netRoll
  * ahead of the curve and Saver reopens inside 21 days when it lags; a weak pace 21 days out is told once.
  */
 export function dailySales(g: GameState, route: Route): void {
-  if (route.status !== 'onSale' && route.status !== 'operating') return;
+  // v0.24.1 a winding-down route sells nothing more (lifecycle.ts).
+  if ((route.status !== 'onSale' && route.status !== 'operating') || route.closing) return;
   const S = BAL.v019.sales;
   const own = route.model !== 'partner';
   for (const rot of route.rotations) {

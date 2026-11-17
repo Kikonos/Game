@@ -11,6 +11,7 @@ import { cashOnly } from '../core/ledger';
 import { notOursCancel } from '../ops/latePolicy';
 import { bumpRoute } from './reputation';
 import { inaugural, stepAwareness, stepLaunch } from './launch';
+import { settleClosedContracts, stepRouteLife } from './lifecycle';
 import { closePnlMonth } from './pnl';
 import { fadeReputation } from './reputation';
 import { onSectorArr, onSectorDep, pnlOf } from './revenue';
@@ -41,6 +42,7 @@ export * from './custom';
 export * from './stopover';
 export * from './advice';
 export * from './cabin';
+export * from './lifecycle';
 
 const emptyStats = (): NetworkState['stats'] => ({ launched: 0, rotations: 0, pax: 0, swaps: 0, subs: 0, moves: 0, cancels: 0, downgrades: 0 });
 
@@ -103,14 +105,20 @@ export function dailyNetwork(g: GameState): void {
   if (!g.network || !BAL.v019.on) return;
   const routes = routesOn(g);
   releaseBsp(g);
+  settleClosedContracts(g);
   if (!routes.length) return;
   for (const r of routes) {
+    // v0.24.1 a winding-down route closes after its last flight, a suspended one when its slots lapse.
+    stepRouteLife(g, r);
+    if (r.status === 'closed') continue;
     stepLaunch(g, r);
     dailySales(g, r);
     materialise(g, r);
     strandedRotations(g, r);
     fadeReputation(g, r);
-    if (r.status === 'operating') stepAwareness(r);
+    if (r.status === 'operating' && !r.closing) stepAwareness(r);
+    // v0.24.1 not selling: people forget the route (the same half-life, no campaign to keep it).
+    else if (r.status === 'suspended' || r.closing) r.awareness = Math.max(0.05, r.awareness * Math.pow(0.5, 1 / BAL.v019.demand.awareness.halfLife));
     if (r.dents?.length) r.dents = r.dents.filter((d) => d.until > g.now);
   }
   touchNetwork(g);

@@ -96,14 +96,14 @@ export function rotationSchedule(g: GameState, route: Route, rot: Rotation): { s
  * sale (their bookings) and adding the new dates. Called when sales open and daily as the horizon rolls on.
  */
 export function fileRotations(g: GameState, route: Route): number {
-  if (route.status !== 'onSale' && route.status !== 'operating') return 0;
+  if ((route.status !== 'onSale' && route.status !== 'operating') || route.closing) return 0;
   const until = g.now + HORIZON();
   let n = 0;
   const have = new Set(route.rotations.map((r) => `${r.seriesId}@${r.dep}`));
   for (const s of route.series) {
     if (s.from > until) continue;
     for (const dep of seriesDates(g, route, { ...s, to: Math.min(s.to, until) })) {
-      if (dep <= g.now + 60 || have.has(`${s.id}@${dep}`)) continue;
+      if (dep <= g.now + 60 || dep < (route.refileFrom ?? 0) || have.has(`${s.id}@${dep}`)) continue;
       // A rotation moved by the player keeps its own date: no second one on its old slot.
       if (route.rotations.some((r) => r.seriesId === s.id && r.moved && Math.abs(r.dep - r.moved - dep) < 1)) continue;
       const r = newRotation(g, route, s, dep);
@@ -218,7 +218,8 @@ export function flyRotation(g: GameState, route: Route, rot: Rotation, aircraftI
  * out gets a red card (the conflict choices), and at 3 days out it is sub-chartered (no penalty, only the price).
  */
 export function materialise(g: GameState, route: Route): void {
-  if (route.status !== 'onSale' && route.status !== 'operating') return;
+  // v0.24.1 a suspended route still flies the rotations it kept (their passengers booked); it files nothing new.
+  if (route.status !== 'onSale' && route.status !== 'operating' && route.status !== 'suspended') return;
   fileRotations(g, route);
   const O = BAL.v019.ops;
   const touched = new Set<string>();

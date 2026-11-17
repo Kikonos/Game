@@ -221,6 +221,17 @@ export interface Route {
   monthPax?: number;
   /** v0.21 a stopover route: the B–C (fifth-freedom) rights won at the rights stage (absent before it). */
   fifth?: FifthRights;
+  /**
+   * v0.24.1 suspended (status 'suspended', lifecycle.ts): when, the status it comes back to, and the date its slots
+   * lapse (the route then closes by itself) unless resumed.
+   */
+  suspended?: { at: Minute; prev: 'onSale' | 'operating'; slotsUntil: Minute };
+  /** v0.24.1 winding down (lifecycle.ts): no sales, the booked flights fly, the route closes after its last one. */
+  closing?: { at: Minute; last: Minute };
+  /** v0.24.1 resumed after a suspension or a wind-down: bookings build up again from this date (sales.ts rampOf). */
+  resumed?: Minute;
+  /** v0.24.1 the timetable is filed again only from this date (a resumed route needs time to sell). */
+  refileFrom?: Minute;
 }
 
 /** v0.21 fifth-freedom rights at a stopover: sell B–C seats freely, a limited share of them, or not at all. */

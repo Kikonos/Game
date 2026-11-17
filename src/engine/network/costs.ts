@@ -172,7 +172,8 @@ export function routeMonthCosts(r: Route, resting = false): Partial<Record<Ledge
   return {
     routeSetup: Math.round(r.status === 'suspended' || resting ? overhead * 0.5 : overhead),
     distribution: r.model === 'partner' ? 0 : C.distributionMonth,
-    marketing: r.model === 'partner' || resting ? 0 : C.marketing[r.marketing] ?? 0,
+    // v0.24.1 no campaign while it sells nothing (suspended or winding down).
+    marketing: r.model === 'partner' || resting || r.status === 'suspended' || r.closing ? 0 : C.marketing[r.marketing] ?? 0,
   };
 }
 
