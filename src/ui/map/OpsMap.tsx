@@ -569,7 +569,7 @@ export function OpsMap() {
   return (
     <div className={`ops-map ${panelOpen ? 'panel-open' : ''}`}>
       {globe.on ? (
-        <GlobeHost g={g} airports={airports} nextArcs={nextArcs} tours={tours} marks={globeMarks} slipLegs={slipLegs} follow={globeFollow} sel={sel} theme={theme} accent={g.company.livery.secondary} panelOpen={panelOpen} onFlat={() => globe.show(false)} onFail={globe.fail} />
+        <GlobeHost g={g} airports={airports} nextArcs={nextArcs} tours={tours} marks={globeMarks} slipLegs={slipLegs} follow={globeFollow} sel={sel} theme={theme} accent={g.company.livery.secondary} panelOpen={panelOpen} routeLines={routeLines} routeSel={routeCard ?? undefined} onRoute={setRouteCard} onFlat={() => globe.show(false)} onFail={globe.fail} />
       ) : (
       <WorldMap
         extraControls={store.settings.globe && !globe.failed ? <GlobeButton onClick={() => globe.show(true)} /> : undefined}

@@ -154,6 +154,39 @@ export function pickNearest<T>(items: Iterable<{ x: number; y: number; item: T }
   return best;
 }
 
+// v0.24.1 a finger gets 24 px each side of a route line, a mouse 8 (the flat map and the globe).
+export const HIT_ROUTE = { touch: 24, mouse: 8 };
+
+/** Squared distance from p to segment ab. */
+export function segDist2(px: number, py: number, ax: number, ay: number, bx: number, by: number) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const l2 = dx * dx + dy * dy;
+  const t = l2 ? Math.max(0, Math.min(1, ((px - ax) * dx + (py - ay) * dy) / l2)) : 0;
+  const qx = ax + t * dx - px;
+  const qy = ay + t * dy - py;
+  return qx * qx + qy * qy;
+}
+
+/**
+ * v0.24.1 the line nearest (x, y) within r: each line a run of screen points, null where it cannot be hit (behind the
+ * globe); a segment counts only when both its ends can be hit.
+ */
+export function nearestLine(lines: Iterable<{ id: string; pts: ([number, number] | null)[] }>, x: number, y: number, r: number): string | undefined {
+  let best: string | undefined;
+  let bd = r * r;
+  for (const l of lines) {
+    for (let i = 1; i < l.pts.length; i++) {
+      const a = l.pts[i - 1];
+      const b = l.pts[i];
+      if (!a || !b) continue;
+      const d = segDist2(x, y, a[0], a[1], b[0], b[1]);
+      if (d < bd) { bd = d; best = l.id; }
+    }
+  }
+  return best;
+}
+
 // ---------- selection data ----------
 
 export interface LegArc {
