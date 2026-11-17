@@ -45,7 +45,7 @@ import { paintLabel } from '../screens/scheduleLogic';
 import { ShapeTags } from '../components/ShapeTags';
 import { shapeOf } from '../../engine/contracts/shape';
 import { topBlocker } from '../../engine/contracts/blockers';
-import { archLabel, capFirst, expiryLabel, hangarWord, offerDays, offerModal } from '../screens/screenLogic';
+import { archLabel, capFirst, expiryLabel, hangarWord, offerSpan, offerModal } from '../screens/screenLogic';
 import { ALERT_BANNER, ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, deliveryTag, EVENT_KIND_LABEL, EVENT_TONE, hotelCount, leasedOut, mapLivery, OOH_SHORT, oohLine, parseCommercialId, parseSlipId, PURPOSE_LABEL, purposeChain, restChip, restingLine, restSeatNoun, shortIndex, type ShortRow, slipLine, slipSelId, slipWindow, upcomingLegs } from './mapLogic';
 import { RouteLive } from '../screens/network/live';
 import { MiniMap } from './MiniMap';
@@ -711,7 +711,7 @@ function OfferPanel({ g, id }: { g: GameState; id: string }) {
       <div className="op-kv">
         <div><span>Client</span><b className="ellipsis">{client?.name ?? '—'}</b></div>
         <div><span>Route</span><b className="mono">{routeSummary(o)}</b></div>
-        <div><span>Dates</span><b className="num">{offerDays(o).map(fmtDay).join(' – ')}</b></div>
+        <div><span>Dates</span><b className="num">{offerSpan(o)}</b></div>
         <div><span>Product</span><b className="num">{product}</b></div>
         <div><span>Est. value</span><b className="num">{money(o.estValue)} · {Math.round(o.estBH)} BH</b></div>
         {o.paint && <div><span>Livery</span><b className={o.paint.required ? 'warn-t' : ''}>Their colours{o.paint.required ? ' · required' : ' · optional'}</b></div>}

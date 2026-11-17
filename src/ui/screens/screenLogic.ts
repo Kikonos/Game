@@ -38,6 +38,12 @@ export function offerDays(o: Pick<ContractOffer, 'pattern' | 'start' | 'end'>): 
   return o.pattern.kind === 'base' ? [toLocal(o.pattern.base, o.start), toLocal(o.pattern.base, o.end - 1)] : [o.start, o.end];
 }
 
+/** v0.24.1 a job's days as one span, the year once when both share it: '20 Jul – 23 Aug 2027'. */
+export const offerSpan = (o: Pick<ContractOffer, 'pattern' | 'start' | 'end'>): string => {
+  const [a, b] = offerDays(o);
+  return joinDays(fmtDay(a), fmtDay(b));
+};
+
 /**
  * v0.14.1 (merge) a contract's days as the client says them (contracts/accept jobDays): a base programme on the base's
  * local calendar ('1 Jun – 31 Aug', never the UTC '31 May' of its local-midnight start), other work by its UTC days. Pure.
