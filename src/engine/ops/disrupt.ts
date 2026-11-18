@@ -8,7 +8,7 @@
 // engine (holds at the gate run through fdpOver / crewProblem; continuation legs are crewed by the roster).
 
 import { AIRPORTS, AIRPORT_BY_CODE } from '../../data/airports';
-import { CTOT_CAUSES, CURFEWS, DISRUPT, ISLAND, MAINLAND_EU, MEDICAL_EVENTS, TECH_CAUSES, TURN_CAUSES, UNRULY_EVENTS, WEATHER_CAUSES } from '../../data/opsData';
+import { CTOT_CAUSES, CURFEWS, DISRUPT, ISLAND, MAINLAND_EU, MEDICAL_EVENTS, TECH_CAUSES, TURN_CAUSES, UNRULY_EVENTS, weatherCausesAt } from '../../data/opsData';
 import { authorityName } from './audit';
 import { addFlight, flightsOf, markFlightsChanged, nextId, removeFlights, touchFlights } from '../core/entities';
 import { haversine, interpolateGC } from '../core/geo';
@@ -20,7 +20,7 @@ import { isolatePauses } from '../core/pause';
 import { hashUnit } from '../core/util';
 import { divPos } from '../core/query';
 import { clearOfCurfews, curfewEnd, inCurfew, movementOk } from '../core/curfew';
-import { DAY, dayStart, fmtDuration, fmtTime, localMinuteOfDay, toLocal, yearOf } from '../core/time';
+import { DAY, dayStart, fmtDuration, fmtTime, localMinuteOfDay, toDate, toLocal, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, Decision, DecisionOption, DisruptCause, DisruptKind, Flight, GameState, MaintenanceEvent, Minute, OpsState, SimEvent } from '../core/types';
 import { bumpClient } from '../contracts/relations';
 import { afterDiversion, applyCrewFix, crewControl, flightCrewStatus, removeCrew, rerosterFrom } from '../crew';
@@ -606,7 +606,8 @@ function diversionCard(g: GameState, f: Flight, ac: Aircraft, cause: 'weather' |
     alts.length = Math.min(alts.length, 3);
   }
   if (!alts.length) return;
-  const what = cause === 'weather' ? pickOf(g, `${key}:w`, WEATHER_CAUSES) : pickOf(g, `${key}:t`, TECH_CAUSES);
+  // v0.25 the weather of the season and the place (no snow at Riga in September, nor at Tenerife ever): one roll.
+  const what = cause === 'weather' ? pickOf(g, `${key}:w`, weatherAt(f.to, f.std)) : pickOf(g, `${key}:t`, TECH_CAUSES);
   const pax = paxOf(g, f);
   const opts: DecisionOption[] = alts.map((o) => ({ id: `alt:${o.code}`, label: o.code === f.from ? `Return to ${city(o.code)} (${o.code})` : altLabel(o), desc: `${AIRPORT_BY_CODE[o.code]?.name ?? o.code}: ${o.station === 'ours' ? 'our engineers and handling' : o.station === 'full' ? 'a full-service handler, hotels nearby' : 'handling at short notice, dearer'}.`, tone: o.station === 'adhoc' ? 'warn' : 'good', chips: altChips(o, f.to) }));
   if (cause === 'weather') opts.unshift({ id: 'hold', label: 'Hold for 30 minutes', desc: 'Circle and wait for the weather to lift; fuel for about 40 minutes of holding. If it does not, divert to the first alternate.', tone: 'warn', chips: ['Half the time it clears', '30 min more'] });
@@ -673,6 +674,12 @@ function resolveUnruly(g: GameState, d: Decision, opt: string): ActionResult {
 }
 
 const cap1 = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** v0.25 the weather causes that fit an airport at a time (the month at its latitude). Pure. */
+export function weatherAt(code: string, t: Minute): string[] {
+  const xs = weatherCausesAt(AIRPORT_BY_CODE[code]?.lat ?? 45, toDate(t).getUTCMonth() + 1);
+  return xs.length ? xs : ['Low cloud and heavy rain'];
+}
 
 /** Turns an airborne leg to `alt` now (the map turns it from where it is). */
 export function divertNow(g: GameState, f: Flight, alt: string, cause: DisruptCause, what?: string): void {

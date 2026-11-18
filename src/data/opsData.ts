@@ -159,6 +159,30 @@ export const CTOT_CAUSES = [
 
 /** Weather that closes a destination for a while. */
 export const WEATHER_CAUSES = ['Fog below landing minimums', 'Thunderstorms over the airport', 'Crosswind over the limit', 'Snow on the runway being cleared', 'Low cloud and heavy rain'];
+
+/**
+ * v0.25 when and where each weather cause happens: months of the northern year (the southern half flips by six
+ * months) and the least |latitude|. Snow from November to March from 40°; fog in autumn and winter. A cause not
+ * listed happens anywhere, all year.
+ */
+const WEATHER_WHEN: Record<string, { months: number[]; minLat?: number }> = {
+  'Snow on the runway being cleared': { months: [11, 12, 1, 2, 3], minLat: 40 },
+  'Fog below landing minimums': { months: [9, 10, 11, 12, 1, 2, 3] },
+  'Thunderstorms over the airport': { months: [4, 5, 6, 7, 8, 9, 10] },
+};
+
+/** v0.25 the weather causes that fit an airport at `lat` in `month` (1–12), in WEATHER_CAUSES order. Pure. */
+export function weatherCausesAt(lat: number, month: number): string[] {
+  const m = lat < 0 ? ((month + 5) % 12) + 1 : month;
+  // The tropics have thunderstorms all year.
+  return WEATHER_CAUSES.filter((w) => {
+    const r = WEATHER_WHEN[w];
+    if (!r) return true;
+    if (r.minLat !== undefined && Math.abs(lat) < r.minLat) return false;
+    if (w.startsWith('Thunderstorms') && Math.abs(lat) < 23.5) return true;
+    return r.months.includes(m);
+  });
+}
 /** Technical reasons for a precautionary diversion. */
 export const TECH_CAUSES = ['A hydraulic system warning', 'An engine oil pressure warning', 'Smoke smell in the cabin', 'A pressurisation fault', 'A cracked cockpit window'];
 /** Turnaround slow-downs. */
