@@ -291,6 +291,8 @@ export interface CashPath {
   events: CashEvent[];
   /** Cash change over the last three closed months plus this one (null with too little history). */
   trend3: number | null;
+  /** v0.25 where trend3 starts: the first day of the third closed month back (the card says 'since 1 Apr'). */
+  trendFrom: Minute | null;
 }
 
 /**
@@ -319,7 +321,7 @@ export function cashPath(history: readonly MonthStatement[], current: MonthKey, 
     if (cashNow < 0 && backAt === null && p.cash >= 0) backAt = p.t;
   }
   const back = closed.length >= 3 ? closed[closed.length - 3].cashStart : null;
-  return { points, zeroAt, backAt, events, trend3: back === null ? null : cashNow - back };
+  return { points, zeroAt, backAt, events, trend3: back === null ? null : cashNow - back, trendFrom: back === null ? null : monthStart(closed[closed.length - 3].month) };
 }
 
 /** Days from `now` to `t`, rounded up (for 'in 23 days'). */
