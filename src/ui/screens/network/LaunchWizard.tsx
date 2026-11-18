@@ -388,7 +388,7 @@ function CaseCard({ g, r }: { g: GameState; r: Route }) {
   const m = marketOf(r);
   const rec = useMemo(() => net.recommend(g, r.id), [g.network?.rev, r.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const first = (): CaseDraft | null => net.defaultDraft(g, r.id) ?? (rec ? {
-    model: rec.model, days: rec.days, every: rec.every ?? 1, monthly: rec.monthly, out: rec.out, back: rec.back ?? 0, nights: rec.nights ?? m?.timetable.nights ?? 0, typeId: rec.typeId, fares: 'market', marketing: 'normal',
+    model: rec.model, days: rec.days, every: rec.every ?? 1, monthly: rec.monthly, out: rec.out, back: rec.back ?? 0, nights: rec.nights ?? m?.timetable.nights ?? 0, typeId: rec.typeId, layout: rec.layout, fares: 'market', marketing: 'normal',
   } : m ? { model: r.model, days: 1 << m.timetable.day, every: 1, monthly: m.timetable.pattern === 'monthly' ? { nth: 1, weekday: m.timetable.day } : undefined, out: m.timetable.out, back: m.timetable.back, nights: m.timetable.nights, typeId: 'b763', fares: 'market', marketing: 'normal' } : null);
   const [draft, setDraft] = useState<CaseDraft | null>(first);
   const c = useMemo(() => (draft ? (net.businessCase(g, r.id, draft) as EngineCase | null) : null), [g.network?.rev, r.id, draft]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -432,6 +432,7 @@ function CaseCard({ g, r }: { g: GameState; r: Route }) {
         <div className="nw-est small">Study ({r.study.depth === 'desk' ? 'desk' : r.study.depth === 'full' ? 'full' : 'full + survey'}): <b>{int(r.study.est.p50)}</b> travellers a week both ways, likely between {int(r.study.est.p10)} and {int(r.study.est.p90)}.{r.study.validUntil !== undefined && <span className="nw-valid tiny">Valid until {fmtDate(r.study.validUntil)}</span>}</div>
       )}
       {c && <VerdictCard c={c} />}
+      {c?.fleetWarn?.map((w) => <div key={w} className="note warn small">{w}</div>)}
       {rec && <RecommendationCard rec={rec} />}
       {draft && m && <RouteMap from={m.from} to={m.to} via={m.via} viaBack={m.viaBack} typeId={draft.typeId} rivals={m.competitors} height={200} className="nw-case-map" />}
       {draft && <DraftEditor g={g} m={m} d={draft} set={setDraft} />}

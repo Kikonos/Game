@@ -10,7 +10,7 @@ import { etopsCap, typeOf } from '../core/perf';
 import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
 import { catalogueOf, chainProblem, customFacts, customMarket, routeBases, sisters } from './custom';
-import { firstFlightOf, project, studyBase, type Projection } from './launch';
+import { firstFlightOf, fleetLayout, project, studyBase, type Projection } from './launch';
 import { cabinFor, freqPerWeek, marketOfRoute, monthsWords, seasonMonths, serviceHours } from './model';
 import { crewAwayCost } from './pnl';
 import type { FifthRights, Route, RouteModel, RoutePlan } from './types';
@@ -131,8 +131,9 @@ function optionOf(g: GameState, m: RouteMarket, mode: StopMode, plan: RoutePlan,
 }
 
 /** A first plan for a market before any study: its usual weekly timetable on the type. */
-function firstPlan(m: RouteMarket, typeId: string): RoutePlan {
-  return { model: m.model, days: 1 << m.timetable.day, every: 1, out: m.timetable.out, back: m.timetable.back, nights: m.timetable.nights, typeId, layout: 'two-class', fares: 'market', marketing: 'normal' };
+function firstPlan(g: GameState, m: RouteMarket, typeId: string): RoutePlan {
+  // v0.25 in the cabin our aircraft of the type have (an all-economy A320 sells no business seats).
+  return { model: m.model, days: 1 << m.timetable.day, every: 1, out: m.timetable.out, back: m.timetable.back, nights: m.timetable.nights, typeId, layout: fleetLayout(g, typeId) ?? 'two-class', fares: 'market', marketing: 'normal' };
 }
 
 /**
@@ -149,7 +150,7 @@ export function stopoverCompare(g: GameState, from: string, to: string, at: stri
   if (!nonstop || !fuel) return null;
   const reach = !chainProblem(nonstop, typeId);
   const pm = reach ? nonstop : fuel;
-  const plan = on?.plan ?? firstPlan(sm, typeId);
+  const plan = on?.plan ?? firstPlan(g, sm, typeId);
   const start = on ? firstFlightOf(g, on.r, plan) : g.now + 120 * DAY;
   const x = on?.x ?? 1;
   const plain = optionOf(g, pm, reach ? 'nonstop' : 'fuel', plan, start, x, on?.r);
@@ -410,8 +411,10 @@ function ideasKey(g: GameState): { key: string; bases: string[]; caps: { t: stri
   const types = [...new Set(Object.values(g.fleet).filter((a) => a.status !== 'leasedOut').map((a) => a.typeId))].sort();
   // v0.23.2 an ETOPS approval won this month opens the ocean pairs at once (the list used to wait for the month's turn).
   const caps = types.map((t) => ({ t, cap: etopsCap(g.company.approvals, t) }));
+  // v0.25 the cabins we fly them in and how many we own (the guess prices the seats and aircraft we really have).
+  const fleet = types.map((t) => `${t}:${fleetLayout(g, t)}:${Object.values(g.fleet).filter((a) => a.typeId === t && a.status !== 'leasedOut' && a.ownership.kind === 'owned').length}`).join();
   const taken = new Set(Object.values(g.network?.routes ?? {}).filter((r) => r.status !== 'closed').map((r) => { const m = marketOfRoute(r); return m ? `${m.from}-${m.to}` : ''; }));
-  const key = `${bases.join()}|${caps.map((c) => `${c.t}:${c.cap}`).join()}|${[...taken].sort().join()}|${Math.floor(g.now / (30 * DAY))}|${Math.round(g.market.fuelPrice / 25)}`;
+  const key = `${bases.join()}|${caps.map((c) => `${c.t}:${c.cap}`).join()}|${fleet}|${[...taken].sort().join()}|${Math.floor(g.now / (30 * DAY))}|${Math.round(g.market.fuelPrice / 25)}`;
   return { key, bases, caps, taken };
 }
 
@@ -463,7 +466,7 @@ function ideasOf(g: GameState): { list: RouteIdea[]; why: string | null } {
       for (const n of IDEA_FREQ) {
         if (n > 3 && rotH * n > 7 * BAL.v019.study.maxDayH) continue;
         for (const model of m.models.filter((x) => x !== 'partner')) {
-          const plan = { ...firstPlan(m, t), model, days: spreadDays(m.timetable.day, n) };
+          const plan = { ...firstPlan(g, m, t), model, days: spreadDays(m.timetable.day, n) };
           // r3-bal a year once the route is known (no launch ramp): the planner pitches what a route earns; the
           // study's case then counts the first year's ramp too.
           const p = project(g, { ...viewOf(m), model }, plan, g.now + 120 * DAY, 1, { mature: true });

@@ -464,6 +464,46 @@ function caseRamp(i: number): number {
   return w >= R.weeks ? 1 : (R.from + (1 - R.from) * w / R.weeks) * BAL.v019.demand.ramp.late;
 }
 
+/** v0.25 our aircraft of a type that can fly for us (not leased out), by id. Pure. */
+export function fleetOfType(g: GameState, typeId: string): GameState['fleet'][string][] {
+  return Object.values(g.fleet).filter((a) => a.typeId === typeId && a.status !== 'leasedOut').sort((a, b) => (a.id < b.id ? -1 : 1));
+}
+
+/**
+ * v0.25 the cabin our aircraft of a type fly (the most common one; null when we have none): a case or an idea is priced
+ * on the seats we really have (an all-economy A320 fleet sells no business seats). Pure.
+ */
+export function fleetLayout(g: GameState, typeId: string): CabinLayout | null {
+  const n = new Map<CabinLayout, number>();
+  for (const a of fleetOfType(g, typeId)) {
+    const l = (a.cabin.layout as CabinLayout | undefined) ?? (a.cabin.j + a.cabin.w > 0 ? 'two-class' : 'all-economy');
+    const k: CabinLayout = l === 'vip' || l === 'three-class' ? 'two-class' : l;
+    n.set(k, (n.get(k) ?? 0) + 1);
+  }
+  let best: CabinLayout | null = null;
+  for (const [k, v] of n) if (!best || v > (n.get(best) ?? 0)) best = k;
+  return best;
+}
+
+/**
+ * v0.25 the aircraft time a block hour the route P&L will charge for a type: the average over our own aircraft of it
+ * (an owned one costs its insurance only, a leased one its rent too), else the type's list rent. Pure.
+ */
+export function fleetAcCostBH(g: GameState, typeId: string): number {
+  const own = fleetOfType(g, typeId);
+  if (!own.length) return aircraftCostBH(g, null, typeId);
+  return own.reduce((a, ac) => a + aircraftCostBH(g, ac.id, typeId), 0) / own.length;
+}
+
+/** v0.25 the business case's warnings about the aircraft: a type we don't have, business seats our aircraft lack. Pure. */
+export function fleetWarnings(g: GameState, p: Pick<RoutePlan, 'typeId' | 'layout'>): string[] {
+  const own = fleetOfType(g, p.typeId);
+  const name = typeOf(p.typeId)?.short ?? p.typeId;
+  if (!own.length) return [`We have no ${name}: these figures need one in the fleet before the first flight.`];
+  if (cabinFor(p.typeId, p.layout ?? 'two-class').j > 0 && own.every((a) => a.cabin.j + a.cabin.w === 0)) return [`Our ${name} has no business seats: business passengers would be moved to economy on the day.`];
+  return [];
+}
+
 function lowestDay(mask: number): number {
   for (let i = 0; i < 7; i++) if (mask & (1 << i)) return i;
   return 4;
@@ -518,6 +558,8 @@ export interface BusinessCase {
   /** v0.21 a route with a fuel stop: the year as a stopover there (no B–C rights, and with them). */
   asStop?: { at: string; none: number; full: number; odds: { full: number; limited: number; why: string } } | null;
   verdict?: Verdict;
+  /** v0.25 the aircraft the plan needs and we lack: a type we don't have, business seats our aircraft don't have. */
+  fleetWarn?: string[];
 }
 export interface CaseBand { paxPerSector: number; lf: number; rev: number; cost: number; result: number; margin: number }
 
@@ -625,7 +667,7 @@ export function businessCase(g: GameState, routeId: string, draft: RoutePlan): B
   return {
     ...band, breakEvenLf, paybackWeeks,
     launchCost: cost, acmi, notes, firstFlight: start, parts: mid.parts, rotations: mid.rotations, lfOff: mid.lfOff, lfPeak: mid.lfPeak,
-    acmiResult, crew, ...(stop ? { stop } : {}), asStop, verdict,
+    acmiResult, crew, ...(stop ? { stop } : {}), asStop, verdict, fleetWarn: fleetWarnings(g, draft),
   };
 }
 
@@ -694,26 +736,36 @@ function searchPlan(g: GameState, r: Route, x: number): { plan: RoutePlan; resul
     if (S.freqs.includes(4)) pats.push({ days: (1 << 0) | (1 << 2) | (1 << 4) | (1 << 6), every: 1 });
     if (S.freqs.includes(7)) pats.push({ days: 127, every: 1 });
   }
-  const gauges: ['narrow' | 'mid' | 'big', string][] = [];
-  const fleetTypes = new Set(Object.values(g.fleet).map((a) => a.typeId));
-  for (const [gk, ids] of Object.entries(S.gauges) as ['narrow' | 'mid' | 'big', string[]][]) {
-    const have = ids.find((id) => fleetTypes.has(id)) ?? ids.find((id) => typeOf(id));
-    if (have) gauges.push([gk, have]);
+  // A type that cannot fly the chain (range, runway) is skipped.
+  const canFly = (typeId: string) => {
+    const c = [...chainOf(m, 'out'), ...chainOf(m, 'back').slice(1)];
+    for (let i = 1; i < c.length; i++) if (payloadMax(typeId, c[i - 1], c[i]) <= 0 || blockMinutes(typeId, c[i - 1], c[i]) <= 0) return false;
+    // v0.19.2 nor one whose runway or full-payload range rules a sector out (payloadMax never reaches zero past the range).
+    return !chainProblem(m, typeId);
+  };
+  const gaugeOf = (typeId: string): 'narrow' | 'mid' | 'big' => {
+    for (const [gk, ids] of Object.entries(S.gauges) as ['narrow' | 'mid' | 'big', string[]][]) if (ids.includes(typeId)) return gk;
+    return typeOf(typeId)?.body !== 'wide' ? 'narrow' : cabinFor(typeId, 'two-class').total >= 300 ? 'big' : 'mid';
+  };
+  // v0.25 our own types first, in the cabin we fly them (the case was priced on an A321neo with business seats for an
+  // all-economy A320 airline); the catalogue's gauges only when none of ours can fly it.
+  const ownTypes = [...new Set(Object.values(g.fleet).filter((a) => a.status !== 'leasedOut').map((a) => a.typeId))].sort().filter(canFly);
+  const gauges: ['narrow' | 'mid' | 'big', string][] = ownTypes.map((t) => [gaugeOf(t), t]);
+  if (!gauges.length) {
+    for (const [gk, ids] of Object.entries(S.gauges) as ['narrow' | 'mid' | 'big', string[]][]) {
+      const have = ids.find((id) => typeOf(id) && canFly(id));
+      if (have) gauges.push([gk, have]);
+    }
   }
   let best: { plan: RoutePlan; result: number; why: string[]; gauge: 'narrow' | 'mid' | 'big' } | null = null;
   const times = [m.timetable.out, ...S.times.filter((t) => Math.abs(t - m.timetable.out) > 90)];
   for (const pat of pats) for (const [gk, typeId] of gauges) {
-    // A type that cannot fly the chain (range, runway) is skipped.
-    const c = [...chainOf(m, 'out'), ...chainOf(m, 'back').slice(1)];
-    let ok = true;
-    for (let i = 1; i < c.length && ok; i++) if (payloadMax(typeId, c[i - 1], c[i]) <= 0 || blockMinutes(typeId, c[i - 1], c[i]) <= 0) ok = false;
-    // v0.19.2 nor one whose runway or full-payload range rules a sector out (payloadMax never reaches zero past the range).
-    if (!ok || chainProblem(m, typeId)) continue;
+    const layout = fleetLayout(g, typeId) ?? 'two-class';
     // One aircraft flies the series: its rotations must fit the week (block, stops, the turn, nights away).
     const rotH = serviceHours(m, typeId, 'out') + serviceHours(m, typeId, 'back') + (typeOf(typeId)?.turnMin ?? 60) / 60 + m.timetable.nights * 24;
     if (freqPerWeek(pat) > 3 && rotH * freqPerWeek(pat) > 7 * S.maxDayH) continue;
     for (const out of times.slice(0, 2)) {
-      const plan: RoutePlan = { model: r.model, days: pat.days, every: pat.every, monthly: pat.monthly, out, back: m.timetable.back, nights: m.timetable.nights, typeId, layout: 'two-class', fares: 'market', marketing: 'normal' };
+      const plan: RoutePlan = { model: r.model, days: pat.days, every: pat.every, monthly: pat.monthly, out, back: m.timetable.back, nights: m.timetable.nights, typeId, layout, fares: 'market', marketing: 'normal' };
       const pr = project(g, r, plan, g.now + 120 * DAY, x);
       if (!best || pr.result > best.result) {
         const why = [
@@ -731,7 +783,7 @@ function searchPlan(g: GameState, r: Route, x: number): { plan: RoutePlan; resul
 /** UPDATE-0.19 additions 3 (a): the study's recommended timetable and its demand range by month (null before results). */
 export function recommendation(g: GameState, routeId: string): {
   freq: number; days: number; every?: number; monthly?: { nth: number; weekday: number }; out: number; back: number; nights: number;
-  gauge: 'narrow' | 'mid' | 'big'; typeId: string; types: string[]; model: RouteModel; why: string[]; months: { p10: number; p50: number; p90: number }[];
+  gauge: 'narrow' | 'mid' | 'big'; typeId: string; layout: CabinLayout; types: string[]; model: RouteModel; why: string[]; months: { p10: number; p50: number; p90: number }[];
 } | null {
   const r = g.network?.routes[routeId];
   const est = r?.study?.est;
@@ -750,7 +802,7 @@ export function recommendation(g: GameState, routeId: string): {
   });
   return {
     freq: freqPerWeek(best.plan), days: best.plan.days, every: best.plan.every, monthly: best.plan.monthly, out: best.plan.out, back: best.plan.back, nights: best.plan.nights,
-    gauge: best.gauge, typeId: best.plan.typeId, types: BAL.v019.study.gauges[best.gauge], model: r.model, why: best.why, months,
+    gauge: best.gauge, typeId: best.plan.typeId, layout: best.plan.layout ?? 'two-class', types: BAL.v019.study.gauges[best.gauge], model: r.model, why: best.why, months,
   };
 }
 
@@ -769,7 +821,7 @@ export function caseDraft(g: GameState, routeId: string): RoutePlan | null {
   // v0.23.2 a market with a dead season is planned for its season (winter sun from the Baltics, summer to the islands).
   const m = marketOfRoute(r);
   return {
-    model: r.model, days: rec.days, every: rec.every ?? 1, monthly: rec.monthly, out: rec.out, back: rec.back, nights: rec.nights, typeId: rec.typeId, layout: 'two-class', fares: 'market', marketing: 'normal',
+    model: r.model, days: rec.days, every: rec.every ?? 1, monthly: rec.monthly, out: rec.out, back: rec.back, nights: rec.nights, typeId: rec.typeId, layout: rec.layout, fares: 'market', marketing: 'normal',
     ...(m && seasonMonths(m) ? { season: true as const } : {}),
   };
 }

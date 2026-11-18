@@ -17,6 +17,8 @@ export interface Recommendation {
   nights?: number;
   gauge: 'narrow' | 'mid' | 'big';
   typeId: string;
+  /** v0.25 the cabin our aircraft of the type fly. */
+  layout?: CabinLayout;
   types?: string[];
   model: RouteModel;
   why: string[];
