@@ -353,6 +353,10 @@ function ticketWhy(g: GameState, p: Pairing, crewId: string, out: boolean, t?: T
   return out ? 'Trip out' : 'Trip home';
 }
 
+/** v0.25 who had an early-home note this minute (one line per person). */
+let notedAt = -1;
+const noted = new Set<string>();
+
 /**
  * Rotations round: a tour's crew member going home before the rotation ends is told plainly in the Inbox. v0.25 a burst
  * (the Malteser save, 3 Aug 2027: seven notes in one minute, 'Block 28d 102:07 > 100:00') is one note per set: an unread
@@ -361,6 +365,10 @@ function ticketWhy(g: GameState, p: Pairing, crewId: string, out: boolean, t?: T
  * loaded in that minute merges alike.
  */
 export function earlyHomeNote(g: GameState, c: CrewMember, set: string, why: string, tail: string): void {
+  // v0.25 one line per person: taken off two parts of the set's trip in the same minute is still one name.
+  if (notedAt !== g.now) { notedAt = g.now; noted.clear(); }
+  if (noted.has(`${c.id}|${set}`)) return;
+  noted.add(`${c.id}|${set}`);
   const name = crewName(c);
   const suffix = `. ${set}, ${tail}`;
   const prev = g.messages.find((m) => m.t === g.now && !m.read && m.cat === 'crew' && / go(es)? home early$/.test(m.title) && m.body.endsWith(suffix));
@@ -403,6 +411,22 @@ function flushEarlyHome(g: GameState, held: NonNullable<typeof heldHome>): void 
       && q.deploymentId === h.depId && !guestOn(q, c.id) && q.slots.some((s) => s.crewId === c.id) && openDuties(g, q).some((d) => d.report >= h.from));
     if (!stays) earlyHomeNote(g, c, ...h.args);
     else if (c.homeWhy?.at === g.now) delete c.homeWhy;
+  }
+}
+
+/** v0.25 runs `fn` (a re-roster) with the early-home notes held to its end (flushEarlyHome); nested runs join the outer. */
+export function holdEarlyHome<T>(g: GameState, fn: () => T): T {
+  if (heldHome) return fn();
+  heldHome = [];
+  let ok = false;
+  try {
+    const r = fn();
+    ok = true;
+    return r;
+  } finally {
+    const held = heldHome;
+    heldHome = null;
+    if (ok) flushEarlyHome(g, held);
   }
 }
 
@@ -2995,21 +3019,11 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
   const depth = rerostering.get(aircraftId) ?? 0;
   if (depth >= 4) return emptyResult();
   rerostering.set(aircraftId, depth + 1);
-  const outer = heldHome === null;
-  if (outer) heldHome = [];
-  let ok = false;
   try {
-    const r = rerosterFrom0(g, aircraftId, t);
-    ok = true;
-    return r;
+    return holdEarlyHome(g, () => rerosterFrom0(g, aircraftId, t));
   } finally {
     if (depth) rerostering.set(aircraftId, depth);
     else rerostering.delete(aircraftId);
-    if (outer) {
-      const held = heldHome!;
-      heldHome = null;
-      if (ok) flushEarlyHome(g, held);
-    }
   }
 }
 
