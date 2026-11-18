@@ -12,6 +12,8 @@ import { demoFlights } from '../dev';
 import { advanceTo } from '../sim';
 import { moveMaint } from './maintMove';
 import { resolveDecision } from '.';
+import { ticketLead } from '../contracts/schedule';
+import { ticketBlock } from './commercial';
 import { cancelCheck, checkCostOf, checkStatus, groundGaps, isGrounded, onMaintEnd, onMaintStart, planA, planChecks, scheduleCheck } from './maintenance';
 
 type Knobs = 'delayChance' | 'techDelayChance' | 'aogBase';
@@ -244,6 +246,21 @@ describe('auto-planning', () => {
     expect(ferry[ferry.length - 1].sta).toBeLessThanOrEqual(m.start);
     // Far enough ahead for a crew to position for the ferry.
     expect(ferry[0].std).toBeGreaterThanOrEqual(g.now + BAL.ferryLeadMin);
+  });
+
+  it('v0.25 the ferry home for a check leaves after a crew can fly out on the airline and rest (9H-XBG at Terceira)', () => {
+    calm();
+    const g = newGame(9);
+    const ac = owned(g);
+    ac.at = 'TER';
+    ac.maint.lastA = g.now - (BAL.aCheckDays - 5) * DAY;
+    planChecks(g);
+    const m = g.maintenance[checkStatus(g, ac).nextA!];
+    expect(m.at).toBe('LIS');
+    const ferry = (m.ferryIds ?? []).map((id) => g.flights[id]);
+    expect(ferry[0]).toMatchObject({ kind: 'ferry', from: 'TER' });
+    expect(ferry[0].std).toBeGreaterThanOrEqual(g.now + ticketLead(ac.typeId, ticketBlock('LIS', 'TER'), true));
+    expect(ferry[0].crewIds.length).toBeGreaterThan(0);
   });
 
   it('warns about the C-check at 90, 60 and 30 days, once each; it is never auto-booked', () => {
