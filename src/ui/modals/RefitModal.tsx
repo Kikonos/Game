@@ -155,7 +155,7 @@ export function RefitModal({ aircraftId, layout, offerId, rest, restOption, afte
   const booked = Object.values(g.maintenance).find((x) => x.aircraftId === aircraftId && x.kind === 'refit' && (x.status === 'planned' || x.status === 'inWork'));
   const bookedWhat = booked?.restFit ? `a crew rest refit (${REST_FIT_LABEL[booked.restFit].toLowerCase()})` : booked?.refit ? (booked.refit.restSeats !== undefined ? (booked.refit.restSeats ? 'crew rest seats fitted' : 'crew rest seats removed') : `a refit to ${booked.refit.cabin.label}`) : 'a refit';
   const cancelBooked = () => booked && store.openModal({
-    kind: 'confirm', title: 'Cancel this refit?', confirm: 'Cancel the refit', danger: true,
+    kind: 'confirm', keep: 'Keep it', title: 'Cancel this refit?', confirm: 'Cancel the refit', danger: true,
     body: `${ac.reg} stays ${ac.cabin.label}. Free before the work starts; its ferry to ${booked.at} is removed.`,
     onConfirm: () => { if (store.act((gg) => cancelCheck(gg, booked.id)).ok) store.openModal({ kind: 'refit', aircraftId, rest: mode === 'rest' }); },
   });

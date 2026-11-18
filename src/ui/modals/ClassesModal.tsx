@@ -23,7 +23,7 @@ export function ClassesModal() {
     const amount = Math.round(k.costPerHead * n * share);
     const c = crewId ? g.crew[crewId] : undefined;
     store.openModal({
-      kind: 'confirm', danger: true, confirm: crewId ? 'Take off the class' : 'Cancel class',
+      kind: 'confirm', danger: true, keep: 'Keep it', confirm: crewId ? 'Take off the class' : 'Cancel class',
       title: crewId ? `Take ${c ? crewName(c) : 'them'} off ${k.no}?` : `Cancel ${k.no}?`,
       body: `${refundText(share, amount)}. ${crewId ? 'They go' : `${n} ${k.group === 'pilot' ? 'pilots' : 'cabin crew'} go`} back on the roster and keep their current ratings.`,
       onConfirm: () => {

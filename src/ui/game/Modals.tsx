@@ -365,11 +365,11 @@ function SettingsModal() {
   );
 }
 
-function ConfirmModal({ title, body, confirm, danger, onConfirm }: { title: string; body: string; confirm: string; danger?: boolean; onConfirm: () => void }) {
+function ConfirmModal({ title, body, confirm, keep, danger, onConfirm }: { title: string; body: string; confirm: string; keep?: string; danger?: boolean; onConfirm: () => void }) {
   return (
     <Modal title={title} onClose={() => store.closeModal()} footer={
       <>
-        <button className="btn" onClick={() => store.closeModal()}>Cancel</button>
+        <button className="btn" onClick={() => store.closeModal()}>{keep ?? 'Cancel'}</button>
         <button className={`btn ${danger ? 'btn-danger' : 'btn-primary'}`} data-enter onClick={() => { store.closeModal(); onConfirm(); }}>{confirm}</button>
       </>
     }>

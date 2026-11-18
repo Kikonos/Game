@@ -166,7 +166,7 @@ export type ModalSpec =
   | { kind: 'offer'; offerId: string }
   /** v0.24 a signed contract read back (Contracts › Active). */
   | { kind: 'contract'; contractId: string }
-  | { kind: 'confirm'; title: string; body: string; confirm: string; danger?: boolean; onConfirm: () => void }
+  | { kind: 'confirm'; title: string; body: string; confirm: string; /** v0.25 the back-out button's words (default 'Cancel') */ keep?: string; danger?: boolean; onConfirm: () => void }
   /** B5: a decision opened from the Inbox (closable); hire, training and check planning dialogs. */
   | { kind: 'decision'; decisionId: string }
   | { kind: 'hire'; role?: Role; family?: RatingFamily; base?: string; /** Peak-staffing round: prefilled from the busy-month heads-up. */ count?: number }

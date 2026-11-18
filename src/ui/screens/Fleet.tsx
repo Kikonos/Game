@@ -305,7 +305,7 @@ function CabinRow({ g, ac, out }: { g: GameState; ac: Aircraft; out?: boolean })
   const m = Object.values(g.maintenance).find((x) => x.aircraftId === ac.id && x.kind === 'refit' && (x.status === 'planned' || x.status === 'inWork'));
   const st = m ? station(m.at) : undefined;
   const cancel = () => m && store.openModal({
-    kind: 'confirm', title: 'Cancel this refit?', confirm: 'Cancel the refit', danger: true,
+    kind: 'confirm', keep: 'Keep it', title: 'Cancel this refit?', confirm: 'Cancel the refit', danger: true,
     body: `${ac.reg} stays ${ac.cabin.label}. Free before the work starts; its ferry to ${m.at} is removed.`,
     onConfirm: () => store.act((gg) => cancelCheck(gg, m.id)),
   });

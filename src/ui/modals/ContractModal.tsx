@@ -67,7 +67,7 @@ function confirmCancel(g: GameState, c: Contract) {
   const warn = cancelWarning(g, c.id);
   const cl = g.clients[c.clientId]?.name ?? 'The client';
   store.openModal({
-    kind: 'confirm', danger: true, title: `Cancel ${c.title}?`, confirm: warn ? `Cancel, pay ${money(total)} and end the scenario` : `Cancel and pay ${money(total)}`,
+    kind: 'confirm', danger: true, keep: 'Keep it', title: `Cancel ${c.title}?`, confirm: warn ? `Cancel, pay ${money(total)} and end the scenario` : `Cancel and pay ${money(total)}`,
     body: `${warn ? `${warn} ` : ''}Penalty ${money(pen)}${refund > 0 ? ` plus ${money(refund)} refunded for legs not flown` : ''}. All future flights are removed, reliability drops by 5 and ${cl} will remember it.`,
     onConfirm: () => store.act((gg) => cancelContract(gg, c.id)),
   });
