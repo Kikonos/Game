@@ -6,7 +6,7 @@ import { DAY } from '../core/time';
 import { createGame } from '../newGame';
 import { hireHead, unlockHead } from '../ops/heads';
 import { businessCase, caseDraft, customId, fleetLayout, recommendation, routeIdeas, startStudy, studyBase } from '.';
-import { businessCaseX, fleetAcCostBH, project, studyBaseNow } from './launch';
+import { businessCaseX, fleetAcCostBH, project, rivalOf, studyBaseNow } from './launch';
 import { advanceTo } from '../sim';
 import { deserialize, serialize } from '../save';
 import { acmiCompare, aircraftCostBH, closePnlMonth, crewCostBH } from './pnl';
@@ -152,4 +152,16 @@ describe('v0.25 the study\'s peak and off-peak words', () => {
       expect(words, `${base}-${to}`).not.toMatch(/fits the off-peak months; at peak it turns people away/);
     }
   }, 60_000);
+});
+
+describe('v0.25 the rival named', () => {
+  it('nonstop first, else the one-stop carrier by its hub', () => {
+    const c = (name: string, stops: number, via?: string) => ({ name, perWeek: 7, stops, hours: 5, fareX: 1, seats: 20, ...(via ? { via } : {}) });
+    expect(rivalOf({ competitors: [c('Turkish Airlines via Istanbul', 1, 'IST'), c('Air Malta', 0)] })).toEqual({ who: 'Air Malta' });
+    expect(rivalOf({ competitors: [c('Turkish Airlines via Istanbul', 1, 'IST')] })).toEqual({ who: 'Turkish Airlines', via: 'Istanbul' });
+    expect(rivalOf({ competitors: [c('Connections via Frankfurt', 1)] })).toEqual({ who: 'The airlines connecting', via: 'Frankfurt', plural: true });
+    expect(rivalOf({ competitors: [] })).toEqual({ who: 'A rival' });
+    const m = customMarket({ from: 'MLA', to: 'ESB' })!;
+    expect(rivalOf(m).who).not.toBe('A rival');
+  });
 });

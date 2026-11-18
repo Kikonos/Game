@@ -1058,9 +1058,9 @@ function startStage(g: GameState, r: Route, id: LaunchStageId): void {
       if (r.model === 'own' && chance(h, C.campaign.rival)) {
         const days = int(h, BAL.v019.demand.rivalCut.days[0], BAL.v019.demand.rivalCut.days[1]);
         r.rivalCut = { x: BAL.v019.demand.rivalCut.fare, until: g.now + days * DAY };
-        const rival = m.competitors.find((c) => c.stops === 0)?.name ?? 'A rival';
-        s.setback = `${rival} cut its fares ${Math.round(BAL.v019.demand.rivalCut.fare * 100)} % for ${Math.round(days / 30)} months.`;
-        pushRouteNote(g, r, 'warn', `${rival} reacts to our ${m.city} launch`, s.setback, null);
+        const rv = rivalOf(m);
+        s.setback = `${rv.who} ${rv.plural ? 'cut their' : 'cut its'} fares${rv.via ? ` via ${rv.via}` : ''} ${Math.round(BAL.v019.demand.rivalCut.fare * 100)} % for ${Math.round(days / 30)} months.`;
+        pushRouteNote(g, r, 'warn', `${rv.who} ${rv.plural ? 'react' : 'reacts'} to our ${m.city} launch`, s.setback, null);
       }
       break;
     }
@@ -1078,6 +1078,21 @@ function startStage(g: GameState, r: Route, id: LaunchStageId): void {
       d = 7;
   }
   s.due = g.now + d * DAY;
+}
+
+/**
+ * v0.25 the rival that answers a launch: the nonstop one, else the first one-stop one by its hub ('Turkish Airlines'
+ * via Istanbul), else the airlines connecting there. Pure.
+ */
+export function rivalOf(m: Pick<RouteMarket, 'competitors'>): { who: string; via?: string; plural?: true } {
+  const ns = m.competitors.find((c) => c.stops === 0);
+  if (ns) return { who: ns.name };
+  const one = m.competitors.find((c) => c.stops >= 1);
+  if (!one) return { who: 'A rival' };
+  const k = one.name.indexOf(' via ');
+  const via = one.via ? AIRPORT_BY_CODE[one.via]?.city ?? one.via : k > 0 ? one.name.slice(k + 5) : undefined;
+  if (k > 0 && /^connections$/i.test(one.name.slice(0, k))) return { who: 'The airlines connecting', ...(via ? { via } : {}), plural: true };
+  return { who: k > 0 ? one.name.slice(0, k) : one.name, ...(via ? { via } : {}) };
 }
 
 /** The study's accuracy (± share at one sigma-ish) at a depth; a custom pair adds CUSTOM_STUDY_EXTRA. */
@@ -1132,7 +1147,9 @@ export function stepLaunch(g: GameState, r: Route): void {
   for (const s of r.stages) {
     if ((s.state === 'running' || s.state === 'delayed') && s.due !== undefined && g.now >= s.due) {
       s.state = 'done';
-      if (s.setback && s.id !== 'slots') pushRouteNote(g, r, 'info', `${m.city}: ${STAGE_WORD[s.id]} done`, s.setback, `done:${s.id}`, 'silent');
+      // v0.25 the campaign's note says what it reached (the rival's cut was told when it came).
+      if (s.id === 'marketing') pushRouteNote(g, r, 'info', `${m.city}: ${STAGE_WORD[s.id]} done`, `About ${Math.round(r.awareness * 100)} % of travellers on the route now know we fly it.`, `done:${s.id}`, 'silent');
+      else if (s.setback && s.id !== 'slots') pushRouteNote(g, r, 'info', `${m.city}: ${STAGE_WORD[s.id]} done`, s.setback, `done:${s.id}`, 'silent');
     }
   }
   // Slots: an offer 1–3 h off waits for the player (taken as given after 14 days).

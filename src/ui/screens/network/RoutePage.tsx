@@ -17,6 +17,7 @@ import { store, useGame } from '../../store';
 import { StatusChip, TrendArrow } from './bits';
 import { net } from './netApi';
 import { sectorCost, type RouteLegCost } from '../../../engine/network/costs';
+import { rivalOf } from '../../../engine/network/launch';
 import {
   cargoLine, chainOf, depWords, history, kg, lastQuarters, lfTone, marketOf, modelLabel, monthBars, ratios, repWord, rotationLoad, rotationResult,
   routeCode, routeName, sectorLoad, seatsLine, seriesAircraft, seriesWords, hhmm, trend, upcoming, launchSpend,
@@ -203,6 +204,11 @@ function SalesTab({ g, r }: { g: GameState; r: Route }) {
   return (
     <div className="col gap-14">
       {!own && <div className="small muted">{modelLabel(g, r)}: the partner sets the fares and sells the seats. We are paid per block hour, plus a share above 70 % full.</div>}
+      {/* v0.25 a rival's fare cut and when it ends. */}
+      {own && m && r.rivalCut && r.rivalCut.until > g.now && (() => {
+        const rv = rivalOf(m);
+        return <div className="note warn small">{rv.who} {rv.plural ? 'have' : 'has'} fares {Math.round(r.rivalCut.x * 100)} % lower{rv.via ? ` via ${rv.via}` : ''} until {fmtDay(r.rivalCut.until)}: fewer travellers book with us until then.</div>;
+      })()}
       {own && (
         <div className="nw-setgrid">
           {/* v0.23.1 the cabin: business and economy, or economy only (the comparison before the change). */}
