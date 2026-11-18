@@ -76,7 +76,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'Crew who already hold a ticket home are no longer kept waiting at a hotel for weeks.',
       'At 4x the clock no longer stalls at midnight, and saving from the menu no longer freezes the screen.',
       'A first game now opens on the title screen, not on What\'s new. What\'s new keeps the newest version open and folds older ones to one line.',
-      'A client\'s answer to a counter-offer gives the deadline once and says how far they move, such as from $90,000 to $84,000.',
+      'A client\'s answer to a counter-offer gives the deadline once and says how far they move, such as from $84,000 up to $90,000.',
       'The route dialog\'s buttons sit in the tab row. On iPhone they show as icons only.',
       'On touch, the month chips in Crew › Leave are bigger and use short month names.',
       'Zoomed out, more than 3 aircraft parked at one airport show as one aircraft with a count, such as ×6. Zoom in to see them all.',
