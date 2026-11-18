@@ -218,12 +218,61 @@ function routing(from: string, to: string): Routing {
       const b2 = legBlock(best.h, to);
       r = { legs: [{ from, to: best.h, carriers: c1, block: b1 }, { from: best.h, to, carriers: c2, block: b2 }], total: b1 + CONNECT_MIN + b2 };
     } else {
+      // v0.25 two connections: to the gateway an airline flies into the destination from (Copenhagen for
+      // Kangerlussuaq), nonstop or through one hub, before an invented nonstop (TK Malta–Kangerlussuaq).
+      const via = gatewayRouting(from, to);
       const b = legBlock(from, to);
-      r = { legs: [{ from, to, carriers: [], block: b }], total: b };
+      r = via ?? { legs: [{ from, to, carriers: [], block: b }], total: b };
     }
   }
   routings.set(key, r);
   return r;
+}
+
+/** v0.25 every airport some airline names as a hub, a destination or a route end (the gateways), sorted. */
+let gatewaysCache: string[] | null = null;
+const intoCache = new Map<string, string[]>();
+const outCache = new Map<string, Set<string>>();
+function gateways(): string[] {
+  if (gatewaysCache) return gatewaysCache;
+  const out = new Set<string>();
+  for (const c of CARRIERS) {
+    for (const h of c.hubs) out.add(h);
+    for (const d of c.dests ?? []) out.add(d);
+    for (const r of c.routes ?? []) for (const x of r.split('-')) out.add(x);
+  }
+  return (gatewaysCache = [...out].filter((x) => !!AIRPORT_BY_CODE[x]).sort());
+}
+
+/**
+ * v0.25 from → G → to when nobody flies to `to` from a hub `from` connects at: G an airport with a nonstop into `to`,
+ * from → G nonstop or through one hub; the shortest way round wins. null when there is none. Pure.
+ */
+function gatewayRouting(from: string, to: string): Routing | null {
+  let into = intoCache.get(to);
+  if (!into) intoCache.set(to, (into = gateways().filter((G) => G !== to && directCarriers(G, to).length > 0)));
+  if (!into.length) return null;
+  const leg = (a: string, b: string) => ({ from: a, to: b, carriers: directCarriers(a, b), block: legBlock(a, b) });
+  // Shortest first by the great circle through G.
+  const cands = into.filter((G) => G !== from).map((G) => ({ G, km: distance(from, G) + distance(G, to) })).sort((a, b) => a.km - b.km || (a.G < b.G ? -1 : 1));
+  // One connection at a gateway first (Malta–Copenhagen–Kangerlussuaq).
+  const known = outCache.get(from);
+  const one = cands.find((x) => (known ? known.has(x.G) : directCarriers(from, x.G).length > 0));
+  if (one) return { legs: [leg(from, one.G), leg(one.G, to)], total: legBlock(from, one.G) + CONNECT_MIN + legBlock(one.G, to) };
+  // Else two: through an airport we fly out to nonstop, to one of the three nearest gateways.
+  let out = known;
+  if (!out) outCache.set(from, (out = new Set(gateways().filter((G) => G !== from && directCarriers(from, G).length > 0))));
+  let best: { km: number; legs: Routing['legs'] } | null = null;
+  for (const { G } of cands.slice(0, 3)) {
+    for (const h of out) {
+      if (h === to || h === G) continue;
+      const km = distance(from, h) + distance(h, G) + distance(G, to);
+      if (best && km >= best.km) continue;
+      if (directCarriers(h, G).length) best = { km, legs: [leg(from, h), leg(h, G), leg(G, to)] };
+    }
+  }
+  if (!best) return null;
+  return { legs: best.legs, total: best.legs.reduce((s, l) => s + l.block, 0) + CONNECT_MIN * (best.legs.length - 1) };
 }
 
 /** Ticket door-to-door minutes (sum of legs plus the connection): crew planning books tickets this long. Pure. */
@@ -427,17 +476,20 @@ export function itinerary(from: string, to: string, std: Minute, sta: Minute): C
     const c = pickC(r.legs[0], std);
     return [{ airline: c.name, iata: c.iata, no: flightNo(c, from, to, std), from, to, dep: std, arr: sta }];
   }
-  const [l1, l2] = r.legs;
-  // Fit both legs and the connection into the window (scaled when it is shorter than the routing).
+  // Fit the legs and the connections into the window (scaled when it is shorter than the routing): the first leaves
+  // at std, the last lands at sta (v0.25: a middle leg after a scaled connection).
   const k = Math.min(1, window / r.total);
-  const b1 = Math.round(l1.block * k);
-  const b2 = Math.round(l2.block * k);
-  const c1 = pickC(l1, std);
-  const c2 = l1.carriers.length && l2.carriers.includes(c1) ? c1 : pickC(l2, sta - b2);
-  return [
-    { airline: c1.name, iata: c1.iata, no: flightNo(c1, l1.from, l1.to, std), from: l1.from, to: l1.to, dep: std, arr: std + b1 },
-    { airline: c2.name, iata: c2.iata, no: flightNo(c2, l2.from, l2.to, sta - b2), from: l2.from, to: l2.to, dep: sta - b2, arr: sta },
-  ];
+  const out: CommercialLeg[] = [];
+  let prev: Carrier | null = null;
+  r.legs.forEach((l, i) => {
+    const b = Math.round(l.block * k);
+    const last = i === r.legs.length - 1;
+    const dep = i === 0 ? std : last ? sta - b : out[i - 1].arr + Math.round(CONNECT_MIN * k);
+    const c: Carrier = prev && r.legs[i - 1].carriers.length && l.carriers.includes(prev) ? prev : pickC(l, dep);
+    out.push({ airline: c.name, iata: c.iata, no: flightNo(c, l.from, l.to, dep), from: l.from, to: l.to, dep, arr: last ? sta : dep + b });
+    prev = c;
+  });
+  return out;
 }
 
 // ---------- read APIs (map, panels, crew calendar) ----------

@@ -297,7 +297,9 @@ describe('v0.12.1 world tours: one crew', () => {
     // and the tour is cancelled whole, as on seed 5; a crew-control story, not the tour's).
     // v0.17 seed 13 (the aircraft market moved the draws: on seed 3 no legal crew is left after 76 h on the ground at
     // Sydney and five legs are cancelled; a crew-control story again).
-    const { g, acId } = tourGame(13);
+    // v0.25 seed 11 (the world events' cooldowns moved the draws: on seed 13 crew fall sick on the way round, morale
+    // drops and stand-ins fly the later legs; a crew-control story again).
+    const { g, acId } = tourGame(11);
     const home = g.company.homeBase;
     const o = g.offers[devWorldTour(g)];
     const k = g.contracts[signed(g, o.id, acId)];
