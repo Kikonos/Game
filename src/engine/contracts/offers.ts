@@ -847,8 +847,16 @@ function sportsBase(ctx: Ctx): Draft | null {
   const trips = season ? int(g, 3, 8) : 1;
   const every = season ? int(g, 7, 14) : 0;
   const span = (trips - 1) * every * DAY + 2 * DAY;
-  const s = o.start ?? pickStart(ctx, 7 * DAY, 60 * DAY, span);
+  let s = o.start ?? pickStart(ctx, 7 * DAY, 60 * DAY, span);
   if (s === null) return null;
+  // v0.25 a national team plays in its sport's months (football's international windows, the Six Nations in Feb–Mar):
+  // a drawn date outside them moves on to the next one within the offer's reach, else there is no trip.
+  const sport = /Rugby/.test(client.name) ? 'rugby' : /Basketball/.test(client.name) ? 'basketball' : 'football';
+  if (fed && o.start === undefined) {
+    const hi = Math.min(g.now + 60 * DAY, ctx.window ? ctx.window.to - span : Infinity);
+    while (s <= hi && !F.NATIONAL_MONTHS[sport].includes(toDate(s + DAY).getUTCMonth())) s += DAY;
+    if (s > hi) return null;
+  }
   const legs: LegTemplate[] = [];
   // v0.8 pre-release: seats = passengers, so a widebody load is drawn where the seat ask was before the fix pack (250):
   // 240–265, within a two-class 767-300 (267) and every A330/A340, not 260–300 (most no longer fit the first widebody).
@@ -871,16 +879,18 @@ function sportsBase(ctx: Ctx): Draft | null {
   const ctry = AIRPORT_BY_CODE[home]?.country;
   const cities = F.LEAGUE_CITIES[ctry ?? ''];
   const domestic = airportsWithin(home, 250, 3500, (a) => a.country === ctry && (cities ? cities.includes(a.code) : a.size >= 2) && a.runwayM >= 2400);
-  const rugby = /Rugby/.test(client.name);
+  const rugby = sport === 'rugby';
   const venues = rugby ? F.SIX_NATIONS : F.NATIONAL_VENUES;
+  // v0.25 another nation's ground: England's teams fly to Scotland and Wales too (all GB).
+  const nation = F.nationOf(home, ctry ?? '', rugby);
   const abroad = fed
-    ? airportsWithin(home, 300, 4000, (a) => a.country !== ctry && venues.includes(a.code) && a.runwayM >= 2400)
+    ? airportsWithin(home, 300, 4000, (a) => F.nationOf(a.code, a.country, rugby) !== nation && venues.includes(a.code) && a.runwayM >= 2400)
     : airportsWithin(home, 500, 3500, (a) => a.country !== ctry && a.continent === 'EU' && a.size >= 3 && a.runwayM >= 2400);
   const league = !fed && domestic.length >= trips && chance(g, season ? 0.8 : 0.55);
   const aways = o.airport ? [o.airport] : pickN(g, league ? domestic : abroad, trips, (a) => a.size).map((a) => a.code);
   if (aways.length < trips) return null;
   const titles = fed
-    ? rugby ? F.SPORT_TITLES_RUGBY : /Basketball/.test(client.name) ? F.SPORT_TITLES_BASKETBALL : F.SPORT_TITLES_NATIONAL
+    ? F.nationalTitles(sport, toDate(s + DAY).getUTCMonth())
     : league ? F.SPORT_TITLES_HOME.filter((t) => !t.startsWith('Short') || km(home, aways[0]) < 700) : F.SPORT_TITLES_ABROAD;
   for (let i = 0; i < trips; i++) {
     const match = s + DAY + i * every * DAY;

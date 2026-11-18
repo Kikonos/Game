@@ -5,7 +5,7 @@ import { hamBase, leased, newGame } from './testkit';
 import { feasibility } from './feasibility';
 import { generateOffer } from './offers';
 import { DAY, fromUTC, toDate } from '../core/time';
-import { baseDestOpen, possessive, SMALL_STATES, TITLES, type TitleCtx, diasporaReasonsAt, DIASPORA_BY_CLIENT, DIASPORA_REASONS, LEAGUE_CITIES, resortOpen, SIX_NATIONS, SUMMER_ONLY } from './flavor';
+import { baseDestOpen, possessive, SMALL_STATES, TITLES, type TitleCtx, diasporaReasonsAt, DIASPORA_BY_CLIENT, DIASPORA_REASONS, LEAGUE_CITIES, nationOf, resortOpen, SIX_NATIONS, SUMMER_ONLY } from './flavor';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { rivalFor, riskTier, seedRisk } from './clients';
 import { hajjDates } from '../../data/worldCalendar';
@@ -113,7 +113,8 @@ describe('v0.25 federations and league cities', () => {
         n++;
         expect(o.title, o.title).not.toMatch(/^League away|Away match|Short away|away package/);
         const to = AIRPORT_BY_CODE[o.pattern.legs[0].to];
-        expect(to.country, `${name} → ${to.code}`).not.toBe(c.country);
+        // Abroad: another nation (England's teams also play in Scotland and Wales).
+        expect(nationOf(to.code, to.country, /Rugby/.test(name)), `${name} → ${to.code}`).not.toBe(nationOf(c.base, c.country, /Rugby/.test(name)));
         if (/Rugby/.test(name)) expect(SIX_NATIONS).toContain(to.code);
         delete g.offers[o.id];
       }

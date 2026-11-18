@@ -48,6 +48,11 @@ export function plainWhy(why: string): string {
   const f = /^FDP ([\d:]+) > ([\d:]+)/.exec(why);
   if (f) return `Day too long (${f[1]}, limit ${f[2]})`;
   if (/^No 36 h recovery/.test(why)) return 'Due a weekly rest (36 h off)';
+  // v0.25 where they are: 'Ticket DEL–MLA clashes with the trip', 'At MLA, not NTE' (the plan has them elsewhere).
+  const tk = /^Ticket (\w+)[–-](\w+) clashes with the trip/.exec(why);
+  if (tk) return `Their flight ${tk[1]} to ${tk[2]} no longer fits the trip`;
+  const loc = /^At (\w+), not (\w+)( for the ticket to \w+)?$/.exec(why);
+  if (loc) return `Not in ${city(loc[2])} in time (planned to be in ${city(loc[1])})`;
   return why;
 }
 

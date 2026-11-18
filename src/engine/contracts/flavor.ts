@@ -234,6 +234,35 @@ export const SPORT_TITLES_RUGBY = ['Six Nations away in', 'Test match in'];
 export const NATIONAL_VENUES = ['LIS', 'MAD', 'CDG', 'BER', 'FCO', 'AMS', 'BRU', 'VIE', 'ZRH', 'CPH', 'OSL', 'ARN', 'HEL', 'DUB', 'LHR', 'GLA', 'CWL', 'WAW', 'PRG', 'BUD', 'OTP', 'SOF', 'ATH', 'IST', 'BEG', 'ZAG', 'LJU', 'SKP', 'TIA', 'KIV', 'RIX', 'TLL', 'VNO', 'MLA', 'LCA', 'KEF', 'BTS'];
 /** The Six Nations grounds: Dublin, Twickenham, Murrayfield, Cardiff, the Stade de France and Rome. */
 export const SIX_NATIONS = ['DUB', 'LHR', 'EDI', 'CWL', 'CDG', 'FCO'];
+
+/** v0.25 airports in Scotland, Wales and Northern Ireland: their national teams are not England's (all are GB). */
+const HOME_NATIONS: Record<string, string> = { EDI: 'SCO', GLA: 'SCO', PIK: 'SCO', ABZ: 'SCO', INV: 'SCO', CWL: 'WAL', BFS: 'NIR', BHD: 'NIR' };
+
+/**
+ * v0.25 the national team an airport's city plays for: its country, but England, Scotland, Wales and Northern Ireland
+ * apart (the RFU flies to Murrayfield, the FA to Glasgow); in rugby Ireland is the whole island. Pure.
+ */
+export function nationOf(code: string, country: string, rugby: boolean): string {
+  if (country !== 'GB') return country;
+  const n = HOME_NATIONS[code] ?? 'ENG';
+  return rugby && n === 'NIR' ? 'IE' : `GB-${n}`;
+}
+
+/** v0.25 the months (0 = January) national teams play: football's international windows, rugby's Six Nations (Feb–Mar),
+ *  summer tours and autumn tests, basketball's qualifying windows. */
+export const NATIONAL_MONTHS: Record<'football' | 'rugby' | 'basketball', number[]> = {
+  football: [2, 5, 8, 9, 10],
+  rugby: [1, 2, 6, 10],
+  basketball: [1, 7, 10],
+};
+
+/** v0.25 the titles a national team's away trip can carry in that month (0 = January): no Six Nations in August. Pure. */
+export function nationalTitles(sport: 'football' | 'rugby' | 'basketball', month: number): string[] {
+  if (sport === 'rugby') return month === 1 || month === 2 ? ['Six Nations away in'] : ['Test match in'];
+  if (sport === 'basketball') return NATIONAL_MONTHS.basketball.includes(month) ? SPORT_TITLES_BASKETBALL : ['Friendly in'];
+  if (month >= 8 && month <= 10) return SPORT_TITLES_NATIONAL;
+  return month === 2 || month === 5 ? ['Qualifier in', 'Friendly in'] : ['Friendly in'];
+}
 /** v0.25 the cities with a top-flight club, per country: a league away day goes to one of these (the airports the
  *  data lacks drop out). Countries not listed take any big enough domestic airport. */
 export const LEAGUE_CITIES: Record<string, string[]> = {

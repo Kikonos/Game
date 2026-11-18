@@ -387,6 +387,25 @@ export function earlyHomeNote(g: GameState, c: CrewMember, set: string, why: str
   delete prev.ref;
 }
 
+/** v0.25 early-home notes held while a re-roster runs (null: none runs, a note is written at once). */
+let heldHome: { crewId: string; depId: string; set: number; from: Minute; args: [string, string, string] }[] | null = null;
+
+/**
+ * v0.25 the held early-home notes once the re-roster is done: written only for crew who no longer fly any duty of
+ * their set's tour from where they were taken off (the Malteser save: 'Set 3 at DEL: 7 crew go home early' while all
+ * seven flew on out of DEL until the tour ended). Those who stay keep no reason for a ticket home.
+ */
+function flushEarlyHome(g: GameState, held: NonNullable<typeof heldHome>): void {
+  for (const h of held) {
+    const c = g.crew[h.crewId];
+    if (!c) continue;
+    const stays = (crewIx(g).pairingsOf.get(c.id) ?? []).some((q) => q.status !== 'done' && q.status !== 'broken' && q.tour?.set === h.set
+      && q.deploymentId === h.depId && !guestOn(q, c.id) && q.slots.some((s) => s.crewId === c.id) && openDuties(g, q).some((d) => d.report >= h.from));
+    if (!stays) earlyHomeNote(g, c, ...h.args);
+    else if (c.homeWhy?.at === g.now) delete c.homeWhy;
+  }
+}
+
 /** Takes a crew member off a pairing: slot, flights still to fly and unused tickets (cancelled when empty). */
 export function releaseCrew(g: GameState, p: Pairing, crewId: string, whyRaw?: string): void {
   // v0.25 the reason in plain words wherever it is shown (the seat, the ticket home, the Inbox).
@@ -414,7 +433,13 @@ export function releaseCrew(g: GameState, p: Pairing, crewId: string, whyRaw?: s
     const dep = deploymentOf(g, p);
     const span = tourSpan(g, p);
     const td = tourDay(g, p);
-    if (dep && span && td && !wasGuest && cm.loc === dep.base && span.to - g.now > 2 * DAY && why !== 'Leaving the company') earlyHomeNote(g, cm, `Set ${p.tour!.set + 1} at ${dep.base}`, why, `day ${td.day} of ${td.of}; the set was due home ${fmtDateTime(span.to)}.`);
+    if (dep && span && td && !wasGuest && cm.loc === dep.base && span.to - g.now > 2 * DAY && why !== 'Leaving the company') {
+      const args: [string, string, string] = [`Set ${p.tour!.set + 1} at ${dep.base}`, why, `day ${td.day} of ${td.of}; the set was due home ${fmtDateTime(span.to)}.`];
+      // v0.25 inside a re-roster the note waits for its end: a crew member taken off only a split-off part of the trip
+      // and put back on it (or on another part of the tour) stays on station and does not go home.
+      if (heldHome) heldHome.push({ crewId, depId: dep.id, set: p.tour!.set, from: openDuties(g, p)[0]?.report ?? g.now, args });
+      else earlyHomeNote(g, cm, ...args);
+    }
   }
   // An extra seat exists only while someone holds it.
   if (p.slots.some((s) => s.extra && !s.crewId)) p.slots = p.slots.filter((s) => !(s.extra && !s.crewId));
@@ -2970,11 +2995,21 @@ export function rerosterFrom(g: GameState, aircraftId: string, t: Minute): Roste
   const depth = rerostering.get(aircraftId) ?? 0;
   if (depth >= 4) return emptyResult();
   rerostering.set(aircraftId, depth + 1);
+  const outer = heldHome === null;
+  if (outer) heldHome = [];
+  let ok = false;
   try {
-    return rerosterFrom0(g, aircraftId, t);
+    const r = rerosterFrom0(g, aircraftId, t);
+    ok = true;
+    return r;
   } finally {
     if (depth) rerostering.set(aircraftId, depth);
     else rerostering.delete(aircraftId);
+    if (outer) {
+      const held = heldHome!;
+      heldHome = null;
+      if (ok) flushEarlyHome(g, held);
+    }
   }
 }
 

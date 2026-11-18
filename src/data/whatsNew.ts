@@ -25,7 +25,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'Aircraft that stand a day or more away from home and from a client base now pay parking. About $400 a day for a narrowbody, more for a widebody and at busy hubs.',
       'Fleet › Hangar › From above draws each aircraft in its own livery.',
       'Contracts › Active has compact cards, grouped Flying now and Signed, upcoming. Crew setting, sub-charter and cancel are in the contract sheet.',
-      'Football federations now fly national team away games: qualifiers, Nations League and friendlies. Rugby unions fly to the Six Nations grounds.',
+      'Football federations now fly national team away games in the international windows, such as Nations League games in the autumn. Rugby unions fly to the Six Nations in February and March.',
       'On iPhone the roster board has one Filters button and the colour key sits behind its ?. Many more crew rows fit on screen.',
     ],
     improvements: [
