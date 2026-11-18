@@ -229,6 +229,12 @@ export function createChecker(opts: CheckerOpts = {}) {
       }
       if (Math.abs(held - r.unearned) > 50 + r.rotations.length * 2) err('route-held', g.now, `${r.marketId}: unearned ${Math.round(r.unearned)} but sectors hold ${Math.round(held)}`);
     }
+    // ---- v0.25 factored invoices: the bank's advance is never more than the invoice, what reaches us never below zero ----
+    for (const r of g.finance.receivables) {
+      if (!r.factor) continue;
+      if (r.factor.advance > r.amount + 1) err('factored', g.now, `invoice ${r.id} (${r.desc}): bank advance ${Math.round(r.factor.advance)} over the amount ${Math.round(r.amount)}`, `fa|${r.id}`);
+      if (r.factor.advance < 0 || r.factor.fee < 0 || r.factor.fee > r.factor.advance + 1) err('factored', g.now, `invoice ${r.id} (${r.desc}): advance ${Math.round(r.factor.advance)}, fee ${Math.round(r.factor.fee)}`, `ff|${r.id}`);
+    }
     for (const ac of Object.values(g.fleet)) {
       regOf.set(ac.id, ac.reg);
       typeOfAc.set(ac.id, ac.typeId);
@@ -380,7 +386,11 @@ export function createChecker(opts: CheckerOpts = {}) {
             if (d.fdp + lg > d.maxFdp + disc + 1 && d.fdp <= d.maxFdp + disc + 1) adjusted.fdp++;
           }
           if (d.fdp > d.maxFdp + disc + 1) err('fdp', d.release, `duty ${d.id} (${d.flightIds.map((id) => g.flights[id]?.no).join(' ')}) FDP ${hm(d.fdp)} over max ${hm(d.maxFdp)} + discretion ${hm(disc)}`);
-          if (disc > (d.augment ? 3 * H : 2 * H)) err('fdp', d.release, `duty ${d.id} discretion ${hm(disc)} over the ${d.augment ? 3 : 2} h allowed`);
+          // v0.25 ORO.FTL.205(f): the cap binds the overrun known at the last sector's take-off (its planned block from
+          // the ATD); time lost after take-off is unforeseen and the flight goes on to its destination (bot seed 23).
+          const tail = lastF?.atd !== undefined && lastF.ata !== undefined ? Math.max(0, lastF.ata - (lastF.atd + lastF.block)) : 0;
+          const known = Math.min(disc, Math.max(0, d.fdp - tail - d.maxFdp));
+          if (known > (d.augment ? 3 * H : 2 * H)) err('fdp', d.release, `duty ${d.id} discretion ${hm(known)} known at the last take-off, over the ${d.augment ? 3 : 2} h allowed`);
           if (d.split && d.maxFdp > 16 * H) err('fdp', d.release, `duty ${d.id} split duty max FDP ${hm(d.maxFdp)} over 16 h`);
           if (!d.augment && !d.split && d.maxFdp > 14 * H) err('fdp', d.release, `duty ${d.id} unaugmented max FDP ${hm(d.maxFdp)} over 14 h`);
           if (d.augment && d.maxFdp > 18 * H) err('fdp', d.release, `duty ${d.id} augmented max FDP ${hm(d.maxFdp)} over 18 h`);
