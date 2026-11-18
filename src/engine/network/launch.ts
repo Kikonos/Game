@@ -315,7 +315,9 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   };
   const capOut = Math.min(cab.total, capPax('out'));
   const capBack = Math.min(cab.total, capPax('back'));
-  const acAir = aircraftCostBH(g, null, p.typeId);
+  // v0.25 the aircraft time the route P&L will charge: our own aircraft of the type (an owned one costs its insurance,
+  // a leased one its rent too), the list rent only when we have none (the case used list rent on owned jets).
+  const acAir = fleetAcCostBH(g, p.typeId);
   const acCrew = crewCostBH(p.typeId, cab.total);
   const away = crewAwayCost(g, m, p.typeId, cab.total, p.nights);
   const monthly = routeMonthCosts({ ...(r as Route), status: 'operating', marketing: p.marketing } as Route);
@@ -650,7 +652,7 @@ export function businessCase(g: GameState, routeId: string, draft: RoutePlan): B
   const m = marketOfRoute(r)!;
   const cab = cabinFor(draft.typeId, draft.layout ?? 'two-class');
   const away = crewAwayCost(g, m, draft.typeId, cab.total, draft.nights);
-  const acmiResult = Math.round(mid.bh * (acmiNetBH(g, draft.typeId) - aircraftCostBH(g, null, draft.typeId) - crewCostBH(draft.typeId, cab.total)));
+  const acmiResult = Math.round(mid.bh * (acmiNetBH(g, draft.typeId) - fleetAcCostBH(g, draft.typeId) - crewCostBH(draft.typeId, cab.total)));
   let stop: BusinessCase['stop'];
   if (m.stopover && mid.split) {
     const decided = r.fifth !== undefined;

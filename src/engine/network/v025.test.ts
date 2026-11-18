@@ -6,7 +6,8 @@ import { DAY } from '../core/time';
 import { createGame } from '../newGame';
 import { hireHead, unlockHead } from '../ops/heads';
 import { businessCase, caseDraft, customId, fleetLayout, routeIdeas, startStudy, studyBase } from '.';
-import { project } from './launch';
+import { fleetAcCostBH, project } from './launch';
+import { aircraftCostBH } from './pnl';
 import { customMarket } from './custom';
 import type { GameState } from '../core/types';
 
@@ -46,6 +47,7 @@ describe('v0.25 the case and the ideas fly our own aircraft in our own cabin', (
     unlockHead(g, 'netPlanner', true);
     hireHead(g, 'netPlanner', 2);
     const ideas = routeIdeas(g);
+    expect(ideas.length).toBeGreaterThan(0);
     for (const i of ideas.slice(0, 3)) {
       const m = customMarket({ from: i.from, to: i.to })!;
       const plan = { model: i.model, days: 0, every: 1, out: m.timetable.out, back: m.timetable.back, nights: m.timetable.nights, typeId: i.typeId, layout: 'all-economy' as const, fares: 'market' as const, marketing: 'normal' as const };
@@ -56,4 +58,20 @@ describe('v0.25 the case and the ideas fly our own aircraft in our own cabin', (
       expect(Math.round(p.result)).toBe(i.result);
     }
   }, 60_000);
+});
+
+describe('v0.25 the case charges the aircraft time the route P&L will', () => {
+  it('the average of our own aircraft of the type (an owned one costs its insurance only); list rent when we have none', () => {
+    const g = newGame();
+    const acs = Object.values(g.fleet);
+    const avg = acs.reduce((a, x) => a + aircraftCostBH(g, x.id, x.typeId), 0) / acs.length;
+    expect(fleetAcCostBH(g, 'a320ceo')).toBeCloseTo(avg, 6);
+    expect(fleetAcCostBH(g, 'a320ceo')).toBeLessThan(aircraftCostBH(g, null, 'a320ceo') * 0.7);
+    expect(fleetAcCostBH(g, 'a321neo')).toBe(aircraftCostBH(g, null, 'a321neo'));
+    const id = toCase(g, customId({ from: 'MLA', to: 'ESB' }));
+    const d = caseDraft(g, id)!;
+    const r = g.network!.routes[id];
+    const p = project(g, r, d, g.now + 120 * DAY, 1);
+    expect(p.parts.aircraft).toBe(Math.round(p.bh * avg));
+  });
 });
