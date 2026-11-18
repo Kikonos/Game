@@ -13,7 +13,7 @@ import { acmiCompare, aircraftCostBH, closePnlMonth, crewCostBH } from './pnl';
 import { monthKey } from '../core/time';
 import { devLaunchRoute } from './launch';
 import { customMarket } from './custom';
-import { cabinFor } from './model';
+import { cabinFor, freqPerWeek, marketOfRoute, seasonMonths } from './model';
 import type { GameState } from '../core/types';
 
 const newGame = (base = 'MLA', seed = 7) => createGame({ name: 'Malta Test', code: 'MT', livery: { primary: '#c00', secondary: '#fff', tail: 'sweep' }, base, seed });
@@ -163,5 +163,25 @@ describe('v0.25 the rival named', () => {
     expect(rivalOf({ competitors: [] })).toEqual({ who: 'A rival' });
     const m = customMarket({ from: 'MLA', to: 'ESB' })!;
     expect(rivalOf(m).who).not.toBe('A rival');
+  });
+});
+
+describe('v0.25 the case counts calendar months', () => {
+  it('a seasonal plan flies its season\'s months exactly (a 7-month winter season is 7, not 8)', () => {
+    const g = newGame('RIX', 4);
+    const id = toCase(g, 'RIX-TFS');
+    const r = g.network!.routes[id];
+    const m = marketOfRoute(r)!;
+    expect(seasonMonths(m)).not.toBeNull();
+    const season = seasonMonths(m)!;
+    const n = [...Array(12).keys()].filter((i) => season & (1 << i)).length;
+    const d = { ...caseDraft(g, id)!, season: true as const };
+    // A first flight mid-month in season, as the hunter's 1 October 04:00.
+    for (const start of [g.now + 120 * DAY, g.now + 200 * DAY, g.now + 287 * DAY]) {
+      const p = project(g, r, d, start, 1);
+      const per = (freqPerWeek(d) * 52) / 12;
+      expect(Math.abs(p.rotations - per * n), `start ${start}`).toBeLessThanOrEqual(1);
+      expect(p.months.reduce((a, x) => a + (x.pax > 0 ? 1 : 0), 0)).toBeLessThanOrEqual(n + 1);
+    }
   });
 });

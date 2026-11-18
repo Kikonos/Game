@@ -11,7 +11,7 @@ import { cashOnly, post } from '../core/ledger';
 import { blockMinutes, typeOf } from '../core/perf';
 import { chance, gaussian, int } from '../core/rng';
 import { requestPause } from '../core/pause';
-import { DAY, fmtDay, fmtTime, monthKey } from '../core/time';
+import { DAY, fmtDay, fmtTime, monthKey, monthStart } from '../core/time';
 import type { CabinLayout } from '../../data/acmiTypes';
 import type { Client, GameState, LedgerCat, Minute } from '../core/types';
 import { costTotal, passThrough, routeMonthCosts, sectorCost } from './costs';
@@ -287,7 +287,8 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   const t = typeOf(p.typeId);
   const cab = cabinFor(p.typeId, p.layout ?? 'two-class');
   const freq = freqPerWeek(p);
-  const deps = (freq * 52) / 12;
+  const depsFull = (freq * 52) / 12;
+  let deps = depsFull;
   const outDay = p.monthly ? p.monthly.weekday : lowestDay(p.days);
   const months: Projection['months'] = [];
   const parts: MoneyParts = { ...NO_PARTS };
@@ -339,20 +340,31 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   // v0.23.2 a seasonal plan: the months out of season have no flights; the station is kept at half cost, no campaign.
   const flown = planMonths(m, p);
   const resting = flown ? Object.values(routeMonthCosts({ ...(r as Route), status: 'operating', marketing: p.marketing } as Route, true)).reduce((a, x) => a + (x ?? 0), 0) : 0;
-  let monthsFlown = 0;
-  for (let i = 0; i < 12; i++) {
-    const at = start + i * 30.4 * DAY;
+  let rotations = 0;
+  // v0.25 the calendar months of the year from the first flight (the first and the last pro-rated): stepping 30.4
+  // days counted a seven-month season as eight and skipped a month.
+  const k0 = monthKey(start);
+  const yearEnd = start + 365 * DAY;
+  for (let i = 0; i <= 12; i++) {
+    const a = monthStart(k0 + i);
+    const b = monthStart(k0 + i + 1);
+    const s0 = Math.max(a, start);
+    const s1 = Math.min(b, yearEnd);
+    if (s1 <= s0) continue;
+    const wt = (s1 - s0) / (b - a);
+    const at = Math.round((s0 + s1) / 2);
+    deps = depsFull * wt;
     let rev = 0, cost = 0, pax = 0, seats = 0;
     if (flown && !(flown & (1 << new Date(Date.UTC(2000, 0, 1) + at * 60_000).getUTCMonth()))) {
-      parts.overheads += resting;
-      months.push({ rev: 0, cost: Math.round(resting), result: -Math.round(resting), pax: 0, seats: 0 });
+      parts.overheads += resting * wt;
+      months.push({ rev: 0, cost: Math.round(resting * wt), result: -Math.round(resting * wt), pax: 0, seats: 0 });
       continue;
     }
-    monthsFlown++;
+    rotations += deps;
     for (const dir of ['out', 'back'] as Dir[]) {
       const x = {
         freqPerWeek: freq, fares: p.fares, awareness: BAL.v019.demand.awareness.campaign[p.marketing] ?? 0.55, reputation: r.reputation ?? 60,
-        hours: serviceHours(m, p.typeId, dir), truth: demandX, slotX: slotX(outDay, p.out), rampX: opt.mature ? 1 : caseRamp(i),
+        hours: serviceHours(m, p.typeId, dir), truth: demandX, slotX: slotX(outDay, p.out), rampX: opt.mature ? 1 : caseRamp((at - start) / (7 * DAY)),
       };
       const d = departureDemand(g, m, at, dir, tag ? { ...x, stop: true } : x);
       const month = new Date(Date.UTC(2000, 0, 1) + at * 60_000).getUTCMonth();
@@ -464,8 +476,8 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
     }
     const hrs = ((blockOut + blockBack) / 60) * deps;
     const crew = hrs * acCrew + (away.hotel + away.extraPilot) * deps;
-    cost += fixed + hrs * acAir + crew;
-    parts.overheads += fixed;
+    cost += fixed * wt + hrs * acAir + crew;
+    parts.overheads += fixed * wt;
     parts.aircraft += hrs * acAir;
     parts.crew += crew;
     months.push({ rev: Math.round(rev), cost: Math.round(cost), result: Math.round(rev - cost), pax: Math.round(pax), seats: Math.round(seats) });
@@ -474,7 +486,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   for (const k of Object.keys(parts) as (keyof MoneyParts)[]) parts[k] = Math.round(parts[k]);
   return {
     months, rev: sum('rev'), cost: sum('cost'), result: sum('result'), pax: sum('pax'), paxJ: Math.round(paxJ), seats: sum('seats'), paxSec, seatSec, bh, sectors,
-    lfOff: offN ? offLf / offN : 0, lfPeak: peakN ? peakLf / peakN : 0, spillPeak: peakWant > 0 ? peakSpill / peakWant : 0, ...(Math.min(capOut, capBack) < cab.total ? { sellSeats: Math.min(capOut, capBack) } : {}), spill, parts, rotations: Math.round(deps * monthsFlown),
+    lfOff: offN ? offLf / offN : 0, lfPeak: peakN ? peakLf / peakN : 0, spillPeak: peakWant > 0 ? peakSpill / peakWant : 0, ...(Math.min(capOut, capBack) < cab.total ? { sellSeats: Math.min(capOut, capBack) } : {}), spill, parts, rotations: Math.round(rotations),
     ...(tag && sp.n ? { split: { thr: sp.thr / sp.n, ab: sp.ab / sp.n, bc: sp.bc / sp.n, seats: cab.total } } : {}),
   };
 }
@@ -482,12 +494,11 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
 const baseFareOf = baseFare;
 
 /**
- * r3-bal the launch ramp the case expects in its month `i` (the middle of the month on demand.ramp2, as sales.rampOf),
- * with the late-sales dent: tickets usually go on sale under 12 weeks before the first flight (filing).
+ * r3-bal the launch ramp the case expects `w` weeks after the first flight (the middle of a month, on demand.ramp2, as
+ * sales.rampOf), with the late-sales dent: tickets usually go on sale under 12 weeks before the first flight (filing).
  */
-function caseRamp(i: number): number {
+function caseRamp(w: number): number {
   const R = BAL.v019.demand.ramp2;
-  const w = (i + 0.5) * (30.4 / 7);
   return w >= R.weeks ? 1 : (R.from + (1 - R.from) * w / R.weeks) * BAL.v019.demand.ramp.late;
 }
 
