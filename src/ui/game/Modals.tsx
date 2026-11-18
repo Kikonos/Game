@@ -15,7 +15,7 @@ const PersonSheet = lazy(() => import('../modals/PersonSheet'));
 // v0.19 the Network dialogs (route page, launch wizard, rotation move) in their own chunk.
 const NetworkModals = lazy(() => import('../screens/network/modals'));
 import { DAY, fmtDate } from '../../engine/core/time';
-import { AUTOSAVE_SLOT, SCENARIO_SLOT, SLOTS, autosaveSlot, deleteSlot, deserialize, listSaves, loadFromSlot, saveToSlot, serialize } from '../../engine/save';
+import { AUTOSAVE_SLOT, SCENARIO_SLOT, SLOTS, autosaveSlot, deleteSlot, deserialize, listSaves, loadFromSlot, serialize } from '../../engine/save';
 import { SCENARIO_BY_ID } from '../../engine/scenario';
 import { ScenarioModal, ScenarioResultModal } from '../modals/ScenarioModals';
 import { Modal, Seg, Toggle } from '../components/ui';
@@ -181,10 +181,14 @@ function SavesModal({ mode }: { mode: 'save' | 'load' }) {
   const auto = (slot: string) => slot === AUTOSAVE_SLOT || slot === SCENARIO_SLOT;
   const back = () => store.openModal({ kind: 'saves', mode });
   const save = (slot: string) => {
-    if (store.game && saveToSlot(store.game, slot)) {
-      store.toast('good', 'Game saved', `${store.game.company.name} · ${slotName(slot)}`);
-      force((x) => x + 1);
-    } else store.toast('bad', 'Could not save', 'Browser storage is unavailable or full.');
+    const name = store.game?.company.name;
+    // v0.25 (perf) compressed off the main thread; the toast and the slot's line follow when it is written.
+    store.saveToSlotSoon(slot, (ok) => {
+      if (ok) {
+        store.toast('good', 'Game saved', `${name} · ${slotName(slot)}`);
+        force((x) => x + 1);
+      } else store.toast('bad', 'Could not save', 'Browser storage is unavailable or full.');
+    });
   };
   const load = (slot: string) => {
     try {

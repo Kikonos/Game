@@ -28,7 +28,7 @@ import { addTechRepsToInduction, cashToSign, meetConditions, signLease, walkAway
 import type { ProblemAction } from '../engine/problems/types';
 import { money } from './format';
 import { createGame, type NewGameOptions } from '../engine/newGame';
-import { autosaveSlot, saveToSlot, serialize } from '../engine/save';
+import { autosaveSlot, metaFor, saveToSlot, serialize } from '../engine/save';
 import { createScenario, scenarioOutcome } from '../engine/scenario';
 import { advanceTo, settle } from '../engine/sim';
 import { fileCrewAlarms, fileSelfChecks } from './selfCheckFiler';
@@ -640,7 +640,7 @@ class GameStore {
     if (!g || g.gameOver || !(force || this.settings.autosave)) return false;
     const mark = this.mark(g);
     if (mark === this.savedMark) return true;
-    supersedeAsyncSave();
+    supersedeAsyncSave(autosaveSlot(g));
     // Round 4: settled first (statuses, re-plans), so the saved state is the one the next frame would start from and a
     // reload serializes identically.
     if (!g.gameOver) settle(g);
@@ -665,13 +665,36 @@ class GameStore {
     this.lastAutosave = performance.now();
     if (!g.gameOver) settle(g);
     const slot = autosaveSlot(g);
-    const sent = saveTextAsync(serialize(g, slot), slot, (ok, latest) => {
+    const meta = metaFor(g, slot);
+    const sent = saveTextAsync(serialize(g, slot, meta), slot, meta, (ok, latest) => {
       if (ok && latest) {
         this.savedNow = now;
         this.savedMark = mark;
       } else if (!ok && this.game === g) this.saveAuto();
     });
     if (!sent) this.saveAuto();
+  }
+
+  /**
+   * v0.25 (perf) Menu → Save game: compressed in the worker (no 0.3-0.6 s freeze on the tap), the state as it is now.
+   * Falls back to the synchronous save when no worker runs or it fails; `done` says whether the slot was written.
+   */
+  saveToSlotSoon(slot: string, done: (ok: boolean) => void): void {
+    const g = this.game;
+    if (!g) return done(false);
+    const meta = metaFor(g, slot);
+    const text = serialize(g, slot, meta);
+    const sync = () => {
+      supersedeAsyncSave(slot);
+      done(saveToSlot(g, slot));
+    };
+    const sent = saveTextAsync(text, slot, meta, (ok, latest) => {
+      if (ok) {
+        if (latest) done(true);
+      } else if (this.game === g) sync();
+      else done(false);
+    });
+    if (!sent) sync();
   }
 
   private mark(g: GameState): string {
