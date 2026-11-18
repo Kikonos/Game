@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { newGame } from './testkit';
 import { generateOffer } from './offers';
 import { DAY, fromUTC, toDate } from '../core/time';
-import { baseDestOpen, TITLES, type TitleCtx, diasporaReasonsAt, DIASPORA_BY_CLIENT, DIASPORA_REASONS, LEAGUE_CITIES, resortOpen, SIX_NATIONS, SUMMER_ONLY } from './flavor';
+import { baseDestOpen, possessive, TITLES, type TitleCtx, diasporaReasonsAt, DIASPORA_BY_CLIENT, DIASPORA_REASONS, LEAGUE_CITIES, resortOpen, SIX_NATIONS, SUMMER_ONLY } from './flavor';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { hajjDates } from '../../data/worldCalendar';
 import type { GameState } from '../core/types';
@@ -153,5 +153,12 @@ describe('v0.25 season titles', () => {
   it('the summer peak is June to August', () => {
     for (const m of ['September', 'October', 'May']) expect(all('seasonBase', ctx(m)).join('|')).not.toMatch(/Summer peak|Holiday peak/);
     expect(all('seasonBase', ctx('July'))).toContain('Summer peak at London');
+  });
+});
+
+describe('v0.25 possessives', () => {
+  it("Rainbow Tours' lead, not Rainbow Tours's", () => {
+    expect(possessive('Rainbow Tours')).toBe("Rainbow Tours'");
+    expect(possessive('Condor')).toBe("Condor's");
   });
 });

@@ -22,6 +22,7 @@ import { statsV08 } from '../contracts/relations';
 import { addShock } from '../ops/market';
 import { isLive } from '../ops/world';
 import { mkHurt, type ProblemCard } from '../problems/types';
+import { possessive } from '../contracts/flavor';
 import { busyNow, clientByName, com, comStats, paceOf, sideOf, usdK, withStream } from './state';
 import type { Crisis, CrisisKind } from './types';
 import { onAirlineFailure } from '../leasing/batches';
@@ -142,7 +143,7 @@ export function startCrisis(g: GameState, kind: CrisisKind, clientId?: string, r
     const who = cabin ? 'cabin crew' : 'pilots';
     const union = cabin ? cc : p;
     title = `${cl.name} ${who} strike${union && !union.startsWith('the ') ? ` (${union})` : ''}`;
-    body = `${cl.name}'s ${who} walk out until ${fmtDay(end)} over pay and rosters. ${cl.name} is cancelling flights and wants wet-leased aircraft with crews to keep its busiest routes flying.`;
+    body = `${possessive(cl.name)} ${who} walk out until ${fmtDay(end)} over pay and rosters. ${cl.name} is cancelling flights and wants wet-leased aircraft with crews to keep its busiest routes flying.`;
   } else if (kind === 'grounding') {
     const e = hit.engine!;
     x.engine = e.engine;

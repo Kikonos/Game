@@ -16,6 +16,7 @@ import { post } from '../core/ledger';
 import { schedule } from '../core/queue';
 import { pushMessage } from '../core/messages';
 import { chance, int, weightedPick } from '../core/rng';
+import { possessive } from '../contracts/flavor';
 import { DAY, fmtDay, fmtTime, fromUTC, localOffset, toDate } from '../core/time';
 import type { ActionResult, Archetype, Client, GameState, Minute } from '../core/types';
 import { ticketPrice, ticketSlotOk, slotAfter } from '../crew/timeline';
@@ -470,7 +471,7 @@ function makeLead(g: GameState, t: SalesTrip, c: Client, f: Fair | undefined): T
     const was = o.expires;
     o.expires = Math.max(o.expires, Math.min(o.start - 12 * 60, g.now + 5 * DAY));
     if (o.expires !== was) schedule(g, o.expires, 'offer.expire', o.id);
-    o.blurb = `${t.kind === 'fair' ? `Met at ${f?.name ?? 'the fair'}` : t.name === 'You' ? 'After your visit' : `After ${t.name}'s visit`}: they asked us first. ${o.blurb}`;
+    o.blurb = `${t.kind === 'fair' ? `Met at ${f?.name ?? 'the fair'}` : t.name === 'You' ? 'After your visit' : `After ${possessive(t.name)} visit`}: they asked us first. ${o.blurb}`;
     return { clientId: c.id, kind: 'offer', offerId: o.id };
   }
   return null;

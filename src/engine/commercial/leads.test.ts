@@ -14,6 +14,7 @@ import { feasibility } from '../contracts/feasibility';
 import { newGame } from '../contracts/testkit';
 import { problemFor, problems } from '../problems';
 import { director } from '../ops/director';
+import { possessive } from '../contracts/flavor';
 import { dailySales, dropLead, fairLead, leadColdCard, leadsView, workLead, workedCap, workedNow } from './sales';
 import { com } from './state';
 
@@ -60,7 +61,7 @@ describe('a lead', () => {
     const card = leadColdCard(g, l.id)!;
     expect(card).not.toBeNull();
     expect(card.severity).toBe('amber');
-    expect(card.what).toBe(`${c.name}'s lead goes cold in 3 days`);
+    expect(card.what).toBe(`${possessive(c.name)} lead goes cold in 3 days`);
     expect(card.why).toMatch(/^Nobody has sent them a proposal since /);
     expect(card.hurt.text).toBeTruthy();
     expect(card.actions[0]).toMatchObject({ label: 'Send proposal', open: { tab: 'contracts', view: 'leads', sel: { kind: 'lead', id: l.id } } });
@@ -70,6 +71,8 @@ describe('a lead', () => {
     const warn = g.messages.filter((m) => m.problem?.kind === 'leadCold');
     expect(warn).toHaveLength(1);
     expect(warn[0].title).toBe(card.what);
+    // v0.25 the body reads as prose ('About $982K of work ...', not 'Yes: $982K of work').
+    expect(warn[0].body).not.toMatch(/ Yes: | Not much: /);
     expect(takeCues()).toContain('notice');
     days(g, 2);
     expect(g.messages.filter((m) => m.problem?.kind === 'leadCold')).toHaveLength(1);
