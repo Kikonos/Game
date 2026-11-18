@@ -218,8 +218,8 @@ function routing(from: string, to: string): Routing {
       const b2 = legBlock(best.h, to);
       r = { legs: [{ from, to: best.h, carriers: c1, block: b1 }, { from: best.h, to, carriers: c2, block: b2 }], total: b1 + CONNECT_MIN + b2 };
     } else {
-      // v0.25 two connections: to the gateway an airline flies into the destination from (Copenhagen for
-      // Kangerlussuaq), nonstop or through one hub, before an invented nonstop (TK Malta–Kangerlussuaq).
+      // v0.25 through the gateway an airline flies into the destination from (Copenhagen for Kangerlussuaq) before
+      // an invented nonstop (TK Malta–Kangerlussuaq).
       const via = gatewayRouting(from, to);
       const b = legBlock(from, to);
       r = via ?? { legs: [{ from, to, carriers: [], block: b }], total: b };
@@ -232,7 +232,6 @@ function routing(from: string, to: string): Routing {
 /** v0.25 every airport some airline names as a hub, a destination or a route end (the gateways), sorted. */
 let gatewaysCache: string[] | null = null;
 const intoCache = new Map<string, string[]>();
-const outCache = new Map<string, Set<string>>();
 function gateways(): string[] {
   if (gatewaysCache) return gatewaysCache;
   const out = new Set<string>();
@@ -245,8 +244,8 @@ function gateways(): string[] {
 }
 
 /**
- * v0.25 from → G → to when nobody flies to `to` from a hub `from` connects at: G an airport with a nonstop into `to`,
- * from → G nonstop or through one hub; the shortest way round wins. null when there is none. Pure.
+ * v0.25 from → G → to when no hub connects the pair: G an airport some airline flies nonstop into `to` (a gateway)
+ * that `from` has a nonstop to; the shortest way round wins. null when there is none. Pure.
  */
 function gatewayRouting(from: string, to: string): Routing | null {
   let into = intoCache.get(to);
@@ -256,23 +255,10 @@ function gatewayRouting(from: string, to: string): Routing | null {
   // Shortest first by the great circle through G.
   const cands = into.filter((G) => G !== from).map((G) => ({ G, km: distance(from, G) + distance(G, to) })).sort((a, b) => a.km - b.km || (a.G < b.G ? -1 : 1));
   // One connection at a gateway first (Malta–Copenhagen–Kangerlussuaq).
-  const known = outCache.get(from);
-  const one = cands.find((x) => (known ? known.has(x.G) : directCarriers(from, x.G).length > 0));
+  const one = cands.find((x) => directCarriers(from, x.G).length > 0);
   if (one) return { legs: [leg(from, one.G), leg(one.G, to)], total: legBlock(from, one.G) + CONNECT_MIN + legBlock(one.G, to) };
-  // Else two: through an airport we fly out to nonstop, to one of the three nearest gateways.
-  let out = known;
-  if (!out) outCache.set(from, (out = new Set(gateways().filter((G) => G !== from && directCarriers(from, G).length > 0))));
-  let best: { km: number; legs: Routing['legs'] } | null = null;
-  for (const { G } of cands.slice(0, 3)) {
-    for (const h of out) {
-      if (h === to || h === G) continue;
-      const km = distance(from, h) + distance(h, G) + distance(G, to);
-      if (best && km >= best.km) continue;
-      if (directCarriers(h, G).length) best = { km, legs: [leg(from, h), leg(h, G), leg(G, to)] };
-    }
-  }
-  if (!best) return null;
-  return { legs: best.legs, total: best.legs.reduce((s, l) => s + l.block, 0) + CONNECT_MIN * (best.legs.length - 1) };
+  // (Not two: crew planning books a ticket of at most one connection.)
+  return null;
 }
 
 /** Ticket door-to-door minutes (sum of legs plus the connection): crew planning books tickets this long. Pure. */
