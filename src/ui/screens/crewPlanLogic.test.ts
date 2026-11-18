@@ -39,13 +39,15 @@ describe('v0.14 crew sets in plain words', () => {
 
   it('explains the sets in three short lines', () => {
     const l = setsWhyLines(plan({ limiting: 'CC' }));
-    expect(l).toHaveLength(3);
-    expect(l[0]).toMatch(/^5 crews per aircraft/);
-    expect(l[1]).toMatch(/here, cabin crew/);
-    expect(l[2]).toMatch(/captain can’t be planned as first officer/);
-    expect(l[2]).toMatch(/spare pursers fill cabin crew seats/);
-    expect(setsWhyLines(plan({ augmented: true }))[2]).not.toMatch(/relief/);
-    expect(l[2]).toMatch(/count once, in their home fleet/);
+    expect(l).toHaveLength(4);
+    expect(l[0]).toMatch(/^5 crews per aircraft at home, even when it flies little/);
+    // v0.25 r3 why Planning can be short while Utilisation shows crew under 15 h: standby.
+    expect(l[1]).toMatch(/stand by at home.*Utilisation shows many under 15 h, yet the sets are needed/);
+    expect(l[2]).toMatch(/here, cabin crew/);
+    expect(l[3]).toMatch(/captain can’t be planned as first officer/);
+    expect(l[3]).toMatch(/spare pursers fill cabin crew seats/);
+    expect(setsWhyLines(plan({ augmented: true }))[3]).not.toMatch(/relief/);
+    expect(l[3]).toMatch(/count once, in their home fleet/);
     expect(setsWhyLines(plan({ setsPerAircraft: 7 }))[0]).toMatch(/^7 crews per aircraft: on a detachment/);
     for (const x of [...l, ...setsWhyLines(plan({ augmented: true, setsPerAircraft: 7, limiting: 'FO' }))]) expect(x.length).toBeLessThan(170);
   });
