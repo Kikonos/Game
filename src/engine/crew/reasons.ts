@@ -33,6 +33,24 @@ const at = (t: Minute, now: Minute) => (Math.floor(t / DAY) === Math.floor(now /
 const HM = /(\d+):(\d+)\s*(?:>|of)\s*(\d+):(\d+)/;
 const toH = (h: string, m: string) => Math.round((Number(h) + Number(m) / 60) * 10) / 10;
 
+/**
+ * v0.25 a legality issue's text in plain words for the Inbox ('Block 28d 102:07 > 100:00' → 'Over 100 block hours in 28
+ * days'); any other text is kept as it is. Pure.
+ */
+export function plainWhy(why: string): string {
+  const m = /^(Duty|Block) (7d|14d|28d|year|12 months) [\d:]+ > (\d+):\d\d/.exec(why);
+  if (m) {
+    const span = m[2] === 'year' ? 'this year' : m[2] === '12 months' ? 'in 12 months' : `in ${parseInt(m[2], 10)} days`;
+    return `Over ${Number(m[3]).toLocaleString('en-US')} ${m[1] === 'Duty' ? 'duty' : 'block'} hours ${span}`;
+  }
+  const r = /^Rest(?: before next duty)? ([\d:]+) < ([\d:]+)/.exec(why);
+  if (r) return `Short of rest (${r[1]} of ${r[2]})`;
+  const f = /^FDP ([\d:]+) > ([\d:]+)/.exec(why);
+  if (f) return `Day too long (${f[1]}, limit ${f[2]})`;
+  if (/^No 36 h recovery/.test(why)) return 'Due a weekly rest (36 h off)';
+  return why;
+}
+
 /** The reason behind a 'status' issue (the block the trip touches), else the status itself. */
 function statusCode(c: CrewMember, from: Minute, to: Minute): { code: ReasonCode; until?: Minute } {
   const b = c.blocks?.find((x) => x.from < to && x.to > from);

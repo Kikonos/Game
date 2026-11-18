@@ -25,6 +25,7 @@ import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, TICKET_CONNECT, min
 import { cabinOwnReport, emptyLegsOnly, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
 import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, freshReport, locAt, noteRiders, OUT_CONNECT, outExtra, outMerges, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, standsBy, slotAfter, snapDeparture, ticketSlotOk, takeLostRides, takeSkippedFull, ticketPrice, touchCrew, touchCrewState, typeIdOf, withoutTickets } from './timeline';
 import { deploymentOf, guestOn, homeOf, tourDay, tourHolding, tourHomePlan, tourSpan } from './tours';
+import { plainWhy } from './reasons';
 import { isAnnual, leaveBackPlan, leaveBackTaken, leaveHomePlan, leaveHomeTrip, leaveHorizon, leaveTicketsOf, LEAVE_BACK_BUFFER, LEAVE_BACK_GAP } from './leaveTrips';
 
 export { buildDuties } from './duties';
@@ -352,8 +353,44 @@ function ticketWhy(g: GameState, p: Pairing, crewId: string, out: boolean, t?: T
   return out ? 'Trip out' : 'Trip home';
 }
 
+/**
+ * Rotations round: a tour's crew member going home before the rotation ends is told plainly in the Inbox. v0.25 a burst
+ * (the Malteser save, 3 Aug 2027: seven notes in one minute, 'Block 28d 102:07 > 100:00') is one note per set: an unread
+ * note for the same set this minute takes the name ('Set 2 at RUH: 7 crew go home early' / 'Caruana, Rossi and Vella:
+ * over 100 block hours in 28 days.'), the reason in plain words. The note is read back from its own text, so a game
+ * loaded in that minute merges alike.
+ */
+export function earlyHomeNote(g: GameState, c: CrewMember, set: string, why: string, tail: string): void {
+  const name = crewName(c);
+  const suffix = `. ${set}, ${tail}`;
+  const prev = g.messages.find((m) => m.t === g.now && !m.read && m.cat === 'crew' && / go(es)? home early$/.test(m.title) && m.body.endsWith(suffix));
+  if (!prev) {
+    pushMessage(g, { tone: 'info', cat: 'crew', cue: 'message', title: `${name} goes home early`, body: `${why}${suffix}`, ref: { kind: 'crew', id: c.id } });
+    return;
+  }
+  const head = prev.body.slice(0, -suffix.length);
+  const one = / goes home early$/.exec(prev.title) ? prev.title.replace(/ goes home early$/, '') : null;
+  const entries: { names: string[]; why: string }[] = one
+    ? [{ names: [one], why: head }]
+    : head.split('; ').map((x) => {
+      const k = x.indexOf(': ');
+      return { names: x.slice(0, k).split(/, | and /), why: x.slice(k + 2) };
+    });
+  const low = (x: string) => x.charAt(0).toLowerCase() + x.slice(1);
+  const same = entries.find((e) => low(e.why) === low(why));
+  if (same) same.names.push(name);
+  else entries.push({ names: [name], why });
+  const list = (n: string[]) => (n.length > 1 ? `${n.slice(0, -1).join(', ')} and ${n[n.length - 1]}` : n[0]);
+  const n = entries.reduce((a, e) => a + e.names.length, 0);
+  prev.title = `${set}: ${n} crew go home early`;
+  prev.body = `${entries.map((e) => `${list(e.names)}: ${low(e.why)}`).join('; ')}${suffix}`;
+  delete prev.ref;
+}
+
 /** Takes a crew member off a pairing: slot, flights still to fly and unused tickets (cancelled when empty). */
-export function releaseCrew(g: GameState, p: Pairing, crewId: string, why?: string): void {
+export function releaseCrew(g: GameState, p: Pairing, crewId: string, whyRaw?: string): void {
+  // v0.25 the reason in plain words wherever it is shown (the seat, the ticket home, the Inbox).
+  const why = whyRaw === undefined ? undefined : plainWhy(whyRaw);
   if (crewId !== ownRelease && p.slots.some((s) => s.crewId === crewId)) lateChange(g, crewId, nextReport(g, p));
   const wasGuest = guestOn(p, crewId);
   for (const s of p.slots) {
@@ -377,14 +414,7 @@ export function releaseCrew(g: GameState, p: Pairing, crewId: string, why?: stri
     const dep = deploymentOf(g, p);
     const span = tourSpan(g, p);
     const td = tourDay(g, p);
-    if (dep && span && td && !wasGuest && cm.loc === dep.base && span.to - g.now > 2 * DAY && why !== 'Leaving the company') {
-      pushMessage(g, {
-        tone: 'info', cat: 'crew', cue: 'message',
-        title: `${crewName(cm)} goes home early`,
-        body: `${why}. Set ${p.tour!.set + 1} at ${dep.base}, day ${td.day} of ${td.of}; the set was due home ${fmtDateTime(span.to)}.`,
-        ref: { kind: 'crew', id: cm.id },
-      });
-    }
+    if (dep && span && td && !wasGuest && cm.loc === dep.base && span.to - g.now > 2 * DAY && why !== 'Leaving the company') earlyHomeNote(g, cm, `Set ${p.tour!.set + 1} at ${dep.base}`, why, `day ${td.day} of ${td.of}; the set was due home ${fmtDateTime(span.to)}.`);
   }
   // An extra seat exists only while someone holds it.
   if (p.slots.some((s) => s.extra && !s.crewId)) p.slots = p.slots.filter((s) => !(s.extra && !s.crewId));
