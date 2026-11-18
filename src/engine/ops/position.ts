@@ -25,6 +25,7 @@ import { crewName, flightCrewStatus, rerosterFrom, rosterHorizon } from '../crew
 import { settle } from '../sim';
 import { ferryCost, ferryCrewCost } from './delivery';
 import { groundGaps, isGrounded } from './maintenance';
+import { parkPerDay } from './parking';
 import { usd } from './util';
 
 export interface PositionLeg { from: string; to: string; std: Minute; sta: Minute; block: number; /** A night stop (crew rest) after this leg. */ night: boolean }
@@ -178,6 +179,8 @@ function baseQuote(g: GameState, p: Plan, to: string): PositionQuote {
   const crewCost = ferryCrewCost(g, home, p.at, days) + (to === home ? 0 : ferryCrewCost(g, home, to, p.at === home ? days : oneWay));
   const notes: string[] = [];
   if (legs[0].std > p.asked + 5) notes.push('Leaves later to stay clear of a night curfew.');
+  // v0.25 parking from the second day there (ops/parking.ts).
+  if (to !== home) notes.push(`Parking about ${usd(parkPerDay(p.ac.typeId, to))} a day there.`);
   return {
     ok: true, reason: null, from: p.at, to, legs, stops: legs.slice(0, -1).map((l) => l.to), earliest: p.earliest, depart: legs[0].std, arrive: legs[legs.length - 1].sta,
     block: legs.reduce((s, l) => s + l.block, 0), fuel, fees, crewCost, total: fuel + fees + crewCost, crew: null, notes, full: false,
