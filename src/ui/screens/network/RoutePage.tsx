@@ -20,7 +20,7 @@ import { sectorCost, type RouteLegCost } from '../../../engine/network/costs';
 import { rivalOf } from '../../../engine/network/launch';
 import {
   cargoLine, chainOf, depWords, history, kg, lastQuarters, lfTone, marketOf, modelLabel, monthBars, ratios, repWord, rotationLoad, rotationResult,
-  routeCode, routeName, sectorLoad, seatsLine, seriesAircraft, seriesWords, hhmm, trend, upcoming, launchSpend,
+  routeCode, routeName, sectorLoad, seatsLine, seriesAircraft, seriesWords, hhmm, trend, upcoming, launchSpend, caseVsActual,
 } from './networkLogic';
 import { TimetableEditor } from './TimetableEditor';
 import { CabinRow } from './CabinChange';
@@ -78,6 +78,7 @@ function Overview({ g, r }: { g: GameState; r: Route }) {
   const next = upcoming(r, g.now).slice(0, 8);
   const flown = history(r).slice(0, 8);
   const spend = launchSpend(r);
+  const vs = caseVsActual(r, g.now, bars.keys);
   return (
     <div className="col gap-14">
       <div className="nw-kpis">
@@ -87,9 +88,21 @@ function Overview({ g, r }: { g: GameState; r: Route }) {
         <Kpi label="Reputation" value={rep.word} tone={rep.tone} sub={`${Math.round(r.reputation)} of 100`} />
       </div>
       <div className="col gap-6">
-        <div className="row between"><span className="upper dim">Result by month</span>{spend > 0 && <span className="tiny muted">launch spend {money(spend)}</span>}</div>
+        <div className="row between wrap gap-6"><span className="upper dim">Result by month</span>{spend > 0 && <span className="tiny muted">launch spend {money(spend)}</span>}</div>
+        {vs && vs.months > 0 && (
+          <div className="row gap-6 small nw-vsplan">
+            <span className="muted">vs plan</span>
+            <b className={`num ${vs.actual - vs.plan >= 0 ? 'good' : 'bad'}`}>{moneyDelta(vs.actual - vs.plan)}</b>
+            <span className="tiny muted">{vs.months} month{vs.months === 1 ? '' : 's'}: {moneyDelta(vs.actual)} against {moneyDelta(vs.plan)}</span>
+            <Help title="Against the plan">
+              <p>The business case's likely year, as it stood when you said Go, set against the months flown so far.</p>
+              <p>The outlined bars are the plan; the solid bars what the route made. Both count aircraft and crew time, not the launch spend.</p>
+              <p>A new route usually starts below plan while travellers find it; the plan already expects a slow first few months.</p>
+            </Help>
+          </div>
+        )}
         {bars.result.some((v) => v !== 0)
-          ? <BarChart values={bars.result} labels={bars.keys.map((k) => fmtMonth(k, true))} height={150} format={(v) => money(v)} name="Result" />
+          ? <BarChart values={bars.result} labels={bars.keys.map((k) => fmtMonth(k, true))} height={150} format={(v) => money(v)} name="Result" {...(vs && vs.ghost.some((v) => v !== null) ? { ghost: vs.ghost, ghostName: 'Plan' } : {})} />
           : <span className="small muted">No flights flown yet.</span>}
       </div>
       {cmp && <div className="small nw-acmi"><TrendingUp className="sc-ico-s accent" /><span>{cmp}</span></div>}

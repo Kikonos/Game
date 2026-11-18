@@ -242,7 +242,7 @@ export interface MoneyParts {
 }
 
 export interface Projection {
-  months: { rev: number; cost: number; result: number; pax: number; seats: number }[];
+  months: { rev: number; cost: number; result: number; pax: number; seats: number; /** v0.25 the calendar month; its sector load. */ k: number; lf: number }[];
   rev: number;
   cost: number;
   result: number;
@@ -355,9 +355,10 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
     const at = Math.round((s0 + s1) / 2);
     deps = depsFull * wt;
     let rev = 0, cost = 0, pax = 0, seats = 0;
+    const ps0 = paxSec, ss0 = seatSec;
     if (flown && !(flown & (1 << new Date(Date.UTC(2000, 0, 1) + at * 60_000).getUTCMonth()))) {
       parts.overheads += resting * wt;
-      months.push({ rev: 0, cost: Math.round(resting * wt), result: -Math.round(resting * wt), pax: 0, seats: 0 });
+      months.push({ rev: 0, cost: Math.round(resting * wt), result: -Math.round(resting * wt), pax: 0, seats: 0, k: k0 + i, lf: 0 });
       continue;
     }
     rotations += deps;
@@ -480,7 +481,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
     parts.overheads += fixed * wt;
     parts.aircraft += hrs * acAir;
     parts.crew += crew;
-    months.push({ rev: Math.round(rev), cost: Math.round(cost), result: Math.round(rev - cost), pax: Math.round(pax), seats: Math.round(seats) });
+    months.push({ rev: Math.round(rev), cost: Math.round(cost), result: Math.round(rev - cost), pax: Math.round(pax), seats: Math.round(seats), k: k0 + i, lf: seatSec > ss0 ? Math.round(((paxSec - ps0) / (seatSec - ss0)) * 1000) / 1000 : 0 });
   }
   const sum = (k: 'rev' | 'cost' | 'result' | 'pax' | 'seats') => months.reduce((a, x) => a + x[k], 0);
   for (const k of Object.keys(parts) as (keyof MoneyParts)[]) parts[k] = Math.round(parts[k]);
@@ -951,6 +952,13 @@ export function decideCase(g: GameState, routeId: string, decision: CaseDecision
   startStage(g, r, 'stations');
   const first = firstFlightOf(g, r, p);
   r.firstFlight = first;
+  // v0.25 the likely year as the case showed it (P50 at the study's view), kept to set the flown months against.
+  const est = r.study?.est;
+  if (est) {
+    const base = studyBase(g, r);
+    const pr = project(g, r, p, first, base ? est.p50 / base : 1);
+    r.caseAt = { start: first, months: pr.months.map((x) => ({ k: x.k, result: x.result, lf: x.lf })) };
+  }
   r.series = [planSeries(p, first - 12 * 60, `${r.id}s1`, planMonths(m, p))];
   pushRouteNote(g, r, 'good', `Launch under way: ${m.city}`, `Permits, slots, the brand and the airport contracts start now. First flight planned ${fmtDay(first)}.`, null);
   touch(g);

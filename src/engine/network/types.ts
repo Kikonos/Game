@@ -219,6 +219,8 @@ export interface Route {
   dents?: RouteDent[];
   /** The plan chosen at Go (the business case's draft): what the launch files and sells. */
   plan?: RoutePlan;
+  /** v0.25 the business case's likely year at Go, by calendar month (the route page's "vs plan"). Absent before v0.25. */
+  caseAt?: { start: Minute; months: { k: MonthKey; result: number; lf: number }[] };
   /** Cards already given once (key → when): weak pace, no aircraft, a waiting decision's reminder. */
   told?: Record<string, Minute>;
   /** The partner's fee a block hour (partner model), fixed at Go (a better fee won at the brand stage raises it). */

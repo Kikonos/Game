@@ -198,7 +198,7 @@ export function LineChart({
 }
 
 export function BarChart({
-  values, labels, height = 180, format = (v) => String(Math.round(v)), pos = 'var(--pos)', neg = 'var(--neg)', name = 'Value',
+  values, labels, height = 180, format = (v) => String(Math.round(v)), pos = 'var(--pos)', neg = 'var(--neg)', name = 'Value', ghost, ghostName = 'Plan',
 }: {
   values: number[];
   labels: string[];
@@ -207,10 +207,14 @@ export function BarChart({
   pos?: string;
   neg?: string;
   name?: string;
+  /** v0.25 a second series drawn as outlines behind the bars (e.g. the plan); null where it has none. */
+  ghost?: (number | null)[];
+  ghostName?: string;
 }) {
   const [ref, width] = useWidth<HTMLDivElement>();
   const n = values.length;
-  const ticks = niceTicks(Math.min(0, ...values), Math.max(0, ...values));
+  const gv = (ghost ?? []).filter((v): v is number => v !== null);
+  const ticks = niceTicks(Math.min(0, ...values, ...gv), Math.max(0, ...values, ...gv));
   const lo = ticks[0];
   const hi = ticks[ticks.length - 1];
   const { fs, padL } = useAxis(ticks.map(format));
@@ -232,6 +236,12 @@ export function BarChart({
               <text x={padL - 8} y={y(t) + 4} textAnchor="end" fontSize={fs} fill="var(--text-3)">{format(t)}</text>
             </g>
           ))}
+          {ghost?.map((v, i) => {
+            if (v === null || v === undefined) return null;
+            const cx = padL + slot * i + slot / 2;
+            const gw = Math.min(slot - 1, bw + 6);
+            return <rect key={`g${i}`} x={cx - gw / 2} y={Math.min(y(0), y(v))} width={gw} height={Math.max(1, Math.abs(y(v) - y(0)))} rx={2} fill="none" stroke="var(--text-3)" strokeWidth={1} strokeDasharray="3 2" opacity={0.8} />;
+          })}
           {values.map((v, i) => {
             const cx = padL + slot * i + slot / 2;
             const y0 = y(0);
@@ -255,6 +265,7 @@ export function BarChart({
         <div className="viz-tip" style={{ left: Math.min(width - 80, Math.max(80, padL + slot * hover + slot / 2)), top: Math.max(30, y(Math.max(0, values[hover]))) }}>
           <div className="t-h">{labels[hover]}</div>
           <div className="t-r"><span>{name}</span><span>{format(values[hover])}</span></div>
+          {ghost && ghost[hover] !== null && ghost[hover] !== undefined && <div className="t-r"><span>{ghostName}</span><span>{format(ghost[hover]!)}</span></div>}
         </div>
       )}
     </div>

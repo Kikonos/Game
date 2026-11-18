@@ -324,6 +324,25 @@ export function monthBars(r: Pick<Route, 'pnl'>, now: Minute, n = 12): { keys: M
   return { keys, result: keys.map((k) => Math.round(r.pnl[k]?.result ?? 0)), launch: keys.map((k) => Math.round(r.pnl[k]?.launch ?? 0)) };
 }
 
+/**
+ * v0.25 the business case against the flown months: the case's result for each of `keys` (null where it has none) and,
+ * over the closed months both cover, the actual and the planned result. Null when the route has no case kept. Pure.
+ */
+export function caseVsActual(r: Pick<Route, 'pnl' | 'caseAt'>, now: Minute, keys: MonthKey[]): { ghost: (number | null)[]; months: number; actual: number; plan: number } | null {
+  if (!r.caseAt) return null;
+  const by = new Map(r.caseAt.months.map((x) => [x.k, x.result]));
+  const cur = monthKey(now);
+  let months = 0, actual = 0, plan = 0;
+  for (const [k, v] of by) {
+    const p = r.pnl[k];
+    if (k >= cur || !p) continue;
+    months++;
+    actual += p.result;
+    plan += v;
+  }
+  return { ghost: keys.map((k) => by.get(k) ?? null), months, actual: Math.round(actual), plan: Math.round(plan) };
+}
+
 /** Launch spend so far (all months). */
 export function launchSpend(r: Pick<Route, 'pnl' | 'stages'>): number {
   const fromPnl = Object.values(r.pnl).reduce((a, p) => a + (p.launch ?? 0), 0);
