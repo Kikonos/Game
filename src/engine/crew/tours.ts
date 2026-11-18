@@ -202,14 +202,40 @@ export function deploymentSets(g: GameState): SetLine[] {
           if (sl.left && c && sl.left.at >= per.from && !early.some((e) => e.name === `${c.first} ${c.last}`)) early.push({ name: `${c.first} ${c.last}`, why: sl.left.why, at: sl.left.at });
         }
       }
-      let home = to;
-      for (const id of ids) {
-        for (const f of crewIx(g).tickets.get(id) ?? []) {
-          if (f.kind === 'deadhead' && f.status === 'scheduled' && !f.leaveTrip && f.to === g.company.homeBase && f.std >= g.now && f.std < home) home = f.std;
+      // v0.25 the set's time on station starts when it arrives: its first ticket out landing there (else its first duty).
+      const ix = crewIx(g);
+      const own = new Set(parts.flatMap((p) => p.dutyIds));
+      let first = Infinity;
+      for (const p of parts) for (const id of p.dutyIds) if (g.duties[id]) first = Math.min(first, g.duties[id].report);
+      let start = first;
+      for (const p of parts) {
+        for (const id of p.dutyIds) {
+          for (const fid of g.duties[id]?.deadheadIds ?? []) {
+            const f = g.flights[fid];
+            if (f && f.kind === 'deadhead' && f.to === dep.base && f.sta <= first && f.crewIds.some((x) => ids.has(x))) start = Math.min(start, f.sta);
+          }
         }
       }
-      const of = Math.max(1, Math.round((to - per.from) / DAY));
-      out.push({ deploymentId: dep.id, base: dep.base, set: s, day: Math.max(1, Math.min(of, Math.ceil((g.now - per.from) / DAY))), of, home, crew: ids.size, early });
+      const from = Number.isFinite(start) ? Math.max(per.from, Math.min(start, to - DAY)) : per.from;
+      // The way home: a ticket to home base out of the station (or one after the set's first duty), not one of an earlier
+      // trip, nor a guest's way home after covering another set (the player's save: 'Set 3 at London, home 1 Aug' was an
+      // FO's Nantes–Malta ticket from before; the set flies home 10 Aug).
+      const guestTicket = (fid: string) => {
+        const q = g.pairings[g.duties[ix.ticketDuty.get(fid) ?? '']?.pairingId ?? ''];
+        return !!q && q.slots.some((x) => x.guest && x.crewId && ids.has(x.crewId)) && !parts.includes(q);
+      };
+      let home = to;
+      for (const id of ids) {
+        for (const f of ix.tickets.get(id) ?? []) {
+          if (f.kind !== 'deadhead' || f.status !== 'scheduled' || f.leaveTrip || f.to !== g.company.homeBase || f.std < g.now || f.std >= home) continue;
+          const did = ix.ticketDuty.get(f.id);
+          if (f.from !== dep.base && !(Number.isFinite(first) && f.std > first) && !(did && own.has(did))) continue;
+          if (guestTicket(f.id)) continue;
+          home = f.std;
+        }
+      }
+      const of = Math.max(1, Math.round((to - from) / DAY));
+      out.push({ deploymentId: dep.id, base: dep.base, set: s, day: Math.max(1, Math.min(of, Math.ceil((g.now - from) / DAY))), of, home, crew: ids.size, early });
     }
   }
   return out;
