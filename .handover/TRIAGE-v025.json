@@ -1,0 +1,414 @@
+{
+ "lanes": [
+  {
+   "key": "crew",
+   "title": "Crew legality and roster fixes",
+   "areas": "src/engine/crew/* (roster.ts, timeline.ts, rules.ts, check.ts, index.ts, tours.ts, buyBack.ts, control.ts, reasons.ts, dayPlan.ts), scripts/invariants.ts, fixtures/compatKit; no ui/ files",
+   "items": [
+    {
+     "id": "crew-tickets-overlap",
+     "title": "Crew tickets overlap: a home ticket lands after the next ticket out, or connects in 35 min (crew-ticketoverlap + core-2, major, CONFIRMED)",
+     "detail": "Repros (confirmed in triage): `npx tsx scripts/invariants.ts save /home/user/work/v025/hunt/triage/mad-d196.json 2` gives ERROR crew-overlap for Davide Romano, duty 13 Sep 2027 09:00 starting before 09:40. `... save /home/user/work/v025/hunt/triage/s9-d379.json 2` gives ERROR crew-overlap for Carlos Diaz on 14 Mar 2028, 17:00 against 17:25. Fix: roster.ts sendHome (~801) `held` only sees tickets leaving from c.loc. Treat the earliest later ticket of the person, including one out of c.base, as a deadline: its std - deadheadCheckIn - CONNECT_MIN (75). If no seat home lands before that, ticket loc to that trip's destination, or drop and re-ticket the trip. Ticket placement in timeline.ts must require later dep >= arr + 75 + check-in, and drop a 'back to the set' ticket when another set already holds the person. Tests: a unit test with a crafted state. Both dumps must give 0 crew-overlap errors."
+    },
+    {
+     "id": "core-1",
+     "title": "Re-timed 'Tour out' ticket breaks the 168 h recovery rule and flies a CC out and straight back (major, CONFIRMED)",
+     "detail": "`npx tsx scripts/acmi-bot.ts 11 --from=/home/user/work/v025/hunt/triage/s11-d88.json --on=4 --inv --routes --base=MLA` gives ERROR recovery for Rachel Zammit (176:05 since 23 May 10:00) and warn sby-rest for Wojcik (6:00). Whatever re-times a set's tour-out ticket after a change request (events.ts accept, then crew re-plan) must run the rules.ts:771 recovery check (RECOVERY_KEEP) on the new ticket. Refuse the move, or place a 36 h recovery first, and never move a ticket whose holder is sent home again within 48 h. Test: the repro must give 0 recovery errors."
+    },
+    {
+     "id": "ops-crew-ticket-slip",
+     "title": "Zero-margin crew loses the whole crew over a 2-minute delay; V7892/93 cancelled for $30K (major)",
+     "detail": "Hunter repro: /home/user/work/v025/hunt/ops/m42.json, using the h-ops scripts trace2.ts/v7892c.ts (V7892 NTE-PRG on 8 Sep 2027). guardDuty (roster.ts ~1887) has earlyHome for a ticket home. Add the mirror: when crew are short only of the rest before a positioning ticket OUT, rebook a later ticket (e.g. 12:00 to 13:00) that still makes the report, instead of taking them off. Also add a 30-60 min margin over minimum rest when the roster plans an airline ticket straight after a night duty. Test: a crafted duty plus ticket with a 2-min late arrival keeps its crew."
+    },
+    {
+     "id": "core-6-harness",
+     "title": "Invariants: fdp discretion false positive, compatKit settle, two money checks (core-6 + core-i3)",
+     "detail": "scripts/invariants.ts ~383: raise an error only when the overrun known at the last sector's ATD is over 2 h/3 h (ORO.FTL.205(f)). Repro: `acmi-bot 23 --from=/home/user/work/v025/hunt/core/s23-d1013.json --on=5 --inv --routes --wide --base=SOF` reports a discretion of 2:03 that is legal. Add settle(g) to compatKit.play/playTo, so the v0.23.1 fixtures stop reporting orphans. Add the checks route.unearned == sum of sold unflown non-voided sectors, and factored paidToUs >= 0 with advance <= amount. Size S."
+    },
+    {
+     "id": "crew-recgap",
+     "title": "Far-base reserve hotel standby written after the fact never updates lastRecovery",
+     "detail": "crew/index.ts reserveStoodBy (~330): call noteRecovery(c, from, g) before pushing the window. Repro: `acmi-bot.ts 7 365 --inv --routes --base=MLA` fails 'recovery gap <= 168 h' at 361 h, with CPT Lewandowska at ICN. Test: the noteRecovery call path in a unit test. Size S."
+    },
+    {
+     "id": "merge-home-early",
+     "title": "One Inbox message per set for 'goes home early' bursts, plain reason; buyBack day list wording",
+     "detail": "roster.ts:383 posts one chiming message per crew member: 7 in one minute in the Malteser save on 3 Aug 2027 ('Block 28d 102:07 > 100:00...'). Instead, when an unread 'goes home early' message with the same set and g.now exists, add the name to it: 'Set 2 at RUH: 7 crew go home early: Caruana, Rossi, ...'. Write the reason in plain words ('Over 100 block hours in 28 days'). buyBack.ts:67 joins with ' and ': use 'A, B and C' and drop the repeated year in the same month. Merges ui-inbox-merge-bursts and immersion-early-home-spam. Test: one message for N releases at the same minute."
+    },
+    {
+     "id": "core-4",
+     "title": "Loading an old save is not idempotent: day plan built only on the second load",
+     "detail": "`scripts/hunt/oldplan.ts v08` (h-core) gives 0 of 81 crew with 'off' on the first load. In crew onLoad, run the day plan whenever any crew member lacks 'off', whatever the marker says. Run repairCutStandby after the load settles, so the first load reaches the fixed point. Test: on fixture v08, serialize(load(x)) equals serialize(load(serialize(load(x))))."
+    },
+    {
+     "id": "crew-sethome",
+     "title": "On-station strip shows a wrong set home date and day count",
+     "detail": "tours.ts deploymentSets (~205): count only tickets to homeBase that leave from dep.base, or later than the set's first duty, and that are not guest-duty tickets. Start the day count at the set's first arrival. Malteser save: 'Set 3 at London ... home 1 Aug' should read 10 Aug. Size S."
+    },
+    {
+     "id": "crew-guestfix",
+     "title": "Red crew-out-of-hours alarm stays 47 h though a free member of another set at the station could fly as a guest",
+     "detail": "Repro: `acmi-bot.ts 11 130 --routes --base=VNO --alarms=out.txt --crewcheck`, VJ723 SGN-CGK on 4 Jul 2027. Dumps are in /home/user/work/v025/hunt/crew/vno-d124.json and vno-d126.json. check.ts otherTrip (~662-670) holds a tour member for the whole tour span. When re-crewing one seat for one duty, let the auto-roster try the free person as a GUEST for that duty only (the v0.23 guest path). Test from the vno-d124 dump state: the seat is filled before the gate. Size M."
+    },
+    {
+     "id": "ops-crew-card-wording",
+     "title": "Crew-shortage card: 'day too long (12:35, limit 13:00)' and 'busy on V73062 until 2 Oct'",
+     "detail": "In control.ts placeBlock, when the match is 'within 30 min of', say '(12:35, too close to the 13:00 limit)'. In reasons.ts rootReason 'busy', when the other pairing is a base tour, say 'on the Nantes tour until 2 Oct'. Size S."
+    }
+   ]
+  },
+  {
+   "key": "ui",
+   "title": "UI shell, phone layouts and map fixes",
+   "areas": "src/ui/shell/*, src/ui/game/* (Toasts, Modals, KeyBindings), src/ui/store.ts, src/styles/* (except theme.css palette), src/ui/map/* (OpsMap, Globe, mapLogic, LiveLayers, MapPanels, map.css), crew screens (Crew.tsx, RosterBoard.tsx, CrewLeave.tsx, PersonSheet.tsx, CrewPlan.tsx), LiveryModal/LiveryEditor, ScreenHint, Scenarios.tsx, WhatsNewModal",
+   "items": [
+    {
+     "id": "ui-space-in-dialog",
+     "title": "Space on a focused dialog button toggles pause (major, code-confirmed)",
+     "detail": "Shell.tsx onKey (~283): the 'pause' branch runs with no check that a dialog is open. Return when store.modal is set, or when activeElement is a button, link or role=button. Test: a key handler unit test, or a Playwright check with a dialog open. Size S."
+    },
+    {
+     "id": "ui-toast-covers-map-controls",
+     "title": "Toasts cover the map's globe and zoom buttons on every device (major)",
+     "detail": ".toasts (app.css:319) is fixed bottom-right, the same corner as .map-zoom. On the map tab, add a class that offsets the toasts left of the control column or lifts them above it. The iPhone rule in touch/shell.css:201 needs the same. Verify with hunt/ui/scripts/toastcover.cjs (elementFromPoint on each button). Size S."
+    },
+    {
+     "id": "visual-globe-marks-corner",
+     "title": "Globe opened while paused: offer and event pins stacked at top-left (major, code-confirmed)",
+     "detail": "Globe.tsx:1202 useLayoutEffect calls api.current?.marks(list) before the mount useEffect (line 1081) sets api.current, so the list is dropped. Keep the list in marksListRef and have mount read it after setting api. Add the CSS guard `.globe-marks [data-gm]:not([transform]){display:none}`. Verify with hunt/visual scripts/globemarks.cjs while paused. Size S."
+    },
+    {
+     "id": "log-date-col",
+     "title": "Clients/Rivals/Team Recent logs: dates with year overlap the next column (3 lenses)",
+     "detail": "v08.css:60-61: .v8-log grid-template-columns becomes max-content 34px minmax(0,1fr), and .v8-log2 becomes max-content minmax(0,1fr). Check Clients, Rivals and Team on Mac and iPhone. Size S."
+    },
+    {
+     "id": "upnext-date-cut",
+     "title": "Map Up Next: '14 Feb 2028 0' time cut off (2 lenses)",
+     "detail": "OpsMap.tsx depLabel (~199) prints fmtDay plus time, and the date now includes the year. Use the weekday plus time ('Mon 09:00'), or '14 Feb 09:00' with no year. .ops-next.dated stays at 106px (map.css:294). Size S."
+    },
+    {
+     "id": "ui-iphone-crew-hire-offscreen",
+     "title": "iPhone: Crew head Hire and Select buttons off screen (major)",
+     "detail": "At 852x393, .sc-head-tools puts Hire at x 876-963. On compact width, move Morale, Select and Hire to their own row under the view tabs, or into a '...' menu, so Hire stays visible. Verify with hunt/ui/scripts/p-crewhead.cjs. Size S-M."
+    },
+    {
+     "id": "iphone-roster-board",
+     "title": "iPhone: roster board shows about 1.5 crew rows (major; crew-iphoneboard + ui-iphone-roster-board-tiny)",
+     "detail": "Under @media (max-height: 500px), in RosterBoard.tsx and devices.css: fold the filter row (rank, search, group, density, Week/Month, Duty/Trip) into one Filters popover, hide the legend bar (the '?' already covers it), let the head and tabs scroll away, and give .rb-scroll the remaining height. Target about 6 rows (now 150-164 px). Verify with hunt/ui/scripts/p-board.cjs. Size M."
+    },
+    {
+     "id": "visual-livery-iphone",
+     "title": "Livery editor on iPhone: controls scroll in a 62 px window (major)",
+     "detail": "LiveryModal/LiveryEditor under (max-height: 500px): put the footer on one row (Cancel, Reset all, Use on all, Save), move 'Free and instant...' behind '?', hide the CARD/MINI previews, and cap the big preview at about 45 % height, so .lv-body gets about 220 px. Size M."
+    },
+    {
+     "id": "ui-hints-compact",
+     "title": "First-time hint strips take a third to a half of an iPhone screen",
+     "detail": "ScreenHint.tsx/screenHints.ts: hintMode() returns 'fold' at once when (max-height: 430px) matches, so the hint lives only in the '?' button. This also covers the hint inside OfferModal. Size S-M."
+    },
+    {
+     "id": "ui-stale-lapse-toast",
+     "title": "'Offer lapsing soon' toast outlives its offer",
+     "detail": "Toasts.tsx: drop a toast whose ref is an offer no longer 'open'. Drop the relative 'within 2 h 00 min' from the body and keep 'by 06:00 UTC'. Size S."
+    },
+    {
+     "id": "ui-settings-and-back",
+     "title": "Settings rows filed under Key bindings; sub-dialogs don't return to Settings or the menu",
+     "detail": "Modals.tsx:348-356: move Top bar spacing to Display, Pop-up notifications to Gameplay/Sound, and What's new to About. store.ts:1213: extend modalBelow to 'keys' and 'whatsNew' when opened over settings or menu (the same rule as glossary). Size S."
+    },
+    {
+     "id": "ui-small-shell",
+     "title": "Speed tooltip ignores rebound keys; Scenarios star shows one filled at 0/30",
+     "detail": "Shell.tsx:89: build the hint from settings.keys with keyLabel(). Scenarios.tsx:26: use a single Star icon, filled only when total > 0. Size S."
+    },
+    {
+     "id": "map-phone",
+     "title": "iPhone globe selection hidden under the buttons; Up Next folded by default on phone",
+     "detail": "Globe.tsx:1108: after a selection, project its position. If it falls under .map-zoom or inside the panel rect (measured from the DOM, not PANEL_W), fly to it. OpsMap UpNext: default folded when (max-height: 500px) matches and nothing is stored under bh:upNextCollapsed. Size S."
+    },
+    {
+     "id": "crew-ui-small",
+     "title": "Leave heat cells, layover standby list, sets per aircraft",
+     "detail": "CrewLeave.tsx ~179: show '3/24' and compare against the engine cap (capOf in leave.ts), not the raw share. PersonSheet.tsx:234: show standby dates as ranges ('19, 22-27, 30 Jul'). CrewPlan: show sets per aircraft to one decimal ('4.5'), display only. Size S."
+    },
+    {
+     "id": "visual-parked-stands",
+     "title": "Parked aircraft at one airport: a compact stand block instead of a row across countries",
+     "detail": "mapLogic.ts:99 lays out rows of 5. Past 3 aircraft at regional zoom, draw a 3-wide block at 0.75 scale. Below a zoom threshold, draw one icon with an 'x6' badge. Draw route lines above the parked glyphs (LiveLayers, Globe rt: arcs). Size M, tail."
+    }
+   ]
+  },
+  {
+   "key": "network",
+   "title": "Network business case and route P&L honesty",
+   "areas": "src/engine/network/* (launch.ts, advice.ts, balEngine.ts, pnl.ts, cabin.ts, revenue.ts, release.ts, timetable.ts), src/ui/screens/network/* (index.tsx, RouteActions.tsx, LaunchWizard.tsx, networkLogic.ts, live.tsx route card), PositionModal search filter only",
+   "items": [
+    {
+     "id": "network-case-wrong-aircraft",
+     "title": "Case and planner ideas priced on an aircraft and cabin we don't fly (network-case-wrong-aircraft + network-planner-ideas-cabin, majors, code-confirmed)",
+     "detail": "searchPlan: try the fleet's own types first (study.gauges.narrow lacks the A320). caseDraft and advice.ts firstPlan (layout 'two-class' hard-coded at advice.ts:135, launch.ts:716/772): use the cabin of our most common aircraft of that type. Add the layouts to ideasKey. decideCase: refuse a type we don't own, or show a clear warning. When the draft is two-class and our aircraft have no J, show cabinQuote's noJSeats warning. Repro: new game MLA seed 7, planner idea MLA-ESB (A321neo two-class, +$141K vs -$149K on the own A320). Tests: the case type and layout match the fleet, and the ideas margin on the all-economy cabin."
+    },
+    {
+     "id": "network-case-owned-aircraft-cost",
+     "title": "Case charges list rent per BH, while the P&L charges the real (often owned) aircraft (major, code-confirmed)",
+     "detail": "launch.ts:318/611 use aircraftCostBH(g, null, type) ($980-1,200/BH), while pnl.ts:86 uses the actual aircraft ($46-60/BH owned). One model: the case costs the average aircraftCostBH(g, id) over our aircraft of that type, falling back to list rent when we own none. The same applies to ideas and acmiResult. Repro: RIX seed 9 RIX-FRA case -$38K vs actual +$295K. Test: case aircraft cost equals the fleet-type average."
+    },
+    {
+     "id": "network-studybase-drift",
+     "title": "studyBase recomputed daily, so the Sales cabin quote and reopened cases show a different market (major, code-confirmed)",
+     "detail": "launch.ts:644 studyBase calls searchPlan(g, r, 1) every time. Store the base on r.study when the study completes (launch.ts ~1007). Have businessCaseX, businessCase, caseAdvice, stopoverCompare and cabin.ts read it. Add an onLoad repair that computes it once when missing (??=). Repro: RIX seed 9 RIX-FRA, base 372.9 at the case vs 1022.5 on sale. Test: the value stays stable after advancing 60 days."
+    },
+    {
+     "id": "network-pnl-month-aircraft",
+     "title": "Route P&L charges the whole month at the last rotation's aircraft rate",
+     "detail": "pnl.ts monthCharges: sum each flown rotation's BH x its own aircraftCostBH + crewCostBH instead of p.bh x the recent aircraft's rate. Repro: LIS seed 11 lis-mar28.json, Jan 2028 at $1,433/BH. Test with two aircraft in one month. Size S."
+    },
+    {
+     "id": "network-denied-boarding-silent",
+     "title": "Denied boarding when a smaller aircraft covers a route flight: no note",
+     "detail": "revenue.ts ~146-155: when denied > 0, pushRouteNote(warn) '<flight>: N passengers denied boarding (A320, 180 seats). EU261 $X paid.' In release.ts coverRotations, prefer a same-size sub-charter when bookings exceed the seats. Size S."
+    },
+    {
+     "id": "network-lifecycle-wording",
+     "title": "Wind-down and Suspend dialogs say 'no refunds' or 'Fly them' while refunding 131 of 140; split ticket money from cost",
+     "detail": "RouteActions.tsx: 'Sales stop now. The next N rotations fly; later ones are refunded.' Suspend options: 'Fly next 9, refund rest' and 'Refund all'. Show two rows: 'Ticket money back' (q.refunds) and 'Cost to us', with the cost on the buttons. Fix the plurals (release.ts:87, RouteActions) and 'an A321' (pnl.ts:153). Size S."
+    },
+    {
+     "id": "network-study-peak-text",
+     "title": "Study says '91 % off-peak, 83 % at peak ... at peak it turns people away'",
+     "detail": "launch.ts project(): classify peak and off-peak by the market's own season index, use the mature (no-ramp) loads, and choose the gauge sentence from spill at peak. Size S."
+    },
+    {
+     "id": "network-rival-named",
+     "title": "Launch-done note repeats the rival fare cut; 'A rival' when a one-stop competitor is known",
+     "detail": "launch.ts:1038: at marketing done, report the awareness reached. launch.ts ~965: fall back to the first one-stop competitor ('Turkish Airlines cuts its fares via Istanbul') and show the end date of the rival cut on the Sales tab. Size S."
+    },
+    {
+     "id": "visual-network-nodata-red",
+     "title": "Network: a route with no flown month shows a red dash and a falling arrow",
+     "detail": "network/index.tsx:57 and :195: when q.months is 0, show a muted dash with no bad class and no TrendArrow. Size S."
+    },
+    {
+     "id": "ops-search-accents",
+     "title": "Airport search fails without accents (Sao Paulo, Malaga, Krakow)",
+     "detail": "One shared fold helper: s.normalize('NFD').replace(/\\p{M}/gu,'').toLowerCase(), plus a map for \u00f8/\u0131/\u00df. Apply it to the query and to code, city, name and country in networkLogic.ts searchAirports and in the PositionModal filter. Unit test. Size S."
+    },
+    {
+     "id": "network-case-month-sampling",
+     "title": "Case steps months by 30.4 days: a seasonal route counts 8 months instead of 7",
+     "detail": "launch.ts project(): iterate calendar months (mid-month of startMonth + i), with the first month pro-rated. Repro: RIX seed 4 RIX-TFS. Update the affected snapshot numbers in the tests. Size S."
+    },
+    {
+     "id": "network-case-vs-actual",
+     "title": "Route page: actual against the business case",
+     "detail": "At Go (decideCase ~827), store r.caseAt = {start, months:[{result, lf}]} (optional field, absent on old saves). RoutePage Overview: draw ghost bars of the case result over 'Result by month', plus a 'vs plan' KPI with the explanation behind '?'. Size M."
+    },
+    {
+     "id": "network-tail",
+     "title": "Idea carries its pitch into the case; map route card in local times",
+     "detail": "Pass {typeId, perWeek, model} from the idea into startStudy as r.pitch. caseDraft starts from it when we own the type, and the verdict adds 'X guessed 6 %; the study says -6 %'. live.tsx RouteCard: show 'Next flight Wed 22 Mar 10:00 MLA -> 13:35 ESB' using fmtTime local. Size S each, tail."
+    }
+   ]
+  },
+  {
+   "key": "commercial",
+   "title": "Commercial realism: offers, leads, clients, contracts UI",
+   "areas": "src/engine/contracts/offers.ts, flavor.ts, missions.ts, clients.ts, feasibility.ts, tenders.ts; src/engine/commercial/* (trips.ts, sales.ts); src/ui/modals/OfferModal.tsx, ContractModal.tsx, contractSheetLogic.ts; src/ui/screens/Contracts.tsx, screenLogic.ts; src/data/naming.ts",
+   "items": [
+    {
+     "id": "comm-broker-pct",
+     "title": "Offer dialog always says broker 5 %; billing uses the broker's rate (major, code-confirmed)",
+     "detail": "OfferModal.tsx:712: `via ${o.broker} (${pct(brokerCut(o))})`. feasibility.ts:795 estRevenue: x (1 - brokerCut(o)) instead of BAL.brokerCommission. ContractModal/contractSheetLogic: add a 'Broker commission' row. Test: the feasibility estimate for an ACS offer uses 4 %. Size S."
+    },
+    {
+     "id": "immersion-lead-client-mismatch",
+     "title": "Shell, Siemens and Real Madrid get 'Diaspora charters'; diaspora reasons ignore the date (major, code-confirmed)",
+     "detail": "offers.ts nearClient (~320) falls back to g.clients[o.client] for role-filtered lists. In adhoc(), when ctx.o.client is set, choose the variant the client fits (diaspora if isDiaspora, pilgrimage if isPilgrim, music if kind music, else group or oneway). Also immersion-diaspora-reason-date: make DIASPORA_REASONS {text, months}, work out Eid from hajjDates()/ramadanOf(), filter by legs[0].dep month at offers.ts:671, and fall back to 'to see their families'. Tests: generateOffer with a Shell client never gives diaspora, and an August diaspora offer never says Christmas."
+    },
+    {
+     "id": "comm-visit-spam",
+     "title": "Repeated client visits: no cooldown, duplicate leads, two tenders per round (major, code-confirmed)",
+     "detail": "trips.ts tripDone (~384): visitRel only when the last visit to that client was over ~60 days ago (store lastVisit on the client, ??=), else 0-2, and the lead odds decay too. sales.ts newLead (~348): return null when a live lead (lead/proposal/negotiation) exists for the same clientId and archetype. trips.ts makeLead (~433): skip issueTender when the client already has a tender in the same round. tripQuote: meetings on Mon-Fri (Sun-Thu for SA/AE/QA/KW/OM/BH). Test with the visits script pattern from h-comm/scratch/visits.ts. Size M."
+    },
+    {
+     "id": "comm-tour-season",
+     "title": "Beach tour series to Burgas in November, Olbia and Rhodes in winter (major, code-confirmed)",
+     "detail": "flavor.ts:218: split RESORTS_NB into year-round (TFS LPA FUE ACE FNC SID BVC PFO AYT) and summer-only (CFU RHO DLM BJV BOJ CHQ KGS MAH OLB HER PMI; May-Oct). In offers.ts tourSeries (~951), filter by the start and end months. Apply the same filter to the seasonBase leisure destinations (~495) when the term runs Nov-Mar. Test: no summer-only resort in a Nov-Mar series across seeds."
+    },
+    {
+     "id": "comm-sports-federation",
+     "title": "Federations fly league away days; league games in cities with no top-flight club (major)",
+     "detail": "offers.ts sportsBase (~823): when the client name matches /Federation|Association/, set league=false and use titles like 'Qualifier in X' or 'Nations League away in X' to foreign capitals. Add a LEAGUE_CITIES map per country (PT: OPO BRG FNC PDL FAO; ES: BCN BIO SVQ VLC LPA ...; GB: MAN LPL NCL BHX ...) for the domestic pool. Test: an FPF offer is never domestic. Size M."
+    },
+    {
+     "id": "season-titles",
+     "title": "'Half-term' in July, 'Summer peak' in Sep/Oct (comm-season-titles + immersion-halfterm-summer)",
+     "detail": "flavor.ts:381: Half-term only for a British programme starting in Feb, late May or Oct and lasting 3 weeks or less. flavor.ts:396: 'Summer peak' and 'Holiday peak cover' only for Jun-Aug starts. Optionally add a British summer title 'School holidays to {toCity}'. Size S."
+    },
+    {
+     "id": "comm-text",
+     "title": "'Yes: $982K of work if it goes cold' and \"Rainbow Tours's\" in sales messages",
+     "detail": "sales.ts:568: body `${card.why} ${hurtProse(card)}.`. sales.ts:1001: use possessive() from flavor. Size S."
+    },
+    {
+     "id": "comm-client-fits",
+     "title": "Frontex relief flights, European AUSSOM rotations, rival losing to itself",
+     "detail": "missions.ts:371: exclude Frontex from the humanitarian clients. offers.ts troopRotation (~1009): drop AU-org mission airports for non-African ministries, and add HOME_MISSIONS for LV and BG. clients.ts rivalFor (~208): exclude g.clients[clientId].rivalId and inactive rivals. Size S."
+    },
+    {
+     "id": "comm-margin-label",
+     "title": "Analyst margin leaves out lease and crew pay (76 % on an ACMI deal)",
+     "detail": "feasibility.ts:846: add a fully loaded figure: lease per day x days tied up, plus crew pay per set x sets x days. The offer dialog cost row and the analyst card show 'Profit after lease and crew about $X', with the contribution behind '?'. Size M."
+    },
+    {
+     "id": "comm-cancel-split",
+     "title": "Contract sheet 'Cancel now' adds the deposit refund to the penalty",
+     "detail": "contractSheetLogic.ts:81: show 'Cancel now: penalty $379K (+$262K deposit back)', matching Contracts.tsx:176. Reword the tiers to '60+ days before: 15 % ...'. Size S."
+    },
+    {
+     "id": "contracts-screen",
+     "title": "Contracts Active: icon tooltips, compact cards, short header on phone",
+     "detail": "Contracts.tsx:280-284: add data-tip 'The contract', 'On the schedule' and 'Cancel the contract'. Then the compact one-line cards, with the crew override and actions moved into the sheet, grouped 'Flying now' / 'Signed, upcoming'. Under (max-height: 500px), put the title inline with the tabs and the standing tiles in one chip row. Size S then M."
+    },
+    {
+     "id": "comm-tail",
+     "title": "Payment behaviour by country risk; max-seats wording; repatriation ties",
+     "detail": "clients.ts behaviour(): add a country risk tier (low risk: airlines 0.92, governments 0.85 with 0-15 days late), seeded with ??=. screenLogic.ts:176: show '180+ seats, all economy'. offers.ts:890 repatriation: weight by live world events, diaspora and distance, and scale pax to the country. Tail."
+    }
+   ]
+  },
+  {
+   "key": "ops-world",
+   "title": "Ops planning, world events and money cards",
+   "areas": "src/engine/contracts/schedule.ts, plan.ts; src/engine/ops/maintenance.ts (planA only), ops/world.ts, ops/position.ts, ops/perf.ts, ops/commercial.ts; src/data/worldEvents.ts, data/carriers.ts; src/engine/problems/money.ts; src/engine/finance/glance.ts; PositionModal Cost row",
+   "items": [
+    {
+     "id": "ops-wait-before-maint-away",
+     "title": "Aircraft sits a month at an outstation before a check or paint shop away from base (major, CONFIRMED)",
+     "detail": "Confirmed: h-ops `DUMP=LZ-UFQ npx tsx scripts/stuckseed.ts 5 40 SOF` puts LZ-UFQ at WAW from 10 Mar to 11 Apr 2027, then a ferry WAW-BUD to the paint shop. schedule.ts:689: allowHop is false whenever b.kind === 'maint', and homeFirst only covers Y === home. Allow the home hop (gapMoves with allowHop) before a maintenance anchor away from home when the gap is >= AWAY_GAP. Keep the bar on out-and-back hops around checks at home. Test: seed 5 SOF, with no away stretch over AWAY_GAP before a maint anchor."
+    },
+    {
+     "id": "immersion-world-iraq-overlap",
+     "title": "Two Iraq airspace events at once: 'reopened' while still closed (major, code-confirmed)",
+     "detail": "world.ts allowed() (~282): add `if (t.zoneId && eventsOf(g).some(e => isLive(g,e) && TPL_BY_ID[e.tpl]?.zoneId === t.zoneId)) return false;`. warIraq and airspaceIraq share zone 'iraq'. Repro: seed 7 TLL, 16-18 Apr 2027. Test: no two live events per zone over a long run. Size S."
+    },
+    {
+     "id": "world-event-months-repeats",
+     "title": "Hurricane at Punta Cana in April, Sindh monsoon in March; the same event repeats weeks later",
+     "detail": "worldEvents.ts: hurricanePuj months [5..10], floodsSindh [6,7,8]; check calimaCanaries and windMadeira. world.ts: record w.lastTpl[id] (??= {} on load) and skip a template for a cooldown by kind: disaster/earthquake 540 d, coup/war 180 d, strike 60 d, ash 30 d. Add an optional 'again' title and body used when the last start was under 120 days ago. Tests for the cooldown and the months. Size S-M."
+    },
+    {
+     "id": "ops-acheck-lead",
+     "title": "A-check booked away from base gives the ferry only 9 h of crew lead",
+     "detail": "maintenance.ts planA ferry-home branch (~481) uses g.now + BAL.ferryLeadMin. Use contracts/schedule.ts crewFree(g, ac.id, at, ...) as ops/position.ts does, then add the turn, the ferry and 30 min. Repro: h-ops posrun.ts m42.json 9H-XBG TER 150 (17 Dec 2027). Size S."
+    },
+    {
+     "id": "crew-fakeroutes",
+     "title": "Crew tickets on invented nonstops (TK MLA-SFJ, BA LHR-SFJ)",
+     "detail": "ops/commercial.ts routing(): try a 2-stop routing via the destination country's gateway before the fallback-carrier fake nonstop. carriers.ts: add Air Greenland (GL: CPH-SFJ, CPH-GOH, KEF-GOH), and keep RAM long-haul to its real routes (no Santiago). Test itinerary('MLA','SFJ') goes via CPH on GL. Size S-M."
+    },
+    {
+     "id": "money-cards",
+     "title": "Cash-crisis cards count the bank's share of factored invoices; Finance '3 months' covers ~4 (core-3 + core-5)",
+     "detail": "problems/money.ts lines 49, 182, 282: sum paidToUs(r) over open receivables and say 'still to come'. Repro: h-core scripts/hunt/factor.ts malteser.json. finance/glance.ts:321 cashPath: use closed[-3].cashEnd, or word it 'since 1 Apr'. Size S."
+    },
+    {
+     "id": "ops-weekly-hop",
+     "title": "Weekly charter series: weigh waiting at the outstation against flying home empty",
+     "detail": "plan.ts gapMoves hops home for any gap >= TRIP_GAP (48 h) without regard to cost (k5t6 HEL-PMI: 71 revenue BH vs 68 positioning BH). Hop home only when there is home work in the gap, or when the hop's fuel, fees and maintenance cost more than waiting (parking per day plus crew tickets). The schedule line says 'waits at Helsinki (cheaper than a ferry home)'. Keep determinism. Size M."
+    },
+    {
+     "id": "ops-parking",
+     "title": "Parking fees for aircraft left at an outstation",
+     "detail": "Charge BAL.delivery.parkPerDay (higher at slot hubs) daily through the ledger (airportFees) for an available aircraft on the ground away from home and crew bases. Show 'Parking about $X a day there' on the Position quote. Size S."
+    },
+    {
+     "id": "ops-ferry-tail",
+     "title": "Ferry routes stop at LHR and DCA; Position quote leaves out the follow-on legs",
+     "detail": "perf.ts searchRoute: exclude LHR, LGW, CDG, FRA, AMS and DCA as technical stops, and give a small bonus to SNN, KEF and YFB. ops/position.ts tryAt: price the added and removed soft positioning legs with ferryCost, and show 'Cost $11K, then about +$5K for the flight on to Paris'. Tail, S each."
+    }
+   ]
+  },
+  {
+   "key": "immersion-visual",
+   "title": "Immersion (disruption realism, crew names, flavour) and visual polish",
+   "areas": "src/engine/ops/disrupt.ts, ops/events.ts, ops/flights.ts (subcharter + OPS_REASONS), ops/maintenance.ts (startAog only), core/entities.ts subcharter helpers; src/data/opsData.ts, data/flavor.ts (AUTHORITY), data/names.ts; src/ui/screens/Hangar.tsx, Schedule.tsx; src/styles/theme.css; index.html; src/ui/theme.ts",
+   "items": [
+    {
+     "id": "ops-sub-instant",
+     "title": "AOG sub-charter flies the stranded leg on time, as if the rival were already there",
+     "detail": "subcharterLegs/subcharterFlights (flights.ts/entities.ts): move any leg leaving before now + SUB_LEAD (or the rival's positioning time from its base) to that time. Mark the wait as our delay (not excused) and show it in the option chips ('First leg ~6 h late'). Repro: /home/user/work/v025/hunt/ops/at-decision.json (9H-EYO at GOI, XY967 at 17:50). Test: the sub-chartered leg std >= now + SUB_LEAD. Size S-M."
+    },
+    {
+     "id": "immersion-crew-on-board-named",
+     "title": "Name the purser and captain in in-flight cards; close the story after a medical",
+     "detail": "disrupt.ts medicalCard (~617), the bird strike line and the diversion card: use crewName() on f.crewIds by role ('Purser Rita Teixeira called for a doctor; Captain Stephanie Abela is talking to MedLink'). onDivertedArrival (~699), cause medical: one quiet closing line ('The passenger was taken to hospital in Bucharest. The crew filed their report.'). Text only, no new state. Size S."
+    },
+    {
+     "id": "ui-hangar-floor-bands",
+     "title": "Fleet > Hangar > Side: floor band drawn outside the card or under the text",
+     "detail": "Hangar.tsx:84-100: measure in useLayoutEffect again when the art loads (img onLoad or a ResizeObserver on .hg-line), and clip .hg-line with overflow hidden. Shots: hunt/ui/shots/p-mac-light-hangar-side.png. Size S."
+    },
+    {
+     "id": "immersion-unruly-passenger",
+     "title": "Disruptive passenger event (scoped to M)",
+     "detail": "disrupt.ts rollEnRoute: add a band after pT (r < pW+pM+pT+pU, pU about 0.0003 x emergencyFactor), so the existing outcomes keep their thresholds. Add an 'unruly' card modelled on medicalCard, with the purser named: 'Continue; police meet the aircraft' (report to authorityName(g)) or 'Divert and offload' (alternates(), handling cost, excused delay, half billed back to the passenger later through the ledger). Add 'unruly' to DISRUPT_KINDS, EMERGENCY_KINDS and DisruptCause, with resolve and director rate. Optionally add a quiet gate variant 'Captain refused boarding to a drunk passenger: bags offloaded' as a delay reason. Test the card and determinism (--det)."
+    },
+    {
+     "id": "aog-causes",
+     "title": "AOG repair time and cost by fault; APU and bleed faults are MEL delays (ops-aog-causes + immersion-aog-cause-times)",
+     "detail": "maintenance.ts startAog (~725-737): CAUSES becomes a table {cause, hours:[lo,hi], cost:[lo,hi], bigStationFactor}, e.g. brakes 4-12 h $6-12K, tyre 3-8 h, windshield 10-30 h $25-45K, IDG 10-30 h, tug damage 24-96 h $50-150K. Pick the cause first, with the same number of rolls. Move APU and bleed faults to TECH_REASONS delays ('APU inoperative: dispatched under MEL, ground power needed'). Size M."
+    },
+    {
+     "id": "immersion-weather-not-seasonal",
+     "title": "Snow at Riga in September; snow at Tenerife possible in July",
+     "detail": "opsData.ts:136 WEATHER_CAUSES: add months and a minimum |lat| (snow Nov-Mar, |lat| >= 40; fog mostly autumn and winter). Filter by month and AIRPORT_BY_CODE[f.to].lat before pickOf at disrupt.ts:589, keeping one side-stream roll. Size S."
+    },
+    {
+     "id": "immersion-cards-flow",
+     "title": "Change requests always 'for a late group'; single-option medical card pauses the game",
+     "detail": "events.ts:885: pick the reason by client kind from a list in data flavor on the decision's side key (tour operators: hotel transfers late, connecting group late, slot moved; airlines: own inbound late; sports: evening kick-off; corporate: board meeting runs over). disrupt.ts:601-617: when opts.length === 1, post a 'warn' ops message and apply 'continue' at once. Size S."
+    },
+    {
+     "id": "immersion-text-authority",
+     "title": "Text polish ('..', '1 days', possessives) and audit authority names",
+     "detail": "events.ts:1263 and :101: strip the trailing '.' from r.msg before adding one. disrupt.ts:1047: 'day'/'days' by count. events.ts:984: use possessive(). data/flavor.ts:23 AUTHORITY: add CZ 'the UCL' (Czech CAA), BG 'the DG CAA', EE 'the Transport Administration', MA 'the DGAC Morocco'. Size S."
+    },
+    {
+     "id": "visual-palette-statusbar",
+     "title": "Finance cost colours distinct; light status bar on the iPad home-screen app",
+     "detail": "theme.css: --cat-6 to olive (dark #8fb339, light #6b8e23), --cat-9 to slate violet (dark #8d86a8, light #6e6890); check both themes with the dataviz validator. index.html inline theme script and ui/theme.ts applyTheme: set apple-mobile-web-app-status-bar-style to 'default' for light and 'black' for dark, with a '?' saying it applies on next launch. Size S."
+    },
+    {
+     "id": "immersion-delays-names",
+     "title": "Season and place delay reasons (de-icing at Baltic/Central European bases); larger crew name pools",
+     "detail": "flights.ts OPS_REASONS (~816): keep the single pick(g, ...) call but choose the list by context: Nov-Mar at lat >= 45, add 'De-icing: queue at the pad' and 'Snow clearance'; Jun-Aug, 'Thunderstorms on the route'; at all times, crew-life reasons (missing passenger, bags offloaded; wheelchair assistance late; catering short-loaded). names.ts: grow MT, IT, RO, PL, GB, FR, SK and CV pools to about 20 real names each (data only). Size M+S."
+    },
+    {
+     "id": "visual-tail",
+     "title": "Hangar top-down silhouettes in each aircraft's livery; Schedule sticky first day label",
+     "detail": "Hangar.tsx:113-122: fill with the mapLivery(ac) fuselage colour, the tail colour on the rear 12 % clip, and the cowl colour on the engines. Schedule.tsx .gantt-axis day labels: position sticky with left equal to the aircraft column width. Tail."
+    }
+   ]
+  }
+ ],
+ "dropped": [
+  "core-i5 (bot 6-h step grid vs frame steps give different ids): a tooling gap with no player impact; note it in the bot docs only",
+  "No hunter major failed to reproduce: crew-ticketoverlap, core-1, core-2 and ops-wait-before-maint-away were re-run and confirmed. comm-broker-pct, comm-visit-spam, comm-tour-season, immersion-lead-client-mismatch, immersion-world-iraq-overlap, the network case majors, ui-space-in-dialog, visual-globe-marks-corner and ui-toast-covers-map-controls were confirmed in the code",
+  "Duplicates merged: comm-client-log-overlap = ui-clients-recent-date-overlap = visual-log-date-col; network-map-upnext-truncated = visual-upnext-date-cut; crew-iphoneboard = ui-iphone-roster-board-tiny; comm-season-titles = immersion-halfterm-summer; ui-inbox-merge-bursts = immersion-early-home-spam; ops-aog-causes = immersion-aog-cause-times; crew-ticketoverlap and core-2 are one lane item"
+ ],
+ "deferred": [
+  "crew-oversets (major, L): sizeSets peak*8/6 plus grow over-sizes detachments, so Planning says 'short 18, hire'. It needs a bot sizing study across seeds and agreement between Planning and Utilisation, too risky alongside the crew legality fixes in a 2 h lane",
+  "crew-awaychain (M, high immersion): cap time away at rotationWeeks; do it after crew-oversets because the two interact",
+  "core-i1 spread midnight engine work over 00:00-00:02 (M, high perf): changes the event order at midnight and needs a test tolerance pass",
+  "core-i2 saves to IndexedDB and async manual save (M)",
+  "core-i4 faster Continue by skipping the re-roster on a fixed-point save (M)",
+  "ops-aog-rescue (single-leg rescue sub-charter; after ops-sub-instant lands)",
+  "ops-curfews (each new curfew must first be checked against the AIP or airport rules)",
+  "network-pick-tail-in-case (M; the lane 3 wrong-aircraft fix covers the root cause)",
+  "comm-tender-mgh (clamp bids and let a low MGH carry risk)",
+  "immersion-milestones and immersion-passenger-letters (M each)",
+  "ui-route-dialog-actions, ui-whatsnew-fold-old, ui-glossary-search, ui-onboarding-first-run, ui-counter-reply-wording, ui-leave-month-targets (small UX, next polish round)"
+ ]
+}
