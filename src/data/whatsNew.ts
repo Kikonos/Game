@@ -36,7 +36,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'A crew member out of hours only because of past standby days comes off that one duty, and another crew at the station flies it.',
       'The crew shortage card now reads \'too close to the 13:00 limit\' instead of looking like a breach.',
       'The offer dialog shows each broker\'s own commission, such as 4 % or 3.5 %, and the profit after lease and crew next to the margin.',
-      'The contract sheet shows the cancel penalty and the deposit you get back, the same as the Cancel dialog.',
+      'The contract sheet shows what cancelling costs now: the penalty, plus any prepaid money paid back to the client.',
       'Visiting the same client again within 60 days adds little and rarely brings a new lead. Meetings fall on working days.',
       'No beach series to resorts out of season, such as Burgas in November. A winter base flies to resorts that are open in winter.',
       'Governments in low-risk countries, such as the EU, the UK and the US, now mostly pay on time. Others still pay weeks late.',

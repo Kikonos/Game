@@ -37,11 +37,14 @@ export function cancelTiers(scale: [number, number][]): string {
     .replace(/^./, (x) => x.toUpperCase());
 }
 
-/** v0.25 'Penalty $379K (+$262K deposit back)': the penalty and the money that goes back, apart (as the Cancel dialog). Pure. */
+/**
+ * v0.25 'Penalty $142K + $142K paid back to the client · $284K in all': what cancelling costs now, the same sums as the
+ * Cancel dialog. The refund is money the client prepaid for legs not flown: it goes out, it does not come back. Pure.
+ */
 export function cancelNowLine(g: GameState, c: Contract): string {
-  const { penalty, refund } = cancelCost(g, c.id);
+  const { penalty, refund, total } = cancelCost(g, c.id);
   if (refund <= 0) return `Penalty ${money(penalty)}`;
-  return `Penalty ${money(penalty)} (+${money(refund)} ${c.product.kind === 'charter' ? 'deposit back' : 'refund'})`;
+  return `Penalty ${money(penalty)} + ${money(refund)} paid back to the ${c.dry ? 'lessee' : 'client'} · ${money(total)} in all`;
 }
 
 export function contractSheet(g: GameState, c: Contract): ContractSheet {

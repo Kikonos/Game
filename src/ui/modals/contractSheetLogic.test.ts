@@ -58,13 +58,13 @@ describe('v0.24 contract sheet', () => {
     const s = contractSheet(g, c);
     expect(row(s.terms, 'Price')).toMatch(/all-in/);
     expect(row(s.status, 'Invoiced so far')).toMatch(/ of \$/);
-    // v0.25 the penalty and the deposit that goes back, apart (not added together).
+    // v0.25 the penalty, then what goes back to the client and the sum, as the Cancel dialog.
     expect(row(s.status, 'Cancel now')).toBe(`Penalty ${money(cancelCost(g, c.id).penalty)}`);
-    // The client pays the deposit invoice: cancelling now hands it back, shown apart from the penalty.
+    // The client pays the deposit invoice: cancelling now pays it back, on top of the penalty.
     for (const r of g.finance.receivables) if (r.contractId === c.id) r.paid = g.now;
     const cc = cancelCost(g, c.id);
     expect(cc.refund).toBeGreaterThan(0);
-    expect(row(contractSheet(g, c).status, 'Cancel now')).toBe(`Penalty ${money(cc.penalty)} (+${money(cc.refund)} deposit back)`);
+    expect(row(contractSheet(g, c).status, 'Cancel now')).toBe(`Penalty ${money(cc.penalty)} + ${money(cc.refund)} paid back to the client · ${money(cc.total)} in all`);
     c.status = 'completed';
     expect(row(contractSheet(g, c).status, 'Cancel now')).toBeUndefined();
   });
