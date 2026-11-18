@@ -138,3 +138,17 @@ describe('launch texts follow who travels', () => {
   });
 });
 
+
+describe('v0.25 airport search without accents', () => {
+  it('Sao Paulo, Malaga, Krakow, Tromso find their airports; the position search too', async () => {
+    const { foldText, searchAirports } = await import('./networkLogic');
+    const { searchAirports: posSearch } = await import('../../modals/PositionModal');
+    expect(foldText('São Paulo')).toBe('sao paulo');
+    expect(foldText('İstanbul')).toBe('istanbul');
+    expect(foldText('Tromsø')).toBe('tromso');
+    for (const [q, code] of [['Sao Paulo', 'GRU'], ['malaga', 'AGP'], ['Krakow', 'KRK'], ['Tromso', 'TOS'], ['Kraków', 'KRK']]) {
+      expect(searchAirports(q).map((a) => a.code), q).toContain(code);
+      expect(posSearch(q, '').map((a) => a.code), q).toContain(code);
+    }
+  });
+});

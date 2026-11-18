@@ -6,6 +6,7 @@
 import { PlaneTakeoff, Search } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { AIRPORTS, AIRPORT_BY_CODE } from '../../data/airports';
+import { foldText } from '../screens/network/networkLogic';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
 import { fmtDay, fmtDuration, fmtTime } from '../../engine/core/time';
@@ -18,9 +19,10 @@ import { store, useGame } from '../store';
 
 /** Airports matching what was typed: code first, then city and name; never fuel-stop fields or ice runways. */
 export function searchAirports(text: string, skip: string, max = 6): PositionTarget[] {
-  const q = text.trim().toLowerCase();
+  // v0.25 accents folded ("Malaga" finds Málaga).
+  const q = foldText(text.trim());
   if (q.length < 2) return [];
-  const rank = (a: (typeof AIRPORTS)[number]) => (a.code.toLowerCase() === q ? 0 : a.code.toLowerCase().startsWith(q) ? 1 : a.city.toLowerCase().startsWith(q) ? 2 : a.city.toLowerCase().includes(q) || a.name.toLowerCase().includes(q) ? 3 : 9);
+  const rank = (a: (typeof AIRPORTS)[number]) => (a.code.toLowerCase() === q ? 0 : a.code.toLowerCase().startsWith(q) ? 1 : foldText(a.city).startsWith(q) ? 2 : foldText(a.city).includes(q) || foldText(a.name).includes(q) ? 3 : 9);
   return AIRPORTS.filter((a) => !a.enroute && !a.ice && a.code !== skip && rank(a) < 9)
     .sort((a, b) => rank(a) - rank(b) || b.size - a.size || (a.code < b.code ? -1 : 1))
     .slice(0, max)

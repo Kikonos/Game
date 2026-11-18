@@ -418,22 +418,32 @@ export function seasonWord(code: string): string {
 // ---------- v0.19.2 the route builder ----------
 
 /** Airports matching a search (code, city, airport name, country), best first; never fuel-stop fields. Pure. */
+/**
+ * v0.25 text folded for a search: no accents or case, the letters a keyboard lacks spelled plainly ("Sao Paulo" finds
+ * São Paulo, "Malaga" Málaga, "Krakow" Kraków, "Tromso" Tromsø, "Istanbul" İstanbul). Pure.
+ */
+const FOLD_MAP: Record<string, string> = { ø: 'o', Ø: 'o', ı: 'i', ß: 'ss', æ: 'ae', Æ: 'ae', œ: 'oe', Œ: 'oe', ł: 'l', Ł: 'l', đ: 'd', Đ: 'd', ð: 'd', þ: 'th', ħ: 'h' };
+export function foldText(s: string): string {
+  return s.replace(/[øØıßæÆœŒłŁđĐðþħ]/g, (c) => FOLD_MAP[c] ?? c).normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+}
+
 export function searchAirports(q: string, exclude: string[] = [], limit = 8): Airport[] {
-  const s = q.trim().toLowerCase();
+  const s = foldText(q.trim());
   if (s.length < 2) return [];
   const scored: [number, Airport][] = [];
   for (const a of AIRPORTS) {
     if (a.enroute || a.ice || exclude.includes(a.code)) continue;
     const code = a.code.toLowerCase();
-    const city = a.city.toLowerCase();
-    const country = countryName(a.country).toLowerCase();
+    const city = foldText(a.city);
+    const name = foldText(a.name);
+    const country = foldText(countryName(a.country));
     let sc = 0;
     if (code === s) sc = 100;
     else if (city === s) sc = 90;
     else if (city.startsWith(s)) sc = 70;
-    else if (a.name.toLowerCase().startsWith(s)) sc = 55;
+    else if (name.startsWith(s)) sc = 55;
     else if (country.startsWith(s)) sc = 40;
-    else if (city.includes(s) || a.name.toLowerCase().includes(s)) sc = 30;
+    else if (city.includes(s) || name.includes(s)) sc = 30;
     else if (country.includes(s)) sc = 20;
     if (sc) scored.push([sc + a.size, a]);
   }
