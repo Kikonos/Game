@@ -64,7 +64,7 @@ describe("v0.9 What's new catch-up (UPDATE-0.9.md §X)", () => {
     expect(WHATS_NEW[0].fixes?.length).toBeGreaterThan(0);
     const lines = [...WHATS_NEW[0].features, ...WHATS_NEW[0].improvements, ...(WHATS_NEW[0].fixes ?? [])];
     const txt = lines.join('\n');
-    for (const w of ['disruptive passenger', 'purser', 'outline bars', 'parking', 'livery', 'Flying now', 'Nations League', 'Filters', '1 h 15 min', 'broker', 'low-risk', 'own aircraft', 'without accents', 'AOG', 'Tenerife', 'Space', 'About', 'Greenland', 'Shell']) expect(txt).toContain(w);
+    for (const w of ['disruptive passenger', 'purser', 'outline bars', 'parking', 'livery', 'Flying now', 'Nations League', 'Filters', '1 h 15 min', 'broker', 'low-risk', 'own aircraft', 'without accents', 'AOG', 'Tenerife', 'Space', 'About', 'Greenland', 'Shell', 'rescue', 'curfews', 'Passengers now write', 'anniversaries', 'Glossary', 'sit idle', 'stalls at midnight', '×6']) expect(txt).toContain(w);
     expect(txt).not.toMatch(/[—;]|BAL\.|§|v025|ACMI-|\bTODO\b/);
     for (const l of lines) expect(l.length).toBeLessThanOrEqual(200);
   });
