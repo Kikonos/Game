@@ -18,7 +18,7 @@ import type { Theme } from '../../theme';
 import { isTouch } from '../../useMedia';
 import { airlineType } from '../airlineTypes';
 import { HIT_R } from '../LiveLayers';
-import { groupCommercial, HIT_ROUTE, type LegArc, nearestLine, pickNearest, placeLabels, regMark, type SlipArc, standOffsets, TYPE_STROKE, type LabelBox } from '../mapLogic';
+import { groupCommercial, HIT_ROUTE, type LegArc, nearestLine, pickNearest, placeLabels, regMark, type SlipArc, stackStands, standOffsets, TYPE_STROKE, type LabelBox } from '../mapLogic';
 import { contrailWindow } from '../spotter';
 import { loadMapData, worldGeo } from '../mapData';
 import { silColour } from '../silhouettes';
@@ -585,9 +585,22 @@ export default function Globe(props: GlobeProps) {
       const byAp = new Map<string, GlobeAc[]>();
       for (const a of fleetNow) if (!a.airborne && a.at) byAp.set(a.at, [...(byAp.get(a.at) ?? []), a]);
       const stand = new Map<string, [number, number]>();
+      // v0.25 r2 zoomed out, a big block folds into one aircraft with a count under it (as on the flat map).
+      const stackTop = new Map<string, number>();
+      const stackHid = new Set<string>();
       for (const list of byAp.values()) {
-        const offs = standOffsets(list.map((a) => ({ w: Math.max(dimM(a.typeId) * pxPerM * 1.0, 26), h: dimM(a.typeId) * pxPerM })), 14);
-        list.forEach((a, i) => stand.set(a.id, offs[i]));
+        const sizes = list.map((a) => ({ w: Math.max(dimM(a.typeId) * pxPerM * 1.0, 26), h: dimM(a.typeId) * pxPerM }));
+        const offs = standOffsets(sizes, 14);
+        // The globe is a unit sphere: world units per px × the Earth's radius = ground km per px.
+        if (stackStands(list.length, Math.max(...offs.map((o, i) => o[0] + sizes[i].w / 2)), wpp * 6371)) {
+          const i = Math.max(0, list.findIndex((a) => a.id === selAc));
+          const o = standOffsets([sizes[i]], 14)[0];
+          list.forEach((a, j) => {
+            stand.set(a.id, o);
+            if (j !== i) stackHid.add(a.id);
+          });
+          stackTop.set(list[i].id, list.length);
+        } else list.forEach((a, i) => stand.set(a.id, offs[i]));
       }
       // The camera's screen axes in the world (shadows fall down and right on screen).
       const crt = cv.right;
@@ -608,8 +621,12 @@ export default function Globe(props: GlobeProps) {
           o = newAc(a.typeId, silColour(a.typeId), label);
           acs.set(a.id, o);
         }
-        const mark = regMark(ac.reg, game.company.regPrefix);
+        const n = stackTop.get(a.id);
+        const mark = n ? `×${n}` : regMark(ac.reg, game.company.regPrefix);
         if (o.label.textContent !== mark) o.label.textContent = mark;
+        // Folded under the one shown: not drawn, not tappable, no label.
+        const hid = stackHid.has(a.id);
+        if (o.group.visible === hid) o.group.visible = !hid;
         // Its track: flown solid, still to fly dashed; v0.18 lifted off the ground, the aircraft riding it.
         let arc: ArcObj | undefined;
         if (a.airborne) {
@@ -638,8 +655,9 @@ export default function Globe(props: GlobeProps) {
           tr = !!win && t >= win[0] && t < win[1];
         }
         o.trail.visible = tr;
+        if (hid) o.shadow.visible = false;
         const rPx = (o.dim * pxPerM) / 2;
-        if (q) {
+        if (q && !hid) {
           acScreen.set(a.id, { x: q.x, y: q.y, r: rPx });
           const fs = touch ? 11 : 10;
           boxes.push({ id: a.id, x: q.x, y: q.y + rPx + 8, w: mark.length * fs * 0.62 + 4, h: fs + 2, el: o.label, x0: q.x, y0: q.y + rPx + 3 });
