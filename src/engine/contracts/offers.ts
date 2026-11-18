@@ -41,7 +41,7 @@ import { brokerIdOf, brokerName } from '../commercial/sales';
 import { offerHidden } from './filter';
 import { statsV016 } from '../core/stats016';
 import { rivalTakes, rollRivalBid } from './rivals';
-import { closedAirport, closedUntil, closurePlanned, inWarZone, permitEvent, setClosureOfferHook, warRiskLandings } from '../ops/world';
+import { closedAirport, closedUntil, closurePlanned, eventsOf, inWarZone, isLive, permitEvent, setClosureOfferHook, warRiskLandings } from '../ops/world';
 import { setClosurePlannedHook, setOpenFromHook } from './schedule';
 import { curfewOk, curfewShift } from '../core/curfew';
 import type { HajjDates } from '../../data/worldCalendar';
@@ -911,12 +911,19 @@ function repatriation(ctx: Ctx): Draft | null {
   const client = (o.client && g.clients[o.client]?.kind === 'government' ? g.clients[o.client] : undefined) || ministry(g, 'Foreign Affairs');
   if (!client) return null;
   const home = g.company.homeBase;
-  const crisis = o.airport ?? pick(g, F.CRISIS_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home));
+  // v0.25 where its citizens really are in trouble: a live world event in that country (×4), the state's own ties
+  // (Portugal and Angola, France and Mali; ×3), and nearer before farther.
+  const live = new Set(eventsOf(g).filter((e) => isLive(g, e)).map((e) => e.country));
+  const ties = F.REPAT_TIES[client.country] ?? [];
+  const crisis = o.airport ?? weightedPick(g, F.CRISIS_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home), (c) =>
+    (live.has(AIRPORT_BY_CODE[c].country) ? 4 : 1) * (ties.includes(c) ? 3 : 1) / (1 + km(home, c) / 4000));
+  if (!crisis) return null;
   const n = o.rotations ?? (wide ? int(g, 1, 2) : int(g, 1, 3));
   const lead = o.start !== undefined ? o.start - g.now : int(g, 24, 72) * 60;
   // v0.8 pre-release: seats = passengers, so a widebody load is drawn where the seat ask was before the fix pack (250):
   // 240–265, within a two-class 767-300 (267) and every A330/A340, not 260–300 (most no longer fit the first widebody).
-  const pax = wide ? int(g, 240, 265) : int(g, 140, 175);
+  // v0.25 a small state has fewer citizens to bring home (Malta, Estonia).
+  const pax = Math.round((wide ? int(g, 240, 265) : int(g, 140, 175)) * (F.SMALL_STATES[client.country] ?? 1));
   // v0.8 fix pack: the real chain on the type the job is priced on (fuel stops included); no type reaches: no offer.
   const ref = referenceType({ minSeats: pax }, [[crisis, home]]);
   const est = ref ? route(ref, crisis, home) : null;

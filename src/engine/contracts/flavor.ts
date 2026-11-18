@@ -284,6 +284,12 @@ export const BASE_HUBS_MARKET = ['LOS', 'ABJ', 'LFW', 'ACC', 'NBO', 'KGL', 'DAR'
   'AKL', 'NOU', 'PPT', 'RUN', 'POS', 'ADD', 'MRU', 'SEZ', 'SID', 'POM', 'HIR', 'PTY', 'NAS', 'GCM'];
 
 export const CRISIS_AIRPORTS = ['KBL', 'BKO', 'JUB', 'MGQ', 'BGF', 'GOM', 'LAD', 'OXB', 'TMS', 'DIL', 'BEY', 'ADA'];
+/** v0.25 repatriations: the crisis airports where a state has many citizens (language, history, diaspora). */
+export const REPAT_TIES: Record<string, string[]> = {
+  PT: ['LAD', 'OXB', 'TMS', 'DIL'], FR: ['BKO', 'BGF', 'GOM', 'BEY'], BE: ['GOM'], DE: ['KBL', 'ADA'], NL: ['ADA'], GB: ['KBL'], IT: ['BEY'], ES: ['BKO'],
+};
+/** v0.25 the share of a full load a small state brings home (fewer citizens abroad). */
+export const SMALL_STATES: Record<string, number> = { MT: 0.5, IS: 0.5, LU: 0.5, CY: 0.55, EE: 0.6, LV: 0.65, SI: 0.65, LT: 0.7 };
 export const MISSION_AIRPORTS = ['BKO', 'BGF', 'MGQ', 'JUB', 'DJI'];
 /**
  * v0.24 where each start base's state really sends its troops (2024–2026 deployments), for its own defence

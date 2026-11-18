@@ -5,9 +5,9 @@ import { hamBase, leased, newGame } from './testkit';
 import { feasibility } from './feasibility';
 import { generateOffer } from './offers';
 import { DAY, fromUTC, toDate } from '../core/time';
-import { baseDestOpen, possessive, TITLES, type TitleCtx, diasporaReasonsAt, DIASPORA_BY_CLIENT, DIASPORA_REASONS, LEAGUE_CITIES, resortOpen, SIX_NATIONS, SUMMER_ONLY } from './flavor';
+import { baseDestOpen, possessive, SMALL_STATES, TITLES, type TitleCtx, diasporaReasonsAt, DIASPORA_BY_CLIENT, DIASPORA_REASONS, LEAGUE_CITIES, resortOpen, SIX_NATIONS, SUMMER_ONLY } from './flavor';
 import { AIRPORT_BY_CODE } from '../../data/airports';
-import { rivalFor } from './clients';
+import { rivalFor, riskTier, seedRisk } from './clients';
 import { hajjDates } from '../../data/worldCalendar';
 import type { ContractOffer, GameState } from '../core/types';
 
@@ -217,5 +217,50 @@ describe('v0.25 profit after lease and crew', () => {
     expect(r.estFixed!).toBeGreaterThan(lease);
     // A narrowbody set (2 pilots, 4 cabin) costs at least $20K a month with on-costs, for two or more sets.
     expect(r.estFixed! - lease).toBeGreaterThan(((2 * 20_000) / 30.44) * days * 0.9);
+  });
+});
+
+describe('v0.25 payment behaviour by country risk', () => {
+  it('a low-risk government pays mostly on time; a high-risk one late; old saves get the tier once', () => {
+    const g = newGame(2);
+    const govs = Object.values(g.clients).filter((c) => c.kind === 'government');
+    expect(govs.length).toBeGreaterThan(0);
+    for (const c of govs) {
+      expect(c.risk).toBe(riskTier(c.country));
+      if (c.risk === 'low') expect(c.payReliability).toBe(0.85);
+      else expect(c.payReliability).toBe(0.2);
+    }
+    expect(riskTier('PT')).toBe('low');
+    expect(riskTier('NG')).toBe('high');
+    // An older save: no tier, the old behaviour; the load seeds both.
+    const c = govs.find((x) => x.risk === 'low')!;
+    delete c.risk;
+    c.payReliability = 0.2;
+    c.lateDays = [25, 90];
+    seedRisk(c);
+    expect(c.risk).toBe('low');
+    expect(c.payReliability).toBe(0.85);
+    expect(c.lateDays).toEqual([0, 15]);
+    c.payReliability = 0.5;
+    seedRisk(c);
+    expect(c.payReliability).toBe(0.5);
+  });
+});
+
+describe('v0.25 repatriations', () => {
+  it('a small state brings fewer citizens home; a live crisis country draws the flights', () => {
+    const g = newGame(3);
+    const c = Object.values(g.clients).find((x) => x.kind === 'government' && /Foreign/.test(x.name));
+    if (!c) return;
+    const pax: number[] = [];
+    for (let i = 0; i < 12; i++) {
+      const o = generateOffer(g, 'repatriation', { client: c.id, window: false, wide: false });
+      if (!o || o.pattern.kind !== 'legs') continue;
+      pax.push(o.pattern.legs[0].pax);
+      delete g.offers[o.id];
+    }
+    expect(pax.length).toBeGreaterThan(0);
+    const scale = SMALL_STATES[c.country] ?? 1;
+    for (const p of pax) expect(p).toBeLessThanOrEqual(Math.round(175 * scale));
   });
 });

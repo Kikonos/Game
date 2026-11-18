@@ -483,6 +483,8 @@ export interface Client {
   met?: Minute;
   /** v0.25 when our last visit to them took place (commercial/trips.ts): a visit soon after adds little. Absent in old saves. */
   lastVisit?: Minute;
+  /** v0.25 the country's payment risk (contracts/clients.ts riskTier). load: ??= from the country, with its payment behaviour. */
+  risk?: 'low' | 'high';
 }
 
 /** v0.8 client relationship level (contracts/relations.ts). */

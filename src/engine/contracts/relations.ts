@@ -6,6 +6,7 @@
 import { clientVoice } from '../../data/clientVoice';
 import { BAL } from '../core/balance';
 import { prestigeRelationX } from './prestige';
+import { seedRisk } from './payRisk';
 import { pushMessage } from '../core/messages';
 import { DAY, fmtDay, fmtMonth, monthKey } from '../core/time';
 import { clamp } from '../core/util';
@@ -446,6 +447,7 @@ export function loadRelations(g: GameState): void {
     if (c.lastJob === undefined) c.lastJob = ks.length ? Math.max(...ks.map((k) => k.end)) : null;
     c.log ??= [];
     c.level ??= levelFor(g, c, undefined);
+    seedRisk(c);
   }
   // v0.24 the clients met in an older save: from what it holds (the first job or the first relation change when known).
   // Once only (a save from this version keeps its own record).
