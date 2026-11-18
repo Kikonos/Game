@@ -763,3 +763,14 @@ function boxOverlapPx(a: { x: number; y: number; w: number; h: number }, b: { x:
   const oy = Math.min(a.y + a.h / 2, b.y + b.h / 2) - Math.max(a.y - a.h / 2, b.y - b.h / 2);
   return Math.max(0, ox) * Math.max(0, oy);
 }
+
+describe('v0.25 Up Next dates fit their column', () => {
+  it('weekday within the week, day and month later, short year across the new year', async () => {
+    const { upNextWhen } = await import('./mapLogic');
+    const { fromUTC } = await import('../../engine/core/time');
+    const now = fromUTC(2028, 2, 10, 12, 0);
+    expect(upNextWhen(now, fromUTC(2028, 2, 14, 9, 0))).toMatch(/^[A-Z][a-z]{2} 09:00$/);
+    expect(upNextWhen(now, fromUTC(2028, 2, 24, 9, 0))).toBe('24 Feb 09:00');
+    expect(upNextWhen(fromUTC(2027, 12, 28, 12, 0), fromUTC(2028, 1, 9, 9, 0))).toBe('9 Jan 28 09:00');
+  });
+});

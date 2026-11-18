@@ -6,7 +6,7 @@ import { flightsOf } from '../../engine/core/entities';
 import { haversine } from '../../engine/core/geo';
 import { isPilot } from '../../engine/core/perf';
 import { flightTimes } from '../../engine/core/query';
-import { DAY, fmtDayShort, fmtTime, fmtWeekdayTime } from '../../engine/core/time';
+import { DAY, fmtDayIn, fmtDayShort, fmtTime, fmtWeekdayTime, yearOf } from '../../engine/core/time';
 import type { AcRest, Aircraft, Archetype, ContractOffer, CrewMember, Flight, GameState, Minute, OohLimit, Ref, RestFacility, RestKind, WorldEventKind } from '../../engine/core/types';
 import { type CrewAlertKind, crewAway, LIMIT_NAME, shortFlights, type SlipView } from '../../engine/crew';
 import { clientCode, clientLivery, clientTitles, commercialFlightsBetween, type CommercialFlight, commercialItinerary, dryLeaseOf, type FlightType, flightType, liveryOf, type ResolvedLivery } from '../../engine/ops';
@@ -902,4 +902,14 @@ export function slipLine(g: GameState, v: SlipView, head = true): string {
   parts.push(out ? `the first crew flies home on ${out}` : 'the first crew flies home');
   const line = parts.join(' · ');
   return head ? line : line.charAt(0).toUpperCase() + line.slice(1);
+}
+
+/**
+ * v0.25 Up Next's departure time further out than tomorrow, short enough for its column: 'Mon 09:00' within the
+ * week, '14 Feb 09:00' later in the year, '2 Jan 28 09:00' in the next one. Pure.
+ */
+export function upNextWhen(now: Minute, t: Minute): string {
+  const d = Math.floor(t / DAY) - Math.floor(now / DAY);
+  if (d <= 6) return fmtWeekdayTime(t);
+  return `${yearOf(t) === yearOf(now) ? fmtDayIn(t, now) : fmtDayShort(t)} ${fmtTime(t)}`;
 }

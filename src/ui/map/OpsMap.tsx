@@ -19,7 +19,7 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import { PopBox, usePopover } from '../components/Term';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { typeOf } from '../../engine/core/perf';
-import { DAY, fmtDay, fmtTime } from '../../engine/core/time';
+import { DAY, fmtTime } from '../../engine/core/time';
 import type { GameState, Ref } from '../../engine/core/types';
 import { slipsOfAircraft } from '../../engine/crew';
 import { commercialFlightsBetween, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, worldEventPins, worldZones } from '../../engine/ops';
@@ -33,7 +33,7 @@ import { wxMarks, type WxMark } from './weather';
 import { MapPanel, TypeKey } from './MapPanels';
 import { RouteCard, RouteLinesLayer, routeSectors } from '../screens/network/live';
 import { KEY_EVENT } from '../keymap';
-import { ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, fleetGroups, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, parseSlipId, pickNearest, placeEventPins, placeSlipMarks, selectedLegs, shortIndex, slipArcs, slipWindow, tourRoutes, upNextRows } from './mapLogic';
+import { ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, fleetGroups, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, parseSlipId, pickNearest, placeEventPins, placeSlipMarks, selectedLegs, shortIndex, slipArcs, slipWindow, tourRoutes, upNextRows, upNextWhen } from './mapLogic';
 import { EventPinsLayer, hatchUnit, ZoneGround, ZoneLabels } from './WorldLayer';
 import { type FocusAt, type MapAirport, type MapLayerCtx, type Pad, type View, WorldMap } from './WorldMap';
 import { HintNote } from '../components/ScreenHint';
@@ -193,10 +193,10 @@ function FleetSheet({ g, sel, onClose, short }: { g: GameState; sel?: Ref; onClo
 /** Whole UTC days from `now` to `t` (0 = today), shown as +1 after a time on a later day. */
 const dayOff = (now: number, t: number) => Math.floor(t / DAY) - Math.floor(now / DAY);
 
-/** '07:00', '07:00+1' tomorrow, '5 Apr 07:00' further out. */
+/** '07:00', '07:00+1' tomorrow, 'Mon 07:00' this week, '5 Apr 07:00' further out (v0.25: never cut off). */
 function depLabel(now: number, t: number) {
   const d = dayOff(now, t);
-  if (d > 1) return <>{fmtDay(t)} {fmtTime(t)}</>;
+  if (d > 1) return <>{upNextWhen(now, t)}</>;
   return <>{fmtTime(t)}{d === 1 && <sup className="dim">+1</sup>}</>;
 }
 
