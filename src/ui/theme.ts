@@ -7,6 +7,8 @@ export type Theme = 'light' | 'dark';
 
 /** The PWA status-bar / browser chrome colour per theme (the page background). */
 export const THEME_COLOR: Record<Theme, string> = { dark: '#070b14', light: '#eef2f7' };
+/** v0.25 the iOS home-screen app's status bar per theme: dark text on the light look, white on the dark (read at launch). */
+export const STATUS_BAR: Record<Theme, string> = { dark: 'black', light: 'default' };
 
 const media = (): MediaQueryList | null => {
   try {
@@ -37,6 +39,8 @@ export function applyTheme(pref: ThemePref, onChange?: () => void): Theme {
     root.style.colorScheme = current;
     root.style.background = THEME_COLOR[current];
     for (const m of document.querySelectorAll<HTMLMetaElement>('meta[name="theme-color"]')) m.content = THEME_COLOR[current];
+    const sb = document.querySelector<HTMLMetaElement>('meta[name="apple-mobile-web-app-status-bar-style"]');
+    if (sb) sb.content = STATUS_BAR[current];
     const cs = document.querySelector<HTMLMetaElement>('meta[name="color-scheme"]');
     if (cs) cs.content = current;
   } catch {
