@@ -1,6 +1,7 @@
 // v0.25 r2 passenger letters (immersion): now and then a passenger writes in after a flight. A thank-you names the
 // crew member it is about; a complaint follows only a leg 3 hours or more late. Text only: no money, no morale, no
-// draws from the game RNG (the pick is a hash of the flight number and the day), at most one letter in 10 days.
+// draws from the game RNG (the pick is a hash of the flight number and the day), no ids from g.seq (the game plays
+// on exactly as without it), at most one letter in 10 days.
 
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { pushMessage } from '../core/messages';
@@ -52,7 +53,7 @@ export function passengerLetter(g: GameState, f: Flight, ac: Aircraft): void {
     const line = GRUMBLES[Math.floor(hashUnit(`grumble|${f.no}|${day}`) * GRUMBLES.length)](city(f.to));
     const who = f.sched || !client ? 'Customer relations will answer it.' : `${client} sent it on; they answer their passengers.`;
     s.letterAt = g.now;
-    pushMessage(g, { tone: 'info', cat: 'commercial', title: `Passenger complaint: ${f.no}`, body: `${leg}, ${fmtDuration(late)} late. ${line} ${who}` });
+    pushMessage(g, { id: `pl:${f.id}`, tone: 'info', cat: 'commercial', title: `Passenger complaint: ${f.no}`, body: `${leg}, ${fmtDuration(late)} late. ${line} ${who}` });
     return;
   }
   if (late > 15 || u >= THANKS) return;
@@ -66,7 +67,7 @@ export function passengerLetter(g: GameState, f: Flight, ac: Aircraft): void {
   const via = !f.sched && client ? ` ${client} passed it on.` : '';
   s.letterAt = g.now;
   pushMessage(g, {
-    tone: 'good', cat: 'crew', title: `Thank-you letter: ${f.no}`, body: `${t.text(name, city(f.to))} (${leg}.)${via}`,
+    id: `pl:${f.id}`, tone: 'good', cat: 'crew', title: `Thank-you letter: ${f.no}`, body: `${t.text(name, city(f.to))} (${leg}.)${via}`,
     ...(named ? { ref: { kind: 'crew' as const, id: named.id } } : {}),
   });
 }

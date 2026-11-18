@@ -67,6 +67,7 @@ export function dailyMilestones(g: GameState): void {
     if (seen.has(key)) continue;
     g.stats.milestones.push(key);
     const m = note(g, key);
-    pushMessage(g, { tone: 'good', cat: 'company', ...m });
+    // Its own id (not g.seq): the note changes nothing else in the game.
+    pushMessage(g, { id: `ms:${key}`, tone: 'good', cat: 'company', ...m });
   }
 }

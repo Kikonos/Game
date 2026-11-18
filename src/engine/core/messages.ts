@@ -9,9 +9,9 @@ import type { ActionResult, Decision, GameState, Message } from './types';
 const MAX_MESSAGES = 300;
 
 /** v0.9: `cue` overrides the sound cueOfMessage would pick (null = silent); it is never saved. */
-export function pushMessage(g: GameState, m: Omit<Message, 'id' | 't' | 'read'> & { cue?: Cue | null }): Message {
-  const { cue: want, ...rest } = m;
-  const msg: Message = { id: nextId(g, 'm'), t: g.now, read: false, ...rest };
+export function pushMessage(g: GameState, m: Omit<Message, 'id' | 't' | 'read'> & { cue?: Cue | null; /** v0.25 r2 an id of its own (a note that must not move g.seq, so the rest of the game plays exactly as without it) */ id?: string }): Message {
+  const { cue: want, id, ...rest } = m;
+  const msg: Message = { id: id ?? nextId(g, 'm'), t: g.now, read: false, ...rest };
   const c = want === undefined ? cueOfMessage(msg) : want;
   if (c) cue(c, { title: msg.title, body: msg.body, tone: msg.tone, msgId: msg.id, ...(msg.ref ? { ref: msg.ref } : {}) });
   g.messages.unshift(msg);
