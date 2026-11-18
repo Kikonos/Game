@@ -26,5 +26,8 @@ export function riskPay(kind: 'airline' | 'government', country: string): Pick<C
 export function seedRisk(c: Client): void {
   if (c.risk !== undefined) return;
   c.risk = riskTier(c.country);
+  // A route partner (id 'cn…', network/launch.ts) settles on its own agreed terms: keep them, so a save and load
+  // does not change how it pays (the loaded game must play the same as the one never saved).
+  if (c.id.startsWith('cn')) return;
   if (c.kind === 'airline' || c.kind === 'government') Object.assign(c, riskPay(c.kind, c.country));
 }

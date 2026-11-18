@@ -10,6 +10,7 @@ import { BAL } from '../core/balance';
 import { cashOnly, post } from '../core/ledger';
 import { blockMinutes, typeOf } from '../core/perf';
 import { chance, gaussian, int } from '../core/rng';
+import { riskTier } from '../contracts/payRisk';
 import { requestPause } from '../core/pause';
 import { DAY, fmtDay, fmtTime, monthKey, monthStart } from '../core/time';
 import type { CabinLayout } from '../../data/acmiTypes';
@@ -64,7 +65,7 @@ function partnerClient(g: GameState, m: RouteMarket): string | undefined {
   const id = `cn${m.partner.code}`;
   if (!g.clients[id]) {
     const c: Client = {
-      id, name: m.partner.name, kind: 'airline', country: m.partner.country, base: m.to, payReliability: 0.85, lateDays: [5, 25], cleanSensitivity: 0.3,
+      id, name: m.partner.name, kind: 'airline', country: m.partner.country, base: m.to, payReliability: 0.85, lateDays: [5, 25], risk: riskTier(m.partner.country), cleanSensitivity: 0.3,
       relation: 10, jobs: 0, firstJob: null, lastJob: null, log: [], level: 'new', prestige: 1, stars: 1,
     };
     g.clients[id] = c;
