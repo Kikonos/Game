@@ -336,6 +336,7 @@ function SettingsModal() {
         <div className="set-row"><div><b>Pause for network news</b><div className="tiny dim">A route study done, a route launched</div></div><Toggle on={st.autoPause.network} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, network: v } })} /></div>
         <div className="set-row"><div><b>Pause when a contract starts</b></div><Toggle on={st.autoPause.contractStart} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, contractStart: v } })} /></div>
         <div className="set-row"><div><b>Pause at month end</b></div><Toggle on={st.autoPause.monthEnd} onChange={(v) => store.setSettings({ autoPause: { ...st.autoPause, monthEnd: v } })} /></div>
+        <div className="set-row"><div><b>Pop-up notifications</b></div><Toggle on={st.toasts} onChange={(v) => store.setSettings({ toasts: v })} /></div>
         <SoundSettings />
         <div className="set-head upper dim">Display</div>
         <div className="set-row"><div><b>Appearance</b><div className="tiny dim">{st.theme === 'system' ? `Follows your device (now ${s.theme})` : st.theme === 'light' ? 'Light, for daylight' : 'Dark, the original look'}</div></div><Seg value={st.theme} onChange={(v) => store.setSettings({ theme: v })} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }, { value: 'system', label: 'System' }]} /></div>
@@ -344,18 +345,18 @@ function SettingsModal() {
         <div className="set-row"><div><b>3D globe</b><div className="tiny dim">Button on the Map</div></div><Toggle on={st.globe} onChange={(v) => store.setSettings(v ? { globe: true } : { globe: false, globeView: false })} /></div>
         {st.globe && <div className="set-row"><div><b>Globe turns when idle</b></div><Toggle on={st.globeSpin} onChange={(v) => store.setSettings({ globeSpin: v })} /></div>}
         <div className="set-row"><div><b>Map tilt</b><div className="tiny dim">When zoomed in close</div></div><Toggle on={st.mapTilt} onChange={(v) => store.setSettings({ mapTilt: v })} /></div>
+        {(deviceNow().kind === 'ipad' || st.topGap !== 'auto') && <div className="set-row"><div><b>Top bar spacing</b> <Help title="Top bar spacing">Moves the game below the frosted strip iPadOS adds at the top of the screen.</Help></div><Seg value={String(st.topGap)} onChange={(v) => store.setSettings({ topGap: v === 'auto' ? 'auto' : (Number(v) as 0 | 16 | 28 | 40) })} options={[{ value: 'auto', label: 'Auto' }, { value: '0', label: 'Off' }, { value: '16', label: '16' }, { value: '28', label: '28' }, { value: '40', label: '40' }]} /></div>}
         <DeviceSettings />
         {/* v0.24.1 Key bindings: every shortcut and its key, changed here (on this device). Touch-only: tucked behind a button. */}
         <div className="set-head upper dim">Key bindings</div>
         {deviceNow().input === 'touch'
           ? <div className="set-row"><div><b>Keyboard shortcuts</b> <Help title="Key bindings">For a keyboard: a Mac, a PC, or an iPad with a keyboard attached.</Help></div><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'keys' })}><Keyboard /> Show</button></div>
           : <div className="set-row kb-set"><KeyBindings /></div>}
-        {(deviceNow().kind === 'ipad' || st.topGap !== 'auto') && <div className="set-row"><div><b>Top bar spacing</b> <Help title="Top bar spacing">Moves the game below the frosted strip iPadOS adds at the top of the screen.</Help></div><Seg value={String(st.topGap)} onChange={(v) => store.setSettings({ topGap: v === 'auto' ? 'auto' : (Number(v) as 0 | 16 | 28 | 40) })} options={[{ value: 'auto', label: 'Auto' }, { value: '0', label: 'Off' }, { value: '16', label: '16' }, { value: '28', label: '28' }, { value: '40', label: '40' }]} /></div>}
-        <div className="set-row"><div><b>Pop-up notifications</b></div><Toggle on={st.toasts} onChange={(v) => store.setSettings({ toasts: v })} /></div>
-        <div className="set-row"><div><b>What's new</b><div className="tiny dim">{CURRENT.version} {CURRENT.name}</div></div><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'whatsNew', all: true })}><Sparkles /> Show</button></div>
         <div className="set-head upper dim">Plain language</div>
         <div className="set-row"><div><b>Glossary</b></div><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'glossary' })}><BookOpenText /> Open</button></div>
         <div className="set-row"><div><b>First-time hints</b>{hintsOff > 0 && <div className="tiny dim">{hintsOff} switched off (screens and problems)</div>}</div><button className="btn btn-sm" onClick={() => store.setSettings({ hintsSeen: [], screenHintsSeen: [], screenHintsFolded: [] })} disabled={!hintsOff && !st.screenHintsFolded.length}><Lightbulb /> Show again</button></div>
+        <div className="set-head upper dim">About</div>
+        <div className="set-row"><div><b>What's new</b><div className="tiny dim">{CURRENT.version} {CURRENT.name}</div></div><button className="btn btn-sm" onClick={() => store.openModal({ kind: 'whatsNew', all: true })}><Sparkles /> Show</button></div>
         <div className="set-row"><div><b>Offline play</b><div className="tiny dim">{offline.ready ? 'Installed — the game works without internet.' : 'Caches after the first online visit.'}</div></div>
           {offline.installPrompt ? <button className="btn btn-sm" onClick={() => void promptInstall()}><Download /> Install app</button> : <span className={`badge ${offline.ready ? 'good' : ''}`}>{offline.ready ? 'Ready' : 'Pending'}</span>}
         </div>

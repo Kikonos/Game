@@ -271,6 +271,17 @@ const SETTINGS_KEY = 'contrail-acmi:settings';
 /** v0.9.1 how long a toast stays; v0.12.1 by tone (toastLogic.ts: news 8 s, warnings 15 s, alarms until closed). */
 export const TOAST_MS = TOAST_TONE_MS.info;
 
+/**
+ * The dialog a new one opens over and returns to when it closes (null: none). v0.7.1 the glossary over any dialog;
+ * v0.25 Key bindings and What's new over Settings or the menu (they were opened from there). Pure.
+ */
+export function modalUnder(next: Pick<ModalSpec, 'kind'>, cur: ModalSpec | null): ModalSpec | null {
+  if (!cur) return null;
+  if (next.kind === 'glossary') return cur.kind !== 'glossary' ? cur : null;
+  if ((next.kind === 'keys' || next.kind === 'whatsNew') && (cur.kind === 'settings' || cur.kind === 'menu')) return cur;
+  return null;
+}
+
 /** v0.9.1 a cue's toast colour: its tone (an achievement and a ladder step get the trophy toast). */
 export function cueToastKind(e: Pick<CueEvent, 'cue' | 'tone'>): Toast['kind'] {
   if (e.cue === 'achievement' || e.cue === 'ladder' || e.cue === 'headUnlocked' || e.cue === 'delivered') return 'achievement';
@@ -1210,7 +1221,7 @@ class GameStore {
   }
 
   openModal(m: ModalSpec) {
-    this.modalBelow = m.kind === 'glossary' && this.modal && this.modal.kind !== 'glossary' ? this.modal : null;
+    this.modalBelow = modalUnder(m, this.modal);
     this.modal = m;
     // A dialog takes the stage: quiet toasts (already in the Inbox) must not cover its header.
     this.toasts = [];
@@ -1220,7 +1231,7 @@ class GameStore {
 
   /** Closes the dialog; the glossary goes back to the dialog it was opened over unless `all`. */
   closeModal(opts: { all?: boolean; /** v0.9.1 the waiting cards stay queued (they come once time runs again) */ hold?: boolean } = {}) {
-    const below = !opts.all && this.modal?.kind === 'glossary' ? this.modalBelow : null;
+    const below = !opts.all ? this.modalBelow : null;
     this.modalBelow = null;
     this.modal = below;
     // v0.15 the welcome card put away: the game proper starts (Terminal crossfades into the game music).
