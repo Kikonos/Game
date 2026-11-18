@@ -297,6 +297,13 @@ export function minRest(i: RestInput): number {
 }
 
 /** ORO.FTL.210 cumulative limits, ORO.FTL.235(d) recurrent extended recovery rest and CS FTL.1.235(a)(2). */
+/**
+ * v0.25 two airline tickets in a row (separate bookings): at least 75 min from landing to the next check-in (the
+ * airline connection time, ops/commercial CONNECT_MIN). Bot seed 9: a captain landed in Amsterdam at 17:25 for a ticket
+ * out at 18:00.
+ */
+export const TICKET_CONNECT = 75;
+
 export const LIMITS = {
   duty7d: 60 * H,
   duty14d: 110 * H,
@@ -697,6 +704,8 @@ export function evalSegs(ctxIn: TimelineCtx, segsIn: Seg[]): LegalityIssue[] {
         const p = segs[i - 1];
         const restEnd = i - 1 === lastLog ? Math.max(p.end + (p.rest || 0), ctx.restUntil) : p.end + restBefore(s, p, restOfSeg(i - 1));
         if (s.start < p.end) pushIssue(issues, 'overlap', 'illegal', 'Overlaps another duty', tgt);
+        // v0.25 a ticket straight on from another ticket: landing, then 1:15 to change (separate tickets) before check-in.
+        else if (p.kind === 'pos' && s.kind === 'pos' && s.start < p.end + TICKET_CONNECT) pushIssue(issues, 'overlap', 'illegal', `Ticket connection ${hm(s.start - p.end)} < ${hm(TICKET_CONNECT)}`, tgt);
         else if (s.start < restEnd) pushIssue(issues, 'rest', 'illegal', `Rest ${hm(s.start - p.end)} < ${hm(restEnd - p.end)}`, tgt);
       } else if (s.start < ctx.restUntil) pushIssue(issues, 'rest', 'illegal', 'Still resting', tgt);
       // Continuity: work starts where the previous duty or ticket left the crew (the first, where they are now).

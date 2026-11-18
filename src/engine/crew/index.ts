@@ -15,7 +15,7 @@ export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { setRedundantHook } from './utilisation';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, repairDaysOffMorale, repairStandbyMorale, setResignHooks } from './morale';
-import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, leaveTrips, repairLeaveTrips, splitLeadingEmpty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
+import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, leaveTrips, repairLeaveTrips, splitLeadingEmpty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable, unclashTickets } from './roster';
 import { extFdp, localMin, minRest, referenceTime, signedTz, tzDeltaH, tzNights, woclMinutes } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { rosterHorizon, dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, dropStrandedStandby, v09Stats } from './dayPlan';
@@ -763,6 +763,8 @@ function onCrewAlert(g: GameState): void {
   homeBeforeLeave(g);
   // v0.12.1 nobody waits on duty at the gate past their limit: a duty held past a night's rest ends at its last landing.
   splitOverlong(g);
+  // v0.25 tickets that no longer connect (a ticket moved, a trip ended elsewhere) are mended before anyone misses one.
+  unclashTickets(g);
   // The hourly check re-rosters a freshly short aircraft before warning (a roster not yet run is not a shortage).
   escalateShortages(g, { reroster: true });
   hourlyHook?.(g);
@@ -839,6 +841,8 @@ export const crewModule: SimModule = {
     // Rotations round (v0.16.4): tickets booked off the timetable by an older build move onto it where the crew still
     // connect (last: every other repair has read the tickets as they were).
     retimeToTimetable(g);
+    // v0.25 tickets in a row that do not connect (older builds booked a ticket landing after the next one left).
+    unclashTickets(g);
     // Bug 1108b: a course away from base in older saves: the trip home planned now.
     homeForLeave(g);
     // v0.19.3 older saves' trips home before an annual leave (bug 1108b) become the leave's own trips where it is safe
