@@ -30,10 +30,17 @@ const VIEWS = {
     await sleep(800);
     await page.evaluate(() => window.__contrail.closeModal());
     await sleep(200);
+    await page.evaluate(() => {
+      const s = window.__contrail;
+      const lg = s.loadGame.bind(s);
+      s.loadGame = (g) => { window.__lg0 = performance.now(); lg(g); window.__lg1 = performance.now(); };
+      document.addEventListener('pointerdown', () => { window.__c0 = performance.now(); }, { capture: true, once: true });
+    });
     const t0 = Date.now();
     await page.getByRole('button', { name: /Continue/ }).first().click();
     await page.waitForSelector('.shell', { timeout: 60000 });
-    cont.push(Date.now() - t0);
+    const ph = await page.evaluate(() => ({ open: Math.round(window.__lg0 - window.__c0), loadGame: Math.round(window.__lg1 - window.__lg0), shell: Math.round(performance.now() - window.__c0) }));
+    cont.push(`${Date.now() - t0} (open ${ph.open}, loadGame ${ph.loadGame})`);
   }
   console.log(`continue -> shell ms: ${cont.join(', ')}`);
   await page.evaluate(() => {

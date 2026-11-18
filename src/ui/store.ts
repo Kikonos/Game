@@ -779,7 +779,8 @@ class GameStore {
       // Only reasons the settings honour stop the loop; the others are dropped inside advanceTo.
       let res: ReturnType<typeof advanceTo>;
       try {
-        res = advanceTo(g, target, this.honoured());
+        // v0.25 (perf) split: a heavy midnight runs over a few frames (its phases in order, nothing else in between).
+        res = advanceTo(g, target, this.honoured(), true);
       } catch (e) {
         this.frameThrew(g, e);
         return;

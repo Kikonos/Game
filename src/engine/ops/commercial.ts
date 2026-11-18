@@ -138,13 +138,21 @@ export function carrierServes(c: Carrier, from: string, to: string): boolean {
   return !!a && !!b && from !== to && serves(c, a, b, distance(from, to));
 }
 
-/** Carriers flying from → to nonstop. Pure. */
+/** v0.25 (perf) directCarriers per pair: the carrier and airport lists are fixed, so the answer is too. */
+const directCache = new Map<string, Carrier[]>();
+
+/** Carriers flying from → to nonstop. Pure, cached (callers only read the list). */
 export function directCarriers(from: string, to: string): Carrier[] {
+  const key = `${from}>${to}`;
+  const hit = directCache.get(key);
+  if (hit) return hit;
   const a = AIRPORT_BY_CODE[from];
   const b = AIRPORT_BY_CODE[to];
   if (!a || !b) return [];
   const km = distance(from, to);
-  return CARRIERS.filter((c) => serves(c, a, b, km));
+  const r = CARRIERS.filter((c) => serves(c, a, b, km));
+  directCache.set(key, r);
+  return r;
 }
 
 const routings = new Map<string, Routing>();

@@ -1,8 +1,9 @@
 // Performance probe (v0.25 round 2): load, Continue, save and sim speed of a save.
-//   npx tsx scripts/perfmeasure.ts <save.json> [days=10] [--midnight]
+//   npx tsx scripts/perfmeasure.ts <save.json> [days=10] [--midnight] [--split]
 // Prints: file size; save open (decompress, parse, migrate, each module's load); the first settle the Continue button
 // runs (store.afterLoad); serialize + lz16 compress (a save); then game days per real second at 1-hour steps (4x-like UI
-// ticks), and with --midnight the cost of each midnight step against the hourly steps around it.
+// ticks), and with --midnight the cost of each midnight step against the hourly steps around it. --split: as the UI
+// frame loop, a midnight may stop between its phases; the worst single call is reported.
 import { readFileSync } from 'node:fs';
 import LZString from 'lz-string';
 import { serialize, migrate } from '../src/engine/save';
@@ -14,6 +15,7 @@ import { resolveDecision } from '../src/engine/ops';
 const file = process.argv[2];
 const days = Number(process.argv[3] ?? 10);
 const MID = process.argv.includes('--midnight');
+const SPLIT = process.argv.includes('--split');
 const raw = readFileSync(file, 'utf8');
 const ms = (t: number) => `${(performance.now() - t).toFixed(0)} ms`;
 
@@ -53,9 +55,15 @@ const mids: number[] = [];
 const hours: number[] = [];
 for (let d = 1; d <= days && !g.gameOver; d++) {
   for (let h = 0; h < 24; h++) {
-    const a = performance.now();
-    advanceTo(g, start + (d - 1) * DAY + (h + 1) * 60);
-    const dt = performance.now() - a;
+    let a = performance.now();
+    let dt = 0;
+    // v0.25 as the UI frame loop: a midnight may stop between its phases (each part timed on its own; the worst counts).
+    for (let i = 0; i < 20; i++) {
+      const r = advanceTo(g, start + (d - 1) * DAY + (h + 1) * 60, undefined, SPLIT);
+      dt = Math.max(dt, performance.now() - a);
+      a = performance.now();
+      if (!r.midDay) break;
+    }
     const crossed = Math.floor((start + (d - 1) * DAY + h * 60) / DAY) !== Math.floor((start + (d - 1) * DAY + (h + 1) * 60) / DAY);
     (crossed ? mids : hours).push(dt);
   }

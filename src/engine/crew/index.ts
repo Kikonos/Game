@@ -650,7 +650,8 @@ function prune(g: GameState): void {
   if (n) touchCrew(g);
 }
 
-function daily(g: GameState) {
+/** Midnight phase 1 (v0.25 the crew's daily work runs in three parts, see crewModule.dayPhases). */
+function dailyCrew(g: GameState) {
   dailyClasses(g);
   dailyClassReminders(g);
   refreshStatuses(g);
@@ -668,8 +669,12 @@ function daily(g: GameState) {
   resizeDeployments(g);
   dayPlanBefore(g);
   // Keep the published roster horizon filled (auto-roster policy), then bring home anyone left without work away.
+  if (g.company.policies.autoRoster) recheckSoon(g);
+}
+
+/** v0.25 (perf) midnight phase 2: the auto-roster and the trips home. */
+function dailyRoster(g: GameState) {
   if (g.company.policies.autoRoster) {
-    recheckSoon(g);
     autoRoster(g);
     // Crew flying home only to fly straight back out stay at the hotel instead.
     const stayed = stayOn(g);
@@ -684,6 +689,10 @@ function daily(g: GameState) {
   leaveAfterTickets(g);
   // v0.7.3 home standby for the days an old save published before v0.9; v0.9 standby for every free published day.
   dailyStandby(g);
+}
+
+/** v0.25 (perf) midnight phase 3: standby and days off for the published roster, then the busy-month heads-up. */
+function dailyPlan(g: GameState) {
   dayPlanAfter(g);
   // Peak-staffing round: the busy-month heads-up (one Inbox note per family, month and role).
   peakHeadsUp(g);
@@ -885,8 +894,14 @@ export const crewModule: SimModule = {
       refreshStatuses(g);
     }
   },
+  // v0.25 (perf) three midnight phases, in this order (sim.ts DAY_PHASES); a frame may come between two of them.
+  dayPhases: [dailyCrew, dailyRoster, dailyPlan],
   handlers: {
-    day: daily,
+    day: (g) => {
+      dailyCrew(g);
+      dailyRoster(g);
+      dailyPlan(g);
+    },
     month: monthly,
     'duty.report': onDutyReport,
     'duty.release': onDutyRelease,
