@@ -346,7 +346,11 @@ interface NewLead {
 
 /** A lead into the pipeline (null when no sensible job could be drafted for that client). */
 function newLead(g: GameState, c: Client, x: NewLead): Lead | null {
-  const q = quoteLead(g, c, x.archetypes, x.key, x.opts, x.body);
+  // v0.25 one live lead per client and kind of work: two 'October capacity at Riyadh' leads at once read as a bug.
+  const busy = new Set(leads(g).filter((l) => l.clientId === c.id && live(l)).map((l) => l.archetype));
+  const kinds = x.archetypes.filter((a) => !busy.has(a));
+  if (!kinds.length) return null;
+  const q = quoteLead(g, c, kinds, x.key, x.opts, x.body);
   if (!q) return null;
   const r = sideOf(g, `lead:${x.key}:reply`);
   const stage: LeadStage = x.stage ?? 'lead';

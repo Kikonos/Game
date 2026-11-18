@@ -42,6 +42,10 @@ export const TRIPS = {
   /** Relation per client met at a fair, and for a visit. v0.14 every client we have flown for in the fair's own market. */
   fairRel: 4,
   visitRel: 8,
+  /** v0.25 a client visited again within this many days: relation [min, max] instead of visitRel, and lead odds × this. */
+  revisitDays: 60,
+  revisitRel: [0, 2] as [number, number],
+  revisitLead: 0.25,
   fairKnownRel: 2,
   /** Clients met at a fair. */
   meet: [3, 5] as [number, number],
@@ -54,6 +58,11 @@ export const TRIPS = {
 };
 
 const city = (code: string) => AIRPORT_BY_CODE[code]?.city ?? code;
+
+/** v0.25 the Gulf states work Sunday to Thursday. */
+const SUN_THU = new Set(['SA', 'AE', 'QA', 'KW', 'OM', 'BH']);
+/** A working day for meetings in that country (0 = Sunday). Pure. */
+export const workDay = (country: string, dow: number): boolean => (SUN_THU.has(country) ? dow <= 4 : dow >= 1 && dow <= 5);
 
 // ---------- who travels ----------
 
@@ -201,8 +210,10 @@ export function tripQuote(g: GameState, who: Traveller, target: { fairId?: strin
     at = c.base;
     where = `${city(c.base)}, ${c.name}`;
     title = `Visit ${c.name}`;
-    // Meetings the second day after booking (09:00–17:00 local): a day to get there.
-    const d = toDate(g.now + 2 * DAY);
+    // Meetings the second day after booking (09:00–17:00 local): a day to get there; v0.25 on a working day there
+    // (Monday to Friday, Sunday to Thursday in the Gulf).
+    let d = toDate(g.now + 2 * DAY);
+    while (!workDay(c.country, d.getUTCDay())) d = new Date(d.getTime() + 86_400_000);
     const s0 = fromUTC(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), 9);
     start = s0 - localOffset(at, s0);
     end = start + 8 * 60;
@@ -352,6 +363,7 @@ function tripDone(g: GameState, t: SalesTrip): void {
   const r = sideOf(g, `trip:${t.id}`);
   const skill = travellers(g).find((x) => x.who === t.who)?.skill ?? TRIPS.ceoSkill;
   const met: Client[] = [];
+  let revisit = false;
   let gains: { id: MarketId; gain: number }[] = [];
   const f = t.fairId ? FAIR_BY_ID[t.fairId] : undefined;
   if (f) {
@@ -380,8 +392,12 @@ function tripDone(g: GameState, t: SalesTrip): void {
       }
     }
   } else if (t.clientId && g.clients[t.clientId] && g.clients[t.clientId].ceased === undefined) {
-    met.push(g.clients[t.clientId]);
-    bumpClient(g, t.clientId, TRIPS.visitRel, `${t.name} visited them`);
+    const vc = g.clients[t.clientId];
+    met.push(vc);
+    // v0.25 a second visit soon after the first adds little (eleven visits in 40 days took flynas from 24 to 100).
+    revisit = vc.lastVisit !== undefined && t.start - vc.lastVisit < TRIPS.revisitDays * DAY;
+    bumpClient(g, t.clientId, revisit ? int(r, TRIPS.revisitRel[0], TRIPS.revisitRel[1]) : TRIPS.visitRel, `${t.name} visited them`);
+    vc.lastVisit = t.start;
     // v0.14 a visit makes us better known in the client's market.
     const id = clientMarket(g.clients[t.clientId]);
     gains = [{ id, gain: bumpPresence(g, id, PRESENCE.visit * (0.8 + 0.4 * skill)) }];
@@ -395,6 +411,7 @@ function tripDone(g: GameState, t: SalesTrip): void {
   for (const c of met) {
     if (leads.length >= maxLeads) break;
     if (leads.length >= FL[0] && !chance(r, b + s * skill)) continue;
+    if (revisit && !chance(r, TRIPS.revisitLead)) continue;
     const lead = makeLead(g, t, c, f);
     if (lead) leads.push(lead);
   }
@@ -430,7 +447,7 @@ function makeLead(g: GameState, t: SalesTrip, c: Client, f: Fair | undefined): T
   if (c.ceased !== undefined) return null;
   const round = roundAt(g.now);
   const c0 = com(g);
-  if (round && c.kind === 'airline' && TENDER_ISSUERS.some((x) => x.name === c.name && (round.kind === 'summer' || x.winter)) && !c0.tenders.some((x) => x.clientId === c.id && x.status === 'open')) {
+  if (round && c.kind === 'airline' && TENDER_ISSUERS.some((x) => x.name === c.name && (round.kind === 'summer' || x.winter)) && !c0.tenders.some((x) => x.clientId === c.id && (x.status === 'open' || x.round === round.key))) {
     const tn = issueTender(g, { clientId: c.id, invited: true, round });
     if (tn) return { clientId: c.id, kind: 'rfp', tenderId: tn.id };
   }

@@ -458,6 +458,11 @@ export function loadRelations(g: GameState): void {
       c.met = Math.min(c.firstJob ?? g.now, c.log?.[0]?.[0] ?? g.now, g.now);
     }
   }
+  // v0.25 the last visit to each client in an older save, from its finished trips (the revisit cool-down).
+  for (const t of g.com?.trips ?? []) {
+    const c = t.kind === 'visit' && t.status === 'done' && t.clientId ? g.clients[t.clientId] : undefined;
+    if (c && (c.lastVisit === undefined || c.lastVisit < t.start)) c.lastVisit = t.start;
+  }
   g.company.standing ??= standingFor(g);
   statsV08(g);
 }
