@@ -1,0 +1,366 @@
+[
+ {
+  "lane": "crew",
+  "result": {
+   "branch": "v025-crew",
+   "head": "274a3f7eb874e37079cde5edae029b701a7a9992",
+   "pushed": true,
+   "done": [
+    {
+     "id": "crew-tickets-overlap",
+     "player_sees": "Crew no longer hold two tickets that overlap. A ticket now needs 1:15 from landing to the next check-in. When a trip ends somewhere else, the crew fly straight from where they are to where they need to be. Before, a ticket home could land after the next ticket out had already left. Both triage dumps now show 0 crew-overlap errors."
+    },
+    {
+     "id": "core-1",
+     "player_sees": "A set's shared ticket out no longer moves 3 days earlier for one pilot's re-plan if that breaks someone else's 168 h rule or standby rest. The person being re-planned gets a ticket of their own instead. The seed 11 repro now gives 0 errors and 0 warnings."
+    },
+    {
+     "id": "ops-crew-ticket-slip",
+     "player_sees": "A duty that ends 2 minutes late no longer costs the whole crew of the next trip. Crew short only of rest before their airline ticket out move to the next scheduled departure, and the first leg waits for them (at most 3 h). V7892 now flies with its own crew, 1h40 late, instead of being cancelled for $30K. New tickets out also keep a 30-minute rest margin when a departure allows."
+    },
+    {
+     "id": "core-6-harness",
+     "player_sees": "Nothing changes in the game; this is test tooling. The invariant checker now judges commander's discretion at the last take-off (ORO.FTL.205(f)), so the legal 2:03 in seed 23 is no longer reported. It also checks factored invoices, and the test kit settles after each player step. The route unearned-cash check was already there."
+    },
+    {
+     "id": "crew-recgap",
+     "player_sees": "A far-base reserve kept on standby at the station now gets their recovery rest recorded. The seed 7 Malta stat drops from 361 h to 168 h."
+    },
+    {
+     "id": "merge-home-early",
+     "player_sees": "A burst of 'goes home early' messages in the same minute becomes one Inbox note per set, for example 'Set 2 at RUH: 7 crew go home early', with the names listed. Reasons read in plain words ('Over 100 block hours in 28 days', 'Short of rest (9:58 of 10:00)') on the note, the seat and the ticket. Day lists read 'Thu 9, Fri 10 and Sat 11 Sep 2027'."
+    },
+    {
+     "id": "core-4",
+     "player_sees": "An old save now loads fully the first time. Days off and standby are planned on the first load, not only after a save and reload. All 34 fixture saves come out identical after one load or two."
+    },
+    {
+     "id": "crew-sethome",
+     "player_sees": "The 'On station' strip shows each set's real home date, for example 'Set 3 at London \u2026 home 10 Aug' instead of 1 Aug. Tickets from an earlier trip or from covering another set no longer count. The day count starts when the set arrives."
+    },
+    {
+     "id": "crew-guestfix",
+     "player_sees": "A crew member who is out of hours only because of past standby days is now taken off that one duty, and another set at the station flies it. VJ723 no longer carries a red out-of-hours alarm for 47 h until the gate. On the VNO seed 11 run, red alarms fell to 18 (0 out of hours) from the hunter's 23 (2 out of hours); my run was longer and was not done with exactly the same settings."
+    },
+    {
+     "id": "ops-crew-card-wording",
+     "player_sees": "The crew-shortage card now says '(12:35, too close to the 13:00 limit)' instead of something that looks like a breach. Someone busy on a base tour is shown as 'busy on the Nantes tour until 2 Oct 2027' instead of one flight number."
+    }
+   ],
+   "not_done": [],
+   "checks": "tsc --noEmit clean. vitest --maxWorkers=2: src/engine/crew passes in full (124 files, 705 tests). Also pass: saveCompat, saveCompat09, saveCompat073, saveCompat08, leasing/saveCompat017, ops/ferryRepair, ui/components/problemLogic and ui/crewAlarms (8 files, 50 tests). Every bug fix has a regression test, and I checked that the tests for the overlap fix, V7892, the reserve recovery, set home and VJ723 fail without the fix. Bots: `acmi-bot 1 365 --wide --inv` gave 0 errors and 0 warnings. `acmi-bot 7 365 --inv --routes --base=MLA` gave 0 errors, 2 warnings (1 ac-plan-overlap shown), and a recovery gap of 168 h, which passes. `acmi-bot 3 365 --inv --wide --aug --base=MAD` gave 0 errors and 0 warnings. `acmi-bot 2 200 --det`: all identical, including save/load at day 90 and at day 200 + 2h17. Repros: invariants on mad-d196 and s9-d379 give 0 crew-overlap; the s11-d88 bot (--on=4) gives 0 errors and 0 warnings; the seed 23 SOF run gives 0 errors; V7892 and VJ723 traces are clean. An idempotency script over all 34 fixtures shows only meta.savedAt differs.",
+   "notes": "I changed one shared rule in rules.ts (evalSegs): two tickets in a row now need TICKET_CONNECT = 75 min from landing to the next check-in. A clean-up sweep, unclashTickets in roster.ts, runs after sendHome, every hour from onCrewAlert, and on load, so it can re-book tickets in existing saves. The ledger is used for any new fare.\n\nSmall changes outside the crew folder: src/engine/fixtures/compatKit.ts (play() now calls settle), and two new fixtures, save-v0242-v7892.lz.txt (507 KB, from the hunter's m42 save, which comes from the player's save) and save-v0242-vj723.lz.txt (354 KB, from vno-d124).\n\nFor testing I exported shiftOk, earlyHomeNote, placeBlock and reserveStoodBy. releaseCrew now turns reasons into plain words, so seat and ticket reasons read e.g. 'Over 100 block hours in 28 days' instead of the raw rule text.\n\nThe guestfix root cause was not the guest path. The prior-work re-check (recheckPairing priorOnly) dropped the tour's own past hotel standby days, because they began after the tour started. It now keeps any work already begun, so the existing keepTourCrew path hands the duty to another set.\n\nFor What's New (I did not edit it): ticket connections, a late duty no longer costing the next trip's crew, one note per set, sets' home dates, the card wording.\n\nState file: /home/user/work/v025/STATE-crew.txt. Scratch scripts: /home/user/work/v025/crew-s/."
+  }
+ },
+ {
+  "lane": "ui",
+  "result": {
+   "branch": "v025-ui",
+   "head": "a5e15299d79ebbdf20d1b957a63d36b5799c4b26",
+   "pushed": true,
+   "done": [
+    {
+     "id": "ui-space-in-dialog",
+     "player_sees": "When a dialog is open and one of its buttons (or a '?') is focused, Space presses that button and no longer pauses or restarts the game. Outside dialogs Space still pauses. (keymap.pauseYields + Shell.tsx; test in keymap.test.ts; checked with p-space.)"
+    },
+    {
+     "id": "ui-toast-covers-map-controls",
+     "player_sees": "On the map, pop-ups sit to the left of the globe, zoom and full-screen buttons, so they no longer cover them on Mac, iPad or iPhone. When a panel is open they stay in the corner over the panel. (app.css; toastcover.cjs reports every button 'ok' on all 3 devices.)"
+    },
+    {
+     "id": "visual-globe-marks-corner",
+     "player_sees": "If you open the globe while the game is paused, offer, event and zone pins now stand at their airports instead of piling up in the top-left corner. (Globe.tsx marksListRef plus a CSS guard; checked with globemarks.cjs. No unit test because it needs WebGL.)"
+    },
+    {
+     "id": "log-date-col",
+     "player_sees": "In the Recent logs on Clients, Rivals and Team, dates with a year ('13 May 2027') no longer run into the next column. Before the fix all 6 checked rows overlapped; now none do, on Mac and iPhone."
+    },
+    {
+     "id": "upnext-date-cut",
+     "player_sees": "Map Up Next shows later departures as 'Mon 09:00' within the week, '14 Feb 09:00' later in the year, and '2 Jan 28 09:00' across New Year. The time is no longer cut off. (mapLogic.upNextWhen + test.)"
+    },
+    {
+     "id": "ui-iphone-crew-hire-offscreen",
+     "player_sees": "On iPhone the Crew screen shows Morale, Select and Hire next to the title and always on screen. The view tabs move to the row below. Hire now sits at x 741-828 of 852 (it was at 876-963, off screen)."
+    },
+    {
+     "id": "iphone-roster-board",
+     "player_sees": "On an iPhone held sideways the roster board has one Filters button (a pop-over with rank, search, group and row density) and puts the colour key behind its '?'. The colour strip is gone. Rows start compact, the other view tabs show only their icon, and the head slides away once you scroll the board. About 4 crew rows show at first and about 6 once the head has slid away (it was 1.5)."
+    },
+    {
+     "id": "visual-livery-iphone",
+     "player_sees": "On iPhone the livery editor splits the screen in half. The footer is one row (?, Cancel, Reset all, Use on all, Save) and the note sits behind the '?'. The CARD/MINI previews are hidden and the tabs are slimmer. The tools area grows from 62 px to 172 px."
+    },
+    {
+     "id": "ui-hints-compact",
+     "player_sees": "On iPhone (screens up to 430 px tall) first-time hints start folded into the screen's '?' button instead of a strip that took a third of the screen. This includes the hint in the offer dialog. 'Don't show again' still works. (screenHints.hintMode short + test.)"
+    },
+    {
+     "id": "ui-stale-lapse-toast",
+     "player_sees": "An 'Offer lapsing soon' or 'New offer' pop-up disappears once that offer is no longer open. The note now says 'needs an answer by 06:00 UTC' with no stale 'within 2 h 00 min'. (toastLogic.withoutClosedOffers + test. Small engine text change in offers.ts and its test in call14.test.ts.)"
+    },
+    {
+     "id": "ui-settings-and-back",
+     "player_sees": "Settings rows sit in the right sections: Top bar spacing under Display, Pop-up notifications under Gameplay, and What's new and Offline play under a new About heading. Closing Key bindings or What's new goes back to Settings or the menu if it was opened from there. (store.modalUnder + modalStack.test.ts; checked in the browser: Esc and Close return to Settings.)"
+    },
+    {
+     "id": "ui-small-shell",
+     "player_sees": "The speed buttons' tooltip names the player's own keys (for example 'P: pause \u00b7 1, 2, 3: speed'). The Scenarios total shows a single star that is filled only once at least one star is won. (keymap.speedHint + test.)"
+    },
+    {
+     "id": "map-phone",
+     "player_sees": "On iPhone, a globe selection that would sit under the panel or the zoom buttons now turns into view in the free part of the globe. Rings moved from x 545 and 461 (under the panel or the buttons) to 317 and 362. Up Next starts folded on a phone held sideways until the player opens it, and that choice is remembered. (Globe freeRight; mapLogic.upNextFolded + test.)"
+    },
+    {
+     "id": "crew-ui-small",
+     "player_sees": "Crew \u203a Leave cells show '3/24' and turn amber only when more are away than the leave rules allow. Before, they showed a percentage compared with the raw share. The layover line in the person sheet shows standby days as runs ('19, 22\u201327, 30 Jul 2027'). Crew planning shows sets per aircraft to one decimal ('4.5'). (leave.ts exports capOf, re-exported as leaveCap; tests in crewLeaveHeat, crewLogic and crewPlanLogic.)"
+    },
+    {
+     "id": "visual-parked-stands (partial)",
+     "player_sees": "On both the flat map and the globe, more than 3 aircraft parked at one airport now stand in a compact block 3 wide (6 aircraft make 2 rows of 3) instead of a row of 5 stretching towards the next country. (mapLogic.standsPerRow + tests.)"
+    }
+   ],
+   "not_done": [
+    "visual-parked-stands: the 0.75 scale for crowded stands. Not done on purpose: scaling the whole aircraft group would shrink the registration labels to about 8 px, and scaling only the plane icon would let the labels overlap the next row.",
+    "visual-parked-stands: one icon with an 'x6' badge below a zoom threshold. Not started: it needs a new element in each aircraft, changes to tapping and label thinning, and the same work again for the globe.",
+    "visual-parked-stands: route lines drawn above parked aircraft. Not done: route lines sit in the map's bottom layer, and moving them up would draw them over flying aircraft too."
+   ],
+   "checks": "tsc --noEmit: clean. vitest, run with --maxWorkers=2 on every touched area: 28 files / 242 tests (keymap, map/*, map/globe/*, screenHints, cueToasts, contracts/call14, modalStack, crewLeaveHeat, crewLogic, crewPlanLogic, rosterBoardLogic, crew/leave, personLogic, toastLogic, store), then all src/ui/*.test.ts plus game and shell (23 files / 178 tests), then networkNav, device and bugReports (3 files / 39 tests). All pass. acmi-bot 2 200 --det: two runs identical, save/load at day 90 and at day 200 + 2h17 identical. The --wide --inv and --routes bots were not run: this is a UI lane and the only engine changes are one message string and one export. Playwright shots at iPad 1180x788, iPhone 852x393 and Mac 1440x900 are in /home/user/work/v025/shots/ui/ (p-<device>-dark-final-{map,board,crew,settings,livery}.png, plus per-item before/after shots), and I looked at them. Probes: toastcover (all buttons ok on 3 devices), globemarks while paused (pins placed), p-space, p-crewhead, board probe (rows), livery probe (lv-body 172), log overlap (0/6), settings back-navigation and globe selection.",
+   "notes": "Worktree: /home/user/wt/b-ui. State file: /home/user/work/v025/STATE-ui.txt. Probe scripts: /home/user/work/v025/ui-scripts/ (probe.cjs takes a URL env var and defaults to port 5231). Started 00:59:40 UTC, finished 01:38 UTC.\n\nChanges outside the lane, kept small:\n(1) src/engine/contracts/offers.ts: the 'Offer lapsing soon' message now reads 'needs an answer by HH:MM UTC.' Its assertion in src/engine/contracts/call14.test.ts was updated to match.\n(2) src/engine/crew/leave.ts: capOf is now exported, re-exported from engine/crew/index.ts as leaveCap. No behaviour change.\n(3) src/ui/keymap.ts: added the pure helpers pauseYields and speedHint.\n\nExisting test changed on purpose: mapLogic.test.ts, the v0.14 stand-rows assertion now expects rows of 3 when more than 3 aircraft are parked.\n\nBehaviour for integration to know:\n- On a phone held sideways (max-height 499.98px) the roster board starts in compact rows unless the player chose a density before.\n- Up Next now stores '0' when the player opens it, so it stays open (it used to remove the key).\n- The crew-head phone layout uses display: contents on .sc-head-tools in compact screens (devices.css).\n- The toast offset uses :has(), which needs Safari 15.4 or later.\n\nsrc/data/whatsNew.ts was not touched. No force-push. Commits carry the required trailer lines."
+  }
+ },
+ {
+  "lane": "network",
+  "result": {
+   "branch": "v025-network",
+   "head": "fb2cbb4ff1d7c503bfa42ea2e2eebfde2e460186",
+   "pushed": true,
+   "done": [
+    {
+     "id": "network-case-wrong-aircraft",
+     "player_sees": "The study, the business case and the planner's ideas now use the player's own aircraft type in the cabin those aircraft really have. A new A320 airline with all-economy jets gets an A320 all-economy case, not an A321neo with business seats. If the player picks a type they don't own, or business seats their aircraft lack, the case shows a warning just under the verdict."
+    },
+    {
+     "id": "network-case-owned-aircraft-cost",
+     "player_sees": "The case, the ideas and the ACMI comparison now charge the same aircraft cost per block hour that the route P&L will. That is the average over the player's own aircraft of the type: an owned jet costs only its insurance, a leased one its rent too. List rent is used only when they own none of that type. Cases on owned jets are no longer far too gloomy, so the 'case -38K vs actual +295K' kind of gap shrinks."
+    },
+    {
+     "id": "network-studybase-drift",
+     "player_sees": "The demand a study is measured against is fixed on the day the study is done. A reopened case, the Sales tab cabin quote and the analyst's advice now read the same market weeks later, instead of 373 becoming 1,022. Older saves fix this value once when they load."
+    },
+    {
+     "id": "network-pnl-month-aircraft",
+     "player_sees": "The monthly route P&L charges each aircraft for its own hours. An owned jet and a leased one covering a C-check in the same month are each charged at their own rate, so one month no longer jumps to $111K of aircraft time."
+    },
+    {
+     "id": "network-denied-boarding-silent",
+     "player_sees": "When passengers are denied boarding there is now a route note, for example 'MTL351: 11 passengers denied boarding'. It names the aircraft and its seats, how many volunteers took a voucher, and the EU261 paid. When a C-check cover is close to departure and the stand-in jet is smaller than the bookings, a right-size sub-charter is tried first."
+    },
+    {
+     "id": "network-lifecycle-wording",
+     "player_sees": "Suspend now offers 'Fly next 9, refund rest \u00b7 $X' or 'Refund all \u00b7 $Y'. Rows show Ticket money back, Cost to us and Money out. Wind down says 'The next N rotations fly; later ones are refunded' instead of 'no refunds'. Plurals are fixed ('1 rotation ... comes off', '1 flies / is sub-chartered / waits'), and the text now says 'An A320 on ACMI' instead of 'A A320'."
+    },
+    {
+     "id": "network-study-peak-text",
+     "player_sees": "The study's off-peak and peak loads now follow the market's own season (a winter-sun route peaks in winter) and use the loads of an established route, past the launch ramp. The aircraft sentence comes from how many travellers are turned away at peak, so it no longer contradicts the loads. Where payload caps the seats well below the cabin, it says so, e.g. 'An A320 can sell only 142 seats here (payload)'."
+    },
+    {
+     "id": "network-rival-named",
+     "player_sees": "The rival that cuts fares at launch is named. When there is no nonstop rival, the one-stop carrier is named by its hub, e.g. 'Turkish Airlines cut its fares via Istanbul 15 % for 4 months'. The 'launch campaign done' note now gives the awareness reached instead of repeating the fare cut. The route's Sales tab shows the rival cut and its end date."
+    },
+    {
+     "id": "visual-network-nodata-red",
+     "player_sees": "A route with no flown month shows a muted dash in the Network list, in the 'Last 3 months' tile and in the route page's Result KPI. There is no red and no falling arrow."
+    },
+    {
+     "id": "ops-search-accents",
+     "player_sees": "The airport search in the route builder and in the position/A-check search finds cities typed without accents: Sao Paulo, Malaga, Krakow, Tromso and Istanbul."
+    },
+    {
+     "id": "network-case-month-sampling",
+     "player_sees": "The business case steps through the calendar months from the first flight, with the first and last months pro-rated. A 7-month seasonal route now counts 7 flying months, not 8."
+    },
+    {
+     "id": "network-case-vs-actual",
+     "player_sees": "Pressing Go now saves the case's likely year month by month. The route page's 'Result by month' chart shows the plan as dashed outline bars behind the actual bars. A 'vs plan' line (e.g. '-$126K, 4 months: +$3.1K against +$129K') has a '?' that explains it. If the launch pushes the first flight later, the plan moves with it. Old routes show nothing extra."
+    },
+    {
+     "id": "network-tail",
+     "player_sees": "A study ordered from a planner idea carries that idea's aircraft into the case draft. The verdict adds 'The planner guessed a 12 % margin once the route is known; the study's first year says X %.' The map's route card shows the next flight in local times, e.g. 'Fri 2 Jul 2027 10:00 MLA \u2192 13:35 ESB'."
+    }
+   ],
+   "not_done": [],
+   "checks": "tsc --noEmit clean. vitest (maxWorkers=2) over every touched area: src/engine/network, src/ui/screens/network, src/ui/screens/networkNav.test.ts, src/ui/components, src/ui/modals, src/ui/map/globe and src/engine/save. 46 files and 295 tests pass. New tests are in src/engine/network/v025.test.ts and the networkLogic, routes and lifecycle tests. Bots: `acmi-bot 1 365 --wide --inv` had 0 invariant errors and 0 warnings. `acmi-bot 1 365 --routes --inv --base=MLA` had 0 invariant errors and 8 warnings. The 'no' ladder and roster checks in those runs are the usual widebody, Trusted-client and roster ones; I did not compare them against a base run. `acmi-bot 2 200 --det`: two runs identical, save/load at day 90 and day 200+2h17 identical. Playwright shots at iPad 1180x788, iPhone 852x393 and Mac 1440x900 are in /home/user/work/v025/shots/network/ and I looked at them: network list, business case, route overview with the plan bars and 'vs plan', Sales tab, Suspend and Wind down dialogs. The map route card was not shot (it opens on a tap on the route line); it is covered by a unit test. A copy of the player's save (malteser.json) loads and runs 45 days. Its planner ideas are now priced on its 220Y all-economy A321ceo cabin (ESB 15.4 %, ADB 11.1 %, ...).",
+   "notes": "Changes outside the network screens: src/ui/components/charts.tsx (BarChart gets optional `ghost`/`ghostName` props, used for the plan bars) and src/ui/modals/PositionModal.tsx (its search uses `foldText`, imported from screens/network/networkLogic.ts).\n\nSave compatibility: all new fields are optional. They are `RouteStudy.base` (filled once on load by loadNetwork), `RoutePnl.acBh`, `Route.caseAt`, `Route.pitch` and `WindQuote.laterRefund`; saves from v0.24 still load.\n\nBalance effect to know about at integration: ideas are no longer inflated by business seats that don't exist, and owned jets are costed at insurance only. Some starts therefore get fewer or no planner ideas: a single new jet on an expensive lease (newtech, shoestring), VNO and TLL leisure, and any game when fuel is high. When there are none, the planner says why. I relaxed the bases.test idea check to match: at least 3 ideas on the veterans start, at least 1 on classic, and otherwise ideas or the reason line.\n\nDesign choices:\n- decideCase does not refuse a type we don't own; it shows a warning instead.\n- The Suspend buttons show the total money out (ticket money back plus cost to us). Showing only the cost made 'Refund all' look cheaper than flying.\n\nSeen but not fixed (balance, outside these items): on a dev-launched MLA-ESB route the case's month-by-month plan (full flights, winter months positive, summer negative) differs a lot from the actual first months. The new 'vs plan' line makes this visible.\n\nThe STATE file is /home/user/work/v025/STATE-network.txt."
+  }
+ },
+ {
+  "lane": "commercial",
+  "result": {
+   "branch": "v025-commercial",
+   "head": "fecd495d68d13a8abe65ea8cff5136945d3a9f11",
+   "pushed": true,
+   "done": [
+    {
+     "id": "comm-broker-pct",
+     "player_sees": "The offer dialog shows the broker's own commission (ACS 4%, ACC 3.5%), not always 5%. The revenue estimate and the wet-lease invoices use the same rate. The contract sheet has a 'Broker commission' row. brokerCut now lives in billing.ts and accept.ts re-exports it."
+    },
+    {
+     "id": "immersion-lead-client-mismatch",
+     "player_sees": "Leads and visits for Shell, Siemens or Real Madrid are never 'Diaspora charters'. A named client gets the kind of trip it does. Diaspora reasons match the date: no Christmas in August, Eid only in the two weeks before it, and 'to see their families' when no listed reason fits."
+    },
+    {
+     "id": "comm-visit-spam",
+     "player_sees": "Visiting the same client again within 60 days adds only 0-2 relation and the lead odds drop to a quarter. A client never has two live leads for the same kind of work, and a visit no longer opens a second tender in the same round. Meetings are on working days (Sun-Thu in the Gulf). New field Client.lastVisit; old saves rebuild it from their trips on load."
+    },
+    {
+     "id": "comm-tour-season",
+     "player_sees": "No beach series to Burgas in November or to Rhodes or Olbia in winter. Summer-only resorts get a series only between May and October, and a leisure airline's winter base flies to resorts that are open in winter."
+    },
+    {
+     "id": "comm-sports-federation",
+     "player_sees": "Federations (FPF, DFB, RFU...) fly one national-team away game at a time to a foreign capital: 'Qualifier in', 'Nations League away in', 'Friendly in'. Rugby unions fly to the Six Nations grounds. Club league away days only go to cities with a top-flight club."
+    },
+    {
+     "id": "season-titles",
+     "player_sees": "'Half-term charters' only for a short British programme starting in February, the last week of May or October. 'Summer peak' and 'Holiday peak cover' only for June-August starts. British July and August series can be called 'School holidays to X'."
+    },
+    {
+     "id": "comm-text",
+     "player_sees": "The cold-lead Inbox message reads as normal prose, with no 'Yes: $982K...'. Names ending in s get the right possessive: \"Rainbow Tours' lead\". The same fix covers the strike notice and the visit offer text."
+    },
+    {
+     "id": "comm-client-fits",
+     "player_sees": "Frontex no longer asks for relief flights. European ministries never rotate troops to AUSSOM. A lost offer is never lost to the client's own rival company or to a rival that has ceased trading. LV/BG home missions were not added; see notes."
+    },
+    {
+     "id": "comm-margin-label",
+     "player_sees": "The offer dialog's aircraft row labels its number 'margin'. The open row and the analyst card add 'Profit after lease and crew about $X', and a '?' explains what the margin leaves out. On the Jeddah offer: analyst margin about 76 %, profit after lease and crew about $773K."
+    },
+    {
+     "id": "comm-cancel-split",
+     "player_sees": "The contract sheet shows 'Cancel now: Penalty $385K (+$285K deposit back)', matching the Cancel dialog. Penalty tiers read '60+ days before: 15 % \u00b7 30+ days before: 35 % \u00b7 14+ days before: 60 % \u00b7 under 14 days: 100 %' on the sheet and in the offer dialog."
+    },
+    {
+     "id": "contracts-screen",
+     "player_sees": "Contracts > Active has compact cards: title, one line (client, aircraft, dates, legs, next flight), the MGH bar and two icons with tooltips (schedule, the contract). Cards are grouped 'Flying now' and 'Signed, upcoming'. The crew setting, Sub-charter, Cancel, the livery line and scenario locks moved into the contract sheet. On a phone held sideways, the title sits beside the tabs and the standing and outlook tiles are one short chip row."
+    },
+    {
+     "id": "comm-tail",
+     "player_sees": "Governments in low-risk countries (EU/EEA, UK, CH, US, CA, AU, NZ, JP, KR, SG, AE, QA) pay 85% of invoices on time, the rest 0-15 days late; other governments still pay 25-90 days late. Airlines use the same country tiers. Old saves get the tier and the matching payment behaviour once on load. The chip reads '180+ seats, all economy'. Repatriation flights favour a country with a live crisis, the state's own ties (e.g. Portugal-Angola) and nearer places, and a small state like Malta brings fewer citizens home."
+    }
+   ],
+   "not_done": [
+    "comm-client-fits part: HOME_MISSIONS for LV and BG. Their real deployments (KFOR in Pristina, EUFOR in Sarajevo) need PRN and SJJ, which are not in src/data/airports.ts, so they still use the generic missions (now without AUSSOM). Adding those two airports would also change the network and market pools, so it belongs to the data lane."
+   ],
+   "checks": "tsc --noEmit clean. vitest (--maxWorkers 1-2) passed: src/engine/contracts + src/engine/commercial + src/engine/finance (52 files, 525 tests); src/engine/scenario + ops/heads + core/plumbing + all of src/ui (76 files, 803 tests). The new visits test failed once in the first combined run and has passed on every run since; I made it robust because the client log keeps only 8 entries. New test files: src/engine/contracts/commercial025.test.ts and src/engine/commercial/visits025.test.ts; I also extended billing, contractSheetLogic, leads, clients and screenLogic tests. Bots: acmi-bot 1 365 --wide --inv gave 0 invariant errors; 1 365 --routes --inv --base=MLA gave 0 errors and 2 warnings; 2 200 --det was identical on all 3 checks. One balance target moved on seed 1 --wide: 'first contract within 7 days' went from day 6 (base) to day 42. The cause is RNG divergence: the day-0 season-base draw changes with the winter resort filter, so seed 1 loses a day-6 repatriation. Seeds 2-5 at 30 days give the same first-contract day as base (2-3). The other FAILs in these runs (summer BH per aircraft, run time with shared CPUs) also appear in the base run. Playwright shots at iPad 1180x788, iPhone 852x393 and Mac 1440x900 are in /home/user/work/v025/shots/commercial/ (active, contract_k4ff, contract_k2ve, offer_oevs, offerrow_oevs), with before shots in /home/user/work/v025/shots/commercial/before/. No horizontal overflow, and I looked at them. The malteser save copy loads without page errors.",
+   "notes": "Small changes outside the lane areas, kept minimal: src/engine/core/types.ts adds Client.lastVisit and Client.risk (both optional, so old saves load); src/engine/contracts/relations.ts loadRelations rebuilds lastVisit from finished trips and calls seedRisk; src/engine/contracts/billing.ts now holds brokerCut (accept.ts and contracts/index.ts re-export it); new leaf module src/engine/contracts/payRisk.ts (importing it from clients.ts into relations.ts caused an import cycle); src/engine/ops/heads.ts adds AnalystView.profit, while the analyst verdict and score are unchanged and still use the contribution margin; src/engine/commercial/crises.ts possessive fix; new stylesheet src/styles/acmi/v025comm.css, imported last in index.css. FeasibilityReport gains optional estFixed and estProfit (lease per day plus each crew set's pay with on-costs, over the days the job ties the aircraft up). The Active card no longer shows the price or revenue line or the paint and cabin lines; they are in the sheet. Integration may want What's New lines for: the broker rate, profit after lease and crew, the cancel split, compact Active cards with actions in the sheet, the seasonal resorts, federations, visit cool-down and payment by country risk. STATE file: /home/user/work/v025/STATE-commercial.txt. Worktree: /home/user/wt/b-commercial."
+  }
+ },
+ {
+  "lane": "ops-world",
+  "result": {
+   "branch": "v025-ops-world",
+   "head": "b6ca014d080517e13251640e84450911e519961b",
+   "pushed": true,
+   "done": [
+    {
+     "id": "ops-wait-before-maint-away",
+     "player_sees": "An aircraft that ends a job at an outstation a month before a paint shop or check away from base now flies home first, then on to the shop later. In the repro, LZ-UFQ goes WAW to SOF on 10 Mar instead of sitting at Warsaw until 11 Apr. Its A-check then happens at Sofia for $25K instead of $30K, and it picks up another contract. The fix is in contracts/schedule.ts: planPositioning(viaHome) for ferries to a shop, and the relink gap planner allows the home hop before a maintenance stop away from base. The out-and-back hop around checks at home is still barred."
+    },
+    {
+     "id": "immersion-world-iraq-overlap",
+     "player_sees": "Only one world event can be live per zone. The Iraq war and the Iraq airspace closure no longer overlap, so there is no 'reopened' message while the airspace is still shut."
+    },
+    {
+     "id": "world-event-months-repeats",
+     "player_sees": "Weather events follow real seasons: the Punta Cana hurricane only June to November, the Sindh floods July to September, calima and Madeira wind only in the winter half. Each event has a cooldown by kind: disasters 540 days, coups, wars, unrest and airspace 180, strikes 60, ash 30, airline failures 5 years, the rival failure 60. A repeat within 120 days reads 'again', for example 'Italian air traffic controllers strike again (ENAV)'. Older saves rebuild the last start of each event from the events they kept; a new game is unchanged."
+    },
+    {
+     "id": "ops-acheck-lead",
+     "player_sees": "An automatic A-check that needs a ferry home from an outstation now leaves time for a crew to fly out on the airline and rest first. The flat 9-hour lead is gone. In the repro, 9H-XBG at Terceira is booked for 18 Dec 17:15 with its ferry the next day at 11:40, crewed. Before, the check was booked for the same day, the crew shortage alarm fired and the check slipped a day."
+    },
+    {
+     "id": "crew-fakeroutes",
+     "player_sees": "Crew tickets no longer invent nonstops to Greenland: Malta to Kangerlussuaq is FR to Copenhagen, then Air Greenland (GL) from Copenhagen. Heathrow to Kangerlussuaq goes the same way through Copenhagen, and Lisbon to Nuuk goes through Reykjavik on GL. Air Greenland is added with CPH-SFJ, CPH-GOH and KEF-GOH. Royal Air Maroc keeps to its real long-haul routes (JFK, IAD, MIA, BOS, YUL, GRU, DOH) plus Europe, Africa and the Middle East within 6,000 km, so no Santiago or Los Angeles. Side effect: Goma tickets now connect at Luanda."
+    },
+    {
+     "id": "money-cards",
+     "player_sees": "The low-cash, below-zero and credit-headroom cards now say 'Still to come from invoices $X'. A sold invoice counts only the part the bank has not already advanced. The 'sell one to the bank' hint only appears when an unsold invoice exists. On Finance, the cash trend reads 'up $664K since 1 Jun 2027' instead of 'in 3 months'."
+    },
+    {
+     "id": "ops-weekly-hop",
+     "player_sees": "Between two trips from the same outstation, a new plan only flies the aircraft home and back when that costs less than waiting there. The comparison is fuel, fees and maintenance for the hop against parking plus the crew's airline tickets home and back. Waits longer than 8 days still go home. Hops already planned in a save are kept. Tapping a 2 to 8 day idle stretch at such an outstation shows 'Waits at Helsinki (cheaper than a ferry home).'"
+    },
+    {
+     "id": "ops-parking",
+     "player_sees": "An aircraft that stands a day or more away from home and from a live client base now pays parking every day through Airport fees: $400 a day for a narrowbody, $900 for a widebody, double at slot hubs such as Heathrow, Paris CDG and Frankfurt. The Position quote adds 'Parking about $400 a day there.' Deliveries waiting for pilots still pay their own parking as before."
+    },
+    {
+     "id": "ops-ferry-tail",
+     "player_sees": "Ferry and fuel stops no longer use LHR, LGW, CDG, FRA, AMS or DCA. For example, Malta to JFK on an A320 now stops at KEF and SFJ instead of LHR and SFJ. Shannon, Keflavik and Iqaluit count 20 minutes cheaper as stops. The Position quote's Cost row now prices the empty legs the schedule adds or drops afterwards. Example: 'Cost $13K, then about $33K less on the empty flights after' when 9H-VZH is moved to Helsinki ahead of its HEL-PMI series. When the next leg costs more it reads 'then about +$5K for the flight on to Paris'."
+    }
+   ],
+   "not_done": [],
+   "checks": "tsc --noEmit is clean. These vitest runs all pass:\n- src/engine/{contracts,ops,core,crew,commercial,finance,problems,leasing,network,scenario,fixtures}, src/engine/*.test.ts, src/data and src/ui: about 3,000 tests.\n- New regression tests: contracts/maintAway, contracts/weeklyHop, ops/worldRepeat, ops/parking, core/techStops, problems/moneyToCome, plus added cases in ops/maintenance, ops/commercial, ops/position and finance/glance.\n\nBots after the last engine change:\n- acmi-bot 1 365 --wide --inv: 0 invariant errors (4 warnings).\n- acmi-bot 1 365 --routes --inv --base=MLA: 0 invariant errors (3 warnings).\n- acmi-bot 2 200 --det: identical (two runs, save/load at day 90, save/load at day 200).\n- Both invariant bots exit 1 on seed-1 balance targets (widebody ladder, roster spread, days off), and so did my first bot run here. I did not run the bots on the unchanged v025 base to confirm it fails the same lines.\n\nPlaywright shots at iPad 1180x788, iPhone 852x393 and Mac 1440x900 are in /home/user/work/v025/shots/ops-world/ (Position quotes, Finance trend, idle sheet). I looked at them: no horizontal overflow, and the new lines fit at all three sizes.",
+   "notes": "Started 02:28:51Z and finished about 03:46Z, well before the 04:58Z hard stop. STATE file: /home/user/work/v025/STATE-ops-world.txt.\n\nChanges outside the lane's listed areas, all small:\n- ops/maintenance.ts: the planA ferry lead and the two scheduleCheck calls now pass viaHome.\n- ops/index.ts: one line calling dailyParking from the new ops/parking.ts.\n- core/perf.ts searchRoute: the excluded and preferred technical stops.\n- core/types.ts: the optional world.lastTpl field.\n- UI: Glance.tsx (the 'since <date>' wording), PositionModal.tsx (the Cost row text) and BlockSheet.tsx (the idle-sheet wait line).\n\nExisting tests I had to change (the code changes made them fail):\n- contracts/worldTour.test.ts: the whole-tour test now plays seed 11. The new world-event cooldowns moved the random draws, and on seed 13 crew now fall sick mid-tour, which is a crew story rather than a tour bug.\n- crew/buyBack.test.ts (crew lane's test): Goma tickets now connect at Luanda, so nobody else can be flown in that night and the roster moves the leg to the morning after the day off. 'Never' now checks that no day off is worked; 'Ask me' asks Crew Control before the roster runs.\n\nPartly backed out: I first added three-leg gateway tickets as well, but crew planning cannot roster a three-leg ticket. In the CS-TTL Port Sudan test fixture the ferry waited for a crew for days. Gateway routing is now one connection only, so Lisbon to Port Sudan stays the old invented nonstop.\n\nCommit a49c29a7 (parking) has '00' instead of '$400' and '$900' in its message body because the shell expanded the dollar signs. It is already pushed and force-push is not allowed, so it stays as is.\n\nTwo existing problems I saw but did not fix:\n- In m42.json, Position quotes for 9H-EYO with a 42-day idle stretch at Malta say 'Too late at ARN for MTL463'.\n- Position quotes that fail still carry the 'Parking about\u2026' note in their notes list."
+  }
+ },
+ {
+  "lane": "immersion-visual",
+  "result": {
+   "branch": "v025-immersion-visual",
+   "head": "045743b813105225a52a657b888b1d662268f9d2",
+   "pushed": true,
+   "done": [
+    {
+     "id": "ops-sub-instant",
+     "player_sees": "When a leg is handed to a rival during a disruption (AOG, stranded, far-stranded or sick-crew cards), it no longer leaves on time as if the rival were already there. The leg now leaves no earlier than now + 6 h, or later if the rival needs longer to fly in from its base, and the legs after it keep a turn between them. The option chips say 'First leg ~9h 40m late' and so does the result line. The delay counts against us (a late flight under our flight number, with the contract's late rule on arrival). In the repro save, XY967 GOI now leaves about 9.7 h late, flown by Avion Express from Vilnius."
+    },
+    {
+     "id": "immersion-crew-on-board-named",
+     "player_sees": "The medical, diversion and bird-strike cards name the crew on board, e.g. 'Purser Rita Teixeira called for a doctor on board; Captain Stephanie Abela is talking to MedLink, the doctors on the ground.' After a medical diversion one quiet inbox line closes the story: 'The passenger was taken to hospital in Bucharest. The crew filed their report.'"
+    },
+    {
+     "id": "ui-hangar-floor-bands",
+     "player_sees": "In Fleet > Hangar > Side, the floor bands sit under the wheels and stay inside the card. They are measured again once the aircraft art has loaded or a row reflows. Checked on Mac, iPad and iPhone."
+    },
+    {
+     "id": "immersion-unruly-passenger",
+     "player_sees": "A new in-flight card, 'XY123: disruptive passenger', with the purser and captain named. The choices are 'Continue; police meet the aircraft' (a report goes to the home base's authority, at no cost) or 'Divert and offload at <city>'. Diverting adds about an hour on the ground and the delay is not counted against us. We pay a police call-out, plus handling and fuel on a charter, and half of it shows as a receivable from 'Passenger' due in 90 days. The Company safety line counts disruptive passengers and the diversion map shows the card. It is rare (about 3 in 10,000 legs, scaled by how busy the current stretch of play is), in its own band after the other in-flight events. If there is nowhere to divert to, the player gets a warning instead of a card."
+    },
+    {
+     "id": "aog-causes",
+     "player_sees": "Each AOG fault now has its own repair time and cost: a tyre is 3\u20138 h for $3\u20138K, brakes 4\u201312 h, a windshield 10\u201330 h for $25\u201345K, IDG 10\u201330 h, fan blade damage 24\u201372 h, and tug damage 24\u201396 h for $50\u2013150K. A big airport takes some of the outstation wait off. APU and bleed faults are no longer AOGs: they show as gate delays such as 'Technical: APU inoperative (MEL), ground power needed'."
+    },
+    {
+     "id": "immersion-weather-not-seasonal",
+     "player_sees": "Weather diversions fit the season and the place: snow only from November to March at 40 degrees latitude or more (the southern hemisphere flipped), fog in autumn and winter, thunderstorms in the warm months or all year in the tropics. No more snow at Riga in September or at Tenerife in July. The map weather marks use the same list."
+    },
+    {
+     "id": "immersion-cards-flow",
+     "player_sees": "Client change requests give a reason that fits the client, e.g. 'their hotel transfers run late' (tour operator), 'their own inbound flight is late' (airline), 'the match moved to an evening kick-off' (sports), 'their board meeting runs over' (corporate). A medical (or disruptive-passenger) event with no airport near enough to divert to no longer pauses the game on a card with one option: a warning appears in the inbox and the flight carries on."
+    },
+    {
+     "id": "immersion-text-authority",
+     "player_sees": "No more '..' at the end of result lines, '1 day' instead of '1 days' on the sick-crew card, and possessives such as 'moved at Jet2's request' or 'at Thomas' request'. Prague, Sofia and Tallinn bases name their authority (the UCL, the DG CAA, the Transport Administration); Morocco's DGAC is added too."
+    },
+    {
+     "id": "visual-palette-statusbar",
+     "player_sees": "Finance at a glance: 'Office & sales' is now olive and 'Bank & interest' plum, so there are no longer two greens or two oranges. The proposed colours #8fb339 and #8d86a8 failed the dataviz validator (lightness band, chroma, colour-blind check), so validated ones are used: dark #6d6a00 and #9e36bb, light #5f7300 and #91006f. On the iPhone and iPad home-screen app, the light look gets a status bar with dark text and the dark look a black one. A '?' next to Settings > Appearance explains that this applies the next time the app opens."
+    },
+    {
+     "id": "immersion-delays-names",
+     "player_sees": "Gate delays fit the season and the place: 'Weather: de-icing, queue at the pad' and 'Weather: snow clearance' from November to March at 45 degrees N or more, and 'Weather: thunderstorms on the route' from June to August. Everyday reasons are added: 'Late passengers: one missing, bags offloaded', 'Wheelchair assistance late', 'Catering short-loaded', and 'Refused boarding: a drunk passenger, bags offloaded' (the gate version of the disruptive passenger). Weather, missing-passenger and refused-boarding delays are not counted against us. The crew name pools for Malta, Italy, Romania, Poland, Britain, France, Slovakia and Cape Verde grow to about 20 real names each."
+    },
+    {
+     "id": "visual-tail",
+     "player_sees": "In Hangar > From above, each aircraft is drawn in its livery: fuselage colour, tail colour on the rear 12 %, engine cowls in the cowl colour. Plain airframes stay white with grey cowls. On the Schedule, the date of the first day on screen stays at the left edge of the timeline while that day is on screen."
+    }
+   ],
+   "not_done": [],
+   "checks": "tsc --noEmit clean. vitest --maxWorkers=2 on src/engine/ops, src/engine/crew, src/data, src/ui/screens, src/ui/map, src/ui/game and src/ui/theme.test.ts: 207 files, 1590 tests, all pass. Bots: acmi-bot 1 365 --wide --inv gives 0 invariant errors (2 roster warnings); 1 365 --routes --inv --base=MLA gives 0 errors (1 roster warning); 2 200 --det gives identical runs and identical save/load at day 90 and day 200+2h17. I did not compare the roster warnings with a run on the base. Playwright shots, which I looked at, are in /home/user/work/v025/shots/immersion-visual/: hangar side (Mac and iPad light, iPhone dark), hangar top (Mac light; with test liveries on Mac and iPhone dark), finance (Mac, iPad and iPhone light, Mac dark), schedule (Mac, iPad and iPhone light, iPad dark). No page scrolls sideways in any of them.",
+   "notes": "All 11 items are done and pushed; the state file is /home/user/work/v025/STATE-immersion-visual.txt.\n\nSmall changes outside my lane's areas:\n- src/engine/ops/latePolicy.ts: NOT_OURS now also matches 'Unruly passenger' and 'Refused boarding', so those delays are not counted against us.\n- src/engine/core/types.ts: 'unruly' added to DisruptKind and DisruptCause.\n- src/ui/map/DiversionMap.tsx and src/ui/map/MapPanels.tsx: the map shows the unruly card and its diversion.\n- src/ui/screens/Safety.tsx: a disruptive-passenger count, and unruly diversions added to the diversion total.\n- src/ui/screens/Finance.tsx: a receivable with no client reads 'Passenger'.\n- src/ui/store.ts: the dev disruption tool can raise 'unruly'.\n- src/ui/game/Modals.tsx: the Appearance '?'.\n- src/styles/acmi/v015.css: .hg-line overflow hidden.\n- src/styles/acmi/screens.css: the sticky .gt-day.\n- src/engine/ops/subcharter.ts: re-exports SUB_LEAD, which now lives in flights.ts.\n\nBehaviour changes to know about:\n- (a) A sub-chartered leg that waited for the rival now runs the contract's late rule on arrival, so it can bring a penalty or a hit to client relations.\n- (b) AOG repair costs can now be large ($50\u2013150K for tug damage).\n- (c) Two existing tests broke after the AOG fault table changed the dice and were adjusted: lateNext.test.ts now runs with aogBase 0, and pm.test.ts leaves AOG repair costs out of its maintenance comparison. techReliability.test.ts was updated for the sub-charter wait, and a new test was added for the late hand-over case.\n\nThe disruptive passenger's half-cost receivable uses clientId '' (no client). The finance views handle this without errors. whatsNew.ts was not touched."
+  }
+ }
+]
