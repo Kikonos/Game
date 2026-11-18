@@ -190,6 +190,8 @@ export const isPilgrim = (c: Client) => ROLE_BY_NAME[c.name] === 'pilgrim';
 export const isCruiseLine = (c: Client) => SEED_BY_NAME[c.name]?.marine === 'cruise';
 /** Clubs big enough for a widebody pre-season tour abroad. */
 export const isBigClub = (c: Client) => SEED_BY_NAME[c.name]?.tier === 'big';
+/** v0.25 a national federation (the FPF, the RFU ...): national-team trips abroad, never league away days. Pure. */
+export const isFederation = (c: Client) => c.kind === 'sports' && /\b(Federation|Association|Union)\b/.test(c.name);
 
 /** Clients that would book this ad hoc group: any of its kinds plus its named clients (no ministries or specialists). */
 export function adhocGroupClients(g: GameState, group: AdhocGroup): Client[] {

@@ -4,7 +4,8 @@ import { describe, expect, it } from 'vitest';
 import { newGame } from './testkit';
 import { generateOffer } from './offers';
 import { DAY, fromUTC, toDate } from '../core/time';
-import { baseDestOpen, diasporaReasonsAt, DIASPORA_BY_CLIENT, DIASPORA_REASONS, resortOpen, SUMMER_ONLY } from './flavor';
+import { baseDestOpen, diasporaReasonsAt, DIASPORA_BY_CLIENT, DIASPORA_REASONS, LEAGUE_CITIES, resortOpen, SIX_NATIONS, SUMMER_ONLY } from './flavor';
+import { AIRPORT_BY_CODE } from '../../data/airports';
 import { hajjDates } from '../../data/worldCalendar';
 import type { GameState } from '../core/types';
 
@@ -94,5 +95,44 @@ describe('v0.25 tour series and leisure bases keep to the resort season', () => 
     expect(resortOpen('TFS', fromUTC(2027, 11, 3), fromUTC(2028, 1, 20))).toBe(true);
     expect(baseDestOpen('RHO', fromUTC(2027, 11, 1), fromUTC(2028, 3, 31))).toBe(false);
     expect(baseDestOpen('RHO', fromUTC(2027, 4, 1), fromUTC(2027, 10, 31))).toBe(true);
+  });
+});
+
+describe('v0.25 federations and league cities', () => {
+  it('the FPF and the RFU never fly a league away day; their trips go abroad', () => {
+    const g = newGame(5);
+    let n = 0;
+    for (const name of ['Portuguese Football Federation (FPF)', 'Rugby Football Union (RFU)', 'German Football Association (DFB)']) {
+      const c = byName(g, name);
+      if (!c) continue;
+      for (let i = 0; i < 12; i++) {
+        const o = generateOffer(g, 'sports', { client: c.id, window: false, wide: false, start: g.now + (10 + i * 3) * DAY });
+        if (!o || o.pattern.kind !== 'legs') continue;
+        n++;
+        expect(o.title, o.title).not.toMatch(/^League away|Away match|Short away|away package/);
+        const to = AIRPORT_BY_CODE[o.pattern.legs[0].to];
+        expect(to.country, `${name} → ${to.code}`).not.toBe(c.country);
+        if (/Rugby/.test(name)) expect(SIX_NATIONS).toContain(to.code);
+        delete g.offers[o.id];
+      }
+    }
+    expect(n).toBeGreaterThan(5);
+  });
+  it("a club's league away day goes to a city with a top-flight club", () => {
+    const g = newGame(6);
+    let n = 0;
+    for (const c of Object.values(g.clients).filter((x) => x.kind === 'sports' && LEAGUE_CITIES[x.country])) {
+      for (let i = 0; i < 4; i++) {
+        const o = generateOffer(g, 'sports', { client: c.id, window: false, wide: false, start: g.now + (10 + i * 5) * DAY });
+        if (!o || o.pattern.kind !== 'legs') continue;
+        for (const l of o.pattern.legs) {
+          if (l.from !== o.pattern.legs[0].from || AIRPORT_BY_CODE[l.to].country !== c.country) continue;
+          n++;
+          expect(LEAGUE_CITIES[c.country], `${c.name} → ${l.to}`).toContain(l.to);
+        }
+        delete g.offers[o.id];
+      }
+    }
+    expect(n).toBeGreaterThan(0);
   });
 });

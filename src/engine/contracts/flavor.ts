@@ -226,6 +226,32 @@ export const TOUR_SERIES_BLURBS: ((x: TourBlurb) => string)[] = [
 /** League games stay in the club's country; cup ties and European nights go abroad. 'Short' titles only under 700 km. */
 export const SPORT_TITLES_HOME = ['League away day in', 'Away match in', 'Short away trip to'];
 export const SPORT_TITLES_ABROAD = ['European night in', 'Cup tie in', 'Continental away leg in'];
+/** v0.25 a national team's away trips (football, basketball) and rugby's (the Six Nations and the autumn tests). */
+export const SPORT_TITLES_NATIONAL = ['Qualifier in', 'Nations League away in', 'Friendly in'];
+export const SPORT_TITLES_BASKETBALL = ['World Cup qualifier in', 'EuroBasket qualifier in'];
+export const SPORT_TITLES_RUGBY = ['Six Nations away in', 'Test match in'];
+/** Where national teams play away: the capitals (or the national stadium's city) of Europe. */
+export const NATIONAL_VENUES = ['LIS', 'MAD', 'CDG', 'BER', 'FCO', 'AMS', 'BRU', 'VIE', 'ZRH', 'CPH', 'OSL', 'ARN', 'HEL', 'DUB', 'LHR', 'GLA', 'CWL', 'WAW', 'PRG', 'BUD', 'OTP', 'SOF', 'ATH', 'IST', 'BEG', 'ZAG', 'LJU', 'SKP', 'TIA', 'KIV', 'RIX', 'TLL', 'VNO', 'MLA', 'LCA', 'KEF', 'BTS'];
+/** The Six Nations grounds: Dublin, Twickenham, Murrayfield, Cardiff, the Stade de France and Rome. */
+export const SIX_NATIONS = ['DUB', 'LHR', 'EDI', 'CWL', 'CDG', 'FCO'];
+/** v0.25 the cities with a top-flight club, per country: a league away day goes to one of these (the airports the
+ *  data lacks drop out). Countries not listed take any big enough domestic airport. */
+export const LEAGUE_CITIES: Record<string, string[]> = {
+  PT: ['LIS', 'OPO', 'FNC', 'PDL', 'FAO'],
+  ES: ['MAD', 'BCN', 'BIO', 'SVQ', 'VLC', 'LPA', 'PMI', 'VGO', 'OVD', 'ALC', 'VIT', 'PNA', 'EAS', 'GRO'],
+  GB: ['MAN', 'LPL', 'NCL', 'BHX', 'LTN', 'STN', 'LGW', 'LHR', 'EMA', 'LBA', 'BOH', 'GLA', 'EDI', 'ABZ'],
+  FR: ['CDG', 'ORY', 'MRS', 'LYS', 'NCE', 'NTE', 'BOD', 'TLS', 'LIL', 'RNS', 'SXB', 'BES'],
+  DE: ['MUC', 'DUS', 'FRA', 'HAM', 'BER', 'STR', 'CGN', 'LEJ', 'BRE', 'DTM'],
+  IT: ['MXP', 'LIN', 'BGY', 'TRN', 'FCO', 'NAP', 'BLQ', 'FLR', 'VRN', 'GOA', 'CAG', 'PSA', 'BDS', 'VCE'],
+  TR: ['IST', 'SAW', 'ESB', 'ADB', 'AYT', 'TZX', 'KYA', 'GZT', 'ASR'],
+  GR: ['ATH', 'SKG', 'HER', 'VOL'],
+  AT: ['VIE', 'SZG', 'GRZ', 'LNZ', 'INN', 'KLU'],
+  HR: ['ZAG', 'SPU', 'RJK', 'OSI'],
+  PL: ['WAW', 'KRK', 'KTW', 'POZ', 'GDN', 'WRO', 'SZZ'],
+  CZ: ['PRG', 'BRQ', 'OSR'],
+  DK: ['CPH', 'AAL', 'BLL', 'AAR'],
+  NL: ['AMS', 'EIN', 'RTM', 'GRQ'],
+};
 
 /** Departure-time slots that look like real charter schedules (local minutes). */
 export const DEP_SLOTS = [6 * 60 + 40, 7 * 60 + 15, 8 * 60 + 5, 9 * 60 + 30, 10 * 60 + 45, 12 * 60 + 10, 13 * 60 + 35, 15 * 60 + 20, 16 * 60 + 50, 18 * 60 + 25];
