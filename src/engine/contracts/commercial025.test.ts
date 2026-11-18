@@ -256,7 +256,7 @@ describe('v0.25 repatriations', () => {
     for (let i = 0; i < 12; i++) {
       const o = generateOffer(g, 'repatriation', { client: c.id, window: false, wide: false });
       if (!o || o.pattern.kind !== 'legs') continue;
-      pax.push(o.pattern.legs[0].pax);
+      pax.push(o.pattern.legs[0].pax ?? 0);
       delete g.offers[o.id];
     }
     expect(pax.length).toBeGreaterThan(0);
