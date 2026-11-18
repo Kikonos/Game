@@ -262,7 +262,7 @@ export interface Projection {
   lfPeak: number;
   /** v0.25 the share of the peak months' travellers a known route turns away for want of seats. */
   spillPeak: number;
-  /** v0.25 seats a flight can sell when the payload (runway, range) caps it below the cabin. */
+  /** v0.25 seats a flight can sell when the payload (runway, range) caps it well below the cabin (under 90 %). */
   sellSeats?: number;
   spill: number;
   /** v0.21 the money by kind, the rotations flown and (a stopover) the average passengers a flight by market. */
@@ -488,7 +488,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   for (const k of Object.keys(parts) as (keyof MoneyParts)[]) parts[k] = Math.round(parts[k]);
   return {
     months, rev: sum('rev'), cost: sum('cost'), result: sum('result'), pax: sum('pax'), paxJ: Math.round(paxJ), seats: sum('seats'), paxSec, seatSec, bh, sectors,
-    lfOff: offN ? offLf / offN : 0, lfPeak: peakN ? peakLf / peakN : 0, spillPeak: peakWant > 0 ? peakSpill / peakWant : 0, ...(Math.min(capOut, capBack) < cab.total ? { sellSeats: Math.min(capOut, capBack) } : {}), spill, parts, rotations: Math.round(rotations),
+    lfOff: offN ? offLf / offN : 0, lfPeak: peakN ? peakLf / peakN : 0, spillPeak: peakWant > 0 ? peakSpill / peakWant : 0, ...(Math.min(capOut, capBack) < cab.total * 0.9 ? { sellSeats: Math.min(capOut, capBack) } : {}), spill, parts, rotations: Math.round(rotations),
     ...(tag && sp.n ? { split: { thr: sp.thr / sp.n, ab: sp.ab / sp.n, bc: sp.bc / sp.n, seats: cab.total } } : {}),
   };
 }
@@ -970,6 +970,15 @@ export function decideCase(g: GameState, routeId: string, decision: CaseDecision
   return null;
 }
 
+/** v0.25 the case's year follows a first flight moved by whole months (the stages ran late): month 1 stays month 1. */
+function shiftCase(r: Route, first: Minute): void {
+  const c = r.caseAt;
+  if (!c) return;
+  const d = monthKey(first) - monthKey(c.start);
+  c.start = first;
+  if (d) for (const x of c.months) x.k += d;
+}
+
 function startStage(g: GameState, r: Route, id: LaunchStageId): void {
   const s = stage(r, id);
   if (s.state !== 'todo') return;
@@ -1199,6 +1208,7 @@ export function stepLaunch(g: GameState, r: Route): void {
     if (p && (r.firstFlight ?? 0) < earliest) {
       r.firstFlight = firstFromDate(m, p, earliest);
       r.series = [planSeries(p, r.firstFlight - 12 * 60, r.series[0]?.id ?? `${r.id}s1`, planMonths(m, p))];
+      shiftCase(r, r.firstFlight);
     }
     r.status = 'onSale';
     r.slots = { held: 0, flown: 0, season: seasonCode(r.firstFlight ?? g.now).code };
@@ -1315,6 +1325,7 @@ export function devLaunchRoute(g: GameState, marketId: string, aircraftId?: stri
   r.awareness = BAL.v019.demand.awareness.campaign[r.marketing] ?? 0.55;
   r.firstFlight = firstFromDate(m, p, g.now + 3 * DAY);
   r.series = [planSeries(p, r.firstFlight - 12 * 60, `${r.id}s1`, planMonths(m, p))];
+  shiftCase(r, r.firstFlight);
   if (ac) r.series[0].tail = ac.id;
   r.slots = { held: 0, flown: 0, season: seasonCode(r.firstFlight).code };
   g.network!.distribution ??= g.now;

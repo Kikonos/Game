@@ -83,17 +83,22 @@ export function RouteActionModal({ routeId, action, back }: { routeId: string; a
             <div className="col gap-6">
               <span className="upper dim">Booked: {flights(q.booked)}, {int(q.pax)} passengers</span>
               <Seg<'fly' | 'refund'> value={refund ? 'refund' : 'fly'} onChange={(v) => setRefund(v === 'refund')} options={[
-                { value: 'fly', label: `${w.later ? `Fly next ${int(w.fly)}, refund rest` : 'Fly them'} · ${money(flyCostToUs)}` },
-                { value: 'refund', label: `Refund all · ${money(refundCostToUs)}` },
+                { value: 'fly', label: `${w.later ? `Fly next ${int(w.fly)}, refund rest` : 'Fly them'} · ${money(flyCostToUs + w.laterRefund)}` },
+                { value: 'refund', label: `Refund all · ${money(refundCostToUs + q.refunds)}` },
               ]} />
               <span className="tiny muted">{refund
                 ? `All ${flights(q.booked)} cancelled and refunded.`
                 : w.later ? `The next ${flights(w.fly)} fly, the last on ${w.lastFlight ? fmtDay(w.lastFlight) : '—'}; the ${flights(w.later)} after ${w.later === 1 ? 'it is' : 'them are'} refunded.` : `All ${flights(w.fly)} fly, the last on ${w.lastFlight ? fmtDay(w.lastFlight) : '—'}. No refunds.`}</span>
             </div>
           )}
+          {q.booked > 0 && (
+            <div className="nw-pl">
+              <Row k="Ticket money back" v={money(refund ? q.refunds : w.laterRefund)} />
+              <Row k="Cost to us" v={money(refund ? refundCostToUs : flyCostToUs)} />
+              <div className="nw-pl-row total"><b className="small">Money out</b><b className="num bad">{money(refund ? refundCostToUs + q.refunds : flyCostToUs + w.laterRefund)}</b></div>
+            </div>
+          )}
           <div className="nw-pl">
-            {q.booked > 0 && <Row k="Ticket money back" v={money(refund ? q.refunds : w.laterRefund)} />}
-            {q.booked > 0 && <Row k="Cost to us" v={money(refund ? refundCostToUs : flyCostToUs)} tone="bad" />}
             <Row k="Station and office" v={`${money(q.monthSuspended)} a month`} />
             <Row k="Slots kept until" v={fmtDay(refund || !q.booked ? q.slotsRefund : q.slotsKeep)} tone="warn" />
           </div>
@@ -123,7 +128,7 @@ export function RouteActionModal({ routeId, action, back }: { routeId: string; a
             {w.later > 0 && <Row k="Further ahead, refunded" v={flights(w.later)} />}
             {q.empty > 0 && <Row k="Empty, taken off" v={`${flights(q.empty)} · no cost`} />}
             {w.later > 0 && <Row k="Ticket money back" v={money(w.laterRefund)} />}
-            <Row k="Cost to us" v={`about ${money(Math.max(0, w.flyCost - w.flyRev + w.flyOverhead + w.laterCost - w.laterRefund))}`} tone="bad" />
+            <Row k="Cost to us" v={`about ${money(Math.max(0, w.flyCost - w.flyRev + w.flyOverhead + w.laterCost - w.laterRefund))}`} />
             <div className="nw-pl-row total"><b className="small">Against Close now</b><b className={`num ${w.saved >= 0 ? 'good' : 'bad'}`}>{w.saved >= 0 ? `saves ${money(w.saved)}` : `costs ${money(-w.saved)} more`}</b></div>
           </div>
           {flies && <span className="tiny muted">You can keep the route until the last flight.</span>}
