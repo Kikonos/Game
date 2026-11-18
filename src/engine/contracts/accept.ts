@@ -12,9 +12,9 @@ import { requestPause } from '../core/pause';
 import { schedule } from '../core/queue';
 import { DAY, fmtDay, fmtDayAt, monthKey, monthStart, fmtDayRange, joinDays } from '../core/time';
 import { clamp } from '../core/util';
-import type { ActionResult, BrokerId, Contract, ContractOffer, CrewExtra, Flight, GameState, Minute, OfferStatus, Product, Receivable, SimEvent } from '../core/types';
+import type { ActionResult, Contract, ContractOffer, CrewExtra, Flight, GameState, Minute, OfferStatus, Product, Receivable, SimEvent } from '../core/types';
 import { autoRoster, crewExtraFor, flightCrewStatus, onContractDoneMorale } from '../crew';
-import { billContractMonth, issueBill, mghFor, mghRemaining } from './billing';
+import { billContractMonth, brokerCut, issueBill, mghFor, mghRemaining } from './billing';
 import { feasibility } from './feasibility';
 import { baseDayOf, flownRotations, programmeOf } from './plan';
 import { productValue, tourBizPct } from './pricing';
@@ -28,7 +28,6 @@ import { bumpClient, markMet, noteJobDone, statsV08 } from './relations';
 import { noteHiredUs } from './rivals';
 import { rollRepeat } from './missions';
 import { onContractDoneVisibility } from './prestige';
-import { commissionOf } from '../commercial/sales';
 import { cancelDry, recallDry, recallTerms, signDryLease } from '../ops/dryLease';
 import { notOursCancel } from '../ops/latePolicy';
 import { lockOf, offerLock } from '../scenario/rules';
@@ -59,7 +58,8 @@ export function closeOffer(g: GameState, o: ContractOffer, status: OfferStatus, 
 }
 
 /** Broker commission share when the job came through a broker: v0.16 the broker's own rate (commercial/sales.ts), else the flat 5%. */
-export const brokerCut = (c: { broker?: string; brokerId?: BrokerId }) => (c.brokerId ? commissionOf(c.brokerId) : c.broker ? BAL.brokerCommission : 0);
+// v0.25 brokerCut lives in billing.ts (the invoices use it too); re-exported here for the old importers.
+export { brokerCut };
 
 const firstNo = (rep: ReturnType<typeof feasibility>, skipPaint = false, skipCabin = false) => rep.checks.find((c) => c.level === 'no' && !(skipPaint && c.id === 'paint') && !(skipCabin && c.id === 'cabinReq'));
 

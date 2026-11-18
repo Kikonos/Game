@@ -3,10 +3,16 @@
 import { BAL } from '../core/balance';
 import { accrue, invoice } from '../core/ledger';
 import { DAY, fmtMonth, monthKey, monthStart } from '../core/time';
-import type { Contract, Flight, GameState, LedgerCat, Minute, MonthKey, SimEvent } from '../core/types';
+import type { BrokerId, Contract, Flight, GameState, LedgerCat, Minute, MonthKey, SimEvent } from '../core/types';
 import { mghInMonth, mghTotal } from './pricing';
 import { bumpClient } from './relations';
 import { excusedLate, onTimeLeg } from '../ops/latePolicy';
+
+/** v0.25 the broker's cut of a deal: the commission of the broker who brought it (ACS 4 %, ACC 3.5 %, ...), else the
+ *  generic 5 % for a named broker we have no deal with, else nothing. The one rule for the offer, the estimate, the
+ *  sheet and every invoice. Pure. */
+export const brokerCut = (c: { broker?: string; brokerId?: BrokerId }): number =>
+  c.brokerId ? (BAL.v016.sales.brokers[c.brokerId]?.commission ?? BAL.brokerCommission) : c.broker ? BAL.brokerCommission : 0;
 
 export interface BillingLine {
   contractId: string;
@@ -40,7 +46,7 @@ export function onFlightArrivedContracts(g: GameState, ev: SimEvent): void {
       if (block < SHORT_CYCLE_MIN) u.shortCycles++;
     }
   } else if (c.product.kind === 'charter' && rev && c.status !== 'cancelled') {
-    const net = c.product.price * (1 - (c.broker ? BAL.brokerCommission : 0));
+    const net = c.product.price * (1 - brokerCut(c));
     const share = Math.round((net * f.block) / Math.max(1, c.planRevMin ?? f.block));
     const amount = Math.min(share, Math.round(net - (c.accrued ?? 0)));
     if (c.revMinDone !== undefined) c.revMinDone += f.block;
@@ -81,7 +87,7 @@ export function onFlightArrivedContracts(g: GameState, ev: SimEvent): void {
 export function creditCancelledLeg(g: GameState, f: Flight): void {
   const c = f.contractId ? g.contracts[f.contractId] : undefined;
   if (!c || c.product.kind !== 'charter' || c.status === 'cancelled') return;
-  const net = c.product.price * (1 - (c.broker ? BAL.brokerCommission : 0));
+  const net = c.product.price * (1 - brokerCut(c));
   const amount = Math.min(Math.round((net * f.block) / Math.max(1, c.planRevMin ?? f.block)), Math.round(net - (c.accrued ?? 0)));
   if (c.revMinDone !== undefined) c.revMinDone += f.block;
   if (amount > 0) {
@@ -165,7 +171,8 @@ export function wetMonthLines(c: Contract, month: MonthKey, asOf?: Minute): Bill
   if (u.shortCycles && p.cycleFee) lines.push(line(`Short-cycle fee ${u.shortCycles} × ${fmtUSD(p.cycleFee)}`, u.shortCycles * p.cycleFee));
   if (c.broker && lines.length) {
     const gross = lines.reduce((s, l) => s + l.amount, 0);
-    lines.push(line(`${c.broker} commission ${Math.round(BAL.brokerCommission * 100)}%`, -gross * BAL.brokerCommission));
+    const cut = brokerCut(c);
+    lines.push(line(`${c.broker} commission ${+(cut * 100).toFixed(1)}%`, -gross * cut));
   }
   return lines;
 }

@@ -2,7 +2,7 @@
 // read back: the terms it was signed on (rates, guarantee, positioning, payment, penalties) and how it stands (legs flown
 // and left, money so far, what cancelling would cost now). Pure: the read-only sheet (ContractModal.tsx) draws these.
 
-import { cancelCost, contractProgress } from '../../engine/contracts';
+import { brokerCut, cancelCost, contractProgress } from '../../engine/contracts';
 import { mghFor } from '../../engine/contracts/billing';
 import { dryLeaseView } from '../../engine/ops';
 import { DAY, fmtDate, fmtDateTime, monthKey, joinDays } from '../../engine/core/time';
@@ -50,6 +50,8 @@ export function contractSheet(g: GameState, c: Contract): ContractSheet {
   terms.push(['Dates', `${joinDays(fmtDate(d0), fmtDate(d1))}${c.pattern.kind === 'base' ? ` (${c.pattern.base} local)` : ''}`]);
   terms.push(['Signed', fmtDate(c.signed)]);
   terms.push(['Payment', paymentLine(c)]);
+  // v0.25 the broker's own commission (ACS 4 %, Chapman Freeborn 5 % ...), off every invoice.
+  if (c.broker) terms.push(['Broker commission', `${c.broker} · ${+(brokerCut(c) * 100).toFixed(1)}% of each invoice`]);
   terms.push(['If we cancel', c.penalties.cancelScale.map(([d, f]) => `${d} d ${Math.round(f * 100)}%`).join(' · ') || '—']);
   if (c.penalties.perCancelledLeg) terms.push(['Per cancelled leg', usd(c.penalties.perCancelledLeg)]);
   if (c.penalties.perDelay) terms.push(['Per delay over 3 h', usd(c.penalties.perDelay)]);

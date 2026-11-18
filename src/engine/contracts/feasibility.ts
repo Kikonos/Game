@@ -33,6 +33,7 @@ import { closedAirport, closedUntil } from '../ops/world';
 import { netHooks } from '../core/netHooks';
 import { checkAirportOk } from '../ops/maintenance';
 import { emptyDay } from './schedule';
+import { brokerCut } from './billing';
 import { curfewOk } from '../core/curfew';
 import { pmCostX } from '../ops/pm';
 
@@ -792,7 +793,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   rep.estBH = Math.round(bh * 10) / 10;
   const product = termsProduct(o, { paint: paintOn, cabin: cabinOn });
   // v0.12.1 Hajj MGH inside the phases only (o.terms), and a broker's cut on wet work too (the invoice takes it).
-  rep.estRevenue = Math.round((product.kind === 'wet' ? productValue(product, revBH + (product.positioningBillable ? posBH : 0), o.start, o.end, o.terms) : productValue(product, revBH, o.start, o.end)) * (1 - (o.broker ? BAL.brokerCommission : 0)));
+  rep.estRevenue = Math.round((product.kind === 'wet' ? productValue(product, revBH + (product.positioningBillable ? posBH : 0), o.start, o.end, o.terms) : productValue(product, revBH, o.start, o.end)) * (1 - brokerCut(o)));
   // v0.12.1 a world tour pays more for this aircraft's business seats (accept.ts at signing).
   rep.estRevenue = Math.round(rep.estRevenue * (1 + tourBizPct(o.archetype, cab.j)));
   // v0.9 §Y.2 fuel at cost: the client pays this aircraft's own burn on the revenue legs after flying.

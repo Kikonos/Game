@@ -25,6 +25,17 @@ describe('v0.24 contract sheet', () => {
     expect(row(s.status, 'Cancel now')).toMatch(/\$/);
   });
 
+  it('v0.25 a broker deal shows the broker and its own commission (ACS 4 %)', () => {
+    const g = newGame();
+    const o = hamBase(g, g.now + 20 * DAY, 60);
+    const r = acceptOffer(g, o.id, [owned(g).id]);
+    const c = g.contracts[r.ok ? r.data!.contractId : ''];
+    expect(row(contractSheet(g, c).terms, 'Broker commission')).toBeUndefined();
+    c.broker = 'Air Charter Service';
+    c.brokerId = 'acs';
+    expect(row(contractSheet(g, c).terms, 'Broker commission')).toBe('Air Charter Service · 4% of each invoice');
+  });
+
   it('a signed wet lease that starts next month shows no "0 of 0 BH" this month; it does once it flies', () => {
     const g = newGame();
     const o = hamBase(g, g.now + 40 * DAY, 60);
