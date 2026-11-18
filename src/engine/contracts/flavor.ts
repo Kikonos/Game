@@ -2,7 +2,8 @@
 
 import type { Airport } from '../../data/airports';
 import { next, type RngHolder } from '../core/rng';
-import { toDate, toLocal } from '../core/time';
+import { DAY, toDate, toLocal } from '../core/time';
+import { hajjDates } from '../../data/worldCalendar';
 
 export const AOG_CAUSES = [
   'an engine borescope finding', 'a bird strike on the climb-out', 'a cracked windshield', 'a hard-landing inspection',
@@ -171,17 +172,34 @@ export const DIASPORA_BLURBS: ((x: DiasporaBlurb) => string)[] = [
 ];
 
 /** Diaspora routes and reasons per agency; DIASPORA is the fallback. */
-export const DIASPORA_BY_CLIENT: Record<string, { dests: string[]; reasons: string[] }> = {
+/** v0.25 a reason to fly home and when it holds: UTC months 1–12 (departure month), 'eid' for the two Eids (worked out
+ *  from the Hajj calendar), none for any time of year. */
+export interface DiasporaReason { text: string; months?: number[]; eid?: true }
+const SUMMER: DiasporaReason = { text: 'for the summer holidays', months: [6, 7, 8] };
+const XMAS: DiasporaReason = { text: 'for Christmas and New Year', months: [12] };
+export const DIASPORA_BY_CLIENT: Record<string, { dests: string[]; reasons: DiasporaReason[] }> = {
   'Viagens Abreu': {
     dests: ['OXB', 'TMS', 'LAD', 'SID', 'RAI', 'BVC'],
-    reasons: ['for the summer holidays', 'for Christmas and New Year', 'for the independence-day celebrations', 'for a season of family weddings and baptisms', 'for Carnival'],
+    reasons: [SUMMER, XMAS, { text: 'for the independence-day celebrations' }, { text: 'for a season of family weddings and baptisms', months: [5, 6, 7, 8, 9] }, { text: 'for Carnival', months: [2, 3] }],
   },
   Corendon: {
     dests: ['ADA', 'ESB', 'ADB', 'CMN'],
-    reasons: ['for the summer holidays', 'for Eid with their families', 'for the wedding season back home', 'for the autumn school break'],
+    reasons: [SUMMER, { text: 'for Eid with their families', eid: true }, { text: 'for the wedding season back home', months: [6, 7, 8, 9] }, { text: 'for the autumn school break', months: [10, 11] }],
   },
 };
-export const DIASPORA_REASONS = ['for the summer holidays', 'for Christmas and New Year', 'for a national holiday'];
+export const DIASPORA_REASONS: DiasporaReason[] = [SUMMER, XMAS, { text: 'for a national holiday' }];
+/** What they say when no listed reason fits the date. */
+export const DIASPORA_ANY = 'to see their families';
+
+/** v0.25 the reasons that fit a departure at `dep` (an August flight is never for Christmas; Eid only in the two weeks
+ *  before Eid al-Fitr or Eid al-Adha). Pure. */
+export function diasporaReasonsAt(list: DiasporaReason[], dep: number): string[] {
+  const m = toDate(dep).getUTCMonth() + 1;
+  const y = toDate(dep).getUTCFullYear();
+  const eids = [y - 1, y, y + 1].flatMap((yy) => { const h = hajjDates(yy); return [h.arafah - 96 * DAY + 30 * DAY, h.arafah + DAY]; });
+  const nearEid = eids.some((e) => dep <= e && dep >= e - 14 * DAY);
+  return list.filter((r) => (r.eid ? nearEid : !r.months || r.months.includes(m))).map((r) => r.text);
+}
 
 /** Pilgrimage shrines: the airport, the place and what the group brings. */
 export const SHRINES: { code: string; place: string; note: string }[] = [

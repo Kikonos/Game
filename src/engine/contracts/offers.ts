@@ -645,9 +645,20 @@ export function roundTrip(g: GameState, a: string, b: string, start: Minute, bac
   return legs;
 }
 
+type AdhocVariant = NonNullable<OfferOpts['variant']>;
+/** v0.25 the ad-hoc kind a named client does (diaspora agencies fly families home, ship managers crew changes ...). Pure. */
+export function variantOf(c: Client): AdhocVariant {
+  return isDiaspora(c) ? 'diaspora' : isPilgrim(c) ? 'pilgrimage' : c.kind === 'music' ? 'music' : isMarineCrewing(c) ? 'oneway' : 'group';
+}
+/** A group trip suits any client some group lists (a diaspora agency also books incentive groups). Pure. */
+const fitsVariant = (g: GameState, c: Client, v: AdhocVariant) => variantOf(c) === v || (v === 'group' && F.ADHOC_GROUPS.some((x) => adhocGroupClients(g, x).some((y) => y.id === c.id)));
+
 function adhoc(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
-  const variant = o.variant ?? weightedPick(g, ['group', 'diaspora', 'pilgrimage', 'music', 'oneway'] as const, (v) =>
+  // v0.25 a client asked for by name (a lead, a visit, repeat work) gets the kind of trip it does: a diaspora charter for
+  // a diaspora agency, never for Shell, Siemens or Real Madrid.
+  const named = o.client ? g.clients[o.client] : undefined;
+  const variant = (named && !(o.variant && fitsVariant(g, named, o.variant)) ? variantOf(named) : o.variant) ?? weightedPick(g, ['group', 'diaspora', 'pilgrimage', 'music', 'oneway'] as const, (v) =>
     ({ group: 0.45, diaspora: 0.15, pilgrimage: 0.12, music: 0.1, oneway: 0.18 })[v])!;
   let client: Client | undefined;
   let legs: LegTemplate[] = [];
@@ -668,7 +679,7 @@ function adhoc(ctx: Ctx): Draft | null {
     if (!dest || back < 2) return null;
     legs = roundTrip(g, home, dest, s, back, pax);
     title = `Diaspora charter ${home}–${dest}`;
-    blurb = pick(g, F.DIASPORA_BLURBS)({ client: client.name, dest: city(dest), reason: pick(g, dz?.reasons ?? F.DIASPORA_REASONS), day: fmtDay(legs[0].dep), back });
+    blurb = pick(g, F.DIASPORA_BLURBS)({ client: client.name, dest: city(dest), reason: pick(g, F.diasporaReasonsAt(dz?.reasons ?? F.DIASPORA_REASONS, legs[0].dep)) ?? F.DIASPORA_ANY, day: fmtDay(legs[0].dep), back });
   } else if (variant === 'pilgrimage') {
     client = nearClient(ctx, clientsOf(g, ['agency'], (c) => isPilgrim(c) && !!AIRPORT_BY_CODE[c.base]));
     if (!client) return null;
@@ -725,7 +736,10 @@ function adhoc(ctx: Ctx): Draft | null {
     }
   } else {
     // Groups fit their clients (film crews for BBC Studios, never a trade fair for F1) and their aircraft size.
-    const groups = F.ADHOC_GROUPS.filter((x) => (!wide || x.wide !== false) && adhocGroupClients(g, x).length);
+    const groups0 = F.ADHOC_GROUPS.filter((x) => (!wide || x.wide !== false) && adhocGroupClients(g, x).length);
+    // v0.25 a named client: the groups it would really send (film crews for BBC Studios), any group as the fallback.
+    const mine = named ? groups0.filter((x) => adhocGroupClients(g, x).some((c) => c.id === named.id)) : [];
+    const groups = mine.length ? mine : groups0;
     if (!groups.length) return null;
     const group = pick(g, groups);
     client = nearClient(ctx, adhocGroupClients(g, group));
