@@ -93,7 +93,7 @@ export function ContractModal({ contractId }: { contractId: string }) {
       <div className="row gap-8 v24-contract-foot">
         <button className="btn" onClick={() => { close(); store.navigate('schedule', { sel: { kind: 'aircraft', id: c.aircraftIds[0] }, view: String(Math.max(g.now, c.start)) }); }}><CalendarRange /> Schedule</button>
         {open && <button className={`btn ${lockSub ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'subcharter', contractId: c.id })} aria-label="Sub-charter legs to a rival" data-tip="Hand legs to a rival operator" {...lockedProps(lockSub)}><Handshake /> <span className="v25-hide-phone">Sub-charter</span></button>}
-        {open && <button className={`btn btn-danger ${lockCancel ? 'locked' : ''}`} onClick={() => confirmCancel(g, c)} aria-label="Cancel contract" data-tip="Cancel the contract" {...lockedProps(lockCancel)}><CircleSlash /> <span className="v25-hide-phone">Cancel</span></button>}
+        {open && <button className={`btn btn-danger ${lockCancel ? 'locked' : ''}`} onClick={() => confirmCancel(g, c)} aria-label="Cancel contract" data-tip="Cancel the contract" {...lockedProps(lockCancel)}><CircleSlash /> <span className="v25-hide-phone">Cancel contract</span></button>}
         <span className="grow" />
         <button className="btn btn-primary" onClick={close}>Close</button>
       </div>

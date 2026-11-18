@@ -273,12 +273,14 @@ export const TOAST_MS = TOAST_TONE_MS.info;
 
 /**
  * The dialog a new one opens over and returns to when it closes (null: none). v0.7.1 the glossary over any dialog;
- * v0.25 Key bindings and What's new over Settings or the menu (they were opened from there). Pure.
+ * v0.25 Key bindings and What's new over Settings or the menu (they were opened from there); the cancel confirm and
+ * the sub-charter dialog over the contract sheet (backing out returns to the sheet). Pure.
  */
 export function modalUnder(next: Pick<ModalSpec, 'kind'>, cur: ModalSpec | null): ModalSpec | null {
   if (!cur) return null;
   if (next.kind === 'glossary') return cur.kind !== 'glossary' ? cur : null;
   if ((next.kind === 'keys' || next.kind === 'whatsNew') && (cur.kind === 'settings' || cur.kind === 'menu')) return cur;
+  if ((next.kind === 'confirm' || next.kind === 'subcharter') && cur.kind === 'contract') return cur;
   return null;
 }
 

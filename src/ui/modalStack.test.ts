@@ -13,4 +13,11 @@ describe('v0.25 dialogs return to Settings or the menu', () => {
     expect(modalUnder({ kind: 'keys' }, null)).toBeNull();
     expect(modalUnder({ kind: 'settings' }, { kind: 'menu' })).toBeNull();
   });
+  it('v0.25 the cancel confirm and the sub-charter dialog open over the contract sheet and go back to it', () => {
+    const sheet = { kind: 'contract', contractId: 'c1' } as const;
+    expect(modalUnder({ kind: 'confirm' }, sheet)).toEqual(sheet);
+    expect(modalUnder({ kind: 'subcharter' }, sheet)).toEqual(sheet);
+    expect(modalUnder({ kind: 'confirm' }, { kind: 'settings' })).toBeNull();
+    expect(modalUnder({ kind: 'client' }, sheet)).toBeNull();
+  });
 });
