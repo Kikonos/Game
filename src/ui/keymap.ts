@@ -191,3 +191,10 @@ export function pauseYields(key: string, modalOpen: boolean, focused: FocusLike 
   if (!control) return false;
   return modalOpen || !!focused.closest?.('[role="dialog"], .modal');
 }
+
+/** v0.25 the speed buttons' tooltip from the player's keys ('Space: pause · 1, 2, 4: speed'); unbound keys left out. Pure. */
+export function speedHint(map: KeyMap): string {
+  const sp = [map.speed1, map.speed2, map.speed3].filter(Boolean).map(keyLabel);
+  const parts = [map.pause ? `${keyLabel(map.pause)}: pause` : '', sp.length ? `${sp.join(', ')}: speed` : ''].filter(Boolean);
+  return parts.join(' · ');
+}

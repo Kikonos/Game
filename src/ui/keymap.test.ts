@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_KEYS, KEY_ACTIONS, actionOf, eventAction, isSaveCombo, pauseYields, keyLabel, keymapFrom, navTitle, normKey, rebind, resetKey, swapKeys, unbindable } from './keymap';
+import { DEFAULT_KEYS, KEY_ACTIONS, actionOf, eventAction, isSaveCombo, pauseYields, speedHint, keyLabel, keymapFrom, navTitle, normKey, rebind, resetKey, swapKeys, unbindable } from './keymap';
 import { settingsFrom } from './store';
 
 describe('v0.24.1 key bindings', () => {
@@ -100,5 +100,13 @@ describe('v0.25 pause key and dialog buttons', () => {
     expect(pauseYields('Space', true, el('BODY'))).toBe(false);
     expect(pauseYields('Space', true, null)).toBe(false);
     expect(pauseYields('p', true, el('BUTTON'))).toBe(false);
+  });
+});
+
+describe('v0.25 speed tooltip follows the bindings', () => {
+  it('shows the player\'s keys', () => {
+    expect(speedHint(DEFAULT_KEYS)).toBe('Space: pause · 1, 2, 4: speed');
+    expect(speedHint({ ...DEFAULT_KEYS, pause: 'p', speed3: '3' })).toBe('P: pause · 1, 2, 3: speed');
+    expect(speedHint({ ...DEFAULT_KEYS, pause: '' })).toBe('1, 2, 4: speed');
   });
 });
