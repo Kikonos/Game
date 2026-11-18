@@ -630,6 +630,13 @@ function medicalCard(g: GameState, f: Flight, ac: Aircraft): void {
   for (const o of alts) opts.push({ id: `alt:${o.code}`, label: altLabel(o), desc: `${AIRPORT_BY_CODE[o.code]?.name ?? o.code}: paramedics meet the aircraft; about ${DISRUPT.medicalGround} min on the ground, then on to ${city(f.to)}.`, tone: 'good', chips: altChips(o, f.to) });
   const best = alts[0];
   const def = !best || left <= 50 || !ev.severe ? 'continue' : `alt:${best.code}`;
+  // v0.25 nowhere to divert to in time: nothing to decide, so no card and no pause. One line, and the flight carries on.
+  if (opts.length === 1) {
+    countOps(g, 'medical');
+    pushMessage(g, { tone: 'warn', cat: 'ops', title: `${f.no}: medical emergency on board`, body: `${ev.what}. ${onBoard(g, f, 'PUR', true)} called for a doctor on board; with no airport nearer, ${onBoard(g, f, 'CPT')} continues to ${city(f.to)} (${hm(left)}), where an ambulance meets the aircraft.`, ref: { kind: 'flight', id: f.id } });
+    medicalContinue(g, f, ev.severe);
+    return;
+  }
   raise(g, {
     kind: 'medical', title: `${f.no}: medical emergency on board`,
     body: `${ev.what}. ${onBoard(g, f, 'PUR', true)} called for a doctor on board; ${onBoard(g, f, 'CPT')} is talking to MedLink, the doctors on the ground.`,
@@ -653,6 +660,12 @@ function unrulyCard(g: GameState, f: Flight, ac: Aircraft): void {
   opts.push({ id: 'continue', label: `Continue; police meet the aircraft`, desc: `${hm(left)} to ${city(f.to)}. The crew keep the passenger seated, restrained if need be; a report goes to ${auth}.`, tone: ev.severe && left > 60 ? 'warn' : 'good', chips: [`${hm(left)} to go`, 'No extra cost', 'Report filed'] });
   for (const o of alts) opts.push({ id: `alt:${o.code}`, label: `Divert and offload at ${city(o.code)}`, desc: `${AIRPORT_BY_CODE[o.code]?.name ?? o.code}: the police take the passenger off; about an hour on the ground, then on to ${city(f.to)}. Half the cost is billed to the passenger.`, tone: ev.severe ? 'good' : 'warn', chips: altChips(o, f.to).slice(0, 3) });
   const def = ev.severe && left > 60 && alts.length ? `alt:${alts[0].code}` : 'continue';
+  // Nowhere to divert to in time: no card; the police meet the aircraft.
+  if (opts.length === 1) {
+    countOps(g, 'unruly');
+    pushMessage(g, { tone: 'warn', cat: 'ops', title: `${f.no}: disruptive passenger`, body: `${ev.what}. With no airport nearer, ${onBoard(g, f, 'CPT')} continues to ${city(f.to)} (${hm(left)}); the police meet the aircraft and a report goes to ${auth}.`, ref: { kind: 'flight', id: f.id } });
+    return;
+  }
   raise(g, {
     kind: 'unruly', title: `${f.no}: disruptive passenger`,
     body: `${ev.what}. ${onBoard(g, f, 'PUR', true)} has asked ${onBoard(g, f, 'CPT')} to decide.`,
@@ -731,22 +744,29 @@ function resolveDiversion(g: GameState, d: Decision, opt: string): ActionResult 
   return { ok: true, msg: `${f.no} diverts to ${city(opt.slice(4))}` };
 }
 
+/**
+ * The flight carries on with its sick passenger. A severe case far from the destination fares worse more often: when
+ * we chose not to divert (`chosen`), the press asks why (clean name, the client); with nowhere to divert, nobody does.
+ */
+function medicalContinue(g: GameState, f: Flight, severe: boolean, chosen = false): void {
+  const left = (f.eta ?? f.sta) - g.now;
+  const c = contractOf(g, f);
+  const bad = chosen && severe && left > 60 && roll(g, `medbad:${f.id}`) < 0.35;
+  if (!bad) return;
+  const r = g.company.reputation;
+  r.clean = Math.max(0, r.clean - 3);
+  bumpClient(g, c?.clientId, -3, `A passenger on ${f.no} was not diverted for`);
+  countOps(g, 'medicalBad');
+  pushMessage(g, { tone: 'bad', cat: 'ops', title: `${f.no}: the passenger was in a bad way on arrival`, body: `The flight continued ${hm(left)} to ${city(f.to)}. The papers ask why it did not divert. Clean name −3, client relation −3.`, ref: { kind: 'flight', id: f.id }, problem: { kind: 'disruption', ref: { kind: 'flight', id: f.id } }, hurt: { money: 0, pax: 1, delayMin: 0, level: 'high' } });
+}
+
 function resolveMedical(g: GameState, d: Decision, opt: string): ActionResult {
   const f = g.flights[String(d.data?.flightId)];
   if (!f || f.status !== 'enroute') return { ok: true, msg: 'The flight has landed' };
   const severe = !!d.data?.severe;
   const c = contractOf(g, f);
   if (opt === 'continue') {
-    const left = (f.eta ?? f.sta) - g.now;
-    // A severe case far from the destination: the outcome is worse more often (press, clean name, the client).
-    const bad = severe && left > 60 && roll(g, `medbad:${f.id}`) < 0.35;
-    if (bad) {
-      const r = g.company.reputation;
-      r.clean = Math.max(0, r.clean - 3);
-      bumpClient(g, c?.clientId, -3, `A passenger on ${f.no} was not diverted for`);
-      countOps(g, 'medicalBad');
-      pushMessage(g, { tone: 'bad', cat: 'ops', title: `${f.no}: the passenger was in a bad way on arrival`, body: `The flight continued ${hm(left)} to ${city(f.to)}. The papers ask why it did not divert. Clean name −3, client relation −3.`, ref: { kind: 'flight', id: f.id }, problem: { kind: 'disruption', ref: { kind: 'flight', id: f.id } }, hurt: { money: 0, pax: 1, delayMin: 0, level: 'high' } });
-    }
+    medicalContinue(g, f, severe, true);
     return { ok: true, msg: `${f.no} continues to ${city(f.to)}` };
   }
   if (!opt.startsWith('alt:')) return { ok: false, error: 'Unknown option' };

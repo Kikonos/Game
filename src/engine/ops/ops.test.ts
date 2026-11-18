@@ -276,6 +276,20 @@ describe('disruptions', () => {
     if (next) expect(isOurDelay(next)).toBe(false);
   });
 
+  it('v0.25 a medical event with nowhere to divert to: no card and no pause; a warning, and the flight carries on', () => {
+    const { g, legs } = charter(7);
+    const f = legs[0];
+    airborne(g, f);
+    // Ten minutes from landing: no alternate is nearer.
+    f.eta = g.now + 12;
+    expect(devDisruption(g, 'medical', f.id)).toBe(false);
+    expect(g.decisions.some((d) => d.kind === 'medical')).toBe(false);
+    const m = g.messages.find((x) => x.title === `${f.no}: medical emergency on board`);
+    expect(m?.tone).toBe('warn');
+    expect(m?.body).toContain('an ambulance meets the aircraft');
+    expect(f.div).toBeUndefined();
+  });
+
   it('v0.25 onBoard: a role nobody fills reads plain ("the captain")', () => {
     const { g, legs } = charter(7);
     const f = { ...legs[0], crewIds: [] };

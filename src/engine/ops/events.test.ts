@@ -14,6 +14,7 @@ import { advanceTo } from '../sim';
 import { aogDecision, canAsk, changeRequestFor, clientFeeFor, crewShortDecision, latePaymentDecision, moveForClient, onDecisionExpire, paceDecisions, permitDelayFor, rescueDecision, resolveDecision, seasonNudge } from './events';
 import { cancelCost, planHold, SUB_LEAD, windowLegs } from './flights';
 import { isOurDelay } from './latePolicy';
+import { RETIME_REASONS } from '../../data/flavor';
 import { startAog } from './maintenance';
 import { isRevenue, stats, turnOf } from './util';
 
@@ -481,6 +482,9 @@ describe('client change requests', () => {
     stats(g).askedAt = [];
     expect(changeRequestFor(g, c)).toBe(true);
     const d = only(g, 'changeRequest');
+    // v0.25 the reason fits the client (an airline's own inbound, a tour operator's transfers), never always 'a late group'.
+    const kind = g.clients[c.clientId].kind;
+    expect((RETIME_REASONS[kind] ?? RETIME_REASONS.other).some((w) => d.body.includes(`local): ${w}. They pay`))).toBe(true);
     const f = g.flights[String(d.data!.flightId)];
     const std = f.std;
     const fee = Number(d.data!.fee);

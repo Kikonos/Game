@@ -1,7 +1,8 @@
 // Random operational events and the decision resolvers (B3). DESIGN.md §5.8.
 // Every resolver is keyed by decision.kind; it applies its effects and the decision is removed.
 
-import { hash } from '../core/util';
+import { hash, hashUnit } from '../core/util';
+import { RETIME_REASONS } from '../../data/flavor';
 import { chooseLease, type LeaseChoice } from './leaseReturn';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { COUNTRIES } from '../../data/countries';
@@ -855,6 +856,12 @@ function extraRotation(g: GameState, c: Contract): boolean {
   return true;
 }
 
+/** v0.25 why the client asks, by its kind (data/flavor.ts), on the request's own side key. Pure. */
+function retimeWhy(g: GameState, c: Contract, kind: string | undefined): string {
+  const xs = RETIME_REASONS[kind ?? ''] ?? RETIME_REASONS.other;
+  return xs[Math.floor(hashUnit(`${g.seed}:retime:${c.id}:${Math.floor(g.now / DAY)}:why`) * xs.length) % xs.length];
+}
+
 function retimeRequest(g: GameState, c: Contract): boolean {
   // v0.12.1 a leg they have not already moved, nor one with a request open, 2–10 days out, picked on a side stream
   // (the same flight was asked again four days later and the retimes stacked).
@@ -883,7 +890,7 @@ function retimeRequest(g: GameState, c: Contract): boolean {
   const knockText = knockLine(knock, cl?.name ?? 'the client');
   ask(g, {
     kind: 'changeRequest', title: `${cl?.name ?? 'Client'} wants to move ${f.no}`,
-    body: `${f.from}–${f.to} on ${fmtDay(f.std)}: depart ${fmtDuration(min)} later (${fmtTime(f.std + min, f.from)} local) for a late group. They pay a change fee; later legs move with it.`,
+    body: `${f.from}–${f.to} on ${fmtDay(f.std)}: depart ${fmtDuration(min)} later (${fmtTime(f.std + min, f.from)} local): ${retimeWhy(g, c, cl?.kind)}. They pay a change fee; later legs move with it.`,
     options: [
       { id: 'accept', label: 'Agree', desc: `${knockText ? `${knockText} ` : ''}${over ? "The crew's duty would run past its limit: the roster swaps in a fresh crew, if one is free." : 'A favour they remember.'}`, tone: over || tight || pen ? 'warn' : 'good', chips: [`+${usd(fee)}`, `+${fmtDuration(min)}`, ...(pen ? [`${usd(-pen)} penalty on other clients' legs`] : []), duty, `Relation +${BAL.v08.rel.retime}`, favourChip(g, c.clientId, BAL.v08.rel.retime)] },
       { id: 'decline', label: 'Decline', desc: 'Keep the schedule; the client notes it.', chips: [`Relation ${BAL.v08.rel.decline}`] },

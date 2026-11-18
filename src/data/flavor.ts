@@ -19,6 +19,20 @@ export const AVIATION_FACTS = [
   'Aircraft are struck by lightning about once a year on average — and fly on safely.',
 ];
 
+/**
+ * v0.25 why a client asks to move a departure later, by the kind of client (the change request card: "depart 1h 30m
+ * later (14:20 local): their hotel transfers run late").
+ */
+export const RETIME_REASONS: Record<string, readonly string[]> = {
+  tourOperator: ['their hotel transfers run late', 'a connecting group arrives late', 'the airport moved their slot', 'a coach group is stuck in traffic'],
+  airline: ['their own inbound flight is late', 'their passengers connect from a late flight', 'their station asked for a later slot'],
+  sports: ['the match moved to an evening kick-off', 'the team trains on the day', 'the press conference runs late'],
+  music: ['the show runs late', 'the stage gear needs more time to load'],
+  corporate: ['their board meeting runs over', 'the delegates\' dinner runs late'],
+  government: ['the delegation\'s programme changed', 'the minister\'s meeting runs over'],
+  other: ['a connecting group arrives late', 'the passengers\' hotel check-out is late'],
+};
+
 /** v0.7.3 the aviation authority a discretion report goes to, by the home base's country (else 'the authority'). */
 export const AUTHORITY: Record<string, string> = {
   PT: 'ANAC', ES: 'AESA', MT: 'Transport Malta CAD', LT: 'the TKA', LV: 'the CAA Latvia', DE: 'the LBA', IE: 'the IAA', GB: 'the UK CAA', FR: 'the DGAC', IT: 'ENAC',
