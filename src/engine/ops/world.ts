@@ -76,11 +76,19 @@ export function crosses(zone: WorldZone, from: string, to: string): boolean {
   return out;
 }
 
+const inZoneMemo = new WeakMap<WorldZone, Map<string, boolean>>();
 /** The airport lies inside the zone (its list or its outline). Pure. */
 export function inZone(zone: WorldZone, code: string): boolean {
-  if (zone.airports.includes(code)) return true;
-  const a = AIRPORT_BY_CODE[code];
-  return !!a && (zone.countries.includes(a.country) || inRing(zone.ring, a.lon, a.lat));
+  // v0.25 (perf) per zone and airport (both fixed data): the cash forecast asks for every leg's war risk.
+  let m = inZoneMemo.get(zone);
+  if (!m) inZoneMemo.set(zone, (m = new Map()));
+  let v = m.get(code);
+  if (v === undefined) {
+    const a = AIRPORT_BY_CODE[code];
+    v = zone.airports.includes(code) || (!!a && (zone.countries.includes(a.country) || inRing(zone.ring, a.lon, a.lat)));
+    m.set(code, v);
+  }
+  return v;
 }
 
 const warZoneMemo = new Map<string, boolean>();

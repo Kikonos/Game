@@ -20,6 +20,7 @@ import { BAL } from '../core/balance';
 import { cabinInflightRest, offsetAt } from './rules';
 import { restOf } from './restPlan';
 import { standsBy } from './timeline';
+import { previewCopy } from './atomic';
 
 const H = 60;
 /** A claim is refuted only when the independent reading is clear of the limit by this much (rounding, report times). */
@@ -303,7 +304,7 @@ export interface CheckHooks {
 }
 
 /**
- * Checks one crew alarm on flight `flightId` before it fires. Pure for `g` (it works on a structured copy).
+ * Checks one crew alarm on flight `flightId` before it fires. Pure for `g` (it works on a preview copy).
  * `names`: crew the alarm names that may no longer hold a seat (taken off for a limit).
  */
 export function checkAlarm(g: GameState, kind: AlarmKind, flightId: string, hooks: CheckHooks, names: Claim[] = []): Verdict {
@@ -318,8 +319,9 @@ export function checkAlarm(g: GameState, kind: AlarmKind, flightId: string, hook
   const p0 = g.pairings[d0.pairingId];
   if (!p0 || !p0.dutyIds.includes(d0.id)) return withhold('the duty has no trip any more');
   return isolatePauses(() => {
-    // 2. The copy, the duty re-measured from its flights as they are now.
-    const h = structuredClone(g);
+    // 2. The copy, the duty re-measured from its flights as they are now. (v0.25 perf: the preview copy, a third of a
+    // structured clone; logs and the inbox only grow.)
+    const h = previewCopy(g);
     const d = h.duties[d0.id];
     const p = h.pairings[p0.id];
     const was = { report: d.report, fdp: d.fdp };
