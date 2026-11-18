@@ -46,6 +46,10 @@ export interface WorldEventTpl {
   body: string;
   /** Text when the closure roll fails (templates with 0 < closeP < 1): title and body never promise a closure. */
   open?: { title: string; body: string };
+  /** v0.25 days before the same template can start again (else by kind: ops/world.ts TPL_COOLDOWN). */
+  cooldown?: number;
+  /** v0.25 text when the same template started under 120 days ago ('strike again'). */
+  again?: { title: string; body: string };
   /** Reopening message (closures only). */
   reopen?: string;
   /**
@@ -83,49 +87,58 @@ export const WORLD_EVENT_TPLS: WorldEventTpl[] = [
     id: 'strikeDsna', kind: 'strike', at: 'CDG', country: 'FR', delayCountries: ['FR'], delayMin: 45, work: ['aogCover'], coverFor: ['TUI fly Belgium', 'Jet2.com', 'Eurowings'],
     title: 'French air traffic controllers strike (DSNA)',
     body: "French controllers walk out until {until}: about 30 % of overflights are cut and flights to and from France run late. Airlines are scrambling for spare aircraft and slots.",
+    again: { title: 'French air traffic controllers strike again (DSNA)', body: "French controllers walk out again until {until}: overflights are cut and flights to and from France run late. Airlines want spare aircraft once more." },
     shock: { seg: 'narrow', delta: 0.03, text: 'French ATC strike' },
   },
   {
     id: 'strikeLhPilots', kind: 'strike', at: 'FRA', country: 'DE', entity: 'Lufthansa', work: ['aogCover', 'acmi'], coverFor: ['Eurowings', 'Condor', 'Lufthansa'],
     title: 'Lufthansa pilots strike (Vereinigung Cockpit)',
     body: "Lufthansa's pilots are out until {until}. Eurowings and Condor are short of aircraft for the extra passengers and want wet-leased cover at short notice.",
+    again: { title: 'Lufthansa pilots strike again', body: "Vereinigung Cockpit has called a new strike until {until}. Eurowings and Condor want wet-leased cover at short notice again." },
     shock: { seg: 'narrow', delta: 0.08, text: "Lufthansa pilots' strike" },
   },
   {
     id: 'strikeBelgium', kind: 'strike', at: 'BRU', country: 'BE', airportDays: [1, 1], work: ['aogCover'], coverFor: ['TUI fly Belgium'],
     title: 'Belgian national strike closes Brussels Airport',
     body: "Security and handling staff join a national strike: Brussels Airport is closed until {until}. Flights into Brussels wait; TUI fly Belgium is moving its holiday flights to other airports.",
+    again: { title: 'Another national strike closes Brussels Airport', body: "A new day of national action closes Brussels Airport until {until}. Flights into Brussels wait." },
   },
   {
     id: 'strikeEnav', kind: 'strike', at: 'FCO', country: 'IT', delayCountries: ['IT'], delayMin: 40, work: ['aogCover'], coverFor: ['Aegean Airlines', 'Eurowings'],
     title: 'Italian air traffic controllers strike (ENAV)',
     body: "Italian controllers strike until {until}: flights to and from Italy run late or are cut. Airlines want spare capacity for the days after.",
+    again: { title: 'Italian air traffic controllers strike again (ENAV)', body: "Another ENAV strike until {until}: flights to and from Italy run late or are cut." },
   },
   // ---------- European operations (short, close to home: they touch our own flying) ----------
   {
     id: 'strikeEnaire', kind: 'strike', at: 'MAD', country: 'ES', delayCountries: ['ES'], delayMin: 30, days: [1, 2], work: [],
     title: 'Spanish air traffic controllers stop work in rolling shifts',
     body: "Controllers at several Spanish centres stop work in rolling shifts until {until}. Flights to and from Spain run about half an hour late; nothing is cancelled.",
+    again: { title: 'Spanish air traffic controllers stop work again', body: "A new round of rolling stoppages until {until}. Flights to and from Spain run about half an hour late." },
   },
   {
     id: 'strikeGreekAtc', kind: 'strike', at: 'ATH', country: 'GR', delayCountries: ['GR'], delayMin: 40, days: [1, 3], work: [],
     title: 'Greek controllers work to rule',
     body: "Greek air traffic controllers are working to rule over staffing until {until}: flow restrictions add about 40 minutes to flights to and from Greece and the islands.",
+    again: { title: 'Greek controllers back on work to rule', body: "The staffing dispute is not settled: work to rule again until {until}, about 40 minutes on flights to and from Greece." },
   },
   {
     id: 'strikePtHandling', kind: 'strike', at: 'LIS', country: 'PT', delayCountries: ['PT'], delayMin: 60, delayWhat: 'Ground handling strike', days: [1, 3], work: [],
     title: 'Ground handling strike at Lisbon, Porto and Faro',
     body: "Ground staff at Portugal's main airports strike until {until}. Minimum services keep flights moving, but turnarounds take about an hour longer.",
+    again: { title: 'Handling staff strike again at Lisbon, Porto and Faro', body: "A new ground handling strike until {until}. Turnarounds take about an hour longer." },
   },
   {
-    id: 'windMadeira', kind: 'disaster', at: 'FNC', country: 'PT', airportDays: [1, 2], days: [1, 2], work: [],
+    id: 'windMadeira', kind: 'disaster', at: 'FNC', country: 'PT', airportDays: [1, 2], days: [1, 2], months: [9, 10, 11, 0, 1, 2, 3], cooldown: 45, work: [],
     title: 'Strong winds close Madeira airport',
     body: "Gusts over the limits at Funchal: flights to Madeira wait or divert to Porto Santo until {until}.",
+    again: { title: 'Wind closes Madeira airport again', body: "Gusts over the limits again at Funchal until {until}. Flights to Madeira wait or divert to Porto Santo." },
   },
   {
-    id: 'calimaCanaries', kind: 'disaster', at: 'LPA', country: 'ES', airportDays: [1, 1], days: [1, 1], work: [],
+    id: 'calimaCanaries', kind: 'disaster', at: 'LPA', country: 'ES', airportDays: [1, 1], days: [1, 1], months: [10, 11, 0, 1, 2, 3], cooldown: 45, work: [],
     title: 'Calima: Saharan dust closes Gran Canaria',
     body: "A thick calima from the Sahara has cut visibility at Gran Canaria below the minimums until {until}. Flights there wait for it to clear.",
+    again: { title: 'Calima closes Gran Canaria again', body: "The Saharan dust is back over Gran Canaria: visibility is below the minimums until {until}." },
   },
   {
     id: 'wildfireRhodes', kind: 'disaster', at: 'RHO', country: 'GR', days: [3, 6], months: [6, 7], work: ['repatriation'], coverFor: ['TUI Deutschland', 'Jet2holidays'],
@@ -168,11 +181,13 @@ export const WORLD_EVENT_TPLS: WorldEventTpl[] = [
     id: 'ashReykjanes', kind: 'ash', at: 'KEF', country: 'IS', zoneId: 'iceland', closeP: 1, work: ['acmi'], coverFor: ['SAS Scandinavian Airlines', 'Aer Lingus'],
     title: 'Reykjanes eruption: ash closes Keflavík and Icelandic airspace', reopen: 'Icelandic airspace has reopened',
     body: "A new fissure on the Reykjanes peninsula is throwing ash high enough to close Keflavík and Icelandic airspace until at least {until}. North Atlantic flights route around it.",
+    again: { title: 'Reykjanes erupts again: Icelandic airspace closed', body: "Another fissure has opened on the Reykjanes peninsula. Ash closes Keflavík and Icelandic airspace until at least {until}." },
   },
   {
     id: 'ashEtna', kind: 'ash', at: 'CTA', country: 'IT', zoneId: 'etna', closeP: 1, work: [],
     title: 'Etna ash closes Catania', reopen: 'Catania has reopened after the Etna ash',
     body: "Etna's ash plume has closed Catania and the airspace over eastern Sicily until at least {until}. Holiday flights to Catania wait or go to Palermo.",
+    again: { title: 'Etna erupts again: Catania closed', body: "A new burst of activity at Etna closes Catania and the airspace over eastern Sicily until at least {until}." },
   },
   {
     id: 'ashLewotobi', kind: 'ash', at: 'DPS', country: 'ID', zoneId: 'javaBali', closeP: 1, work: ['repatriation'],
@@ -186,12 +201,12 @@ export const WORLD_EVENT_TPLS: WorldEventTpl[] = [
     body: "A 7.1 earthquake has hit south-east Türkiye near Adana. The runway is being inspected; aid agencies are chartering aircraft for rescue teams, tents and field hospitals.",
   },
   {
-    id: 'hurricanePuj', kind: 'disaster', at: 'PUJ', country: 'DO', airportDays: [1, 2], work: ['repatriation', 'humanitarian'],
+    id: 'hurricanePuj', kind: 'disaster', at: 'PUJ', country: 'DO', airportDays: [1, 2], months: [5, 6, 7, 8, 9, 10], work: ['repatriation', 'humanitarian'],
     title: 'Hurricane in the Caribbean: Punta Cana closed',
     body: "A category 4 hurricane has crossed the eastern Dominican Republic. Punta Cana is closed until {until}; tour operators and ministries want their holidaymakers home.",
   },
   {
-    id: 'floodsSindh', kind: 'disaster', at: 'KHI', country: 'PK', work: ['humanitarian', 'medical'],
+    id: 'floodsSindh', kind: 'disaster', at: 'KHI', country: 'PK', months: [6, 7, 8], work: ['humanitarian', 'medical'],
     title: 'Floods in Sindh',
     body: "Monsoon floods cover a third of Sindh. The WFP and the WHO are chartering aircraft for food, tents and medical teams into Karachi.",
   },

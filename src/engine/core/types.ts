@@ -2183,7 +2183,11 @@ export interface GameState {
   market: Market;
   rivals: Rival[];
   /** v0.8 invented world events. load: ??= { events: [] } */
-  world?: { events: WorldEvent[]; lastKind?: Partial<Record<WorldEventKind, Minute>> };
+  world?: {
+    events: WorldEvent[]; lastKind?: Partial<Record<WorldEventKind, Minute>>;
+    /** v0.25 when each template last started (a cooldown per template; 'again' texts). load: ??= from events (none in a fresh game) */
+    lastTpl?: Record<string, Minute>;
+  };
   /** v0.9 department heads (ops/heads.ts). load: ??= all locked */
   heads?: Record<HeadId, Head>;
   /** v0.11 the event director (ops/director.ts): busy and quiet spells. load: ??= a fresh director (Normal pace). */
