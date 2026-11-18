@@ -83,7 +83,7 @@ function Overview({ g, r }: { g: GameState; r: Route }) {
       <div className="nw-kpis">
         <Kpi label="Load factor" value={q.months ? pct(cur.lf) : '—'} sub="last 3 months" dir={q.months ? trend(cur.lf, prev.lf).dir : undefined} />
         <Kpi label="Yield" value={q.months ? money(cur.yieldPax) : '—'} sub="ticket revenue a passenger" dir={q.months ? trend(cur.yieldPax, prev.yieldPax).dir : undefined} />
-        <Kpi label="Result" value={q.months ? moneyDelta(q.cur.result) : '—'} tone={q.cur.result >= 0 ? 'good' : 'bad'} sub={q.months && q.cur.rev ? `margin ${pct(cur.margin)}` : 'after aircraft and crew time'} dir={q.months ? trend(q.cur.result, q.prev.result).dir : undefined} />
+        <Kpi label="Result" value={q.months ? moneyDelta(q.cur.result) : '—'} tone={!q.months ? undefined : q.cur.result >= 0 ? 'good' : 'bad'} sub={q.months && q.cur.rev ? `margin ${pct(cur.margin)}` : 'after aircraft and crew time'} dir={q.months ? trend(q.cur.result, q.prev.result).dir : undefined} />
         <Kpi label="Reputation" value={rep.word} tone={rep.tone} sub={`${Math.round(r.reputation)} of 100`} />
       </div>
       <div className="col gap-6">
