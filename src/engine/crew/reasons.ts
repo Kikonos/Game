@@ -33,6 +33,24 @@ const at = (t: Minute, now: Minute) => (Math.floor(t / DAY) === Math.floor(now /
 const HM = /(\d+):(\d+)\s*(?:>|of)\s*(\d+):(\d+)/;
 const toH = (h: string, m: string) => Math.round((Number(h) + Number(m) / 60) * 10) / 10;
 
+/**
+ * v0.25 a legality issue's text in plain words for the Inbox ('Block 28d 102:07 > 100:00' → 'Over 100 block hours in 28
+ * days'); any other text is kept as it is. Pure.
+ */
+export function plainWhy(why: string): string {
+  const m = /^(Duty|Block) (7d|14d|28d|year|12 months) [\d:]+ > (\d+):\d\d/.exec(why);
+  if (m) {
+    const span = m[2] === 'year' ? 'this year' : m[2] === '12 months' ? 'in 12 months' : `in ${parseInt(m[2], 10)} days`;
+    return `Over ${Number(m[3]).toLocaleString('en-US')} ${m[1] === 'Duty' ? 'duty' : 'block'} hours ${span}`;
+  }
+  const r = /^Rest(?: before next duty)? ([\d:]+) < ([\d:]+)/.exec(why);
+  if (r) return `Short of rest (${r[1]} of ${r[2]})`;
+  const f = /^FDP ([\d:]+) > ([\d:]+)/.exec(why);
+  if (f) return `Day too long (${f[1]}, limit ${f[2]})`;
+  if (/^No 36 h recovery/.test(why)) return 'Due a weekly rest (36 h off)';
+  return why;
+}
+
 /** The reason behind a 'status' issue (the block the trip touches), else the status itself. */
 function statusCode(c: CrewMember, from: Minute, to: Minute): { code: ReasonCode; until?: Minute } {
   const b = c.blocks?.find((x) => x.from < to && x.to > from);
@@ -66,7 +84,11 @@ export function rootReason(g: GameState, issues: LegalityIssue[], c: CrewMember,
     const sameNo = !!f && f.no === (subjectNo ?? subject);
     const today = !!f && Math.floor(f.std / DAY) === Math.floor(g.now / DAY);
     const which = f ? `${sameNo ? "another day's " : ''}${f.no} to ${city(f.to)}${!today && !sameNo ? ` on ${fmtDay(f.std)}` : ''}` : '';
-    set('busy', f ? `busy on ${which} until ${end !== undefined ? at(end, g.now) : fmtDay(q!.end)}` : `busy on another ${q?.tour ? 'tour' : 'trip'}${end !== undefined ? ` until ${at(end, g.now)}` : ''}`, end);
+    // v0.25 a set's base tour reads as the tour ('busy on V73062 until 2 Oct' named one leg of five weeks on station).
+    const dep = q?.tour && q.deploymentId ? g.deployments[q.deploymentId] : undefined;
+    const tourEnd = dep ? Math.max(end ?? -Infinity, q!.tour!.to <= dep.end ? q!.tour!.to : dep.end) : undefined;
+    if (dep && tourEnd !== undefined) set('busy', `busy on the ${city(dep.base)} tour until ${fmtDay(tourEnd)}`, tourEnd);
+    else set('busy', f ? `busy on ${which} until ${end !== undefined ? at(end, g.now) : fmtDay(q!.end)}` : `busy on another ${q?.tour ? 'tour' : 'trip'}${end !== undefined ? ` until ${at(end, g.now)}` : ''}`, end);
   }
   if (has('status')) {
     const s = statusCode(c, from, to);

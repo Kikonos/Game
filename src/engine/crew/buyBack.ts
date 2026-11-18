@@ -59,12 +59,23 @@ const recent = new WeakMap<GameState, Map<string, number>>();
 /** Whether c's day off was bought back this minute (Crew Control's lines). */
 export const boughtNow = (g: GameState, crewId: string): boolean => recent.get(g)?.get(crewId) === g.now;
 
+/**
+ * v0.25 days in a list: 'Thu 9, Fri 10 and Sat 11 Sep 2027' (the month and year once per run of days in the same month),
+ * 'Thu 30 Sep 2027 and Fri 1 Oct 2027'. Pure.
+ */
+export function dayList(ks: number[]): string {
+  const parts = ks.map((k) => dayLabel(k));
+  const tail = (x: string) => x.split(' ').slice(2).join(' ');
+  const short = parts.map((x, i) => (i < parts.length - 1 && tail(parts[i + 1]) === tail(x) ? x.split(' ').slice(0, 2).join(' ') : x));
+  return short.length <= 1 ? short.join('') : `${short.slice(0, -1).join(', ')} and ${short[short.length - 1]}`;
+}
+
 /** 'Wed 27 Oct' and the repaid days in a sentence: 'António gets Fri 29 Oct off instead.' */
 export function repayText(c: CrewMember, bb: BuyBackDays): string {
   const to = bb.repay.map(([, k]) => k).filter((k): k is number => k !== null);
   const owed = bb.repay.length - to.length;
   const parts: string[] = [];
-  if (to.length) parts.push(`${c.first} gets ${to.map(dayLabel).join(' and ')} off instead`);
+  if (to.length) parts.push(`${c.first} gets ${dayList(to)} off instead`);
   if (owed) parts.push(`${to.length ? 'and is' : `${c.first} is`} owed ${owed === 1 ? 'a day' : `${owed} days`} off`);
   return parts.length ? `${parts.join(' ')}.` : '';
 }
@@ -134,8 +145,8 @@ export function undoBuyBack(g: GameState, c: CrewMember, slot: CrewSlot): void {
       return;
     }
   }
-  const back = bb.days.filter((k) => k >= 0).map(dayLabel);
-  pushMessage(g, { cue: null, tone: 'info', cat: 'crew', title: `${crewName(c)} keeps the day off${back.length ? ` on ${back.join(' and ')}` : ''}`, body: 'The trip it was bought for changed: nothing is paid.' });
+  const back = bb.days.filter((k) => k >= 0);
+  pushMessage(g, { cue: null, tone: 'info', cat: 'crew', title: `${crewName(c)} keeps the day${back.length > 1 ? 's' : ''} off${back.length ? ` on ${dayList(back)}` : ''}`, body: 'The trip it was bought for changed: nothing is paid.' });
 }
 
 /**

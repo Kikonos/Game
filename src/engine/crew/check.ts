@@ -292,7 +292,12 @@ function planOne(g: GameState, c: CrewMember, p: Pairing, base: Seg[], existing:
     if (booked) out = booked;
     else if (loc !== dep) {
       // From where they will be, once their rest after earlier work is over (crew away from base included).
-      const o = outTicket(g, p, first, loc, readyAt(c, base, first.report, g.now));
+      // v0.25 after a duty still to fly, the ticket out leaves READY_MARGIN after the rest when a departure allows (a few
+      // minutes late on that duty no longer leaves the crew short of rest for the ticket: hunter save m42, V7892).
+      const ready = readyAt(c, base, first.report, g.now);
+      const late = readyAt(c, base, first.report, g.now, READY_MARGIN);
+      let o = outTicket(g, p, first, loc, late);
+      if (late !== ready && o.why) o = outTicket(g, p, first, loc, ready);
       out = o.plan;
       if (o.why) issues.push({ code: 'location', level: 'illegal', text: o.why, dutyId: first.id });
     }
@@ -582,17 +587,21 @@ function prebooked(g: GameState, d: Duty, crewId: string): TicketPlan | null {
  * When crew c can check in for new work before t: the end of the rest after their last logged duty and after
  * their planned work ending by t (the rest evalSegs asks for after each seg).
  */
-export function readyAt(c: CrewMember, segs: Seg[], t: Minute, now = -Infinity): Minute {
+export function readyAt(c: CrewMember, segs: Seg[], t: Minute, now = -Infinity, margin = 0): Minute {
   let ready = c.restUntil;
   for (const s of segs) {
     if (s.end > t) break;
     // v0.9 standby not over yet gives way to the work being planned (rules.ts standbyView): a window running now
     // is a call-out (no rest before the duty), one not started is replaced.
     if (s.kind === 'sby' && s.end > now) continue;
-    if (s.kind !== 'log') ready = Math.max(ready, s.end + s.rest);
+    // (v0.25 `margin`: added after a duty not flown yet, whose release can still run late.)
+    if (s.kind !== 'log') ready = Math.max(ready, s.end + s.rest + (s.kind === 'duty' && s.end > now ? margin : 0));
   }
   return ready;
 }
+
+/** v0.25 minutes over the minimum rest a ticket out keeps after a duty still to fly, when a departure allows. */
+export const READY_MARGIN = 30;
 
 /** Where the crew's next planned work within 3 days after t starts ('' when none or unknown). */
 /**

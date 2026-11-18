@@ -15,7 +15,7 @@ export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { setRedundantHook } from './utilisation';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, repairDaysOffMorale, repairStandbyMorale, setResignHooks } from './morale';
-import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, leaveTrips, repairLeaveTrips, splitLeadingEmpty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable } from './roster';
+import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, leaveTrips, repairLeaveTrips, splitLeadingEmpty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable, unclashTickets } from './roster';
 import { extFdp, localMin, minRest, referenceTime, signedTz, tzDeltaH, tzNights, woclMinutes } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { rosterHorizon, dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, dropStrandedStandby, v09Stats } from './dayPlan';
@@ -327,11 +327,14 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
  * on record (the duty windows count it at its share, the calendar shows it), and the status set by an older build's
  * report comes back.
  */
-function reserveStoodBy(g: GameState, c: CrewMember, p: Pairing, d: Duty): void {
+export function reserveStoodBy(g: GameState, c: CrewMember, p: Pairing, d: Duty): void {
   const seg = dutySegs(g, c, p, d, null, null).find((x) => x.kind === 'duty');
   const from = seg?.start ?? d.report;
   const to = Math.min(g.now, seg?.end ?? d.release);
   if (to > from && !(c.standby ?? []).some((w) => w.from < to && w.to > from)) {
+    // v0.25 the free days before it end here: a recovery rest taken then goes on record first (dayPlan notes it at a
+    // standby's start; this window is written after the fact). Bot seed 7: a captain held at Incheon read 361 h.
+    noteRecovery(c, from, g);
     c.standby = [...(c.standby ?? []), { from, to, kind: 'hotel' as const, at: reserveStation(g, p, d) }].sort((a, b) => a.from - b.from);
   }
   if (c.status === 'onDuty') c.status = c.restUntil > g.now ? 'resting' : 'available';
@@ -763,6 +766,8 @@ function onCrewAlert(g: GameState): void {
   homeBeforeLeave(g);
   // v0.12.1 nobody waits on duty at the gate past their limit: a duty held past a night's rest ends at its last landing.
   splitOverlong(g);
+  // v0.25 tickets that no longer connect (a ticket moved, a trip ended elsewhere) are mended before anyone misses one.
+  unclashTickets(g);
   // The hourly check re-rosters a freshly short aircraft before warning (a roster not yet run is not a shortage).
   escalateShortages(g, { reroster: true });
   hourlyHook?.(g);
@@ -839,6 +844,8 @@ export const crewModule: SimModule = {
     // Rotations round (v0.16.4): tickets booked off the timetable by an older build move onto it where the crew still
     // connect (last: every other repair has read the tickets as they were).
     retimeToTimetable(g);
+    // v0.25 tickets in a row that do not connect (older builds booked a ticket landing after the next one left).
+    unclashTickets(g);
     // Bug 1108b: a course away from base in older saves: the trip home planned now.
     homeForLeave(g);
     // v0.19.3 older saves' trips home before an annual leave (bug 1108b) become the leave's own trips where it is safe
@@ -855,6 +862,9 @@ export const crewModule: SimModule = {
     // v0.23.2 once: a ferry stuck away while its job's flights were cancelled is planned again, and the compensation given back.
     // (Its flights changed: the roster follows at once, so the loaded game holds no duty of a leg that is gone.)
     if (repairStuckFerries(g)) crewModule.settle?.(g, true);
+    // v0.25 once more after the repairs above moved duties and tickets (fixture v0162-hx6001: two standby windows ending
+    // at a report they now run into were marked called only on a second load): the first load is the fixed point.
+    repairCutStandby(g);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);

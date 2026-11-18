@@ -280,3 +280,31 @@ describe('v0.12.1 far bases', () => {
     expect(cost(near.id, 5) - cost(near.id, 3)).toBe(0);
   });
 });
+
+// v0.25 crew-recgap (bot seed 7, Malta): a far base's reserve held at Incheon gets the hotel standby of a duty they were not
+// called for written after the fact (reserveStoodBy); the free days before it were never noted as a recovery rest, so the
+// 168 h statistic read 361 h. The window goes on record after noteRecovery has seen the time off before it.
+describe('v0.25 a far base reserve who stood by', () => {
+  it('has the free days before the standby noted as a recovery rest', async () => {
+    const { reserveStoodBy } = await import('./index');
+    const g = fixtureGame();
+    const { k, later } = signedAhead(g, 'DAC', 'CCU', [6 * 60, 12 * 60 + 30]);
+    later();
+    addCrew(g, { CPT: 12, FO: 6, PUR: 12, CC: 12 });
+    autoRoster(g, { to: g.now + 14 * DAY });
+    const p = depOf(g, k).pairingIds.map((id) => g.pairings[id]).find((x) => x.slots.some((s) => s.reserve && s.crewId))!;
+    const res = p.slots.find((s) => s.reserve && s.crewId)!;
+    const c = g.crew[res.crewId!];
+    const d = g.duties[p.dutyIds[0]];
+    // Last work 3 days before the duty, the last recovery rest 8 days before it; the duty is over.
+    c.log = [];
+    c.standby = [];
+    c.restUntil = d.report - 3 * DAY + 12 * 60;
+    c.lastRecovery = d.report - 8 * DAY;
+    g.now = d.release + 60;
+    reserveStoodBy(g, c, p, d);
+    expect(c.standby.length).toBe(1);
+    expect(c.lastRecovery).toBeGreaterThan(d.report - 8 * DAY);
+    expect(c.lastRecovery).toBeLessThanOrEqual(d.release);
+  });
+});

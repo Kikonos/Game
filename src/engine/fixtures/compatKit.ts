@@ -5,7 +5,7 @@ import LZString from 'lz-string';
 import { acceptOffer, feasibilityAll } from '../contracts';
 import type { GameState, Minute } from '../core/types';
 import { resolveDecision } from '../ops';
-import { advanceTo } from '../sim';
+import { advanceTo, settle } from '../sim';
 import { breathe } from '../../test/breathe';
 
 /** A fixture save as JSON text (fixtures/save-<name>.lz.txt). */
@@ -22,13 +22,15 @@ export function bad(o: unknown, path = 'g', out: string[] = []): string[] {
 }
 
 /** A light player step: decisions by default, the best feasible open offer signed. */
+/** (v0.25 settled after, as the UI's act() does: a decision or a signing that moved legs leaves no duty listing a leg gone.) */
 export function play(g: GameState): void {
   for (const d of [...g.decisions]) resolveDecision(g, d.id, d.defaultOption);
   const open = Object.values(g.offers).filter((o) => o.status === 'open' && o.start >= g.now && g.now < o.expires).sort((a, b) => b.estValue - a.estValue || (a.id < b.id ? -1 : 1));
   for (const o of open.slice(0, 3)) {
     const r = feasibilityAll(g, o.id).find((x) => (x.level === 'ok' || x.level === 'warn') && x.estMargin > 0);
-    if (r && acceptOffer(g, o.id, [r.aircraftId]).ok) return;
+    if (r && acceptOffer(g, o.id, [r.aircraftId]).ok) break;
   }
+  settle(g);
 }
 
 /** Plays on to `end` in 6-hour steps with the light player step (until game over); the test worker breathes between steps. */

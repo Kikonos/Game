@@ -1659,25 +1659,24 @@ export function dayPlanInit(g: GameState): void {
  * midnight 14 days ahead, the rest of the year's leave included (pro rata), with one message.
  */
 export function dayPlanLoad(g: GameState): void {
-  if (g.dayPlan) {
-    rosterStats(g);
-    // v0.18.1 a save from before the monthly roster: the month it should show is published now (days off first).
-    const home = g.company.homeBase;
-    if (g.dayPlan.publishedTo < midnight(home, pubEndDay(home, dayIndex(home, g.now)))) {
-      planOffDays(g);
-      planStandby(g);
-    }
-    return;
-  }
   const home = g.company.homeBase;
-  const from = midnight(home, dayIndex(home, g.now + R().publishDays * DAY - 1) + 1);
-  g.dayPlan = { from, publishedTo: from, planned: from };
+  if (!g.dayPlan) {
+    const from = midnight(home, dayIndex(home, g.now + R().publishDays * DAY - 1) + 1);
+    g.dayPlan = { from, publishedTo: from, planned: from };
+    const k = dayIndex(home, from);
+    pushMessage(g, {
+      tone: 'info', cat: 'crew', title: 'Roster planning changed',
+      body: `From ${fmtDay(k * DAY)}, days off are planned (8–10 a month, a 2-day block every week) and other free days are standby. The roster published up to ${fmtDay((k - 1) * DAY)} stays as it is.`,
+    });
+  }
   rosterStats(g);
-  const k = dayIndex(home, from);
-  pushMessage(g, {
-    tone: 'info', cat: 'crew', title: 'Roster planning changed',
-    body: `From ${fmtDay(k * DAY)}, days off are planned (8–10 a month, a 2-day block every week) and other free days are standby. The roster published up to ${fmtDay((k - 1) * DAY)} stays as it is.`,
-  });
+  // v0.18.1 a save from before the monthly roster: the month it should show is published now (days off first).
+  // v0.25 on the first load of a pre-v0.9 save too (its marker is new): was only on the second, so a load was not
+  // a fixed point (fixture v08: none of 81 crew had days off until the game was saved and loaded again).
+  if (g.dayPlan.publishedTo < midnight(home, pubEndDay(home, dayIndex(home, g.now)))) {
+    planOffDays(g);
+    planStandby(g);
+  }
 }
 
 // ---------- read APIs ----------
