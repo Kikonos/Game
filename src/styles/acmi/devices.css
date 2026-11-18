@@ -256,3 +256,29 @@ kbd {
   .shell.acmi .sc-crew > .sc-head > .sc-head-tools > .seg { order: 9; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
   .shell.acmi .sc-crew > .sc-head > .grow { flex: 1 1 200px; }
 }
+
+/* v0.25 Roster board on a phone on its side: about six crew rows. The head keeps one row (the other views' tabs
+   show their icon only, the open one its name), the filters fold into one Filters pop-over, and the colour strip
+   goes behind the '?' in the tools. */
+@media (max-height: 499.98px) {
+  .shell.acmi .sc-crew-board > .sc-head > .sc-head-tools > .seg { order: 0; }
+  .shell.acmi .sc-crew-board > .sc-head > .sc-head-tools > .seg button:not(.active) .seg-lbl {
+    position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+  }
+  .shell.acmi .sc-crew-board > .sc-head > .sc-head-tools > .seg button:not(.active) .sc-ico-s { margin-right: 0; }
+  .shell.acmi .sc-crew-board > .sc-head { row-gap: 6px; }
+  .rb > .rb-tools { flex-wrap: nowrap; overflow: visible; position: relative; z-index: 20; -webkit-mask-image: none; mask-image: none; padding-right: 0; }
+  .rb-tools .rb-scope-t { display: none; }
+  .rb-filters { position: relative; }
+  .rb-filters-btn svg { width: 16px; height: 16px; }
+  .rb-filters-pop {
+    position: absolute; top: calc(100% + 6px); left: 0; z-index: 40; width: 300px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+    padding: 10px; border-radius: 14px; background: var(--panel-solid); border: 1px solid var(--border-strong); box-shadow: var(--shadow);
+  }
+  .rb-tools .rb-filters-pop .select, .rb-tools .rb-filters-pop .rb-search { width: 100%; max-width: none; min-width: 0; flex: none; }
+  .rb-tools .rb-filters-pop .rb-density { justify-self: start; }
+}
+@media (max-height: 499.98px) {
+  /* The head row is a screen taller than the main area: scrolling the board slides it away (RosterBoard foldHead). */
+  .shell.acmi .sc-crew-board { height: calc(100% + var(--rb-fold, 56px)); }
+}

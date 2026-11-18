@@ -191,7 +191,7 @@ export function CrewScreen() {
   return (
     <div className={`screen sc-crew ${view === 'board' ? 'sc-crew-board' : ''}`}>
       <ScreenHead hint={view === 'board' ? 'crewBoard' : view === 'plan' ? 'crewPlan' : 'crewPeople'} title="Crew" sub={`${all.length} people · ${all.filter((c) => c.status === 'onDuty').length} on duty now`}>
-        <Seg<CrewView> value={view} onChange={setView} options={[{ value: 'people', label: <><List className="sc-ico-s" /> People</> }, { value: 'board', label: <><LayoutGrid className="sc-ico-s" /> Roster board</> }, { value: 'plan', label: <><Layers className="sc-ico-s" /> Planning</> }, { value: 'leave', label: <><Palmtree className="sc-ico-s" /> Leave{leaveWaiting > 0 && !leavePolicy(g).auto ? <span className="lv-count">{leaveWaiting}</span> : null}</> }, { value: 'use', label: <><Gauge className="sc-ico-s" /> Utilisation</> }]} />
+        <Seg<CrewView> value={view} onChange={setView} options={[{ value: 'people', label: <><List className="sc-ico-s" /> <span className="seg-lbl">People</span></> }, { value: 'board', label: <><LayoutGrid className="sc-ico-s" /> <span className="seg-lbl">Roster board</span></> }, { value: 'plan', label: <><Layers className="sc-ico-s" /> <span className="seg-lbl">Planning</span></> }, { value: 'leave', label: <><Palmtree className="sc-ico-s" /> <span className="seg-lbl">Leave</span>{leaveWaiting > 0 && !leavePolicy(g).auto ? <span className="lv-count">{leaveWaiting}</span> : null}</> }, { value: 'use', label: <><Gauge className="sc-ico-s" /> <span className="seg-lbl">Utilisation</span></> }]} />
         <MoraleChip g={g} />
         {classes.length > 0 && (
           <button className="btn" onClick={() => store.openModal({ kind: 'classes' })}>
