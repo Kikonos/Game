@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { DAY } from '../core/time';
 import { createGame } from '../newGame';
 import { hireHead, unlockHead } from '../ops/heads';
-import { businessCase, caseDraft, customId, fleetLayout, routeIdeas, startStudy, studyBase } from '.';
+import { businessCase, caseDraft, customId, fleetLayout, recommendation, routeIdeas, startStudy, studyBase } from '.';
 import { businessCaseX, fleetAcCostBH, project, studyBaseNow } from './launch';
 import { advanceTo } from '../sim';
 import { deserialize, serialize } from '../save';
@@ -13,6 +13,7 @@ import { acmiCompare, aircraftCostBH, closePnlMonth, crewCostBH } from './pnl';
 import { monthKey } from '../core/time';
 import { devLaunchRoute } from './launch';
 import { customMarket } from './custom';
+import { cabinFor } from './model';
 import type { GameState } from '../core/types';
 
 const newGame = (base = 'MLA', seed = 7) => createGame({ name: 'Malta Test', code: 'MT', livery: { primary: '#c00', secondary: '#fff', tail: 'sweep' }, base, seed });
@@ -131,4 +132,24 @@ describe('v0.25 wording', () => {
     r.pnl[monthKey(g.now) - 1] = { rev: 100_000, tickets: 0, cargo: 0, ancillary: 0, direct: 50_000, acTime: 0, result: 0, pax: 0, seats: 0, bh: 10, sectors: 4, onTime: 4, cargoKg: 0, launch: 0 };
     expect(acmiCompare(g, id)).toMatch(/An A320 on ACMI/);
   });
+});
+
+describe('v0.25 the study\'s peak and off-peak words', () => {
+  it('peak by the market\'s own season, loads of a known route; the size sentence never contradicts them', () => {
+    for (const [base, to] of [['RIX', 'TFS'], ['MLA', 'ESB'], ['RIX', 'FRA']] as const) {
+      const g = newGame(base, 4);
+      const id = toCase(g, customId({ from: base, to }));
+      const r = g.network!.routes[id];
+      const d = caseDraft(g, id)!;
+      const p = project(g, r, d, g.now + 120 * DAY, 1);
+      // Peak months are the busiest: a known route is at least as full then as off-peak.
+      expect(p.lfPeak, `${base}-${to}`).toBeGreaterThanOrEqual(p.lfOff - 0.001);
+      const rec = recommendation(g, id)!;
+      const words = rec.why.join(' ');
+      const sellable = (p.sellSeats ?? cabinFor(d.typeId, d.layout ?? 'two-class').total) / cabinFor(d.typeId, d.layout ?? 'two-class').total;
+      if (/turns away/.test(words)) expect(p.lfPeak / sellable, `${base}-${to}: ${words}`).toBeGreaterThan(0.85);
+      if (p.sellSeats !== undefined && /turns away/.test(words)) expect(words).toMatch(/can sell only \d+ seats here/);
+      expect(words, `${base}-${to}`).not.toMatch(/fits the off-peak months; at peak it turns people away/);
+    }
+  }, 60_000);
 });

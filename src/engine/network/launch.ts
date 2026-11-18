@@ -15,7 +15,7 @@ import { DAY, fmtDay, fmtTime, monthKey } from '../core/time';
 import type { CabinLayout } from '../../data/acmiTypes';
 import type { Client, GameState, LedgerCat, Minute } from '../core/types';
 import { costTotal, passThrough, routeMonthCosts, sectorCost } from './costs';
-import { baseFare, cabinFor, chainOf, seasonCode, departureDemand, freqPerWeek, localMonth, localToUtc, MARKET_BY_ID, marketOfRoute, paxKgOf, cargoDepX, planMonths, seasonMonths, serviceHours, slotX, usd, weeklyMarket, type Dir } from './model';
+import { baseFare, cabinFor, chainOf, seasonCode, seasonX, departureDemand, freqPerWeek, localMonth, localToUtc, MARKET_BY_ID, marketOfRoute, paxKgOf, cargoDepX, planMonths, seasonMonths, serviceHours, slotX, usd, weeklyMarket, type Dir } from './model';
 import { pushRouteNote } from './notes';
 import { checkAchievements } from '../ops/achievements';
 import { acmiNetBH, aircraftCostBH, crewAwayCost, crewCostBH } from './pnl';
@@ -256,8 +256,13 @@ export interface Projection {
   seatSec: number;
   bh: number;
   sectors: number;
+  /** Off-peak and peak loads of a known route (no launch ramp), by the market's own season. */
   lfOff: number;
   lfPeak: number;
+  /** v0.25 the share of the peak months' travellers a known route turns away for want of seats. */
+  spillPeak: number;
+  /** v0.25 seats a flight can sell when the payload (runway, range) caps it below the cabin. */
+  sellSeats?: number;
   spill: number;
   /** v0.21 the money by kind, the rotations flown and (a stopover) the average passengers a flight by market. */
   parts: MoneyParts;
@@ -294,7 +299,13 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   let paxSec = 0;
   let seatSec = 0;
   let paxJ = 0;
-  let offLf = 0, offN = 0, peakLf = 0, peakN = 0;
+  let offLf = 0, offN = 0, peakLf = 0, peakN = 0, peakWant = 0, peakSpill = 0;
+  // v0.25 peak and off-peak by the market's own season (the three busiest months, the six quietest), not a fixed
+  // calendar: a winter-sun route peaks in winter.
+  const sIdx = Array.from({ length: 12 }, (_, mo) => (seasonX(m, mo, 'out') + seasonX(m, mo, 'back')) / 2);
+  const byS = sIdx.map((v, mo) => [v, mo] as [number, number]).sort((a, b) => b[0] - a[0] || a[1] - b[1]).map((x) => x[1]);
+  const peakMonths = new Set(byS.slice(0, 3));
+  const offMonths = new Set(byS.slice(6));
   let sp = { thr: 0, ab: 0, bc: 0, n: 0 };
   const blockOf = (dir: Dir) => chainOf(m, dir).slice(1).reduce((a, to, i) => a + blockMinutes(p.typeId, chainOf(m, dir)[i], to), 0);
   const blockOut = blockOf('out');
@@ -351,6 +362,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
       const fY = (mk: RouteMarket) => baseFareOf(mk, 'Y', month, dir, p.fares) * fareMix;
       const fJ = (mk: RouteMarket) => baseFareOf(mk, 'J', month, dir, p.fares);
       // Passengers on each sector and the ticket money each sector earns.
+      let depSpill = 0;
       let secPax: { j: number; y: number }[];
       let secSold: number[];
       let boarded: number;
@@ -369,6 +381,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
         const bcSeats = legs.bcSecond ? k2.j + k2.y : k1.j + k1.y;
         const a = shareSeats(d, l1, l2, k1, k2, legs.bcSecond, bcCapOf(fifth, bcSeats));
         spill += a.spill * deps;
+        depSpill = a.spill;
         const tT = r.model === 'partner' ? 0 : a.thr.j * fJ(m) + a.thr.y * fY(m);
         const t1 = r.model === 'partner' ? 0 : a.l1.j * fJ(legs.first) + a.l1.y * fY(legs.first);
         const t2 = r.model === 'partner' ? 0 : a.l2.j * fJ(legs.second) + a.l2.y * fY(legs.second);
@@ -388,6 +401,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
         const j = Math.min(cab.j, jWant);
         const y = Math.min(Math.max(0, capT - j), cab.y, yWant + Math.max(0, jWant - cab.j) * BAL.v019.demand.jToY);
         spill += Math.max(0, jWant + yWant - j - y) * deps;
+        depSpill = Math.max(0, jWant + yWant - j - y);
         tickets = r.model === 'partner' ? 0 : j * fJ(m) + y * fY(m);
         secPax = blks.map(() => ({ j, y }));
         secSold = blks.map((b) => (tickets * b) / blkSum);
@@ -432,8 +446,19 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
       paxJ += boardedJ * deps;
       seats += cab.total * deps;
       const lf = secPax.reduce((a, q) => a + q.j + q.y, 0) / Math.max(1, cab.total * secPax.length);
-      if ([1, 2, 3, 4, 9, 10].includes(month)) { offLf += lf; offN++; }
-      if ([6, 7, 11].includes(month)) { peakLf += lf; peakN++; }
+      // v0.25 the loads of a known route (the launch ramp taken out: demand is linear in it), so the study's words
+      // describe the route, not its first months.
+      const ramp = Math.max(0.05, x.rampX);
+      const cap = Math.min(cab.total, dir === 'out' ? capOut : capBack);
+      const lfM = Math.min(cap / Math.max(1, cab.total), lf / ramp);
+      if (offMonths.has(month)) { offLf += lfM; offN++; }
+      if (peakMonths.has(month)) {
+        peakLf += lfM;
+        peakN++;
+        const want = (boarded + depSpill) / ramp;
+        peakWant += want;
+        peakSpill += Math.max(0, want - cap);
+      }
       bh += (blk / 60) * deps;
       sectors += (dir === 'out' ? secOut : secBack) * deps;
     }
@@ -449,7 +474,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   for (const k of Object.keys(parts) as (keyof MoneyParts)[]) parts[k] = Math.round(parts[k]);
   return {
     months, rev: sum('rev'), cost: sum('cost'), result: sum('result'), pax: sum('pax'), paxJ: Math.round(paxJ), seats: sum('seats'), paxSec, seatSec, bh, sectors,
-    lfOff: offN ? offLf / offN : 0, lfPeak: peakN ? peakLf / peakN : 0, spill, parts, rotations: Math.round(deps * monthsFlown),
+    lfOff: offN ? offLf / offN : 0, lfPeak: peakN ? peakLf / peakN : 0, spillPeak: peakWant > 0 ? peakSpill / peakWant : 0, ...(Math.min(capOut, capBack) < cab.total ? { sellSeats: Math.min(capOut, capBack) } : {}), spill, parts, rotations: Math.round(deps * monthsFlown),
     ...(tag && sp.n ? { split: { thr: sp.thr / sp.n, ab: sp.ab / sp.n, bc: sp.bc / sp.n, seats: cab.total } } : {}),
   };
 }
@@ -780,7 +805,7 @@ function searchPlan(g: GameState, r: Route, x: number): { plan: RoutePlan; resul
       if (!best || pr.result > best.result) {
         const why = [
           `${Math.round(weeklyMarket(g, m, g.now, 'out') + weeklyMarket(g, m, g.now, 'back'))} travellers a week on the market; our flights would be about ${Math.round(pr.lfOff * 100)} % full off-peak and ${Math.round(pr.lfPeak * 100)} % at peak.`,
-          gk === 'narrow' ? 'A narrowbody fits the off-peak months; at peak it turns people away.' : gk === 'big' ? 'A big widebody carries the peaks and the cargo.' : 'A mid-size widebody matches the peaks and carries the belly cargo.',
+          gaugeWords(gk, typeId, pr),
           pat.monthly ? 'A thin market: monthly flights fill.' : `${freqPerWeek(pat) <= 1 ? 'Weekly' : `${freqPerWeek(pat)} a week`} keeps the loads up.`,
         ];
         best = { plan, result: pr.result, why, gauge: gk };
@@ -788,6 +813,15 @@ function searchPlan(g: GameState, r: Route, x: number): { plan: RoutePlan; resul
     }
   }
   return best;
+}
+
+/** v0.25 the study's sentence on the aircraft's size, from what it carries at peak and off-peak (no contradiction). */
+function gaugeWords(gk: 'narrow' | 'mid' | 'big', typeId: string, pr: Projection): string {
+  const t = typeOf(typeId)?.short;
+  const what = t ? `${/^[AEIOU]/i.test(t) ? 'An' : 'A'} ${t}` : gk === 'narrow' ? 'A narrowbody' : gk === 'big' ? 'A big widebody' : 'A mid-size widebody';
+  if (pr.spillPeak >= 0.05) return `${what}${pr.sellSeats !== undefined ? ` can sell only ${pr.sellSeats} seats here (payload), so it` : ''} turns away about ${Math.round(pr.spillPeak * 100)} % of the travellers at peak.`;
+  if (pr.lfOff < 0.6) return `${what} carries the peaks; off-peak it flies part empty.`;
+  return `${what} fits: full enough off-peak, with room at peak.`;
 }
 
 /** UPDATE-0.19 additions 3 (a): the study's recommended timetable and its demand range by month (null before results). */
