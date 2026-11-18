@@ -100,3 +100,9 @@
 .fl-dry .bar { flex: 1 1 auto; }
 .fl-dry-run { display: flex; align-items: center; gap: 10px; }
 .ps-legrow > span:not(:last-child) { white-space: nowrap; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+/* v0.25 r2: on touch the month chips are finger-sized (as many to a row as fit, 44 px tall, three-letter names). */
+.lv-m3 { display: none; }
+.touch .lv-months .lv-mchips { flex: 1 1 100%; grid-template-columns: repeat(auto-fit, minmax(48px, 1fr)); gap: 6px; }
+.touch .lv-mchip { height: 44px; font-size: 14px; }
+.touch .lv-mchip .lv-m1 { display: none; }
+.touch .lv-mchip .lv-m3 { display: inline; }
