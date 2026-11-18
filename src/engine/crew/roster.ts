@@ -550,6 +550,21 @@ function retick(g: GameState, p: Pairing, c: CrewMember): boolean {
   return true;
 }
 
+/** v0.25 moving ticket f to [std, sta] breaks no limit for crew member `id` that their timeline keeps now. */
+export function shiftOk(g: GameState, f: Flight, id: string, std: Minute, sta: Minute): boolean {
+  const o = g.crew[id];
+  if (!o) return true;
+  const segs = segsOf(g, o);
+  const seg = segs.find((x) => x.ticketId === f.id && x.kind === 'pos');
+  if (!seg) return true;
+  const moved = segs.map((x) => (x === seg ? { ...x, start: x.start + std - f.std, end: x.end + sta - f.sta } : x)).sort((a, b) => a.start - b.start);
+  const ctx = ctxOf(g, o);
+  // (Being somewhere else than the trip's start is what the move mends: only the other limits count.)
+  const bad = (s: Seg[]) => new Set(evalSegs(ctx, s).filter((i) => i.level === 'illegal' && i.code !== 'location').map((i) => `${i.code} ${i.dutyId ?? ''}`));
+  const was = bad(segs);
+  return [...bad(moved)].every((k) => was.has(k));
+}
+
 /**
  * Rotations round: c's booked ticket on p (an airline ticket not yet left, same route as the new plan, everyone aboard it
  * seated on p) is moved to the new plan's time and onto the trip's last duty (`out`: its first duty, a ticket out). The
@@ -566,6 +581,10 @@ function moveHome(g: GameState, p: Pairing, c: CrewMember, home: TicketLike, out
       if (!f || f.kind !== 'deadhead' || f.status !== 'scheduled' || f.charter || f.std <= g.now + BAL.deadheadCheckIn || !aboard(f, c.id)) continue;
       if ((out ? f.sta > d.report : f.sta <= d.report) || f.from !== home.from || f.to !== home.to) continue;
       if (!f.crewIds.every((id) => p.slots.some((s) => s.crewId === id))) continue;
+      // v0.25 a ticket shared with the rest of the set moves only when it moves legally for each of them (bot seed 11: a
+      // tour grew by a day, a pilot's re-plan moved the set's ticket out three days earlier and took a cabin crew member
+      // past her 168 h recovery rest and a captain 6 h after his standby). Else this one gets a ticket of their own.
+      if (f.std !== home.std && f.crewIds.some((id) => id !== c.id && !shiftOk(g, f, id, home.std, home.sta))) return null;
       if (f.std !== home.std) {
         retimeFlight(g, f, home.std, home.sta);
         fitStandby(g, f.crewIds);

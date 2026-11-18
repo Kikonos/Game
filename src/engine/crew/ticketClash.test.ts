@@ -8,7 +8,7 @@ import { addDeadhead } from '../core/entities';
 import { DAY } from '../core/time';
 import { fixtureGame } from './fixtures';
 import { evalSegs } from './rules';
-import { unclashTickets } from './roster';
+import { shiftOk, unclashTickets } from './roster';
 import { crewIx, ctxOf, posSeg, touchCrew } from './timeline';
 
 const ci = BAL.deadheadCheckIn;
@@ -60,5 +60,25 @@ describe('crew tickets in a row', () => {
     const tk = (crewIx(g).tickets.get(c.id) ?? []).filter((f) => f.status === 'scheduled').sort((x, y) => x.std - y.std);
     expect(tk.map((f) => `${f.from}-${f.to}`)).toEqual([`ATH-${c.base}`, `${c.base}-NCE`]);
     for (let i = 1; i < tk.length; i++) expect(tk[i].std - ci).toBeGreaterThanOrEqual(tk[i - 1].sta + 75);
+  });
+});
+
+// v0.25 core-1 (bot seed 11 from day 88): a tour grew by a day; one pilot's re-plan moved the set's shared ticket out three
+// days earlier, which took a cabin crew member past her 168 h recovery rest and a captain 6 h after his standby. A shared
+// ticket moves only when it moves legally for everyone on it (roster.ts shiftOk; else the one re-planned gets their own).
+describe('a shared ticket out moves only when it is legal for everyone on it', () => {
+  it('is refused when the earlier time cuts the rest after a standby, allowed when it does not', () => {
+    const g = fixtureGame();
+    const c = Object.values(g.crew)[0];
+    c.loc = c.base;
+    c.status = 'available';
+    const t = Math.ceil(g.now / 60) * 60 + 20 * 60;
+    c.standby = [{ from: t - 12 * 60, to: t, kind: 'home', at: c.base }];
+    const f = addDeadhead(g, { crewIds: [c.id], from: c.base, to: 'NCE', std: t + 30 * 60, sta: t + 32 * 60, cost: 300 });
+    // (the standby is over, not called)
+    g.now = t + 30;
+    touchCrew(g);
+    expect(shiftOk(g, f, c.id, t + 6 * 60, t + 8 * 60)).toBe(false);
+    expect(shiftOk(g, f, c.id, t + 20 * 60, t + 22 * 60)).toBe(true);
   });
 });
