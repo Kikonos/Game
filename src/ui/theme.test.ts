@@ -4,7 +4,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { settingsFrom } from './store';
-import { paleOnLight, resolveTheme, THEME_COLOR } from './theme';
+import { paleOnLight, resolveTheme, STATUS_BAR, THEME_COLOR } from './theme';
 
 describe('Appearance (v0.11)', () => {
   it('settings saved before themes keep the dark look; a stored choice stays', () => {
@@ -19,6 +19,12 @@ describe('Appearance (v0.11)', () => {
     expect(resolveTheme('dark')).toBe('dark');
     expect(['light', 'dark']).toContain(resolveTheme('system'));
     expect(THEME_COLOR.dark).toBe('#070b14');
+  });
+
+  it('v0.25 the iOS home-screen status bar follows the theme: dark text on light, white on dark (the inline script too)', () => {
+    expect(STATUS_BAR).toEqual({ light: 'default', dark: 'black' });
+    const html = readFileSync(new URL('../../index.html', import.meta.url), 'utf8');
+    expect(html).toMatch(/apple-mobile-web-app-status-bar-style"\]'\)\.content = th === 'light' \? 'default' : 'black'/);
   });
 
   it('pale livery colours (white, cream) are swapped for the accent on the light map', () => {

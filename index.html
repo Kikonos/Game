@@ -29,6 +29,8 @@
         document.documentElement.style.colorScheme = th;
         document.querySelector('meta[name="theme-color"]').content = bg;
         document.querySelector('meta[name="color-scheme"]').content = th;
+        // iOS reads the status bar style once, at launch: dark text on the light look.
+        document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]').content = th === 'light' ? 'default' : 'black';
       } catch (e) {}
     </script>
     <script>

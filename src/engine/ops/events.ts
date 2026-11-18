@@ -1,7 +1,9 @@
 // Random operational events and the decision resolvers (B3). DESIGN.md §5.8.
 // Every resolver is keyed by decision.kind; it applies its effects and the decision is removed.
 
-import { hash } from '../core/util';
+import { hash, hashUnit } from '../core/util';
+import { RETIME_REASONS } from '../../data/flavor';
+import { possessive } from '../contracts/flavor';
 import { chooseLease, type LeaseChoice } from './leaseReturn';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { COUNTRIES } from '../../data/countries';
@@ -25,7 +27,7 @@ import { calledNow } from '../crew/standby';
 import { type IssueCode } from '../crew/rules';
 import { dhBlock, OUT_CONNECT, outTicket, segsOf } from '../crew/timeline';
 import { distance } from '../core/geo';
-import { applyHold, cancelCost, cancelLegs, clientMoved, crewBlocked, delayChain, delayOf, liveDay, liveOver, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, settleOverlaps, stationOf, subcharterCost, subcharterLegs, subHit, underClosure, unitOf, windowLegs, type SubHit } from './flights';
+import { applyHold, cancelCost, cancelLegs, clientMoved, crewBlocked, delayChain, delayOf, liveDay, liveOver, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, settleOverlaps, stationOf, subcharterCost, subcharterLateChip, subcharterLegs, subHit, underClosure, unitOf, windowLegs, type SubHit } from './flights';
 import { excusedLate, latePenalty } from './latePolicy';
 import { setAogEnd } from './maintenance';
 import { ticketBlock } from './commercial';
@@ -98,7 +100,7 @@ function autoApply(g: GameState, d: Omit<Decision, 'id' | 't'>, lead = 'Operatio
     const r: ActionResult = fn ? fn(g, tmp, id) : { ok: true };
     if (!r.ok) continue;
     const opt = d.options.find((o) => o.id === id);
-    pushMessage(g, { tone: 'info', cat: CAT[d.kind] ?? 'ops', title: d.title, body: `${d.body} ${lead}: ${opt?.label ?? id}.${r.msg ? ` ${r.msg}.` : ''}`, ref: d.ref });
+    pushMessage(g, { tone: 'info', cat: CAT[d.kind] ?? 'ops', title: d.title, body: `${d.body} ${lead}: ${opt?.label ?? id}.${endMsg(r.msg)}`, ref: d.ref });
     return;
   }
 }
@@ -212,7 +214,7 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
     swap
       ? { id: 'swap', label: `Swap in ${swap.ac.reg}`, desc: swap.from === m.at ? `${swap.ac.reg} is here and free: it takes over the legs.` : `${swap.ac.reg} ferries ${swap.from}–${m.at} and takes over the legs.`, tone: 'good', chips: [swap.from === m.at ? 'No ferry' : `Ferry ${fmtDuration(blockMinutes(swap.ac.typeId, swap.from, m.at))}`, `First leg ${fmtTime(swap.moves[0]?.std ?? swap.arrive)} UTC`, legsChip(win)] }
       : { id: 'swap', label: 'Swap aircraft', desc: 'No other aircraft of this type is free to take over now.', tone: 'bad', chips: ['Unavailable'] },
-    { id: 'subcharter', label: `Sub-charter to ${rivalName(g, rivalId)}`, desc: `A rival flies the legs; we still bill the client. Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}.`, tone: 'warn', chips: [usd(-sub), `Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}`, legsChip(win)] },
+    { id: 'subcharter', label: `Sub-charter to ${rivalName(g, rivalId)}`, desc: `A rival flies the legs; we still bill the client. Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}.`, tone: 'warn', chips: [usd(-sub), ...subcharterLateChip(g, win, rivalId), `Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}`, legsChip(win)] },
     { id: 'cancel', label: 'Cancel the legs', desc: 'Compensation to the client and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legsChip(win)] },
   ];
   // The default is the cheapest way out. v0.15.1 the AOG team when what it saves in compensation and fares beats its
@@ -277,8 +279,9 @@ function resolveAog(g: GameState, d: Decision, opt: string): ActionResult {
       const win = windowLegs(g, ac, m.at, fix());
       const rival = str(d.data, 'rivalId');
       const out: { hit?: SubHit } = {};
+      const chip = subcharterLateChip(g, win, rival)[0];
       const n = subcharterLegs(g, win, rival, subcharterCost(g, win, num(d.data, 'factor') || 1.5), out);
-      return { ok: true, msg: `${rivalName(g, rival)} flies ${plural(n, 'leg')} for us.${noticeText(g, win.find(isRevenue), out.hit)}` };
+      return { ok: true, msg: `${rivalName(g, rival)} flies ${plural(n, 'leg')} for us${chip ? ` (${chip.toLowerCase()})` : ''}.${noticeText(g, win.find(isRevenue), out.hit)}` };
     }
     case 'cancel': {
       const win = windowLegs(g, ac, m.at, fix());
@@ -854,6 +857,15 @@ function extraRotation(g: GameState, c: Contract): boolean {
   return true;
 }
 
+/** v0.25 a result line as a sentence: ' Done.' (never 'Done..' when it already ends with a stop). Pure. */
+export const endMsg = (msg?: string): string => (msg ? ` ${msg.replace(/[.\s]+$/, '')}.` : '');
+
+/** v0.25 why the client asks, by its kind (data/flavor.ts), on the request's own side key. Pure. */
+function retimeWhy(g: GameState, c: Contract, kind: string | undefined): string {
+  const xs = RETIME_REASONS[kind ?? ''] ?? RETIME_REASONS.other;
+  return xs[Math.floor(hashUnit(`${g.seed}:retime:${c.id}:${Math.floor(g.now / DAY)}:why`) * xs.length) % xs.length];
+}
+
 function retimeRequest(g: GameState, c: Contract): boolean {
   // v0.12.1 a leg they have not already moved, nor one with a request open, 2–10 days out, picked on a side stream
   // (the same flight was asked again four days later and the retimes stacked).
@@ -882,7 +894,7 @@ function retimeRequest(g: GameState, c: Contract): boolean {
   const knockText = knockLine(knock, cl?.name ?? 'the client');
   ask(g, {
     kind: 'changeRequest', title: `${cl?.name ?? 'Client'} wants to move ${f.no}`,
-    body: `${f.from}–${f.to} on ${fmtDay(f.std)}: depart ${fmtDuration(min)} later (${fmtTime(f.std + min, f.from)} local) for a late group. They pay a change fee; later legs move with it.`,
+    body: `${f.from}–${f.to} on ${fmtDay(f.std)}: depart ${fmtDuration(min)} later (${fmtTime(f.std + min, f.from)} local): ${retimeWhy(g, c, cl?.kind)}. They pay a change fee; later legs move with it.`,
     options: [
       { id: 'accept', label: 'Agree', desc: `${knockText ? `${knockText} ` : ''}${over ? "The crew's duty would run past its limit: the roster swaps in a fresh crew, if one is free." : 'A favour they remember.'}`, tone: over || tight || pen ? 'warn' : 'good', chips: [`+${usd(fee)}`, `+${fmtDuration(min)}`, ...(pen ? [`${usd(-pen)} penalty on other clients' legs`] : []), duty, `Relation +${BAL.v08.rel.retime}`, favourChip(g, c.clientId, BAL.v08.rel.retime)] },
       { id: 'decline', label: 'Decline', desc: 'Keep the schedule; the client notes it.', chips: [`Relation ${BAL.v08.rel.decline}`] },
@@ -981,7 +993,7 @@ function resolveChange(g: GameState, d: Decision, opt: string): ActionResult {
     post(g, 'otherRevenue', num(d.data, 'fee'));
     bumpClient(g, c.clientId, BAL.v08.rel.retime, `Moved ${f.no} as they asked`);
     const line = knockLine(knock, g.clients[c.clientId]?.name ?? 'the client');
-    if (line) pushMessage(g, { tone: knock.some((k) => !k.own) ? 'warn' : 'info', cat: 'ops', title: `${f.no} moved at ${g.clients[c.clientId]?.name ?? 'the client'}'s request`, body: line, ref: { kind: 'flight', id: f.id } });
+    if (line) pushMessage(g, { tone: knock.some((k) => !k.own) ? 'warn' : 'info', cat: 'ops', title: `${f.no} moved at ${possessive(g.clients[c.clientId]?.name ?? 'the client')} request`, body: line, ref: { kind: 'flight', id: f.id } });
     return { ok: true, msg: `${f.no} moved to ${fmtTime(f.std)} UTC` };
   }
   const ac = g.fleet[str(d.data, 'aircraftId')];
@@ -1260,7 +1272,7 @@ export function onDecisionExpire(g: GameState, ev: SimEvent): void {
     const r = resolveDecision(g, d.id, id);
     if (!r.ok) continue;
     const opt = d.options.find((o) => o.id === id);
-    pushMessage(g, { tone: 'info', cat: CAT[d.kind] ?? 'ops', title: `No answer: ${d.title}`, body: `Time ran out, so operations chose: ${opt?.label ?? id}.${r.msg ? ` ${r.msg}.` : ''}`, ref: d.ref });
+    pushMessage(g, { tone: 'info', cat: CAT[d.kind] ?? 'ops', title: `No answer: ${d.title}`, body: `Time ran out, so operations chose: ${opt?.label ?? id}.${endMsg(r.msg)}`, ref: d.ref });
     return;
   }
   const j = g.decisions.indexOf(d);

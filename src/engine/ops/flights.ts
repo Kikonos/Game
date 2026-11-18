@@ -13,7 +13,7 @@ import { pushMessage } from '../core/messages';
 import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, next, pick, range } from '../core/rng';
-import { DAY, fmtDateTime, fmtDuration, fmtTime, monthKey } from '../core/time';
+import { DAY, fmtDateTime, fmtDuration, fmtTime, monthKey, toDate } from '../core/time';
 const city = (code: string): string => AIRPORT_BY_CODE[code]?.city ?? code;
 import type { ActionResult, Aircraft, Contract, Duty, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, Rival, SimEvent, WorldEvent } from '../core/types';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -683,6 +683,45 @@ export function pickRival(g: GameState, typeId: string, legs: Flight[] = []): st
   return pool.length ? pick(g, pool).id : '';
 }
 
+/** Legs closer than this to departure can't be handed over any more (the rival needs to position). */
+export const SUB_LEAD = 6 * 60;
+
+/** v0.25 the rival's turn between our legs it flies. */
+const SUB_TURN = 60;
+
+/**
+ * v0.25 (ops-sub-instant) when a rival can fly legs handed over now: never before now + SUB_LEAD, nor before its
+ * aircraft can position from its base (2 h to get going plus the flight). The legs keep their order; one that would
+ * leave earlier moves to that time, and the next ones keep at least a turn after it. Pure: the new STDs by leg id.
+ */
+export function subcharterTimes(g: GameState, legs: Flight[], rivalId: string): Map<string, Minute> {
+  const out = new Map<string, Minute>();
+  const rev = legs.filter((f) => f.status === 'scheduled' && f.purpose !== 'delivery' && isRevenue(f)).sort((a, b) => a.std - b.std);
+  if (!rev.length) return out;
+  const r = g.rivals.find((x) => x.id === rivalId);
+  const typeId = rev[0].aircraftId && g.fleet[rev[0].aircraftId] ? g.fleet[rev[0].aircraftId].typeId : 'a320ceo';
+  const pos = r && AIRPORT_BY_CODE[r.base] && AIRPORT_BY_CODE[rev[0].from] && r.base !== rev[0].from ? 120 + blockMinutes(typeId, r.base, rev[0].from) : 0;
+  let t = g.now + Math.max(SUB_LEAD, pos);
+  let at = rev[0].from;
+  for (const f of rev) {
+    if (f.from !== at && AIRPORT_BY_CODE[at] && AIRPORT_BY_CODE[f.from]) t += blockMinutes(typeId, at, f.from) + SUB_TURN;
+    const std = Math.max(f.std, t);
+    if (std > f.std) out.set(f.id, std);
+    t = std + f.block + SUB_TURN;
+    at = f.to;
+  }
+  return out;
+}
+
+/** v0.25 the chip for a hand-over that waits for the rival: 'First leg ~6h 10m late' (none when it keeps its time). Pure. */
+export function subcharterLateChip(g: GameState, legs: Flight[], rivalId: string): string[] {
+  const times = subcharterTimes(g, legs, rivalId);
+  const first = [...legs].filter((f) => times.has(f.id)).sort((a, b) => a.std - b.std)[0];
+  if (!first) return [];
+  const late = times.get(first.id)! - (first.schedStd ?? first.std);
+  return late > 15 ? [`First leg ~${fmtDuration(late)} late`] : [];
+}
+
 /** Hands revenue legs to a rival (still billed to our client), drops the empty legs; posts the cost. */
 export function subcharterLegs(g: GameState, legs: Flight[], rivalId: string, cost: number, out?: { hit?: SubHit }): number {
   const live = legs.filter((f) => f.status === 'scheduled' && f.purpose !== 'delivery');
@@ -701,7 +740,17 @@ export function subcharterLegs(g: GameState, legs: Flight[], rivalId: string, co
     hit.byClient = hit.byClient.map(([id, d]) => [id, Math.round(d * k * 100) / 100]);
   }
   if (empty.length) removeFlights(g, empty.map((f) => f.id));
+  // v0.25 (ops-sub-instant) the rival is not there yet: a leg due before it can be moves to when it can fly it. The
+  // wait is ours (the client sees a late flight under our number), so the arrival counts it as our delay.
+  const times = subcharterTimes(g, rev, rivalId);
   if (rev.length) subcharterFlights(g, rev.map((f) => f.id), rivalId || 'rival');
+  for (const f of rev) {
+    const std = times.get(f.id);
+    if (std === undefined || f.status !== 'scheduled') continue;
+    f.schedStd ??= f.std;
+    f.delayReason = 'Sub-charter: the other operator positions its aircraft';
+    retimeFlight(g, f, std, std + f.block);
+  }
   if (cost) post(g, 'subcharter', -(cost - pre));
   if (pre) cashOnly(g, -pre);
   stats(g).subchartered += rev.length;
@@ -814,12 +863,27 @@ function pruneSubLog(g: GameState): void {
 // ---------- departure ----------
 
 const OPS_REASONS = ['ATC slot', 'Weather at destination', 'Late ground handling', 'Late passengers', 'Catering', 'Fuelling', 'Airport congestion'];
-const TECH_REASONS = ['Technical: bleed fault', 'Technical: brake temperature', 'Technical: pressurisation sensor', 'Technical: APU', 'Technical: cabin defect'];
+/** v0.25 the small things of a day on the ramp, any time and anywhere. */
+const CREW_LIFE_REASONS = ['Late passengers: one missing, bags offloaded', 'Wheelchair assistance late', 'Catering short-loaded', 'Refused boarding: a drunk passenger, bags offloaded'];
+/** v0.25 winter at the northern bases (from 45°N, November to March) and summer storms (June to August). */
+const WINTER_REASONS = ['Weather: de-icing, queue at the pad', 'Weather: snow clearance'];
+const SUMMER_REASONS = ['Weather: thunderstorms on the route'];
+
+/** v0.25 the delay reasons that fit the leg's airport and month (one pick from them, as before). Pure. */
+export function opsReasons(from: string | undefined, t: Minute): string[] {
+  const lat = (from && AIRPORT_BY_CODE[from]?.lat) || 0;
+  const m = toDate(t).getUTCMonth() + 1;
+  const winter = lat >= 45 && (m >= 11 || m <= 3);
+  const summer = m >= 6 && m <= 8;
+  return [...OPS_REASONS, ...CREW_LIFE_REASONS, ...(winter ? WINTER_REASONS : []), ...(summer ? SUMMER_REASONS : [])];
+}
+// v0.25 APU and bleed faults are dispatched under the MEL (Minimum Equipment List): a delay, not an AOG.
+const TECH_REASONS = ['Technical: bleed fault (MEL dispatch)', 'Technical: brake temperature', 'Technical: pressurisation sensor', 'Technical: APU inoperative (MEL), ground power needed', 'Technical: cabin defect'];
 
 function rollDelay(g: GameState, ac: Aircraft, f?: Flight): { min: number; reason: string } | null {
   if (chance(g, BAL.delayChance)) {
     const min = Math.min(BAL.delayCap, Math.max(5, Math.round(-BAL.delayMean * Math.log(1 - next(g)))));
-    return { min, reason: pick(g, OPS_REASONS) };
+    return { min, reason: pick(g, opsReasons(f?.from ?? ac.at, g.now)) };
   }
   // v0.19.4 the ETOPS twins' programmes (ops/etopsRel.ts): fewer defects at the gate.
   // v0.24 the preventive maintenance programme (ops/pm.ts): fewer defects at the gate.
@@ -1613,6 +1677,9 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
     f.ata = g.now;
     // v0.10.2 a rival flew our client's leg: dispatched on time when it left within 15 minutes of the schedule.
     if (f.operatedBy) noteDispatch(g, f);
+    // v0.25 a leg that waited for the rival to position is late under our flight number: the contract's rule applies.
+    const c = f.operatedBy && f.schedStd !== undefined && f.std > f.schedStd ? contractOf(g, f) : undefined;
+    if (c && isRevenue(f)) lateLeg(g, f, c);
     touchTickets(g);
     return;
   }

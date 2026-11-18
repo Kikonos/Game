@@ -85,13 +85,32 @@ describe('technical dispatch reliability (v0.10.2)', () => {
   it('a sub-chartered technical leg that leaves on time counts as dispatched on time (recovering well helps)', () => {
     calm();
     const g = newGame(10);
-    const [a] = legs(g);
+    // v0.25 a leg days ahead: the rival has time to position (a leg due sooner waits for it, see below).
+    const all = legs(g, 3);
+    const a = all[all.length - 1];
+    removeFlights(g, all.slice(0, -1).map((f) => f.id));
     a.tech = true;
     const rival = pickRival(g, owned(g).typeId, [a]);
+    const std = a.std;
     expect(subcharterLegs(g, [a], rival, 0)).toBe(1);
+    expect(a.std).toBe(std);
     skip(g, a.sta + 1);
     expect(a.status).toBe('done');
     expect(rec(g)).toEqual([1, 0]);
+  });
+
+  it('v0.25 a technical leg handed over at the last minute waits for the rival: a technical failure', () => {
+    calm();
+    const g = newGame(10);
+    const [a, ...rest] = legs(g);
+    removeFlights(g, rest.map((f) => f.id));
+    a.tech = true;
+    const rival = pickRival(g, owned(g).typeId, [a]);
+    expect(subcharterLegs(g, [a], rival, 0)).toBe(1);
+    expect(a.std).toBeGreaterThanOrEqual(g.now + 6 * 60);
+    skip(g, a.sta + 1);
+    expect(a.status).toBe('done');
+    expect(rec(g)).toEqual([1, 1]);
   });
 
   it('needs 30 departures in the window; one decimal, rounded down; the window drops old days', () => {

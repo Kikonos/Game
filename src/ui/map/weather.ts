@@ -9,6 +9,7 @@ import type { GameState, Minute, Ref } from '../../engine/core/types';
 import { hashUnit } from '../../engine/core/util';
 import { curfewEnd, inCurfew } from '../../engine/core/curfew';
 import { eventsOf, isLive } from '../../engine/ops/world';
+import { weatherAt } from '../../engine/ops/disrupt';
 
 export type WxKind = 'storm' | 'cloud' | 'curfew' | 'closed';
 
@@ -31,7 +32,10 @@ export const wxKindOf = (what: string): WxKind => (/fog|low cloud|calima|haze|du
 /** The weather text a diversion card picked for a flight (ops/disrupt.ts diversionCard, the same side-stream pick). */
 function weatherWhat(g: GameState, flightId: string): string {
   const r = hashUnit(`${g.seed}:ops:div:${flightId}:w`);
-  return WEATHER_CAUSES[Math.floor(r * WEATHER_CAUSES.length) % WEATHER_CAUSES.length];
+  // v0.25 the same season-and-place list the card picked from (the planned destination, the leg's departure).
+  const f = g.flights[flightId];
+  const xs = f ? weatherAt(f.div?.to0 ?? f.to, f.std) : WEATHER_CAUSES;
+  return xs[Math.floor(r * xs.length) % xs.length];
 }
 
 /** World-event templates that are weather (their mark is a storm or a haze, not a closed sign). */

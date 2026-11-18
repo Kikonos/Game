@@ -20,8 +20,9 @@ const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 export function disruptionLine(g: GameState): string {
   const c = g.opsx?.counts[yearOf(g.now)] ?? {};
   const parts: [string, string, number][] = [
-    ['diversion', 'diversions', (c.weatherDivert ?? 0) + (c.techDivert ?? 0) + (c.medicalDivert ?? 0) + (c.curfewDivert ?? 0)],
+    ['diversion', 'diversions', (c.weatherDivert ?? 0) + (c.techDivert ?? 0) + (c.medicalDivert ?? 0) + (c.curfewDivert ?? 0) + (c.unrulyDivert ?? 0)],
     ['medical emergency', 'medical emergencies', c.medical ?? 0],
+    ['disruptive passenger', 'disruptive passengers', c.unruly ?? 0],
     ['bird strike', 'bird strikes', c.birdStrike ?? 0],
     ['crew member sick away', 'crew sick away', c.sickAway ?? 0],
     ['ATC slot', 'ATC slots', c.ctot ?? 0],

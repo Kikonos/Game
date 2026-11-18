@@ -122,6 +122,31 @@ export const MEDICAL_EVENTS = [
   { what: 'A diabetic passenger is confused and getting worse', severe: false },
 ];
 
+/**
+ * v0.25 AOG faults at the gate, each with its own repair: hours with the part by courier at home, the cost of the part
+ * and the work ($), and how much of the outstation penalty a big airport (spares pools, MRO shops) takes off (1: none).
+ * APU and bleed faults are not here: they are dispatched under the MEL (a delay at the gate, ops/flights.ts).
+ */
+export const AOG_FAULTS: readonly { cause: string; hours: [number, number]; cost: [number, number]; bigStationFactor: number }[] = [
+  { cause: 'Brake wear beyond limits', hours: [4, 12], cost: [6_000, 12_000], bigStationFactor: 0.7 },
+  { cause: 'Tyre damage', hours: [3, 8], cost: [3_000, 8_000], bigStationFactor: 0.7 },
+  { cause: 'Hydraulic leak', hours: [6, 20], cost: [8_000, 25_000], bigStationFactor: 0.8 },
+  { cause: 'Avionics fault', hours: [6, 24], cost: [5_000, 30_000], bigStationFactor: 0.7 },
+  { cause: 'Cracked windshield', hours: [10, 30], cost: [25_000, 45_000], bigStationFactor: 0.9 },
+  { cause: 'IDG fault', hours: [10, 30], cost: [25_000, 60_000], bigStationFactor: 0.8 },
+  { cause: 'Fan blade damage from debris', hours: [24, 72], cost: [40_000, 120_000], bigStationFactor: 0.9 },
+  { cause: 'Ground damage by a tug', hours: [24, 96], cost: [50_000, 150_000], bigStationFactor: 1 },
+];
+
+/** v0.25 a disruptive passenger in flight (IATA: about 1 report in 500–600 flights; we ask on the serious ones). */
+export const UNRULY_EVENTS = [
+  { what: 'A drunk passenger is shouting at the crew and will not sit down', severe: false },
+  { what: 'A passenger was caught smoking in the toilet and is threatening the crew', severe: false },
+  { what: 'A passenger tried to open a door in flight and had to be restrained', severe: true },
+  { what: 'Two passengers are fighting in the aisle; one has a cut head', severe: true },
+  { what: 'A passenger hit a cabin crew member who refused to serve more alcohol', severe: true },
+];
+
 /** Departure slot (CTOT) causes: Eurocontrol ATFM delay reasons. */
 export const CTOT_CAUSES = [
   'ATC capacity in the upper airspace',
@@ -134,6 +159,30 @@ export const CTOT_CAUSES = [
 
 /** Weather that closes a destination for a while. */
 export const WEATHER_CAUSES = ['Fog below landing minimums', 'Thunderstorms over the airport', 'Crosswind over the limit', 'Snow on the runway being cleared', 'Low cloud and heavy rain'];
+
+/**
+ * v0.25 when and where each weather cause happens: months of the northern year (the southern half flips by six
+ * months) and the least |latitude|. Snow from November to March from 40°; fog in autumn and winter. A cause not
+ * listed happens anywhere, all year.
+ */
+const WEATHER_WHEN: Record<string, { months: number[]; minLat?: number }> = {
+  'Snow on the runway being cleared': { months: [11, 12, 1, 2, 3], minLat: 40 },
+  'Fog below landing minimums': { months: [9, 10, 11, 12, 1, 2, 3] },
+  'Thunderstorms over the airport': { months: [4, 5, 6, 7, 8, 9, 10] },
+};
+
+/** v0.25 the weather causes that fit an airport at `lat` in `month` (1–12), in WEATHER_CAUSES order. Pure. */
+export function weatherCausesAt(lat: number, month: number): string[] {
+  const m = lat < 0 ? ((month + 5) % 12) + 1 : month;
+  // The tropics have thunderstorms all year.
+  return WEATHER_CAUSES.filter((w) => {
+    const r = WEATHER_WHEN[w];
+    if (!r) return true;
+    if (r.minLat !== undefined && Math.abs(lat) < r.minLat) return false;
+    if (w.startsWith('Thunderstorms') && Math.abs(lat) < 23.5) return true;
+    return r.months.includes(m);
+  });
+}
 /** Technical reasons for a precautionary diversion. */
 export const TECH_CAUSES = ['A hydraulic system warning', 'An engine oil pressure warning', 'Smoke smell in the cabin', 'A pressurisation fault', 'A cracked cockpit window'];
 /** Turnaround slow-downs. */

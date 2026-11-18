@@ -1006,8 +1006,8 @@ export interface Flight {
 }
 
 /** v0.11 the live disruption cards (ops/disrupt.ts). */
-export type DisruptKind = 'ctot' | 'diversion' | 'medical' | 'birdStrike' | 'sickAway' | 'curfew' | 'turnaround';
-export type DisruptCause = 'weather' | 'medical' | 'technical';
+export type DisruptKind = 'ctot' | 'diversion' | 'medical' | 'birdStrike' | 'sickAway' | 'curfew' | 'turnaround' | /** v0.25 */ 'unruly';
+export type DisruptCause = 'weather' | 'medical' | 'technical' | /** v0.25 a disruptive passenger */ 'unruly';
 
 /** v0.7.1 private-jet charter classes (data/jets.ts). */
 /** v0.7.1 private-jet classes; 'long' (crew-planning round): Global 6000 / G650 / Falcon 8X, nonstop across an ocean. */

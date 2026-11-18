@@ -11,7 +11,7 @@ import type { Aircraft, GameState, Livery } from '../../engine/core/types';
 import { AircraftArt } from '../components/AircraftArt';
 import { mapLivery } from '../map/mapLogic';
 import { inkOf } from '../map/LiveLayers';
-import { silColour, silhouette, silSpec } from '../map/silhouettes';
+import { silhouette, silSpec } from '../map/silhouettes';
 import { Seg } from '../components/ui';
 import { store } from '../store';
 import { type HangarItem, hangarOrder, hangarScale, topScale } from './hangarLogic';
@@ -23,6 +23,16 @@ export interface HangarRow extends HangarItem {
   titles?: string;
   /** One quiet word on where it is ('LIS', 'Flying', 'Delivering'). */
   where: string;
+}
+
+/** v0.25 the rear share of the body painted in the tail colour, seen from above (the fin and the tailplane). */
+const TAIL_SHARE = 0.12;
+
+/** v0.25 a livery's colours seen from above: the fuselage (white when unpainted), the tail and the engine cowls. Pure. */
+export function topLivery(l: Livery): { body: string; tail: string; engines: string } {
+  if (l.plain) return { body: '#f4f6f9', tail: '#f4f6f9', engines: '#9aa3b2' };
+  const body = l.body?.color ?? '#f4f6f9';
+  return { body, tail: l.primary || body, engines: l.body?.engines ?? l.primary ?? body };
 }
 
 const WHERE: Partial<Record<Aircraft['status'], string>> = { flying: 'Flying', delivering: 'Delivering', leasedOut: 'Leased out', stored: 'Stored', maintenance: 'In the hangar', aog: 'AOG' };
@@ -81,6 +91,17 @@ export const HangarView = memo(function HangarView({ rows, k: key }: { rows: Han
   // after layout, since the rows wrap with the width.
   const lineRef = useRef<HTMLDivElement>(null);
   const [floors, setFloors] = useState<{ y: number; back: number }[]>([]);
+  // v0.25 measured again when the art arrives or a row reflows (the art loads after the first layout: the bands stood
+  // under the text, or outside the card).
+  const [grown, setGrown] = useState(0);
+  useLayoutEffect(() => {
+    const line = lineRef.current;
+    if (look !== 'side' || !line || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setGrown((n) => n + 1));
+    ro.observe(line);
+    for (const el of Array.from(line.querySelectorAll<HTMLElement>('.hg-art'))) ro.observe(el);
+    return () => ro.disconnect();
+  }, [look, key]);
   useLayoutEffect(() => {
     const line = lineRef.current;
     if (look !== 'side' || !line) return;
@@ -97,7 +118,7 @@ export const HangarView = memo(function HangarView({ rows, k: key }: { rows: Han
     }
     const next = tops.map((t, i) => ({ y: ys.get(t) ?? t, back: tops.length - 1 - i }));
     setFloors((cur) => (JSON.stringify(cur) === JSON.stringify(next) ? cur : next));
-  }, [look, width, key]);
+  }, [look, width, key, grown]);
   const setLook = (v: HangarLook) => { writeHangarLook(v); setLookState(v); };
   const open = (id: string) => store.navigate('fleet', { view: 'fleet', sel: { kind: 'aircraft', id } });
   const head = <div className="hg-head"><Seg<HangarLook> value={look} onChange={setLook} options={[{ value: 'top', label: 'From above' }, { value: 'side', label: 'Side' }]} /></div>;
@@ -111,14 +132,20 @@ export const HangarView = memo(function HangarView({ rows, k: key }: { rows: Han
         <div className="hg-floor">
           {top.map(({ r, d }) => {
             const sil = silhouette(r.typeId, Math.max(d.L, d.S) * kt);
-            const ink = inkOf(silColour(r.typeId));
+            // v0.25 each in its own livery: the fuselage colour, the tail colour on the rear of the body, the cowls.
+            const lv = topLivery(r.livery);
+            const ink = inkOf(lv.body);
+            const eng = inkOf(lv.engines);
             const w = d.S * kt;
             const h = d.L * kt;
+            const clip = `hg-tail-${r.id}`;
             return (
               <button key={r.id} className="hg-plane" onClick={() => open(r.id)} aria-label={`${r.reg}${r.name ? ` ${r.name}` : ''}, ${ACMI_TYPES[r.typeId]?.name ?? r.typeId}, ${d.L} m long, ${d.S} m span: open its card`}>
                 <svg width={w} height={h} viewBox={`${-w / 2} ${-h / 2} ${w} ${h}`} aria-hidden>
-                  <path d={sil.engines} fill={ink.eng} stroke={ink.edge} strokeWidth={1.2} strokeLinejoin="round" paintOrder="stroke" />
+                  <defs><clipPath id={clip}><rect x={-w / 2} y={h / 2 - h * TAIL_SHARE} width={w} height={h * TAIL_SHARE} /></clipPath></defs>
+                  <path d={sil.engines} fill={eng.fill} stroke={ink.edge} strokeWidth={1.2} strokeLinejoin="round" paintOrder="stroke" />
                   <path d={sil.body} fill={ink.fill} stroke={ink.edge} strokeWidth={1.4} strokeLinejoin="round" paintOrder="stroke" />
+                  {lv.tail !== lv.body && <path d={sil.body} fill={lv.tail} clipPath={`url(#${clip})`} />}
                   {sil.deck && <path d={sil.deck} fill={ink.deck} />}
                 </svg>
                 <span className="hg-tag"><b className="mono">{r.reg}</b>{r.name && <span className="hg-name ellipsis">{r.name}</span>}</span>

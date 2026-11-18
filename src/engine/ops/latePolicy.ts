@@ -13,7 +13,7 @@ export function delayOf(f: Flight): number {
 }
 
 /** Delays nobody at our end controls (ATC, weather, the client, the world). */
-export const NOT_OURS = /^(ATC|Weather|Late passengers|Airport congestion|Client|Landing permit|Waiting:|Closed:|Whiteout|Moved to|Medical|Night stop|Bird strike)/;
+export const NOT_OURS = /^(ATC|Weather|Late passengers|Airport congestion|Client|Landing permit|Waiting:|Closed:|Whiteout|Moved to|Medical|Night stop|Bird strike|Unruly passenger|Refused boarding)/;
 
 /** v0.12.1 the leg's delay reason is one we answer for. */
 export const isOurDelay = (f: Flight): boolean => !NOT_OURS.test(f.delayReason ?? '');

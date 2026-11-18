@@ -8,10 +8,11 @@
 // engine (holds at the gate run through fdpOver / crewProblem; continuation legs are crewed by the roster).
 
 import { AIRPORTS, AIRPORT_BY_CODE } from '../../data/airports';
-import { CTOT_CAUSES, CURFEWS, DISRUPT, ISLAND, MAINLAND_EU, MEDICAL_EVENTS, TECH_CAUSES, TURN_CAUSES, WEATHER_CAUSES } from '../../data/opsData';
+import { CTOT_CAUSES, CURFEWS, DISRUPT, ISLAND, MAINLAND_EU, MEDICAL_EVENTS, TECH_CAUSES, TURN_CAUSES, UNRULY_EVENTS, weatherCausesAt } from '../../data/opsData';
+import { authorityName } from './audit';
 import { addFlight, flightsOf, markFlightsChanged, nextId, removeFlights, touchFlights } from '../core/entities';
 import { haversine, interpolateGC } from '../core/geo';
-import { post } from '../core/ledger';
+import { invoice, post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { blockMinutes, fullLength, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
@@ -19,14 +20,14 @@ import { isolatePauses } from '../core/pause';
 import { hashUnit } from '../core/util';
 import { divPos } from '../core/query';
 import { clearOfCurfews, curfewEnd, inCurfew, movementOk } from '../core/curfew';
-import { DAY, dayStart, fmtDuration, fmtTime, localMinuteOfDay, toLocal, yearOf } from '../core/time';
+import { DAY, dayStart, fmtDuration, fmtTime, localMinuteOfDay, toDate, toLocal, yearOf } from '../core/time';
 import type { ActionResult, Aircraft, Decision, DecisionOption, DisruptCause, DisruptKind, Flight, GameState, MaintenanceEvent, Minute, OpsState, SimEvent } from '../core/types';
 import { bumpClient } from '../contracts/relations';
 import { afterDiversion, applyCrewFix, crewControl, flightCrewStatus, removeCrew, rerosterFrom } from '../crew';
 import { continuationFits, restedDeparture } from '../crew/duties';
 import { crewName } from '../crew/generate';
 import { emergencyFactor, OPS_LIVE, optionalFactor } from './director';
-import { applyHold, delayChain, delayOf, excuseGrowth, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLegs, unitOf, cancelLegs } from './flights';
+import { applyHold, delayChain, delayOf, excuseGrowth, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLateChip, subcharterLegs, unitOf, cancelLegs } from './flights';
 import { isSoft, localToUTC } from '../contracts/plan';
 import { relinkPositioning } from '../contracts/schedule';
 import { excusedLate, latePenalty } from './latePolicy';
@@ -54,12 +55,14 @@ export const RATES = {
   /** A crew member sick at the hotel away from base, per duty reporting away. */
   /** v0.17.2 halved (0.003): a same-day sick call at an outstation hotel is rare. */
   sickAway: 0.0015,
+  /** v0.25 a disruptive passenger serious enough to ask (the police, or a diversion), per revenue leg. */
+  unruly: 0.0003,
 };
 
 /** Decision kinds of this module (one open at a time). */
-export const DISRUPT_KINDS = new Set(['ctot', 'turnaround', 'curfew', 'diversion', 'medical', 'divertOnward', 'birdStrike', 'sickAway']);
+export const DISRUPT_KINDS = new Set(['ctot', 'turnaround', 'curfew', 'diversion', 'medical', 'divertOnward', 'birdStrike', 'sickAway', 'unruly']);
 /** The emergencies (2 HI); the rest are 1 HI. */
-export const EMERGENCY_KINDS = new Set(['diversion', 'medical', 'sickAway']);
+export const EMERGENCY_KINDS = new Set(['diversion', 'medical', 'sickAway', 'unruly']);
 
 // ---------- state ----------
 
@@ -92,6 +95,18 @@ const hm = (min: number) => fmtDuration(Math.max(0, Math.round(min)));
 /** Passengers on a leg: the booked count, else (ACMI: the client's load) about 85 % of the seats. */
 const paxOf = (g: GameState, f: Flight) => f.pax ?? Math.round((f.aircraftId ? g.fleet[f.aircraftId]?.cabin.total ?? 0 : 0) * 0.85);
 const ROLE_WORD: Record<string, string> = { CPT: 'captain', FO: 'first officer', PUR: 'purser', CC: 'cabin crew member' };
+
+/**
+ * v0.25 the crew member on board in a role, named: 'Purser Rita Teixeira' ('the purser' when nobody is listed). The
+ * lead cabin crew stands in for a purser on a crew without one. `cap` starts the sentence ('The purser'). Pure.
+ */
+export function onBoard(g: GameState, f: Flight, role: 'CPT' | 'PUR', cap = false): string {
+  const crew = f.crewIds.map((id) => g.crew[id]).filter((c) => !!c);
+  const c = crew.find((x) => x.role === role) ?? (role === 'PUR' ? crew.find((x) => x.role === 'CC') : undefined);
+  const word = ROLE_WORD[role];
+  if (!c) return `${cap ? 'The' : 'the'} ${word}`;
+  return `${word.charAt(0).toUpperCase()}${word.slice(1)} ${crewName(c)}`;
+}
 const isCharter = (g: GameState, f: Flight) => contractOf(g, f)?.product.kind === 'charter' || !f.contractId;
 
 /** One disruption card open already (the queue: never two at once). */
@@ -543,17 +558,21 @@ export function rollEnRoute(g: GameState, f: Flight, ac: Aircraft): void {
   const pW = RATES.weather * optionalFactor(g);
   const pM = RATES.medical * em * Math.max(0.5, paxOf(g, f) / 180);
   const pT = RATES.technical * em * age;
+  // v0.25 a band after the others: their thresholds stay where they were.
+  const pU = RATES.unruly * em;
   const r = roll(g, key);
   let kind: DisruptCause | null = null;
   if (r < pW) kind = 'weather';
   else if (r < pW + pM) kind = 'medical';
   else if (r < pW + pM + pT) kind = 'technical';
+  else if (r < pW + pM + pT + pU) kind = 'unruly';
   if (!kind) return;
   const eta = f.eta ?? f.sta;
   const at = kind === 'weather' ? Math.max(g.now + 20, eta - 25) : g.now + Math.round((eta - g.now) * (0.2 + 0.6 * roll(g, `${key}:t`)));
   const id = nextId(g, 'op');
-  opsState(g).pending[id] = { kind: kind === 'medical' ? 'medical' : 'diversion', flightId: f.id, t: at, cause: kind };
-  f.ops = kind === 'medical' ? 'medical' : 'diversion';
+  const pk: DisruptKind = kind === 'medical' || kind === 'unruly' ? kind : 'diversion';
+  opsState(g).pending[id] = { kind: pk, flightId: f.id, t: at, cause: kind };
+  f.ops = pk;
   schedule(g, at, 'ops.event', id);
 }
 
@@ -570,6 +589,7 @@ export function onOpsEvent(g: GameState, ev: SimEvent): void {
   if (!ac) return;
   const cause: DisruptCause = p.cause ?? (p.kind === 'medical' ? 'medical' : 'weather');
   if (cause === 'medical') medicalCard(g, f, ac);
+  else if (cause === 'unruly') unrulyCard(g, f, ac);
   else diversionCard(g, f, ac, cause);
 }
 
@@ -586,13 +606,14 @@ function diversionCard(g: GameState, f: Flight, ac: Aircraft, cause: 'weather' |
     alts.length = Math.min(alts.length, 3);
   }
   if (!alts.length) return;
-  const what = cause === 'weather' ? pickOf(g, `${key}:w`, WEATHER_CAUSES) : pickOf(g, `${key}:t`, TECH_CAUSES);
+  // v0.25 the weather of the season and the place (no snow at Riga in September, nor at Tenerife ever): one roll.
+  const what = cause === 'weather' ? pickOf(g, `${key}:w`, weatherAt(f.to, f.std)) : pickOf(g, `${key}:t`, TECH_CAUSES);
   const pax = paxOf(g, f);
   const opts: DecisionOption[] = alts.map((o) => ({ id: `alt:${o.code}`, label: o.code === f.from ? `Return to ${city(o.code)} (${o.code})` : altLabel(o), desc: `${AIRPORT_BY_CODE[o.code]?.name ?? o.code}: ${o.station === 'ours' ? 'our engineers and handling' : o.station === 'full' ? 'a full-service handler, hotels nearby' : 'handling at short notice, dearer'}.`, tone: o.station === 'adhoc' ? 'warn' : 'good', chips: altChips(o, f.to) }));
   if (cause === 'weather') opts.unshift({ id: 'hold', label: 'Hold for 30 minutes', desc: 'Circle and wait for the weather to lift; fuel for about 40 minutes of holding. If it does not, divert to the first alternate.', tone: 'warn', chips: ['Half the time it clears', '30 min more'] });
   raise(g, {
     kind: 'diversion', title: cause === 'weather' ? `${f.no}: ${city(f.to)} closed by weather` : `${f.no}: technical problem en route`,
-    body: cause === 'weather' ? `${what} at ${city(f.to)}. ${ac.reg} must hold or divert.` : `${what} on ${ac.reg}. The captain wants to land at the nearest suitable airport.`,
+    body: cause === 'weather' ? `${what} at ${city(f.to)}. ${onBoard(g, f, 'CPT', true)} must hold or divert ${ac.reg}.` : `${what} on ${ac.reg}. ${onBoard(g, f, 'CPT', true)} wants to land at the nearest suitable airport.`,
     options: opts, defaultOption: opts.find((o) => o.id.startsWith('alt:'))!.id, expires: g.now + 15, ref: { kind: 'flight', id: f.id },
     data: { flightId: f.id, cause, causeText: what, ...cardData(cause === 'weather' ? `${f.no} cannot land at ${city(f.to)}` : `${f.no} has a technical problem in flight`, cause === 'weather' ? `${what}; the destination is below the landing limits.` : `${what}; the checklist says land at the nearest suitable airport.`, `${pax} passengers to look after${cause === 'technical' && isCharter(g, f) ? ', compensation if over 3 h late (EU261)' : ''}`, 0, pax, 120) },
   }, { optional: cause === 'weather' });
@@ -609,12 +630,68 @@ function medicalCard(g: GameState, f: Flight, ac: Aircraft): void {
   for (const o of alts) opts.push({ id: `alt:${o.code}`, label: altLabel(o), desc: `${AIRPORT_BY_CODE[o.code]?.name ?? o.code}: paramedics meet the aircraft; about ${DISRUPT.medicalGround} min on the ground, then on to ${city(f.to)}.`, tone: 'good', chips: altChips(o, f.to) });
   const best = alts[0];
   const def = !best || left <= 50 || !ev.severe ? 'continue' : `alt:${best.code}`;
+  // v0.25 nowhere to divert to in time: nothing to decide, so no card and no pause. One line, and the flight carries on.
+  if (opts.length === 1) {
+    countOps(g, 'medical');
+    pushMessage(g, { tone: 'warn', cat: 'ops', title: `${f.no}: medical emergency on board`, body: `${ev.what}. ${onBoard(g, f, 'PUR', true)} called for a doctor on board; with no airport nearer, ${onBoard(g, f, 'CPT')} continues to ${city(f.to)} (${hm(left)}), where an ambulance meets the aircraft.`, ref: { kind: 'flight', id: f.id } });
+    medicalContinue(g, f, ev.severe);
+    return;
+  }
   raise(g, {
     kind: 'medical', title: `${f.no}: medical emergency on board`,
-    body: `${ev.what}. The purser called for a doctor; the captain is talking to the medical service on the ground.`,
+    body: `${ev.what}. ${onBoard(g, f, 'PUR', true)} called for a doctor on board; ${onBoard(g, f, 'CPT')} is talking to MedLink, the doctors on the ground.`,
     options: opts, defaultOption: def, expires: g.now + 10, ref: { kind: 'flight', id: f.id },
     data: { flightId: f.id, severe: ev.severe, what: ev.what, ...cardData(`A passenger on ${f.no} needs a hospital`, `${ev.what}.`, ev.severe ? 'A life may depend on it; a diversion costs time and money, never a penalty' : 'Probably stable; the doctor on board is helping', 0, paxOf(g, f), ev.severe ? 90 : 0) },
   }, { optional: false });
+}
+
+/**
+ * v0.25 a disruptive passenger: carry on and have the police meet the aircraft (a report to the authority), or divert
+ * and offload them (handling and fuel now; half is billed back to the passenger later). Modelled on medicalCard.
+ */
+function unrulyCard(g: GameState, f: Flight, ac: Aircraft): void {
+  const key = `unruly:${f.id}`;
+  const ev = pickOf(g, `${key}:e`, UNRULY_EVENTS);
+  const P = legPos(f, g.now);
+  const left = Math.max(5, (f.eta ?? f.sta) - g.now);
+  const alts = alternates(g, ac, P, f.to, 500, 2).filter((o) => o.min < left - 10);
+  const auth = authorityName(g);
+  const opts: DecisionOption[] = [];
+  opts.push({ id: 'continue', label: `Continue; police meet the aircraft`, desc: `${hm(left)} to ${city(f.to)}. The crew keep the passenger seated, restrained if need be; a report goes to ${auth}.`, tone: ev.severe && left > 60 ? 'warn' : 'good', chips: [`${hm(left)} to go`, 'No extra cost', 'Report filed'] });
+  for (const o of alts) opts.push({ id: `alt:${o.code}`, label: `Divert and offload at ${city(o.code)}`, desc: `${AIRPORT_BY_CODE[o.code]?.name ?? o.code}: the police take the passenger off; about an hour on the ground, then on to ${city(f.to)}. Half the cost is billed to the passenger.`, tone: ev.severe ? 'good' : 'warn', chips: altChips(o, f.to).slice(0, 3) });
+  const def = ev.severe && left > 60 && alts.length ? `alt:${alts[0].code}` : 'continue';
+  // Nowhere to divert to in time: no card; the police meet the aircraft.
+  if (opts.length === 1) {
+    countOps(g, 'unruly');
+    pushMessage(g, { tone: 'warn', cat: 'ops', title: `${f.no}: disruptive passenger`, body: `${ev.what}. With no airport nearer, ${onBoard(g, f, 'CPT')} continues to ${city(f.to)} (${hm(left)}); the police meet the aircraft and a report goes to ${auth}.`, ref: { kind: 'flight', id: f.id } });
+    return;
+  }
+  raise(g, {
+    kind: 'unruly', title: `${f.no}: disruptive passenger`,
+    body: `${ev.what}. ${onBoard(g, f, 'PUR', true)} has asked ${onBoard(g, f, 'CPT')} to decide.`,
+    options: opts, defaultOption: def, expires: g.now + 10, ref: { kind: 'flight', id: f.id },
+    data: { flightId: f.id, severe: ev.severe, what: ev.what, ...cardData(`A passenger on ${f.no} is a danger to the flight`, `${ev.what}.`, ev.severe ? 'The crew and the other passengers are at risk' : 'The crew can probably hold them until landing', 0, paxOf(g, f), ev.severe ? 60 : 0) },
+  }, { optional: false });
+}
+
+function resolveUnruly(g: GameState, d: Decision, opt: string): ActionResult {
+  const f = g.flights[String(d.data?.flightId)];
+  if (!f || f.status !== 'enroute') return { ok: true, msg: 'The flight has landed' };
+  if (opt === 'continue') {
+    pushMessage(g, { tone: 'info', cat: 'ops', cue: null, title: `${f.no}: police met the aircraft`, body: `The police took the passenger off in ${city(f.to)}. ${cap1(onBoard(g, f, 'PUR'))} filed the report to ${authorityName(g)}.`, ref: { kind: 'flight', id: f.id } });
+    return { ok: true, msg: `${f.no} continues to ${city(f.to)}; police meet it` };
+  }
+  if (!opt.startsWith('alt:')) return { ok: false, error: 'Unknown option' };
+  divertNow(g, f, opt.slice(4), 'unruly');
+  return { ok: true, msg: `${f.no} diverts to ${city(opt.slice(4))} to offload the passenger` };
+}
+
+const cap1 = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** v0.25 the weather causes that fit an airport at a time (the month at its latitude). Pure. */
+export function weatherAt(code: string, t: Minute): string[] {
+  const xs = weatherCausesAt(AIRPORT_BY_CODE[code]?.lat ?? 45, toDate(t).getUTCMonth() + 1);
+  return xs.length ? xs : ['Low cloud and heavy rain'];
 }
 
 /** Turns an airborne leg to `alt` now (the map turns it from where it is). */
@@ -637,7 +714,7 @@ export function divertNow(g: GameState, f: Flight, alt: string, cause: DisruptCa
   f.ev++;
   schedule(g, f.eta, 'flight.arr', f.id, f.ev);
   touchFlights(g);
-  countOps(g, cause === 'medical' ? 'medicalDivert' : cause === 'technical' ? 'techDivert' : 'weatherDivert');
+  countOps(g, cause === 'medical' ? 'medicalDivert' : cause === 'technical' ? 'techDivert' : cause === 'unruly' ? 'unrulyDivert' : 'weatherDivert');
   pushMessage(g, {
     tone: 'warn', cat: 'ops', title: `${f.no} diverting to ${city(alt)}`, cue: null,
     body: `${ac.reg} turned for ${alt} (planned ${f.div.to0}); on blocks about ${fmtTime(f.eta)} UTC.`, ref: { kind: 'flight', id: f.id },
@@ -667,22 +744,29 @@ function resolveDiversion(g: GameState, d: Decision, opt: string): ActionResult 
   return { ok: true, msg: `${f.no} diverts to ${city(opt.slice(4))}` };
 }
 
+/**
+ * The flight carries on with its sick passenger. A severe case far from the destination fares worse more often: when
+ * we chose not to divert (`chosen`), the press asks why (clean name, the client); with nowhere to divert, nobody does.
+ */
+function medicalContinue(g: GameState, f: Flight, severe: boolean, chosen = false): void {
+  const left = (f.eta ?? f.sta) - g.now;
+  const c = contractOf(g, f);
+  const bad = chosen && severe && left > 60 && roll(g, `medbad:${f.id}`) < 0.35;
+  if (!bad) return;
+  const r = g.company.reputation;
+  r.clean = Math.max(0, r.clean - 3);
+  bumpClient(g, c?.clientId, -3, `A passenger on ${f.no} was not diverted for`);
+  countOps(g, 'medicalBad');
+  pushMessage(g, { tone: 'bad', cat: 'ops', title: `${f.no}: the passenger was in a bad way on arrival`, body: `The flight continued ${hm(left)} to ${city(f.to)}. The papers ask why it did not divert. Clean name −3, client relation −3.`, ref: { kind: 'flight', id: f.id }, problem: { kind: 'disruption', ref: { kind: 'flight', id: f.id } }, hurt: { money: 0, pax: 1, delayMin: 0, level: 'high' } });
+}
+
 function resolveMedical(g: GameState, d: Decision, opt: string): ActionResult {
   const f = g.flights[String(d.data?.flightId)];
   if (!f || f.status !== 'enroute') return { ok: true, msg: 'The flight has landed' };
   const severe = !!d.data?.severe;
   const c = contractOf(g, f);
   if (opt === 'continue') {
-    const left = (f.eta ?? f.sta) - g.now;
-    // A severe case far from the destination: the outcome is worse more often (press, clean name, the client).
-    const bad = severe && left > 60 && roll(g, `medbad:${f.id}`) < 0.35;
-    if (bad) {
-      const r = g.company.reputation;
-      r.clean = Math.max(0, r.clean - 3);
-      bumpClient(g, c?.clientId, -3, `A passenger on ${f.no} was not diverted for`);
-      countOps(g, 'medicalBad');
-      pushMessage(g, { tone: 'bad', cat: 'ops', title: `${f.no}: the passenger was in a bad way on arrival`, body: `The flight continued ${hm(left)} to ${city(f.to)}. The papers ask why it did not divert. Clean name −3, client relation −3.`, ref: { kind: 'flight', id: f.id }, problem: { kind: 'disruption', ref: { kind: 'flight', id: f.id } }, hurt: { money: 0, pax: 1, delayMin: 0, level: 'high' } });
-    }
+    medicalContinue(g, f, severe, true);
     return { ok: true, msg: `${f.no} continues to ${city(f.to)}` };
   }
   if (!opt.startsWith('alt:')) return { ok: false, error: 'Unknown option' };
@@ -709,7 +793,7 @@ export function onDivertedArrival(g: GameState, f: Flight): void {
   const to0 = f.div.to0;
   const cause = f.div.cause;
   const alt = f.to;
-  const pax = Math.max(0, paxOf(g, f) - (cause === 'medical' ? 2 : 0));
+  const pax = Math.max(0, paxOf(g, f) - (cause === 'medical' ? 2 : cause === 'unruly' ? 1 : 0));
   const charter = isCharter(g, f);
   const t = typeOf(ac.typeId);
   const block = blockMinutes(ac.typeId, alt, to0);
@@ -721,8 +805,21 @@ export function onDivertedArrival(g: GameState, f: Flight): void {
     post(g, 'disruption', -handlingAt(ac, station));
     post(g, 'fuel', -Math.round((extra / 60) * t.fuelTBH * g.market.fuelPrice));
   }
-  if (cause === 'medical') post(g, 'disruption', -1_500);
-  const ground = cause === 'medical' ? DISRUPT.medicalGround : cause === 'weather' ? span(g, `wx:${f.id}`, [60, 180]) : 0;
+  if (cause === 'medical') {
+    post(g, 'disruption', -1_500);
+    // v0.25 the story closes: one quiet line.
+    pushMessage(g, { tone: 'info', cat: 'ops', cue: null, title: `${f.no}: the passenger is in hospital`, body: `The passenger was taken to hospital in ${city(alt)}. The crew filed their report.`, ref: { kind: 'flight', id: f.id } });
+  }
+  if (cause === 'unruly') {
+    // v0.25 the diversion's cost (handling, fuel, the police call-out): half is billed to the passenger, paid months later.
+    const extra = Math.max(0, (f.ata ?? g.now) - (f.div.eta0 ?? g.now)) + 30;
+    // Handling and fuel are ours on a charter (posted above); the client pays them on an ACMI leg.
+    const cost = (charter ? handlingAt(ac, station) + Math.round((extra / 60) * t.fuelTBH * g.market.fuelPrice) : 0) + 1_000;
+    post(g, 'disruption', -1_000);
+    invoice(g, { clientId: '', contractId: null, desc: `${f.no}: half the diversion to offload a disruptive passenger`, amount: Math.round(cost / 2 / 100) * 100, cat: 'otherRevenue', dueDays: 90 });
+    pushMessage(g, { tone: 'info', cat: 'ops', cue: null, title: `${f.no}: the passenger was offloaded`, body: `The police took the passenger off in ${city(alt)}. A report went to ${authorityName(g)}; we bill the passenger half the cost.`, ref: { kind: 'flight', id: f.id } });
+  }
+  const ground = cause === 'medical' ? DISRUPT.medicalGround : cause === 'unruly' ? 60 : cause === 'weather' ? span(g, `wx:${f.id}`, [60, 180]) : 0;
   // Technical: the aircraft stays for an inspection and a fix by a local contractor.
   let fixEnd = g.now;
   if (cause === 'technical') {
@@ -739,7 +836,7 @@ export function onDivertedArrival(g: GameState, f: Flight): void {
   const next = flightsOf(g, ac.id).find((x) => x.status === 'scheduled' && x.from === to0 && x.std >= (f.schedStd ?? f.std));
   const opts: DecisionOption[] = [];
   if (cause !== 'technical' || fixEnd < g.now + 6 * 60) {
-    opts.push({ id: 'flyOn', label: `Fly on to ${place(to0)} ${cause === 'technical' ? 'after the fix' : 'today'}`, desc: `Refuel, ${cause === 'weather' ? 'wait for the weather to lift' : cause === 'medical' ? 'hand the patient to the ambulance' : 'fix it'}, then ${hm(block)} to ${to0}.`, tone: 'good', chips: [`Off ${fmtTime(flyAt)} UTC`, sameCrew ? 'Same crew, within their day' : 'Crew out of hours: a fresh crew', charter ? usd(-(2 * DISRUPT.mealPax * pax)) : 'Client pays fuel'] });
+    opts.push({ id: 'flyOn', label: `Fly on to ${place(to0)} ${cause === 'technical' ? 'after the fix' : 'today'}`, desc: `Refuel, ${cause === 'weather' ? 'wait for the weather to lift' : cause === 'medical' ? 'hand the patient to the ambulance' : cause === 'unruly' ? 'hand the passenger to the police' : 'fix it'}, then ${hm(block)} to ${to0}.`, tone: 'good', chips: [`Off ${fmtTime(flyAt)} UTC`, sameCrew ? 'Same crew, within their day' : 'Crew out of hours: a fresh crew', charter ? usd(-(2 * DISRUPT.mealPax * pax)) : 'Client pays fuel'] });
   }
   if (road <= 450) opts.push({ id: 'bus', label: 'Coach the passengers', desc: `${Math.ceil(Math.max(1, pax) / 50)} coaches, ${road} km to ${place(to0)}. The aircraft repositions empty.`, chips: [charter ? usd(-coachCost(pax, road)) : 'Client pays the coaches', `~${hm((road / 70) * 60 + 45)} by road`, 'Relation −1'] });
   // v0.12.1 (review) who really flies it then (tried on a copy): our crew after their rest, or a fresh crew and its cost.
@@ -770,7 +867,7 @@ export function onDivertedArrival(g: GameState, f: Flight): void {
     // v0.12.1 decided before the crew's duty ends at release (timed out at release, the crew had gone off and the
     // "Same crew" default left the onward leg uncrewed: seed 6 DBB393).
     options: opts, defaultOption: def, expires: Math.max(g.now + 10, Math.min(g.now + 30, (f.dutyId ? g.duties[f.dutyId]?.release ?? Infinity : Infinity) - 5)), ref: { kind: 'flight', id: f.id },
-    data: { flightId: f.id, to0, alt, cause, pax, roadKm: Number.isFinite(road) ? road : 0, flyAt, morning, block, ...cardData(`${pax} passengers are in ${place(alt)}, not ${place(to0)}`, cause === 'weather' ? 'The weather closed the destination.' : cause === 'medical' ? 'We landed for a sick passenger.' : 'A technical problem made us land.', `${pax} passengers at least ${hm(late)} late${cause === 'technical' && isCharter(g, f) ? '; EU261 compensation over 3 h' : ''}`, 0, pax, late) },
+    data: { flightId: f.id, to0, alt, cause, pax, roadKm: Number.isFinite(road) ? road : 0, flyAt, morning, block, ...cardData(`${pax} passengers are in ${place(alt)}, not ${place(to0)}`, cause === 'weather' ? 'The weather closed the destination.' : cause === 'medical' ? 'We landed for a sick passenger.' : cause === 'unruly' ? 'We landed to offload a disruptive passenger.' : 'A technical problem made us land.', `${pax} passengers at least ${hm(late)} late${cause === 'technical' && isCharter(g, f) ? '; EU261 compensation over 3 h' : ''}`, 0, pax, late) },
   }, { optional: false });
 }
 
@@ -856,7 +953,7 @@ function resolveOnward(g: GameState, d: Decision, opt: string): ActionResult {
   const block = Number(d.data?.block ?? blockMinutes(ac.typeId, alt, to0));
   // v0.12.1 decided: the planner may plan the aircraft's next move again (relinkPositioning waits while it is open).
   f.div.settled = true;
-  const why = cause === 'technical' ? 'Technical: diversion' : cause === 'medical' ? 'Medical diversion' : 'Weather: diversion';
+  const why = cause === 'technical' ? 'Technical: diversion' : cause === 'medical' ? 'Medical diversion' : cause === 'unruly' ? 'Unruly passenger: diversion' : 'Weather: diversion';
   const cont = (std: Minute) => onwardLeg(g, f, ac, alt, to0, std, block, pax, why);
   const comp = () => {
     // EU261: a technical diversion is ours (not extraordinary; C-549/07): 3 h+ late on a charter we operate.
@@ -936,7 +1033,7 @@ export function rollBirdStrike(g: GameState, f: Flight, ac: Aircraft): void {
   const def = own ? 'own' : next && next.std < g.now + ownMin ? 'local' : 'own';
   raise(g, {
     kind: 'birdStrike', title: `Bird strike: ${ac.reg} at ${city(at)}`,
-    body: `${f.no} hit birds on the approach to ${at}. The crew wrote it up; it needs an inspection (engines, leading edges, radome) before the next flight.`,
+    body: `${f.no} hit birds on the approach to ${at}. ${onBoard(g, f, 'CPT', true)} wrote it up in the tech log; it needs an inspection (engines, leading edges, radome) before the next flight.`,
     options: opts, defaultOption: def, expires: g.now + 30, ref: { kind: 'aircraft', id: ac.id },
     data: { aircraftId: ac.id, at, ownMin, localMin, own, morning, ...cardData(`${ac.reg} hit birds and needs an inspection`, 'A bird strike must be inspected before the next flight; usually nothing, sometimes a damaged fan blade.', next ? `${next.no} at ${fmtTime(next.std)} UTC waits for it` : 'Nothing waits for it yet', 0, next ? paxOf(g, next) : 0, Math.max(0, g.now + (def === 'local' ? localMin : ownMin) - (next?.std ?? Infinity))) },
   }, { optional: false });
@@ -1040,11 +1137,11 @@ function sickCall(g: GameState, dutyId: string): void {
   if (cabinOnly) opts.push({ id: 'minCrew', label: 'Fly one cabin crew short', desc: `Allowed when unforeseen, for this flight only (ORO.CC.205(c)): at most 50 passengers per cabin crew member, ${maxPax} today; a report goes to the authority.`, tone: offload ? 'warn' : 'good', chips: [offload ? `${offload} passengers offloaded` : 'No one offloaded', !offload ? 'On time' : isCharter(g, f) ? usd(-offload * (eu261(f.from, f.to) + 150)) : 'Client rebooks them: relation −2', 'Report filed'] });
   for (const x of sols) opts.push({ id: `fix:${x.id}`, label: x.id === 'callIn' ? 'Call in standby crew' : x.id === 'jet' ? 'Charter a jet with a replacement' : x.id === 'delay' ? 'Wait for a replacement' : 'Fly a replacement in', desc: x.desc, tone: 'good', chips: x.chips.slice(0, 3) });
   opts.push({ id: 'crewControl', label: 'Let crew control sort it', desc: 'The flight waits at the gate and Crew Control shows every way to fix it.', chips: ['Decide at the gate'] });
-  opts.push({ id: 'subcharter', label: 'Sub-charter the trip', desc: 'A rival flies these legs; we still bill the client.', tone: 'warn', chips: [usd(-subcharterCost(g, unitOf(g, ac, f), 1.5))] });
+  opts.push({ id: 'subcharter', label: 'Sub-charter the trip', desc: 'A rival flies these legs; we still bill the client.', tone: 'warn', chips: [usd(-subcharterCost(g, unitOf(g, ac, f), 1.5)), ...subcharterLateChip(g, unitOf(g, ac, f), '')] });
   const def = cabinOnly && !offload ? 'minCrew' : sol ? `fix:${sol.id}` : 'crewControl';
   raise(g, {
     kind: 'sickAway', title: `${crewName(c)} called in sick in ${city(f.from)}`,
-    body: `${crewName(c)} (${ROLE_WORD[slot.role]}) can't fly ${f.no} ${f.from}–${f.to} at ${fmtTime(f.std)} UTC: sick at the hotel for about ${days} days.`,
+    body: `${crewName(c)} (${ROLE_WORD[slot.role]}) can't fly ${f.no} ${f.from}–${f.to} at ${fmtTime(f.std)} UTC: sick at the hotel for about ${days} day${days === 1 ? '' : 's'}.`,
     options: opts, defaultOption: def, expires: Math.max(g.now + 30, Math.min(f.std - 30, g.now + 90)), ref: { kind: 'flight', id: f.id },
     data: { flightId: f.id, crewId: c.id, offload, fix: sol?.id ?? '', ...cardData(`${f.no} is one ${ROLE_WORD[slot.role]} short in ${city(f.from)}`, `${crewName(c)} is sick at the hotel, away from base.`, `${paxOf(g, f)} passengers at ${fmtTime(f.std)} UTC`, 0, paxOf(g, f), 0) },
   }, { optional: false });
@@ -1127,7 +1224,7 @@ export function delayCard(g: GameState, f: Flight, ac: Aircraft, d: { min: numbe
 
 /** A diversion or medical card still open when the leg would land: it holds (circles) 10 minutes more. */
 export function holdingForDecision(g: GameState, f: Flight): boolean {
-  if (!g.decisions.some((d) => (d.kind === 'diversion' || d.kind === 'medical') && d.data?.flightId === f.id)) return false;
+  if (!g.decisions.some((d) => (d.kind === 'diversion' || d.kind === 'medical' || d.kind === 'unruly') && d.data?.flightId === f.id)) return false;
   f.eta = g.now + 10;
   f.sta = Math.max(f.sta, f.eta);
   f.ev++;
@@ -1142,6 +1239,7 @@ export const DISRUPT_RESOLVERS: Record<string, (g: GameState, d: Decision, opt: 
   curfew: resolveCurfew,
   diversion: resolveDiversion,
   medical: resolveMedical,
+  unruly: resolveUnruly,
   divertOnward: resolveOnward,
   birdStrike: resolveBird,
   sickAway: resolveSickAway,
@@ -1159,6 +1257,7 @@ export function devDisruption(g: GameState, kind: DisruptKind | 'onward' | 'tech
       case 'diversion': if (f.status === 'enroute') diversionCard(g, f, ac, 'weather'); break;
       case 'technical': if (f.status === 'enroute') diversionCard(g, f, ac, 'technical'); break;
       case 'medical': if (f.status === 'enroute') medicalCard(g, f, ac); break;
+      case 'unruly': if (f.status === 'enroute') unrulyCard(g, f, ac); break;
       case 'birdStrike': rollBirdStrike(g, f, ac); break;
       case 'curfew': curfewCard(g, f, ac); break;
       case 'ctot': ctotCard(g, f, ac); break;

@@ -10,7 +10,9 @@ import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
 import { fixture } from '../fixtures/compatKit';
 import { afterOfferDays, busyShare, director, isQuiet, newDirector, PACE_SPELLS, quietShare, setPace, spellAt } from './director';
-import { devDisruption, DISRUPT_KINDS, inCurfew, opsState, raise } from './disrupt';
+import { devDisruption, DISRUPT_KINDS, EMERGENCY_KINDS, inCurfew, onBoard, opsState, raise } from './disrupt';
+import { authorityName } from './audit';
+import { isOurDelay } from './latePolicy';
 import { inspect, rampYear } from './ramp';
 import { approvalsSuspended, dailyAudit, runAudit, startAuditTask } from './audit';
 import { approvalBlocker, resolveDecision } from './index';
@@ -213,6 +215,86 @@ describe('disruptions', () => {
     expect(resolveDecision(g, d.id, alt.id).ok).toBe(true);
     expect(f.div?.cause).toBe('medical');
     if (d.data?.severe) expect(g.company.reputation.clean).toBeGreaterThan(clean0);
+  });
+
+  it('v0.25 the medical card names the purser and the captain on board; a medical diversion closes with one quiet line', () => {
+    const { g, legs } = charter(7);
+    const f = legs[0];
+    airborne(g, f);
+    expect(devDisruption(g, 'medical', f.id)).toBe(true);
+    const d = g.decisions.find((x) => x.kind === 'medical')!;
+    const cpt = f.crewIds.map((id) => g.crew[id]).find((c) => c?.role === 'CPT')!;
+    const pur = f.crewIds.map((id) => g.crew[id]).find((c) => c?.role === 'PUR' || c?.role === 'CC')!;
+    expect(d.body).toContain(`Captain ${cpt.first} ${cpt.last}`);
+    expect(d.body).toContain(`${pur.role === 'PUR' ? 'Purser' : 'Cabin crew member'} ${pur.first} ${pur.last}`);
+    expect(d.body).not.toMatch(/\bthe captain\b/);
+    const alt = d.options.find((o) => o.id.startsWith('alt:'))!;
+    resolveDecision(g, d.id, alt.id);
+    skip(g, (f.eta ?? f.sta) + 1);
+    const m = g.messages.find((x) => x.title === `${f.no}: the passenger is in hospital`);
+    expect(m?.body).toMatch(/^The passenger was taken to hospital in .+\. The crew filed their report\.$/);
+  });
+
+  it('v0.25 disruptive passenger: continue and the police meet it, a report to the authority; no cost', () => {
+    const { g, legs } = charter(7);
+    const f = legs[0];
+    airborne(g, f);
+    expect(devDisruption(g, 'unruly', f.id)).toBe(true);
+    const d = g.decisions.find((x) => x.kind === 'unruly')!;
+    expect(EMERGENCY_KINDS.has('unruly') && DISRUPT_KINDS.has('unruly')).toBe(true);
+    expect(d.options[0].id).toBe('continue');
+    const cpt = f.crewIds.map((id) => g.crew[id]).find((c) => c?.role === 'CPT')!;
+    expect(d.body).toContain(`Captain ${cpt.first} ${cpt.last}`);
+    expect(d.options[0].desc).toContain(authorityName(g));
+    const cash = g.company.cash;
+    expect(resolveDecision(g, d.id, 'continue').ok).toBe(true);
+    expect(g.company.cash).toBe(cash);
+    expect(f.div).toBeUndefined();
+    expect(g.messages.some((m) => m.title === `${f.no}: police met the aircraft`)).toBe(true);
+  });
+
+  it('v0.25 disruptive passenger: divert and offload; the delay is not ours and half the cost is billed to the passenger', () => {
+    const { g, legs } = charter(7);
+    const f = legs[0];
+    airborne(g, f);
+    expect(devDisruption(g, 'unruly', f.id)).toBe(true);
+    const d = g.decisions.find((x) => x.kind === 'unruly')!;
+    const alt = d.options.find((o) => o.id.startsWith('alt:'))!;
+    expect(alt.label).toMatch(/^Divert and offload at /);
+    const dis = line(g, 'disruption');
+    resolveDecision(g, d.id, alt.id);
+    expect(f.div?.cause).toBe('unruly');
+    skip(g, (f.eta ?? f.sta) + 1);
+    expect(line(g, 'disruption')).toBeLessThan(dis);
+    const r = g.finance.receivables.find((x) => x.desc.startsWith(`${f.no}: half the diversion`))!;
+    expect(r.clientId).toBe('');
+    expect(r.amount).toBeGreaterThan(0);
+    const on = g.decisions.find((x) => x.kind === 'divertOnward')!;
+    expect(on).toBeTruthy();
+    resolveDecision(g, on.id, on.defaultOption);
+    const next = Object.values(g.flights).find((x) => x.delayReason === 'Unruly passenger: diversion');
+    if (next) expect(isOurDelay(next)).toBe(false);
+  });
+
+  it('v0.25 a medical event with nowhere to divert to: no card and no pause; a warning, and the flight carries on', () => {
+    const { g, legs } = charter(7);
+    const f = legs[0];
+    airborne(g, f);
+    // Ten minutes from landing: no alternate is nearer.
+    f.eta = g.now + 12;
+    expect(devDisruption(g, 'medical', f.id)).toBe(false);
+    expect(g.decisions.some((d) => d.kind === 'medical')).toBe(false);
+    const m = g.messages.find((x) => x.title === `${f.no}: medical emergency on board`);
+    expect(m?.tone).toBe('warn');
+    expect(m?.body).toContain('an ambulance meets the aircraft');
+    expect(f.div).toBeUndefined();
+  });
+
+  it('v0.25 onBoard: a role nobody fills reads plain ("the captain")', () => {
+    const { g, legs } = charter(7);
+    const f = { ...legs[0], crewIds: [] };
+    expect(onBoard(g, f, 'CPT')).toBe('the captain');
+    expect(onBoard(g, f, 'PUR', true)).toBe('The purser');
   });
 
   it('bird strike: a local contractor inspects (cost on the ledger), the next leg waits for it', () => {

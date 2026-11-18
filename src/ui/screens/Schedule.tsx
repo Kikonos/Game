@@ -8,7 +8,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { KEY_EVENT } from '../keymap';
 import { flightsRev } from '../../engine/core/entities';
 import { typeOf } from '../../engine/core/perf';
-import { DAY, fmtDay, fmtTime, localOffset } from '../../engine/core/time';
+import { DAY, dayStart, fmtDay, fmtTime, localOffset } from '../../engine/core/time';
 import type { Aircraft, GameState } from '../../engine/core/types';
 import { TailBadge } from '../components/Logo';
 import { ColourLegend } from '../components/ColourLegend';
@@ -759,7 +759,8 @@ export function ScheduleScreen() {
     );
   }
 
-  const ticks = axisTicks(win[0], win[1], zoom, ppm);
+  // v0.25 from the start of the first day on screen, so its sticky label is there when scrolled into the day.
+  const ticks = axisTicks(dayStart(win[0]), win[1], zoom, ppm);
   return (
     <div className="screen sc-schedule">
       <ScreenHead title="Schedule" sub={<>Times in UTC · {base} local is {offLabel}</>}>
@@ -800,7 +801,11 @@ export function ScheduleScreen() {
           <div className={`gantt-track z${zoom}`} style={{ width, ['--day-px' as string]: `${(ppm * DAY).toFixed(2)}px` }}>
             <div className="gantt-axis">
               {ticks.map((t) => (
-                <span key={t.t} className={`gt ${t.major ? 'major' : ''}`} style={{ transform: `translateX(${((t.t - from) * ppm).toFixed(1)}px)` }}>{t.label}</span>
+                t.major && t.label
+                  // v0.25 a day's label sits in a box the width of its day and sticks to the left edge while the day
+                  // is on screen (scrolled to the middle of a day, the date still shows).
+                  ? <span key={t.t} className="gt-day" style={{ transform: `translateX(${((t.t - from) * ppm).toFixed(1)}px)`, width: `${(DAY * ppm).toFixed(1)}px` }}><span className="gt major">{t.label}</span></span>
+                  : <span key={t.t} className={`gt ${t.major ? 'major' : ''}`} style={{ transform: `translateX(${((t.t - from) * ppm).toFixed(1)}px)` }}>{t.label}</span>
               ))}
             </div>
             {fleet.map((ac) => <Row key={ac.id} g={g} ac={ac} from={from} until={to} win={win} zoom={zoom} ppm={ppm} sel={sel === ac.id} />)}

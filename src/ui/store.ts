@@ -1416,10 +1416,10 @@ class GameStore {
     },
     /** B5: a sample decision (no engine effect) to check DecisionModal, the Inbox pin and the pause badge. */
     /** v0.11 a disruption card now: on an airborne revenue leg (diversion, medical, technical) or the next one at the gate. */
-    disruption: (kind: 'diversion' | 'technical' | 'medical' | 'birdStrike' | 'curfew' | 'ctot' | 'turnaround' | 'sickAway') => {
+    disruption: (kind: 'diversion' | 'technical' | 'medical' | 'birdStrike' | 'curfew' | 'ctot' | 'turnaround' | 'sickAway' | 'unruly') => {
       const g = this.game;
       if (!g) return false;
-      const air = ['diversion', 'technical', 'medical'].includes(kind);
+      const air = ['diversion', 'technical', 'medical', 'unruly'].includes(kind);
       const landed = kind === 'birdStrike';
       const list = Object.values(g.flights).filter((f) => {
         if (!f.aircraftId || f.kind !== 'revenue') return false;

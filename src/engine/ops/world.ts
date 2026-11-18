@@ -25,7 +25,7 @@ import { ceaseRival, isActive } from '../contracts/rivals';
 import { creditCancelledLeg } from '../contracts/billing';
 import { addShock, setPhase } from './market';
 import { ask } from './events';
-import { applyHold, cancelCost, cancelLegs, delayChain, moveFlight, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLegs, underClosure } from './flights';
+import { applyHold, cancelCost, cancelLegs, delayChain, moveFlight, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLateChip, subcharterLegs, underClosure } from './flights';
 import { ticketBlock } from './commercial';
 import { subcharter, subcharterQuotes } from './subcharter';
 import { contractOf, isRevenue, turnOf, usd } from './util';
@@ -742,7 +742,7 @@ export function strandedAsk(g: GameState, f: Flight, e: WorldEvent, at: Minute, 
     kind: 'stranded', title: `${ac.reg} can't reach ${where} for ${who}: sub-charter or swap aircraft`,
     body: `${ac.reg} is held at ${city(f.from)} until about ${fmtDay(at)} (${e.title}). ${legs} for ${who} from ${fmtDay(lost[0].std)} can't be flown in time.`,
     options: [
-      { id: 'subcharter', label: `Sub-charter to ${g.rivals.find((r) => r.id === rivalId)?.name ?? 'a rival'}`, desc: 'A rival flies them; we still bill the client.', tone: 'warn', chips: [usd(-sub), legs] },
+      { id: 'subcharter', label: `Sub-charter to ${g.rivals.find((r) => r.id === rivalId)?.name ?? 'a rival'}`, desc: 'A rival flies them; we still bill the client.', tone: 'warn', chips: [usd(-sub), ...subcharterLateChip(g, lost, rivalId), legs] },
       swap
         ? { id: 'swap', label: `Swap in ${swap.ac.reg}`, desc: `${swap.ac.reg} takes over the legs${swap.from === lost[0].from ? '' : ` (ferry ${swap.from}–${lost[0].from})`}.`, tone: 'good', chips: [`First leg ${fmtDay(swap.moves[0]?.std ?? swap.arrive)}`, legs] }
         : { id: 'swap', label: 'Swap aircraft', desc: 'No other aircraft of the type is free for them.', tone: 'bad', chips: ['Unavailable'] },
@@ -842,7 +842,7 @@ export function farStrandedAsk(g: GameState, f: Flight, arrive: Minute): void {
     kind: 'farStranded', title: `${ac.reg} can't reach ${city(end.to)} for ${who} before ${fmtDay(arrive)}: sub-charter or swap aircraft`,
     body: `${ac.reg} is at ${city(f.from)} with no crew, ${Math.round(ticketBlock(g.company.homeBase, f.from) / 60)} h from home by airline. A crew flies out and rests first: the ferry ${f.from}–${end.to} leaves ${fmtDay(f.std)} (${days} day${days > 1 ? 's' : ''}, crew-change nights on the way). ${legs} for ${who} from ${fmtDay(lost[0].std)} can't be flown by ${ac.reg}.`,
     options: [
-      { id: 'subcharter', label: `Sub-charter to ${g.rivals.find((r) => r.id === rivalId)?.name ?? 'a rival'}`, desc: 'A rival flies them meanwhile; we still bill the client.', tone: 'warn', chips: [usd(-sub), legs] },
+      { id: 'subcharter', label: `Sub-charter to ${g.rivals.find((r) => r.id === rivalId)?.name ?? 'a rival'}`, desc: 'A rival flies them meanwhile; we still bill the client.', tone: 'warn', chips: [usd(-sub), ...subcharterLateChip(g, lost, rivalId), legs] },
       swap
         ? { id: 'swap', label: `Swap in ${swap.ac.reg}`, desc: `${swap.ac.reg} takes over the legs${swap.from === lost[0].from ? '' : ` (ferry ${swap.from}–${lost[0].from})`}.`, tone: 'good', chips: [`First leg ${fmtDay(swap.moves[0]?.std ?? swap.arrive)}`, legs] }
         : { id: 'swap', label: 'Swap aircraft', desc: 'No other aircraft of the type is free for them.', tone: 'bad', chips: ['Unavailable'] },

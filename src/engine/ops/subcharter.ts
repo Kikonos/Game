@@ -8,12 +8,11 @@ import type { ActionResult, Flight, GameState, Rival } from '../core/types';
 import { brokerCut } from '../contracts/accept';
 import { levelOf } from '../contracts/relations';
 import { type RivalStyle } from '../contracts/rivals';
-import { cancelCost, noticeText, positioningCost, rivalsFor, subcharterCost, subcharterLegs, subHit, unitOf, type SubHit } from './flights';
+import { cancelCost, noticeText, positioningCost, rivalsFor, SUB_LEAD, subcharterCost, subcharterLegs, subHit, unitOf, type SubHit } from './flights';
 import { contractOf, isRevenue } from './util';
 import { lockOf } from '../scenario/rules';
 
-/** Legs closer than this to departure can't be handed over any more (the rival needs to position). */
-export const SUB_LEAD = 6 * 60;
+export { SUB_LEAD };
 
 export interface SubcharterQuote {
   flightIds: string[];
