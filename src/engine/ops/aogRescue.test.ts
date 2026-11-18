@@ -63,19 +63,25 @@ describe('AOG rescue (ops-aog-rescue)', () => {
     expect(ret.std - (ret.schedStd ?? ret.std)).toBeLessThanOrEqual(BAL.aogRescueMin);
   });
 
-  it('no spare free: another operator flies the return within the day', () => {
+  it('no spare free: another operator flies only the waiting return, within the day; the aircraft waits for the part', () => {
     const g0 = strandedAt(80);
     const { g, ret } = g0;
     // Ask again with the spare away in maintenance.
     owned(g).status = 'maintenance';
     g.decisions.length = 0;
-    aogDecision(g, g0.ac, ret, g.maintenance[g0.ac.maintId!]);
+    const m = g.maintenance[g0.ac.maintId!];
+    aogDecision(g, g0.ac, ret, m);
     const d = aogCard(g);
-    expect(d.defaultOption).toBe('subcharter');
-    expect(d.data!.rescue).toBe('subcharter');
-    expect(resolveDecision(g, d.id, 'subcharter').ok).toBe(true);
+    const fly = d.options.find((o) => o.id === 'flyHome')!;
+    expect(fly.label).toContain(ret.no);
+    expect(fly.chips!.some((c) => /^−\$/.test(c))).toBe(true);
+    expect(d.defaultOption).toBe('flyHome');
+    expect(d.data!.rescue).toBe('flyHome');
+    expect(resolveDecision(g, d.id, 'flyHome').ok).toBe(true);
     expect(ret.operatedBy).toBe(d.data!.rivalId);
     expect(ret.std - (ret.schedStd ?? ret.std)).toBeLessThanOrEqual(BAL.aogRescueMin);
+    expect(m.fix).toBe(d.data!.wait);
+    expect(g0.ac.status).toBe('aog');
   });
 
   it('unanswered, the card expires into the rescue', () => {

@@ -235,16 +235,31 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
   let def = waitDrops && swap ? 'swap' : waitDrops && sub < waitPen ? 'subcharter' : wait;
   // v0.25.1 (ops-aog-rescue) the better wait leaves a revenue leg more than a day late (the leg that brings a
   // charter's passengers home is never dropped, so it waited 69–86 h behind a tug's damage): a rescue is the
-  // default, the cheaper of our spare's ferry and the rival's price, among those that fly the leg within the day.
+  // default, the cheapest of our spare's ferry, the rival flying only the waiting legs (the rest wait for the part)
+  // and the rival flying the whole window, among those that fly the waiting legs within the day.
   const long = longWaits(wait === 'team' ? holdT : holdC);
+  const longLegs = long.map((x) => x.f);
   let rescue = '';
+  let flyCost = 0;
   if (long.length) {
-    const ids = new Set(long.map((x) => x.f.id));
+    const ids = new Set(longLegs.map((x) => x.id));
     const within = (late: number) => late <= BAL.aogRescueMin;
-    const swapOk = !!swap && long.every(({ f: x }) => win.includes(x)) && swap.moves.every(({ f: x, std }) => !ids.has(x.id) || within(std - (x.schedStd ?? x.std)));
-    const subTimes = rivalId ? subcharterTimes(g, win, rivalId) : null;
-    const subOk = !!subTimes && long.every(({ f: x }) => win.includes(x) && within((subTimes.get(x.id) ?? x.std) - (x.schedStd ?? x.std)));
-    const pickR = [swapOk ? { id: 'swap', cost: swapCost } : null, subOk ? { id: 'subcharter', cost: sub } : null]
+    const swapOk = !!swap && longLegs.every((x) => win.includes(x)) && swap.moves.every(({ f: x, std }) => !ids.has(x.id) || within(std - (x.schedStd ?? x.std)));
+    const lateBy = (legs: Flight[]) => (rivalId ? subcharterTimes(g, legs, rivalId) : null);
+    const winT = lateBy(win);
+    const subOk = !!winT && longLegs.every((x) => win.includes(x) && within((winT.get(x.id) ?? x.std) - (x.schedStd ?? x.std)));
+    const flyT = lateBy(longLegs);
+    const flyOk = !!flyT && longLegs.every((x) => within((flyT.get(x.id) ?? x.std) - (x.schedStd ?? x.std)));
+    flyCost = (wait === 'team' ? teamCost : 0) + subcharterCost(g, longLegs, factor);
+    if (flyOk) {
+      const name = rivalName(g, rivalId);
+      options.splice(4, 0, {
+        id: 'flyHome', label: `${name} flies ${longLegs.length === 1 ? longLegs[0].no : plural(longLegs.length, 'leg')}`,
+        desc: `${name} flies the ${longLegs.length === 1 ? 'leg' : 'legs'} that would wait over ${BAL.aogRescueMin / 60} h; the rest wait for ${wait === 'team' ? 'the AOG team' : 'the part'}.`,
+        tone: 'good', chips: [usd(-flyCost), ...subcharterLateChip(g, longLegs, rivalId), ...holdChips(g, wait === 'team' ? holdT : holdC).filter((c) => !/delayed$/.test(c)), legsChip(longLegs)],
+      });
+    }
+    const pickR = [swapOk ? { id: 'swap', cost: swapCost } : null, flyOk ? { id: 'flyHome', cost: flyCost + waitPen - (wait === 'team' ? teamCost : 0) } : null, subOk ? { id: 'subcharter', cost: sub } : null]
       .filter((x): x is { id: string; cost: number } => !!x)
       .sort((a, b) => a.cost - b.cost)[0];
     if (pickR) def = rescue = pickR.id;
@@ -255,7 +270,7 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
     kind: 'aog', title: `AOG: ${ac.reg} at ${city(m.at)}`,
     body: `${m.cause}. ${f.no} ${f.from}–${f.to} can't leave. With a part by courier the aircraft is back in about ${Math.round((m.end - g.now) / 60)} h. The repair costs about ${usd(m.cost)} whichever you choose.${rescueText}`,
     options, defaultOption: def, expires: g.now + BAL.aogDecisionMin, ref: { kind: 'aircraft', id: ac.id },
-    data: { aircraftId: ac.id, maintId: m.id, flightId: f.id, teamEnd, teamCost, factor, rivalId, cutC: revCount(holdC.cancels), cutT: revCount(holdT.cancels), ...(rescue ? { rescue } : {}) },
+    data: { aircraftId: ac.id, maintId: m.id, flightId: f.id, teamEnd, teamCost, factor, rivalId, cutC: revCount(holdC.cancels), cutT: revCount(holdT.cancels), ...(rescue ? { rescue } : {}), ...(long.length ? { wait, flyIds: longLegs.map((x) => x.id).join(','), flyCost } : {}) },
   }, true);
 }
 
@@ -315,6 +330,21 @@ function resolveAog(g: GameState, d: Decision, opt: string): ActionResult {
       const chip = subcharterLateChip(g, win, rival)[0];
       const n = subcharterLegs(g, win, rival, subcharterCost(g, win, num(d.data, 'factor') || 1.5), out);
       return { ok: true, msg: `${rivalName(g, rival)} flies ${plural(n, 'leg')} for us${chip ? ` (${chip.toLowerCase()})` : ''}.${noticeText(g, win.find(isRevenue), out.hit)}` };
+    }
+    case 'flyHome': {
+      // v0.25.1 (ops-aog-rescue) the rival flies the legs that would wait over a day; the rest wait for the repair.
+      const legs = str(d.data, 'flyIds').split(',').map((id) => g.flights[id]).filter((x): x is Flight => x?.status === 'scheduled' && x.aircraftId === ac.id);
+      if (!legs.length) return { ok: false, error: 'Those legs have already changed' };
+      const rival = str(d.data, 'rivalId');
+      if (str(d.data, 'wait') === 'team') {
+        m.fix = 'team';
+        setAogEnd(g, m, num(d.data, 'teamEnd'));
+        m.cost += num(d.data, 'teamCost');
+      } else m.fix = 'courier';
+      const out: { hit?: SubHit } = {};
+      const n = subcharterLegs(g, legs, rival, subcharterCost(g, legs, num(d.data, 'factor') || 1.5), out);
+      applyHold(g, planHold(g, ac, m.at, fix()), m.fix === 'team' ? 'AOG: engineering team' : 'AOG: waiting for parts');
+      return { ok: true, msg: `${rivalName(g, rival)} flies ${plural(n, 'leg')} for us; ${ac.reg} back about ${fmtDateTime(m.end)}.${noticeText(g, legs[0], out.hit)}` };
     }
     case 'cancel': {
       const win = windowLegs(g, ac, m.at, fix());
