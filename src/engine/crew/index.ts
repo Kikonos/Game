@@ -801,6 +801,7 @@ export const crewModule: SimModule = {
     g.stats.crewFixes ??= {};
     g.stats.sideTripRedo = true;
     g.stats.perCrewRedo = true;
+    g.stats.resizeOnLoad = true;
     g.stats.planRefund = 0;
     g.stats.ferryRefund = 0;
     g.company.policies.buyBack ??= 'auto';
@@ -879,6 +880,13 @@ export const crewModule: SimModule = {
     // v0.25 once more after the repairs above moved duties and tickets (fixture v0162-hx6001: two standby windows ending
     // at a report they now run into were marked called only on a second load): the first load is the fixed point.
     repairCutStandby(g);
+    // v0.25 r2 once: an older save's detachments sized again now, not at the first midnight (Crew › Planning asked for
+    // 11 hires straight after Continue, then 'Complete' after midnight, while Utilisation showed a surplus).
+    if (!g.stats.resizeOnLoad) {
+      g.stats.resizeOnLoad = true;
+      resizeDeployments(g);
+      touchCrew(g);
+    }
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);

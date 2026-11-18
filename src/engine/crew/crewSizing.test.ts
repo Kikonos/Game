@@ -12,6 +12,7 @@ import { fixtureGame } from './fixtures';
 import { crewPlan, type FamilyPlan } from './sets';
 import { planHoldLine } from './utilisation';
 import { rollingRoster } from '../../test/rolling';
+import { deserialize, serialize } from '../save';
 
 rollingRoster();
 
@@ -69,6 +70,34 @@ describe('v0.25 r2 spare sets stood down together', () => {
     resizeDeployments(g);
     expect(dep.anchors.length).toBeLessThanOrEqual(n0);
     expect(dep.setsOnStation).toBe(dep.anchors.length);
+  }, 120_000);
+});
+
+describe('v0.25 r2 an older save\'s grown sets stood down on load, not at the first midnight', () => {
+  it('Planning counts the sets the flying needs straight after Continue; a second load changes nothing', () => {
+    const g = newGame(21, 'LIS');
+    const o = hamBase(g, g.now + 3 * DAY, 70, 1);
+    o.broker = undefined;
+    expect(acceptOffer(g, o.id, [leased(g).id]).ok).toBe(true);
+    run(g, g.now + 10 * DAY + 9 * H);
+    const dep = Object.values(g.deployments)[0];
+    const n0 = dep.anchors!.length;
+    dep.anchors = [...dep.anchors!, dep.anchors![n0 - 1] + DAY, dep.anchors![n0 - 1] + 2 * DAY];
+    dep.setsOnStation = dep.anchors.length;
+    dep.sized = dep.anchors.length;
+    delete dep.setEnd;
+    // As an older build wrote it: no flag, the grown sets still counted.
+    delete g.stats.resizeOnLoad;
+    const old = JSON.parse(serialize(g));
+    const h = deserialize(JSON.stringify(old));
+    const d2 = h.deployments[dep.id];
+    expect(h.now).toBe(g.now);
+    expect(Object.keys(d2.setEnd ?? {}).map(Number)).toEqual(expect.arrayContaining([n0, n0 + 1]));
+    expect(setsStaying(d2)).toBeLessThanOrEqual(n0);
+    expect(h.stats.resizeOnLoad).toBe(true);
+    // Saved again and loaded: the repair does not run twice.
+    const again = deserialize(serialize(h));
+    expect(again.deployments[dep.id].setEnd).toEqual(d2.setEnd);
   }, 120_000);
 });
 
