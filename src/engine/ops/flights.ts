@@ -13,7 +13,7 @@ import { pushMessage } from '../core/messages';
 import { blockMinutes, typeOf } from '../core/perf';
 import { schedule } from '../core/queue';
 import { chance, next, pick, range } from '../core/rng';
-import { DAY, fmtDateTime, fmtDuration, fmtTime, monthKey } from '../core/time';
+import { DAY, fmtDateTime, fmtDuration, fmtTime, monthKey, toDate } from '../core/time';
 const city = (code: string): string => AIRPORT_BY_CODE[code]?.city ?? code;
 import type { ActionResult, Aircraft, Contract, Duty, Flight, GameState, MaintenanceEvent, Message, MessageCat, Minute, Rival, SimEvent, WorldEvent } from '../core/types';
 import { AIRPORT_BY_CODE } from '../../data/airports';
@@ -863,13 +863,27 @@ function pruneSubLog(g: GameState): void {
 // ---------- departure ----------
 
 const OPS_REASONS = ['ATC slot', 'Weather at destination', 'Late ground handling', 'Late passengers', 'Catering', 'Fuelling', 'Airport congestion'];
+/** v0.25 the small things of a day on the ramp, any time and anywhere. */
+const CREW_LIFE_REASONS = ['Late passengers: one missing, bags offloaded', 'Wheelchair assistance late', 'Catering short-loaded', 'Refused boarding: a drunk passenger, bags offloaded'];
+/** v0.25 winter at the northern bases (from 45°N, November to March) and summer storms (June to August). */
+const WINTER_REASONS = ['Weather: de-icing, queue at the pad', 'Weather: snow clearance'];
+const SUMMER_REASONS = ['Weather: thunderstorms on the route'];
+
+/** v0.25 the delay reasons that fit the leg's airport and month (one pick from them, as before). Pure. */
+export function opsReasons(from: string | undefined, t: Minute): string[] {
+  const lat = (from && AIRPORT_BY_CODE[from]?.lat) || 0;
+  const m = toDate(t).getUTCMonth() + 1;
+  const winter = lat >= 45 && (m >= 11 || m <= 3);
+  const summer = m >= 6 && m <= 8;
+  return [...OPS_REASONS, ...CREW_LIFE_REASONS, ...(winter ? WINTER_REASONS : []), ...(summer ? SUMMER_REASONS : [])];
+}
 // v0.25 APU and bleed faults are dispatched under the MEL (Minimum Equipment List): a delay, not an AOG.
 const TECH_REASONS = ['Technical: bleed fault (MEL dispatch)', 'Technical: brake temperature', 'Technical: pressurisation sensor', 'Technical: APU inoperative (MEL), ground power needed', 'Technical: cabin defect'];
 
 function rollDelay(g: GameState, ac: Aircraft, f?: Flight): { min: number; reason: string } | null {
   if (chance(g, BAL.delayChance)) {
     const min = Math.min(BAL.delayCap, Math.max(5, Math.round(-BAL.delayMean * Math.log(1 - next(g)))));
-    return { min, reason: pick(g, OPS_REASONS) };
+    return { min, reason: pick(g, opsReasons(f?.from ?? ac.at, g.now)) };
   }
   // v0.19.4 the ETOPS twins' programmes (ops/etopsRel.ts): fewer defects at the gate.
   // v0.24 the preventive maintenance programme (ops/pm.ts): fewer defects at the gate.
