@@ -11,7 +11,7 @@ import { DAY, fmtDateTime, fmtDay, fmtTime, monthKey } from '../core/time';
 import { flightNoAt, isDeparture, nextDeparture, prevDeparture } from '../ops/commercial';
 import type { ActionResult, CrewMember, CrewSlot, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { acceptable, COVER_AHEAD, crewIds, crewIssuesFor, crewKey, mergeSegs, openDuties, otherTrip, overForAnyone, planCrew, type CrewPlan } from './check';
-import { deletePairing, dropGoneCrew, dutyLegality, emptyDuty, longLead, noteCrewOkWhy, unboardGone, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setDropBuyBackHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
+import { deletePairing, dropGoneCrew, dutyLegality, emptyDuty, longLead, TOUR_STAGGER, noteCrewOkWhy, unboardGone, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setDropBuyBackHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './standby';
 import { applyBuyBack, buyBackFor, buyBackMode, undoBuyBack, type BuyBack } from './buyBack';
@@ -920,7 +920,12 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void
   // v0.12.1 a ticket or ride home already held is never bought twice (a released duty's ticket home was bought again at
   // release: a second fare and the leave pushed back). Forced, only an earlier one is bought, and the later one dropped.
   const homeHeld = next && !ahead && next.to === c.base ? [next] : [];
-  if (homeHeld.length && !force) return;
+  // v0.25 r2 (crew-awaychain) ... unless it is days off and waiting for it would keep them away past the rotation (a
+  // leave's ticket home three weeks after their tour ended: a purser and a cabin crew member sat 26 days at the Riyadh
+  // hotel with nothing to fly). They go home now; the later ticket is dropped below.
+  const R = g.company.policies.rotationWeeks * 7 * DAY;
+  const longWait = homeHeld.length > 0 && homeHeld[0].std - ready > DAY && homeHeld[0].sta - (c.awaySince ?? g.now) > R + TOUR_STAGGER * DAY;
+  if (homeHeld.length && !force && !longWait) return;
   // A ticket from where they are takes them on; v0.12.1 one for a trip days ahead does not: they go home first, and
   // that trip is ticketed from base.
   if (!force && next && !homeHeld.length && (!ahead || (ahead.tour && !guestOn(ahead, c.id)) || waitsAway(g, c, ahead, Math.min(next.std - BAL.deadheadCheckIn, ahead.start), ready))) return;
@@ -2275,6 +2280,57 @@ function previousCrew(g: GameState, p: Pairing): Set<string> {
 /** v0.7.2 a captain in an FO seat, augmented pairs' too (the auto-roster's last resort). */
 const asFo = (slot: Role, role: Role) => role === 'CPT' && slot === 'FO';
 
+/**
+ * v0.25 r2 (crew-awaychain) a crew member already away from base is not put on more work there or elsewhere that keeps
+ * them away past the rotation length (Settings › tours of 4–6 weeks, the sets' changes a few days apart: TOUR_STAGGER):
+ * the next tour is flown by crew from home and they go home at its change. Their own set's tour, and a seat they hold as a
+ * guest for a duty or two, are not counted (the tour's own length is the rotation's). Was: crew at a station took the
+ * next period, or a tour elsewhere with a ticket across (player's save: 73 days SCL then NTE). Pure.
+ */
+export function awayTooLong(g: GameState, c: CrewMember, p: Pairing, segs: Seg[], report: Minute, end: Minute, guest: boolean): boolean {
+  if (guest) return false;
+  let since: Minute | null = c.loc !== c.base ? c.awaySince ?? g.now : null;
+  for (const s of segs) {
+    if (s.start >= report) break;
+    if (s.kind === 'log' || s.end <= g.now || !s.at) continue;
+    if (s.at === c.base) since = null;
+    else since ??= s.start;
+  }
+  if (since === null) return false;
+  if (end - since <= g.company.policies.rotationWeeks * 7 * DAY + TOUR_STAGGER * DAY) return false;
+  // Their own set's tour (a later part of it).
+  return !(p.tour && (crewIx(g).pairingsOf.get(c.id) ?? []).some((q) => q.id !== p.id && q.tour && q.deploymentId === p.deploymentId && q.tour.set === p.tour!.set && q.tour.from === p.tour!.from && !guestOn(q, c.id)));
+}
+
+/**
+ * v0.25 r2 (crew-awaychain, daily before the roster fills) a tour not begun whose crew member would be away past the
+ * rotation (they come straight from another tour, or stay on for the next period): taken off it, so they go home at
+ * the end of the tour they are on and the roster crews the seat from home. A seat the player locked, and a guest's,
+ * stay. Was: planned before the cap (player's save: four crew of set 4 at Oslo planned straight on to Riyadh, 64 to 75
+ * days away). Returns the crew taken off.
+ */
+export function capAwayTours(g: GameState): string[] {
+  const out: string[] = [];
+  const weeks = g.company.policies.rotationWeeks;
+  for (const p of Object.values(g.pairings)) {
+    if (p.status !== 'planned' || !p.tour || p.start <= g.now) continue;
+    const ds = openDuties(g, p);
+    if (!ds.length) continue;
+    const last = ds[ds.length - 1];
+    const to = tourSpan(g, p)?.to ?? 0;
+    for (const s of [...p.slots]) {
+      const c = s.crewId && !s.locked && !s.guest ? g.crew[s.crewId] : undefined;
+      if (!c) continue;
+      const segs = segsOf(g, c).filter((x) => !x.dutyId || g.duties[x.dutyId]?.pairingId !== p.id);
+      if (!awayTooLong(g, c, p, segs, ds[0].report, Math.max(last.release + homeTravel(last, c.base), to), false)) continue;
+      releaseCrew(g, p, c.id, `Home after their tour: ${weeks} weeks away at most`);
+      out.push(c.id);
+    }
+  }
+  if (out.length) touchCrew(g);
+  return out;
+}
+
 /** Fills a pairing's empty slots with the best-scoring legal crew (DESIGN §5.3 steps 1–4, 6). */
 /**
  * v0.9 fix: a plan refused only for days off not published yet that its month can spare (offMovable): the planner may
@@ -2463,6 +2519,12 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
       }
       const c = x.c;
       const plan = planCrew(g, c, p, ctx.of(c), false, BAL.rosterSlack, undefined, undefined, ctx.mine.get(c.id));
+      // v0.25 r2 no more time away than the rotation (the next tour goes to crew from home).
+      const back = spanTo + homeTravel(duties[duties.length - 1], c.base);
+      if (awayTooLong(g, c, p, ctx.of(c), first.report, p.tour && !plan.guest ? Math.max(back, tourTo) : back, !!plan.guest)) {
+        refused.add(c.id);
+        continue;
+      }
       if (!acceptable(g, plan)) {
         refused.add(c.id);
         if (offFallback(g, c, plan, ctx.of(c))) {
