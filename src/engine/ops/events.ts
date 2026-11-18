@@ -3,6 +3,7 @@
 
 import { hash, hashUnit } from '../core/util';
 import { RETIME_REASONS } from '../../data/flavor';
+import { possessive } from '../contracts/flavor';
 import { chooseLease, type LeaseChoice } from './leaseReturn';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { COUNTRIES } from '../../data/countries';
@@ -99,7 +100,7 @@ function autoApply(g: GameState, d: Omit<Decision, 'id' | 't'>, lead = 'Operatio
     const r: ActionResult = fn ? fn(g, tmp, id) : { ok: true };
     if (!r.ok) continue;
     const opt = d.options.find((o) => o.id === id);
-    pushMessage(g, { tone: 'info', cat: CAT[d.kind] ?? 'ops', title: d.title, body: `${d.body} ${lead}: ${opt?.label ?? id}.${r.msg ? ` ${r.msg}.` : ''}`, ref: d.ref });
+    pushMessage(g, { tone: 'info', cat: CAT[d.kind] ?? 'ops', title: d.title, body: `${d.body} ${lead}: ${opt?.label ?? id}.${endMsg(r.msg)}`, ref: d.ref });
     return;
   }
 }
@@ -856,6 +857,9 @@ function extraRotation(g: GameState, c: Contract): boolean {
   return true;
 }
 
+/** v0.25 a result line as a sentence: ' Done.' (never 'Done..' when it already ends with a stop). Pure. */
+export const endMsg = (msg?: string): string => (msg ? ` ${msg.replace(/[.\s]+$/, '')}.` : '');
+
 /** v0.25 why the client asks, by its kind (data/flavor.ts), on the request's own side key. Pure. */
 function retimeWhy(g: GameState, c: Contract, kind: string | undefined): string {
   const xs = RETIME_REASONS[kind ?? ''] ?? RETIME_REASONS.other;
@@ -989,7 +993,7 @@ function resolveChange(g: GameState, d: Decision, opt: string): ActionResult {
     post(g, 'otherRevenue', num(d.data, 'fee'));
     bumpClient(g, c.clientId, BAL.v08.rel.retime, `Moved ${f.no} as they asked`);
     const line = knockLine(knock, g.clients[c.clientId]?.name ?? 'the client');
-    if (line) pushMessage(g, { tone: knock.some((k) => !k.own) ? 'warn' : 'info', cat: 'ops', title: `${f.no} moved at ${g.clients[c.clientId]?.name ?? 'the client'}'s request`, body: line, ref: { kind: 'flight', id: f.id } });
+    if (line) pushMessage(g, { tone: knock.some((k) => !k.own) ? 'warn' : 'info', cat: 'ops', title: `${f.no} moved at ${possessive(g.clients[c.clientId]?.name ?? 'the client')} request`, body: line, ref: { kind: 'flight', id: f.id } });
     return { ok: true, msg: `${f.no} moved to ${fmtTime(f.std)} UTC` };
   }
   const ac = g.fleet[str(d.data, 'aircraftId')];
@@ -1268,7 +1272,7 @@ export function onDecisionExpire(g: GameState, ev: SimEvent): void {
     const r = resolveDecision(g, d.id, id);
     if (!r.ok) continue;
     const opt = d.options.find((o) => o.id === id);
-    pushMessage(g, { tone: 'info', cat: CAT[d.kind] ?? 'ops', title: `No answer: ${d.title}`, body: `Time ran out, so operations chose: ${opt?.label ?? id}.${r.msg ? ` ${r.msg}.` : ''}`, ref: d.ref });
+    pushMessage(g, { tone: 'info', cat: CAT[d.kind] ?? 'ops', title: `No answer: ${d.title}`, body: `Time ran out, so operations chose: ${opt?.label ?? id}.${endMsg(r.msg)}`, ref: d.ref });
     return;
   }
   const j = g.decisions.indexOf(d);

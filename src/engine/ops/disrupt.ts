@@ -1141,7 +1141,7 @@ function sickCall(g: GameState, dutyId: string): void {
   const def = cabinOnly && !offload ? 'minCrew' : sol ? `fix:${sol.id}` : 'crewControl';
   raise(g, {
     kind: 'sickAway', title: `${crewName(c)} called in sick in ${city(f.from)}`,
-    body: `${crewName(c)} (${ROLE_WORD[slot.role]}) can't fly ${f.no} ${f.from}–${f.to} at ${fmtTime(f.std)} UTC: sick at the hotel for about ${days} days.`,
+    body: `${crewName(c)} (${ROLE_WORD[slot.role]}) can't fly ${f.no} ${f.from}–${f.to} at ${fmtTime(f.std)} UTC: sick at the hotel for about ${days} day${days === 1 ? '' : 's'}.`,
     options: opts, defaultOption: def, expires: Math.max(g.now + 30, Math.min(f.std - 30, g.now + 90)), ref: { kind: 'flight', id: f.id },
     data: { flightId: f.id, crewId: c.id, offload, fix: sol?.id ?? '', ...cardData(`${f.no} is one ${ROLE_WORD[slot.role]} short in ${city(f.from)}`, `${crewName(c)} is sick at the hotel, away from base.`, `${paxOf(g, f)} passengers at ${fmtTime(f.std)} UTC`, 0, paxOf(g, f), 0) },
   }, { optional: false });

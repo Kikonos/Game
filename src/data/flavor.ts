@@ -36,4 +36,7 @@ export const RETIME_REASONS: Record<string, readonly string[]> = {
 /** v0.7.3 the aviation authority a discretion report goes to, by the home base's country (else 'the authority'). */
 export const AUTHORITY: Record<string, string> = {
   PT: 'ANAC', ES: 'AESA', MT: 'Transport Malta CAD', LT: 'the TKA', LV: 'the CAA Latvia', DE: 'the LBA', IE: 'the IAA', GB: 'the UK CAA', FR: 'the DGAC', IT: 'ENAC',
+  // v0.25 the Czech CAA (Úřad pro civilní letectví), Bulgaria's DG Civil Aviation Administration, Estonia's Transport
+  // Administration (Transpordiamet), Morocco's Direction Générale de l'Aviation Civile.
+  CZ: 'the UCL', BG: 'the DG CAA', EE: 'the Transport Administration', MA: 'the DGAC Morocco',
 };
