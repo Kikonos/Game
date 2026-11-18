@@ -26,6 +26,8 @@ import { cabinOwnReport, emptyLegsOnly, planRest, restCabinN, restLegs, restOf, 
 import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, freshReport, locAt, noteRiders, OUT_CONNECT, outExtra, outMerges, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, standsBy, slotAfter, snapDeparture, ticketSlotOk, takeLostRides, takeSkippedFull, ticketPrice, touchCrew, touchCrewState, typeIdOf, withoutTickets } from './timeline';
 import { deploymentOf, guestOn, homeOf, tourDay, tourHolding, tourHomePlan, tourSpan } from './tours';
 import { plainWhy } from './reasons';
+import { previewCopy } from './atomic';
+import { isolatePauses } from '../core/pause';
 import { isAnnual, leaveBackPlan, leaveBackTaken, leaveHomePlan, leaveHomeTrip, leaveHorizon, leaveTicketsOf, LEAVE_BACK_BUFFER, LEAVE_BACK_GAP } from './leaveTrips';
 
 export { buildDuties } from './duties';
@@ -2300,6 +2302,63 @@ export function awayTooLong(g: GameState, c: CrewMember, p: Pairing, segs: Seg[]
   if (end - since <= g.company.policies.rotationWeeks * 7 * DAY + TOUR_STAGGER * DAY) return false;
   // Their own set's tour (a later part of it).
   return !(p.tour && (crewIx(g).pairingsOf.get(c.id) ?? []).some((q) => q.id !== p.id && q.tour && q.deploymentId === p.deploymentId && q.tour.set === p.tour!.set && q.tour.from === p.tour!.from && !guestOn(q, c.id)));
+}
+
+/**
+ * v0.25 r2 once on load: tours an older build planned that keep a crew member away past the rotation (awayTooLong, the
+ * roster's last resort since round 2) are crewed again from home where someone else takes the seat, and the crew member
+ * goes home at the end of their present work. Each tour is tried on a copy first and changed only when every seat of
+ * it is filled again (a tour nobody else can take keeps its crew). Tours starting within two days are left as they are.
+ * Was: round 2 changed only new assignments (player's save: a cabin crew member 73 days away, SCL then NTE). Returns
+ * the crew sent home.
+ */
+export function repairAwayOnLoad(g: GameState): string[] {
+  const out: string[] = [];
+  if (!g.company.policies.autoRoster) return out;
+  const weeks = g.company.policies.rotationWeeks;
+  const over = (h: GameState, p: Pairing): string[] => {
+    const ds = openDuties(h, p);
+    if (!ds.length) return [];
+    const last = ds[ds.length - 1];
+    const to = tourSpan(h, p)?.to ?? 0;
+    const ids: string[] = [];
+    for (const sl of p.slots) {
+      const c = sl.crewId && !sl.locked && !sl.guest ? h.crew[sl.crewId] : undefined;
+      if (!c || c.loc === c.base) continue;
+      const segs = segsOf(h, c).filter((x) => !x.dutyId || h.duties[x.dutyId]?.pairingId !== p.id);
+      if (awayTooLong(h, c, p, segs, ds[0].report, Math.max(last.release + homeTravel(last, c.base), to), false)) ids.push(c.id);
+    }
+    return ids;
+  };
+  const tours = Object.values(g.pairings)
+    .filter((p) => p.status === 'planned' && !!p.tour && !!p.aircraftId && p.start > g.now + 2 * DAY)
+    .sort((a, b) => a.start - b.start || (a.id < b.id ? -1 : 1));
+  for (const p0 of tours) {
+    if (!over(g, p0).length) continue;
+    const apply = (h: GameState): string[] => {
+      const p = h.pairings[p0.id];
+      if (!p || p.status !== 'planned') return [];
+      const ids = over(h, p);
+      for (const id of ids) releaseCrew(h, p, id, `Home after ${weeks} weeks away`);
+      if (ids.length) autoRosterFill(h, { aircraftIds: [p.aircraftId!] });
+      return ids;
+    };
+    const h = previewCopy(g);
+    let ok = false;
+    try {
+      ok = isolatePauses(() => {
+        const ids = apply(h);
+        const p = h.pairings[p0.id];
+        return ids.length > 0 && !!p && !requiredEmpty(p) && p.slots.every((x) => !x.crewId || !ids.includes(x.crewId));
+      });
+    } catch {
+      ok = false;
+    }
+    if (!ok) continue;
+    out.push(...apply(g));
+  }
+  if (out.length) touchCrew(g);
+  return out;
 }
 
 /** Fills a pairing's empty slots with the best-scoring legal crew (DESIGN §5.3 steps 1–4, 6). */

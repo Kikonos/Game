@@ -1899,6 +1899,8 @@ export interface Stats {
   perCrewRedo?: boolean;
   /** v0.25 r2 detachments sized again once on load (crew/duties.ts resizeDeployments): an older save's grown sets stood down before the first midnight. */
   resizeOnLoad?: boolean;
+  /** v0.25 r2 tours an older build planned past the rotation were crewed again from home once on load (crew/roster.ts repairAwayOnLoad). */
+  awayOnLoad?: boolean;
   /** v0.22.1 the one-off refund for the crew-planning error (crew/planRefund.ts): the amount given back (0: nothing to refund); absent on an older save until it loads. */
   planRefund?: number;
   /** v0.23.2 the one-off repair and refund for ferries stuck away while their job's flights were cancelled (ops/ferryRepair.ts): the amount given back (0: nothing); absent on an older save until it loads. */

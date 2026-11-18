@@ -15,7 +15,7 @@ export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { setRedundantHook } from './utilisation';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, repairDaysOffMorale, repairStandbyMorale, setResignHooks } from './morale';
-import { autoRoster, autoRosterFill, autoRosterPlan, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, leaveTrips, repairLeaveTrips, splitLeadingEmpty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable, unclashTickets } from './roster';
+import { autoRoster, repairAwayOnLoad, autoRosterFill, autoRosterPlan, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, leaveTrips, repairLeaveTrips, splitLeadingEmpty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable, unclashTickets } from './roster';
 import { extFdp, localMin, minRest, referenceTime, signedTz, tzDeltaH, tzNights, woclMinutes } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { rosterHorizon, dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, dropStrandedStandby, v09Stats } from './dayPlan';
@@ -802,6 +802,7 @@ export const crewModule: SimModule = {
     g.stats.sideTripRedo = true;
     g.stats.perCrewRedo = true;
     g.stats.resizeOnLoad = true;
+    g.stats.awayOnLoad = true;
     g.stats.planRefund = 0;
     g.stats.ferryRefund = 0;
     g.company.policies.buyBack ??= 'auto';
@@ -886,6 +887,11 @@ export const crewModule: SimModule = {
       g.stats.resizeOnLoad = true;
       resizeDeployments(g);
       touchCrew(g);
+    }
+    // v0.25 r2 once: tours an older build planned past the rotation crewed again from home (round 2 changed only new ones).
+    if (!g.stats.awayOnLoad) {
+      g.stats.awayOnLoad = true;
+      repairAwayOnLoad(g);
     }
   },
   settle(g) {
