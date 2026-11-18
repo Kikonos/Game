@@ -25,7 +25,11 @@ import { legCostEstimate, paysFuel, subcharterCost, subcharterLegs } from './fli
 const skip = (g: GameState, t: Minute) => advanceTo(g, t, new Set());
 /** Statement line summed over every month so far. */
 const line = (g: GameState, cat: LedgerCat) => [g.finance.current, ...g.finance.history].reduce((s, st) => s + (st.lines[cat] ?? 0), 0);
-const government = (g: GameState): Client => Object.values(g.clients).find((c) => c.kind === 'government')!;
+// v0.25 (comm-tail) low-risk states mostly pay on time: these tests are about a slow (high-risk) government.
+const government = (g: GameState): Client => {
+  const govs = Object.values(g.clients).filter((c) => c.kind === 'government');
+  return govs.find((c) => c.risk === 'high') ?? govs[0];
+};
 
 function signBase(g: GameState, start: Minute, days: number, ids: string[]): Contract {
   const o = hamBase(g, start, days);

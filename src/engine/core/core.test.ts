@@ -70,8 +70,10 @@ describe('event queue and clock', () => {
     advanceTo(g, out.std + 5);
     expect(ac.status).toBe('flying');
     expect(ac.flightId).toBe(out.id);
-    advanceTo(g, back.sta + 1);
+    // v0.25: a random gate delay (e.g. late ground handling) can hold the return; allow for it.
+    advanceTo(g, back.sta + 3 * 60);
     expect(out.status).toBe('done');
+    expect(back.status).toBe('done');
     expect(ac.at).toBe('LIS');
     expect(ac.cycles).toBeGreaterThan(0);
   });
