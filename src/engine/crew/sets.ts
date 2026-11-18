@@ -321,6 +321,23 @@ export function familyNeeds(g: GameState) {
     return x;
   };
   const dryAway: Aircraft[] = [];
+  // v0.25 r2 the reserve of one in five on a family's sets on station together (rounded up once, a set each to the
+  // aircraft with the most sets on station first): per aircraft it rounded 3 sets on station up to 4 (a third more),
+  // and six detachments asked for 4 sets more than the flying needed (player's save: 'short 13 cabin crew' while they
+  // flew 25 h in 28 days). One detachment alone: as before (setsForStation).
+  const spare = new Map<string, number>();
+  const byFam = new Map<RatingFamily, Aircraft[]>();
+  for (const ac of Object.values(g.fleet)) {
+    if (!onStation.get(ac.id) || awayOnDryLease(g, ac)) continue;
+    const f = typeOf(ac.typeId).family;
+    byFam.set(f, [...(byFam.get(f) ?? []), ac]);
+  }
+  for (const acs of byFam.values()) {
+    const sum = acs.reduce((n, ac) => n + onStation.get(ac.id)!, 0);
+    let extra = setsForStation(sum) - sum;
+    acs.sort((a, b) => onStation.get(b.id)! - onStation.get(a.id)! || (a.id < b.id ? -1 : 1));
+    for (let i = 0; extra > 0; i = (i + 1) % acs.length, extra--) spare.set(acs[i].id, (spare.get(acs[i].id) ?? 0) + 1);
+  }
   let fly: Map<string, { duties: number; bh: number }> | undefined;
   for (const ac of Object.values(g.fleet)) {
     // v0.8 away on a dry lease: the lessee's crews fly it (no sets while it is away).
@@ -331,7 +348,7 @@ export function familyNeeds(g: GameState) {
     const t = typeOf(ac.typeId);
     // v0.18.2 by its flying: a deployment's sets on station plus one in five, else the duties and hours it flies at home.
     const st = onStation.get(ac.id);
-    const sets = st ? setsForStation(st) : setsForHome((fly ??= homeFlying(g)).get(ac.id));
+    const sets = st ? st + (spare.get(ac.id) ?? 0) : setsForHome((fly ??= homeFlying(g)).get(ac.id));
     // The most extra crew its long work over the next 60 days asks for (as the staffing model).
     let x = crewExtraFor(g, ac.id, null);
     for (const k of Object.values(g.contracts)) {

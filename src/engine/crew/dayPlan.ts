@@ -1146,8 +1146,10 @@ function rawWindow(c: CrewMember, X: number, at: string, f: DayFacts, prevShift:
     if (asby) return { w: asby, kind: 'airport' };
   }
   const [a, b] = shift === 'E' ? S.home.early : S.home.late;
-  const from = shift === 'E' ? earlyFrom(m + a, S.home.readyMin) : m + a;
-  return { w: { from, to: from + (b - a), shift }, kind: 'home' };
+  // v0.25 r2 local clock times on a clock-change day too (a late standby on 28 Mar ran to 01:00 into a day off).
+  const at0 = (x: number) => m + x - (offsetAt(c.base, m + x) - offsetAt(c.base, m));
+  const from = shift === 'E' ? earlyFrom(at0(a), S.home.readyMin) : at0(a);
+  return { w: { from, to: from + (at0(b) - at0(a)), shift }, kind: 'home' };
 }
 
 /** Issues a fresh window brings (new ones only, against the timeline without it). */

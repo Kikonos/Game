@@ -9,7 +9,7 @@ import type { Duty } from '../core/types';
 import { resizeDeployments, setsFromDuties } from './duties';
 import { setsStaying } from './farBase';
 import { fixtureGame } from './fixtures';
-import type { FamilyPlan } from './sets';
+import { crewPlan, type FamilyPlan } from './sets';
 import { planHoldLine } from './utilisation';
 import { rollingRoster } from '../../test/rolling';
 
@@ -82,5 +82,18 @@ describe('v0.25 r2 Planning says what Utilisation says', () => {
     // Busy cabin crew (70 h in 28 days): the hire is needed, no line.
     for (const c of Object.values(g.crew)) if (c.role === 'CC') c.log = [{ start: g.now - 5 * DAY, end: g.now - 5 * DAY + 600, fdp: 600, block: 70 * 60, sectors: 4, augmented: false, disruptive: false }];
     expect(planHoldLine(g, p)).toBeNull();
+  });
+});
+
+describe('v0.25 r2 the reserve on a family\'s sets on station together', () => {
+  it('two detachments of 2 sets each: 5 sets (4 plus one in five, rounded once), not 3 + 3', () => {
+    const g = fixtureGame();
+    const ids = Object.keys(g.fleet).slice(0, 2);
+    expect(ids.length).toBe(2);
+    ids.forEach((aircraftId, i) => {
+      g.deployments[`dp${i}`] = { id: `dp${i}`, contractId: `k${i}`, aircraftId, base: 'HAM', start: g.now - DAY, end: g.now + 60 * DAY, setsOnStation: 2, pairingIds: [] };
+    });
+    const homes = Object.keys(g.fleet).length - 2;
+    expect(crewPlan(g)[0].setsNeeded).toBe(5 + 5 * homes);
   });
 });
