@@ -1,4 +1,4 @@
-// v0.25 r2 (crew-awaychain) no more time away from base than the rotation: crew already away are not put on a tour or
+// v0.25 r2 (crew-awaychain) no more time away from base than the rotation: crew already away go last for a tour or
 // trip that keeps them away past it, and a ticket home held weeks ahead does not keep them idle at the hotel.
 
 import { describe, expect, it } from 'vitest';
