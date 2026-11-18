@@ -27,7 +27,7 @@ export interface DivSpec {
   typeId?: string;
 }
 
-const MAP_KINDS = new Set(['diversion', 'medical', 'divertOnward', 'curfew']);
+const MAP_KINDS = new Set(['diversion', 'medical', 'unruly', 'divertOnward', 'curfew']);
 
 /** What the picker draws for a decision (null when it has no map). Pure. */
 export function divSpec(g: GameState, d: Decision): DivSpec | null {
@@ -44,7 +44,7 @@ export function divSpec(g: GameState, d: Decision): DivSpec | null {
     return { from: f.from, dest: to0, destNote: 'planned', pos: null, alts: [], at: String(d.data?.alt ?? f.to) };
   }
   const dest = f.div?.to0 ?? f.to;
-  const note = d.kind === 'curfew' ? 'curfew' : d.kind === 'medical' ? 'destination' : d.data?.cause === 'technical' ? 'destination' : 'closed';
+  const note = d.kind === 'curfew' ? 'curfew' : d.kind === 'medical' || d.kind === 'unruly' ? 'destination' : d.data?.cause === 'technical' ? 'destination' : 'closed';
   return { from: f.from, dest, destNote: note, pos: f.status === 'enroute' ? legPos(f, g.now) : null, alts, typeId: f.aircraftId ? g.fleet[f.aircraftId]?.typeId : undefined };
 }
 

@@ -122,6 +122,15 @@ export const MEDICAL_EVENTS = [
   { what: 'A diabetic passenger is confused and getting worse', severe: false },
 ];
 
+/** v0.25 a disruptive passenger in flight (IATA: about 1 report in 500–600 flights; we ask on the serious ones). */
+export const UNRULY_EVENTS = [
+  { what: 'A drunk passenger is shouting at the crew and will not sit down', severe: false },
+  { what: 'A passenger was caught smoking in the toilet and is threatening the crew', severe: false },
+  { what: 'A passenger tried to open a door in flight and had to be restrained', severe: true },
+  { what: 'Two passengers are fighting in the aisle; one has a cut head', severe: true },
+  { what: 'A passenger hit a cabin crew member who refused to serve more alcohol', severe: true },
+];
+
 /** Departure slot (CTOT) causes: Eurocontrol ATFM delay reasons. */
 export const CTOT_CAUSES = [
   'ATC capacity in the upper airspace',

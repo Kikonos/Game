@@ -108,7 +108,7 @@ function Receivables({ g }: { g: GameState }) {
         return (
           <div key={r.id} className={`sc-list-row sc-recv ${late > 0 ? 'late' : ''} ${r.id === sel ? 'on' : ''}`} onClick={() => r.contractId && store.navigate('contracts', { view: 'active', sel: { kind: 'contract', id: r.contractId } })}>
             <div className="grow" style={{ minWidth: 0 }}>
-              <div className="row gap-8">{prob && <Why refs={{ kind: 'contract', id: r.contractId! }} tone={prob.severity === 'red' ? 'bad' : 'warn'} />}<b className="ellipsis">{cl?.name ?? 'Client'}</b>{cl?.kind === 'government' && <span className="chip sc-chip">Government</span>}{r.factored && <span className="chip sc-chip">Sold to the bank</span>}{r.factor?.boughtBack && <span className="chip sc-chip warn">Bought back</span>}</div>
+              <div className="row gap-8">{prob && <Why refs={{ kind: 'contract', id: r.contractId! }} tone={prob.severity === 'red' ? 'bad' : 'warn'} />}<b className="ellipsis">{cl?.name ?? (r.clientId ? 'Client' : 'Passenger')}</b>{cl?.kind === 'government' && <span className="chip sc-chip">Government</span>}{r.factored && <span className="chip sc-chip">Sold to the bank</span>}{r.factor?.boughtBack && <span className="chip sc-chip warn">Bought back</span>}</div>
               <div className="small muted ellipsis">{r.desc} · issued {fmtDay(r.issued)}</div>
             </div>
             <div className="right nowrap">

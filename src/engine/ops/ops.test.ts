@@ -10,7 +10,9 @@ import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
 import { fixture } from '../fixtures/compatKit';
 import { afterOfferDays, busyShare, director, isQuiet, newDirector, PACE_SPELLS, quietShare, setPace, spellAt } from './director';
-import { devDisruption, DISRUPT_KINDS, inCurfew, onBoard, opsState, raise } from './disrupt';
+import { devDisruption, DISRUPT_KINDS, EMERGENCY_KINDS, inCurfew, onBoard, opsState, raise } from './disrupt';
+import { authorityName } from './audit';
+import { isOurDelay } from './latePolicy';
 import { inspect, rampYear } from './ramp';
 import { approvalsSuspended, dailyAudit, runAudit, startAuditTask } from './audit';
 import { approvalBlocker, resolveDecision } from './index';
@@ -231,6 +233,47 @@ describe('disruptions', () => {
     skip(g, (f.eta ?? f.sta) + 1);
     const m = g.messages.find((x) => x.title === `${f.no}: the passenger is in hospital`);
     expect(m?.body).toMatch(/^The passenger was taken to hospital in .+\. The crew filed their report\.$/);
+  });
+
+  it('v0.25 disruptive passenger: continue and the police meet it, a report to the authority; no cost', () => {
+    const { g, legs } = charter(7);
+    const f = legs[0];
+    airborne(g, f);
+    expect(devDisruption(g, 'unruly', f.id)).toBe(true);
+    const d = g.decisions.find((x) => x.kind === 'unruly')!;
+    expect(EMERGENCY_KINDS.has('unruly') && DISRUPT_KINDS.has('unruly')).toBe(true);
+    expect(d.options[0].id).toBe('continue');
+    const cpt = f.crewIds.map((id) => g.crew[id]).find((c) => c?.role === 'CPT')!;
+    expect(d.body).toContain(`Captain ${cpt.first} ${cpt.last}`);
+    expect(d.options[0].desc).toContain(authorityName(g));
+    const cash = g.company.cash;
+    expect(resolveDecision(g, d.id, 'continue').ok).toBe(true);
+    expect(g.company.cash).toBe(cash);
+    expect(f.div).toBeUndefined();
+    expect(g.messages.some((m) => m.title === `${f.no}: police met the aircraft`)).toBe(true);
+  });
+
+  it('v0.25 disruptive passenger: divert and offload; the delay is not ours and half the cost is billed to the passenger', () => {
+    const { g, legs } = charter(7);
+    const f = legs[0];
+    airborne(g, f);
+    expect(devDisruption(g, 'unruly', f.id)).toBe(true);
+    const d = g.decisions.find((x) => x.kind === 'unruly')!;
+    const alt = d.options.find((o) => o.id.startsWith('alt:'))!;
+    expect(alt.label).toMatch(/^Divert and offload at /);
+    const dis = line(g, 'disruption');
+    resolveDecision(g, d.id, alt.id);
+    expect(f.div?.cause).toBe('unruly');
+    skip(g, (f.eta ?? f.sta) + 1);
+    expect(line(g, 'disruption')).toBeLessThan(dis);
+    const r = g.finance.receivables.find((x) => x.desc.startsWith(`${f.no}: half the diversion`))!;
+    expect(r.clientId).toBe('');
+    expect(r.amount).toBeGreaterThan(0);
+    const on = g.decisions.find((x) => x.kind === 'divertOnward')!;
+    expect(on).toBeTruthy();
+    resolveDecision(g, on.id, on.defaultOption);
+    const next = Object.values(g.flights).find((x) => x.delayReason === 'Unruly passenger: diversion');
+    if (next) expect(isOurDelay(next)).toBe(false);
   });
 
   it('v0.25 onBoard: a role nobody fills reads plain ("the captain")', () => {
