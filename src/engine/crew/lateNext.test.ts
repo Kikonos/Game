@@ -4,7 +4,7 @@
 // after the rest (ORO.FTL.235(b); commander's discretion never shortens it), and a ticket straight on that the crew can
 // no longer check in for is rebooked rather than left to leave without them.
 
-import { describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { acceptOffer } from '../contracts';
 import { leased, dubBase, newGame, run } from '../contracts/testkit';
 import { retimeFlight, touchTickets } from '../core/entities';
@@ -16,6 +16,12 @@ import { minRest, tzDeltaH } from './rules';
 import { cabinEarly, touchCrew } from './timeline';
 
 const CI = BAL.deadheadCheckIn;
+
+// v0.25 no AOG on the way: each fault now has its own repair time, and this file is about crew tickets, not AOGs.
+const knobs = BAL as unknown as { aogBase: number };
+const aog0 = BAL.aogBase;
+beforeAll(() => { knobs.aogBase = 0; });
+afterAll(() => { knobs.aogBase = aog0; });
 
 /** A Dublin base (v0.12.1: was Hamburg, whose night ban now trims the third wave) crewed from Lisbon: the first trip whose last duty has a ticket home on an airline. */
 function trip(): { g: GameState; d: Duty; t: Flight } {

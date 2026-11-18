@@ -174,7 +174,10 @@ describe('v0.24 preventive maintenance programme', () => {
       const c: Contract = g.contracts[r.data!.contractId];
       run(g, c.end + DAY);
       const t = techReliability(g, 90);
-      out[level] = { fails: t.fails, deps: t.deps, maint: -line(g, 'maintenance') };
+      // v0.25 AOG repairs now cost what their fault costs (a tug's damage $50–150K): left out, so the line compares the
+      // programme's own work, not which dice fell.
+      const aogs = Object.values(g.maintenance).filter((m) => m.kind === 'AOG' && m.status === 'done').reduce((n, m) => n + m.cost, 0);
+      out[level] = { fails: t.fails, deps: t.deps, maint: -line(g, 'maintenance') - aogs };
     }
     expect(out.low.deps).toBeGreaterThan(80);
     expect(out.high.maint).toBeGreaterThan(out.low.maint);
