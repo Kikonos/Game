@@ -83,7 +83,13 @@ function foldHead(board: HTMLElement) {
   const max = main.scrollHeight - main.clientHeight;
   if (max <= 0) return;
   const want = board.scrollTop > 12 ? max : 0;
-  if (Math.abs(main.scrollTop - want) > 1) main.scrollTo({ top: want, behavior: 'smooth' });
+  // Asked once per change (not on every scroll event, which would restart the glide).
+  if (main.dataset.headFold === String(want) && Math.abs(main.scrollTop - want) > 1 && main.dataset.headFoldAt && performance.now() - Number(main.dataset.headFoldAt) < 600) return;
+  if (Math.abs(main.scrollTop - want) > 1) {
+    main.dataset.headFold = String(want);
+    main.dataset.headFoldAt = String(performance.now());
+    main.scrollTo({ top: want, behavior: 'smooth' });
+  }
 }
 
 function remember(key: string, v: string) {
