@@ -100,9 +100,12 @@ export function priceProduct(g: GameState, p: PriceInput): Product {
     const mgh = p.mghPerMonth ?? (wide ? BAL.mgh.wide : BAL.mgh.narrow);
     // v0.25 r3 the rate follows the hours guaranteed (BAL.wetRate): fixed costs spread over more or fewer hours. Hours
     // above the standard MGH (a Trusted or Partner client's perk) are a perk, not a cheaper rate.
+    // v0.25 r3 fix: only an ACMI base (season base, capacity lease) guarantees a month's hours; AOG cover and wet
+    // missions (Hajj, far-route rotations) keep their own calibrated rates.
     const W = BAL.wetRate;
     const std = wide ? BAL.mgh.wide : BAL.mgh.narrow;
-    const hoursF = mgh > 0 ? 1 - W.fixedShare + (W.fixedShare * W.ref[wide ? 'wide' : 'narrow']) / Math.min(mgh, std) : 1;
+    const baseDeal = p.archetype === 'seasonBase' || p.archetype === 'capacityLease';
+    const hoursF = baseDeal && mgh > 0 ? 1 - W.fixedShare + (W.fixedShare * W.ref[wide ? 'wide' : 'narrow']) / Math.min(mgh, std) : 1;
     return {
       kind: 'wet',
       ratePerBH: roundTo(R * m * mult * hoursF, 10),

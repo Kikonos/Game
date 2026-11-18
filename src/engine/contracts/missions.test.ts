@@ -85,11 +85,44 @@ describe('new archetypes across seeds (§2)', () => {
     }
     // Wet kinds: the rate itself.
     const wet = (archetype: Archetype, mult?: number) => {
-      const p = priceProduct(g, { ...base, archetype, wet: true, mult });
+      // v0.25 r3 at the reference MGH (BAL.wetRate.ref), where a base's hours factor is 1.
+      const p = priceProduct(g, { ...base, archetype, wet: true, mult, mghPerMonth: BAL.wetRate.ref.narrow });
       return p.kind === 'wet' ? p.ratePerBH : 0;
     };
     expect(wet('hajj') / wet('seasonBase')).toBeCloseTo(1.2, 1);
     expect(wet('capacityLease') / wet('seasonBase')).toBeCloseTo(0.92, 1);
+  });
+
+  it('only an ACMI base follows its guaranteed hours (v0.25 r3 fix); a narrowbody capacity lease guarantees more than a base', () => {
+    const g = newGame(5);
+    g.market.fuelPrice = 0;
+    const s = fromUTC(2027, 5, 1);
+    const base = { typeId: 'a320ceo', estBH: 40, start: s, end: s + 10 * DAY, lead: 30 * DAY, departures: 0, revDepartures: 0 };
+    const rate = (archetype: Archetype, mghPerMonth: number) => {
+      const p = priceProduct(g, { ...base, archetype, wet: true, mghPerMonth });
+      return p.kind === 'wet' ? p.ratePerBH : 0;
+    };
+    // A season base at 200 BH is dearer an hour than at 250 (ref 200; × 0.92 at 250).
+    expect(rate('seasonBase', 250) / rate('seasonBase', 200)).toBeCloseTo(0.92, 2);
+    // AOG cover and wet missions keep their rate whatever MGH they carry.
+    expect(rate('aogCover', 244)).toBe(rate('aogCover', 200));
+    expect(rate('hajj', 100)).toBe(rate('hajj', 200));
+    // A narrowbody capacity lease: at least a Trusted base's hours, and more money a month than a season base.
+    const leases: ContractOffer[] = [];
+    for (let seed = 1; seed <= 12 && leases.length < 4; seed++) {
+      const h = newGame(seed);
+      h.company.standing = 2;
+      for (let i = 0; i < 40 && leases.length < 4; i++) {
+        const o = generateOffer(h, 'capacityLease', { wide: false, window: false });
+        if (o && o.product.kind === 'wet') leases.push(o);
+      }
+    }
+    expect(leases.length).toBeGreaterThan(0);
+    for (const o of leases) {
+      if (o.product.kind !== 'wet') continue;
+      expect(o.product.mghPerMonth).toBeGreaterThanOrEqual(BAL.mgh.narrow * 1.1 - 1);
+    }
+    expect(rate('capacityLease', 275) * 275).toBeGreaterThan(rate('seasonBase', 250) * 250);
   });
 });
 

@@ -44,3 +44,9 @@
   }
   .sc-contracts .v8-head-strip .v8-tile-sub { display: none; }
 }
+
+/* v0.25 r3 a '?' on a short landscape phone (852x393): 56vh left the Planning help cut mid-line; use the screen's
+   height (the box itself is capped to it and scrolls). */
+@media (max-height: 500px) {
+  .term-pop .help-body { max-height: calc(100dvh / var(--ui-zoom, 1) - 80px - var(--vp-safe-t, 0px) - var(--vp-safe-b, 0px)); }
+}

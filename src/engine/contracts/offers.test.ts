@@ -364,7 +364,8 @@ describe('pricing', () => {
     expect(rateMultiplier(g, 'a343', jul, 30 * DAY).type).toBe(0);
     expect(referenceType({ minSeats: 260, layout: 'two-class' }, [['LIS', 'GRU']])).not.toBe('a343');
     const base = { typeId: 'a320ceo', estBH: 10, start: jul, end: jul + 5 * DAY, lead: 30 * DAY };
-    const wet = priceProduct(g, { ...base, archetype: 'seasonBase' });
+    // v0.25 r3 a base at the reference MGH (its hours factor 1); AOG cover keeps its own rate.
+    const wet = priceProduct(g, { ...base, archetype: 'seasonBase', mghPerMonth: BAL.wetRate.ref.narrow });
     const aog = priceProduct(g, { ...base, archetype: 'aogCover' });
     expect(wet.kind === 'wet' && aog.kind === 'wet' && aog.ratePerBH / wet.ratePerBH).toBeCloseTo(1.5, 1);
     const gov = priceProduct(g, { ...base, archetype: 'repatriation', government: true });

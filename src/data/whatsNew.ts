@@ -82,7 +82,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'On touch, the month chips in Crew › Leave are bigger and use short month names.',
       'Zoomed out, more than 3 aircraft parked at one airport show as one aircraft with a count, such as ×6. Zoom in to see them all.',
       'On the flat map, route lines now draw above parked aircraft.',
-      'Narrowbody season bases now guarantee 250 block hours a month instead of 200. As a Newcomer you get 200, and your bases now run 40 to 70 days.',
+      'Narrowbody season bases now guarantee 250 block hours a month instead of 200, and capacity leases 275. As a Newcomer you get 200, and your bases now run 40 to 70 days.',
       'An ACMI base\'s hourly rate now follows the hours it guarantees. More hours a month bring a slightly lower rate per hour but more money each month.',
       'The Medium and High maintenance programmes now cost what a real programme does. High on a busy A320 is about $150,000 a year, close to break-even for an old fleet.',
     ],

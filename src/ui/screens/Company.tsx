@@ -146,7 +146,7 @@ export const PM_NOTE = 'Low is the approved minimum: checks at their intervals, 
 function pmEffect(g: GameState): string {
   const level = pmLevel(g);
   const q = pmQuote(g, level === 'low' ? 'high' : level);
-  const parts = [`AOGs −${q.aogLess} %`, `defects −${q.delayLess} %`];
+  const parts = [`AOGs −${q.aogLess} %`, `delays −${q.delayLess} %`, `defects −${q.deferredLess} %`];
   if (q.monthly >= 500) parts.push(`≈ ${signedK(q.monthly)}/month`);
   const k = pmProgress(g);
   const since = g.company.pm?.since ?? g.now;

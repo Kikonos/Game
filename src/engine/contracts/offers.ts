@@ -452,7 +452,7 @@ function seasonBase(ctx: Ctx): Draft | null {
   const base = o.baseAt && AIRPORT_BY_CODE[o.baseAt] ? o.baseAt : client.base;
   // v0.5.1: a few season deals are long (4–8 months, planned a month or more ahead); most clients want them in their colours.
   // Rolled on a side stream (seed + time + id counter) so the main RNG sequence is unchanged by v0.5.1.
-  // v0.8 a Newcomer gets 30–45-day bases (never the long variant); a Respected company twice as many long ones;
+  // v0.8 a Newcomer gets 40–70-day bases (v0.25 r3; were 30–45) (never the long variant); a Respected company twice as many long ones;
   // Trusted and Partner clients book longer (× 1.25 / 1.5, capped by the window).
   const st = standingOf(g);
   const longShare = st === 0 ? 0 : st === 2 ? BAL.paint.longBaseShare * 2 : BAL.paint.longBaseShare;

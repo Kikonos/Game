@@ -507,7 +507,8 @@ function capacityLease(ctx: Ctx): Draft | null {
   d.archetype = 'capacityLease';
   d.mult = V.arch.capacity;
   // v0.14 a widebody capacity lease guarantees 330 BH (was 280: under the 300 of any widebody wet lease now).
-  d.mghPerMonth = wide ? 330 : 220;
+  // v0.25 r3 a narrowbody one 275 BH (was 220: under the 250 of any season base now), a Trusted client's base hours.
+  d.mghPerMonth = wide ? 330 : Math.round(BAL.mgh.narrow * 1.1);
   if (d.pattern.kind === 'base') d.pattern.targetBH = Math.round(d.mghPerMonth * 1.15);
   const mon = (t: Minute) => fmtDay(t).replace(/^\d+ /, '');
   d.title = `Capacity lease: one ${fam} for ${d.client.name}, ${mon(d.start)}–${mon(d.end)}`;
