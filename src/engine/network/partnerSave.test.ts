@@ -42,6 +42,6 @@ describe('v0.25 route partner payment terms', () => {
     run(g, 40);
     run(copy, 40);
     expect(copy.rng).toBe(g.rng);
-    expect(copy.cash).toBe(g.cash);
+    expect(copy.company.cash).toBe(g.company.cash);
   }, 120_000);
 });
