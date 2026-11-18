@@ -36,7 +36,7 @@ export function welcomeCard(g: GameState): WelcomeCard {
     lead: 'You run an ACMI operator. Here is how it works.',
     points: [
       'Airlines lease your Aircraft with Crew, Maintenance and Insurance (ACMI), and pay you by the block hour.',
-      'Offers arrive in Contracts › Market. Urgent ones phone in.',
+      'Offers arrive in Contracts › Market. Urgent ones phone in. Your own scheduled routes are in Network.',
       'The roster keeps crew within their duty and rest rules. When something goes wrong, a card says what happened and what you can do.',
       time,
       'Grow by building your name: market presence and trade fairs are in Contracts › Markets.',

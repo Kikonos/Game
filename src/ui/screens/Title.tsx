@@ -38,6 +38,11 @@ export function Title() {
   const [show, setShow] = useState(0);
   // "What's new" once per version, after the loading screen (never over another dialog).
   useEffect(() => {
+    // v0.25 r2: a first run (nothing seen, no save) has nothing to catch up on: mark this version seen, no changelog.
+    if (!store.settings.seenWhatsNew && !save) {
+      store.setSettings({ seenWhatsNew: CURRENT.version, whatsNewCatchUp: 'v0.9' });
+      return;
+    }
     // v0.9 §X: the first v0.9 launch catches up on v0.8 and v0.7.4 too (once), then the normal rule.
     if (whatsNewToShow(store.settings.seenWhatsNew, !!store.settings.whatsNewCatchUp).length && !store.modal) store.openModal({ kind: 'whatsNew' });
   }, []);
