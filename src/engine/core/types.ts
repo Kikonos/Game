@@ -1912,6 +1912,8 @@ export interface Stats {
   paxFlown?: number;
   /** v0.25 r2 milestones already told ('legs:1000', 'bh:5000', 'pax:100000', 'year:2'); an older save marks what it had passed on load. */
   milestones?: string[];
+  /** v0.25 r2 when the last passenger letter came in (ops/letters.ts); absent: none yet. */
+  letterAt?: Minute;
   /** Lifetime billable block minutes and revenue legs. */
   blockMin: number;
   legs: number;

@@ -47,6 +47,7 @@ import { clearOfCurfews, inCurfew } from '../core/curfew';
 import { delayOf, excusedLate, latePenalty } from './latePolicy';
 import { pmCostX, pmFactors } from './pm';
 import { countPax } from './milestones';
+import { passengerLetter } from './letters';
 
 /** v0.7.1: the problem ref and hurt snapshot of a message about legs lost or handed over (after the fact). */
 function penaltyMeta(g: GameState, rev: Flight[], money: number): Pick<Message, 'problem' | 'hurt'> {
@@ -1750,6 +1751,8 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
     if (onTime) s.onTime++;
     else s.delayed++;
     legOutcome(g, onTime ? 100 : 60);
+    // v0.25 r2 now and then a passenger writes in (text only).
+    passengerLetter(g, f, ac);
   }
 }
 
