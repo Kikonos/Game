@@ -72,6 +72,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'AOGs are now much rarer, about one per aircraft every two to three years. Older aircraft on a lighter maintenance programme still have more.',
       'New night curfews: Adelaide and Gold Coast are closed 23:00 to 06:00. Innsbruck is open 06:30 to 20:00 only, Osaka Itami 07:00 to 21:00 only.',
       'Crew Planning sizes a detachment by the duties it flies, so it no longer asks you to hire spare sets that would sit idle on station.',
+      'The ? on Crew › Planning now explains why an aircraft at home keeps 5 crews even when it flies little: days off, leave, and standby for charters that come at a few days\' notice.',
       'Crew on a detachment go home after the Rotation weeks set under Company. The next tour goes to crew from home.',
       'Crew who already hold a ticket home are no longer kept waiting at a hotel for weeks.',
       'At 4x the clock no longer stalls at midnight, and saving from the menu no longer freezes the screen.',
@@ -81,6 +82,9 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'On touch, the month chips in Crew › Leave are bigger and use short month names.',
       'Zoomed out, more than 3 aircraft parked at one airport show as one aircraft with a count, such as ×6. Zoom in to see them all.',
       'On the flat map, route lines now draw above parked aircraft.',
+      'Narrowbody season bases now guarantee 250 block hours a month instead of 200. As a Newcomer you get 200, and your bases now run 40 to 70 days.',
+      'An ACMI base\'s hourly rate now follows the hours it guarantees. More hours a month bring a slightly lower rate per hour but more money each month.',
+      'The Medium and High maintenance programmes now cost what a real programme does. High on a busy A320 is about $150,000 a year, close to break-even for an old fleet.',
     ],
     fixes: [
       'Globe pins no longer pile up in the top-left corner when you open the globe while paused.',
