@@ -315,7 +315,7 @@ describe('company standing (§1.6)', () => {
     expect(standing(g).name).toBe('Established');
   });
 
-  it('a Newcomer gets 30–45-day bases at −8 % and odd-hour waves in about 40 % of them', () => {
+  it('a Newcomer gets 40–70-day bases (v0.25 r3; were 30–45) at −8 % and odd-hour waves in about 40 % of them', () => {
     const g = newGame(31, 'LIS', true);
     g.company.standing = 0;
     let odd = 0;
@@ -326,7 +326,7 @@ describe('company standing (§1.6)', () => {
       const o = generateOffer(g, 'seasonBase', { window: false, wide: false, paint: false, start: fromUTC(2027, 6, 1) + i * 60 });
       if (!o || o.pattern.kind !== 'base') continue;
       n++;
-      expect((o.end - o.start) / DAY).toBeLessThanOrEqual(46);
+      expect((o.end - o.start) / DAY).toBeLessThanOrEqual(71);
       expect(o.standingPct).toBe(-0.08);
       if (o.pattern.waves[0] < 6 * 60) odd++;
     }

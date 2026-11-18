@@ -152,6 +152,8 @@ export interface OfferOpts {
   airport?: string;
   start?: Minute;
   days?: number;
+  /** v0.25 r3 a season base's MGH a month asked for by name (tests' fixed fixtures; else by standing and BAL.mgh). */
+  mgh?: number;
   dests?: string[];
   waves?: number;
   rotations?: number;
@@ -514,7 +516,7 @@ function seasonBase(ctx: Ctx): Draft | null {
   let waves = computeWaves(base, dests, ref, o.waves ?? (wide ? int(g, 1, 2) : int(g, 2, 3)));
   // v0.8 a Newcomer's MGH is lower (160 NB; v0.14 a widebody's stays 300); Trusted / Partner clients guarantee 10 / 15 % more.
   const S8 = BAL.v08.standing;
-  const mgh = st === 0 ? S8.newcomerMgh[wide ? 1 : 0] : Math.round((wide ? BAL.mgh.wide : BAL.mgh.narrow) * (1 + perks(g, client).mgh));
+  const mgh = o.mgh ?? (st === 0 ? S8.newcomerMgh[wide ? 1 : 0] : Math.round((wide ? BAL.mgh.wide : BAL.mgh.narrow) * (1 + perks(g, client).mgh)));
   const targetBH = Math.round(mgh * range(g, ...BAL.targetOverMgh));
   // v0.8 odd hours for a Newcomer (40 %): a first wave at 05:00–05:30 and a last one at 23:00–23:45 local.
   const odd = st === 0 && !o.waves && chance(sideRng(g, `odd:${g.seq}:${g.now}`), S8.oddHours);
