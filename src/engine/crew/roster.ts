@@ -23,7 +23,7 @@ import { restMarked } from './restMarks';
 import { lateChange, moraleShock, nextReport } from './morale';
 import { cabinFdpCap, DISCRETION, evalSegs, levelOf, LIMITS, TICKET_CONNECT, minRest, mkSeg, recoveryAnchor, tzDeltaH, worst, type LegalityIssue, type Seg } from './rules';
 import { cabinOwnReport, emptyLegsOnly, planRest, restCabinN, restLegs, restOf, restPlan } from './restPlan';
-import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, freshReport, locAt, noteRiders, OUT_CONNECT, outExtra, outMerges, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, standsBy, slotAfter, snapDeparture, takeLostRides, takeSkippedFull, ticketPrice, touchCrew, touchCrewState, typeIdOf, withoutTickets } from './timeline';
+import { aboard, aboveEmpty, cabinEarly, block28, crewCount, crewIx, crewRev, requiredEmpty, ctxOf, dhBlock, droppableHome, dutySegs, extCutAt, freshReport, locAt, noteRiders, OUT_CONNECT, outExtra, outMerges, outStillFits, passengers, planHome, planOut, posSeg, revenueRide, rideCheckIn, rideHomeFrom, rideLegIds, rideRoom, rideSeats, segsOf, segsTagOf, standsBy, slotAfter, snapDeparture, ticketSlotOk, takeLostRides, takeSkippedFull, ticketPrice, touchCrew, touchCrewState, typeIdOf, withoutTickets } from './timeline';
 import { deploymentOf, guestOn, homeOf, tourDay, tourHolding, tourHomePlan, tourSpan } from './tours';
 import { isAnnual, leaveBackPlan, leaveBackTaken, leaveHomePlan, leaveHomeTrip, leaveHorizon, leaveTicketsOf, LEAVE_BACK_BUFFER, LEAVE_BACK_GAP } from './leaveTrips';
 
@@ -1894,6 +1894,49 @@ function slipTourForRest(g: GameState, p: Pairing, firstOpen: Duty, ids: string[
   return true;
 }
 
+/**
+ * v0.25 the mirror of earlyHome for a ticket OUT: crew short only of the rest before the airline ticket out to the trip's
+ * first duty (their last duty released a few minutes late) move to the route's next departure after their rest. When
+ * that one lands too late for the report, the trip's first leg waits for them (up to REST_SLIP, as slipForRest). Hunter
+ * save m42: FR2045 landed 2 min late, the Dublin crew's 12:00 ticket to Nantes left them 9:58 of rest for 10:00, all five
+ * came off V7892 and it was cancelled ($30K). A shared booking moves for everyone aboard, and only when all of them are
+ * on this trip and short of that rest alone. 'moved': the ticket moved and the trip still reports on time (`kept`);
+ * 'slipped': the first leg waits too (the trip is re-synced: the caller re-checks it later); null: nothing done.
+ */
+function laterOut(g: GameState, p: Pairing, d: Duty, ids: string[], issue: Map<string, LegalityIssue>): { kept: Set<string>; slipped: boolean } | null {
+  const ci = BAL.deadheadCheckIn;
+  const f0 = g.flights[d.flightIds[0]];
+  const dep = f0?.from ?? d.restAt;
+  if (!f0 || f0.status !== 'scheduled' || !p.aircraftId || d.report <= g.now) return null;
+  const restOnly = (id: string) => issue.get(id)?.code === 'rest' && issue.get(id)?.dutyId === d.id && ids.includes(id);
+  const t = d.deadheadIds.map((x) => g.flights[x]).find((f) => !!f && f.kind === 'deadhead' && f.status === 'scheduled' && !f.charter && f.to === dep && f.sta <= d.report && f.std - ci > g.now && f.crewIds.some(restOnly));
+  if (!t || !t.crewIds.every((x) => restOnly(x) && p.slots.some((s) => s.crewId === x))) return null;
+  const blk = t.sta - t.std;
+  const ready = Math.max(...t.crewIds.map((x) => g.crew[x]?.restUntil ?? 0));
+  const std = nextDeparture(t.from, t.to, Math.max(t.std + 1, ready + ci), 2);
+  if (std === null || std > t.std + 6 * 60 || !ticketSlotOk(g, t.from, t.to, std, std + blk)) return null;
+  const slip = Math.max(0, Math.ceil((std + blk + OUT_CONNECT - d.report) / 5) * 5);
+  if (slip > REST_SLIP || (slip && (!restDelayHook || tourSlipping))) return null;
+  const was = t.std;
+  retimeFlight(g, t, std, std + blk);
+  if (slip) {
+    tourSlipping = true;
+    try {
+      if (!restDelayHook!(g, f0, f0.std + slip)) {
+        retimeFlight(g, t, was, was + blk);
+        return null;
+      }
+    } finally {
+      tourSlipping = false;
+    }
+  }
+  leaveAfterTicket(g, t.crewIds, t);
+  fitStandby(g, t.crewIds);
+  touchCrew(g);
+  if (slip) onFlightsChanged(g, p.aircraftId, g.now);
+  return { kept: new Set(t.crewIds), slipped: slip > 0 };
+}
+
 /** Rotations round: limits a rest or a day off cures; the crew member stays on station for the rest of the tour. */
 const TRANSIENT = new Set(['rest', 'recovery', 'duty7d', 'duty14d', 'duty28d', 'block28d', 'daysOff', 'fdp']);
 
@@ -2990,7 +3033,13 @@ function rerosterFrom0(g: GameState, aircraftId: string, t: Minute): RosterResul
     // tour grew past his ticket home, replaced and flown home 14 May).
     const station = g.flights[firstOpen.flightIds[0]]?.from ?? firstOpen.restAt;
     const retickable = (id: string) => !under || (!!p.tour && g.crew[id]?.loc === station && (rc.from.get(id) ?? 0) > firstOpen.report);
-    const out = rc.illegal.filter((id) => !locked(id) && (!retickable(id) || !(g.crew[id] && retick(g, p, g.crew[id]))));
+    let out = rc.illegal.filter((id) => !locked(id) && (!retickable(id) || !(g.crew[id] && retick(g, p, g.crew[id]))));
+    // v0.25 short only of the rest before their ticket out: the next departure after it (the first leg waits for it).
+    if (out.length && !under) {
+      const later = laterOut(g, p, firstOpen, out, rc.issue);
+      if (later?.slipped) continue;
+      if (later) out = out.filter((id) => !later.kept.has(id));
+    }
     // v0.14.1 (merge) a world tour's crew short only of rest before its next duty: the duty waits for them.
     if (out.length && slipTourForRest(g, p, firstOpen, out, rc.issue, under)) continue;
     // Rotations round: a deployment tour's crew member over a limit on one or two duties (rest after a late landing,
