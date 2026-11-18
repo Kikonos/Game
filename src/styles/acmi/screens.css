@@ -140,6 +140,9 @@
 .gantt-axis { position: relative; height: var(--axis-h); border-bottom: 1px solid var(--border); background: var(--panel-solid); }
 .gt { position: absolute; left: 0; top: 0; height: 100%; padding: 0 6px; display: flex; align-items: center; font-size: 12px; color: var(--text-3); white-space: nowrap; border-left: 1px solid rgba(var(--line-rgb), 0.08); font-variant-numeric: tabular-nums; }
 .gt.major { color: var(--text-2); font-weight: 600; border-left-color: rgba(var(--line-rgb), 0.3); }
+/* v0.25 the day label sticks to the timeline's left edge while its day is on screen (its box is the day's width). */
+.gt-day { position: absolute; left: 0; top: 0; height: 100%; pointer-events: none; z-index: 1; }
+.gt-day > .gt { position: sticky; left: 0; width: max-content; background: var(--panel-solid); }
 .gantt-track.z28 .gt { font-size: 12px; padding: 0 3px; }
 .gantt-row { position: relative; height: var(--row-h); border-bottom: 1px solid rgba(var(--line-rgb), 0.07); cursor: pointer; }
 .gantt-row.sel { background: rgba(var(--accent-rgb), 0.04); }
