@@ -14,6 +14,12 @@ import { DAY } from '../core/time';
 import type { Deployment, GameState, Minute, Pairing, Role } from '../core/types';
 import { tzDeltaH } from './rules';
 
+/**
+ * v0.25 r2 the sets a deployment keeps on station: those being stood down at the end of their last tour
+ * (duties.ts resizeDeployments) left out, so the crew plan does not hire for them. Pure.
+ */
+export const setsStaying = (dp: Deployment): number => Math.max(1, dp.setsOnStation - Object.keys(dp.setEnd ?? {}).length);
+
 /** Ticket hours and time zones from home past which a base is far. */
 export const FAR = { ticketH: 12, tzH: 4 };
 

@@ -12,7 +12,7 @@ import { dropClientSeats } from './clientCrew';
 import { restOf } from './restPlan';
 import { conversionClasses, ratingsLost } from './conversion';
 import { crewExtraFor, rolesWithExtra } from './extraSeats';
-import { farBase, patternSets, reserveCarrier, reserveRoles } from './farBase';
+import { farBase, patternSets, reserveCarrier, reserveRoles, setsStaying } from './farBase';
 import { payFor } from './generate';
 import { hireQuote, type HireRequest } from './hr';
 
@@ -296,7 +296,7 @@ export function familyNeeds(g: GameState) {
   const farSets = new Map<string, number>();
   for (const dp of Object.values(g.deployments)) {
     if (dp.end < g.now || dp.start > g.now + WINDOW) continue;
-    onStation.set(dp.aircraftId, Math.max(onStation.get(dp.aircraftId) ?? 0, dp.setsOnStation));
+    onStation.set(dp.aircraftId, Math.max(onStation.get(dp.aircraftId) ?? 0, setsStaying(dp)));
     // v0.18.2 one reserve per far station (shared by far stations within reach: farBase.ts reserveCarrier).
     if (reserveCarrier(g, dp)) farSets.set(dp.aircraftId, 1);
   }
