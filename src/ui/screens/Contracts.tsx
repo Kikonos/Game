@@ -277,11 +277,11 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
       )}
       <div className="sc-contract-actions">
           {/* v0.24 the whole contract, read back (terms, programme, how it stands). */}
-          <button className="btn" onClick={() => store.openModal({ kind: 'contract', contractId: c.id })} aria-label="View the contract"><FileText /></button>
+          <button className="btn" onClick={() => store.openModal({ kind: 'contract', contractId: c.id })} aria-label="View the contract" data-tip="The contract"><FileText /></button>
           {open && <>
-          <button className="btn" onClick={() => store.navigate('schedule', { sel: { kind: 'aircraft', id: c.aircraftIds[0] }, view: String(Math.max(g.now, next?.std ?? c.start)) })} aria-label="Show on schedule"><CalendarRange /></button>
+          <button className="btn" onClick={() => store.navigate('schedule', { sel: { kind: 'aircraft', id: c.aircraftIds[0] }, view: String(Math.max(g.now, next?.std ?? c.start)) })} aria-label="Show on schedule" data-tip="On the schedule"><CalendarRange /></button>
           <button className={`btn ${lockSub ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'subcharter', contractId: c.id })} aria-label="Sub-charter legs to a rival" data-tip="Hand legs to a rival operator" {...lockedProps(lockSub)}><Handshake /></button>
-          <button className={`btn btn-danger ${lockCancel ? 'locked' : ''}`} onClick={() => confirmCancel(g, c)} aria-label="Cancel contract" {...lockedProps(lockCancel)}><CircleSlash /></button>
+          <button className={`btn btn-danger ${lockCancel ? 'locked' : ''}`} onClick={() => confirmCancel(g, c)} aria-label="Cancel contract" data-tip="Cancel the contract" {...lockedProps(lockCancel)}><CircleSlash /></button>
           </>}
       </div>
     </div>
