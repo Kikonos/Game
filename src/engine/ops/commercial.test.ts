@@ -427,6 +427,16 @@ describe('v0.25 crew tickets to Greenland and Royal Air Maroc long haul', () => 
     expect(route('LHR', 'SFJ').pop()).toMatchObject({ from: 'CPH', iata: 'GL' });
     expect(route('LIS', 'GOH').pop()).toMatchObject({ to: 'GOH', iata: 'GL' });
   });
+  it('v0.25 review: from airports with no nonstop to a gateway (Shannon, Cork, Boston) still no invented nonstop into Greenland', () => {
+    for (const [a, b] of [['SNN', 'SFJ'], ['SNN', 'GOH'], ['ORK', 'SFJ'], ['BOS', 'SFJ'], ['YFB', 'SFJ']]) {
+      const it = route(a, b);
+      expect(it.length, `${a}-${b}`).toBe(2);
+      expect(it[0].from).toBe(a);
+      expect(it[1], `${a}-${b}`).toMatchObject({ to: b, iata: 'GL' });
+      // The first leg is flown by the gateway's own airline (SAS to Copenhagen, Air Greenland to Nuuk).
+      expect(['SK', 'FI', 'GL'], `${a}-${b} ${it[0].no}`).toContain(it[0].iata);
+    }
+  });
   it('Royal Air Maroc flies New York and São Paulo, never Santiago or Los Angeles', () => {
     const at = CARRIER_BY_IATA.AT;
     expect(directCarriers('CMN', 'JFK')).toContain(at);

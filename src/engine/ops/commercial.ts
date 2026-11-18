@@ -243,6 +243,11 @@ function gateways(): string[] {
   return (gatewaysCache = [...out].filter((x) => !!AIRPORT_BY_CODE[x]).sort());
 }
 
+/** v0.25 the network airlines with a hub at G, open to all (not a closed network such as the Gulf carriers'). Pure. */
+function hubCarriers(G: string): Carrier[] {
+  return CARRIERS.filter((c) => c.kind !== 'lcc' && c.hubs.includes(G) && !c.dests);
+}
+
 /**
  * v0.25 from → G → to when no hub connects the pair: G an airport some airline flies nonstop into `to` (a gateway)
  * that `from` has a nonstop to; the shortest way round wins. null when there is none. Pure.
@@ -257,8 +262,14 @@ function gatewayRouting(from: string, to: string): Routing | null {
   // One connection at a gateway first (Malta–Copenhagen–Kangerlussuaq).
   const one = cands.find((x) => directCarriers(from, x.G).length > 0);
   if (one) return { legs: [leg(from, one.G), leg(one.G, to)], total: legBlock(from, one.G) + CONNECT_MIN + legBlock(one.G, to) };
-  // (Not two: crew planning books a ticket of at most one connection.)
-  return null;
+  // (Not two: crew planning books a ticket of at most one connection.) v0.25 review: with no nonstop to any gateway
+  // (Shannon, Cork, Iqaluit, Boston to Kangerlussuaq), the gateway's own airline takes them there (Icelandair to
+  // Keflavik, SAS to Copenhagen) and the real airline flies the last leg, never an invented nonstop into the place.
+  // The shortest such leg (it is the one not in the data), within a sensible detour.
+  const direct = distance(from, to);
+  const near = cands.filter((x) => x.km <= 2 * direct && hubCarriers(x.G).length > 0).sort((a, b) => distance(from, a.G) - distance(from, b.G) || (a.G < b.G ? -1 : 1))[0];
+  if (!near) return null;
+  return { legs: [{ ...leg(from, near.G), carriers: hubCarriers(near.G) }, leg(near.G, to)], total: legBlock(from, near.G) + CONNECT_MIN + legBlock(near.G, to) };
 }
 
 /** Ticket door-to-door minutes (sum of legs plus the connection): crew planning books tickets this long. Pure. */
