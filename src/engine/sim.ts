@@ -31,24 +31,10 @@ for (const m of MODULES) {
 }
 
 /**
- * v0.25 (perf) the midnight work in phases, in the order of one 'day' dispatch: every module's day handler, a module's
- * dayPhases (crew) splitting it where a part after the first begins. The phases run back to back at 00:00 (see advanceTo).
+ * v0.25 (perf) the midnight work in phases, in the order of one 'day' dispatch: each module's day handler, and each part
+ * of a module's dayPhases (crew), is a phase of its own. The phases run back to back at 00:00 (see advanceTo).
  */
-const DAY_PHASES: SimHandler[][] = [];
-{
-  let cur: SimHandler[] = [];
-  for (const m of MODULES) {
-    const parts = m.dayPhases ?? (m.handlers.day ? [m.handlers.day] : []);
-    parts.forEach((h, i) => {
-      if (i > 0) {
-        DAY_PHASES.push(cur);
-        cur = [];
-      }
-      cur.push(h);
-    });
-  }
-  if (cur.length) DAY_PHASES.push(cur);
-}
+const DAY_PHASES: SimHandler[][] = MODULES.flatMap((m) => m.dayPhases ?? (m.handlers.day ? [m.handlers.day] : [])).map((h) => [h]);
 
 /** v0.25 (perf) the UI drew a frame between two midnight phases: the rest of that midnight is next in the queue. */
 export function midDay(g: GameState): boolean {

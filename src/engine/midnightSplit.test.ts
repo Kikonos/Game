@@ -36,8 +36,8 @@ describe('midnight in phases', () => {
       decide(b);
       expect(b.now).toBe(a.now);
     }
-    // Three midnights, each stopped three times (the crew's pairings, roster and day plan are phases of their own).
-    expect(halves).toBe(9);
+    // Three midnights, each stopped between its 9 phases (ops, contracts, commercial, network, the crew's four, scenario).
+    expect(halves).toBe(24);
     expect(state(b)).toBe(state(a));
   });
 
