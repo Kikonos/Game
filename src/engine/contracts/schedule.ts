@@ -15,7 +15,7 @@ import { DAY, dayStart } from '../core/time';
 import type { Contract, Flight, GameState, Minute } from '../core/types';
 import {
   anchorsOf, AWAY_GAP, baseDayOf, baseDays, baseDayStart, baseFlightNo, chainBackward, chainForward, CHARTER_SLACK, DEPLOY_LEAD, flownRotations, gapMoves,
-  HOME_HOP_MIN, isHold, isSoft, onwardPending, planLegs, route, type Anchor, type ChainLeg,
+  HOME_HOP_MIN, isHold, isSoft, onwardPending, planLegs, route, TRIP_GAP, type Anchor, type ChainLeg,
 } from './plan';
 
 const horizonEnd = (g: GameState) => dayStart(g.now) + BAL.scheduleHorizonDays * DAY;
@@ -905,6 +905,16 @@ export function homeHopPays(g: GameState, aircraftId: string, X: string, gapMin:
   if (gapMin > HOP_WAIT_MAX) return true;
   const c = hopCosts(g, aircraftId, X, gapMin);
   return !!c && c.hop <= c.wait;
+}
+
+/**
+ * v0.25 an idle stretch of `gapMin` at outstation `at` that the planner spends there because a hop home and back would
+ * cost more (the Schedule's idle sheet says 'Waits at Helsinki (cheaper than a ferry home)'). Pure.
+ */
+export function waitsAwayCheaper(g: GameState, aircraftId: string, at: string, gapMin: number): boolean {
+  if (at === g.company.homeBase || gapMin < TRIP_GAP || gapMin > HOP_WAIT_MAX) return false;
+  const c = hopCosts(g, aircraftId, at, gapMin);
+  return !!c && c.hop > c.wait;
 }
 
 /** v0.25 the two sides of homeHopPays in dollars (null: no route home and back). Pure. */

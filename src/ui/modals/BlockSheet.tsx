@@ -14,6 +14,7 @@ import { gapCheck, type GapOption } from '../../engine/ops/maintMove';
 import { cancelPosition, positionLegs, positionTargets, quotePosition } from '../../engine/ops/position';
 import { problemAt } from '../../engine/problems';
 import { tripOf, tripTargets } from '../../engine/ops/tripMove';
+import { waitsAwayCheaper } from '../../engine/contracts/schedule';
 import { subleaseTrip } from '../../engine/ops/sublease';
 import { usdSigned } from './TripMoveModal';
 import { SectorBlock } from '../screens/network/live';
@@ -454,6 +455,7 @@ function SheetBody({ g, refs, idle }: { g: GameState; refs: Ref[]; idle?: { airc
         <button className="btn btn-primary" onClick={() => store.navigate('contracts', { view: 'market' })}><Search /> Find work</button>
       }>
         <p className="muted">{ac?.reg} is free at {idle.at || ac?.at} from {fmtDateTime(idle.from)} to {fmtDateTime(idle.to)} UTC.</p>
+        {ac && waitsAwayCheaper(g, ac.id, idle.at || ac.at, idle.to - idle.from) && <p className="muted">Waits at {AIRPORT_BY_CODE[idle.at || ac.at]?.city ?? (idle.at || ac.at)} (cheaper than a ferry home).</p>}
         {ac && <GapActions g={g} idle={idle} />}
       </Modal>
     );

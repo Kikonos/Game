@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest';
 import { flightsOf } from '../core/entities';
 import { DAY } from '../core/time';
 import { acceptOffer } from '.';
-import { HOP_WAIT_MAX, homeHopPays, hopCosts } from './schedule';
+import { HOP_WAIT_MAX, homeHopPays, hopCosts, waitsAwayCheaper } from './schedule';
 import { legsOffer, newGame, owned } from './testkit';
 
 describe('v0.25 weekly series: wait at the outstation or hop home, on cost', () => {
@@ -31,5 +31,16 @@ describe('v0.25 weekly series: wait at the outstation or hop home, on cost', () 
     const between = legs.filter((f) => f.kind === 'positioning' && f.std > t && f.std < t + 7 * DAY);
     expect(between).toEqual([]);
     expect(legs[legs.length - 1].to).toBe(g.company.homeBase);
+  });
+});
+
+describe('v0.25 the idle sheet says why it waits away', () => {
+  it('six days at Helsinki: waits there (cheaper than a ferry home); not at home, not for a month', () => {
+    const g = newGame(7);
+    const ac = owned(g);
+    expect(waitsAwayCheaper(g, ac.id, 'HEL', 6 * DAY)).toBe(true);
+    expect(waitsAwayCheaper(g, ac.id, g.company.homeBase, 6 * DAY)).toBe(false);
+    expect(waitsAwayCheaper(g, ac.id, 'HEL', 30 * DAY)).toBe(false);
+    expect(waitsAwayCheaper(g, ac.id, 'HEL', DAY)).toBe(false);
   });
 });
