@@ -185,3 +185,22 @@ describe('v0.25 the case counts calendar months', () => {
     }
   });
 });
+
+describe('v0.25 the idea\'s pitch carries into the case', () => {
+  it('a study of an idea: the case starts on its aircraft and the verdict sets the guess against the study', () => {
+    const g = newGame();
+    unlockHead(g, 'netPlanner', true);
+    hireHead(g, 'netPlanner', 2);
+    const i = routeIdeas(g)[0];
+    const id = startStudy(g, i.marketId, 'full', i.model, { typeId: i.typeId, perWeek: i.perWeek, model: i.model, margin: i.margin }).routeId!;
+    const r = g.network!.routes[id];
+    expect(r.pitch).toEqual({ typeId: i.typeId, perWeek: i.perWeek, model: i.model, margin: i.margin });
+    r.study!.est = { p10: 200, p50: 300, p90: 400 };
+    r.study!.base = studyBase(g, r);
+    r.status = 'case';
+    const d = caseDraft(g, id)!;
+    expect(d.typeId).toBe(i.typeId);
+    const c = businessCase(g, id, d)!;
+    expect(c.verdict!.reasons.at(-1)).toMatch(new RegExp(`planner guessed a ${Math.round(i.margin * 100)} % margin`));
+  });
+});

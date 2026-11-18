@@ -182,3 +182,19 @@ describe('v0.25 the route against its business case', () => {
     expect(caseVsActual({ pnl: r.pnl }, now, keys)).toBeNull();
   });
 });
+
+describe('v0.25 the map route card: the next flight in local times', () => {
+  it("'Wed 22 Mar 2028 10:00 MLA → 13:35 ESB'", async () => {
+    const { createGame } = await import('../../../engine/newGame');
+    const { devLaunchRoute } = await import('../../../engine/network');
+    const { nextFlightWords, upcoming } = await import('./networkLogic');
+    const { fmtTime } = await import('../../../engine/core/time');
+    const g = createGame({ name: 'Malta Test', code: 'MT', livery: { primary: '#c00', secondary: '#fff', tail: 'sweep' }, base: 'MLA', seed: 7 });
+    const id = devLaunchRoute(g, 'X:MLA-ESB', 'a1');
+    const r = g.network!.routes[id];
+    const rot = upcoming(r, g.now)[0];
+    const w = nextFlightWords(g, r, rot)!;
+    expect(w).toMatch(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d+ \w+ \d{4} \d\d:\d\d MLA → \d\d:\d\d ESB$/);
+    expect(w).toContain(`${fmtTime(rot.dep, 'MLA')} MLA`);
+  });
+});

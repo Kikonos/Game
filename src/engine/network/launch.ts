@@ -96,7 +96,7 @@ export function studyBlock(g: GameState, marketId: string): string | null {
 }
 
 /** §C stage 1: opens a route record and starts its market study. The new route id, or the reason it can't start. */
-export function startStudy(g: GameState, marketId: string, depth: StudyDepth, model?: RouteModel): { routeId?: string; why?: string } {
+export function startStudy(g: GameState, marketId: string, depth: StudyDepth, model?: RouteModel, pitch?: Route['pitch']): { routeId?: string; why?: string } {
   const why = studyBlock(g, marketId);
   if (why) return { why };
   const m = marketById(marketId)!;
@@ -119,6 +119,7 @@ export function startStudy(g: GameState, marketId: string, depth: StudyDepth, mo
     reputation: Math.min(BAL.v019.rep.start, g.company.reputation.reliable), unearned: 0, pnl: {}, contractIds: [],
   };
   if (md === 'partner') r.partnerId = partnerClient(g, m);
+  if (pitch) r.pitch = { ...pitch };
   // v0.19.2 a custom route keeps its market as it was built (a later model change never moves its study).
   if (m.custom) r.custom = structuredClone(m);
   N.routes[id] = r;
@@ -703,6 +704,8 @@ export function businessCase(g: GameState, routeId: string, draft: RoutePlan): B
   const paybackWeeks = perMonth > 0 ? Math.round((cost / perMonth) * 4.35) : null;
   const crew = { longDay: away.longDay, dutyH: away.dutyH, nights: draft.nights, awayPerRotation: away.hotel + away.extraPilot };
   const verdict = caseVerdict({ ...band, breakEvenLf, paybackWeeks, launchCost: cost, acmiResult, crew, ...(stop ? { stop } : {}) });
+  // v0.25 the planner's guess against the study (the guess is a known route's year, the case the first one).
+  if (r.pitch) verdict.reasons.push(`The planner guessed a ${Math.round(r.pitch.margin * 100)} % margin once the route is known; the study's first year says ${Math.round(band.p50.margin * 100)} %.`);
   return {
     ...band, breakEvenLf, paybackWeeks,
     launchCost: cost, acmi, notes, firstFlight: start, parts: mid.parts, rotations: mid.rotations, lfOff: mid.lfOff, lfPeak: mid.lfPeak,
@@ -876,8 +879,10 @@ export function caseDraft(g: GameState, routeId: string): RoutePlan | null {
   if (!rec) return null;
   // v0.23.2 a market with a dead season is planned for its season (winter sun from the Baltics, summer to the islands).
   const m = marketOfRoute(r);
+  // v0.25 a study ordered from the planner's idea starts on the idea's aircraft, when we still have that type.
+  const pt = r.pitch && fleetOfType(g, r.pitch.typeId).length && (!m || !chainProblem(m, r.pitch.typeId)) ? r.pitch.typeId : null;
   return {
-    model: r.model, days: rec.days, every: rec.every ?? 1, monthly: rec.monthly, out: rec.out, back: rec.back, nights: rec.nights, typeId: rec.typeId, layout: rec.layout, fares: 'market', marketing: 'normal',
+    model: r.model, days: rec.days, every: rec.every ?? 1, monthly: rec.monthly, out: rec.out, back: rec.back, nights: rec.nights, typeId: pt ?? rec.typeId, layout: pt ? fleetLayout(g, pt) ?? rec.layout : rec.layout, fares: 'market', marketing: 'normal',
     ...(m && seasonMonths(m) ? { season: true as const } : {}),
   };
 }

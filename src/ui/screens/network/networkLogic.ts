@@ -5,10 +5,10 @@ import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../../data/airports'
 import { countryName } from '../../../data/countries';
 import { ROUTE_MARKETS, type RouteMarket } from '../../../data/routes';
 import { typeOf } from '../../../engine/core/perf';
-import { DAY, fmtDay, fmtTime, localMinuteOfDay, monthKey, toDate } from '../../../engine/core/time';
+import { DAY, fmtDay, fmtTime, localMinuteOfDay, monthKey, toDate, toLocal } from '../../../engine/core/time';
 import type { GameState, Minute, MonthKey } from '../../../engine/core/types';
 import { routeResting } from '../../../engine/network/costs';
-import { monthsWords } from '../../../engine/network/model';
+import { marketOfRoute, monthsWords, rotationTimes } from '../../../engine/network/model';
 import type { LaunchStageId, Rotation, Route, RoutePnl, RouteSeries, SectorLoad } from '../../../engine/network/types';
 
 export const MARKET_BY_ID: Record<string, RouteMarket> = Object.fromEntries(ROUTE_MARKETS.map((m) => [m.id, m]));
@@ -341,6 +341,32 @@ export function caseVsActual(r: Pick<Route, 'pnl' | 'caseAt'>, now: Minute, keys
     plan += v;
   }
   return { ghost: keys.map((k) => by.get(k) ?? null), months, actual: Math.round(actual), plan: Math.round(plan) };
+}
+
+/**
+ * v0.25 the next flight in local times at each end, 'Wed 22 Mar 2028 10:00 MLA → 13:35 ESB' (the map's route card).
+ * The outbound arrival is the flight's own when it is scheduled, else the timetable's. Null without a market. Pure.
+ */
+export function nextFlightWords(g: GameState, r: Route, rot: Rotation): string | null {
+  const m = marketOfRoute(r);
+  if (!m) return null;
+  const s = r.series.find((x) => x.id === rot.seriesId) ?? r.series[0];
+  const n = Math.max(1, (m.via?.length ?? 0) + 1);
+  const f0 = rot.sectors[0]?.flightId ? g.flights[rot.sectors[0].flightId] : undefined;
+  const fl = rot.sectors[n - 1]?.flightId ? g.flights[rot.sectors[n - 1].flightId!] : undefined;
+  let dep = f0?.std ?? rot.dep;
+  let arr = fl?.sta;
+  if (arr === undefined && s) {
+    try {
+      const t = rotationTimes(m, s, rot.dep);
+      dep = f0?.std ?? t[0]?.std ?? rot.dep;
+      arr = t[n - 1]?.sta;
+    } catch { arr = undefined; }
+  }
+  const d = toDate(toLocal(m.from, dep));
+  const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getUTCDay()];
+  const day = fmtDay(toLocal(m.from, dep));
+  return `${wd} ${day} ${fmtTime(dep, m.from)} ${m.from}${arr !== undefined ? ` → ${fmtTime(arr, m.to)} ${m.to}` : ''}`;
 }
 
 /** Launch spend so far (all months). */

@@ -14,7 +14,7 @@ import { Bar } from '../../components/ui';
 import { int, money, moneyDelta } from '../../format';
 import { store } from '../../store';
 import { net, type SectorLive } from './netApi';
-import { cargoLine, kg, lfTone, marketOf, routeCode, routeName, sectorLoad, seatsLine, statusChip, upcoming } from './networkLogic';
+import { cargoLine, kg, lfTone, marketOf, routeCode, routeName, sectorLoad, seatsLine, nextFlightWords, statusChip, upcoming } from './networkLogic';
 import { RouteActionButtons } from './RouteActions';
 
 /** The route, rotation and sector of a route flight (undefined for any other flight). */
@@ -204,7 +204,7 @@ export function RouteCard({ g, routeIds, onClose }: { g: GameState; routeIds: st
               <div className="nwl-grid">
                 <div><span>Load this month</span><b className={`num ${lf === null ? '' : lfTone(lf)}`}>{lf === null ? '—' : `${Math.round(lf * 100)} %`}</b></div>
                 <div><span>Result this month</span><b className={`num ${res !== null && res < 0 ? 'bad' : res !== null && res > 0 ? 'good' : ''}`}>{res === null ? '—' : moneyDelta(res)}</b></div>
-                <div className="nwl-wide"><span>Next flight</span><b className="num">{next ? `${fmtDay(next.dep)} ${fmtTime(next.dep)} UTC` : 'none planned'}</b></div>
+                <div className="nwl-wide"><span>Next flight</span><b className="num">{next ? nextFlightWords(g, r, next) ?? `${fmtDay(next.dep)} ${fmtTime(next.dep)} UTC` : 'none planned'}</b></div>
               </div>
               <div className="row wrap gap-6">
                 <button className="btn btn-sm" onClick={() => store.openModal({ kind: 'route', routeId: r.id })}><RouteIcon /> Route page</button>
