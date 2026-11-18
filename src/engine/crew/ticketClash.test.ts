@@ -9,7 +9,11 @@ import { DAY } from '../core/time';
 import { fixtureGame } from './fixtures';
 import { evalSegs } from './rules';
 import { shiftOk, unclashTickets } from './roster';
-import { crewIx, ctxOf, posSeg, touchCrew } from './timeline';
+import { crewIx, ctxOf, posSeg, segsOf, touchCrew } from './timeline';
+import { acceptOffer } from '../contracts';
+import { legsOffer, newGame } from '../contracts/testkit';
+import { advanceTo } from '../sim';
+import { openDuties } from './check';
 
 const ci = BAL.deadheadCheckIn;
 
@@ -80,5 +84,39 @@ describe('a shared ticket out moves only when it is legal for everyone on it', (
     touchCrew(g);
     expect(shiftOk(g, f, c.id, t + 6 * 60, t + 8 * 60)).toBe(false);
     expect(shiftOk(g, f, c.id, t + 20 * 60, t + 22 * 60)).toBe(true);
+  });
+});
+
+// v0.25 r3 (bot seed 3 MAD): a ticket out landing close to the report is part of its duty's seg, with no seg of its own,
+// so shiftOk passed any move of it; a captain's re-plan moved the set's ticket out six days earlier and took the FO past
+// his 168 h recovery rest. Moved away from the duty it is now checked as a ride of its own.
+describe('a shared ticket out that is part of its duty', () => {
+  it('is checked when it moves: refused into the rest after a standby', () => {
+    const g = newGame(21);
+    const ac = Object.values(g.fleet)[0];
+    ac.at = 'PMI';
+    const t0 = Math.ceil(g.now / DAY) * DAY;
+    const r = acceptOffer(g, legsOffer(g, [['PMI', 'LIS', t0 + 6 * DAY + 10 * 60]]).id, [ac.id]);
+    expect(r.ok).toBe(true);
+    advanceTo(g, g.now + 1, new Set());
+    const leg = Object.values(g.flights).find((f) => f.contractId === (r.ok ? r.data!.contractId : '') && f.kind === 'revenue')!;
+    const q = g.pairings[g.duties[leg.dutyId!].pairingId];
+    const qd = openDuties(g, q)[0];
+    const c = Object.values(g.crew).find((x) => x.role === 'CPT' && x.status === 'available' && !Object.values(g.pairings).some((p) => p.slots.some((s) => s.crewId === x.id)))!;
+    c.loc = c.base;
+    c.restUntil = g.now - 60;
+    c.off = [];
+    const seat = q.slots.findIndex((s) => s.role === 'CPT');
+    q.slots[seat].crewId = c.id;
+    const t = addDeadhead(g, { crewIds: [c.id], from: c.base, to: 'PMI', std: qd.report - 4 * 60, sta: qd.report - 2 * 60, cost: 0 });
+    qd.deadheadIds.push(t.id);
+    // A home standby that ends the evening before the trip's day.
+    const sbyEnd = qd.report - 18 * 60;
+    c.standby = [{ from: sbyEnd - 12 * 60, to: sbyEnd, kind: 'home', at: c.base }];
+    touchCrew(g);
+    expect(segsOf(g, c).some((x) => x.kind === 'pos' && x.ticketId === t.id)).toBe(false);
+    // Two hours after the standby ends: no rest. A day before the standby starts: fine.
+    expect(shiftOk(g, t, c.id, sbyEnd + 2 * 60, sbyEnd + 4 * 60)).toBe(false);
+    expect(shiftOk(g, t, c.id, sbyEnd - 36 * 60, sbyEnd - 34 * 60)).toBe(true);
   });
 });

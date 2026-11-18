@@ -637,8 +637,18 @@ export function shiftOk(g: GameState, f: Flight, id: string, std: Minute, sta: M
   if (!o) return true;
   const segs = segsOf(g, o);
   const seg = segs.find((x) => x.ticketId === f.id && x.kind === 'pos');
-  if (!seg) return true;
-  const moved = segs.map((x) => (x === seg ? { ...x, start: x.start + std - f.std, end: x.end + sta - f.sta } : x)).sort((a, b) => a.start - b.start);
+  let moved: Seg[];
+  if (seg) moved = segs.map((x) => (x === seg ? { ...x, start: x.start + std - f.std, end: x.end + sta - f.sta } : x)).sort((a, b) => a.start - b.start);
+  else {
+    // v0.25 r3 fix: a ticket out that lands close to the report is part of its duty's seg (no 'pos' seg of its own), so
+    // a move was never checked (bot seed 3 MAD: a captain's re-plan moved the set's ticket out from the day of the trip
+    // to six days earlier and took the FO past his 168 h recovery rest). Moved away from that duty it is a ride of its
+    // own: checked as one (the duty's seg kept as it is, so this only ever finds more).
+    if (!aboard(f, id)) return true;
+    const ride = posSeg({ ...f, std, sta }, o);
+    if (segs.some((x) => x.start < ride.end && x.end > ride.start)) return true;
+    moved = mergeSegs(segs, [ride]);
+  }
   const ctx = ctxOf(g, o);
   // (Being somewhere else than the trip's start is what the move mends: only the other limits count.)
   const bad = (s: Seg[]) => new Set(evalSegs(ctx, s).filter((i) => i.level === 'illegal' && i.code !== 'location').map((i) => `${i.code} ${i.dutyId ?? ''}`));
