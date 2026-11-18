@@ -10,7 +10,7 @@ import { typeOf } from '../core/perf';
 import { DAY, monthKey } from '../core/time';
 import type { Flight, GameState } from '../core/types';
 import { costTotal, passThrough, routeDisruptionCost, routeLegCost, sectorPax } from './costs';
-import { cargoDepX, freqPerWeek, marketOfRoute, paxKgOf, routeStation, type Dir } from './model';
+import { cargoDepX, freqPerWeek, marketOfRoute, paxKgOf, routeStation, usd, type Dir } from './model';
 import { pushRouteNote } from './notes';
 import { bumpRoute } from './reputation';
 import { dirSectors, fareFor, payloadMax, seriesOf } from './sales';
@@ -151,7 +151,14 @@ export function onSectorDep(g: GameState, f: Flight, rot: Rotation, idx: number)
       denied = over - vol;
       const band = marketOfRoute(route)?.eu261 === 'long' ? 2 : 1;
       comp += vol * P.volunteerVoucher + denied * (P.eu261[band] + BAL.v019.pax.change.reprotectFare[3]);
-      if (denied) bumpRoute(g, route.id, -denied / 10, 'Passengers denied boarding');
+      if (denied) {
+        bumpRoute(g, route.id, -denied / 10, 'Passengers denied boarding');
+        // v0.25 said, as a downgrade is (it used to pass in silence).
+        const paid = denied * P.eu261[band];
+        const what = ac ? `${ac.reg} (${typeOf(ac.typeId)?.short ?? ac.typeId}, ${capJ + capY} seats)` : `The aircraft (${capJ + capY} seats)`;
+        pushRouteNote(g, route, 'warn', `${f.no}: ${denied} passenger${denied === 1 ? '' : 's'} denied boarding`,
+          `${what} had ${over} more passengers than seats.${vol ? ` ${vol} took a voucher to fly later;` : ''} EU261 ${usd(paid)} paid to ${denied === 1 ? 'the one' : `the ${denied}`} left behind, and each is rebooked.`, `denied:${rot.id}:${dir}`);
+      }
     }
     if (tag) {
       // Through passengers: the same show-up as the sector's, out of those booked to fly on.
