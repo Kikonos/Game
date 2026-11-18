@@ -24,6 +24,20 @@ export const CURFEWS: Record<string, Curfew> = {
   LIN: { from: h(23), to: h(7), grace: 0, note: 'Closed 23:00–07:00' },
   NRT: { from: h(0), to: h(6), grace: 0, note: 'Operating hours 06:00–24:00' },
   SYD: { from: h(23), to: h(6), grace: 0, note: 'Curfew 23:00–06:00 (Sydney Airport Curfew Act 1995)' },
+  // v0.25.1 (ops-curfews) each entry checked against the airport's rules; the source is on its line. `grace` marked
+  // [E] where the rule allows delayed flights a limited extension without saying how long.
+  // Adelaide Airport Curfew Act 2000 and Adelaide Airport Curfew Regulations 2018: 23:00–06:00 local; outside
+  // exceptions, only by a dispensation from the Department of Infrastructure.
+  ADL: { from: h(23), to: h(6), grace: 0, note: 'Curfew 23:00–06:00 (Adelaide Airport Curfew Act 2000)' },
+  // Air Navigation (Gold Coast Airport Curfew) Regulations 2018: 23:00–06:00 local; dispensations only.
+  OOL: { from: h(23), to: h(6), grace: 0, note: 'Curfew 23:00–06:00 (Gold Coast Airport Curfew Regulations 2018)' },
+  // Innsbruck Airport (innsbruck-airport.com, "Extension of operating hours"; aerodrome regulations ZFBO § 9):
+  // operating hours 06:30–20:00 local; extensions capped at 0.7 % of the year's movements. Grace 60 min [E].
+  INN: { from: h(20), to: h(6, 30), grace: 60, note: 'Open 06:30–20:00 only' },
+  // Osaka Itami (Kansai Airports): operating hours end at 21:00 and start at 07:00 (the noise agreement with the
+  // surrounding cities); since 1 Apr 2025 a delayed flight after 21:00 pays a night noise fee (ACI Asia-Pacific,
+  // "A new measure against delayed flights at Osaka Itami Airport"). Grace 60 min [E].
+  ITM: { from: h(21), to: h(7), grace: 60, note: 'Open 07:00–21:00 only' },
 };
 
 /** EU member states plus the other EASA/ECAC states running SAFA/SACA ramp inspections (2025). */
