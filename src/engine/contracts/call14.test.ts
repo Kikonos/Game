@@ -150,7 +150,9 @@ describe('v0.14 an offer about to lapse is never missed unseen', () => {
     expect(cues.map((x) => x.cue)).toEqual(['offerLapsing']);
     expect(cues[0].ref?.id).toBe(o.id);
     const m = g.messages.find((x) => x.ref?.id === o.id && /lapsing soon/.test(x.title));
-    expect(m?.body).toMatch(/within 2 h 30 min/);
+    // v0.25 the clock time only (a relative 'within 2 h 30 min' went stale while the pop-up stayed up).
+    expect(m?.body).toMatch(/needs an answer by \d\d:\d\d UTC\.$/);
+    expect(m?.body).not.toMatch(/within/);
     // Once.
     g.now += 60;
     lapseCues(g);
