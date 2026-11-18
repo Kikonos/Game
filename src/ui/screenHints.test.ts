@@ -23,3 +23,12 @@ describe('screen hint fold', () => {
     expect(hintMode('schedule', s)).toBe('strip');
   });
 });
+
+describe('v0.25 hints on a phone on its side', () => {
+  it('start folded into the ? (never a strip), and Don\'t show again still wins', () => {
+    expect(hintMode('fleet', { screenHintsSeen: [], screenHintsFolded: [] }, true)).toBe('fold');
+    expect(hintMode('offer', { screenHintsSeen: [], screenHintsFolded: [] }, true)).toBe('fold');
+    expect(hintMode('fleet', { screenHintsSeen: ['fleet'], screenHintsFolded: [] }, true)).toBe('off');
+    expect(hintMode('fleet', { screenHintsSeen: [], screenHintsFolded: [] }, false)).toBe('strip');
+  });
+});
