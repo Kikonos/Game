@@ -25,6 +25,8 @@
    each one; taps go to the stage under them. */
 .globe-marks { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
 .globe-marks [data-gm] { will-change: transform; }
+/* v0.25 a mark the loop has not placed yet stays hidden (never stacked in the top-left corner). */
+.globe-marks [data-gm]:not([transform]) { display: none; }
 .globe-marks .ops-pin, .globe-marks .ops-ev, .globe-marks .ops-slip, .globe-marks .wx { cursor: default; }
 /* v0.24.1 a mouse over an aircraft, an airport, a mark or a route line: it opens on a click. */
 .globe-stage.hovering { cursor: pointer; }

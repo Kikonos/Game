@@ -166,6 +166,8 @@ export default function Globe(props: GlobeProps) {
   /** The loop's hooks for the buttons and the props effects. */
   const api = useRef<{ marks: (list: MarkEl[]) => void; kick: () => void; zoom: (f: number) => void; home: () => void; propsChanged: () => void } | null>(null);
   const marksRef = useRef<SVGSVGElement>(null);
+  // v0.25 the last marks list React drew: the layout effect runs before the mount effect sets api, so mount reads it.
+  const marksListRef = useRef<MarkEl[]>([]);
   const [fail, setFail] = useState<Error | null>(null);
   if (fail) throw fail;
 
@@ -303,7 +305,7 @@ export default function Globe(props: GlobeProps) {
     /** v0.24.1 the route lines' tracks (taps), and their screen points for the camera they were worked out for. */
     let routeTracks: { id: string; routes: string[]; pts: [number, number][] }[] = [];
     let routeScreen: { cv: CamView | null; lines: { id: string; pts: ([number, number] | null)[] }[] } = { cv: null, lines: [] };
-    let marks: MarkEl[] = [];
+    let marks: MarkEl[] = marksListRef.current;
     const markScreen = new Map<string, { x: number; y: number }>();
 
     const dropArc = (a: ArcObj) => {
@@ -1209,6 +1211,7 @@ export default function Globe(props: GlobeProps) {
       const off = (el.dataset.off ?? '0,0').split(',').map(Number) as [number, number];
       list.push({ el, key: el.dataset.gm!, at: vecOf(lon, lat, R_AP), face: Number(el.dataset.face ?? LABEL_COS), off });
     }
+    marksListRef.current = list;
     api.current?.marks(list);
   });
   const selId = props.sel && props.sel.kind !== 'aircraft' ? props.sel.id : undefined;
