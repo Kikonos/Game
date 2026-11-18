@@ -146,6 +146,12 @@ export const BAL = {
   aogTeamCost: [8_000, 15_000] as [number, number],
   aogTeamFactor: 0.6,
   aogDecisionMin: 120,
+  /**
+   * v0.25.1 (ops-aog-rescue) a revenue leg the wait would leave more than this late (minutes) is rescued by default:
+   * our own free aircraft ferries in, or another operator flies it, whichever costs less. A charter's passengers stuck
+   * days at an outstation are flown home by a sub-charter or a spare, as tour operators and ACMI carriers do. [E]
+   */
+  aogRescueMin: 24 * 60,
   /** Base-programme legs are cancelled rather than held longer than this (minutes); charters always wait. */
   holdMax: 360,
   /** Trips (charters, rotations) run at most this late before recovery cancels a leg (minutes). */

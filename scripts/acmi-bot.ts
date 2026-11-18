@@ -339,7 +339,9 @@ function decide(g: GameState, t: Tally): void {
   for (const d of [...g.decisions]) {
     const usable = (id: string) => d.options.some((o) => o.id === id && !o.chips?.includes('Unavailable'));
     let opt = d.defaultOption;
-    if (d.kind === 'aog' && usable('swap')) opt = 'swap';
+    // v0.25.1 (ops-aog-rescue) a leg the wait would leave over a day late: the rescue the card suggests.
+    if (d.kind === 'aog' && d.data?.rescue && usable(d.defaultOption)) opt = d.defaultOption;
+    else if (d.kind === 'aog' && usable('swap')) opt = 'swap';
     // v0.7.3 otherwise the cheapest way through (an AOG team or a short wait before sub-chartering a long series).
     else if (d.kind === 'aog') opt = [...d.options].filter((o) => usable(o.id)).sort((a, b) => aogCost(a.chips ?? []) - aogCost(b.chips ?? []) || Number(b.id === d.defaultOption) - Number(a.id === d.defaultOption))[0]?.id ?? opt;
     else if (d.kind === 'latePayment' && g.company.cash < 600_000 && usable('factor')) opt = 'factor';

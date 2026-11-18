@@ -27,9 +27,10 @@ import { calledNow } from '../crew/standby';
 import { type IssueCode } from '../crew/rules';
 import { dhBlock, OUT_CONNECT, outTicket, segsOf } from '../crew/timeline';
 import { distance } from '../core/geo';
-import { applyHold, cancelCost, cancelLegs, clientMoved, crewBlocked, delayChain, delayOf, liveDay, liveOver, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, settleOverlaps, stationOf, subcharterCost, subcharterLateChip, subcharterLegs, subHit, underClosure, unitOf, windowLegs, type SubHit } from './flights';
+import { applyHold, cancelCost, cancelLegs, clientMoved, crewBlocked, delayChain, delayOf, liveDay, liveOver, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, settleOverlaps, stationOf, subcharterCost, subcharterLateChip, subcharterLegs, subcharterTimes, subHit, underClosure, unitOf, windowLegs, type SubHit } from './flights';
 import { excusedLate, latePenalty } from './latePolicy';
 import { setAogEnd } from './maintenance';
+import { ferryCost } from './delivery';
 import { ticketBlock } from './commercial';
 import { bumpReliable, contractOf, isRevenue, stats, turnOf, usd } from './util';
 import { bumpClient, favourChip, levelOf, statsV08 } from '../contracts/relations';
@@ -206,13 +207,16 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
   const sub = subcharterCost(g, win, factor);
   const pen = cancelCost(g, win);
   const swap = findSwap(g, ac, win, m.at);
+  // v0.25.1 (ops-aog-rescue) the spare's ferry to the AOG station: fuel and fees at today's price.
+  const swapBlock = swap && swap.from !== m.at ? blockMinutes(swap.ac.typeId, swap.from, m.at) : 0;
+  const swapCost = swap && swapBlock ? Object.values(ferryCost(swap.ac.typeId, [{ block: swapBlock }], g.market.fuelPrice)).reduce((a, b) => a + b, 0) : 0;
   const hrs = (t: Minute) => `~${fmtDuration(t - g.now)}`;
   const options: DecisionOption[] = [
     // v0.12.1 the repair is paid whatever we choose (said once in the body): the chips show only what each option adds.
-    { id: 'courier', label: 'Wait for the part', desc: `A spare comes by courier. Legs wait; base legs held over ${BAL.holdMax / 60} h are cancelled.`, tone: 'warn', chips: [hrs(m.end), ...holdChips(g, holdC)] },
-    { id: 'team', label: 'Fly in an AOG team', desc: 'Engineers and the part on the next flight: faster, dearer.', tone: 'warn', chips: [hrs(teamEnd), `Team ${usd(-teamCost)}`, ...holdChips(g, holdT)] },
+    { id: 'courier', label: 'Wait for the part', desc: `A spare comes by courier. Legs wait; base legs held over ${BAL.holdMax / 60} h are cancelled.`, tone: 'warn', chips: [hrs(m.end), ...holdChips(g, holdC), ...longWaitChip(holdC)] },
+    { id: 'team', label: 'Fly in an AOG team', desc: 'Engineers and the part on the next flight: faster, dearer.', tone: 'warn', chips: [hrs(teamEnd), `Team ${usd(-teamCost)}`, ...holdChips(g, holdT), ...longWaitChip(holdT)] },
     swap
-      ? { id: 'swap', label: `Swap in ${swap.ac.reg}`, desc: swap.from === m.at ? `${swap.ac.reg} is here and free: it takes over the legs.` : `${swap.ac.reg} ferries ${swap.from}–${m.at} and takes over the legs.`, tone: 'good', chips: [swap.from === m.at ? 'No ferry' : `Ferry ${fmtDuration(blockMinutes(swap.ac.typeId, swap.from, m.at))}`, `First leg ${fmtTime(swap.moves[0]?.std ?? swap.arrive)} UTC`, legsChip(win)] }
+      ? { id: 'swap', label: `Swap in ${swap.ac.reg}`, desc: swap.from === m.at ? `${swap.ac.reg} is here and free: it takes over the legs.` : `${swap.ac.reg} ferries ${swap.from}–${m.at} and takes over the legs.`, tone: 'good', chips: [swap.from === m.at ? 'No ferry' : `Ferry ${fmtDuration(swapBlock)}`, ...(swapCost ? [usd(-swapCost)] : []), `First leg ${fmtTime(swap.moves[0]?.std ?? swap.arrive)} UTC`, legsChip(win)] }
       : { id: 'swap', label: 'Swap aircraft', desc: 'No other aircraft of this type is free to take over now.', tone: 'bad', chips: ['Unavailable'] },
     { id: 'subcharter', label: `Sub-charter to ${rivalName(g, rivalId)}`, desc: `A rival flies the legs; we still bill the client. Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}.`, tone: 'warn', chips: [usd(-sub), ...subcharterLateChip(g, win, rivalId), `Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}`, legsChip(win)] },
     { id: 'cancel', label: 'Cancel the legs', desc: 'Compensation to the client and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legsChip(win)] },
@@ -228,14 +232,43 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
   const wait = lossT < lossC ? 'team' : 'courier';
   const waitPen = Math.min(lossC, lossT);
   const waitDrops = revCount(wait === 'team' ? holdT.cancels : holdC.cancels) > 0;
-  const def = waitDrops && swap ? 'swap' : waitDrops && sub < waitPen ? 'subcharter' : wait;
+  let def = waitDrops && swap ? 'swap' : waitDrops && sub < waitPen ? 'subcharter' : wait;
+  // v0.25.1 (ops-aog-rescue) the better wait leaves a revenue leg more than a day late (the leg that brings a
+  // charter's passengers home is never dropped, so it waited 69–86 h behind a tug's damage): a rescue is the
+  // default, the cheaper of our spare's ferry and the rival's price, among those that fly the leg within the day.
+  const long = longWaits(wait === 'team' ? holdT : holdC);
+  let rescue = '';
+  if (long.length) {
+    const ids = new Set(long.map((x) => x.f.id));
+    const within = (late: number) => late <= BAL.aogRescueMin;
+    const swapOk = !!swap && long.every(({ f: x }) => win.includes(x)) && swap.moves.every(({ f: x, std }) => !ids.has(x.id) || within(std - (x.schedStd ?? x.std)));
+    const subTimes = rivalId ? subcharterTimes(g, win, rivalId) : null;
+    const subOk = !!subTimes && long.every(({ f: x }) => win.includes(x) && within((subTimes.get(x.id) ?? x.std) - (x.schedStd ?? x.std)));
+    const pickR = [swapOk ? { id: 'swap', cost: swapCost } : null, subOk ? { id: 'subcharter', cost: sub } : null]
+      .filter((x): x is { id: string; cost: number } => !!x)
+      .sort((a, b) => a.cost - b.cost)[0];
+    if (pickR) def = rescue = pickR.id;
+  }
+  const lead = long[0];
+  const rescueText = lead && rescue ? ` Waiting, ${lead.f.no} leaves ${lateH(lead)} h late: ${rescue === 'swap' ? `${swap!.ac.reg} can fly it` : `${rivalName(g, rivalId)} can fly it`}.` : '';
   ask(g, {
     kind: 'aog', title: `AOG: ${ac.reg} at ${city(m.at)}`,
-    body: `${m.cause}. ${f.no} ${f.from}–${f.to} can't leave. With a part by courier the aircraft is back in about ${Math.round((m.end - g.now) / 60)} h. The repair costs about ${usd(m.cost)} whichever you choose.`,
+    body: `${m.cause}. ${f.no} ${f.from}–${f.to} can't leave. With a part by courier the aircraft is back in about ${Math.round((m.end - g.now) / 60)} h. The repair costs about ${usd(m.cost)} whichever you choose.${rescueText}`,
     options, defaultOption: def, expires: g.now + BAL.aogDecisionMin, ref: { kind: 'aircraft', id: ac.id },
-    data: { aircraftId: ac.id, maintId: m.id, flightId: f.id, teamEnd, teamCost, factor, rivalId, cutC: revCount(holdC.cancels), cutT: revCount(holdT.cancels) },
+    data: { aircraftId: ac.id, maintId: m.id, flightId: f.id, teamEnd, teamCost, factor, rivalId, cutC: revCount(holdC.cancels), cutT: revCount(holdT.cancels), ...(rescue ? { rescue } : {}) },
   }, true);
 }
+
+/** v0.25.1 (ops-aog-rescue) revenue legs a wait moves more than BAL.aogRescueMin past their schedule, latest first. Pure. */
+function longWaits(h: ReturnType<typeof planHold>): { f: Flight; std: Minute }[] {
+  return h.moves.filter(({ f, std }) => isRevenue(f) && std - (f.schedStd ?? f.std) > BAL.aogRescueMin).sort((a, b) => lateH(b) - lateH(a));
+}
+const lateH = ({ f, std }: { f: Flight; std: Minute }) => Math.round((std - (f.schedStd ?? f.std)) / 60);
+/** v0.25.1 the wait's chip when a leg would leave over a day late: 'Up to 86 h late'. */
+const longWaitChip = (h: ReturnType<typeof planHold>): string[] => {
+  const w = longWaits(h);
+  return w.length ? [`Up to ${lateH(w[0])} h late`] : [];
+};
 
 /** v0.12.1 the card's count of cancelled legs no longer holds (the schedule changed since): the result says what happened. */
 function changedText(n: number, data: Data | undefined, key: string): string {
