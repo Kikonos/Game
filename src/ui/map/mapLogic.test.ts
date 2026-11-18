@@ -97,9 +97,9 @@ describe('geometry helpers', () => {
         expect(pts[i][0] - sizes[i].w / 2).toBeGreaterThanOrEqual(12); // right of the airport dot
         for (let j = i + 1; j < pts.length; j++) expect(boxOverlapPx(box(i), box(j))).toBe(0);
       }
-      // rows of PARK_PER_ROW
+      // rows of PARK_PER_ROW; v0.25 more than 3 make a block 3 wide
       const rows = new Set(pts.map((p) => p[1].toFixed(2)));
-      expect(rows.size).toBe(Math.ceil(sizes.length / PARK_PER_ROW));
+      expect(rows.size).toBe(Math.ceil(sizes.length / (sizes.length > 3 ? 3 : PARK_PER_ROW)));
     }
     // the stand after a 747 sits further right than the one after an A320
     expect(standOffsets([b744, a320], lab)[1][0]).toBeGreaterThan(standOffsets([a320, a320], lab)[1][0] + 15);
@@ -782,5 +782,18 @@ describe('v0.25 Up Next starts folded on a phone on its side', () => {
     expect(upNextFolded(null, false)).toBe(false);
     expect(upNextFolded('0', true)).toBe(false);
     expect(upNextFolded('1', false)).toBe(true);
+  });
+});
+
+describe('v0.25 parked aircraft: a compact block', () => {
+  it('more than 3 at one airport stand 3 wide (6 make 2 rows of 3), up to 3 stay in one row', async () => {
+    const { standOffsets } = await import('./mapLogic');
+    const a320 = { w: 30, h: 30 };
+    const six = standOffsets(Array(6).fill(a320), 12);
+    expect(new Set(six.map((p) => p[0])).size).toBe(3);
+    expect(new Set(six.map((p) => p[1])).size).toBe(2);
+    const three = standOffsets(Array(3).fill(a320), 12);
+    expect(new Set(three.map((p) => p[1])).size).toBe(1);
+    expect(Math.max(...six.map((p) => p[0]))).toBe(Math.max(...three.map((p) => p[0])));
   });
 });

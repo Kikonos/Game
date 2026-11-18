@@ -104,6 +104,10 @@ export function parkOffset(i: number, n: number): [number, number] {
   return [24 + col * PARK_GAP, (row - (rows - 1) / 2) * PARK_GAP];
 }
 
+/** v0.25 stands per row at one airport: up to 3 in a row; more make a compact block 3 wide (6 at Malta reached Crete
+ *  in rows of 5 at a regional zoom). Pure. */
+export const standsPerRow = (n: number): number => (n > 3 ? 3 : PARK_PER_ROW);
+
 /** v0.14 an aircraft's footprint on its stand (screen px): span `w` (at least its label's width), length `h`, and the
  *  depth of the labels under it (`lh`, default the layout's `labelH`). */
 export interface StandSize { w: number; h: number; lh?: number }
@@ -113,9 +117,9 @@ export interface StandSize { w: number; h: number; lh?: number }
  * (a 747 takes the room of two A320s), rows as deep as their longest aircraft plus `labelH` for the reg under it, the
  * block centred on the dot's height. Offsets of each aircraft's centre (screen px). Pure.
  */
-export function standOffsets(sizes: StandSize[], labelH: number, gap = 4, x0 = 13): [number, number][] {
+export function standOffsets(sizes: StandSize[], labelH: number, gap = 4, x0 = 13, perRow = standsPerRow(sizes.length)): [number, number][] {
   const rows: StandSize[][] = [];
-  for (let i = 0; i < sizes.length; i += PARK_PER_ROW) rows.push(sizes.slice(i, i + PARK_PER_ROW));
+  for (let i = 0; i < sizes.length; i += perRow) rows.push(sizes.slice(i, i + perRow));
   const lab = rows.map((r) => Math.max(...r.map((z) => z.lh ?? labelH)));
   const depth = rows.map((r, i) => Math.max(...r.map((z) => z.h)) + lab[i]);
   const total = depth.reduce((a, b) => a + b, 0) + gap * Math.max(0, rows.length - 1);
