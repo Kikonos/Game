@@ -64,6 +64,11 @@ export interface PositionQuote {
   notes: string[];
   /** Worked out on a copy (crew and schedule checked); false: route, times and money only. */
   full: boolean;
+  /**
+   * v0.25 the empty legs the schedule then adds or drops (the flight on to the next work), priced as a ferry (fuel and
+   * fees): `cost` added less dropped, `text` the Cost row's tail ('then about +$5K for the flight on to Paris').
+   */
+  onward?: { cost: number; to: string; text: string };
 }
 
 export interface PositionOpts {
@@ -291,7 +296,18 @@ function tryAt(g: GameState, p: Plan, to: string): Try {
   else if (to !== g.company.homeBase) notes.push(`${p.ac.reg} stays at ${city(to)} until it has work.`);
   if (gone.length) notes.push(`No longer flown: ${gone.map((f) => `${f.from}–${f.to} ${fmtDay(f.std)}`).join(', ')}.`);
   const out = legsOf(mine);
-  return { q: { ...q, legs: out, depart: out[0].std, arrive: out[out.length - 1].sta, crew, notes, full: true }, retry: null };
+  // v0.25 what the schedule's changes after the move cost (the quote left them out: Cost $11K, then a $5K ferry on).
+  const priced = (fl: Flight[]) => {
+    const c = ferryCost(p.ac.typeId, fl.map((f) => ({ block: f.sta - f.std })), g.market.fuelPrice);
+    return c.fuel + c.fees;
+  };
+  const net = (added.length ? priced(added) : 0) - (gone.length ? priced(gone) : 0);
+  const onTo = added.length ? added[added.length - 1].to : gone.length ? gone[gone.length - 1].to : null;
+  const onward = onTo && Math.abs(net) >= 500 ? {
+    cost: net, to: onTo,
+    text: net > 0 ? `then about +${usd(net)} for the flight on to ${city(onTo)}` : `then about ${usd(-net)} less on the empty flights after`,
+  } : undefined;
+  return { q: { ...q, legs: out, depart: out[0].std, arrive: out[out.length - 1].sta, crew, notes, full: true, ...(onward ? { onward } : {}) }, retry: null };
 }
 
 const memo = new WeakMap<GameState, Map<string, PositionQuote>>();
