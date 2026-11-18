@@ -1,7 +1,8 @@
 // v0.25 commercial realism: offers that fit their clients and their dates.
 
 import { describe, expect, it } from 'vitest';
-import { newGame } from './testkit';
+import { hamBase, leased, newGame } from './testkit';
+import { feasibility } from './feasibility';
 import { generateOffer } from './offers';
 import { DAY, fromUTC, toDate } from '../core/time';
 import { baseDestOpen, possessive, TITLES, type TitleCtx, diasporaReasonsAt, DIASPORA_BY_CLIENT, DIASPORA_REASONS, LEAGUE_CITIES, resortOpen, SIX_NATIONS, SUMMER_ONLY } from './flavor';
@@ -200,5 +201,21 @@ describe('v0.25 clients that fit the job', () => {
       delete g.offers[o.id];
     }
     expect(n).toBeGreaterThan(0);
+  });
+});
+
+describe('v0.25 profit after lease and crew', () => {
+  it('a wet base on a leased aircraft: the profit takes off the lease and the crew sets for the days tied up', () => {
+    const g = newGame();
+    const o = hamBase(g, g.now + 20 * DAY, 60);
+    const ac = leased(g);
+    const r = feasibility(g, o.id, ac.id);
+    expect(r.estFixed).toBeGreaterThan(0);
+    expect(r.estProfit).toBe(r.estMargin - r.estFixed!);
+    const days = Math.ceil((o.end - o.start) / DAY);
+    const lease = ac.ownership.kind === 'dryLeaseIn' ? (ac.ownership.rentPerMonth / 30.44) * days : 0;
+    expect(r.estFixed!).toBeGreaterThan(lease);
+    // A narrowbody set (2 pilots, 4 cabin) costs at least $20K a month with on-costs, for two or more sets.
+    expect(r.estFixed! - lease).toBeGreaterThan(((2 * 20_000) / 30.44) * days * 0.9);
   });
 });
