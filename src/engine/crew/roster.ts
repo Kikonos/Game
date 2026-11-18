@@ -2423,7 +2423,9 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
     if (later) score -= LEAVE_IN_TOUR;
     // v0.25 r2 (crew-awaychain) someone it would keep away past the rotation: a last resort (the next tour goes to crew
     // from home; a seat nobody else can fly keeps them on rather than empty).
-    if (awayTooLong(g, c, p, segs, first.report, p.tour ? Math.max(back, tourTo) : back, false)) score -= AWAY_OVER;
+    // (A member of another set on the same station covers this part as a guest, inside their own tour: no longer away.)
+    const guest = !!p.tour && (crewIx(g).pairingsOf.get(c.id) ?? []).some((q) => q.id !== p.id && !!q.tour && q.deploymentId === p.deploymentId && q.status !== 'done' && q.status !== 'broken' && !guestOn(q, c.id));
+    if (awayTooLong(g, c, p, segs, first.report, p.tour ? Math.max(back, tourTo) : back, guest)) score -= AWAY_OVER;
     if (prev.has(c.id)) score += 30;
     if (unpleasant) score -= (70 - c.morale) / 2;
     // v0.7.3 short notice: the day's standby crew are called first (crew control's order; no lost day off).
