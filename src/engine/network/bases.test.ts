@@ -174,16 +174,20 @@ describe('route costs and words at any home base', () => {
 });
 
 describe('the network planner at every start base', () => {
-  it('has at least three ideas from its own base on every start setup, each flyable and worth it', () => {
+  it('has ideas from its own base (or says why), each flyable and worth it', () => {
     for (const base of HOME_BASES) {
       for (const s of START_SETUPS) {
         const g = withPlanner(game(base, s.id));
         const bases = routeBases(g);
         const ideas = routeIdeas(g);
         const tag = `${base} ${s.id}`;
-        expect(ideas.length, tag).toBeGreaterThanOrEqual(3);
+        // v0.25 priced on our own cabin and aircraft time (no business seats on an all-economy start, an owned jet at
+        // its insurance): a start with an aircraft of its own has ideas; one new jet on a dear lease may have none,
+        // and then the planner says why.
+        expect(ideas.length, tag).toBeGreaterThanOrEqual(s.id === 'veterans' ? 3 : s.id === 'classic' ? 1 : 0);
         expect(ideas.length, tag).toBeLessThanOrEqual(BAL.v019.planner.ideas);
-        expect(routeIdeasNone(g), tag).toBeNull();
+        if (ideas.length) expect(routeIdeasNone(g), tag).toBeNull();
+        else expect(routeIdeasNone(g), tag).toMatch(/healthy margin/);
         for (const x of ideas) {
           expect(bases, `${tag} ${x.marketId}`).toContain(x.from);
           expect(country(x.from), `${tag} ${x.marketId}`).toBe(country(base));

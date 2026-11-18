@@ -138,3 +138,63 @@ describe('launch texts follow who travels', () => {
   });
 });
 
+
+describe('v0.25 airport search without accents', () => {
+  it('Sao Paulo, Malaga, Krakow, Tromso find their airports; the position search too', async () => {
+    const { foldText, searchAirports } = await import('./networkLogic');
+    const { searchAirports: posSearch } = await import('../../modals/PositionModal');
+    expect(foldText('São Paulo')).toBe('sao paulo');
+    expect(foldText('İstanbul')).toBe('istanbul');
+    expect(foldText('Tromsø')).toBe('tromso');
+    for (const [q, code] of [['Sao Paulo', 'GRU'], ['malaga', 'AGP'], ['Krakow', 'KRK'], ['Tromso', 'TOS'], ['Kraków', 'KRK']]) {
+      expect(searchAirports(q).map((a) => a.code), q).toContain(code);
+      expect(posSearch(q, '').map((a) => a.code), q).toContain(code);
+    }
+  });
+});
+
+describe('v0.25 the route against its business case', () => {
+  it('Go keeps the likely year by month; the flown closed months are set against it', async () => {
+    const { createGame } = await import('../../../engine/newGame');
+    const { devLaunchRoute } = await import('../../../engine/network');
+    const { caseVsActual, monthBars } = await import('./networkLogic');
+    const g = createGame({ name: 'Malta Test', code: 'MT', livery: { primary: '#c00', secondary: '#fff', tail: 'sweep' }, base: 'LIS', seed: 11 });
+    const id = devLaunchRoute(g, 'X:LIS-FRA', 'a1');
+    const r = g.network!.routes[id];
+    expect(r.caseAt).toBeDefined();
+    expect(r.caseAt!.months.length).toBeGreaterThanOrEqual(12);
+    expect(r.caseAt!.months[0].k).toBe(monthKey(r.caseAt!.start));
+    // Two months flown and closed, one month running (not counted).
+    const [k0, k1] = [r.caseAt!.months[0].k, r.caseAt!.months[1].k];
+    const pnl = (result: number) => ({ rev: 0, tickets: 0, cargo: 0, ancillary: 0, direct: 0, acTime: 0, result, pax: 0, seats: 0, bh: 0, sectors: 0, onTime: 0, cargoKg: 0, launch: 0 });
+    r.pnl[k0] = pnl(10_000);
+    r.pnl[k1] = pnl(-5_000);
+    r.pnl[k1 + 1] = pnl(99_000);
+    const now = (await import('../../../engine/core/time')).monthStart(k1 + 1) + 5 * 1440;
+    const keys = monthBars(r, now).keys;
+    const v = caseVsActual(r, now, keys)!;
+    expect(v.months).toBe(2);
+    expect(v.actual).toBe(5_000);
+    expect(v.plan).toBe(r.caseAt!.months[0].result + r.caseAt!.months[1].result);
+    expect(v.ghost[keys.indexOf(k0)]).toBe(r.caseAt!.months[0].result);
+    expect(v.ghost[0]).toBeNull();
+    // An older route (no case kept): nothing to compare.
+    expect(caseVsActual({ pnl: r.pnl }, now, keys)).toBeNull();
+  });
+});
+
+describe('v0.25 the map route card: the next flight in local times', () => {
+  it("'Wed 22 Mar 2028 10:00 MLA → 13:35 ESB'", async () => {
+    const { createGame } = await import('../../../engine/newGame');
+    const { devLaunchRoute } = await import('../../../engine/network');
+    const { nextFlightWords, upcoming } = await import('./networkLogic');
+    const { fmtTime } = await import('../../../engine/core/time');
+    const g = createGame({ name: 'Malta Test', code: 'MT', livery: { primary: '#c00', secondary: '#fff', tail: 'sweep' }, base: 'MLA', seed: 7 });
+    const id = devLaunchRoute(g, 'X:MLA-ESB', 'a1');
+    const r = g.network!.routes[id];
+    const rot = upcoming(r, g.now)[0];
+    const w = nextFlightWords(g, r, rot)!;
+    expect(w).toMatch(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun) \d+ \w+ \d{4} \d\d:\d\d MLA → \d\d:\d\d ESB$/);
+    expect(w).toContain(`${fmtTime(rot.dep, 'MLA')} MLA`);
+  });
+});

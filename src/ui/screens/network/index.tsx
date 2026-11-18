@@ -55,7 +55,7 @@ function RouteRow({ g, r }: { g: GameState; r: Route }) {
           )}
           <div className="nw-res">
             <span className="tiny dim upper">Last 3 months</span>
-            <span className={`num nowrap ${q.cur.result >= 0 ? 'good' : 'bad'}`}>{q.months ? moneyDelta(q.cur.result) : '—'} <TrendArrow dir={t.dir} /></span>
+            {q.months ? <span className={`num nowrap ${q.cur.result >= 0 ? 'good' : 'bad'}`}>{moneyDelta(q.cur.result)} <TrendArrow dir={t.dir} /></span> : <span className="num nowrap muted">—</span>}
           </div>
         </div>
       )}
@@ -192,7 +192,7 @@ export default function NetworkView({ g }: { g: GameState }) {
         <>
           <div className="nw-tiles">
             <div className="card nw-tile"><span className="tiny dim upper">Routes</span><b className="num">{tot.operating}</b><span className="tiny muted">{tot.launching ? `${tot.launching} launching` : 'operating'}</span></div>
-            <div className="card nw-tile"><span className="tiny dim upper">Last 3 months</span><b className={`num ${tot.result >= 0 ? 'good' : 'bad'}`}>{tot.months ? moneyDelta(tot.result) : '—'}</b><span className="tiny muted">after aircraft and crew time</span></div>
+            <div className="card nw-tile"><span className="tiny dim upper">Last 3 months</span><b className={`num ${!tot.months ? 'muted' : tot.result >= 0 ? 'good' : 'bad'}`}>{tot.months ? moneyDelta(tot.result) : '—'}</b><span className="tiny muted">after aircraft and crew time</span></div>
             <div className="card nw-tile"><span className="tiny dim upper">Tickets sold</span><b className="num">{money(tot.unearned)}</b><span className="tiny muted">cash in, not flown yet</span></div>
           </div>
           <div className="nw-list">{routes.map((r) => <RouteRow key={r.id} g={g} r={r} />)}</div>

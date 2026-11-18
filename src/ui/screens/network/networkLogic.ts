@@ -5,10 +5,10 @@ import { AIRPORT_BY_CODE, AIRPORTS, type Airport } from '../../../data/airports'
 import { countryName } from '../../../data/countries';
 import { ROUTE_MARKETS, type RouteMarket } from '../../../data/routes';
 import { typeOf } from '../../../engine/core/perf';
-import { DAY, fmtDay, fmtTime, localMinuteOfDay, monthKey, toDate } from '../../../engine/core/time';
+import { DAY, fmtDay, fmtTime, localMinuteOfDay, monthKey, toDate, toLocal } from '../../../engine/core/time';
 import type { GameState, Minute, MonthKey } from '../../../engine/core/types';
 import { routeResting } from '../../../engine/network/costs';
-import { monthsWords } from '../../../engine/network/model';
+import { marketOfRoute, monthsWords, rotationTimes } from '../../../engine/network/model';
 import type { LaunchStageId, Rotation, Route, RoutePnl, RouteSeries, SectorLoad } from '../../../engine/network/types';
 
 export const MARKET_BY_ID: Record<string, RouteMarket> = Object.fromEntries(ROUTE_MARKETS.map((m) => [m.id, m]));
@@ -285,7 +285,7 @@ export function pnlSum(r: Pick<Route, 'pnl'>, keys: MonthKey[]): RoutePnl {
   for (const k of keys) {
     const p = r.pnl[k];
     if (!p) continue;
-    for (const f of Object.keys(EMPTY_PNL) as (keyof RoutePnl)[]) out[f] = (out[f] ?? 0) + (p[f] ?? 0);
+    for (const f of Object.keys(EMPTY_PNL) as Exclude<keyof RoutePnl, 'acBh'>[]) out[f] = (out[f] ?? 0) + (p[f] ?? 0);
     // v0.21 passengers on every sector (the load factor's top); a month from before v0.21 counted them once.
     out.paxSec = (out.paxSec ?? 0) + (p.paxSec ?? p.pax);
   }
@@ -322,6 +322,51 @@ export function trend(cur: number, prev: number, flat = 0.03): { dir: -1 | 0 | 1
 export function monthBars(r: Pick<Route, 'pnl'>, now: Minute, n = 12): { keys: MonthKey[]; result: number[]; launch: number[] } {
   const keys = monthsBack(now, n);
   return { keys, result: keys.map((k) => Math.round(r.pnl[k]?.result ?? 0)), launch: keys.map((k) => Math.round(r.pnl[k]?.launch ?? 0)) };
+}
+
+/**
+ * v0.25 the business case against the flown months: the case's result for each of `keys` (null where it has none) and,
+ * over the closed months both cover, the actual and the planned result. Null when the route has no case kept. Pure.
+ */
+export function caseVsActual(r: Pick<Route, 'pnl' | 'caseAt'>, now: Minute, keys: MonthKey[]): { ghost: (number | null)[]; months: number; actual: number; plan: number } | null {
+  if (!r.caseAt) return null;
+  const by = new Map(r.caseAt.months.map((x) => [x.k, x.result]));
+  const cur = monthKey(now);
+  let months = 0, actual = 0, plan = 0;
+  for (const [k, v] of by) {
+    const p = r.pnl[k];
+    if (k >= cur || !p) continue;
+    months++;
+    actual += p.result;
+    plan += v;
+  }
+  return { ghost: keys.map((k) => by.get(k) ?? null), months, actual: Math.round(actual), plan: Math.round(plan) };
+}
+
+/**
+ * v0.25 the next flight in local times at each end, 'Wed 22 Mar 2028 10:00 MLA → 13:35 ESB' (the map's route card).
+ * The outbound arrival is the flight's own when it is scheduled, else the timetable's. Null without a market. Pure.
+ */
+export function nextFlightWords(g: GameState, r: Route, rot: Rotation): string | null {
+  const m = marketOfRoute(r);
+  if (!m) return null;
+  const s = r.series.find((x) => x.id === rot.seriesId) ?? r.series[0];
+  const n = Math.max(1, (m.via?.length ?? 0) + 1);
+  const f0 = rot.sectors[0]?.flightId ? g.flights[rot.sectors[0].flightId] : undefined;
+  const fl = rot.sectors[n - 1]?.flightId ? g.flights[rot.sectors[n - 1].flightId!] : undefined;
+  let dep = f0?.std ?? rot.dep;
+  let arr = fl?.sta;
+  if (arr === undefined && s) {
+    try {
+      const t = rotationTimes(m, s, rot.dep);
+      dep = f0?.std ?? t[0]?.std ?? rot.dep;
+      arr = t[n - 1]?.sta;
+    } catch { arr = undefined; }
+  }
+  const d = toDate(toLocal(m.from, dep));
+  const wd = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getUTCDay()];
+  const day = fmtDay(toLocal(m.from, dep));
+  return `${wd} ${day} ${fmtTime(dep, m.from)} ${m.from}${arr !== undefined ? ` → ${fmtTime(arr, m.to)} ${m.to}` : ''}`;
 }
 
 /** Launch spend so far (all months). */
@@ -418,22 +463,32 @@ export function seasonWord(code: string): string {
 // ---------- v0.19.2 the route builder ----------
 
 /** Airports matching a search (code, city, airport name, country), best first; never fuel-stop fields. Pure. */
+/**
+ * v0.25 text folded for a search: no accents or case, the letters a keyboard lacks spelled plainly ("Sao Paulo" finds
+ * São Paulo, "Malaga" Málaga, "Krakow" Kraków, "Tromso" Tromsø, "Istanbul" İstanbul). Pure.
+ */
+const FOLD_MAP: Record<string, string> = { ø: 'o', Ø: 'o', ı: 'i', ß: 'ss', æ: 'ae', Æ: 'ae', œ: 'oe', Œ: 'oe', ł: 'l', Ł: 'l', đ: 'd', Đ: 'd', ð: 'd', þ: 'th', ħ: 'h' };
+export function foldText(s: string): string {
+  return s.replace(/[øØıßæÆœŒłŁđĐðþħ]/g, (c) => FOLD_MAP[c] ?? c).normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+}
+
 export function searchAirports(q: string, exclude: string[] = [], limit = 8): Airport[] {
-  const s = q.trim().toLowerCase();
+  const s = foldText(q.trim());
   if (s.length < 2) return [];
   const scored: [number, Airport][] = [];
   for (const a of AIRPORTS) {
     if (a.enroute || a.ice || exclude.includes(a.code)) continue;
     const code = a.code.toLowerCase();
-    const city = a.city.toLowerCase();
-    const country = countryName(a.country).toLowerCase();
+    const city = foldText(a.city);
+    const name = foldText(a.name);
+    const country = foldText(countryName(a.country));
     let sc = 0;
     if (code === s) sc = 100;
     else if (city === s) sc = 90;
     else if (city.startsWith(s)) sc = 70;
-    else if (a.name.toLowerCase().startsWith(s)) sc = 55;
+    else if (name.startsWith(s)) sc = 55;
     else if (country.startsWith(s)) sc = 40;
-    else if (city.includes(s) || a.name.toLowerCase().includes(s)) sc = 30;
+    else if (city.includes(s) || name.includes(s)) sc = 30;
     else if (country.includes(s)) sc = 20;
     if (sc) scored.push([sc + a.size, a]);
   }

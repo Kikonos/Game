@@ -11,11 +11,11 @@ import { cashOnly, post } from '../core/ledger';
 import { blockMinutes, typeOf } from '../core/perf';
 import { chance, gaussian, int } from '../core/rng';
 import { requestPause } from '../core/pause';
-import { DAY, fmtDay, fmtTime, monthKey } from '../core/time';
+import { DAY, fmtDay, fmtTime, monthKey, monthStart } from '../core/time';
 import type { CabinLayout } from '../../data/acmiTypes';
 import type { Client, GameState, LedgerCat, Minute } from '../core/types';
 import { costTotal, passThrough, routeMonthCosts, sectorCost } from './costs';
-import { baseFare, cabinFor, chainOf, seasonCode, departureDemand, freqPerWeek, localMonth, localToUtc, MARKET_BY_ID, marketOfRoute, paxKgOf, cargoDepX, planMonths, seasonMonths, serviceHours, slotX, usd, weeklyMarket, type Dir } from './model';
+import { baseFare, cabinFor, chainOf, seasonCode, seasonX, departureDemand, freqPerWeek, localMonth, localToUtc, MARKET_BY_ID, marketOfRoute, paxKgOf, cargoDepX, planMonths, seasonMonths, serviceHours, slotX, usd, weeklyMarket, type Dir } from './model';
 import { pushRouteNote } from './notes';
 import { checkAchievements } from '../ops/achievements';
 import { acmiNetBH, aircraftCostBH, crewAwayCost, crewCostBH } from './pnl';
@@ -96,7 +96,7 @@ export function studyBlock(g: GameState, marketId: string): string | null {
 }
 
 /** §C stage 1: opens a route record and starts its market study. The new route id, or the reason it can't start. */
-export function startStudy(g: GameState, marketId: string, depth: StudyDepth, model?: RouteModel): { routeId?: string; why?: string } {
+export function startStudy(g: GameState, marketId: string, depth: StudyDepth, model?: RouteModel, pitch?: Route['pitch']): { routeId?: string; why?: string } {
   const why = studyBlock(g, marketId);
   if (why) return { why };
   const m = marketById(marketId)!;
@@ -119,6 +119,7 @@ export function startStudy(g: GameState, marketId: string, depth: StudyDepth, mo
     reputation: Math.min(BAL.v019.rep.start, g.company.reputation.reliable), unearned: 0, pnl: {}, contractIds: [],
   };
   if (md === 'partner') r.partnerId = partnerClient(g, m);
+  if (pitch) r.pitch = { ...pitch };
   // v0.19.2 a custom route keeps its market as it was built (a later model change never moves its study).
   if (m.custom) r.custom = structuredClone(m);
   N.routes[id] = r;
@@ -242,7 +243,7 @@ export interface MoneyParts {
 }
 
 export interface Projection {
-  months: { rev: number; cost: number; result: number; pax: number; seats: number }[];
+  months: { rev: number; cost: number; result: number; pax: number; seats: number; /** v0.25 the calendar month; its sector load. */ k: number; lf: number }[];
   rev: number;
   cost: number;
   result: number;
@@ -256,8 +257,13 @@ export interface Projection {
   seatSec: number;
   bh: number;
   sectors: number;
+  /** Off-peak and peak loads of a known route (no launch ramp), by the market's own season. */
   lfOff: number;
   lfPeak: number;
+  /** v0.25 the share of the peak months' travellers a known route turns away for want of seats. */
+  spillPeak: number;
+  /** v0.25 seats a flight can sell when the payload (runway, range) caps it well below the cabin (under 90 %). */
+  sellSeats?: number;
   spill: number;
   /** v0.21 the money by kind, the rotations flown and (a stopover) the average passengers a flight by market. */
   parts: MoneyParts;
@@ -282,7 +288,8 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   const t = typeOf(p.typeId);
   const cab = cabinFor(p.typeId, p.layout ?? 'two-class');
   const freq = freqPerWeek(p);
-  const deps = (freq * 52) / 12;
+  const depsFull = (freq * 52) / 12;
+  let deps = depsFull;
   const outDay = p.monthly ? p.monthly.weekday : lowestDay(p.days);
   const months: Projection['months'] = [];
   const parts: MoneyParts = { ...NO_PARTS };
@@ -294,7 +301,13 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   let paxSec = 0;
   let seatSec = 0;
   let paxJ = 0;
-  let offLf = 0, offN = 0, peakLf = 0, peakN = 0;
+  let offLf = 0, offN = 0, peakLf = 0, peakN = 0, peakWant = 0, peakSpill = 0;
+  // v0.25 peak and off-peak by the market's own season (the three busiest months, the six quietest), not a fixed
+  // calendar: a winter-sun route peaks in winter.
+  const sIdx = Array.from({ length: 12 }, (_, mo) => (seasonX(m, mo, 'out') + seasonX(m, mo, 'back')) / 2);
+  const byS = sIdx.map((v, mo) => [v, mo] as [number, number]).sort((a, b) => b[0] - a[0] || a[1] - b[1]).map((x) => x[1]);
+  const peakMonths = new Set(byS.slice(0, 3));
+  const offMonths = new Set(byS.slice(6));
   let sp = { thr: 0, ab: 0, bc: 0, n: 0 };
   const blockOf = (dir: Dir) => chainOf(m, dir).slice(1).reduce((a, to, i) => a + blockMinutes(p.typeId, chainOf(m, dir)[i], to), 0);
   const blockOut = blockOf('out');
@@ -315,7 +328,9 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   };
   const capOut = Math.min(cab.total, capPax('out'));
   const capBack = Math.min(cab.total, capPax('back'));
-  const acAir = aircraftCostBH(g, null, p.typeId);
+  // v0.25 the aircraft time the route P&L will charge: our own aircraft of the type (an owned one costs its insurance,
+  // a leased one its rent too), the list rent only when we have none (the case used list rent on owned jets).
+  const acAir = fleetAcCostBH(g, p.typeId);
   const acCrew = crewCostBH(p.typeId, cab.total);
   const away = crewAwayCost(g, m, p.typeId, cab.total, p.nights);
   const monthly = routeMonthCosts({ ...(r as Route), status: 'operating', marketing: p.marketing } as Route);
@@ -326,20 +341,32 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
   // v0.23.2 a seasonal plan: the months out of season have no flights; the station is kept at half cost, no campaign.
   const flown = planMonths(m, p);
   const resting = flown ? Object.values(routeMonthCosts({ ...(r as Route), status: 'operating', marketing: p.marketing } as Route, true)).reduce((a, x) => a + (x ?? 0), 0) : 0;
-  let monthsFlown = 0;
-  for (let i = 0; i < 12; i++) {
-    const at = start + i * 30.4 * DAY;
+  let rotations = 0;
+  // v0.25 the calendar months of the year from the first flight (the first and the last pro-rated): stepping 30.4
+  // days counted a seven-month season as eight and skipped a month.
+  const k0 = monthKey(start);
+  const yearEnd = start + 365 * DAY;
+  for (let i = 0; i <= 12; i++) {
+    const a = monthStart(k0 + i);
+    const b = monthStart(k0 + i + 1);
+    const s0 = Math.max(a, start);
+    const s1 = Math.min(b, yearEnd);
+    if (s1 <= s0) continue;
+    const wt = (s1 - s0) / (b - a);
+    const at = Math.round((s0 + s1) / 2);
+    deps = depsFull * wt;
     let rev = 0, cost = 0, pax = 0, seats = 0;
+    const ps0 = paxSec, ss0 = seatSec;
     if (flown && !(flown & (1 << new Date(Date.UTC(2000, 0, 1) + at * 60_000).getUTCMonth()))) {
-      parts.overheads += resting;
-      months.push({ rev: 0, cost: Math.round(resting), result: -Math.round(resting), pax: 0, seats: 0 });
+      parts.overheads += resting * wt;
+      months.push({ rev: 0, cost: Math.round(resting * wt), result: -Math.round(resting * wt), pax: 0, seats: 0, k: k0 + i, lf: 0 });
       continue;
     }
-    monthsFlown++;
+    rotations += deps;
     for (const dir of ['out', 'back'] as Dir[]) {
       const x = {
         freqPerWeek: freq, fares: p.fares, awareness: BAL.v019.demand.awareness.campaign[p.marketing] ?? 0.55, reputation: r.reputation ?? 60,
-        hours: serviceHours(m, p.typeId, dir), truth: demandX, slotX: slotX(outDay, p.out), rampX: opt.mature ? 1 : caseRamp(i),
+        hours: serviceHours(m, p.typeId, dir), truth: demandX, slotX: slotX(outDay, p.out), rampX: opt.mature ? 1 : caseRamp((at - start) / (7 * DAY)),
       };
       const d = departureDemand(g, m, at, dir, tag ? { ...x, stop: true } : x);
       const month = new Date(Date.UTC(2000, 0, 1) + at * 60_000).getUTCMonth();
@@ -349,6 +376,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
       const fY = (mk: RouteMarket) => baseFareOf(mk, 'Y', month, dir, p.fares) * fareMix;
       const fJ = (mk: RouteMarket) => baseFareOf(mk, 'J', month, dir, p.fares);
       // Passengers on each sector and the ticket money each sector earns.
+      let depSpill = 0;
       let secPax: { j: number; y: number }[];
       let secSold: number[];
       let boarded: number;
@@ -367,6 +395,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
         const bcSeats = legs.bcSecond ? k2.j + k2.y : k1.j + k1.y;
         const a = shareSeats(d, l1, l2, k1, k2, legs.bcSecond, bcCapOf(fifth, bcSeats));
         spill += a.spill * deps;
+        depSpill = a.spill;
         const tT = r.model === 'partner' ? 0 : a.thr.j * fJ(m) + a.thr.y * fY(m);
         const t1 = r.model === 'partner' ? 0 : a.l1.j * fJ(legs.first) + a.l1.y * fY(legs.first);
         const t2 = r.model === 'partner' ? 0 : a.l2.j * fJ(legs.second) + a.l2.y * fY(legs.second);
@@ -386,6 +415,7 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
         const j = Math.min(cab.j, jWant);
         const y = Math.min(Math.max(0, capT - j), cab.y, yWant + Math.max(0, jWant - cab.j) * BAL.v019.demand.jToY);
         spill += Math.max(0, jWant + yWant - j - y) * deps;
+        depSpill = Math.max(0, jWant + yWant - j - y);
         tickets = r.model === 'partner' ? 0 : j * fJ(m) + y * fY(m);
         secPax = blks.map(() => ({ j, y }));
         secSold = blks.map((b) => (tickets * b) / blkSum);
@@ -430,24 +460,35 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
       paxJ += boardedJ * deps;
       seats += cab.total * deps;
       const lf = secPax.reduce((a, q) => a + q.j + q.y, 0) / Math.max(1, cab.total * secPax.length);
-      if ([1, 2, 3, 4, 9, 10].includes(month)) { offLf += lf; offN++; }
-      if ([6, 7, 11].includes(month)) { peakLf += lf; peakN++; }
+      // v0.25 the loads of a known route (the launch ramp taken out: demand is linear in it), so the study's words
+      // describe the route, not its first months.
+      const ramp = Math.max(0.05, x.rampX);
+      const cap = Math.min(cab.total, dir === 'out' ? capOut : capBack);
+      const lfM = Math.min(cap / Math.max(1, cab.total), lf / ramp);
+      if (offMonths.has(month)) { offLf += lfM; offN++; }
+      if (peakMonths.has(month)) {
+        peakLf += lfM;
+        peakN++;
+        const want = (boarded + depSpill) / ramp;
+        peakWant += want;
+        peakSpill += Math.max(0, want - cap);
+      }
       bh += (blk / 60) * deps;
       sectors += (dir === 'out' ? secOut : secBack) * deps;
     }
     const hrs = ((blockOut + blockBack) / 60) * deps;
     const crew = hrs * acCrew + (away.hotel + away.extraPilot) * deps;
-    cost += fixed + hrs * acAir + crew;
-    parts.overheads += fixed;
+    cost += fixed * wt + hrs * acAir + crew;
+    parts.overheads += fixed * wt;
     parts.aircraft += hrs * acAir;
     parts.crew += crew;
-    months.push({ rev: Math.round(rev), cost: Math.round(cost), result: Math.round(rev - cost), pax: Math.round(pax), seats: Math.round(seats) });
+    months.push({ rev: Math.round(rev), cost: Math.round(cost), result: Math.round(rev - cost), pax: Math.round(pax), seats: Math.round(seats), k: k0 + i, lf: seatSec > ss0 ? Math.round(((paxSec - ps0) / (seatSec - ss0)) * 1000) / 1000 : 0 });
   }
   const sum = (k: 'rev' | 'cost' | 'result' | 'pax' | 'seats') => months.reduce((a, x) => a + x[k], 0);
   for (const k of Object.keys(parts) as (keyof MoneyParts)[]) parts[k] = Math.round(parts[k]);
   return {
     months, rev: sum('rev'), cost: sum('cost'), result: sum('result'), pax: sum('pax'), paxJ: Math.round(paxJ), seats: sum('seats'), paxSec, seatSec, bh, sectors,
-    lfOff: offN ? offLf / offN : 0, lfPeak: peakN ? peakLf / peakN : 0, spill, parts, rotations: Math.round(deps * monthsFlown),
+    lfOff: offN ? offLf / offN : 0, lfPeak: peakN ? peakLf / peakN : 0, spillPeak: peakWant > 0 ? peakSpill / peakWant : 0, ...(Math.min(capOut, capBack) < cab.total * 0.9 ? { sellSeats: Math.min(capOut, capBack) } : {}), spill, parts, rotations: Math.round(rotations),
     ...(tag && sp.n ? { split: { thr: sp.thr / sp.n, ab: sp.ab / sp.n, bc: sp.bc / sp.n, seats: cab.total } } : {}),
   };
 }
@@ -455,13 +496,52 @@ export function project(g: GameState, r: Pick<Route, 'marketId' | 'model' | 'tan
 const baseFareOf = baseFare;
 
 /**
- * r3-bal the launch ramp the case expects in its month `i` (the middle of the month on demand.ramp2, as sales.rampOf),
- * with the late-sales dent: tickets usually go on sale under 12 weeks before the first flight (filing).
+ * r3-bal the launch ramp the case expects `w` weeks after the first flight (the middle of a month, on demand.ramp2, as
+ * sales.rampOf), with the late-sales dent: tickets usually go on sale under 12 weeks before the first flight (filing).
  */
-function caseRamp(i: number): number {
+function caseRamp(w: number): number {
   const R = BAL.v019.demand.ramp2;
-  const w = (i + 0.5) * (30.4 / 7);
   return w >= R.weeks ? 1 : (R.from + (1 - R.from) * w / R.weeks) * BAL.v019.demand.ramp.late;
+}
+
+/** v0.25 our aircraft of a type that can fly for us (not leased out), by id. Pure. */
+export function fleetOfType(g: GameState, typeId: string): GameState['fleet'][string][] {
+  return Object.values(g.fleet).filter((a) => a.typeId === typeId && a.status !== 'leasedOut').sort((a, b) => (a.id < b.id ? -1 : 1));
+}
+
+/**
+ * v0.25 the cabin our aircraft of a type fly (the most common one; null when we have none): a case or an idea is priced
+ * on the seats we really have (an all-economy A320 fleet sells no business seats). Pure.
+ */
+export function fleetLayout(g: GameState, typeId: string): CabinLayout | null {
+  const n = new Map<CabinLayout, number>();
+  for (const a of fleetOfType(g, typeId)) {
+    const l = (a.cabin.layout as CabinLayout | undefined) ?? (a.cabin.j + a.cabin.w > 0 ? 'two-class' : 'all-economy');
+    const k: CabinLayout = l === 'vip' || l === 'three-class' ? 'two-class' : l;
+    n.set(k, (n.get(k) ?? 0) + 1);
+  }
+  let best: CabinLayout | null = null;
+  for (const [k, v] of n) if (!best || v > (n.get(best) ?? 0)) best = k;
+  return best;
+}
+
+/**
+ * v0.25 the aircraft time a block hour the route P&L will charge for a type: the average over our own aircraft of it
+ * (an owned one costs its insurance only, a leased one its rent too), else the type's list rent. Pure.
+ */
+export function fleetAcCostBH(g: GameState, typeId: string): number {
+  const own = fleetOfType(g, typeId);
+  if (!own.length) return aircraftCostBH(g, null, typeId);
+  return own.reduce((a, ac) => a + aircraftCostBH(g, ac.id, typeId), 0) / own.length;
+}
+
+/** v0.25 the business case's warnings about the aircraft: a type we don't have, business seats our aircraft lack. Pure. */
+export function fleetWarnings(g: GameState, p: Pick<RoutePlan, 'typeId' | 'layout'>): string[] {
+  const own = fleetOfType(g, p.typeId);
+  const name = typeOf(p.typeId)?.short ?? p.typeId;
+  if (!own.length) return [`We have no ${name}: these figures need one in the fleet before the first flight.`];
+  if (cabinFor(p.typeId, p.layout ?? 'two-class').j > 0 && own.every((a) => a.cabin.j + a.cabin.w === 0)) return [`Our ${name} has no business seats: business passengers would be moved to economy on the day.`];
+  return [];
 }
 
 function lowestDay(mask: number): number {
@@ -518,6 +598,8 @@ export interface BusinessCase {
   /** v0.21 a route with a fuel stop: the year as a stopover there (no B–C rights, and with them). */
   asStop?: { at: string; none: number; full: number; odds: { full: number; limited: number; why: string } } | null;
   verdict?: Verdict;
+  /** v0.25 the aircraft the plan needs and we lack: a type we don't have, business seats our aircraft don't have. */
+  fleetWarn?: string[];
 }
 export interface CaseBand { paxPerSector: number; lf: number; rev: number; cost: number; result: number; margin: number }
 
@@ -608,7 +690,7 @@ export function businessCase(g: GameState, routeId: string, draft: RoutePlan): B
   const m = marketOfRoute(r)!;
   const cab = cabinFor(draft.typeId, draft.layout ?? 'two-class');
   const away = crewAwayCost(g, m, draft.typeId, cab.total, draft.nights);
-  const acmiResult = Math.round(mid.bh * (acmiNetBH(g, draft.typeId) - aircraftCostBH(g, null, draft.typeId) - crewCostBH(draft.typeId, cab.total)));
+  const acmiResult = Math.round(mid.bh * (acmiNetBH(g, draft.typeId) - fleetAcCostBH(g, draft.typeId) - crewCostBH(draft.typeId, cab.total)));
   let stop: BusinessCase['stop'];
   if (m.stopover && mid.split) {
     const decided = r.fifth !== undefined;
@@ -622,10 +704,12 @@ export function businessCase(g: GameState, routeId: string, draft: RoutePlan): B
   const paybackWeeks = perMonth > 0 ? Math.round((cost / perMonth) * 4.35) : null;
   const crew = { longDay: away.longDay, dutyH: away.dutyH, nights: draft.nights, awayPerRotation: away.hotel + away.extraPilot };
   const verdict = caseVerdict({ ...band, breakEvenLf, paybackWeeks, launchCost: cost, acmiResult, crew, ...(stop ? { stop } : {}) });
+  // v0.25 the planner's guess against the study (the guess is a known route's year, the case the first one).
+  if (r.pitch) verdict.reasons.push(`The planner guessed a ${Math.round(r.pitch.margin * 100)} % margin once the route is known; the study's first year says ${Math.round(band.p50.margin * 100)} %.`);
   return {
     ...band, breakEvenLf, paybackWeeks,
     launchCost: cost, acmi, notes, firstFlight: start, parts: mid.parts, rotations: mid.rotations, lfOff: mid.lfOff, lfPeak: mid.lfPeak,
-    acmiResult, crew, ...(stop ? { stop } : {}), asStop, verdict,
+    acmiResult, crew, ...(stop ? { stop } : {}), asStop, verdict, fleetWarn: fleetWarnings(g, draft),
   };
 }
 
@@ -640,8 +724,16 @@ export function businessCaseX(g: GameState, r: Route): number {
   return base ? est.p50 / base : 1;
 }
 
-/** The demand the study measures against (passengers a week both ways at the recommended plan, truth 1). */
+/**
+ * The demand the study measures against (passengers a week both ways at the recommended plan, truth 1): the one fixed
+ * when the study was done (v0.25), else as it reads today.
+ */
 export function studyBase(g: GameState, r: Route): number {
+  return r.study?.base ?? studyBaseNow(g, r);
+}
+
+/** The study's base as it reads today (the study's day, a stop changed at the case, an older save's repair). */
+export function studyBaseNow(g: GameState, r: Route): number {
   const m = marketOfRoute(r)!;
   const rec = searchPlan(g, r, 1);
   if (!rec) return 0;
@@ -694,31 +786,41 @@ function searchPlan(g: GameState, r: Route, x: number): { plan: RoutePlan; resul
     if (S.freqs.includes(4)) pats.push({ days: (1 << 0) | (1 << 2) | (1 << 4) | (1 << 6), every: 1 });
     if (S.freqs.includes(7)) pats.push({ days: 127, every: 1 });
   }
-  const gauges: ['narrow' | 'mid' | 'big', string][] = [];
-  const fleetTypes = new Set(Object.values(g.fleet).map((a) => a.typeId));
-  for (const [gk, ids] of Object.entries(S.gauges) as ['narrow' | 'mid' | 'big', string[]][]) {
-    const have = ids.find((id) => fleetTypes.has(id)) ?? ids.find((id) => typeOf(id));
-    if (have) gauges.push([gk, have]);
+  // A type that cannot fly the chain (range, runway) is skipped.
+  const canFly = (typeId: string) => {
+    const c = [...chainOf(m, 'out'), ...chainOf(m, 'back').slice(1)];
+    for (let i = 1; i < c.length; i++) if (payloadMax(typeId, c[i - 1], c[i]) <= 0 || blockMinutes(typeId, c[i - 1], c[i]) <= 0) return false;
+    // v0.19.2 nor one whose runway or full-payload range rules a sector out (payloadMax never reaches zero past the range).
+    return !chainProblem(m, typeId);
+  };
+  const gaugeOf = (typeId: string): 'narrow' | 'mid' | 'big' => {
+    for (const [gk, ids] of Object.entries(S.gauges) as ['narrow' | 'mid' | 'big', string[]][]) if (ids.includes(typeId)) return gk;
+    return typeOf(typeId)?.body !== 'wide' ? 'narrow' : cabinFor(typeId, 'two-class').total >= 300 ? 'big' : 'mid';
+  };
+  // v0.25 our own types first, in the cabin we fly them (the case was priced on an A321neo with business seats for an
+  // all-economy A320 airline); the catalogue's gauges only when none of ours can fly it.
+  const ownTypes = [...new Set(Object.values(g.fleet).filter((a) => a.status !== 'leasedOut').map((a) => a.typeId))].sort().filter(canFly);
+  const gauges: ['narrow' | 'mid' | 'big', string][] = ownTypes.map((t) => [gaugeOf(t), t]);
+  if (!gauges.length) {
+    for (const [gk, ids] of Object.entries(S.gauges) as ['narrow' | 'mid' | 'big', string[]][]) {
+      const have = ids.find((id) => typeOf(id) && canFly(id));
+      if (have) gauges.push([gk, have]);
+    }
   }
   let best: { plan: RoutePlan; result: number; why: string[]; gauge: 'narrow' | 'mid' | 'big' } | null = null;
   const times = [m.timetable.out, ...S.times.filter((t) => Math.abs(t - m.timetable.out) > 90)];
   for (const pat of pats) for (const [gk, typeId] of gauges) {
-    // A type that cannot fly the chain (range, runway) is skipped.
-    const c = [...chainOf(m, 'out'), ...chainOf(m, 'back').slice(1)];
-    let ok = true;
-    for (let i = 1; i < c.length && ok; i++) if (payloadMax(typeId, c[i - 1], c[i]) <= 0 || blockMinutes(typeId, c[i - 1], c[i]) <= 0) ok = false;
-    // v0.19.2 nor one whose runway or full-payload range rules a sector out (payloadMax never reaches zero past the range).
-    if (!ok || chainProblem(m, typeId)) continue;
+    const layout = fleetLayout(g, typeId) ?? 'two-class';
     // One aircraft flies the series: its rotations must fit the week (block, stops, the turn, nights away).
     const rotH = serviceHours(m, typeId, 'out') + serviceHours(m, typeId, 'back') + (typeOf(typeId)?.turnMin ?? 60) / 60 + m.timetable.nights * 24;
     if (freqPerWeek(pat) > 3 && rotH * freqPerWeek(pat) > 7 * S.maxDayH) continue;
     for (const out of times.slice(0, 2)) {
-      const plan: RoutePlan = { model: r.model, days: pat.days, every: pat.every, monthly: pat.monthly, out, back: m.timetable.back, nights: m.timetable.nights, typeId, layout: 'two-class', fares: 'market', marketing: 'normal' };
+      const plan: RoutePlan = { model: r.model, days: pat.days, every: pat.every, monthly: pat.monthly, out, back: m.timetable.back, nights: m.timetable.nights, typeId, layout, fares: 'market', marketing: 'normal' };
       const pr = project(g, r, plan, g.now + 120 * DAY, x);
       if (!best || pr.result > best.result) {
         const why = [
           `${Math.round(weeklyMarket(g, m, g.now, 'out') + weeklyMarket(g, m, g.now, 'back'))} travellers a week on the market; our flights would be about ${Math.round(pr.lfOff * 100)} % full off-peak and ${Math.round(pr.lfPeak * 100)} % at peak.`,
-          gk === 'narrow' ? 'A narrowbody fits the off-peak months; at peak it turns people away.' : gk === 'big' ? 'A big widebody carries the peaks and the cargo.' : 'A mid-size widebody matches the peaks and carries the belly cargo.',
+          gaugeWords(gk, typeId, pr),
           pat.monthly ? 'A thin market: monthly flights fill.' : `${freqPerWeek(pat) <= 1 ? 'Weekly' : `${freqPerWeek(pat)} a week`} keeps the loads up.`,
         ];
         best = { plan, result: pr.result, why, gauge: gk };
@@ -728,10 +830,19 @@ function searchPlan(g: GameState, r: Route, x: number): { plan: RoutePlan; resul
   return best;
 }
 
+/** v0.25 the study's sentence on the aircraft's size, from what it carries at peak and off-peak (no contradiction). */
+function gaugeWords(gk: 'narrow' | 'mid' | 'big', typeId: string, pr: Projection): string {
+  const t = typeOf(typeId)?.short;
+  const what = t ? `${/^[AEIOU]/i.test(t) ? 'An' : 'A'} ${t}` : gk === 'narrow' ? 'A narrowbody' : gk === 'big' ? 'A big widebody' : 'A mid-size widebody';
+  if (pr.spillPeak >= 0.05) return `${what}${pr.sellSeats !== undefined ? ` can sell only ${pr.sellSeats} seats here (payload), so it` : ''} turns away about ${Math.round(pr.spillPeak * 100)} % of the travellers at peak.`;
+  if (pr.lfOff < 0.6) return `${what} carries the peaks; off-peak it flies part empty.`;
+  return `${what} fits: full enough off-peak, with room at peak.`;
+}
+
 /** UPDATE-0.19 additions 3 (a): the study's recommended timetable and its demand range by month (null before results). */
 export function recommendation(g: GameState, routeId: string): {
   freq: number; days: number; every?: number; monthly?: { nth: number; weekday: number }; out: number; back: number; nights: number;
-  gauge: 'narrow' | 'mid' | 'big'; typeId: string; types: string[]; model: RouteModel; why: string[]; months: { p10: number; p50: number; p90: number }[];
+  gauge: 'narrow' | 'mid' | 'big'; typeId: string; layout: CabinLayout; types: string[]; model: RouteModel; why: string[]; months: { p10: number; p50: number; p90: number }[];
 } | null {
   const r = g.network?.routes[routeId];
   const est = r?.study?.est;
@@ -750,7 +861,7 @@ export function recommendation(g: GameState, routeId: string): {
   });
   return {
     freq: freqPerWeek(best.plan), days: best.plan.days, every: best.plan.every, monthly: best.plan.monthly, out: best.plan.out, back: best.plan.back, nights: best.plan.nights,
-    gauge: best.gauge, typeId: best.plan.typeId, types: BAL.v019.study.gauges[best.gauge], model: r.model, why: best.why, months,
+    gauge: best.gauge, typeId: best.plan.typeId, layout: best.plan.layout ?? 'two-class', types: BAL.v019.study.gauges[best.gauge], model: r.model, why: best.why, months,
   };
 }
 
@@ -768,8 +879,10 @@ export function caseDraft(g: GameState, routeId: string): RoutePlan | null {
   if (!rec) return null;
   // v0.23.2 a market with a dead season is planned for its season (winter sun from the Baltics, summer to the islands).
   const m = marketOfRoute(r);
+  // v0.25 a study ordered from the planner's idea starts on the idea's aircraft, when we still have that type.
+  const pt = r.pitch && fleetOfType(g, r.pitch.typeId).length && (!m || !chainProblem(m, r.pitch.typeId)) ? r.pitch.typeId : null;
   return {
-    model: r.model, days: rec.days, every: rec.every ?? 1, monthly: rec.monthly, out: rec.out, back: rec.back, nights: rec.nights, typeId: rec.typeId, layout: 'two-class', fares: 'market', marketing: 'normal',
+    model: r.model, days: rec.days, every: rec.every ?? 1, monthly: rec.monthly, out: rec.out, back: rec.back, nights: rec.nights, typeId: pt ?? rec.typeId, layout: pt ? fleetLayout(g, pt) ?? rec.layout : rec.layout, fares: 'market', marketing: 'normal',
     ...(m && seasonMonths(m) ? { season: true as const } : {}),
   };
 }
@@ -793,7 +906,7 @@ function deviationNotes(g: GameState, r: Route, d: RoutePlan, start: Minute, x: 
   const cd = cabinFor(d.typeId, d.layout ?? 'two-class');
   const cr = cabinFor(rec.typeId, rec.layout ?? 'two-class');
   if (!cd.j && cr.j) out.push(`All economy: most government and business travellers go elsewhere (revenue ${Math.round(((b.rev - a.rev) / Math.max(1, a.rev)) * 100)} %).`);
-  if (cd.total < cr.total && b.spill > a.spill * 1.2) out.push(`A ${typeOf(d.typeId)?.short ?? 'smaller type'} turns away about ${Math.round((b.spill / Math.max(1, b.pax + b.spill)) * 100)} % of the demand at peak.`);
+  if (cd.total < cr.total && b.spill > a.spill * 1.2) out.push(`${typeOf(d.typeId) ? `${/^[AEIOU]/i.test(typeOf(d.typeId)!.short) ? 'An' : 'A'} ${typeOf(d.typeId)!.short}` : 'A smaller type'} turns away about ${Math.round((b.spill / Math.max(1, b.pax + b.spill)) * 100)} % of the demand at peak.`);
   if (cd.total > cr.total * 1.15) out.push(`A bigger aircraft: off-peak load ${Math.round(a.lfOff * 100)} % → ${Math.round(b.lfOff * 100)} %.`);
   if (d.fares !== rec.fares) out.push(d.fares === 'low' ? 'Low fares fill more seats for less money a seat.' : 'High fares earn more a seat; fewer people book.');
   if (Math.round(b.result) !== Math.round(a.result) && out.length) out.push(`Against the recommendation: ${b.result >= a.result ? '+' : '−'}${usd(Math.abs(b.result - a.result))} a year.`);
@@ -844,10 +957,26 @@ export function decideCase(g: GameState, routeId: string, decision: CaseDecision
   startStage(g, r, 'stations');
   const first = firstFlightOf(g, r, p);
   r.firstFlight = first;
+  // v0.25 the likely year as the case showed it (P50 at the study's view), kept to set the flown months against.
+  const est = r.study?.est;
+  if (est) {
+    const base = studyBase(g, r);
+    const pr = project(g, r, p, first, base ? est.p50 / base : 1);
+    r.caseAt = { start: first, months: pr.months.map((x) => ({ k: x.k, result: x.result, lf: x.lf })) };
+  }
   r.series = [planSeries(p, first - 12 * 60, `${r.id}s1`, planMonths(m, p))];
   pushRouteNote(g, r, 'good', `Launch under way: ${m.city}`, `Permits, slots, the brand and the airport contracts start now. First flight planned ${fmtDay(first)}.`, null);
   touch(g);
   return null;
+}
+
+/** v0.25 the case's year follows a first flight moved by whole months (the stages ran late): month 1 stays month 1. */
+function shiftCase(r: Route, first: Minute): void {
+  const c = r.caseAt;
+  if (!c) return;
+  const d = monthKey(first) - monthKey(c.start);
+  c.start = first;
+  if (d) for (const x of c.months) x.k += d;
 }
 
 function startStage(g: GameState, r: Route, id: LaunchStageId): void {
@@ -962,9 +1091,9 @@ function startStage(g: GameState, r: Route, id: LaunchStageId): void {
       if (r.model === 'own' && chance(h, C.campaign.rival)) {
         const days = int(h, BAL.v019.demand.rivalCut.days[0], BAL.v019.demand.rivalCut.days[1]);
         r.rivalCut = { x: BAL.v019.demand.rivalCut.fare, until: g.now + days * DAY };
-        const rival = m.competitors.find((c) => c.stops === 0)?.name ?? 'A rival';
-        s.setback = `${rival} cut its fares ${Math.round(BAL.v019.demand.rivalCut.fare * 100)} % for ${Math.round(days / 30)} months.`;
-        pushRouteNote(g, r, 'warn', `${rival} reacts to our ${m.city} launch`, s.setback, null);
+        const rv = rivalOf(m);
+        s.setback = `${rv.who} ${rv.plural ? 'cut their' : 'cut its'} fares${rv.via ? ` via ${rv.via}` : ''} ${Math.round(BAL.v019.demand.rivalCut.fare * 100)} % for ${Math.round(days / 30)} months.`;
+        pushRouteNote(g, r, 'warn', `${rv.who} ${rv.plural ? 'react' : 'reacts'} to our ${m.city} launch`, s.setback, null);
       }
       break;
     }
@@ -982,6 +1111,21 @@ function startStage(g: GameState, r: Route, id: LaunchStageId): void {
       d = 7;
   }
   s.due = g.now + d * DAY;
+}
+
+/**
+ * v0.25 the rival that answers a launch: the nonstop one, else the first one-stop one by its hub ('Turkish Airlines'
+ * via Istanbul), else the airlines connecting there. Pure.
+ */
+export function rivalOf(m: Pick<RouteMarket, 'competitors'>): { who: string; via?: string; plural?: true } {
+  const ns = m.competitors.find((c) => c.stops === 0);
+  if (ns) return { who: ns.name };
+  const one = m.competitors.find((c) => c.stops >= 1);
+  if (!one) return { who: 'A rival' };
+  const k = one.name.indexOf(' via ');
+  const via = one.via ? AIRPORT_BY_CODE[one.via]?.city ?? one.via : k > 0 ? one.name.slice(k + 5) : undefined;
+  if (k > 0 && /^connections$/i.test(one.name.slice(0, k))) return { who: 'The airlines connecting', ...(via ? { via } : {}), plural: true };
+  return { who: k > 0 ? one.name.slice(0, k) : one.name, ...(via ? { via } : {}) };
 }
 
 /** The study's accuracy (± share at one sigma-ish) at a depth; a custom pair adds CUSTOM_STUDY_EXTRA. */
@@ -1004,7 +1148,8 @@ export function stepLaunch(g: GameState, r: Route): void {
     const st = stage(r, 'study');
     if (st.due !== undefined && g.now >= st.due && r.study) {
       st.state = 'done';
-      const base = studyBase(g, r);
+      const base = studyBaseNow(g, r);
+      r.study.base = base;
       // v0.19.2 an unresearched (custom) pair: a little less accurate at every depth.
       const acc = studyAccuracy(r.study.depth, !!m.custom, g);
       const err = 1 + gaussian(netSide(g, `studyErr:${r.id}`)) * acc * 0.6;
@@ -1035,7 +1180,9 @@ export function stepLaunch(g: GameState, r: Route): void {
   for (const s of r.stages) {
     if ((s.state === 'running' || s.state === 'delayed') && s.due !== undefined && g.now >= s.due) {
       s.state = 'done';
-      if (s.setback && s.id !== 'slots') pushRouteNote(g, r, 'info', `${m.city}: ${STAGE_WORD[s.id]} done`, s.setback, `done:${s.id}`, 'silent');
+      // v0.25 the campaign's note says what it reached (the rival's cut was told when it came).
+      if (s.id === 'marketing') pushRouteNote(g, r, 'info', `${m.city}: ${STAGE_WORD[s.id]} done`, `About ${Math.round(r.awareness * 100)} % of travellers on the route now know we fly it.`, `done:${s.id}`, 'silent');
+      else if (s.setback && s.id !== 'slots') pushRouteNote(g, r, 'info', `${m.city}: ${STAGE_WORD[s.id]} done`, s.setback, `done:${s.id}`, 'silent');
     }
   }
   // Slots: an offer 1–3 h off waits for the player (taken as given after 14 days).
@@ -1061,6 +1208,7 @@ export function stepLaunch(g: GameState, r: Route): void {
     if (p && (r.firstFlight ?? 0) < earliest) {
       r.firstFlight = firstFromDate(m, p, earliest);
       r.series = [planSeries(p, r.firstFlight - 12 * 60, r.series[0]?.id ?? `${r.id}s1`, planMonths(m, p))];
+      shiftCase(r, r.firstFlight);
     }
     r.status = 'onSale';
     r.slots = { held: 0, flown: 0, season: seasonCode(r.firstFlight ?? g.now).code };
@@ -1160,8 +1308,9 @@ export function devLaunchRoute(g: GameState, marketId: string, aircraftId?: stri
   const r = g.network!.routes[res.routeId];
   const m = marketOfRoute(r)!;
   r.study!.est = { p10: 200, p50: 300, p90: 400 };
-  const base = studyBase(g, r);
+  const base = studyBaseNow(g, r);
   r.study!.est = { p10: Math.round(base * 0.8), p50: Math.round(base), p90: Math.round(base * 1.2) };
+  r.study!.base = base;
   r.status = 'case';
   const p = caseDraft(g, r.id);
   if (!p) return 'no plan';
@@ -1176,6 +1325,7 @@ export function devLaunchRoute(g: GameState, marketId: string, aircraftId?: stri
   r.awareness = BAL.v019.demand.awareness.campaign[r.marketing] ?? 0.55;
   r.firstFlight = firstFromDate(m, p, g.now + 3 * DAY);
   r.series = [planSeries(p, r.firstFlight - 12 * 60, `${r.id}s1`, planMonths(m, p))];
+  shiftCase(r, r.firstFlight);
   if (ac) r.series[0].tail = ac.id;
   r.slots = { held: 0, flown: 0, season: seasonCode(r.firstFlight).code };
   g.network!.distribution ??= g.now;

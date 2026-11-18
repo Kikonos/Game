@@ -83,7 +83,18 @@ function monthCharges(g: GameState, route: Route, t: number, frac = 1): { over: 
   const recent = route.rotations.filter((r) => r.aircraftId && r.status === 'flown').slice(-1)[0];
   const typeId = recent?.aircraftId ? g.fleet[recent.aircraftId]?.typeId ?? s?.typeId ?? 'b763' : s?.typeId ?? 'b763';
   const seats = recent?.sectors[0] ? recent.sectors[0].capJ + recent.sectors[0].capY : 260;
-  let acTime = Math.round((p?.bh ?? 0) * (aircraftCostBH(g, recent?.aircraftId, typeId) + crewCostBH(typeId, seats)));
+  // v0.25 each aircraft's hours at its own rate (an owned jet and a leased one covering a C-check in the same month);
+  // hours from before v0.25 kept no aircraft and go at the last rotation's.
+  let acTime = 0;
+  let rest = p?.bh ?? 0;
+  for (const [id, h] of Object.entries(p?.acBh ?? {}).sort((a, b) => (a[0] < b[0] ? -1 : 1))) {
+    const ac = g.fleet[id];
+    const t = ac?.typeId ?? s?.typeId ?? typeId;
+    acTime += h * (aircraftCostBH(g, ac ? id : null, t) + crewCostBH(t, ac?.cabin.total ?? seats));
+    rest -= h;
+  }
+  if (rest > 0.005) acTime += rest * (aircraftCostBH(g, recent?.aircraftId, typeId) + crewCostBH(typeId, seats));
+  acTime = Math.round(acTime);
   // v0.21 the crew away from base: nights there and long days with a third pilot (the business case counts the same).
   const m = marketOfRoute(route);
   const mk = monthKey(t);
@@ -150,7 +161,8 @@ export function acmiCompare(g: GameState, routeId: string): string | null {
   const acmi = acmiNetBH(g, typeId);
   const name = typeOf(typeId)?.short ?? typeId;
   const usd = (v: number) => `${v < 0 ? '−' : ''}$${Math.abs(v).toLocaleString('en-US')}`;
-  return `Last 3 months: ${usd(per)} a block hour after direct costs. A ${name} on ACMI earns about ${usd(acmi)} (rate less maintenance).`;
+  // v0.25 "An A321", "A B738".
+  return `Last 3 months: ${usd(per)} a block hour after direct costs. ${/^[AEIOU]/i.test(name) ? 'An' : 'A'} ${name} on ACMI earns about ${usd(acmi)} (rate less maintenance).`;
 }
 
 /** UPDATE-0.19 additions 3 (b): the live numbers of a route flight and the next sector's bookings. */

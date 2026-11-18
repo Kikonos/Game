@@ -10,7 +10,7 @@ import { etopsCap, typeOf } from '../core/perf';
 import { DAY } from '../core/time';
 import type { GameState } from '../core/types';
 import { catalogueOf, chainProblem, customFacts, customMarket, routeBases, sisters } from './custom';
-import { firstFlightOf, project, studyBase, type Projection } from './launch';
+import { firstFlightOf, fleetLayout, project, studyBase, studyBaseNow, type Projection } from './launch';
 import { cabinFor, freqPerWeek, marketOfRoute, monthsWords, seasonMonths, serviceHours } from './model';
 import { crewAwayCost } from './pnl';
 import type { FifthRights, Route, RouteModel, RoutePlan } from './types';
@@ -55,7 +55,7 @@ export function setStop(g: GameState, routeId: string, mode: StopMode, at?: stri
   const est = r.study?.est;
   // v0.22 the study's own estimate and market are kept: each re-reading scales from them, never from the last
   // rounded numbers (stopover, nonstop and back used to drift by a traveller a step).
-  const ref = est && r.study ? (r.study.ref ??= { marketId: r.marketId, ...(r.custom ? { custom: structuredClone(r.custom) } : {}), model: r.model, est: { ...est } }) : undefined;
+  const ref = est && r.study ? (r.study.ref ??= { marketId: r.marketId, ...(r.custom ? { custom: structuredClone(r.custom) } : {}), model: r.model, est: { ...est }, ...(r.study.base !== undefined ? { base: r.study.base } : {}) }) : undefined;
   r.marketId = t.id;
   if (t.custom) r.custom = structuredClone(t);
   else delete r.custom;
@@ -68,13 +68,20 @@ export function setStop(g: GameState, routeId: string, mode: StopMode, at?: stri
   if (ref && r.study) {
     if (ref.marketId === r.marketId) {
       r.study.est = { ...ref.est };
+      if (ref.base !== undefined) r.study.base = ref.base;
+      else delete r.study.base;
       delete r.study.ref;
     } else {
-      const asRef: Route = { ...r, marketId: ref.marketId, model: ref.model, custom: ref.custom };
+      const asRef: Route = { ...r, marketId: ref.marketId, model: ref.model, custom: ref.custom, study: { ...r.study, base: undefined } };
       if (!ref.custom) delete asRef.custom;
-      const b0 = studyBase(g, asRef);
-      const k = b0 > 0 ? studyBase(g, r) / b0 : 0;
-      if (k > 0) r.study.est = { p10: Math.max(1, Math.round(ref.est.p10 * k)), p50: Math.max(1, Math.round(ref.est.p50 * k)), p90: Math.max(1, Math.round(ref.est.p90 * k)) };
+      const b0 = studyBaseNow(g, asRef);
+      const k = b0 > 0 ? studyBaseNow(g, r) / b0 : 0;
+      if (k > 0) {
+        r.study.est = { p10: Math.max(1, Math.round(ref.est.p10 * k)), p50: Math.max(1, Math.round(ref.est.p50 * k)), p90: Math.max(1, Math.round(ref.est.p90 * k)) };
+        // v0.25 the base moves with the estimate: the new shape's demand is read at the study's own view.
+        if (ref.base !== undefined) r.study.base = ref.base * k;
+        else delete r.study.base;
+      }
     }
   }
   g.network!.rev = (g.network!.rev ?? 0) + 1;
@@ -131,8 +138,9 @@ function optionOf(g: GameState, m: RouteMarket, mode: StopMode, plan: RoutePlan,
 }
 
 /** A first plan for a market before any study: its usual weekly timetable on the type. */
-function firstPlan(m: RouteMarket, typeId: string): RoutePlan {
-  return { model: m.model, days: 1 << m.timetable.day, every: 1, out: m.timetable.out, back: m.timetable.back, nights: m.timetable.nights, typeId, layout: 'two-class', fares: 'market', marketing: 'normal' };
+function firstPlan(g: GameState, m: RouteMarket, typeId: string): RoutePlan {
+  // v0.25 in the cabin our aircraft of the type have (an all-economy A320 sells no business seats).
+  return { model: m.model, days: 1 << m.timetable.day, every: 1, out: m.timetable.out, back: m.timetable.back, nights: m.timetable.nights, typeId, layout: fleetLayout(g, typeId) ?? 'two-class', fares: 'market', marketing: 'normal' };
 }
 
 /**
@@ -149,7 +157,7 @@ export function stopoverCompare(g: GameState, from: string, to: string, at: stri
   if (!nonstop || !fuel) return null;
   const reach = !chainProblem(nonstop, typeId);
   const pm = reach ? nonstop : fuel;
-  const plan = on?.plan ?? firstPlan(sm, typeId);
+  const plan = on?.plan ?? firstPlan(g, sm, typeId);
   const start = on ? firstFlightOf(g, on.r, plan) : g.now + 120 * DAY;
   const x = on?.x ?? 1;
   const plain = optionOf(g, pm, reach ? 'nonstop' : 'fuel', plan, start, x, on?.r);
@@ -410,8 +418,10 @@ function ideasKey(g: GameState): { key: string; bases: string[]; caps: { t: stri
   const types = [...new Set(Object.values(g.fleet).filter((a) => a.status !== 'leasedOut').map((a) => a.typeId))].sort();
   // v0.23.2 an ETOPS approval won this month opens the ocean pairs at once (the list used to wait for the month's turn).
   const caps = types.map((t) => ({ t, cap: etopsCap(g.company.approvals, t) }));
+  // v0.25 the cabins we fly them in and how many we own (the guess prices the seats and aircraft we really have).
+  const fleet = types.map((t) => `${t}:${fleetLayout(g, t)}:${Object.values(g.fleet).filter((a) => a.typeId === t && a.status !== 'leasedOut' && a.ownership.kind === 'owned').length}`).join();
   const taken = new Set(Object.values(g.network?.routes ?? {}).filter((r) => r.status !== 'closed').map((r) => { const m = marketOfRoute(r); return m ? `${m.from}-${m.to}` : ''; }));
-  const key = `${bases.join()}|${caps.map((c) => `${c.t}:${c.cap}`).join()}|${[...taken].sort().join()}|${Math.floor(g.now / (30 * DAY))}|${Math.round(g.market.fuelPrice / 25)}`;
+  const key = `${bases.join()}|${caps.map((c) => `${c.t}:${c.cap}`).join()}|${fleet}|${[...taken].sort().join()}|${Math.floor(g.now / (30 * DAY))}|${Math.round(g.market.fuelPrice / 25)}`;
   return { key, bases, caps, taken };
 }
 
@@ -463,7 +473,7 @@ function ideasOf(g: GameState): { list: RouteIdea[]; why: string | null } {
       for (const n of IDEA_FREQ) {
         if (n > 3 && rotH * n > 7 * BAL.v019.study.maxDayH) continue;
         for (const model of m.models.filter((x) => x !== 'partner')) {
-          const plan = { ...firstPlan(m, t), model, days: spreadDays(m.timetable.day, n) };
+          const plan = { ...firstPlan(g, m, t), model, days: spreadDays(m.timetable.day, n) };
           // r3-bal a year once the route is known (no launch ramp): the planner pitches what a route earns; the
           // study's case then counts the first year's ramp too.
           const p = project(g, { ...viewOf(m), model }, plan, g.now + 120 * DAY, 1, { mature: true });

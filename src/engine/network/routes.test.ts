@@ -201,4 +201,19 @@ describe('v0.19 moves, cancels and conflicts', () => {
     expect(r.dents?.some((d) => d.cls === 'J')).toBe(true);
     expect(g.messages.some((m) => m.topic === 'network' && /downgraded/.test(m.title))).toBe(true);
   });
+
+  it('v0.25 denied boarding at departure: a note with the aircraft, its seats and the EU261 paid', () => {
+    const g = newGame(16);
+    const ac = biggest(g);
+    const id = devLaunchRoute(g, 'LIS-OXB', ac.id);
+    const r = g.network!.routes[id];
+    run(g, 1);
+    const rot = r.rotations.find((x) => x.status === 'flights')!;
+    for (const s of rot.sectors) s.bookedY = ac.cabin.y + 40;
+    run(g, 10);
+    const note = g.messages.find((m) => m.topic === 'network' && /denied boarding/.test(m.title));
+    expect(note).toBeDefined();
+    expect(note!.body).toMatch(new RegExp(`${ac.reg} \\(.+, ${ac.cabin.total} seats\\)`));
+    expect(note!.body).toMatch(/EU261 \$[\d,]+ paid/);
+  });
 });

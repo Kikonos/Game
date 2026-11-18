@@ -17,9 +17,10 @@ import { store, useGame } from '../../store';
 import { StatusChip, TrendArrow } from './bits';
 import { net } from './netApi';
 import { sectorCost, type RouteLegCost } from '../../../engine/network/costs';
+import { rivalOf } from '../../../engine/network/launch';
 import {
   cargoLine, chainOf, depWords, history, kg, lastQuarters, lfTone, marketOf, modelLabel, monthBars, ratios, repWord, rotationLoad, rotationResult,
-  routeCode, routeName, sectorLoad, seatsLine, seriesAircraft, seriesWords, hhmm, trend, upcoming, launchSpend,
+  routeCode, routeName, sectorLoad, seatsLine, seriesAircraft, seriesWords, hhmm, trend, upcoming, launchSpend, caseVsActual,
 } from './networkLogic';
 import { TimetableEditor } from './TimetableEditor';
 import { CabinRow } from './CabinChange';
@@ -77,18 +78,31 @@ function Overview({ g, r }: { g: GameState; r: Route }) {
   const next = upcoming(r, g.now).slice(0, 8);
   const flown = history(r).slice(0, 8);
   const spend = launchSpend(r);
+  const vs = caseVsActual(r, g.now, bars.keys);
   return (
     <div className="col gap-14">
       <div className="nw-kpis">
         <Kpi label="Load factor" value={q.months ? pct(cur.lf) : '—'} sub="last 3 months" dir={q.months ? trend(cur.lf, prev.lf).dir : undefined} />
         <Kpi label="Yield" value={q.months ? money(cur.yieldPax) : '—'} sub="ticket revenue a passenger" dir={q.months ? trend(cur.yieldPax, prev.yieldPax).dir : undefined} />
-        <Kpi label="Result" value={q.months ? moneyDelta(q.cur.result) : '—'} tone={q.cur.result >= 0 ? 'good' : 'bad'} sub={q.months && q.cur.rev ? `margin ${pct(cur.margin)}` : 'after aircraft and crew time'} dir={q.months ? trend(q.cur.result, q.prev.result).dir : undefined} />
+        <Kpi label="Result" value={q.months ? moneyDelta(q.cur.result) : '—'} tone={!q.months ? undefined : q.cur.result >= 0 ? 'good' : 'bad'} sub={q.months && q.cur.rev ? `margin ${pct(cur.margin)}` : 'after aircraft and crew time'} dir={q.months ? trend(q.cur.result, q.prev.result).dir : undefined} />
         <Kpi label="Reputation" value={rep.word} tone={rep.tone} sub={`${Math.round(r.reputation)} of 100`} />
       </div>
       <div className="col gap-6">
-        <div className="row between"><span className="upper dim">Result by month</span>{spend > 0 && <span className="tiny muted">launch spend {money(spend)}</span>}</div>
+        <div className="row between wrap gap-6"><span className="upper dim">Result by month</span>{spend > 0 && <span className="tiny muted">launch spend {money(spend)}</span>}</div>
+        {vs && vs.months > 0 && (
+          <div className="row gap-6 small nw-vsplan">
+            <span className="muted">vs plan</span>
+            <b className={`num ${vs.actual - vs.plan >= 0 ? 'good' : 'bad'}`}>{moneyDelta(vs.actual - vs.plan)}</b>
+            <span className="tiny muted">{vs.months} month{vs.months === 1 ? '' : 's'}: {moneyDelta(vs.actual)} against {moneyDelta(vs.plan)}</span>
+            <Help title="Against the plan">
+              <p>The business case's likely year, as it stood when you said Go, set against the months flown so far.</p>
+              <p>The outlined bars are the plan; the solid bars what the route made. Both count aircraft and crew time, not the launch spend.</p>
+              <p>A new route usually starts below plan while travellers find it; the plan already expects a slow first few months.</p>
+            </Help>
+          </div>
+        )}
         {bars.result.some((v) => v !== 0)
-          ? <BarChart values={bars.result} labels={bars.keys.map((k) => fmtMonth(k, true))} height={150} format={(v) => money(v)} name="Result" />
+          ? <BarChart values={bars.result} labels={bars.keys.map((k) => fmtMonth(k, true))} height={150} format={(v) => money(v)} name="Result" {...(vs && vs.ghost.some((v) => v !== null) ? { ghost: vs.ghost, ghostName: 'Plan' } : {})} />
           : <span className="small muted">No flights flown yet.</span>}
       </div>
       {cmp && <div className="small nw-acmi"><TrendingUp className="sc-ico-s accent" /><span>{cmp}</span></div>}
@@ -203,6 +217,11 @@ function SalesTab({ g, r }: { g: GameState; r: Route }) {
   return (
     <div className="col gap-14">
       {!own && <div className="small muted">{modelLabel(g, r)}: the partner sets the fares and sells the seats. We are paid per block hour, plus a share above 70 % full.</div>}
+      {/* v0.25 a rival's fare cut and when it ends. */}
+      {own && m && r.rivalCut && r.rivalCut.until > g.now && (() => {
+        const rv = rivalOf(m);
+        return <div className="note warn small">{rv.who} {rv.plural ? 'have' : 'has'} fares {Math.round(r.rivalCut.x * 100)} % lower{rv.via ? ` via ${rv.via}` : ''} until {fmtDay(r.rivalCut.until)}: fewer travellers book with us until then.</div>;
+      })()}
       {own && (
         <div className="nw-setgrid">
           {/* v0.23.1 the cabin: business and economy, or economy only (the comparison before the change). */}

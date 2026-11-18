@@ -46,7 +46,12 @@ export interface RouteStudy {
    * v0.22 the estimate as the study gave it, for the market it was made on: kept once the stop is changed at the
    * business case (advice.ts setStop), so every re-reading starts from it (going back gives the same numbers).
    */
-  ref?: { marketId: string; custom?: import('../../data/routes').RouteMarket; model: RouteModel; est: { p10: number; p50: number; p90: number } };
+  ref?: { marketId: string; custom?: import('../../data/routes').RouteMarket; model: RouteModel; est: { p10: number; p50: number; p90: number }; base?: number };
+  /**
+   * v0.25 the demand the estimate is measured against (launch.studyBase), fixed the day the study was done: read again
+   * later it drifted with the season and the fleet (the cabin quote read 1,022 against the case's 373). Load ??= today's.
+   */
+  base?: number;
 }
 
 /** §E demand segments. */
@@ -169,6 +174,8 @@ export interface RoutePnl {
   launch: number;
   /** v0.21 passengers counted on every sector they sit on (the load factor's top; `seats` is per sector). Absent before v0.21: `pax`. */
   paxSec?: number;
+  /** v0.25 of `bh`, the hours each of our aircraft flew (the month's aircraft time is charged at each one's own rate). Absent before v0.25. */
+  acBh?: Record<string, number>;
 }
 
 /** §E.4 the player's fare stance. */
@@ -212,6 +219,10 @@ export interface Route {
   dents?: RouteDent[];
   /** The plan chosen at Go (the business case's draft): what the launch files and sells. */
   plan?: RoutePlan;
+  /** v0.25 the network planner's idea the study was ordered from: its aircraft, flights a week, model and margin. */
+  pitch?: { typeId: string; perWeek: number; model: RouteModel; margin: number };
+  /** v0.25 the business case's likely year at Go, by calendar month (the route page's "vs plan"). Absent before v0.25. */
+  caseAt?: { start: Minute; months: { k: MonthKey; result: number; lf: number }[] };
   /** Cards already given once (key → when): weak pace, no aircraft, a waiting decision's reminder. */
   told?: Record<string, Minute>;
   /** The partner's fee a block hour (partner model), fixed at Go (a better fee won at the brand stage raises it). */

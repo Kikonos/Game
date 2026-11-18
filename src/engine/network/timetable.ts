@@ -526,7 +526,7 @@ export function setSeries(g: GameState, routeId: string, series: RouteSeries): s
     if (inCurfew(x.to, x.sta, false)) return `It would land at ${x.to} at ${fmtTime(x.sta, x.to)} local, in its night closure.`;
   }
   const rangeOk = sample.every((x) => blockOk(series.typeId, x.from, x.to));
-  if (!rangeOk) return `A ${typeOf(series.typeId)!.short} can't fly one of these sectors.`;
+  if (!rangeOk) return `${/^[AEIOU]/i.test(typeOf(series.typeId)!.short) ? 'An' : 'A'} ${typeOf(series.typeId)!.short} can't fly one of these sectors.`;
   const s: RouteSeries = { ...series, id: series.id || nextId(g, 'se') };
   const i = route.series.findIndex((x) => x.id === s.id);
   const old = i >= 0 ? route.series[i] : undefined;

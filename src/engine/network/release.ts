@@ -68,7 +68,15 @@ export function coverRotations(g: GameState, rotIds: string[], reg: string, from
     if (!route || !rot || rot.status !== 'planned') continue;
     const n = byRoute.get(route) ?? { swapped: 0, subbed: 0, later: 0 };
     byRoute.set(route, n);
-    const ac = candidates(g, route, rot)[0];
+    let ac: string | undefined = candidates(g, route, rot)[0];
+    // v0.25 a smaller aircraft than the bookings need, close to departure: a sub-charter of the right size first
+    // (an A320 covering a full A321 left passengers at the gate).
+    const booked = Math.max(0, ...rot.sectors.map((x) => x.bookedJ + x.bookedY));
+    const seats = ac ? g.fleet[ac]?.cabin.total ?? 0 : 0;
+    if (ac && booked > seats && rot.dep - g.now <= 3 * 24 * 60 && subcharterRotation(g, route, rot) > 0) {
+      n.subbed++;
+      continue;
+    }
     if (ac) {
       flyRotation(g, route, rot, ac);
       touched.add(ac);
@@ -79,9 +87,9 @@ export function coverRotations(g: GameState, rotIds: string[], reg: string, from
   if (touched.size) autoRoster(g, { aircraftIds: [...touched] });
   for (const [route, n] of byRoute) {
     const parts = [
-      n.swapped ? `${n.swapped} fly on another of our aircraft` : '',
-      n.subbed ? `${n.subbed} are sub-chartered` : '',
-      n.later ? `${n.later} wait for an aircraft: free one, or each is sub-chartered 3 days before departure` : '',
+      n.swapped ? `${n.swapped} ${n.swapped === 1 ? 'flies' : 'fly'} on another of our aircraft` : '',
+      n.subbed ? `${n.subbed} ${n.subbed === 1 ? 'is' : 'are'} sub-chartered` : '',
+      n.later ? `${n.later} ${n.later === 1 ? 'waits' : 'wait'} for an aircraft: free one, or ${n.later === 1 ? 'it is' : 'each is'} sub-chartered 3 days before departure` : '',
     ].filter(Boolean);
     const total = n.swapped + n.subbed + n.later;
     pushRouteNote(g, route, n.later ? 'warn' : 'info', `${reg} C-check: ${total} ${routeWord(route)} round trip${total === 1 ? '' : 's'} moved`,
