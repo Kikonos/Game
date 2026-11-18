@@ -862,6 +862,9 @@ export const crewModule: SimModule = {
     // v0.23.2 once: a ferry stuck away while its job's flights were cancelled is planned again, and the compensation given back.
     // (Its flights changed: the roster follows at once, so the loaded game holds no duty of a leg that is gone.)
     if (repairStuckFerries(g)) crewModule.settle?.(g, true);
+    // v0.25 once more after the repairs above moved duties and tickets (fixture v0162-hx6001: two standby windows ending
+    // at a report they now run into were marked called only on a second load): the first load is the fixed point.
+    repairCutStandby(g);
   },
   settle(g) {
     for (const [aircraftId, t] of takeFlightChanges(g)) onFlightsChanged(g, aircraftId, t);
