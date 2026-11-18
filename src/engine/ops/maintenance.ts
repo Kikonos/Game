@@ -7,6 +7,7 @@ import { relFactors } from './etopsRel';
 import { checkStretch } from '../finance/distress';
 import { addFlight, flightsOf, nextId, removeFlights, retimeFlight, touchFlights } from '../core/entities';
 import { C_HUBS, cHubAt, type CHub } from '../../data/mro';
+import { AOG_FAULTS } from '../../data/opsData';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
 import { cardMeta, checkCard, noSlotCard, refitMissedCard } from '../problems';
@@ -722,16 +723,20 @@ const homeText = (g: GameState, m: MaintenanceEvent) => {
 
 // ---------- AOG ----------
 
-const CAUSES = ['Hydraulic leak', 'Bleed air fault', 'Bird strike', 'Brake wear beyond limits', 'Tyre damage', 'IDG fault', 'APU failure', 'Avionics fault', 'Ground damage by a tug', 'Cracked windshield'];
 
 /** AOG at departure: the aircraft is grounded at the gate, the clock pauses and the recovery decision opens. */
 export function startAog(g: GameState, ac: Aircraft, f: Flight): void {
   // v0.19.4 the ETOPS reliability programme's spares and engineer on call: fixed away as fast as at home.
   const out = !engineersAt(g, ac.id, f.from) && !relFactors(g, ac).noOutstation;
-  const hours = int(g, BAL.aogHours[0], BAL.aogHours[1]) * (out ? BAL.aogOutstation : 1);
+  // v0.25 the fault first, then its own repair time and cost (the same three rolls as before): a tyre is hours, a
+  // tug's damage days. Away from our engineers it takes longer, less so at a big airport with spares pools and MROs.
+  const fault = pick(g, AOG_FAULTS);
+  const big = (AIRPORT_BY_CODE[f.from]?.size ?? 0) >= 3;
+  const away = out ? (big ? 1 + (BAL.aogOutstation - 1) * fault.bigStationFactor : BAL.aogOutstation) : 1;
+  const hours = int(g, fault.hours[0], fault.hours[1]) * away;
   const m: MaintenanceEvent = {
     id: nextId(g, 'mx'), aircraftId: ac.id, kind: 'AOG', at: f.from, start: g.now, end: g.now + Math.round(hours * 60),
-    cost: Math.round(range(g, BAL.courierCost[0], BAL.courierCost[1]) / 100) * 100, status: 'inWork', planned: false, cause: pick(g, CAUSES), ev: 0,
+    cost: Math.round(range(g, fault.cost[0], fault.cost[1]) / 100) * 100, status: 'inWork', planned: false, cause: fault.cause, ev: 0,
   };
   g.maintenance[m.id] = m;
   ac.status = 'aog';

@@ -2,6 +2,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
+import { AOG_FAULTS } from '../../data/opsData';
 import { addFlight, flightsOf, removeFlights } from '../core/entities';
 import { blockMinutes, typeOf } from '../core/perf';
 import { DAY, monthKey } from '../core/time';
@@ -543,7 +544,13 @@ describe('AOG', () => {
     expect(ac.status).toBe('aog');
     const m = g.maintenance[ac.maintId!];
     expect(m).toMatchObject({ kind: 'AOG', status: 'inWork', at: 'LIS' });
-    expect(m.end - m.start).toBeGreaterThanOrEqual(BAL.aogHours[0] * 60);
+    // v0.25 each fault has its own repair time (AOG_FAULTS).
+    const fault = AOG_FAULTS.find((x) => x.cause === m.cause)!;
+    expect(m.end - m.start).toBeGreaterThanOrEqual(fault.hours[0] * 60);
+    expect(m.cost).toBeGreaterThanOrEqual(fault.cost[0]);
+    expect(m.cost).toBeLessThanOrEqual(fault.cost[1]);
+    // APU and bleed faults are MEL items (a delay), never an AOG.
+    expect(AOG_FAULTS.some((x) => /APU|bleed/i.test(x.cause))).toBe(false);
     expect(g.stats.aogs).toBe(1);
     const d = g.decisions.find((x) => x.kind === 'aog')!;
     expect(d.options.map((o) => o.id)).toEqual(['courier', 'team', 'swap', 'subcharter', 'cancel']);

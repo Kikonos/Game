@@ -122,6 +122,22 @@ export const MEDICAL_EVENTS = [
   { what: 'A diabetic passenger is confused and getting worse', severe: false },
 ];
 
+/**
+ * v0.25 AOG faults at the gate, each with its own repair: hours with the part by courier at home, the cost of the part
+ * and the work ($), and how much of the outstation penalty a big airport (spares pools, MRO shops) takes off (1: none).
+ * APU and bleed faults are not here: they are dispatched under the MEL (a delay at the gate, ops/flights.ts).
+ */
+export const AOG_FAULTS: readonly { cause: string; hours: [number, number]; cost: [number, number]; bigStationFactor: number }[] = [
+  { cause: 'Brake wear beyond limits', hours: [4, 12], cost: [6_000, 12_000], bigStationFactor: 0.7 },
+  { cause: 'Tyre damage', hours: [3, 8], cost: [3_000, 8_000], bigStationFactor: 0.7 },
+  { cause: 'Hydraulic leak', hours: [6, 20], cost: [8_000, 25_000], bigStationFactor: 0.8 },
+  { cause: 'Avionics fault', hours: [6, 24], cost: [5_000, 30_000], bigStationFactor: 0.7 },
+  { cause: 'Cracked windshield', hours: [10, 30], cost: [25_000, 45_000], bigStationFactor: 0.9 },
+  { cause: 'IDG fault', hours: [10, 30], cost: [25_000, 60_000], bigStationFactor: 0.8 },
+  { cause: 'Fan blade damage from debris', hours: [24, 72], cost: [40_000, 120_000], bigStationFactor: 0.9 },
+  { cause: 'Ground damage by a tug', hours: [24, 96], cost: [50_000, 150_000], bigStationFactor: 1 },
+];
+
 /** v0.25 a disruptive passenger in flight (IATA: about 1 report in 500–600 flights; we ask on the serious ones). */
 export const UNRULY_EVENTS = [
   { what: 'A drunk passenger is shouting at the crew and will not sit down', severe: false },

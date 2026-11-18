@@ -863,7 +863,8 @@ function pruneSubLog(g: GameState): void {
 // ---------- departure ----------
 
 const OPS_REASONS = ['ATC slot', 'Weather at destination', 'Late ground handling', 'Late passengers', 'Catering', 'Fuelling', 'Airport congestion'];
-const TECH_REASONS = ['Technical: bleed fault', 'Technical: brake temperature', 'Technical: pressurisation sensor', 'Technical: APU', 'Technical: cabin defect'];
+// v0.25 APU and bleed faults are dispatched under the MEL (Minimum Equipment List): a delay, not an AOG.
+const TECH_REASONS = ['Technical: bleed fault (MEL dispatch)', 'Technical: brake temperature', 'Technical: pressurisation sensor', 'Technical: APU inoperative (MEL), ground power needed', 'Technical: cabin defect'];
 
 function rollDelay(g: GameState, ac: Aircraft, f?: Flight): { min: number; reason: string } | null {
   if (chance(g, BAL.delayChance)) {
