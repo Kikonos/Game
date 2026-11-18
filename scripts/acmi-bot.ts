@@ -1888,7 +1888,9 @@ const NOSIGN = process.argv.includes('--nosign');
 
 /** Advances to `end` on a fixed 6-hour grid from the start (a save at a grid point plays on identically). */
 function play(g: GameState, t: Tally, end: number, onStep?: () => void): void {
-  let day = dayIndex(g.now);
+  // v0.25 r3 balance: a new company's first policy round runs at the start (a player reads the opening offers on day 0;
+  // the bot used to wait for the first midnight, and the AOG cover opener of the day was gone by then).
+  let day = g.now === g.started ? -1 : dayIndex(g.now);
   while (g.now < end && !g.gameOver) {
     const grid = g.started + (Math.floor((g.now - g.started) / STEP) + 1) * STEP;
     // Debugging (STOPAT=<minute>,<file>): the save one minute before that instant, then exit.

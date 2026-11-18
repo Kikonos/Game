@@ -46,16 +46,19 @@ export function offer(g: GameState, archetype: ContractOffer['archetype'], opts:
   return o;
 }
 
+/** v0.25 r3 the fixtures keep the MGH they were written with (200 BH a month; the game's narrowbody bases now ask 250). */
+export const FIXTURE_MGH = 200;
+
 /**
  * HAM season base flying HAM–PMI only (waves 06:00 / 12:30 local on an A320; v0.12.1 (A7) a 19:00 third would land
  * back inside HAM's 23:00–06:00 night ban, so it is dropped: ask for 3 and get 2).
  */
 export const hamBase = (g: GameState, start: Minute, days = 60, waves = 3) =>
-  offer(g, 'seasonBase', { airport: 'HAM', dests: ['PMI'], waves, start, days });
+  offer(g, 'seasonBase', { airport: 'HAM', dests: ['PMI'], waves, start, days, mgh: FIXTURE_MGH });
 
 /** v0.12.1 (A7) the old dense HAM fixture without a night curfew: DUB–PMI, waves 06:00 / 12:30 / 19:00 local on an A320. */
 export const dubBase = (g: GameState, start: Minute, days = 60, waves = 3) =>
-  offer(g, 'seasonBase', { airport: 'DUB', dests: ['PMI'], waves, start, days });
+  offer(g, 'seasonBase', { airport: 'DUB', dests: ['PMI'], waves, start, days, mgh: FIXTURE_MGH });
 
 /** Adds an aircraft of another type at home base (tests). */
 export function addAircraft(g: GameState, typeId: string): Aircraft {

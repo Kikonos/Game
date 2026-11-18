@@ -97,10 +97,16 @@ export function priceProduct(g: GameState, p: PriceInput): Product {
   const mult = (p.mult ?? ARCH_MULT[p.archetype] ?? 1) * (1 + (p.loyalty ?? 0));
   const wide = t.body === 'wide';
   if (wetP) {
+    const mgh = p.mghPerMonth ?? (wide ? BAL.mgh.wide : BAL.mgh.narrow);
+    // v0.25 r3 the rate follows the hours guaranteed (BAL.wetRate): fixed costs spread over more or fewer hours. Hours
+    // above the standard MGH (a Trusted or Partner client's perk) are a perk, not a cheaper rate.
+    const W = BAL.wetRate;
+    const std = wide ? BAL.mgh.wide : BAL.mgh.narrow;
+    const hoursF = mgh > 0 ? 1 - W.fixedShare + (W.fixedShare * W.ref[wide ? 'wide' : 'narrow']) / Math.min(mgh, std) : 1;
     return {
       kind: 'wet',
-      ratePerBH: roundTo(R * m * mult, 10),
-      mghPerMonth: p.mghPerMonth ?? (wide ? BAL.mgh.wide : BAL.mgh.narrow),
+      ratePerBH: roundTo(R * m * mult * hoursF, 10),
+      mghPerMonth: mgh,
       excessRate: BAL.excessRate,
       cycleFee: wide ? BAL.cycleFee.wide : BAL.cycleFee.narrow,
       positioningBillable: true,

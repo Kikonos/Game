@@ -34,7 +34,18 @@ export const BAL = {
    * guarantees 300–350 block hours a month (an A330 flies 10–12 BH a day on long sectors) and runs a season, since
    * the client pays to position the aircraft and its crews across the world.
    */
-  mgh: { narrow: 200, wide: 300 },
+  mgh: { narrow: 250, wide: 300 },
+  /**
+   * v0.25 r3 balance: narrowbody MGH 200 → 250 BH a month (a Newcomer's 160 → 200, BAL.v08.standing.newcomerMgh, and its bases 30–45 → 40–70 days): an
+   * A320-family ACMI deal guarantees about 250–350 block hours a month in the season (an A320 on a summer base flies
+   * 9–12 BH a day; ACMI providers quote their minimums in that range), and the client plans above it. 160–200 left a
+   * summer base flying 170–220 BH and the fleet's summer at 110–170 BH an aircraft (target 180–320).
+   * The wet rate follows the hours guaranteed: the types' rateBH were set at `ref` MGH (narrow 200, wide 300), and about
+   * `fixedShare` of an ACMI rate pays the month's fixed costs (aircraft rent, salaried crews, insurance, overhead: about
+   * $330K of an A320's month at 200 BH and $4,100 an hour), which more guaranteed hours spread thinner:
+   * rate × (1 − fixedShare + fixedShare × ref / MGH). At 250 BH an A320 base is 8 % cheaper an hour and earns 15 % more.
+   */
+  wetRate: { ref: { narrow: 200, wide: 300 }, fixedShare: 0.4 },
   wideWetDays: [91, 183] as [number, number],
   excessRate: 0.95,
   cycleFee: { narrow: 900, wide: 1800 },
@@ -495,7 +506,7 @@ export const BAL = {
     /** Company standing (§1.6). */
     standing: {
       est: { done: 3, days: 120, reliable: 55 }, resp: { done: 10, days: 365, reliable: 70, clean: 50 }, respDown: { reliable: 60, clean: 40 },
-      newcomerRate: -0.08, respectedRate: 0.04, newcomerBaseDays: [30, 45] as [number, number], newcomerMgh: [160, 300] as [number, number],
+      newcomerRate: -0.08, respectedRate: 0.04, newcomerBaseDays: [40, 70] as [number, number], newcomerMgh: [200, 300] as [number, number],
       oddHours: 0.4, demandingDelay: 1.5, demandingPay: 1.5, respectedBaseDays: 210,
       /** v0.8 fix pack: a Newcomer without a widebody (fleet, held or pending): the odds of a job it can never fly (widebody, missing approval). */
       newcomerReach: 0.25,
@@ -918,8 +929,19 @@ export const BAL = {
    */
   pm: {
     rampDays: 45,
-    costX: { low: 0, medium: 0.06, high: 0.14 },
-    fee: { low: [0, 0], medium: [4_000, 8_000], high: [10_000, 20_000] } as Record<'low' | 'medium' | 'high', [number, number]>,
+    // v0.25 r3 balance: the costs were 2–3× a real programme's (High added $1.2–1.3M a year to a 3-aircraft A320 fleet,
+    // about $430K an aircraft, and never paid for itself). [E] sized again from what each level adds:
+    // - per block hour: component support is about 25–30 % of an A320's DMC ($225–270/BH); changing the parts that fail
+    //   most at about 80 % of their mean time between removals raises that spend 10–15 %, about +3 % of DMC (High);
+    //   Medium's defects fixed at the night stop instead of deferred, parts used sooner: about +1 %;
+    // - a month per aircraft: Medium's extra daily and weekly checks, about an engineer-hour a day at $85 ($2,500);
+    //   High adds a reliability engineer (about $120K a year, shared by 6–8 aircraft: $1,500) and a home-base rotables
+    //   kit or pool access ($2,500): $6,500. A widebody about twice.
+    // An A320 flying 2,400 BH a year: Medium about $55K a year, High about $150K. High saves about half the technical
+    // delays and AOGs; at 0.3–0.5 AOGs an aircraft-year (each $50–200K of rescue, sub-charter and parts) and the
+    // Ladder's reliability, it is about break-even for an old, busy fleet and dear for a young one, as in reality.
+    costX: { low: 0, medium: 0.01, high: 0.03 },
+    fee: { low: [0, 0], medium: [2_500, 5_000], high: [6_500, 13_000] } as Record<'low' | 'medium' | 'high', [number, number]>,
     delayX: { low: 1, medium: 0.8, high: 0.5 },
     aogX: { low: 1, medium: 0.75, high: 0.45 },
     deferredX: { low: 1, medium: 0.7, high: 0.35 },
