@@ -1766,7 +1766,8 @@ export function recheckPairing(g: GameState, p: Pairing, priorOnly = false): { l
     const c = g.crew[s.crewId];
     if (!c) continue;
     const base = segsOf(g, c, p.id);
-    const plan = planCrew(g, c, p, priorOnly ? base.filter((x) => x.kind === 'log' || x.start < p.start) : base, true);
+    // (v0.25 work already begun or over is history, never 'later work': a tour's hotel standby days since its start count.)
+    const plan = planCrew(g, c, p, priorOnly ? base.filter((x) => x.kind === 'log' || x.start < p.start || x.start <= g.now) : base, true);
     // This pairing's own issues (a later trip's problem is flagged on that trip when it is checked; a loose
     // ticket's, without a duty, is no trip's).
     const mine = plan.issues.filter((i) => i.code !== 'fdp' && !!i.dutyId && own.has(i.dutyId));
