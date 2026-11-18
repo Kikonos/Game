@@ -81,6 +81,17 @@ export const HangarView = memo(function HangarView({ rows, k: key }: { rows: Han
   // after layout, since the rows wrap with the width.
   const lineRef = useRef<HTMLDivElement>(null);
   const [floors, setFloors] = useState<{ y: number; back: number }[]>([]);
+  // v0.25 measured again when the art arrives or a row reflows (the art loads after the first layout: the bands stood
+  // under the text, or outside the card).
+  const [grown, setGrown] = useState(0);
+  useLayoutEffect(() => {
+    const line = lineRef.current;
+    if (look !== 'side' || !line || typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => setGrown((n) => n + 1));
+    ro.observe(line);
+    for (const el of Array.from(line.querySelectorAll<HTMLElement>('.hg-art'))) ro.observe(el);
+    return () => ro.disconnect();
+  }, [look, key]);
   useLayoutEffect(() => {
     const line = lineRef.current;
     if (look !== 'side' || !line) return;
@@ -97,7 +108,7 @@ export const HangarView = memo(function HangarView({ rows, k: key }: { rows: Han
     }
     const next = tops.map((t, i) => ({ y: ys.get(t) ?? t, back: tops.length - 1 - i }));
     setFloors((cur) => (JSON.stringify(cur) === JSON.stringify(next) ? cur : next));
-  }, [look, width, key]);
+  }, [look, width, key, grown]);
   const setLook = (v: HangarLook) => { writeHangarLook(v); setLookState(v); };
   const open = (id: string) => store.navigate('fleet', { view: 'fleet', sel: { kind: 'aircraft', id } });
   const head = <div className="hg-head"><Seg<HangarLook> value={look} onChange={setLook} options={[{ value: 'top', label: 'From above' }, { value: 'side', label: 'Side' }]} /></div>;

@@ -40,7 +40,7 @@
 
 /* Hangar › Side: each row stands on a floor that runs back to one vanishing point; a soft contact shadow and a faint
    reflection under every aircraft; rows further back a touch smaller and fainter (--hg-s, --hg-f: Hangar.tsx). */
-.hg-line { position: relative; }
+.hg-line { position: relative; overflow: hidden; }
 .hg-line > .hg-item { position: relative; z-index: 1; }
 .hg-floorband {
   position: absolute; left: -18px; right: -18px; height: 34px; margin-top: -22px; z-index: 0; pointer-events: none;
