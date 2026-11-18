@@ -1899,7 +1899,7 @@ export function onOfferReply(g: GameState, ev: SimEvent): void {
     setPrice(o, k.offer);
     pushMessage(g, {
       tone: 'warn', cat: 'commercial', title: `${client} met us halfway: ${o.title}`,
-      body: `They won't go to our counter but offer ${fmtPrice(o.product)} (they asked ${was}). Accept by ${until}, or let it go.`,
+      body: `They won't take our counter, but move from ${was} to ${fmtPrice(o.product)}. Accept by ${until}, or let it go.`,
       ref: { kind: 'offer', id: o.id }, problem: { kind: 'counterExpiry', ref: { kind: 'offer', id: o.id } }, hurt: { money: o.estValue, pax: 0, delayMin: 0, level: 'high' }, cue: 'counterReply',
     });
     if (o.urgency === 'urgent') requestPause('urgentOffer');

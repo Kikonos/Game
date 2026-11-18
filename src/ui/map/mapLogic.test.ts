@@ -797,3 +797,12 @@ describe('v0.25 parked aircraft: a compact block', () => {
     expect(Math.max(...six.map((p) => p[0]))).toBe(Math.max(...three.map((p) => p[0])));
   });
 });
+
+describe('v0.25 r2 parked aircraft: one icon with a count, zoomed out', () => {
+  it('folds more than 3 when their block would cover more than 300 km, never 3 or fewer', async () => {
+    const { stackStands } = await import('./mapLogic');
+    expect(stackStands(6, 110, 5)).toBe(true); // whole network: 550 km
+    expect(stackStands(6, 110, 1.5)).toBe(false); // regional: 165 km
+    expect(stackStands(3, 110, 50)).toBe(false);
+  });
+});

@@ -117,6 +117,7 @@ export { achievementProgress, achievementsView, checkAchievements, grantAchievem
 // v0.7.1 every problem as one card (engine/problems).
 export { hurtBadges, messageBadges, postProblem, problemAt, problemFor, problems, type GaugeSpec, type Hurt, type MiniMapSpec, type ProblemAction, type ProblemCard, type ReachSpec, type TimelineSpec } from '../problems';
 import { postAwayIdle, postRestProblems } from '../problems';
+import { dailyMilestones, loadMilestones } from './milestones';
 export { FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, FLIGHT_TYPES, flightCrewAboard, flightType, type FlightType } from './flightType';
 export {
   commercialFlightsAirborne, commercialFlightsBetween, commercialItinerary, commercialProgress, CONNECT_MIN, itinerary, itineraryText, ticketBlock,
@@ -167,6 +168,8 @@ function daily(g: GameState) {
   postRestProblems(g);
   // v0.16.4 an aircraft stuck away from base with nothing planned (no way home found): told once a stay.
   postAwayIdle(g);
+  // v0.25 r2 round numbers and anniversaries (one Inbox note each).
+  dailyMilestones(g);
 }
 
 export const opsModule: SimModule = {
@@ -192,6 +195,8 @@ export const opsModule: SimModule = {
     // v0.9 heads locked, nothing earned yet.
     loadHeads(g);
     g.achievements ??= {};
+    // v0.25 r2 milestones: a new game counts its passengers from the start.
+    loadMilestones(g, true);
     loadOps(g);
     // v0.16 the finance record and the compliance post, empty (exactly as load sets them).
     loadTreasury(g);
@@ -237,6 +242,8 @@ export const opsModule: SimModule = {
     // v0.22 a save from before v0.21 with a market study already done: the network planner is earned on load, not at
     // the next daily check (until then the business case offered to hire a head still shown as locked).
     checkAchievements(g, { ids: ['firstStudy'] });
+    // v0.25 r2 milestones: what an older save has passed is marked silently.
+    loadMilestones(g, false);
     loadOps(g);
     // v0.16 finance (credit line, loans, factoring) and the compliance post: defaults for an older save.
     loadTreasury(g);

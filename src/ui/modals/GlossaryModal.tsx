@@ -1,15 +1,18 @@
 // v0.7.1 the Glossary (UPDATE-0.7.1.md §10, §11): every term with its one-line meaning in two columns and a 'Show me'
 // link to where it appears. Opened from Settings and from every <Term> popover (that term is highlighted).
 
-import { BookOpenText, ChevronRight } from 'lucide-react';
-import { useEffect } from 'react';
+import { BookOpenText, ChevronRight, Search, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { GLOSSARY, type TermId } from '../../data/glossary';
 import { glossaryTarget } from '../components/problemLogic';
+import { glossarySearch } from './glossarySearch';
 import { Modal } from '../components/ui';
 import { store } from '../store';
 
 export function GlossaryModal({ term }: { term?: TermId }) {
-  const ids = (Object.keys(GLOSSARY) as TermId[]).sort((a, b) => GLOSSARY[a].term.localeCompare(GLOSSARY[b].term));
+  const [q, setQ] = useState('');
+  const all = (Object.keys(GLOSSARY) as TermId[]).sort((a, b) => GLOSSARY[a].term.localeCompare(GLOSSARY[b].term));
+  const ids = glossarySearch(all, q);
   useEffect(() => {
     if (term) document.querySelector(`[data-term="${term}"]`)?.scrollIntoView({ block: 'center' });
   }, [term]);
@@ -23,6 +26,12 @@ export function GlossaryModal({ term }: { term?: TermId }) {
   return (
     <Modal size="wide" className="gl-modal" title="Glossary" icon={<BookOpenText className="accent" />} onClose={() => store.closeModal()} footer={<button className="btn btn-primary" onClick={() => store.closeModal()}>Close</button>}>
       <p className="small muted gl-intro">Plain meanings of the words the game uses. Tap any underlined word in a warning for the same line.</p>
+      <div className="gl-search">
+        <Search className="gl-search-ico" aria-hidden />
+        <input className="input" type="search" value={q} placeholder="Search" aria-label="Search the glossary" autoComplete="off" autoCorrect="off" autoCapitalize="none" spellCheck={false} enterKeyHint="search" onChange={(e) => setQ(e.target.value)} />
+        {q && <button className="btn btn-icon btn-ghost" onClick={() => setQ('')} aria-label="Clear the search"><X /></button>}
+      </div>
+      {!ids.length && <p className="small muted">No word matches “{q.trim()}”.</p>}
       <div className="gl-grid">
         {ids.map((id) => {
           const e = GLOSSARY[id];

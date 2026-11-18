@@ -66,8 +66,9 @@ export function CounterReplyModal({ offerId, contractId, title, body }: { offerI
       <div className="v91-reply">
         <b>{title}</b>
         <p>{body}</p>
-        {open && regs && <p className="small muted">On {regs}, as countered. One counter per offer: accept this price or let it go.</p>}
-        {open && o && <p className="small muted">Answer by {fmtDay(o.expires)} {fmtTime(o.expires)} UTC.</p>}
+        {/* v0.25 r2: the deadline and "let it go" once each: the client's message usually says them already. */}
+        {open && regs && <p className="small muted">On {regs}, as countered. One counter per offer.</p>}
+        {open && o && !body.includes(`${fmtDay(o.expires)} ${fmtTime(o.expires)} UTC`) && <p className="small muted">Answer by {fmtDay(o.expires)} {fmtTime(o.expires)} UTC.</p>}
       </div>
     </Modal>
   );

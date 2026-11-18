@@ -87,7 +87,7 @@ function Policy({ g }: { g: GameState }) {
           <div className="lv-mchips" role="group" aria-label="Months with no leave">
             {MON.map((m, i) => {
               const on = pol.blackout.includes(i);
-              return <button key={i} className={`lv-mchip ${on ? 'on' : ''}`} aria-pressed={on} aria-label={MONTH[i]} onClick={() => set({ blackout: on ? pol.blackout.filter((x) => x !== i) : [...pol.blackout, i] })}>{m}</button>;
+              return <button key={i} className={`lv-mchip ${on ? 'on' : ''}`} aria-pressed={on} aria-label={MONTH[i]} onClick={() => set({ blackout: on ? pol.blackout.filter((x) => x !== i) : [...pol.blackout, i] })}><span className="lv-m1">{m}</span><span className="lv-m3">{MONTH[i].slice(0, 3)}</span></button>;
             })}
           </div>
         </div>

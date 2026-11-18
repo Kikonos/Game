@@ -1907,6 +1907,13 @@ export interface Stats {
   peakWarned?: string[];
   /** v0.18.2 hiring holds told (`month|family`). */
   holdWarned?: string[];
+  /** v0.25 r2 passengers on our revenue legs (estimated 85 % full where a leg has no count); absent on a save from
+   *  before v0.25 r2 (never counted), which then has no passenger milestones. */
+  paxFlown?: number;
+  /** v0.25 r2 milestones already told ('legs:1000', 'bh:5000', 'pax:100000', 'year:2'); an older save marks what it had passed on load. */
+  milestones?: string[];
+  /** v0.25 r2 when the last passenger letter came in (ops/letters.ts); absent: none yet. */
+  letterAt?: Minute;
   /** Lifetime billable block minutes and revenue legs. */
   blockMin: number;
   legs: number;

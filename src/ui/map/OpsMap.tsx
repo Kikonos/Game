@@ -610,7 +610,6 @@ export function OpsMap() {
           return (
             <>
               <ZoneLabels zones={zones} proj={ctx.proj} unit={ctx.unit} selected={selEv ? zones.find((z) => z.eventId === selEv)?.eventId : undefined} />
-              {routeLines.length > 0 && <RouteLinesLayer lines={routeLines} proj={ctx.proj} selected={routeCard ?? undefined} />}
               <PathsLayer shared={shared} />
               <SlipArcsLayer arcs={slipLegs} proj={ctx.proj} />
               <ArcsLayer legs={nextArcs} proj={ctx.proj} />
@@ -626,6 +625,8 @@ export function OpsMap() {
             <WeatherLayer marks={wx} proj={ctx.proj} unit={ctx.unit} />
             <CommercialLayer shared={shared} />
             <AircraftLayer ctx={ctx} g={g} shared={shared} selected={selAc ?? (spot?.id || undefined)} selectedFlight={selCm} />
+            {/* v0.25 r2 our scheduled routes' faint dashes above the aircraft: a block parked at the route's end no longer hides them. */}
+            {routeLines.length > 0 && <RouteLinesLayer lines={routeLines} proj={ctx.proj} selected={routeCard ?? undefined} />}
           </>
         )}
       />

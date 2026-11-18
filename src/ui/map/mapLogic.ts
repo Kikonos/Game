@@ -108,6 +108,12 @@ export function parkOffset(i: number, n: number): [number, number] {
  *  in rows of 5 at a regional zoom). Pure. */
 export const standsPerRow = (n: number): number => (n > 3 ? 3 : PARK_PER_ROW);
 
+/** v0.25 r2 a block of parked aircraft wider than this on the ground (km) folds into one icon with a count. */
+export const STACK_KM = 300;
+/** v0.25 r2 zoomed out, more than 3 aircraft at one airport stand as one icon with an 'x6' count when their block
+ *  would reach further than STACK_KM over the ground (6 at Malta covered Sicily on the whole-network view). Pure. */
+export const stackStands = (n: number, blockPx: number, kmPerPx: number): boolean => n > 3 && blockPx * kmPerPx > STACK_KM;
+
 /** v0.14 an aircraft's footprint on its stand (screen px): span `w` (at least its label's width), length `h`, and the
  *  depth of the labels under it (`lh`, default the layout's `labelH`). */
 export interface StandSize { w: number; h: number; lh?: number }
