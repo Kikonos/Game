@@ -91,6 +91,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'Dates with a year no longer run into the next column in the Recent logs.',
       'An offer pop-up now goes away once the offer has closed.',
       'One pilot\'s new plan no longer moves the whole set\'s ticket out days earlier.',
+      'The maintenance programme line under Company showed the cut in delays as defects. It now shows delays and defects apart.',
       'An old save now plans days off and standby on its first load, not only after a second one.',
       'Crew tickets to Greenland used made-up nonstops. They now change in Copenhagen, Reykjavik or Nuuk onto Air Greenland, from every airport.',
       'A war and an airspace closure in the same place no longer overlap, so there is no reopened note while the airspace is still shut.',
