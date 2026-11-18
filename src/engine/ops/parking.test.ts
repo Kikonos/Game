@@ -3,6 +3,7 @@
 import { describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
 import { DAY } from '../core/time';
+import { addFlight } from '../core/entities';
 import type { GameState } from '../core/types';
 import { newGame, owned } from '../contracts/testkit';
 import { dailyParking, parkPerDay, parksAt } from './parking';
@@ -30,6 +31,21 @@ describe('v0.25 parking away from base', () => {
     ac.at = 'FAO';
     ac.deliveredAt = g.now - 60;
     expect(parksAt(g, ac)).toBe(false);
+  });
+
+  it('v0.25 review: a wait between two legs of the same job is in its price (an away day, a multi-day trip)', () => {
+    const g = newGame(7);
+    const ac = owned(g);
+    for (const f of Object.values(g.flights)) if (f.aircraftId === ac.id) f.status = 'cancelled';
+    ac.at = 'PDL';
+    ac.deliveredAt = g.now - 10 * DAY;
+    const inb = addFlight(g, { no: 'T1', aircraftId: ac.id, contractId: 'k1', kind: 'revenue', from: 'LIS', to: 'PDL', std: g.now - 38 * 60, sta: g.now - 36 * 60 });
+    inb.status = 'done';
+    const out = addFlight(g, { no: 'T2', aircraftId: ac.id, contractId: 'k1', kind: 'revenue', from: 'PDL', to: 'LIS', std: g.now + 6 * 60, sta: g.now + 8 * 60 });
+    expect(parksAt(g, ac)).toBe(false);
+    // Between two jobs it is our stand: parking.
+    out.contractId = 'k2';
+    expect(parksAt(g, ac)).toBe(true);
   });
 
   it('the Position quote says what a day there costs', () => {
