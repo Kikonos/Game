@@ -345,13 +345,16 @@ export function RoutePage({ routeId, tab: tab0 }: { routeId: string; tab?: Tab }
         </div>
         {/* v0.24.1 suspend, wind down, close, resume: each opens its confirm with the money. */}
         {r.suspended && r.status === 'suspended' && !r.closing && <div className="small warn">Suspended since {fmtDay(r.suspended.at)} · slots kept until {fmtDay(r.suspended.slotsUntil)}</div>}
-        <RouteActionButtons r={r} back={{ kind: 'route', routeId: r.id, tab }} />
-        <Seg<Tab> value={tab} onChange={setTab} options={[
-          { value: 'overview', label: <><BarChart3 className="sc-ico-s" /> Overview</> },
-          { value: 'timetable', label: <><CalendarClock className="sc-ico-s" /> Timetable</> },
-          { value: 'sales', label: <><Ticket className="sc-ico-s" /> Sales</> },
-          { value: 'costs', label: <><Fuel className="sc-ico-s" /> Costs</> },
-        ]} />
+        {/* v0.25 r2: the tabs and the route's actions share one row (on iPhone the actions show icons only). */}
+        <div className="row between wrap gap-8 nw-route-bar">
+          <Seg<Tab> value={tab} onChange={setTab} options={[
+            { value: 'overview', label: <><BarChart3 className="sc-ico-s" /> Overview</> },
+            { value: 'timetable', label: <><CalendarClock className="sc-ico-s" /> Timetable</> },
+            { value: 'sales', label: <><Ticket className="sc-ico-s" /> Sales</> },
+            { value: 'costs', label: <><Fuel className="sc-ico-s" /> Costs</> },
+          ]} />
+          <RouteActionButtons r={r} back={{ kind: 'route', routeId: r.id, tab }} />
+        </div>
         {tab === 'overview' && <Overview g={g} r={r} />}
         {tab === 'timetable' && <TimetableTab g={g} r={r} />}
         {tab === 'sales' && <SalesTab g={g} r={r} />}

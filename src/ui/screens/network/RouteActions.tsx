@@ -34,8 +34,9 @@ export function RouteActionButtons({ r, back, small }: { r: Route; back?: ModalS
     <div className="row wrap gap-6 nw-life">
       {acts.map((a) => (
         <button key={a} className={`btn ${small ? 'btn-sm' : 'btn-sm'} ${a === 'close' ? 'btn-danger' : a === 'resume' ? 'btn-primary' : ''}`}
-          onClick={() => store.openModal({ kind: 'routeAction', routeId: r.id, action: a, back })}>
-          <Ico a={a} /> {a === 'resume' && r.closing ? 'Keep the route' : WORD[a]}
+          onClick={() => store.openModal({ kind: 'routeAction', routeId: r.id, action: a, back })}
+          aria-label={a === 'resume' && r.closing ? 'Keep the route' : WORD[a]} title={a === 'resume' && r.closing ? 'Keep the route' : WORD[a]}>
+          <Ico a={a} /> <span className="nw-life-word">{a === 'resume' && r.closing ? 'Keep the route' : WORD[a]}</span>
         </button>
       ))}
     </div>

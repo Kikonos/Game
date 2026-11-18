@@ -77,3 +77,9 @@
 /* The map's first-time hint sits where the route card opens: hidden while it is open. */
 .ops-map.panel-open + .v9-hint.float { display: none; }
 .nw-life-title { align-items: center; }
+/* v0.25 r2: the route dialog's tabs and actions share one row; on a short screen (iPhone) the actions are icons only. */
+.nw-route-bar { align-items: center; }
+@media (max-height: 499.98px) {
+  .nw-route .nw-life-word { display: none; }
+  .nw-route .nw-life .btn { min-width: 44px; justify-content: center; padding: 0 10px; }
+}
