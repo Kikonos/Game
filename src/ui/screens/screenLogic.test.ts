@@ -153,7 +153,7 @@ describe('v0.7 market, cabin and inbox helpers', () => {
     const base = { minSeats: 100, approvals: [], longestSectorNm: 500 } as never as Parameters<typeof reqChips>[0];
     expect(reqChips({ ...base, layouts: ['vip'] }).map((c) => c.label)).toContain('VIP cabin');
     expect(reqChips({ ...base, layouts: ['two-class', 'three-class', 'vip'], minPremium: 20 }).map((c) => c.label)).toEqual(expect.arrayContaining(['Premium cabin', 'Premium 20+']));
-    expect(reqChips({ ...base, minSeats: 180, layouts: ['all-economy'] }).map((c) => c.label)).toContain('Max seats 180+');
+    expect(reqChips({ ...base, minSeats: 180, layouts: ['all-economy'] }).map((c) => c.label)).toContain('180+ seats, all economy');
     expect(reqChips({ ...base, minSeats: 180, layouts: ['all-economy'] }).map((c) => c.label)).not.toContain('180+ seats');
   });
 });
