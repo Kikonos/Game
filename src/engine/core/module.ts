@@ -15,6 +15,13 @@ export interface SimModule {
    * false between two events inside advanceTo (cheaper work may wait for the next full settle).
    */
   settle?(g: GameState, full: boolean): void;
+  /**
+   * v0.25 (perf) the module's midnight work in parts, run in this order in place of handlers.day. Each part is a
+   * midnight phase of its own (as is every other module's day handler): the day's phases run back to back at 00:00 as
+   * one event (nothing else between), but the UI may draw a frame between two phases (advanceTo `split`), so a heavy
+   * midnight is not one long frame.
+   */
+  dayPhases?: SimHandler[];
   /** Handlers by event type; for each event the core calls ops → contracts → crew (DESIGN.md §3.3). */
   handlers: Partial<Record<SimEventType, SimHandler>>;
 }

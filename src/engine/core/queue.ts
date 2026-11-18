@@ -18,6 +18,22 @@ export function schedule(g: GameState, t: Minute, type: SimEventType, id = '', v
   }
 }
 
+/**
+ * v0.25 (perf) queue an event again with its own (t, seq): the next part of the midnight event just popped stays ahead
+ * of everything else queued at that minute, so the day's phases run back to back as before. Does not count g.seq.
+ */
+export function requeue(g: GameState, ev: SimEvent): void {
+  const q = g.queue;
+  q.push(ev);
+  let i = q.length - 1;
+  while (i > 0) {
+    const p = (i - 1) >> 1;
+    if (!less(q[i], q[p])) break;
+    [q[i], q[p]] = [q[p], q[i]];
+    i = p;
+  }
+}
+
 export function peek(g: GameState): SimEvent | undefined {
   return g.queue[0];
 }

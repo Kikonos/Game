@@ -39,7 +39,8 @@ interface SaveFile {
   state: GameState;
 }
 
-function metaFor(g: GameState, slot: string): SaveMeta {
+/** The save list's line for this game in `slot` (v0.25 exported: the async save writes it with the save). */
+export function metaFor(g: GameState, slot: string): SaveMeta {
   return {
     slot,
     company: g.company.name,
@@ -101,6 +102,23 @@ export function saveToSlot(g: GameState, slot: string): boolean {
   if (!s) return false;
   const meta = metaFor(g, slot);
   const value = LZ_MARK + LZString.compressToUTF16(serialize(g, slot, meta));
+  try {
+    s.setItem(PREFIX + slot, value);
+  } catch {
+    return false;
+  }
+  writeMeta(s, slot, meta, value);
+  return true;
+}
+
+/**
+ * v0.25 (perf) writes a save compressed elsewhere (the save worker: compressToUTF16 of a serialize() text) and its
+ * list line, as saveToSlot does. False when storage is unavailable or full.
+ */
+export function writeCompressedSlot(slot: string, compressed: string, meta: SaveMeta): boolean {
+  const s = storage();
+  if (!s) return false;
+  const value = LZ_MARK + compressed;
   try {
     s.setItem(PREFIX + slot, value);
   } catch {

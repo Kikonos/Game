@@ -15,7 +15,7 @@ export { aboveMinimum, afterDiversion, legalMinimum } from './duties';
 import { dailyPay, dailySickness, onCrewJoin, onTrainingDone } from './hr';
 import { setRedundantHook } from './utilisation';
 import { dailyMorale, monthlyMorale, moraleShock, noteService, onDutyMorale, settleService, repairDaysOffMorale, repairStandbyMorale, setResignHooks } from './morale';
-import { autoRoster, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, leaveTrips, repairLeaveTrips, splitLeadingEmpty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable, unclashTickets } from './roster';
+import { autoRoster, autoRosterFill, autoRosterPlan, closedWait, coverByDiscretion, noteAugmentedAboard, recheckBuyBacks, guardDuty, homeBeforeLeave, homeForLeave, leaveTrips, repairLeaveTrips, splitLeadingEmpty, onFlightsChanged, recheckAfterRelease, recheckNext, recheckPairing, recheckSoon, leaveAfterTickets, rebookAfterLateRelease, releaseCrew, releaseLeaver, removeCrew, repairGoneCrew, sendStrandedHome, settleRides, splitOverlong, stayOn, forgetGoneTickets, retimeToTimetable, unclashTickets } from './roster';
 import { extFdp, localMin, minRest, referenceTime, signedTz, tzDeltaH, tzNights, woclMinutes } from './rules';
 import { clipToRest, dailyStandby, noteRecovery } from './standby';
 import { rosterHorizon, dayPlanAfter, dayPlanBefore, dayPlanInit, dayPlanLoad, dayPlanMonth, dropStrandedStandby, v09Stats } from './dayPlan';
@@ -650,7 +650,8 @@ function prune(g: GameState): void {
   if (n) touchCrew(g);
 }
 
-function daily(g: GameState) {
+/** Midnight phase 1 (v0.25 the crew's daily work runs in four parts, see crewModule.dayPhases). */
+function dailyCrew(g: GameState) {
   dailyClasses(g);
   dailyClassReminders(g);
   refreshStatuses(g);
@@ -668,9 +669,18 @@ function daily(g: GameState) {
   resizeDeployments(g);
   dayPlanBefore(g);
   // Keep the published roster horizon filled (auto-roster policy), then bring home anyone left without work away.
+  if (g.company.policies.autoRoster) recheckSoon(g);
+}
+
+/** v0.25 (perf) midnight phase 2: the auto-roster's pairings (autoRoster in two phases, see dailyRoster). */
+function dailyPairings(g: GameState) {
+  if (g.company.policies.autoRoster) autoRosterPlan(g);
+}
+
+/** v0.25 (perf) midnight phase 3: the auto-roster fills the slots, then the trips home. */
+function dailyRoster(g: GameState) {
   if (g.company.policies.autoRoster) {
-    recheckSoon(g);
-    autoRoster(g);
+    autoRosterFill(g);
     // Crew flying home only to fly straight back out stay at the hotel instead.
     const stayed = stayOn(g);
     if (stayed.length) recheckNext(g, stayed);
@@ -684,6 +694,10 @@ function daily(g: GameState) {
   leaveAfterTickets(g);
   // v0.7.3 home standby for the days an old save published before v0.9; v0.9 standby for every free published day.
   dailyStandby(g);
+}
+
+/** v0.25 (perf) midnight phase 4: standby and days off for the published roster, then the busy-month heads-up. */
+function dailyPlan(g: GameState) {
   dayPlanAfter(g);
   // Peak-staffing round: the busy-month heads-up (one Inbox note per family, month and role).
   peakHeadsUp(g);
@@ -885,8 +899,15 @@ export const crewModule: SimModule = {
       refreshStatuses(g);
     }
   },
+  // v0.25 (perf) four midnight phases, in this order (sim.ts DAY_PHASES); a frame may come between two of them.
+  dayPhases: [dailyCrew, dailyPairings, dailyRoster, dailyPlan],
   handlers: {
-    day: daily,
+    day: (g) => {
+      dailyCrew(g);
+      dailyPairings(g);
+      dailyRoster(g);
+      dailyPlan(g);
+    },
     month: monthly,
     'duty.report': onDutyReport,
     'duty.release': onDutyRelease,

@@ -2850,12 +2850,25 @@ const noCover = new WeakMap<Pairing, string>();
  * [from, to) (default: now → roster horizon; a tour is filled as a whole) with the best-scoring legal crew
  * member; tickets position crew (one per group).
  */
-export function autoRoster(g: GameState, opts: { from?: Minute; to?: Minute; aircraftIds?: string[] } = {}): RosterResult {
+export function autoRoster(g: GameState, opts: AutoRosterOpts = {}): RosterResult {
+  autoRosterPlan(g, opts);
+  return autoRosterFill(g, opts);
+}
+
+type AutoRosterOpts = { from?: Minute; to?: Minute; aircraftIds?: string[] };
+
+/** v0.25 (perf) autoRoster's first half (a midnight phase of its own): the aircraft's open pairings rebuilt. */
+export function autoRosterPlan(g: GameState, opts: AutoRosterOpts = {}): void {
+  const from = Math.max(opts.from ?? g.now, g.now);
+  for (const id of opts.aircraftIds ?? Object.keys(g.fleet)) planAircraft(g, id, from);
+}
+
+/** v0.25 (perf) autoRoster's second half: the open slots filled (right after autoRosterPlan, nothing in between). */
+export function autoRosterFill(g: GameState, opts: AutoRosterOpts = {}): RosterResult {
   const res = emptyResult();
   const from = Math.max(opts.from ?? g.now, g.now);
   const to = opts.to ?? rosterHorizon(g);
   const acs = opts.aircraftIds ?? Object.keys(g.fleet);
-  for (const id of acs) planAircraft(g, id, from);
   const sel = new Set(acs);
   const open = Object.values(g.pairings)
     .filter((p) => p.aircraftId && sel.has(p.aircraftId) && (p.status === 'planned' || p.status === 'active') && p.start < to && p.end > from && (requiredEmpty(p) || (p.status === 'planned' && aboveEmpty(p))))

@@ -3,9 +3,9 @@
 
 import { contractsModule } from './contracts';
 import { commercialModule } from './commercial';
-import type { SimModule } from './core/module';
+import type { SimHandler, SimModule } from './core/module';
 import { clearPause, takePause, type PauseReason } from './core/pause';
-import { peek, pop, schedule } from './core/queue';
+import { peek, pop, requeue, schedule } from './core/queue';
 import { safetyTrip } from './core/safety';
 import { asStep } from './core/uiRev';
 import { DAY, monthKey, nextDayStart } from './core/time';
@@ -30,6 +30,18 @@ for (const m of MODULES) {
   }
 }
 
+/**
+ * v0.25 (perf) the midnight work in phases, in the order of one 'day' dispatch: each module's day handler, and each part
+ * of a module's dayPhases (crew), is a phase of its own. The phases run back to back at 00:00 (see advanceTo).
+ */
+const DAY_PHASES: SimHandler[][] = MODULES.flatMap((m) => m.dayPhases ?? (m.handlers.day ? [m.handlers.day] : [])).map((h) => [h]);
+
+/** v0.25 (perf) the UI drew a frame between two midnight phases: the rest of that midnight is next in the queue. */
+export function midDay(g: GameState): boolean {
+  const top = peek(g);
+  return !!top && top.type === 'day' && top.v > 0 && top.t <= g.now;
+}
+
 function dispatch(g: GameState, ev: SimEvent) {
   const list = table.get(ev.type) ?? [];
   // Month end runs crew (salaries) → contracts (billing) → ops (fixed costs, closes the statement last).
@@ -52,6 +64,8 @@ export function onLoad(g: GameState): void {
  * retimed, cancelled or reassigned). Runs after every event and after every player action (store.act).
  */
 export function settle(g: GameState, full = true): void {
+  // v0.25 (perf) not between two midnight phases: the day finishes first (its last phase is followed by the settle).
+  if (midDay(g)) return;
   asStep(() => {
     for (const m of MODULES) m.settle?.(g, full);
   });
@@ -64,6 +78,8 @@ export interface AdvanceResult {
   pause: PauseReason | null;
   /** A game hour boundary was crossed (UI text refresh cadence). */
   hourChanged: boolean;
+  /** v0.25 (perf) `split`: stopped between two midnight phases (g.now is that midnight; the next call goes on). */
+  midDay?: boolean;
 }
 
 /**
@@ -71,23 +87,30 @@ export interface AdvanceResult {
  * Stops early (g.now = event time) when an event requests a pause in `honour` (any reason when omitted:
  * tests and the bot). Requests outside `honour` are dropped, so they never leak into a later event.
  */
-export function advanceTo(g: GameState, target: Minute, honour?: ReadonlySet<PauseReason>): AdvanceResult {
+export function advanceTo(g: GameState, target: Minute, honour?: ReadonlySet<PauseReason>, split = false): AdvanceResult {
   // v0.15.1 (perf) an engine step: the screens' read-side caches (problem cards, quick feasibility) stay out of it.
-  return asStep(() => advanceToRaw(g, target, honour));
+  return asStep(() => advanceToRaw(g, target, honour, split));
 }
 
-function advanceToRaw(g: GameState, target: Minute, honour?: ReadonlySet<PauseReason>): AdvanceResult {
+/**
+ * v0.25 (perf) `split` (the UI frame loop): return between two midnight phases, so the next frame runs the next one.
+ * The phases and everything after them run exactly as in one call: no settle and no pause check between phases, and a
+ * call that resumes a midnight keeps the pause requests its phases made (settle is a no-op until the day is done).
+ */
+function advanceToRaw(g: GameState, target: Minute, honour: ReadonlySet<PauseReason> | undefined, split: boolean): AdvanceResult {
   const startHour = Math.floor(g.now / 60);
   let events = 0;
   let pause: PauseReason | null = null;
-  clearPause();
+  let half = false;
+  if (!midDay(g)) clearPause();
   settle(g);
   let same = 0;
   for (;;) {
     const top = peek(g);
     if (!top || top.t > target || g.gameOver) break;
     pop(g);
-    same = top.t <= g.now ? same + 1 : 0;
+    const phase = top.type === 'day' ? top.v || 0 : 0;
+    if (!phase) same = top.t <= g.now ? same + 1 : 0;
     g.now = Math.max(g.now, top.t);
     events++;
     // Safety net: modules re-queueing each other at one instant (a re-planning loop) must not hang the clock.
@@ -99,8 +122,19 @@ function advanceToRaw(g: GameState, target: Minute, honour?: ReadonlySet<PauseRe
     }
     if (top.type === 'day') {
       // Month end first (statements, billing), then the daily jobs, then the next rollover.
-      if (monthKey(top.t) !== monthKey(top.t - DAY)) dispatch(g, { ...top, type: 'month' });
-      dispatch(g, top);
+      if (!phase && monthKey(top.t) !== monthKey(top.t - DAY)) dispatch(g, { ...top, type: 'month' });
+      const ev = { ...top, v: 0 };
+      for (let k = phase; k < DAY_PHASES.length; k++) {
+        // v0.25 (perf) a frame between two phases (split): the next phase goes first at this minute (the same seq), so
+        // nothing else runs in between and the day plays out as in one call.
+        if (k > phase && split && !g.gameOver) {
+          requeue(g, { ...top, v: k });
+          half = true;
+          break;
+        }
+        for (const h of DAY_PHASES[k]) h(g, ev);
+      }
+      if (half) break;
       schedule(g, top.t + DAY, 'day');
     } else {
       dispatch(g, top);
@@ -109,6 +143,7 @@ function advanceToRaw(g: GameState, target: Minute, honour?: ReadonlySet<PauseRe
     pause = takePause(honour);
     if (pause) break;
   }
+  if (half) return { events, pause, hourChanged: Math.floor(g.now / 60) !== startHour, midDay: true };
   // A full settle before anyone looks (or saves): every aircraft's empty legs relinked at this instant.
   if (events && !g.gameOver) settle(g);
   if (!pause && !g.gameOver) g.now = Math.max(g.now, target);
