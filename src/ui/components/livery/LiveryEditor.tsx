@@ -441,7 +441,7 @@ export function LiveryEditor({ value, onChange, code, name, reg, acName, types, 
             {footer}
             {onCancel && <button type="button" className="lv-btn ghost" onClick={onCancel}>Cancel</button>}
             {editable && <button type="button" className="lv-btn ghost" onClick={resetAll}>Reset all</button>}
-            {mode === 'company' && onApplyAll && <button type="button" className="lv-btn" onClick={onApplyAll}>Use on all aircraft</button>}
+            {mode === 'company' && onApplyAll && <button type="button" className="lv-btn" onClick={onApplyAll}>Use on all<span className="lv-long"> aircraft</span></button>}
             {onSave && <button type="button" className="lv-btn primary" onClick={onSave}>Save</button>}
           </div>
         )}
