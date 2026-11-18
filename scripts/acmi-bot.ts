@@ -2853,7 +2853,8 @@ const targets: [string, boolean, string][] = [
   ['≥ 30 offers per year', seenOffer.size * (365 / days) >= 30, String(seenOffer.size)],
   ['first contract within 7 days', tally.firstAccept !== null && tally.firstAccept - g.started <= 7 * DAY, dayOf(tally.firstAccept)],
   // v0.7: replaced by the ladder target (widebody ops filed by day 200, a widebody signed in the year; soft, below).
-  ['1–3 AOGs per aircraft-year', aogRate >= 0.995 && aogRate <= 3.005, `${aogRate.toFixed(2)} (${s.aogs ?? 0} in ${acYears.toFixed(1)} ac-yr)`],
+  // v0.25.1 a realistic rate (balance.ts aogBase): well under one a year; a seed of 2.5 aircraft-years draws 0–4.
+  ['0–1.6 AOGs per aircraft-year', aogRate <= 1.605, `${aogRate.toFixed(2)} (${s.aogs ?? 0} in ${acYears.toFixed(1)} ac-yr)`],
   // v0.6: pooled over seeds 1–6 (≥ 60% late); per seed it is printed (a seed sees only a handful of invoices).
   ['governments pay late (info; pool seeds 1–6)', true, `${govLate}/${gov.length} invoices late`],
   // v0.14.1 the budget is the browser's: 7 slots (autosave, scenario, 1–5) of SAVE_KB_MAX fit Safari's 5 MB local

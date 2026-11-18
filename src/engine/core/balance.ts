@@ -123,8 +123,23 @@ export const BAL = {
   checkCost: { A: [25_000, 60_000], C: [700_000, 2_000_000] } as Record<'A' | 'C', [number, number]>,
   /** Share of a C-check paid out of maintenance reserves (leased: the lessor reimburses) or the per-BH provision (owned). */
   cReserveCover: 0.5,
-  /** AOG chance per departure (one roll, separate from technical delays): base × (1 + age/10) × (1 + 4 × deferred) × outstation 1.5. */
-  aogBase: 0.00032,
+  /**
+   * AOG chance per departure (one roll, separate from technical delays): base × (1 + age/10) × (1 + aogDeferredX ×
+   * deferred) × outstation 1.5 × the type's factor × the maintenance programme's.
+   * v0.25.1 0.00032 and × (1 + 4 × deferred) → 0.00011 and × (1 + 2.5 × deferred): the bots measured an expected
+   * 1.6–1.8 AOGs per aircraft-year (mean chance about 20 in 10,000 departures: a 15-year-old A320 at 2.5 × age,
+   * 1.9 × deferred, 1.3 × away) and a seed drew 9 in 2.5 aircraft-years. A decent A320-family operator grounds an
+   * aircraft unscheduled overnight or longer well under once a year: [E] Airbus quotes one technical in-flight
+   * interruption per about 7,000 A320-family flights and technical dispatch reliability about 99.7 % (most of those
+   * delays are fixed at the gate); technical causes are 30–50 % of EU cancellations (Council of the EU, 2026). Now
+   * about 0.5 a year for a 15-year-old A320 on the minimum programme flying 900 sectors (a third of them tyre, brake
+   * or avionics faults fixed within the day), about 0.2 on the intensive one, about 0.1 new; 25-year-old widebodies
+   * with a defect backlog about 0.8. Fewer per aircraft also keeps a seed's luck in bounds (Poisson: at 0.5 a year a
+   * 2.5 aircraft-year bot expects 1.3, and 5 or more is about a 1 % seed).
+   */
+  aogBase: 0.00011,
+  /** v0.25.1 the weight of deferred defects (ac.maint.deferred, 0–1) on the AOG chance; was 4. */
+  aogDeferredX: 2.5,
   delayChance: 0.12,
   /** Operational delay minutes (exponential mean, cap); technical delay chance per departure × age factor, mean minutes.
    *  v0.10.2 0.006 → 0.0035: a 20-year-old aircraft about 1 % of departures (technical dispatch reliability near 98.5–99 %

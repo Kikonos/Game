@@ -578,13 +578,14 @@ describe('AOG', () => {
     expect(out.status === 'enroute' || out.status === 'done' || out.delayReason === 'Waiting for crew' || (!!out.crewHeld && out.delay > 0 && out.delay <= 30), `${out.status} ${out.delayReason} ${out.delay} ${out.crewHeld}`).toBe(true);
   });
 
-  it('the AOG chance is one roll per departure at about 1–3 a year for the startup fleet', () => {
+  // v0.25.1 calibrated down (balance.ts aogBase): an overnight-or-longer AOG is well under once a year for a decent operator.
+  it('the AOG chance is one roll per departure at well under one a year for the startup fleet', () => {
     const g = newGame(7);
     // ~120 departures a month on a season base (DESIGN §5.6), deferred defects mid-interval.
     for (const ac of Object.values(g.fleet)) {
       const perYear = aogChance(g, { ...ac, maint: { ...ac.maint, deferred: 0.15 } }, g.company.homeBase) * 120 * 12;
-      expect(perYear).toBeGreaterThan(0.8);
-      expect(perYear).toBeLessThan(3.5);
+      expect(perYear).toBeGreaterThan(0.15);
+      expect(perYear).toBeLessThan(1);
     }
     const ac = owned(g);
     // Outstations without our engineers are riskier; deferred defects raise it.

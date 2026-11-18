@@ -149,13 +149,13 @@ export function engineersAt(g: GameState, acId: string, airport: string): boolea
   return false;
 }
 
-/** AOG probability for the next departure: base × (1 + age/10) × (1 + 4 × deferred) × outstation 1.5 × the type's AOG factor. Pure. */
+/** AOG probability for the next departure: base × (1 + age/10) × (1 + aogDeferredX × deferred) × outstation 1.5 × the type's AOG factor. Pure. */
 export function aogChance(g: GameState, ac: Aircraft, airport: string): number {
   // v0.19.4 the ETOPS twins' programmes (ops/etopsRel.ts): fewer AOGs, and none likelier away from base with the spares pool.
   const rf = relFactors(g, ac);
   const out = engineersAt(g, ac.id, airport) || rf.noOutstation ? 1 : BAL.aogOutstation;
   // v0.24 × the preventive maintenance programme's factor (ops/pm.ts).
-  return BAL.aogBase * (1 + ageOf(g, ac) / 10) * (1 + 4 * ac.maint.deferred) * out * (typeOf(ac.typeId).aogMult ?? 1) * rf.aog * pmFactors(g).aog;
+  return BAL.aogBase * (1 + ageOf(g, ac) / 10) * (1 + BAL.aogDeferredX * ac.maint.deferred) * out * (typeOf(ac.typeId).aogMult ?? 1) * rf.aog * pmFactors(g).aog;
 }
 
 /**
