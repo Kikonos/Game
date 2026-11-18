@@ -234,6 +234,15 @@ export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday',
 
 /** Resorts for tour-operator series (narrowbody) and long-haul sun (widebody). */
 export const RESORTS_NB = ['TFS', 'LPA', 'FNC', 'SID', 'AYT', 'HER', 'PMI', 'FUE', 'ACE', 'CFU', 'RHO', 'DLM', 'BJV', 'PFO', 'BOJ', 'CHQ', 'KGS', 'MAH', 'OLB', 'BVC'];
+/** v0.25 resorts whose charter season is May–October (the Greek islands, Turkey's Aegean coast, the Black Sea,
+ *  Sardinia, the Balearics, Dalmatia): no tour series or leisure base there in winter. The Canaries, Madeira, Cape
+ *  Verde, Paphos and Antalya fly all year. */
+export const SUMMER_ONLY = new Set(['CFU', 'RHO', 'DLM', 'BJV', 'BOJ', 'CHQ', 'KGS', 'MAH', 'OLB', 'HER', 'PMI', 'IBZ', 'JTR', 'ZTH', 'VAR', 'DBV', 'SPU']);
+const summerMonth = (t: number) => { const m = toDate(t).getUTCMonth() + 1; return m >= 5 && m <= 10; };
+/** A tour series from `start` to `end` can go there: a year-round resort, or a summer one with both ends in May–October. Pure. */
+export const resortOpen = (code: string, start: number, end: number): boolean => !SUMMER_ONLY.has(code) || (summerMonth(start) && summerMonth(end));
+/** A season base from `from` to `to` can fly there: not a summer-only resort when the term sits mostly in November–April. Pure. */
+export const baseDestOpen = (code: string, from: number, to: number): boolean => !SUMMER_ONLY.has(code) || summerMonth((from + to) / 2);
 // v0.16 the French Antilles, Barbados, Antigua, Grand Cayman, Mauritius and the Seychelles join the long-haul sun.
 export const RESORTS_WB = ['CUN', 'VRA', 'PUJ', 'MBJ', 'PTP', 'FDF', 'BGI', 'ANU', 'GCM', 'MRU', 'SEZ'];
 

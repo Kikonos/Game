@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { newGame } from './testkit';
 import { generateOffer } from './offers';
 import { DAY, fromUTC, toDate } from '../core/time';
-import { diasporaReasonsAt, DIASPORA_BY_CLIENT, DIASPORA_REASONS } from './flavor';
+import { baseDestOpen, diasporaReasonsAt, DIASPORA_BY_CLIENT, DIASPORA_REASONS, resortOpen, SUMMER_ONLY } from './flavor';
 import { hajjDates } from '../../data/worldCalendar';
 import type { GameState } from '../core/types';
 
@@ -63,5 +63,36 @@ describe('v0.25 diaspora reasons fit the date', () => {
       delete g.offers[o.id];
     }
     expect(n).toBeGreaterThan(0);
+  });
+});
+
+describe('v0.25 tour series and leisure bases keep to the resort season', () => {
+  it('no summer-only resort in a series that runs into November–April, across seeds', () => {
+    let n = 0;
+    for (const seed of [3, 7, 11, 19]) {
+      const g = newGame(seed);
+      for (let d = 30; d < 395; d += 15) {
+        for (const wide of [false]) {
+          const o = generateOffer(g, 'tourSeries', { window: false, wide, start: g.now + d * DAY });
+          if (!o || o.pattern.kind !== 'legs') continue;
+          n++;
+          const legs = o.pattern.legs;
+          for (const l of legs.filter((x) => x.from === legs[0].from)) {
+            if (!SUMMER_ONLY.has(l.to)) continue;
+            const m0 = toDate(legs[0].dep).getUTCMonth() + 1, m1 = toDate(legs[legs.length - 1].dep).getUTCMonth() + 1;
+            expect(m0 >= 5 && m0 <= 10 && m1 >= 5 && m1 <= 10, `${o.title} ${toDate(legs[0].dep).toISOString()}`).toBe(true);
+          }
+          delete g.offers[o.id];
+        }
+      }
+    }
+    expect(n).toBeGreaterThan(20);
+  });
+  it('the season rules', () => {
+    expect(resortOpen('BOJ', fromUTC(2027, 11, 3), fromUTC(2027, 12, 20))).toBe(false);
+    expect(resortOpen('BOJ', fromUTC(2027, 6, 3), fromUTC(2027, 8, 20))).toBe(true);
+    expect(resortOpen('TFS', fromUTC(2027, 11, 3), fromUTC(2028, 1, 20))).toBe(true);
+    expect(baseDestOpen('RHO', fromUTC(2027, 11, 1), fromUTC(2028, 3, 31))).toBe(false);
+    expect(baseDestOpen('RHO', fromUTC(2027, 4, 1), fromUTC(2027, 10, 31))).toBe(true);
   });
 });

@@ -484,7 +484,8 @@ function seasonBase(ctx: Ctx): Draft | null {
     const n = wide ? int(g, 2, 4) : int(g, 4, 8);
     // v0.8 network airlines with a listed market fly their own cities (size, not sun); never a war zone.
     const net = !!AIRLINE_MARKETS[client.name];
-    const ok = (a: Airport) => inMarket(client, a);
+    // v0.25 a leisure airline's winter term flies to resorts open in winter (not Rhodes or Olbia in January).
+    const ok = (a: Airport) => inMarket(client, a) && (net || F.baseDestOpen(a.code, from, to));
     let pool = wide
       ? airportsWithin(base, 2500, 6500, (a) => a.size >= 3 && ok(a))
       : net ? airportsWithin(base, 400, 3200, (a) => a.size >= 3 && ok(a)) : airportsWithin(base, 400, 2200, (a) => a.tour >= 0.75 && ok(a));
@@ -974,6 +975,13 @@ function tourSeries(ctx: Ctx): Draft | null {
   if (n < 3) return null;
   const s = o.start ?? pickStart(ctx, 30 * DAY, 120 * DAY, n * 7 * DAY);
   if (s === null) return null;
+  // v0.25 no beach series to Burgas in November or Rhodes in January: a summer-only resort is swapped for one open
+  // then (side RNG: the offer stream is unchanged).
+  if (!o.airport && !F.resortOpen(resort, s, s + (n - 1) * 7 * DAY)) {
+    const open = resorts.filter((c) => F.resortOpen(c, s, s + (n - 1) * 7 * DAY));
+    if (!open.length) return null;
+    resort = pick(sideRng(g, `open:${g.seq}:${g.now}`), open);
+  }
   // v0.7.2 winter programmes sometimes go to the snow (side RNG: the offer stream is unchanged).
   const mo = toDate(s).getUTCMonth();
   if (!o.airport && !wide && (mo === 11 || mo <= 2)) {
