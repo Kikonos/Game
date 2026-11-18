@@ -296,7 +296,9 @@ export function onSectorArr(g: GameState, f: Flight, rot: Rotation, idx: number)
   s.cost = Math.round(cost + comp);
   const p = pnlOf(route, g.now);
   p.direct += Math.round(cost + comp);
-  p.bh += ac ? Math.round((block / 60) * 100) / 100 : 0;
+  const hrs = ac ? Math.round((block / 60) * 100) / 100 : 0;
+  p.bh += hrs;
+  if (ac) (p.acBh ??= {})[ac.id] = Math.round(((p.acBh?.[ac.id] ?? 0) + hrs) * 100) / 100;
   p.sectors++;
   if (onTime) p.onTime++;
   // The rotation's last sector: flown; slot use; product consistency.

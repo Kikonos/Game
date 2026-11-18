@@ -9,7 +9,9 @@ import { businessCase, caseDraft, customId, fleetLayout, routeIdeas, startStudy,
 import { businessCaseX, fleetAcCostBH, project, studyBaseNow } from './launch';
 import { advanceTo } from '../sim';
 import { deserialize, serialize } from '../save';
-import { aircraftCostBH } from './pnl';
+import { aircraftCostBH, closePnlMonth, crewCostBH } from './pnl';
+import { monthKey } from '../core/time';
+import { devLaunchRoute } from './launch';
 import { customMarket } from './custom';
 import type { GameState } from '../core/types';
 
@@ -100,4 +102,23 @@ describe('v0.25 the study keeps the base it was measured against', () => {
     expect(rb.study!.base).toBe(studyBaseNow(back, rb));
     expect(deserialize(serialize(back)).network!.routes[id].study!.base).toBe(rb.study!.base);
   }, 120_000);
+});
+
+describe('v0.25 the route P&L charges each aircraft its own hours', () => {
+  it('an owned jet and a leased one in the same month: each at its own rate (not all at the last one\'s)', () => {
+    const g = newGame('LIS', 11);
+    const id = devLaunchRoute(g, customId({ from: 'LIS', to: 'FRA' }), 'a1');
+    const r = g.network!.routes[id];
+    const k = monthKey(g.now - 1);
+    r.pnl[k] = { rev: 100_000, tickets: 0, cargo: 0, ancillary: 0, direct: 0, acTime: 0, result: 0, pax: 0, seats: 0, bh: 10, sectors: 4, onTime: 4, cargoKg: 0, launch: 0, acBh: { a1: 6, a2: 4 } };
+    // The last rotation flown was the leased one's: the whole month used to go at its rate.
+    const rot = r.rotations[0];
+    rot.status = 'flown';
+    rot.aircraftId = 'a2';
+    closePnlMonth(g, r);
+    const rate = (ac: string) => aircraftCostBH(g, ac, 'a320ceo') + crewCostBH('a320ceo', g.fleet[ac].cabin.total);
+    expect(g.fleet.a1.ownership.kind).toBe('owned');
+    expect(r.pnl[k].acTime).toBe(Math.round(6 * rate('a1') + 4 * rate('a2')));
+    expect(r.pnl[k].acTime).toBeLessThan(Math.round(10 * rate('a2')) * 0.7);
+  });
 });

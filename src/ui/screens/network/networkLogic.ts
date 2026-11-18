@@ -285,7 +285,7 @@ export function pnlSum(r: Pick<Route, 'pnl'>, keys: MonthKey[]): RoutePnl {
   for (const k of keys) {
     const p = r.pnl[k];
     if (!p) continue;
-    for (const f of Object.keys(EMPTY_PNL) as (keyof RoutePnl)[]) out[f] = (out[f] ?? 0) + (p[f] ?? 0);
+    for (const f of Object.keys(EMPTY_PNL) as Exclude<keyof RoutePnl, 'acBh'>[]) out[f] = (out[f] ?? 0) + (p[f] ?? 0);
     // v0.21 passengers on every sector (the load factor's top); a month from before v0.21 counted them once.
     out.paxSec = (out.paxSec ?? 0) + (p.paxSec ?? p.pax);
   }

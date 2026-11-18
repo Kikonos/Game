@@ -174,6 +174,8 @@ export interface RoutePnl {
   launch: number;
   /** v0.21 passengers counted on every sector they sit on (the load factor's top; `seats` is per sector). Absent before v0.21: `pax`. */
   paxSec?: number;
+  /** v0.25 of `bh`, the hours each of our aircraft flew (the month's aircraft time is charged at each one's own rate). Absent before v0.25. */
+  acBh?: Record<string, number>;
 }
 
 /** §E.4 the player's fare stance. */
