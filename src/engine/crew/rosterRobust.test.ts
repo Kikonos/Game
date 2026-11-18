@@ -75,7 +75,8 @@ describe('roster robustness', () => {
     seasonBase(g, acId, 'HAM', 'PMI', [6 * 60, 12 * 60 + 30, 19 * 60], 21);
     autoRoster(g, { to: g.now + 30 * DAY });
     const dep = Object.values(g.deployments)[0];
-    expect(dep.setsOnStation).toBeGreaterThanOrEqual(4);
+    // v0.25 r2 at least the three duties flown at once on its first day (sized on the duty-days, not the busiest day × 8/6).
+    expect(dep.setsOnStation).toBeGreaterThanOrEqual(3);
     const need = staffing(g).find((l) => l.role === 'CPT')!.need;
     // v0.9 fix: on-station sets × 1.2 (leave, sickness, change-overs), at least 5.
     expect(need).toBe(before - 5 + setsForStation(dep.setsOnStation));

@@ -7,6 +7,7 @@ import { complement, isPilot, typeOf } from '../core/perf';
 import { DAY } from '../core/time';
 import type { ActionResult, CrewExtra, GameState } from '../core/types';
 import { refreshPairing } from './duties';
+import { setsStaying } from './farBase';
 import { crewExtraFor, paidMinOf } from './extraSeats';
 import { payFor } from './generate';
 import { homeFlying, setsForHome, setsForStation } from './sets';
@@ -18,7 +19,7 @@ function setsOf(g: GameState, aircraftId: string): number {
   let onStation = 0;
   for (const dp of Object.values(g.deployments)) {
     if (dp.aircraftId !== aircraftId || dp.end < g.now || dp.start > g.now + 60 * DAY) continue;
-    onStation = Math.max(onStation, dp.setsOnStation);
+    onStation = Math.max(onStation, setsStaying(dp));
   }
   return onStation ? setsForStation(onStation) : setsForHome(homeFlying(g).get(aircraftId));
 }

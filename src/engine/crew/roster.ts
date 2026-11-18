@@ -11,7 +11,7 @@ import { DAY, fmtDateTime, fmtDay, fmtTime, monthKey } from '../core/time';
 import { flightNoAt, isDeparture, nextDeparture, prevDeparture } from '../ops/commercial';
 import type { ActionResult, CrewMember, CrewSlot, Duty, Flight, GameState, Legality, Minute, Pairing, Role } from '../core/types';
 import { acceptable, COVER_AHEAD, crewIds, crewIssuesFor, crewKey, mergeSegs, openDuties, otherTrip, overForAnyone, planCrew, type CrewPlan } from './check';
-import { deletePairing, dropGoneCrew, dutyLegality, emptyDuty, longLead, noteCrewOkWhy, unboardGone, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setDropBuyBackHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
+import { deletePairing, dropGoneCrew, dutyLegality, emptyDuty, longLead, TOUR_STAGGER, noteCrewOkWhy, unboardGone, planAircraft, queueDuty, refreshPairing, setCrewOkHook, setCrewTakeHook, setCrewTrailOkHook, setDropBuyBackHook, setReleaseHook, setRetickHook, splitPairing, splitUnderWay, syncDuty } from './duties';
 import { crewName } from './generate';
 import { callIfOnStandby, dropStandby, standbyFor, callFromStandby } from './standby';
 import { applyBuyBack, buyBackFor, buyBackMode, undoBuyBack, type BuyBack } from './buyBack';
@@ -920,7 +920,12 @@ function sendHome(g: GameState, c: CrewMember, p?: Pairing, force = false): void
   // v0.12.1 a ticket or ride home already held is never bought twice (a released duty's ticket home was bought again at
   // release: a second fare and the leave pushed back). Forced, only an earlier one is bought, and the later one dropped.
   const homeHeld = next && !ahead && next.to === c.base ? [next] : [];
-  if (homeHeld.length && !force) return;
+  // v0.25 r2 (crew-awaychain) ... unless it is days off and waiting for it would keep them away past the rotation (a
+  // leave's ticket home three weeks after their tour ended: a purser and a cabin crew member sat 26 days at the Riyadh
+  // hotel with nothing to fly). They go home now; the later ticket is dropped below.
+  const R = g.company.policies.rotationWeeks * 7 * DAY;
+  const longWait = homeHeld.length > 0 && homeHeld[0].std - ready > DAY && homeHeld[0].sta - (c.awaySince ?? g.now) > R + TOUR_STAGGER * DAY;
+  if (homeHeld.length && !force && !longWait) return;
   // A ticket from where they are takes them on; v0.12.1 one for a trip days ahead does not: they go home first, and
   // that trip is ticketed from base.
   if (!force && next && !homeHeld.length && (!ahead || (ahead.tour && !guestOn(ahead, c.id)) || waitsAway(g, c, ahead, Math.min(next.std - BAL.deadheadCheckIn, ahead.start), ready))) return;
@@ -2275,6 +2280,28 @@ function previousCrew(g: GameState, p: Pairing): Set<string> {
 /** v0.7.2 a captain in an FO seat, augmented pairs' too (the auto-roster's last resort). */
 const asFo = (slot: Role, role: Role) => role === 'CPT' && slot === 'FO';
 
+/**
+ * v0.25 r2 (crew-awaychain) a crew member already away from base is put last for more work there or elsewhere that
+ * keeps them away past the rotation length (Settings › tours of 4–6 weeks, the sets' changes a few days apart: TOUR_STAGGER):
+ * the next tour is flown by crew from home and they go home at its change. Their own set's tour, and a seat they hold as a
+ * guest for a duty or two, are not counted (the tour's own length is the rotation's). Was: crew at a station took the
+ * next period, or a tour elsewhere with a ticket across (player's save: 73 days SCL then NTE). Pure.
+ */
+export function awayTooLong(g: GameState, c: CrewMember, p: Pairing, segs: Seg[], report: Minute, end: Minute, guest: boolean): boolean {
+  if (guest) return false;
+  let since: Minute | null = c.loc !== c.base ? c.awaySince ?? g.now : null;
+  for (const s of segs) {
+    if (s.start >= report) break;
+    if (s.kind === 'log' || s.end <= g.now || !s.at) continue;
+    if (s.at === c.base) since = null;
+    else since ??= s.start;
+  }
+  if (since === null) return false;
+  if (end - since <= g.company.policies.rotationWeeks * 7 * DAY + TOUR_STAGGER * DAY) return false;
+  // Their own set's tour (a later part of it).
+  return !(p.tour && (crewIx(g).pairingsOf.get(c.id) ?? []).some((q) => q.id !== p.id && q.tour && q.deploymentId === p.deploymentId && q.tour.set === p.tour!.set && q.tour.from === p.tour!.from && !guestOn(q, c.id)));
+}
+
 /** Fills a pairing's empty slots with the best-scoring legal crew (DESIGN §5.3 steps 1–4, 6). */
 /**
  * v0.9 fix: a plan refused only for days off not published yet that its month can spare (offMovable): the planner may
@@ -2322,6 +2349,8 @@ const MULTI_RATED = 80;
 
 /** v0.18.2 the score a leave or course inside a tour's period costs a candidate (more than any ticket out). */
 const LEAVE_IN_TOUR = 20_000;
+/** v0.25 r2 a candidate kept away past the rotation (awayTooLong): after everyone else free, before a leave in the tour. */
+const AWAY_OVER = 10_000;
 
 function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, exclude?: Set<string>): void {
   const duties = openDuties(g, p);
@@ -2392,6 +2421,12 @@ function fillPairing(g: GameState, ctx: Ctx, p: Pairing, res: RosterResult, excl
     // v0.18.2 a leave inside the period: last resort only, below anyone flown out for it (was −300, less than a ticket
     // out: a set's crew already on station took the next period over their leave and went home in the middle of it).
     if (later) score -= LEAVE_IN_TOUR;
+    // v0.25 r2 (crew-awaychain) someone it would keep away past the rotation: a last resort (the next tour goes to crew
+    // from home; a seat nobody else can fly keeps them on rather than empty). Tours only (counted for every pairing, the
+    // bots had more red alarms and cancellations).
+    // (A member of another set on the same station covers this part as a guest, inside their own tour: no longer away.)
+    const guest = !!p.tour && (crewIx(g).pairingsOf.get(c.id) ?? []).some((q) => q.id !== p.id && !!q.tour && q.deploymentId === p.deploymentId && q.status !== 'done' && q.status !== 'broken' && !guestOn(q, c.id));
+    if (p.tour && awayTooLong(g, c, p, segs, first.report, Math.max(back, tourTo), guest)) score -= AWAY_OVER;
     if (prev.has(c.id)) score += 30;
     if (unpleasant) score -= (70 - c.morale) / 2;
     // v0.7.3 short notice: the day's standby crew are called first (crew control's order; no lost day off).

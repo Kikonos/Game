@@ -14,7 +14,7 @@ import type { ActionResult, CrewExtra, CrewMember, GameState, Minute, Role, SimE
 import { hashUnit } from '../core/util';
 import { classOf, conversionClasses, conversionEarliest, onClassItemDone, ratingsLost, startConversion } from './conversion';
 import { crewExtraFor, rolesWithExtra } from './extraSeats';
-import { farBase, patternSets, reserveCarrier, reserveRoles } from './farBase';
+import { farBase, patternSets, reserveCarrier, reserveRoles, setsStaying } from './farBase';
 import { crewSupply, familyNeeds } from './sets';
 import { sickMult } from './morale';
 import { crewName, crewPay, makeCrewMember, payFor, salaryFor, wideOfFamilyInFleet } from './generate';
@@ -349,7 +349,7 @@ export function crewAvailability(g: GameState, family: RatingFamily, typeId: str
       // v0.12.1 a base holds at least the sets it stations (duties.ts: sized on its programme; its pattern until the
       // flights come), not only its block hours' worth: three short waves a day station more crews than their hours.
       const dp = Object.values(g.deployments).find((x) => x.contractId === k.id);
-      const sets = dp?.setsOnStation ?? patternSets(k.pattern, ac[0].typeId);
+      const sets = dp ? setsStaying(dp) : patternSets(k.pattern, ac[0].typeId);
       for (const r of ROLES) if (kPer[r]) kNeed[r] = Math.max(kNeed[r] ?? 0, kPer[r]! * sets);
       // A far base holds its reserve too: once per crew set on station.
       // v0.18.2 once per station (shared within reach: farBase.ts reserveCarrier).
