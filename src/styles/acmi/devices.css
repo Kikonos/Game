@@ -246,3 +246,13 @@ kbd {
   .rb-search { width: 100px; flex-basis: 100px; min-width: 88px; }
   .rb-today-t { display: none; }
 }
+
+/* v0.25 Crew head on a phone: Morale, Select and Hire stand beside the title (Hire always on screen); the view
+   tabs take the row under them instead of pushing the buttons off the right edge. */
+@media (max-width: 699.98px), (max-height: 499.98px) {
+  .shell.acmi .sc-crew > .sc-head { flex-wrap: wrap; row-gap: 8px; }
+  .shell.acmi .sc-crew > .sc-head > .sc-head-tools { display: contents; }
+  .shell.acmi .sc-crew > .sc-head > .sc-head-tools > * { flex-shrink: 0; }
+  .shell.acmi .sc-crew > .sc-head > .sc-head-tools > .seg { order: 9; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .shell.acmi .sc-crew > .sc-head > .grow { flex: 1 1 200px; }
+}
