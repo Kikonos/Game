@@ -1,7 +1,7 @@
 // v0.14 crew sets in plain words: the strip's sentence, the card's home fleet, the "i" lines.
 import { describe, expect, it } from 'vitest';
 import type { FamilyPlan, SetRole } from '../../engine/crew';
-import { fleetShort, planSentence, ratingLine, roleCount, setsWhyLines } from './crewPlanLogic';
+import { fleetShort, perAircraftText, planSentence, ratingLine, roleCount, setsWhyLines } from './crewPlanLogic';
 
 const role = (r: SetRole['role'], balance: number): SetRole => ({ role: r, perSet: 1, need: 5, have: 5 + balance, joining: 0, inClass: 0, away: 0, shared: 0, balance, covered: 0, perSetAll: 1 });
 const plan = (o: Partial<FamilyPlan>): FamilyPlan => ({
@@ -48,5 +48,14 @@ describe('v0.14 crew sets in plain words', () => {
     expect(l[2]).toMatch(/count once, in their home fleet/);
     expect(setsWhyLines(plan({ setsPerAircraft: 7 }))[0]).toMatch(/^7 crews per aircraft: on a detachment/);
     for (const x of [...l, ...setsWhyLines(plan({ augmented: true, setsPerAircraft: 7, limiting: 'FO' }))]) expect(x.length).toBeLessThan(170);
+  });
+});
+
+describe('v0.25 sets per aircraft to one decimal', () => {
+  it("'4.5' for 9 sets on 2 aircraft, '5' when whole, the plan's number with no aircraft", () => {
+    expect(perAircraftText(9, 2, 5)).toBe('4.5');
+    expect(perAircraftText(10, 2, 5)).toBe('5');
+    expect(perAircraftText(23, 5, 5)).toBe('4.6');
+    expect(perAircraftText(0, 0, 5)).toBe('5');
   });
 });

@@ -14,7 +14,7 @@ import { Term } from '../components/Term';
 import { Help } from '../components/Help';
 import { store } from '../store';
 import { baseDay, isPilotRole } from './screenLogic';
-import { planSentence, setsWhyLines } from './crewPlanLogic';
+import { perAircraftText, planSentence, setsWhyLines } from './crewPlanLogic';
 import { lockOf } from '../../engine/scenario';
 import { LockNote } from '../components/Locked';
 import { useClassPlanWarmup } from '../modals/ClassPlanModal';
@@ -69,7 +69,7 @@ function FamilyCard({ p, lock, trainLock, booked }: { p: FamilyPlan; lock?: stri
         <span className="small muted">{p.types.map((x) => `${x.short} ×${x.aircraft}`).join(' · ')}</span>
       </div>
       <div className="cp-sets">
-        <div className="cp-num"><span className="tiny dim">Sets needed</span><b className="num">{p.setsNeeded}</b><span className="tiny muted">{p.setsPerAircraft} per aircraft</span></div>
+        <div className="cp-num"><span className="tiny dim">Sets needed</span><b className="num">{p.setsNeeded}</b><span className="tiny muted">{perAircraftText(p.setsNeeded, p.aircraft, p.setsPerAircraft)} per aircraft</span></div>
         <div className="cp-num"><span className="tiny dim">Complete now</span><b className={`num ${p.setsNow < p.setsNeeded ? 'warn' : ''}`}>{p.setsNow}</b><span className="tiny muted">working today</span></div>
         <div className="cp-num"><span className="tiny dim">With joiners</span><b className={`num ${short ? 'warn' : 'good'}`}>{p.setsComplete}</b><span className="tiny muted">{p.limiting ? `limited by ${ROLE_WORD[p.limiting].toLowerCase()}` : 'all roles covered'}</span></div>
         <div className="cp-bar" aria-hidden>

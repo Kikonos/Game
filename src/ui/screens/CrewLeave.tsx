@@ -6,7 +6,7 @@ import { Check, Palmtree, X } from 'lucide-react';
 import { useMemo, useState } from 'react';
 import { DAY, fmtDay, monthKey, monthStart, yearOf, joinDays } from '../../engine/core/time';
 import type { CrewMember, GameState, LeaveRequest, Role } from '../../engine/core/types';
-import { answerLeave, crewName, crewRev, dayIndex, decideBy, leaveBalance, leaveDaysFor, leavePolicy, leaveVerdict, setLeavePolicy } from '../../engine/crew';
+import { answerLeave, crewName, leaveCap, crewRev, dayIndex, decideBy, leaveBalance, leaveDaysFor, leavePolicy, leaveVerdict, setLeavePolicy } from '../../engine/crew';
 import { Seg, Stepper } from '../components/ui';
 import { RankMark } from '../components/RankMark';
 import { Help } from '../components/Help';
@@ -24,7 +24,7 @@ const dayRange = (from: number, days: number) => `${joinDays(fmtDay(from + 720),
 /** Per rank: people, the year's allowance, booked, asked, left, away today; and the busiest day of each of the next 6 months. */
 export function leaveSummary(g: GameState) {
   const y = yearOf(g.now);
-  const rows = ROLES.map((role) => ({ role, n: 0, ent: 0, booked: 0, pending: 0, left: 0, today: 0, months: [] as number[] }));
+  const rows = ROLES.map((role) => ({ role, n: 0, ent: 0, booked: 0, pending: 0, left: 0, today: 0, months: [] as number[], away: [] as number[] }));
   const by = new Map(rows.map((r) => [r.role, r]));
   const m0 = monthKey(g.now);
   const crew = Object.values(g.crew).filter((c) => !c.notice && c.status !== 'joining');
@@ -50,6 +50,7 @@ export function leaveSummary(g: GameState) {
         most = Math.max(most, n);
       }
       r.months.push(r.n ? most / r.n : 0);
+      r.away.push(most);
     }
   }
   return { year: y, rows: rows.filter((r) => r.n > 0), m0 };
@@ -176,7 +177,11 @@ export function LeaveView({ g }: { g: GameState }) {
             {Array.from({ length: 6 }, (_, i) => <span key={i} className="tiny dim lv-hm">{MON[(sum.m0 + i) % 12]}</span>)}
             {sum.rows.map((r) => [
               <span key={r.role} className="tiny muted ellipsis">{ROLE_PLURAL[r.role]}</span>,
-              ...r.months.map((v, i) => <span key={`${r.role}${i}`} className={`lv-cell ${v > leavePolicy(g).maxShare + 1e-9 ? 'over' : ''}`} style={{ ['--v' as string]: Math.min(1, v / 0.2) }} title={`${Math.round(v * 100)}%`}><span className="num">{Math.round(v * 100)}</span></span>),
+              // v0.25 how many are away of how many ('3/24'), red past the most the rules let go at once.
+              ...r.months.map((v, i) => {
+                const cap = leaveCap(leavePolicy(g).maxShare, r.n);
+                return <span key={`${r.role}${i}`} className={`lv-cell ${r.away[i] > cap ? 'over' : ''}`} style={{ ['--v' as string]: Math.min(1, v / 0.2) }} title={`${r.away[i]} of ${r.n} away at most (up to ${cap} allowed)`}><span className="num">{r.away[i]}/{r.n}</span></span>;
+              }),
             ])}
           </div>
         </section>

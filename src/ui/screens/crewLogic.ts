@@ -3,6 +3,7 @@
 
 import type { CalBlock } from '../../engine/crew';
 import type { FlightType } from '../../engine/ops';
+import { toDate } from '../../engine/core/time';
 
 /** Colour key of a strip block: duty blocks by their legs' flight type, everything else by kind. */
 /** v0.9 §R: 'standby' = home standby; hotel standby, airport standby and reserve have their own keys. */
@@ -101,4 +102,31 @@ export function pickCal<B extends Pick<CalBlock, 'kind' | 'start' | 'end'>>(bloc
 export function calAt<B extends Pick<CalBlock, 'kind' | 'start' | 'end'>>(blocks: B[], now: number): B | null {
   const on = blocks.filter((b) => b.start <= now && b.end > now).sort((a, b) => calLayer(b) - calLayer(a));
   return on[0] ?? null;
+}
+
+const MON3 = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * v0.25 days as runs, the month and year once each: '19, 22–27, 30 Jul 2027', '30 Jun–2 Jul 2027'. `days` are minutes
+ * on the calendar to show (already local), in any order, repeats ignored. Pure.
+ */
+export function fmtDayRuns(days: number[]): string {
+  const ks = [...new Set(days.map((t) => Math.floor(t / (24 * 60))))].sort((a, b) => a - b);
+  const runs: [number, number][] = [];
+  for (const k of ks) {
+    const last = runs[runs.length - 1];
+    if (last && k === last[1] + 1) last[1] = k;
+    else runs.push([k, k]);
+  }
+  const d = (k: number) => { const x = toDate(k * 24 * 60); return { day: x.getUTCDate(), m: x.getUTCMonth(), y: x.getUTCFullYear() }; };
+  const out: string[] = [];
+  runs.forEach(([a, b], i) => {
+    const A = d(a), B = d(b);
+    let tok: string = a === b ? `${A.day}` : A.m === B.m && A.y === B.y ? `${A.day}–${B.day}` : `${A.day} ${MON3[A.m]}${A.y !== B.y ? ` ${A.y}` : ''}–${B.day}`;
+    const next = runs[i + 1] ? d(runs[i + 1][0]) : null;
+    if (!next || next.m !== B.m || next.y !== B.y) tok += ` ${MON3[B.m]}`;
+    if (!next || next.y !== B.y) tok += ` ${B.y}`;
+    out.push(tok);
+  });
+  return out.join(', ');
 }
