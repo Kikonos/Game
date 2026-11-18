@@ -312,7 +312,7 @@ export function scheduleCheck(
   if (needFerry) {
     // The ferry is planned against the check (an anchor now); without one the slot can't be reached.
     if (soft.length) removeFlights(g, soft.map((f) => f.id));
-    const legs = planPositioning(g, ac.id, at, start, 'ferry', null);
+    const legs = planPositioning(g, ac.id, at, start, 'ferry', null, true);
     if (!legs?.length) {
       delete g.maintenance[m.id];
       touchFlights(g);
@@ -400,7 +400,7 @@ export function relinkCheckFerries(g: GameState, aircraftId: string): number {
       n++;
       continue;
     }
-    const fresh = planPositioning(g, aircraftId, m.at, m.start, 'ferry', null);
+    const fresh = planPositioning(g, aircraftId, m.at, m.start, 'ferry', null, true);
     if (fresh?.length) {
       for (const f of fresh) if (keep[0].purpose) f.purpose = keep[0].purpose;
       m.ferryIds = fresh.map((f) => f.id);

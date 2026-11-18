@@ -210,7 +210,7 @@ export function extendBaseSchedules(g: GameState): void {
  * previous commitment and replaces soft positioning legs in that gap; [] when already there; null when it can't fit.
  * Used by B1 and by B3 (maintenance ferries, AOG swaps).
  */
-export function planPositioning(g: GameState, aircraftId: string, to: string, arriveBy: Minute, kind: 'positioning' | 'ferry', contractId: string | null): Flight[] | null {
+export function planPositioning(g: GameState, aircraftId: string, to: string, arriveBy: Minute, kind: 'positioning' | 'ferry', contractId: string | null, viaHome = false): Flight[] | null {
   const ac = g.fleet[aircraftId];
   if (!ac) return null;
   const turn = typeOf(ac.typeId).turnMin;
@@ -223,7 +223,14 @@ export function planPositioning(g: GameState, aircraftId: string, to: string, ar
   const earliest = openAfter(g, prev.to, prev.kind === 'start' ? prev.sta : prev.sta + turn, job);
   const cap = etopsCap(g.company.approvals, ac.typeId);
   const day = emptyDay(g, aircraftId);
-  const chain = chainBackward(ac.typeId, prev.to, to, crewFree(g, aircraftId, prev.to, earliest), arriveBy - turn, cap, day) ?? chainBackward(ac.typeId, prev.to, to, earliest, arriveBy - turn, cap, day);
+  // v0.25 (viaHome: a ferry to a check or paint shop away from base) a wait of AWAY_GAP or more at an outstation is
+  // spent at home: home first, then on to the shop (LZ-UFQ sat at Warsaw from 10 Mar to 11 Apr 2027, then flew to the
+  // paint shop at Budapest). Not from where the player put the aircraft, nor inside a held job.
+  const home = g.company.homeBase;
+  const hopOk = viaHome && prev.to !== home && to !== home && !parkedAt(g, aircraftId, prev, prev.to) && !(prev.contractId && isHold(g.contracts[prev.contractId]) && live(g, prev.contractId));
+  const free = crewFree(g, aircraftId, prev.to, earliest);
+  const hop = hopOk && arriveBy - turn - free >= AWAY_GAP ? gapMoves(ac.typeId, prev.to, to, free, arriveBy - turn, home, true, cap, day) : null;
+  const chain = (hop?.some((l) => l.to === home) && shutIn(g, hop, job) === null ? hop : null) ?? chainBackward(ac.typeId, prev.to, to, free, arriveBy - turn, cap, day) ?? chainBackward(ac.typeId, prev.to, to, earliest, arriveBy - turn, cap, day);
   if (!chain || shutIn(g, chain, job) !== null) return null;
   const stale = flightsOf(g, aircraftId).filter((f) => isSoft(g, f) && f.std >= prev!.std && f.std < arriveBy).map((f) => f.id);
   if (stale.length) removeFlights(g, stale);
@@ -694,6 +701,11 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     // days at Hong Kong after the Hong Kong Airlines cover, its HKG–TAS–BUD–LIS planned for the eve of the ferry to
     // Abidjan, crewless. Going home is no out-and-back: the empty ferry after it is no reason to wait away.
     const homeFirst = a.kind !== 'maint' && Y === home && X !== home && !inHold && !parked;
+    // v0.25 and before a check or paint shop away from base after a long wait at another outstation: home first, then
+    // on to the shop (LZ-UFQ sat a month at Warsaw, 10 Mar to 11 Apr, then a ferry on to the paint shop at Budapest).
+    // The out-and-back hop around a check at home stays barred (Y === home is homeFirst; X === Y is no move).
+    const maintAway = b.kind === 'maint' && a.kind !== 'maint' && Y !== home && X !== home && X !== Y && !sameBase && !inHold && !parked;
+    const hopOk = allowHop || maintAway;
     const latest = b.std - turn;
     // v0.14.1 (CS-TTL, player report) an empty move into a job is timed for the crew who fly the job, not only for the
     // aircraft: as late as possible when one crew flies both in a day that needs no more than the job alone; otherwise,
@@ -771,11 +783,11 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     if (X === Y && !legs.length && !hop?.length) continue;
     // v0.12.1 kept only on time for Y, or when nothing on time can be planned (a late chain stays late, not re-made).
     // v0.14.1 (OPS-5) a move home before a check that waits AWAY_GAP or more at X is planned again (forward).
-    const idleAway = homeFirst && legs.length > 0 && legs[0].std - crewFree(g, aircraftId, X, earliest) >= AWAY_GAP && latest - earliest >= AWAY_GAP;
-    if (legs.length && chainOk(legs, X, Y, earliest) && chainSane(typeId, legs, X, Y, home, allowHop, cap, day) && (legs[legs.length - 1].sta <= latest || !onTimeMove(typeId, X, Y, ready, latest, home, allowHop, cap, day)) && !crewLate(legs) && !idleAway && !pull && (crewed(legs[0]) || !nobody(legs[0].std))) continue;
+    const idleAway = (homeFirst || maintAway) && legs.length > 0 && legs[0].std - crewFree(g, aircraftId, X, earliest) >= AWAY_GAP && latest - earliest >= AWAY_GAP;
+    if (legs.length && chainOk(legs, X, Y, earliest) && chainSane(typeId, legs, X, Y, home, hopOk, cap, day) && (legs[legs.length - 1].sta <= latest || !onTimeMove(typeId, X, Y, ready, latest, home, allowHop, cap, day)) && !crewLate(legs) && !idleAway && !pull && (crewed(legs[0]) || !nobody(legs[0].std))) continue;
     const nl = nudged(legs, X, Y, earliest, latest);
     replacing(legs);
-    if (nl && chainSane(typeId, legs, X, Y, home, allowHop, cap, day)) {
+    if (nl && chainSane(typeId, legs, X, Y, home, hopOk, cap, day)) {
       for (const l of nl) add([l], l.contractId);
       continue;
     }
@@ -794,7 +806,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     // Leave room to crew it when the window allows; a tight window keeps the earliest slot.
     const from = freeAt(earliest);
     // A long wait at an outstation is spent at home (home, then on to Y), not parked away for weeks.
-    const via = (allowHop || (homeFirst && b.std - leadFor(g, b, turn) - from >= AWAY_GAP)) && X !== home ? gapMoves(typeId, X, Y, from, b.std - leadFor(g, b, turn), home, true, cap, day) : null;
+    const via = (allowHop || ((homeFirst || maintAway) && b.std - leadFor(g, b, turn) - from >= AWAY_GAP)) && X !== home ? gapMoves(typeId, X, Y, from, b.std - leadFor(g, b, turn), home, true, cap, day) : null;
     if (via?.some((l) => l.to === home)) {
       const k = via.findIndex((l) => l.to === home) + 1;
       add(via.slice(0, k), flying(g, a.contractId) ? a.contractId : null);
