@@ -71,7 +71,7 @@ export const WHATS_NEW: WhatsNewEntry[] = [
       'Up Next on the map shows the day of later departures, and the time is no longer cut off.',
       'AOGs are now much rarer, about one per aircraft every two to three years. Older aircraft on a lighter maintenance programme still have more.',
       'New night curfews: Adelaide and Gold Coast are closed 23:00 to 06:00. Innsbruck is open 06:30 to 20:00 only, Osaka Itami 07:00 to 21:00 only.',
-      'Crew Planning no longer asks you to hire crew who would sit idle. Planning and Utilisation now agree.',
+      'Crew Planning sizes a detachment by the duties it flies, so it no longer asks you to hire spare sets that would sit idle on station.',
       'Crew on a detachment go home after the Rotation weeks set under Company. The next tour goes to crew from home.',
       'Crew who already hold a ticket home are no longer kept waiting at a hotel for weeks.',
       'At 4x the clock no longer stalls at midnight, and saving from the menu no longer freezes the screen.',
