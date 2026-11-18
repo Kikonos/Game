@@ -91,8 +91,8 @@ describe('v0.25 pause key and dialog buttons', () => {
     tagName, getAttribute: (n: string) => (n === 'role' ? role : null), closest: (_s: string) => (inDialog ? {} : null),
   });
   it('Space on a focused button in an open dialog presses the button, not pause', () => {
-    expect(pauseYields('Space', true, el('BUTTON'))).toBe(true);
-    expect(pauseYields('Space', true, el('DIV', 'button'))).toBe(true);
+    expect(pauseYields('Space', true, el('BUTTON', null, true))).toBe(true);
+    expect(pauseYields('Space', true, el('DIV', 'button', true))).toBe(true);
     expect(pauseYields('Space', false, el('BUTTON', null, true))).toBe(true);
   });
   it('pause still works outside dialogs, with nothing focused, or with another key', () => {
@@ -100,6 +100,11 @@ describe('v0.25 pause key and dialog buttons', () => {
     expect(pauseYields('Space', true, el('BODY'))).toBe(false);
     expect(pauseYields('Space', true, null)).toBe(false);
     expect(pauseYields('p', true, el('BUTTON'))).toBe(false);
+  });
+  it('a button left focused behind an open dialog does not swallow the pause key', () => {
+    // The 4x speed button or the card that opened the sheet keeps focus behind the dialog: Space still pauses.
+    expect(pauseYields('Space', true, el('BUTTON'))).toBe(false);
+    expect(pauseYields('Space', true, el('DIV', 'button'))).toBe(false);
   });
 });
 

@@ -180,16 +180,17 @@ export interface FocusLike { tagName?: string; getAttribute?(n: string): string 
 /**
  * v0.25 True when the pause key must leave this press alone: Space (or Enter) pressed on a focused button, link or
  * tab inside a dialog presses that control, and the game must not pause or run as well. Outside dialogs the pause
- * key keeps working (the screen's last-clicked button is not "pressed again"). Pure.
+ * key keeps working (the screen's last-clicked button is not "pressed again"), also while a dialog is open over it:
+ * a button left focused behind the dialog (the 4x speed button, the card that opened the sheet) is not pressed. Pure.
  */
-export function pauseYields(key: string, modalOpen: boolean, focused: FocusLike | null | undefined): boolean {
+export function pauseYields(key: string, _modalOpen: boolean, focused: FocusLike | null | undefined): boolean {
   if (key !== 'Space' && key !== 'Enter') return false;
   if (!focused || !focused.tagName) return false;
   const tag = focused.tagName.toUpperCase();
   const role = focused.getAttribute?.('role') ?? '';
   const control = tag === 'BUTTON' || tag === 'A' || tag === 'SUMMARY' || role === 'button' || role === 'tab' || role === 'menuitem' || role === 'switch' || role === 'checkbox' || role === 'radio';
   if (!control) return false;
-  return modalOpen || !!focused.closest?.('[role="dialog"], .modal');
+  return !!focused.closest?.('[role="dialog"], .modal');
 }
 
 /** v0.25 the speed buttons' tooltip from the player's keys ('Space: pause · 1, 2, 4: speed'); unbound keys left out. Pure. */
