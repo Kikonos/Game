@@ -17,7 +17,7 @@ import { mkHurt, type ProblemAction, type ProblemCard } from '../problems/types'
 import { crewName } from './generate';
 import { moraleShock } from './morale';
 import { removeCrew } from './roster';
-import { crewPlan, crewSupply, familyName, familyNeeds } from './sets';
+import { crewPlan, crewSupply, familyName, familyNeeds, type FamilyPlan } from './sets';
 import { crewIx, touchCrew } from './timeline';
 import { guestOn } from './avail';
 
@@ -268,6 +268,23 @@ export function makeRedundant(g: GameState, family: RatingFamily, role: Role, n:
 let redundantHook: (g: GameState, c: CrewMember) => void = () => {};
 export function setRedundantHook(f: typeof redundantHook): void {
   redundantHook = f;
+}
+
+/**
+ * v0.25 r2 Crew › Planning, a family short on paper whose short ranks fly little (the crew desk's hold, hireHold): one
+ * plain line, so Planning and Utilisation say the same (was: "Short: 13 CC" and "Hire" while the cabin crew flew 25 h in
+ * 28 days and 22 of them under 15 h). Null when any short rank is not held (that hire is needed). Pure.
+ */
+export function planHoldLine(g: GameState, p: Pick<FamilyPlan, 'family' | 'roles'>, u = crewUtilisation(g)): string | null {
+  const short = p.roles.filter((r) => r.balance < 0);
+  if (!short.length) return null;
+  const holds = short.map((r) => ({ role: r.role, hold: hireHold(g, p.family, r.role, u) }));
+  if (holds.some((x) => !x.hold)) return null;
+  const avg = Math.round(holds.reduce((a, x) => a + x.hold!.avg, 0) / holds.length);
+  const idle = holds.reduce((a, x) => a + x.hold!.idle, 0);
+  const who = holds.map((x) => ROLE_WORDS[x.role][1]);
+  const names = who.length > 1 ? `${who.slice(0, -1).join(', ')} and ${who[who.length - 1]}` : who[0];
+  return `No need to hire yet: ${names} flew ${avg} h on average in 28 days, ${idle} under ${UTIL_TYPICAL.idle28} h.`;
 }
 
 /** v0.18.2 the hires of a family the crew desk holds (its round-up), per rank: count, and why. Pure. */

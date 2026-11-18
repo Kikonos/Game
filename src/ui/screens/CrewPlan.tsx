@@ -5,7 +5,7 @@
 import { CalendarClock, Check, GraduationCap, UserPlus } from 'lucide-react';
 import type { RatingFamily } from '../../data/acmiTypes';
 import type { GameState } from '../../engine/core/types';
-import { awayOnDryLease, conversionClasses, crewPeakCard, crewPlan, deploymentSets, familyName, peakForecast, peakGroups, peakId, roundTargets, setWords, type FamilyPlan } from '../../engine/crew';
+import { awayOnDryLease, conversionClasses, crewPeakCard, crewPlan, crewUtilisation, deploymentSets, planHoldLine, familyName, peakForecast, peakGroups, peakId, roundTargets, setWords, type FamilyPlan } from '../../engine/crew';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { fmtDay } from '../../engine/core/time';
 import { ProblemCardView, runAction } from '../components/ProblemCard';
@@ -55,7 +55,7 @@ function bookedLine(g: GameState, family: RatingFamily): string | null {
   return `Classes for this type: ${n} ${n === 1 ? 'person' : 'people'} · last one ends ${baseDay(g, Math.max(...ks.map((k) => k.end)) - 1)}`;
 }
 
-function FamilyCard({ p, lock, trainLock, booked }: { p: FamilyPlan; lock?: string | null; trainLock?: string | null; booked?: string | null }) {
+function FamilyCard({ p, lock, trainLock, booked, held }: { p: FamilyPlan; lock?: string | null; trainLock?: string | null; booked?: string | null; held?: string | null }) {
   const t = roundTargets(p);
   const short = p.setsComplete < p.setsNeeded;
   const pct = (n: number) => `${Math.min(100, (n / Math.max(1, p.setsNeeded)) * 100)}%`;
@@ -78,6 +78,8 @@ function FamilyCard({ p, lock, trainLock, booked }: { p: FamilyPlan; lock?: stri
         </div>
       </div>
       <div className={`small cp-verdict ${short ? 'warn' : 'good'}`}>{p.verdict}</div>
+      {/* v0.25 r2 short on paper while the crew fly little: the crew desk's hold, as Utilisation shows it. */}
+      {held && <div className="tiny muted cp-held">{held}</div>}
       <div className="tiny muted">
         <Term id="crewSet">One set</Term>: {p.types.map((x) => `${p.types.length > 1 ? `${x.short} ` : ''}${setWords(x.set)}`).join(' · ')}{p.augmented ? ' · plus a third pilot (FO) or a second CPT + FO for the long days flown with 3 or 4 pilots' : ''}
       </div>
@@ -118,7 +120,7 @@ function FamilyCard({ p, lock, trainLock, booked }: { p: FamilyPlan; lock?: stri
       <LockNote why={lock} />
       <div className="row gap-8 cp-actions">
         {t.complete !== null ? (
-          <button className="btn btn-primary" onClick={() => store.openModal({ kind: 'roundUp', family: p.family, target: t.complete! })}><UserPlus /> Hire to complete {t.complete} sets</button>
+          <button className={`btn ${held ? '' : 'btn-primary'}`} onClick={() => store.openModal({ kind: 'roundUp', family: p.family, target: t.complete! })}><UserPlus /> Hire to complete {t.complete} sets</button>
         ) : (
           // v0.14 a complete family: a quiet 'Sets complete' and the round-up as a small secondary button.
           <span className="small good row gap-4 cp-done"><Check className="sc-ico-s" /> Sets complete</span>
@@ -179,6 +181,7 @@ export function PeakHeadsUp({ g }: { g: GameState }) {
 export function CrewPlanView({ g }: { g: GameState }) {
   const plans = crewPlan(g);
   const idle = idleTypes(g, plans);
+  const u = plans.some((p) => p.setsComplete < p.setsNeeded) ? crewUtilisation(g) : null;
   // v0.23.1 the planner for the card most likely opened, worked out in idle time (Plan classes then opens at once).
   useClassPlanWarmup(g, plans.map((p) => p.family), !!lockOf(g, 'training'));
   return (
@@ -186,7 +189,7 @@ export function CrewPlanView({ g }: { g: GameState }) {
       <PeakHeadsUp g={g} />
       {!plans.length && <div className="small muted">No aircraft in the fleet yet.</div>}
       <div className="cp-grid">
-        {plans.map((p) => <FamilyCard key={p.family} p={p} lock={lockOf(g, 'hiring')} trainLock={lockOf(g, 'training')} booked={bookedLine(g, p.family)} />)}
+        {plans.map((p) => <FamilyCard key={p.family} p={p} lock={lockOf(g, 'hiring')} trainLock={lockOf(g, 'training')} booked={bookedLine(g, p.family)} held={u && p.setsComplete < p.setsNeeded ? planHoldLine(g, p, u) : null} />)}
       </div>
       {idle.length > 0 && (
         <div className="small muted cp-idle">

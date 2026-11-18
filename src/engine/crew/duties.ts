@@ -1579,7 +1579,8 @@ export function setRetickHook(f: (g: GameState, p: Pairing) => void): void {
  */
 export function setsFromDuties(g: GameState, duties: Duty[], start: Minute): number {
   if (!duties.length) return 1;
-  const span = Math.min(28, Math.max(14, (duties[duties.length - 1].release - start) / DAY));
+  // Whole days (a programme of 28 days whose last duty ends at 19:00 on day 28 is 28 days, not 27.8).
+  const span = Math.min(28, Math.max(14, Math.ceil((duties[duties.length - 1].release - start) / DAY - 1e-9)));
   let bh = 0;
   let n = 0;
   const edges: [Minute, number][] = [];

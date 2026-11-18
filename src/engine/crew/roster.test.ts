@@ -128,7 +128,9 @@ describe('HAM–PMI season base (deployment)', () => {
     expect(new Set(changes).size).toBe(changes.length);
   });
 
-  for (const [waves, sets] of [[[6 * 60, 12 * 60 + 30], 3], [[6 * 60, 12 * 60 + 30, 19 * 60], 4]] as const) {
+  // v0.25 r2 sized on the duty-days (the fixture flies about one rotation a day after its drops, three at once on the
+  // first day): three sets for three waves too (was 4 from the busiest day × 8/6).
+  for (const [waves, sets] of [[[6 * 60, 12 * 60 + 30], 3], [[6 * 60, 12 * 60 + 30, 19 * 60], 3]] as const) {
     it(`${waves.length} waves, 28 days: HAM-only duties, ${sets} sets, tours rotate, full legal coverage`, () => {
       const g = fixtureGame();
       g.company.policies.rotationWeeks = 4;

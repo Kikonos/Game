@@ -902,5 +902,5 @@ export { clientCrewOf, clientCrewRows, mixedCrewFlavour, mixedCrewText } from '.
 // v0.7.4 crew planning by type family (crew sets) and the round-up hire.
 export { awayOnDryLease, completeSets, crewPlan, familyName, missingFor, roundTargets, roundUpQuote, roundUpRoles, SET_ROLES, SETS_DETACHED, SETS_WHY, setsForStation, setWords, type FamilyPlan, type RoundUpLine, type SetRole, type TypeSet } from './sets';
 
-export { crewUtilisation, hireHold, makeRedundant, offerUnpaidLeave, redundancyQuote, REDUNDANCY, roleWords, severanceMonths, unpaidQuote, UNPAID, UTIL_TYPICAL, type RedundancyQuote, type UnpaidQuote, type UtilGroup, type UtilPerson, type UtilSurplus, type Utilisation } from './utilisation';
+export { crewUtilisation, hireHold, makeRedundant, planHoldLine, offerUnpaidLeave, redundancyQuote, REDUNDANCY, roleWords, severanceMonths, unpaidQuote, UNPAID, UTIL_TYPICAL, type RedundancyQuote, type UnpaidQuote, type UtilGroup, type UtilPerson, type UtilSurplus, type Utilisation } from './utilisation';
 export { crewMeasures, MEASURE_ROLES, type Measure, type MeasureGroup, type MeasureKind, type MeasurePerson, type Measures } from './measures';
