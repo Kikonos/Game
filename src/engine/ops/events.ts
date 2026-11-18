@@ -249,14 +249,15 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
     const winT = lateBy(win);
     const subOk = !!winT && longLegs.every((x) => win.includes(x) && within((winT.get(x.id) ?? x.std) - (x.schedStd ?? x.std)));
     const flyT = lateBy(longLegs);
-    const flyOk = !!flyT && longLegs.every((x) => within((flyT.get(x.id) ?? x.std) - (x.schedStd ?? x.std)));
+    // Only when it is less than the whole window (else it is the sub-charter option itself).
+    const flyOk = !!flyT && win.filter(isRevenue).some((x) => !ids.has(x.id)) && longLegs.every((x) => within((flyT.get(x.id) ?? x.std) - (x.schedStd ?? x.std)));
     flyCost = (wait === 'team' ? teamCost : 0) + subcharterCost(g, longLegs, factor);
     if (flyOk) {
       const name = rivalName(g, rivalId);
       options.splice(4, 0, {
         id: 'flyHome', label: `${name} flies ${longLegs.length === 1 ? longLegs[0].no : plural(longLegs.length, 'leg')}`,
         desc: `${name} flies the ${longLegs.length === 1 ? 'leg' : 'legs'} that would wait over ${BAL.aogRescueMin / 60} h; the rest wait for ${wait === 'team' ? 'the AOG team' : 'the part'}.`,
-        tone: 'good', chips: [usd(-flyCost), ...subcharterLateChip(g, longLegs, rivalId), ...holdChips(g, wait === 'team' ? holdT : holdC).filter((c) => !/delayed$/.test(c)), legsChip(longLegs)],
+        tone: 'good', chips: [usd(-flyCost), ...subcharterLateChip(g, longLegs, rivalId), `Hurts: ${subHit(g, longLegs).text || 'nothing'}`, ...holdChips(g, wait === 'team' ? holdT : holdC).filter((c) => !/delayed$/.test(c)), legsChip(longLegs)],
       });
     }
     const pickR = [swapOk ? { id: 'swap', cost: swapCost } : null, flyOk ? { id: 'flyHome', cost: flyCost + waitPen - (wait === 'team' ? teamCost : 0) } : null, subOk ? { id: 'subcharter', cost: sub } : null]

@@ -4,6 +4,8 @@
 import { describe, expect, it } from 'vitest';
 import { BAL } from '../core/balance';
 import { DAY } from '../core/time';
+import { flightsOf } from '../core/entities';
+import { isRevenue } from './util';
 import type { Aircraft, Flight, GameState, Minute } from '../core/types';
 import { acceptOffer } from '../contracts';
 import { leased, legsOffer, newGame, owned } from '../contracts/testkit';
@@ -14,7 +16,7 @@ import { startAog } from './maintenance';
 const skip = (g: GameState, t: Minute) => advanceTo(g, t, new Set());
 
 /** A two-leg charter home–PMI–home; the aircraft at the gate in Palma for the return, AOG for `hours`. */
-function strandedAt(hours: number, seed = 21): { g: GameState; ac: Aircraft; ret: Flight } {
+function strandedAt(hours: number, seed = 21, more = false): { g: GameState; ac: Aircraft; ret: Flight } {
   const g = newGame(seed);
   const ac = leased(g);
   const home = g.company.homeBase;
@@ -24,6 +26,13 @@ function strandedAt(hours: number, seed = 21): { g: GameState; ac: Aircraft; ret
   const r = acceptOffer(g, o.id, [ac.id]);
   if (!r.ok) throw new Error(r.error);
   const ret = Object.values(g.flights).find((f) => f.contractId === r.data!.contractId && f.from === 'PMI')!;
+  if (more) {
+    // A second charter two days later, inside the repair.
+    const o2 = legsOffer(g, [[home, 'FAO', t0 + 2 * DAY + 8 * 60], ['FAO', home, t0 + 2 * DAY + 11 * 60]], 150);
+    o2.broker = undefined;
+    const r2 = acceptOffer(g, o2.id, [ac.id]);
+    if (!r2.ok) throw new Error(r2.error);
+  }
   skip(g, ret.std - 2);
   expect(ac.at).toBe('PMI');
   g.decisions.length = 0;
@@ -63,25 +72,45 @@ describe('AOG rescue (ops-aog-rescue)', () => {
     expect(ret.std - (ret.schedStd ?? ret.std)).toBeLessThanOrEqual(BAL.aogRescueMin);
   });
 
-  it('no spare free: another operator flies only the waiting return, within the day; the aircraft waits for the part', () => {
+  it('no spare free: another operator flies the return within the day', () => {
     const g0 = strandedAt(80);
     const { g, ret } = g0;
-    // Ask again with the spare away in maintenance.
     owned(g).status = 'maintenance';
     g.decisions.length = 0;
-    const m = g.maintenance[g0.ac.maintId!];
-    aogDecision(g, g0.ac, ret, m);
+    aogDecision(g, g0.ac, ret, g.maintenance[g0.ac.maintId!]);
+    const d = aogCard(g);
+    // The waiting leg is the whole window: the sub-charter itself, no second option for the same leg.
+    expect(d.options.some((o) => o.id === 'flyHome')).toBe(false);
+    expect(d.defaultOption).toBe('subcharter');
+    expect(d.data!.rescue).toBe('subcharter');
+    expect(resolveDecision(g, d.id, 'subcharter').ok).toBe(true);
+    expect(ret.operatedBy).toBe(d.data!.rivalId);
+    expect(ret.std - (ret.schedStd ?? ret.std)).toBeLessThanOrEqual(BAL.aogRescueMin);
+  });
+
+  it('more work inside the repair: the rival can fly only the waiting return; the aircraft waits for the part', () => {
+    const g0 = strandedAt(80, 21, true);
+    const { g, ret, ac } = g0;
+    owned(g).status = 'maintenance';
+    g.decisions.length = 0;
+    const m = g.maintenance[ac.maintId!];
+    aogDecision(g, ac, ret, m);
     const d = aogCard(g);
     const fly = d.options.find((o) => o.id === 'flyHome')!;
     expect(fly.label).toContain(ret.no);
     expect(fly.chips!.some((c) => /^−\$/.test(c))).toBe(true);
-    expect(d.defaultOption).toBe('flyHome');
-    expect(d.data!.rescue).toBe('flyHome');
+    expect(fly.chips!.some((c) => /^Hurts: /.test(c))).toBe(true);
+    expect(['flyHome', 'subcharter']).toContain(d.defaultOption);
+    expect(d.data!.rescue).toBe(d.defaultOption);
+    const later = flightsOf(g, ac.id).filter((x) => x.status === 'scheduled' && isRevenue(x) && x !== ret);
+    expect(later.length).toBeGreaterThan(0);
     expect(resolveDecision(g, d.id, 'flyHome').ok).toBe(true);
     expect(ret.operatedBy).toBe(d.data!.rivalId);
     expect(ret.std - (ret.schedStd ?? ret.std)).toBeLessThanOrEqual(BAL.aogRescueMin);
+    // The later charter stays ours, held or dropped by the wait.
+    for (const x of later) expect(x.operatedBy).toBeFalsy();
     expect(m.fix).toBe(d.data!.wait);
-    expect(g0.ac.status).toBe('aog');
+    expect(ac.status).toBe('aog');
   });
 
   it('unanswered, the card expires into the rescue', () => {
