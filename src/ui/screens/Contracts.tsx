@@ -1,21 +1,21 @@
 // Contracts (B5): Market (offer cards, urgent first), Active (MGH progress, next flight, crew problems,
 // cancel with penalty) and Missed. DESIGN.md §6.3.
 
-import { AlertTriangle, CalendarRange, ChevronDown, ChevronRight, CircleSlash, Clock, Crown, FileSearch, FileText, Handshake, Inbox as InboxIcon, Medal, Palette, PhoneIncoming, Users } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { AlertTriangle, CalendarRange, ChevronRight, Clock, Crown, FileSearch, FileText, Inbox as InboxIcon, Medal, PhoneIncoming, Users } from 'lucide-react';
+import { useMemo } from 'react';
 import { flag } from '../../data/countries';
-import { cancelContract, cancelCost, contractProgress, counterView, idleWindows, type IdleWindow, leadDays, offerClientLine, offerCompetition, standing } from '../../engine/contracts';
+import { contractProgress, counterView, idleWindows, type IdleWindow, leadDays, offerClientLine, offerCompetition, standing } from '../../engine/contracts';
 import { dryLeaseView, marketOutlook } from '../../engine/ops';
 import { OutlookTiles } from '../modals/V08Modals';
 import { v08Chips } from './v08Logic';
 import { flightsRev } from '../../engine/core/entities';
 import { DAY, fmtDateTime, fmtDay, joinDays } from '../../engine/core/time';
-import type { Contract, ContractOffer, CrewExtra, GameState } from '../../engine/core/types';
-import { crewExtraFor, extraCabinMax, setCrewExtra, shortFlights } from '../../engine/crew';
+import type { Contract, ContractOffer, GameState } from '../../engine/core/types';
+import { shortFlights } from '../../engine/crew';
 import { problemAt } from '../../engine/problems';
 import { ProblemCardView } from '../components/ProblemCard';
 import { Why } from '../components/Why';
-import { Bar, Empty, Seg, Stepper, Tabs, Toggle } from '../components/ui';
+import { Bar, Empty, Seg, Tabs } from '../components/ui';
 import { money } from '../format';
 import { store, useClock, useGame } from '../store';
 import { ArchIcon, Chips, ScreenHead, useRenderCount } from './common';
@@ -35,8 +35,8 @@ import { clientList } from '../../engine/contracts';
 import { ClientsView } from './Clients';
 import { openTenders, TendersView } from './Tenders';
 import { MarketsView } from './Markets';
-import { cancelWarning, lockOf, rulesOf } from '../../engine/scenario';
-import { LockedPanel, LockNote, lockedProps } from '../components/Locked';
+import { lockOf, rulesOf } from '../../engine/scenario';
+import { LockedPanel, LockNote } from '../components/Locked';
 import { isRouteContract, routeName, seasonWord } from './network/networkLogic';
 
 type View = 'market' | 'active' | 'tenders' | 'missed' | 'clients' | 'markets' | /** v0.16.3 the Market hub's Leads segment (was the Sales tab) */ 'leads' | 'filter';
@@ -172,53 +172,11 @@ function Market({ g }: { g: GameState }) {
 
 const STATUS_LABEL: Record<Contract['status'], string> = { signed: 'Signed', active: 'Flying', completed: 'Completed', cancelled: 'Cancelled' };
 
-function confirmCancel(g: GameState, c: Contract) {
-  const { penalty: pen, refund, total } = cancelCost(g, c.id);
-  // v0.15 a scenario's own contract under a 'penalty' rule: cancelling it ends the scenario with no stars.
-  const warn = cancelWarning(g, c.id);
-  const cl = g.clients[c.clientId]?.name ?? 'The client';
-  store.openModal({
-    kind: 'confirm', danger: true, title: `Cancel ${c.title}?`, confirm: warn ? `Cancel, pay ${money(total)} and end the scenario` : `Cancel and pay ${money(total)}`,
-    body: `${warn ? `${warn} ` : ''}Penalty ${money(pen)}${refund > 0 ? ` plus ${money(refund)} refunded for legs not flown` : ''}. All future flights are removed, reliability drops by 5 and ${cl} will remember it.`,
-    onConfirm: () => store.act((gg) => cancelContract(gg, c.id)),
-  });
-}
-
-/** 'CS-TLI in Saudia colours' / 'Paint shop 3 May' for a contract with client paint. */
-function paintLine(g: GameState, c: Contract): string {
-  const client = g.clients[c.clientId]?.name ?? 'client';
-  const painted = c.aircraftIds.filter((id) => g.fleet[id]?.paintedFor === c.id).map((id) => g.fleet[id].reg);
-  if (painted.length) return `${painted.join(' + ')} in ${client} colours`;
-  const m = Object.values(c.paint?.inMx ?? {}).map((id) => g.maintenance[id]).find((x) => x && (x.status === 'planned' || x.status === 'inWork'));
-  return m ? `${c.paint!.kind === 'full' ? 'Repaint' : 'Decals'} in ${client} colours: paint shop ${m.at} ${fmtDay(m.start)}` : `${client} livery agreed`;
-}
-
-/** v0.6: this contract's extra crew (overrides the aircraft's); locked at the number the client pays for. */
-function ContractExtra({ g, c }: { g: GameState; c: Contract }) {
-  const [open, setOpen] = useState(false);
-  const eff = crewExtraFor(g, c.aircraftIds[0] ?? null, c.id);
-  const min = Math.max(c.requirements.extraCabin, eff.paidMin);
-  const set = (x: CrewExtra | null) => store.act((gg) => setCrewExtra(gg, { contractId: c.id }, x), { toastOk: false });
-  const src = eff.paidMin ? `client pays for ${eff.paidMin}` : eff.source === 'client' ? 'client request' : eff.source === 'contract' ? 'set for this contract' : eff.source === 'aircraft' ? 'aircraft setting' : 'company default';
-  const what = eff.cabin || eff.pilot ? [eff.cabin ? `+${eff.cabin} cabin` : '', eff.pilot ? 'spare pilot' : ''].filter(Boolean).join(' · ') : 'legal minimum';
-  if (!open) {
-    return (
-      <button className="sc-extra-sum small" onClick={() => setOpen(true)} aria-expanded={false}>
-        <Users className="sc-ico-s" /><span>Crew: <b>{what}</b></span><span className="dim">{src}</span><ChevronDown className="sc-ico-s dim" />
-      </button>
-    );
-  }
-  return (
-    <div className="row gap-12 wrap sc-contract-extra">
-      <span className="row gap-8"><span className="small">Extra cabin</span><Stepper value={eff.cabin} min={min} max={Math.max(min, extraCabinMax(g, c.aircraftIds[0] ?? null, c.requirements.extraCabin))} onChange={(v) => set({ cabin: v, pilot: eff.pilot })} format={(v) => `+${v}`} /></span>
-      <span className="row gap-8"><span className="small">Spare pilot</span><Toggle on={!!eff.pilot} onChange={(v) => set({ cabin: eff.cabin, pilot: v ? 1 : 0 })} label="Spare pilot" /></span>
-      <span className="tiny dim">{src}</span>
-      {c.crewExtra && !eff.paidMin && <button className="btn btn-sm btn-ghost" onClick={() => set(null)}>Reset</button>}
-      <button className="btn btn-sm btn-ghost" onClick={() => setOpen(false)}>Done</button>
-    </div>
-  );
-}
-
+/**
+ * v0.25 one compact card per contract (the player: fewer lines): the title, its state, one line of who, which aircraft,
+ * when and how far along, the month's MGH for a wet lease and any crew problem. The crew setting, the sub-charter and
+ * cancel live in the contract's sheet (tap the card).
+ */
 function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean }) {
   const p = contractProgress(g, c.id);
   const cl = g.clients[c.clientId];
@@ -233,33 +191,25 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
   // v0.14.1 (UI-5) a dry lease by its lease (the map panel's dates and invoiced total), not legs and accrual.
   const dry = c.product.kind === 'dry' ? dryLeaseView(g, c.id) : null;
   const mghR = p.mgh > 0 ? p.bhMonth / p.mgh : 0;
-  // v0.15 the scenario's locks on this contract (cancel, hand-overs): the buttons stay, disabled, with the reason.
-  const lockCancel = open ? lockOf(g, 'cancel', { contractId: c.id }) : null;
-  const lockSub = open ? lockOf(g, 'subcharter') : null;
+  const sheet = () => store.openModal({ kind: 'contract', contractId: c.id });
+  const facts = [
+    cl?.name ?? 'Client', regs, dry ? joinDays(fmtDay(dry.lease[0]), fmtDay(dry.lease[1])) : offerSpan(c),
+    open ? (dry ? `${dry.fhSoFar.toLocaleString('en-US')} FH flown` : `${p.legsDone}/${p.legsTotal} legs`) : '',
+  ].filter(Boolean).join(' · ');
   return (
-    <div className={`card sc-contract ${sel ? 'selected' : ''} ${open ? '' : 'closed'}`} style={{ ['--kc' as string]: contractColor(c.color) }}>
+    <div className={`card sc-contract v25-contract ${sel ? 'selected' : ''} ${open ? '' : 'closed'}`} style={{ ['--kc' as string]: contractColor(c.color) }}>
       <div className="sc-contract-main">
         <div className="row gap-8 sc-contract-head">
           <ArchIcon a={c.archetype} />
-          {/* v0.24 the title opens the whole contract too. */}
-          <button className="v24-contract-title ellipsis" onClick={() => store.openModal({ kind: 'contract', contractId: c.id })}>{c.title}</button>
-          <span className={`badge ${c.status === 'active' ? 'good' : c.status === 'cancelled' ? 'bad' : ''}`}>{STATUS_LABEL[c.status]}</span>
+          <button className="v24-contract-title ellipsis" onClick={sheet}>{c.title}</button>
+          {c.status !== 'active' && <span className={`badge ${c.status === 'cancelled' ? 'bad' : ''}`}>{STATUS_LABEL[c.status]}</span>}
           <ShapeTags s={shapeOf(c, (id) => g.fleet[id]?.typeId)} compact className="sc-contract-shape" />
           <OriginTag v={contractOrigin(g, c)} help />
         </div>
-        {/* v0.14.1 (merge) a dry lease by its lease dates (fx-money UI-5); other work by the client's local days (fx-comm). */}
-        <div className="small muted ellipsis">{cl?.name ?? 'Client'} · <span className="mono">{regs}</span> · {dry ? `${joinDays(fmtDay(dry.lease[0]), fmtDay(dry.lease[1]))}` : offerSpan(c)} · {productLine(c.product, c)}</div>
-        {c.paint?.accepted && open && <div className="small muted ellipsis row gap-4"><Palette className="sc-ico-s" />{paintLine(g, c)}</div>}
-        {c.cabin?.accepted && open && <div className="small muted ellipsis">Their cabin: {c.cabin.layout === 'two-class' ? 'two-class' : 'all economy'} · {c.cabin.clientShare >= 1 ? 'they pay' : 'they pay half'}{c.cabin.revert ? ' · put back after' : ''}</div>}
-        {open && (
-          <div className="row gap-16 small sc-contract-facts">
-            {dry ? <span>{dry.fhSoFar.toLocaleString('en-US')} FH flown by them</span> : <span>{p.legsDone}/{p.legsTotal} legs</span>}
-            <span>{dry ? 'Invoiced' : 'Revenue'} {money(dry ? dry.income : p.revenueToDate)}</span>
-            {next && <span className="muted ellipsis">Next <span className="mono">{next.no} {next.from}→{next.to}</span> {fmtDateTime(next.std)}</span>}
-          </div>
-        )}
-        {open && c.product.kind !== 'dry' && <ContractExtra g={g} c={c} />}
-        {(lockCancel || lockSub) && <LockNote why={lockCancel ?? lockSub} />}
+        <button className="v25-contract-line small muted ellipsis" onClick={sheet}>
+          <span className="mono-regs">{facts}</span>
+          {open && next && <span className="v25-next"> · Next <span className="mono">{next.no}</span> {fmtDateTime(next.std)}</span>}
+        </button>
         {prob && (card ? (
           <ProblemCardView card={card} g={g} hideActions>
             <button className="btn btn-primary btn-sm" onClick={() => store.openModal({ kind: 'crewControl', flightId: prob.id })}><Users /> Crew Control</button>
@@ -269,20 +219,16 @@ function ContractRow({ g, c, sel }: { g: GameState; c: Contract; sel: boolean })
           <button className="sc-prob small bad row gap-4" onClick={() => store.openModal({ kind: 'duty', id: prob.id })}><AlertTriangle className="sc-ico-s" />Crew problem on <span className="mono">{prob.no} {prob.from}→{prob.to}</span> {fmtDateTime(prob.std)}<span className="sc-prob-go"><Users className="sc-ico-s" /> Fix crew</span></button>
         ))}
       </div>
-      {open && c.product.kind === 'wet' && (
+      {open && c.product.kind === 'wet' && p.mgh > 0 && (
         <div className="sc-mgh" data-tip="Billable block hours this month against the minimum guarantee (MGH)">
-          <div className="row between small"><span className="muted">MGH this month</span><span className="num">{p.bhMonth.toFixed(0)} / {p.mgh.toFixed(0)} BH</span></div>
+          <div className="row between small"><span className="muted">MGH</span><span className="num">{p.bhMonth.toFixed(0)} / {p.mgh.toFixed(0)} BH</span></div>
           <Bar value={mghR} tone={mghR >= 1 ? 'good' : 'warn'} size="thin" />
         </div>
       )}
       <div className="sc-contract-actions">
-          {/* v0.24 the whole contract, read back (terms, programme, how it stands). */}
-          <button className="btn" onClick={() => store.openModal({ kind: 'contract', contractId: c.id })} aria-label="View the contract" data-tip="The contract"><FileText /></button>
-          {open && <>
-          <button className="btn" onClick={() => store.navigate('schedule', { sel: { kind: 'aircraft', id: c.aircraftIds[0] }, view: String(Math.max(g.now, next?.std ?? c.start)) })} aria-label="Show on schedule" data-tip="On the schedule"><CalendarRange /></button>
-          <button className={`btn ${lockSub ? 'locked' : ''}`} onClick={() => store.openModal({ kind: 'subcharter', contractId: c.id })} aria-label="Sub-charter legs to a rival" data-tip="Hand legs to a rival operator" {...lockedProps(lockSub)}><Handshake /></button>
-          <button className={`btn btn-danger ${lockCancel ? 'locked' : ''}`} onClick={() => confirmCancel(g, c)} aria-label="Cancel contract" data-tip="Cancel the contract" {...lockedProps(lockCancel)}><CircleSlash /></button>
-          </>}
+        {open && <button className="btn" onClick={() => store.navigate('schedule', { sel: { kind: 'aircraft', id: c.aircraftIds[0] }, view: String(Math.max(g.now, next?.std ?? c.start)) })} aria-label="Show on schedule" data-tip="On the schedule"><CalendarRange /></button>}
+        {/* v0.24 the whole contract, read back; v0.25 with the crew setting, sub-charter and cancel. */}
+        <button className="btn" onClick={sheet} aria-label="View the contract" data-tip="The contract"><FileText /></button>
       </div>
     </div>
   );
@@ -321,6 +267,8 @@ function Active({ g, sel }: { g: GameState; sel: string | null }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [g, rev, hour, ids]);
   const routeLines = <RouteContractLines g={g} />;
+  const flying = open.filter((c) => c.status === 'active');
+  const upcoming = open.filter((c) => c.status === 'signed');
   if (!open.length && !closed.length) {
     return (
       <>
@@ -331,7 +279,11 @@ function Active({ g, sel }: { g: GameState; sel: string | null }) {
   }
   return (
     <div className="col gap-12">
-      {open.map((c) => <ContractRow key={c.id} g={g} c={c} sel={sel === c.id} />)}
+      {/* v0.25 grouped: what flies now, then what is signed and still to come. */}
+      {flying.length > 0 && <div className="upper dim">Flying now</div>}
+      {flying.map((c) => <ContractRow key={c.id} g={g} c={c} sel={sel === c.id} />)}
+      {upcoming.length > 0 && <div className={`upper dim ${flying.length ? 'mt-8' : ''}`}>Signed, upcoming</div>}
+      {upcoming.map((c) => <ContractRow key={c.id} g={g} c={c} sel={sel === c.id} />)}
       {routeLines}
       {closed.length > 0 && <div className="upper dim mt-8">Recently finished</div>}
       {closed.map((c) => <ContractRow key={c.id} g={g} c={c} sel={sel === c.id} />)}

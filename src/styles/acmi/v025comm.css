@@ -1,0 +1,46 @@
+/* v0.25 commercial lane: compact contract cards (Contracts › Active) and a short Contracts header on a phone. */
+
+/* One card per contract: title row, one line of facts, the MGH bar and the two icons. */
+.v25-contract { padding: 10px 14px; gap: 14px; }
+.v25-contract .sc-contract-main { gap: 2px; }
+.v25-contract-line {
+  all: unset; display: block; cursor: pointer; max-width: 100%; min-height: 24px; line-height: 24px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-2);
+}
+.v25-contract-line:focus-visible { outline: 2px solid var(--accent); border-radius: 4px; }
+.v25-contract .sc-mgh { width: 170px; }
+.v25-contract .sc-contract-actions .btn { height: 40px; }
+/* Narrower screens keep the icons beside the card (the cards stacked them under it). */
+@media (max-width: 1099.98px) and (min-width: 600px), (max-height: 499.98px) and (min-width: 600px) {
+  .sc-contract.v25-contract { grid-template-columns: minmax(0, 1fr) auto auto; gap: 10px; }
+  .v25-contract .sc-mgh { width: 120px; }
+}
+@media (max-width: 599.98px) {
+  .v25-contract .sc-mgh { width: auto; }
+}
+
+/* The sheet's footer: icons only on a phone. */
+@media (max-height: 499.98px), (max-width: 560px) {
+  .v24-contract-foot .v25-hide-phone { display: none; }
+}
+
+/* A phone on its side: the title sits beside the tabs, the standing and the outlook in one short chip row. */
+@media (max-height: 499.98px) {
+  .shell.acmi .sc-contracts > .sc-head { flex-wrap: nowrap; margin-bottom: 6px; }
+  .shell.acmi .sc-contracts > .sc-head > .grow { flex: 0 0 auto; }
+  .shell.acmi .sc-contracts > .sc-head h1 { max-width: none; overflow: visible; }
+  .shell.acmi .sc-contracts > .sc-head .sc-head-tools { flex: 1 1 auto; justify-content: flex-end; }
+  .sc-contracts .v8-head-strip { gap: 6px; }
+  .sc-contracts .v8-head-strip .v8-standing,
+  .sc-contracts .v8-head-strip .pr-level { min-height: 36px; padding: 3px 10px; width: max-content; border-radius: 18px; }
+  .sc-contracts .v8-head-strip .v8-standing > svg:last-child,
+  .sc-contracts .v8-head-strip .v8-standing .small,
+  .sc-contracts .v8-head-strip .v8-standing .v8-st-text { display: none; }
+  .sc-contracts .v8-head-strip .v8-standing { container-type: normal; width: max-content; }
+  .sc-contracts .v8-head-strip .v8-standing b.ellipsis { display: block; white-space: nowrap; }
+  .sc-contracts .v8-head-strip .v8-tiles { gap: 6px; }
+  .sc-contracts .v8-head-strip .v8-tile {
+    flex-direction: row; align-items: center; gap: 6px; min-height: 36px; padding: 3px 10px; width: auto; min-width: 0; border-radius: 18px;
+  }
+  .sc-contracts .v8-head-strip .v8-tile-sub { display: none; }
+}
