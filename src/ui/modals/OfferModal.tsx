@@ -37,6 +37,7 @@ import { ProblemCardView } from '../components/ProblemCard';
 import { Modal, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { RouteConflicts } from './RouteConflicts';
+import { cancelTiers } from './contractSheetLogic';
 import type { RouteChoice } from '../../engine/network/types';
 import { ArchIcon, Chips, Dot, KV } from '../screens/common';
 import { fuelLine } from '../screens/screenLogic';
@@ -108,7 +109,7 @@ function Terms({ g, o, deposit, onDeposit }: { g: GameState; o: ContractOffer; /
   const arrears = p.kind === 'charter' ? 'Invoiced after the job' : 'Monthly in arrears';
   // v0.15.1 a charter is paid before it flies (the deposit and the balances above); it read 'On completion'.
   rows.push(['Payment', `${pay.basis === 'advance' ? 'In advance' : pay.basis === 'arrears' ? arrears : 'Deposit and balances before the trips'}, net ${pay.dueDays} days`]);
-  rows.push(['If we cancel', o.penalties.cancelScale.map(([d, f]) => `${d} d ${Math.round(f * 100)}%`).join(' · ') || '—']);
+  rows.push(['If we cancel', cancelTiers(o.penalties.cancelScale)]);
   if (o.penalties.perCancelledLeg) rows.push(['Per cancelled leg', usd(o.penalties.perCancelledLeg)]);
   return (
     <>

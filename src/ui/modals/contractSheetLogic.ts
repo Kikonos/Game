@@ -27,6 +27,23 @@ function paymentLine(c: Contract): string {
   return `${p.basis === 'advance' ? 'In advance' : p.basis === 'arrears' ? arrears : 'Deposit and balances before the trips'}, net ${p.dueDays} days`;
 }
 
+/** v0.25 the penalty tiers in words: '60+ days before: 15 % · 30+ days before: 35 % · … · under 14 days: 100 %'. Pure. */
+export function cancelTiers(scale: [number, number][]): string {
+  if (!scale.length) return '—';
+  const pct = (f: number) => `${Math.round(f * 100)} %`;
+  return scale
+    .map(([d, f], i) => (d > 0 ? `${d}+ days before: ${pct(f)}` : i > 0 ? `under ${scale[i - 1][0]} days: ${pct(f)}` : `any time: ${pct(f)}`))
+    .join(' · ')
+    .replace(/^./, (x) => x.toUpperCase());
+}
+
+/** v0.25 'Penalty $379K (+$262K deposit back)': the penalty and the money that goes back, apart (as the Cancel dialog). Pure. */
+export function cancelNowLine(g: GameState, c: Contract): string {
+  const { penalty, refund } = cancelCost(g, c.id);
+  if (refund <= 0) return `Penalty ${money(penalty)}`;
+  return `Penalty ${money(penalty)} (+${money(refund)} ${c.product.kind === 'charter' ? 'deposit back' : 'refund'})`;
+}
+
 export function contractSheet(g: GameState, c: Contract): ContractSheet {
   const terms: [string, string][] = [];
   const p = c.product;
@@ -52,7 +69,7 @@ export function contractSheet(g: GameState, c: Contract): ContractSheet {
   terms.push(['Payment', paymentLine(c)]);
   // v0.25 the broker's own commission (ACS 4 %, Chapman Freeborn 5 % ...), off every invoice.
   if (c.broker) terms.push(['Broker commission', `${c.broker} · ${+(brokerCut(c) * 100).toFixed(1)}% of each invoice`]);
-  terms.push(['If we cancel', c.penalties.cancelScale.map(([d, f]) => `${d} d ${Math.round(f * 100)}%`).join(' · ') || '—']);
+  terms.push(['If we cancel', cancelTiers(c.penalties.cancelScale)]);
   if (c.penalties.perCancelledLeg) terms.push(['Per cancelled leg', usd(c.penalties.perCancelledLeg)]);
   if (c.penalties.perDelay) terms.push(['Per delay over 3 h', usd(c.penalties.perDelay)]);
   if (c.paint?.accepted) terms.push(['Livery', `${c.paint.kind === 'full' ? 'Full repaint' : 'Decals'} in their colours · ${c.paint.clientShare >= 1 ? 'they pay' : c.paint.clientShare > 0 ? `they pay ${Math.round(c.paint.clientShare * 100)}%` : 'we pay'}`]);
@@ -80,7 +97,7 @@ export function contractSheet(g: GameState, c: Contract): ContractSheet {
     if (next && open) status.push(['Next', `${next.no} ${next.from}→${next.to} · ${fmtDateTime(next.std)} UTC`]);
   }
   if (c.subLegs?.length) status.push(['Handed to rivals', `${c.subLegs.length} leg${c.subLegs.length === 1 ? '' : 's'}`]);
-  if (open) status.push(['Cancel now', money(cancelCost(g, c.id).total)]);
+  if (open) status.push(['Cancel now', cancelNowLine(g, c)]);
   if (c.status === 'cancelled' && c.cancelledAt) status.push(['Cancelled', fmtDate(c.cancelledAt)]);
   return { terms, status };
 }
