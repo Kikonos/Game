@@ -10,7 +10,7 @@ import { deserialize, serialize } from '../save';
 import { advanceTo } from '../sim';
 import { fixture } from '../fixtures/compatKit';
 import { afterOfferDays, busyShare, director, isQuiet, newDirector, PACE_SPELLS, quietShare, setPace, spellAt } from './director';
-import { devDisruption, DISRUPT_KINDS, inCurfew, opsState, raise } from './disrupt';
+import { devDisruption, DISRUPT_KINDS, inCurfew, onBoard, opsState, raise } from './disrupt';
 import { inspect, rampYear } from './ramp';
 import { approvalsSuspended, dailyAudit, runAudit, startAuditTask } from './audit';
 import { approvalBlocker, resolveDecision } from './index';
@@ -213,6 +213,31 @@ describe('disruptions', () => {
     expect(resolveDecision(g, d.id, alt.id).ok).toBe(true);
     expect(f.div?.cause).toBe('medical');
     if (d.data?.severe) expect(g.company.reputation.clean).toBeGreaterThan(clean0);
+  });
+
+  it('v0.25 the medical card names the purser and the captain on board; a medical diversion closes with one quiet line', () => {
+    const { g, legs } = charter(7);
+    const f = legs[0];
+    airborne(g, f);
+    expect(devDisruption(g, 'medical', f.id)).toBe(true);
+    const d = g.decisions.find((x) => x.kind === 'medical')!;
+    const cpt = f.crewIds.map((id) => g.crew[id]).find((c) => c?.role === 'CPT')!;
+    const pur = f.crewIds.map((id) => g.crew[id]).find((c) => c?.role === 'PUR' || c?.role === 'CC')!;
+    expect(d.body).toContain(`Captain ${cpt.first} ${cpt.last}`);
+    expect(d.body).toContain(`${pur.role === 'PUR' ? 'Purser' : 'Cabin crew member'} ${pur.first} ${pur.last}`);
+    expect(d.body).not.toMatch(/\bthe captain\b/);
+    const alt = d.options.find((o) => o.id.startsWith('alt:'))!;
+    resolveDecision(g, d.id, alt.id);
+    skip(g, (f.eta ?? f.sta) + 1);
+    const m = g.messages.find((x) => x.title === `${f.no}: the passenger is in hospital`);
+    expect(m?.body).toMatch(/^The passenger was taken to hospital in .+\. The crew filed their report\.$/);
+  });
+
+  it('v0.25 onBoard: a role nobody fills reads plain ("the captain")', () => {
+    const { g, legs } = charter(7);
+    const f = { ...legs[0], crewIds: [] };
+    expect(onBoard(g, f, 'CPT')).toBe('the captain');
+    expect(onBoard(g, f, 'PUR', true)).toBe('The purser');
   });
 
   it('bird strike: a local contractor inspects (cost on the ledger), the next leg waits for it', () => {
