@@ -365,10 +365,11 @@ function medical(ctx: Ctx): Draft | null {
 // ---------- humanitarian (§5, world events only) ----------
 
 function humanitarian(ctx: Ctx): Draft | null {
+  // v0.25 relief flights come from aid agencies; Frontex (role 'aid' for its return flights) sends none.
   const { g, o } = ctx;
   const dest = o.airport;
   if (!dest || !exists(dest)) return null;
-  const client = (o.client && g.clients[o.client]) || nearClient({ ...ctx, window: undefined }, clientsOf(g, ['agency', 'government'], (c) => roleOf(c) === 'aid' && exists(c.base)));
+  const client = (o.client && g.clients[o.client]) || nearClient({ ...ctx, window: undefined }, clientsOf(g, ['agency', 'government'], (c) => roleOf(c) === 'aid' && !/Frontex/.test(c.name) && exists(c.base)));
   if (!client) return null;
   const hubs = [client.base, 'DXB', 'BRU', 'FCO', 'GVA', 'NBO'].filter((c) => exists(c) && c !== dest && km(c, dest) > 600 && km(c, dest) < (ctx.wide ? 9000 : 5000));
   if (!hubs.length) return null;

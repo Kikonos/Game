@@ -2,7 +2,8 @@
 
 import type { Airport } from '../../data/airports';
 import { next, type RngHolder } from '../core/rng';
-import { toDate, toLocal } from '../core/time';
+import { DAY, toDate, toLocal } from '../core/time';
+import { hajjDates } from '../../data/worldCalendar';
 
 export const AOG_CAUSES = [
   'an engine borescope finding', 'a bird strike on the climb-out', 'a cracked windshield', 'a hard-landing inspection',
@@ -171,17 +172,34 @@ export const DIASPORA_BLURBS: ((x: DiasporaBlurb) => string)[] = [
 ];
 
 /** Diaspora routes and reasons per agency; DIASPORA is the fallback. */
-export const DIASPORA_BY_CLIENT: Record<string, { dests: string[]; reasons: string[] }> = {
+/** v0.25 a reason to fly home and when it holds: UTC months 1–12 (departure month), 'eid' for the two Eids (worked out
+ *  from the Hajj calendar), none for any time of year. */
+export interface DiasporaReason { text: string; months?: number[]; eid?: true }
+const SUMMER: DiasporaReason = { text: 'for the summer holidays', months: [6, 7, 8] };
+const XMAS: DiasporaReason = { text: 'for Christmas and New Year', months: [12] };
+export const DIASPORA_BY_CLIENT: Record<string, { dests: string[]; reasons: DiasporaReason[] }> = {
   'Viagens Abreu': {
     dests: ['OXB', 'TMS', 'LAD', 'SID', 'RAI', 'BVC'],
-    reasons: ['for the summer holidays', 'for Christmas and New Year', 'for the independence-day celebrations', 'for a season of family weddings and baptisms', 'for Carnival'],
+    reasons: [SUMMER, XMAS, { text: 'for the independence-day celebrations' }, { text: 'for a season of family weddings and baptisms', months: [5, 6, 7, 8, 9] }, { text: 'for Carnival', months: [2, 3] }],
   },
   Corendon: {
     dests: ['ADA', 'ESB', 'ADB', 'CMN'],
-    reasons: ['for the summer holidays', 'for Eid with their families', 'for the wedding season back home', 'for the autumn school break'],
+    reasons: [SUMMER, { text: 'for Eid with their families', eid: true }, { text: 'for the wedding season back home', months: [6, 7, 8, 9] }, { text: 'for the autumn school break', months: [10, 11] }],
   },
 };
-export const DIASPORA_REASONS = ['for the summer holidays', 'for Christmas and New Year', 'for a national holiday'];
+export const DIASPORA_REASONS: DiasporaReason[] = [SUMMER, XMAS, { text: 'for a national holiday' }];
+/** What they say when no listed reason fits the date. */
+export const DIASPORA_ANY = 'to see their families';
+
+/** v0.25 the reasons that fit a departure at `dep` (an August flight is never for Christmas; Eid only in the two weeks
+ *  before Eid al-Fitr or Eid al-Adha). Pure. */
+export function diasporaReasonsAt(list: DiasporaReason[], dep: number): string[] {
+  const m = toDate(dep).getUTCMonth() + 1;
+  const y = toDate(dep).getUTCFullYear();
+  const eids = [y - 1, y, y + 1].flatMap((yy) => { const h = hajjDates(yy); return [h.arafah - 96 * DAY + 30 * DAY, h.arafah + DAY]; });
+  const nearEid = eids.some((e) => dep <= e && dep >= e - 14 * DAY);
+  return list.filter((r) => (r.eid ? nearEid : !r.months || r.months.includes(m))).map((r) => r.text);
+}
 
 /** Pilgrimage shrines: the airport, the place and what the group brings. */
 export const SHRINES: { code: string; place: string; note: string }[] = [
@@ -208,6 +226,32 @@ export const TOUR_SERIES_BLURBS: ((x: TourBlurb) => string)[] = [
 /** League games stay in the club's country; cup ties and European nights go abroad. 'Short' titles only under 700 km. */
 export const SPORT_TITLES_HOME = ['League away day in', 'Away match in', 'Short away trip to'];
 export const SPORT_TITLES_ABROAD = ['European night in', 'Cup tie in', 'Continental away leg in'];
+/** v0.25 a national team's away trips (football, basketball) and rugby's (the Six Nations and the autumn tests). */
+export const SPORT_TITLES_NATIONAL = ['Qualifier in', 'Nations League away in', 'Friendly in'];
+export const SPORT_TITLES_BASKETBALL = ['World Cup qualifier in', 'EuroBasket qualifier in'];
+export const SPORT_TITLES_RUGBY = ['Six Nations away in', 'Test match in'];
+/** Where national teams play away: the capitals (or the national stadium's city) of Europe. */
+export const NATIONAL_VENUES = ['LIS', 'MAD', 'CDG', 'BER', 'FCO', 'AMS', 'BRU', 'VIE', 'ZRH', 'CPH', 'OSL', 'ARN', 'HEL', 'DUB', 'LHR', 'GLA', 'CWL', 'WAW', 'PRG', 'BUD', 'OTP', 'SOF', 'ATH', 'IST', 'BEG', 'ZAG', 'LJU', 'SKP', 'TIA', 'KIV', 'RIX', 'TLL', 'VNO', 'MLA', 'LCA', 'KEF', 'BTS'];
+/** The Six Nations grounds: Dublin, Twickenham, Murrayfield, Cardiff, the Stade de France and Rome. */
+export const SIX_NATIONS = ['DUB', 'LHR', 'EDI', 'CWL', 'CDG', 'FCO'];
+/** v0.25 the cities with a top-flight club, per country: a league away day goes to one of these (the airports the
+ *  data lacks drop out). Countries not listed take any big enough domestic airport. */
+export const LEAGUE_CITIES: Record<string, string[]> = {
+  PT: ['LIS', 'OPO', 'FNC', 'PDL', 'FAO'],
+  ES: ['MAD', 'BCN', 'BIO', 'SVQ', 'VLC', 'LPA', 'PMI', 'VGO', 'OVD', 'ALC', 'VIT', 'PNA', 'EAS', 'GRO'],
+  GB: ['MAN', 'LPL', 'NCL', 'BHX', 'LTN', 'STN', 'LGW', 'LHR', 'EMA', 'LBA', 'BOH', 'GLA', 'EDI', 'ABZ'],
+  FR: ['CDG', 'ORY', 'MRS', 'LYS', 'NCE', 'NTE', 'BOD', 'TLS', 'LIL', 'RNS', 'SXB', 'BES'],
+  DE: ['MUC', 'DUS', 'FRA', 'HAM', 'BER', 'STR', 'CGN', 'LEJ', 'BRE', 'DTM'],
+  IT: ['MXP', 'LIN', 'BGY', 'TRN', 'FCO', 'NAP', 'BLQ', 'FLR', 'VRN', 'GOA', 'CAG', 'PSA', 'BDS', 'VCE'],
+  TR: ['IST', 'SAW', 'ESB', 'ADB', 'AYT', 'TZX', 'KYA', 'GZT', 'ASR'],
+  GR: ['ATH', 'SKG', 'HER', 'VOL'],
+  AT: ['VIE', 'SZG', 'GRZ', 'LNZ', 'INN', 'KLU'],
+  HR: ['ZAG', 'SPU', 'RJK', 'OSI'],
+  PL: ['WAW', 'KRK', 'KTW', 'POZ', 'GDN', 'WRO', 'SZZ'],
+  CZ: ['PRG', 'BRQ', 'OSR'],
+  DK: ['CPH', 'AAL', 'BLL', 'AAR'],
+  NL: ['AMS', 'EIN', 'RTM', 'GRQ'],
+};
 
 /** Departure-time slots that look like real charter schedules (local minutes). */
 export const DEP_SLOTS = [6 * 60 + 40, 7 * 60 + 15, 8 * 60 + 5, 9 * 60 + 30, 10 * 60 + 45, 12 * 60 + 10, 13 * 60 + 35, 15 * 60 + 20, 16 * 60 + 50, 18 * 60 + 25];
@@ -216,6 +260,15 @@ export const WEEKDAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday',
 
 /** Resorts for tour-operator series (narrowbody) and long-haul sun (widebody). */
 export const RESORTS_NB = ['TFS', 'LPA', 'FNC', 'SID', 'AYT', 'HER', 'PMI', 'FUE', 'ACE', 'CFU', 'RHO', 'DLM', 'BJV', 'PFO', 'BOJ', 'CHQ', 'KGS', 'MAH', 'OLB', 'BVC'];
+/** v0.25 resorts whose charter season is May–October (the Greek islands, Turkey's Aegean coast, the Black Sea,
+ *  Sardinia, the Balearics, Dalmatia): no tour series or leisure base there in winter. The Canaries, Madeira, Cape
+ *  Verde, Paphos and Antalya fly all year. */
+export const SUMMER_ONLY = new Set(['CFU', 'RHO', 'DLM', 'BJV', 'BOJ', 'CHQ', 'KGS', 'MAH', 'OLB', 'HER', 'PMI', 'IBZ', 'JTR', 'ZTH', 'VAR', 'DBV', 'SPU']);
+const summerMonth = (t: number) => { const m = toDate(t).getUTCMonth() + 1; return m >= 5 && m <= 10; };
+/** A tour series from `start` to `end` can go there: a year-round resort, or a summer one with both ends in May–October. Pure. */
+export const resortOpen = (code: string, start: number, end: number): boolean => !SUMMER_ONLY.has(code) || (summerMonth(start) && summerMonth(end));
+/** A season base from `from` to `to` can fly there: not a summer-only resort when the term sits mostly in November–April. Pure. */
+export const baseDestOpen = (code: string, from: number, to: number): boolean => !SUMMER_ONLY.has(code) || summerMonth((from + to) / 2);
 // v0.16 the French Antilles, Barbados, Antigua, Grand Cayman, Mauritius and the Seychelles join the long-haul sun.
 export const RESORTS_WB = ['CUN', 'VRA', 'PUJ', 'MBJ', 'PTP', 'FDF', 'BGI', 'ANU', 'GCM', 'MRU', 'SEZ'];
 
@@ -231,6 +284,12 @@ export const BASE_HUBS_MARKET = ['LOS', 'ABJ', 'LFW', 'ACC', 'NBO', 'KGL', 'DAR'
   'AKL', 'NOU', 'PPT', 'RUN', 'POS', 'ADD', 'MRU', 'SEZ', 'SID', 'POM', 'HIR', 'PTY', 'NAS', 'GCM'];
 
 export const CRISIS_AIRPORTS = ['KBL', 'BKO', 'JUB', 'MGQ', 'BGF', 'GOM', 'LAD', 'OXB', 'TMS', 'DIL', 'BEY', 'ADA'];
+/** v0.25 repatriations: the crisis airports where a state has many citizens (language, history, diaspora). */
+export const REPAT_TIES: Record<string, string[]> = {
+  PT: ['LAD', 'OXB', 'TMS', 'DIL'], FR: ['BKO', 'BGF', 'GOM', 'BEY'], BE: ['GOM'], DE: ['KBL', 'ADA'], NL: ['ADA'], GB: ['KBL'], IT: ['BEY'], ES: ['BKO'],
+};
+/** v0.25 the share of a full load a small state brings home (fewer citizens abroad). */
+export const SMALL_STATES: Record<string, number> = { MT: 0.5, IS: 0.5, LU: 0.5, CY: 0.55, EE: 0.6, LV: 0.65, SI: 0.65, LT: 0.7 };
 export const MISSION_AIRPORTS = ['BKO', 'BGF', 'MGQ', 'JUB', 'DJI'];
 /**
  * v0.24 where each start base's state really sends its troops (2024–2026 deployments), for its own defence
@@ -275,6 +334,8 @@ export interface TitleCtx {
   /** Country adjective of the client ('Portuguese'). */
   nation?: string;
   type?: string;
+  /** v0.25 the day of the month it starts (half-term weeks). */
+  day?: number;
 }
 
 /** Short trade names of clients (the rest keep their name). */
@@ -370,6 +431,9 @@ export const NATIONS: Record<string, string> = {
 };
 
 type TitleFn = (x: TitleCtx) => string;
+const PEAK = ['June', 'July', 'August'];
+/** A British half-term start: February, the last week of May, or October. Pure. */
+const halfTerm = (x: TitleCtx) => x.month === 'February' || x.month === 'October' || (x.month === 'May' && (x.day ?? 0) >= 22);
 const when = (ok: (x: TitleCtx) => boolean, t: TitleFn): TitleFn => (x) => (ok(x) ? t(x) : '');
 
 export const TITLES: Partial<Record<string, TitleFn[]>> = {
@@ -378,7 +442,9 @@ export const TITLES: Partial<Record<string, TitleFn[]>> = {
     (x) => `Weekend rotation to ${x.toCity}`,
     (x) => `Flights to ${x.toCity}`,
     when((x) => x.season === 'winter' || x.season === 'autumn' || x.season === 'easter', (x) => `${SEASON_WORD[x.season]} sun to ${x.toCity}`),
-    when((x) => x.nation === 'British' && x.season !== 'christmas' && x.season !== 'ski', (x) => `Half-term charters ${x.fromCity}–${x.toCity}`),
+    // v0.25 half-term is a week in February, late May or October: a short programme starting then, never July's.
+    when((x) => x.nation === 'British' && x.season !== 'ski' && x.n <= 3 && halfTerm(x), (x) => `Half-term charters ${x.fromCity}–${x.toCity}`),
+    when((x) => x.nation === 'British' && (x.month === 'July' || x.month === 'August'), (x) => `School holidays to ${x.toCity}`),
     when((x) => x.season === 'easter', (x) => `Easter programme to ${x.toCity}`),
     when((x) => x.season === 'autumn', (x) => `Autumn sun: ${x.toCity}`),
     when((x) => x.season === 'ski', (x) => `Ski charters ${x.fromCity}–${x.toCity}`),
@@ -393,10 +459,11 @@ export const TITLES: Partial<Record<string, TitleFn[]>> = {
     (x) => `Brochure flights to ${x.toCity}`,
   ],
   seasonBase: [
-    when((x) => x.season === 'summer', (x) => `Summer peak at ${x.fromCity}`),
+    // v0.25 the summer peak is June to August (not a September or October start).
+    when((x) => PEAK.includes(x.month), (x) => `Summer peak at ${x.fromCity}`),
     (x) => `Extra capacity at ${x.fromCity}`,
     (x) => `${SEASON_WORD[x.season]} wet lease, ${x.fromCity}`,
-    when((x) => x.season === 'summer' || x.season === 'christmas' || x.season === 'easter', (x) => `Holiday peak cover at ${x.fromCity}`),
+    when((x) => PEAK.includes(x.month), (x) => `Holiday peak cover at ${x.fromCity}`),
     (x) => `Base deployment ${x.fromCity}`,
     when((x) => x.n >= 120, (x) => `Year-round capacity at ${x.fromCity}`),
     (x) => `${x.fromCity} wet lease`,

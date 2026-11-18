@@ -1063,7 +1063,7 @@ setHourlyHook((g) => {
 // ---------- the analyst ----------
 
 /** verdict 'busy': the job pays, but no aircraft is free on its dates (score 0, shown as '—'). */
-export interface AnalystView { name: string; skill: number; score: number; verdict: 'take' | 'counter' | 'pass' | 'busy'; aircraftId: string | null; marginPct: number; counter: number | null; lines: string[] }
+export interface AnalystView { name: string; skill: number; score: number; verdict: 'take' | 'counter' | 'pass' | 'busy'; aircraftId: string | null; marginPct: number; counter: number | null; lines: string[]; /** v0.25 profit after the lease and the crews' pay on the best aircraft (same error as the margin). */ profit?: number }
 
 /**
  * The commercial analyst's take on an offer (null unless hired and on): the best flyable aircraft and its margin
@@ -1074,7 +1074,7 @@ export function analystView(g: GameState, offerId: string): AnalystView | null {
   const h = active(g, 'analyst');
   const o = g.offers[offerId];
   if (!h || !h.hired || !o || (o.status !== 'open' && o.status !== 'countered')) return null;
-  let best: { id: string; margin: number; rev: number } | null = null;
+  let best: { id: string; margin: number; rev: number; profit?: number } | null = null;
   // An aircraft refused only for being busy on the dates (its margin if it were free): 'no aircraft free', not 'pass'.
   // v0.20.1 `booked`: by a programme's days without flights yet (nothing to move or hand over frees it).
   let busy: { id: string; margin: number; rev: number; booked: boolean } | null = null;
@@ -1086,7 +1086,7 @@ export function analystView(g: GameState, offerId: string): AnalystView | null {
       if (only && (!busy || r.estMargin > busy.margin)) busy = { id, margin: r.estMargin, rev: r.estRevenue, booked: r.conflicts.programmes.length > 0 };
       continue;
     }
-    if (!best || r.estMargin > best.margin) best = { id, margin: r.estMargin, rev: r.estRevenue };
+    if (!best || r.estMargin > best.margin) best = { id, margin: r.estMargin, rev: r.estRevenue, profit: r.estProfit };
   }
   const skill = h.hired.skill;
   const err = analystErr(offerId, h);
@@ -1112,7 +1112,8 @@ export function analystView(g: GameState, offerId: string): AnalystView | null {
       : `Counter at ${fmt(counter!)}: they usually accept within ${Math.round((ratio - 1) * 100)} % of asking`,
   ];
   if (best && verdict === 'counter') lines.push(`On ${reg} at the asking price: margin about ${Math.round(marginPct)} %`);
-  return { name: h.hired.name, skill, score, verdict, aircraftId: best?.id ?? (verdict === 'busy' ? busy!.id : null), marginPct: verdict === 'busy' ? busyPct! : marginPct, counter, lines };
+  const profit = best && best.profit !== undefined && verdict !== 'busy' ? Math.round((best.profit + best.margin * err) / 1000) * 1000 : undefined;
+  return { name: h.hired.name, skill, score, verdict, aircraftId: best?.id ?? (verdict === 'busy' ? busy!.id : null), marginPct: verdict === 'busy' ? busyPct! : marginPct, counter, lines, ...(profit !== undefined ? { profit } : {}) };
 }
 
 /** The analyst's relative margin error on an offer: ±(1 − skill) × 15 %, fixed per offer and hire. */

@@ -6,6 +6,7 @@
 import { clientVoice } from '../../data/clientVoice';
 import { BAL } from '../core/balance';
 import { prestigeRelationX } from './prestige';
+import { seedRisk } from './payRisk';
 import { pushMessage } from '../core/messages';
 import { DAY, fmtDay, fmtMonth, monthKey } from '../core/time';
 import { clamp } from '../core/util';
@@ -446,6 +447,7 @@ export function loadRelations(g: GameState): void {
     if (c.lastJob === undefined) c.lastJob = ks.length ? Math.max(...ks.map((k) => k.end)) : null;
     c.log ??= [];
     c.level ??= levelFor(g, c, undefined);
+    seedRisk(c);
   }
   // v0.24 the clients met in an older save: from what it holds (the first job or the first relation change when known).
   // Once only (a save from this version keeps its own record).
@@ -457,6 +459,11 @@ export function loadRelations(g: GameState): void {
       if (c.met !== undefined || !(met.has(c.id) || (c.jobs ?? 0) > 0 || (c.log?.length ?? 0) > 0)) continue;
       c.met = Math.min(c.firstJob ?? g.now, c.log?.[0]?.[0] ?? g.now, g.now);
     }
+  }
+  // v0.25 the last visit to each client in an older save, from its finished trips (the revisit cool-down).
+  for (const t of g.com?.trips ?? []) {
+    const c = t.kind === 'visit' && t.status === 'done' && t.clientId ? g.clients[t.clientId] : undefined;
+    if (c && (c.lastVisit === undefined || c.lastVisit < t.start)) c.lastVisit = t.start;
   }
   g.company.standing ??= standingFor(g);
   statsV08(g);

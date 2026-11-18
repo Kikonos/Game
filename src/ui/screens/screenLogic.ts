@@ -166,14 +166,14 @@ export function reqChips(r: Requirements, pattern?: SchedulePattern, opts: { sha
   const pax = pattern ? maxPax(pattern) : 0;
   const allY = layouts?.length === 1 && layouts[0] === 'all-economy';
   const maxSeats = !pax && allY && r.minSeats >= 174;
-  // 'Max seats N+' already says the seats; no plain chip beside it.
+  // '180+ seats, all economy' already says the seats; no plain chip beside it.
   const out: Chip[] = r.minSeats > 0 && !maxSeats
     ? [pax && pattern ? { label: seatNeedText({ pattern, requirements: r }), tip: 'Seats the client needs: one for each passenger' } : { label: r.maxSeats ? `${r.minSeats}–${r.maxSeats} seats` : `${r.minSeats}+ seats`, tip: 'Seats the client needs' }]
     : [];
   if (r.body && !opts.shape) out.push({ label: r.body === 'wide' ? 'Widebody' : 'Narrowbody', tip: `The client wants a ${r.body === 'wide' ? 'widebody' : 'narrowbody'}` });
   if (r.families?.length && r.families.length <= 2) out.push({ label: r.families.join(' / ') });
   // v0.7: accepted layouts (supersede `layout`) and premium seats.
-  if (maxSeats) out.push({ label: `Max seats ${r.minSeats}+`, tone: 'warn', tip: 'All-economy, high-density cabin' });
+  if (maxSeats) out.push({ label: `${r.minSeats}+ seats, all economy`, tone: 'warn', tip: 'High-density cabin: every seat in economy' });
   else if (pax && allY) out.push({ label: 'All economy', tone: 'warn', tip: 'Every seat in economy (high density)' });
   else if (layouts?.length === 1 && layouts[0] === 'vip') out.push({ label: 'VIP cabin', tone: 'warn', tip: 'Needs a VIP layout (refit on the Fleet card)' });
   else if (layouts && !layouts.includes('all-economy')) out.push({ label: layouts.length === 1 ? layouts[0].replace('-', ' ') : 'Premium cabin', tip: `Cabins: ${layouts.map((l) => (l === 'vip' ? 'VIP' : l)).join(', ')}` });

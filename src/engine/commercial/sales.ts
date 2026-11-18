@@ -32,7 +32,8 @@ import { PRESTIGE_GATE, clientPrestige, noteStretch, playerPrestige } from '../c
 import { bumpClient } from '../contracts/relations';
 import { busyShare } from '../ops/director';
 import { lockOf } from '../scenario/rules';
-import { mkHurt, type ProblemCard } from '../problems/types';
+import { hurtProse, mkHurt, type ProblemCard } from '../problems/types';
+import { possessive } from '../contracts/flavor';
 import { rollPeople } from './people';
 import { bumpPresence, clientMarket, homeMarket, presenceWeight } from './presence';
 import { busyNow, com, comStats, paceOf, sideOf, usdK, withStream } from './state';
@@ -346,7 +347,11 @@ interface NewLead {
 
 /** A lead into the pipeline (null when no sensible job could be drafted for that client). */
 function newLead(g: GameState, c: Client, x: NewLead): Lead | null {
-  const q = quoteLead(g, c, x.archetypes, x.key, x.opts, x.body);
+  // v0.25 one live lead per client and kind of work: two 'October capacity at Riyadh' leads at once read as a bug.
+  const busy = new Set(leads(g).filter((l) => l.clientId === c.id && live(l)).map((l) => l.archetype));
+  const kinds = x.archetypes.filter((a) => !busy.has(a));
+  if (!kinds.length) return null;
+  const q = quoteLead(g, c, kinds, x.key, x.opts, x.body);
   if (!q) return null;
   const r = sideOf(g, `lead:${x.key}:reply`);
   const stage: LeadStage = x.stage ?? 'lead';
@@ -565,7 +570,7 @@ function leadLifetimes(g: GameState): void {
         const card = leadColdCard(g, l.id);
         if (card) {
           pushMessage(g, {
-            tone: 'warn', cat: 'commercial', title: card.what, body: `${card.why} ${card.hurt.text}.`, ref: card.subject.ref, cue: 'notice',
+            tone: 'warn', cat: 'commercial', title: card.what, body: `${card.why} ${hurtProse(card)}.`, ref: card.subject.ref, cue: 'notice',
             problem: card.subject, hurt: { money: card.hurt.money, pax: card.hurt.pax, delayMin: card.hurt.delayMin, level: card.hurt.level },
           });
         }
@@ -998,7 +1003,7 @@ export function leadColdCard(g: GameState, leadId: string): ProblemCard | null {
   if (left > S.lead.warnDays * DAY) return null;
   const days = Math.max(0, Math.ceil(left / DAY));
   const name = g.clients[l.clientId]?.name ?? 'The client';
-  const what = `${name}'s lead goes cold ${days <= 0 ? 'today' : `in ${days} day${days === 1 ? '' : 's'}`}`;
+  const what = `${possessive(name)} lead goes cold ${days <= 0 ? 'today' : `in ${days} day${days === 1 ? '' : 's'}`}`;
   // v0.16.3 the lead sits under Contracts › Market › Leads (was the Sales tab).
   const open = { tab: 'contracts' as const, view: 'leads', sel: { kind: 'lead' as const, id: l.id } };
   return {

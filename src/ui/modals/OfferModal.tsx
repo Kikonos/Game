@@ -14,7 +14,7 @@ import { AIRPORT_BY_CODE } from '../../data/airports';
 import { flag } from '../../data/countries';
 import { artFor } from '../../data/acmiTypes';
 import {
-  acceptOffer, askingPrice, cabinQuote, cabinTarget, counterOffer, counterView, declineOffer, isTenderOffer, deportationCleanHit, feasibilityAll, leadDays, markOfferSeen, offerClientLine, offerCompetition,
+  acceptOffer, askingPrice, brokerCut, cabinQuote, cabinTarget, counterOffer, counterView, declineOffer, isTenderOffer, deportationCleanHit, feasibilityAll, leadDays, markOfferSeen, offerClientLine, offerCompetition,
   offerRestLine, paintQuote, paintTermsText, termsProduct, tourBizPct, tourCrew, tourSight, tourStops, type FeasibilityReport, typeMisfit,
 } from '../../engine/contracts';
 import { TourMap } from '../map/TourMap';
@@ -37,6 +37,7 @@ import { ProblemCardView } from '../components/ProblemCard';
 import { Modal, Stepper, Toggle } from '../components/ui';
 import { money } from '../format';
 import { RouteConflicts } from './RouteConflicts';
+import { cancelTiers } from './contractSheetLogic';
 import type { RouteChoice } from '../../engine/network/types';
 import { ArchIcon, Chips, Dot, KV } from '../screens/common';
 import { fuelLine } from '../screens/screenLogic';
@@ -108,7 +109,7 @@ function Terms({ g, o, deposit, onDeposit }: { g: GameState; o: ContractOffer; /
   const arrears = p.kind === 'charter' ? 'Invoiced after the job' : 'Monthly in arrears';
   // v0.15.1 a charter is paid before it flies (the deposit and the balances above); it read 'On completion'.
   rows.push(['Payment', `${pay.basis === 'advance' ? 'In advance' : pay.basis === 'arrears' ? arrears : 'Deposit and balances before the trips'}, net ${pay.dueDays} days`]);
-  rows.push(['If we cancel', o.penalties.cancelScale.map(([d, f]) => `${d} d ${Math.round(f * 100)}%`).join(' · ') || '—']);
+  rows.push(['If we cancel', cancelTiers(o.penalties.cancelScale)]);
   if (o.penalties.perCancelledLeg) rows.push(['Per cancelled leg', usd(o.penalties.perCancelledLeg)]);
   return (
     <>
@@ -279,6 +280,7 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal
   // v0.6: the client-paid extra crew lifts the price (as on the Accept button); the extra crew's cost is already in estCost.
   const revenue = r.estRevenue * lift;
   const margin = r.estMargin + revenue - r.estRevenue;
+  const profit = r.estProfit !== undefined ? r.estProfit + revenue - r.estRevenue : undefined;
   const crew = offerCrewLine(r, g.offers[offerId]?.product.kind === 'dry');
   // An aircraft that can't take the job leads with why (e.g. busy on another contract), not a positioning plan.
   // v0.18 the most important reason first (contracts/blockers.ts): an approval or the wrong aircraft before busy days.
@@ -304,7 +306,7 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal
         </span>
         <span className="right">
           <b className={`num ${block ? 'dim' : margin >= 0 ? 'good' : 'bad'}`}>{money(margin)}</b>
-          <span className="tiny dim">profit</span>
+          <span className="tiny dim">margin</span>
         </span>
       </button>
       {portal}
@@ -327,6 +329,8 @@ function AircraftRow({ g, r, on, onPick, billBH, lift = 1, offerId, long, portal
           {/* v0.18 the aircraft's spec sheet (ui/specs). */}
           <div className="row"><SpecsLink subject={{ kind: 'aircraft', id: r.aircraftId }} label={`${ac.reg} specs`} /></div>
           <div className="small muted">Revenue {money(revenue)}{lift > 1 ? ` (incl. client-paid extra crew +${money(revenue - r.estRevenue)})` : ''} · costs {money(r.estCost)} · {Math.round(r.estBH)} BH flown{r.estBH - billBH > 0.5 ? ` (incl. ${Math.round(r.estBH - billBH)} BH positioning and empty legs)` : ''}</div>
+          {/* v0.25 fully loaded: the margin above leaves out the lease and the crew's pay (paid anyway). */}
+          {r.estProfit !== undefined && <div className="small row gap-6" style={{ alignItems: 'center' }}><span className={profit! >= 0 ? '' : 'bad-t'}>Profit after lease and crew about {money(profit!)}</span><MarginHelp /></div>}
           {/* Round 4 (§V): the crew check line above already says the shortage; no footer repeats it. */}
         </div>
       )}
@@ -563,6 +567,16 @@ const blurbOf = (o: ContractOffer) => {
 
 const SLIP_RE = /^Crew change at /;
 
+/** v0.25 what the margin leaves out, behind a '?'. */
+function MarginHelp() {
+  return (
+    <Help title="Margin and profit">
+      <p>The margin is what the job earns over its own costs: fuel, airport fees, maintenance, catering, crew travel, hotels and per diem.</p>
+      <p>The aircraft lease and the crew's salaries are paid whether it flies or not, so the margin leaves them out. The profit takes them off for the days the job ties the aircraft up.</p>
+    </Help>
+  );
+}
+
 /**
  * v0.9 §5.5 the commercial analyst's block (hired and on): score, verdict lines and 'Use $1.24M', which sets the counter
  * to the nearest step at or above the suggestion.
@@ -585,6 +599,7 @@ function AnalystBlock({ g, offerId, fmtP, steps, lift, onUse }: { g: GameState; 
         <span className={`v9-score ${tone}`}>{av.verdict === 'busy' ? '—' : av.score}</span>
       </div>
       {lines.map((l, i) => <span key={i} className={`small ${i ? 'muted' : ''}`}>{l}</span>)}
+      {av.profit !== undefined && <span className="small muted row gap-6" style={{ alignItems: 'center' }}>Profit after lease and crew about {money(av.profit)}<MarginHelp /></span>}
       {step !== null && onUse && <button className="btn btn-sm v9-use" onClick={() => onUse(step)}>Use {use}</button>}
     </div>
   );
@@ -709,7 +724,7 @@ export function OfferModal({ offerId }: { offerId: string }) {
           </div>
           <div>
             <b>{cl ? `${flag(cl.country)} ${cl.name}` : 'Client'}</b>
-            {o.broker && <span className="chip sc-chip sc-broker">via {o.broker} (5%)</span>}
+            {o.broker && <span className="chip sc-chip sc-broker">via {o.broker} ({+(brokerCut(o) * 100).toFixed(1)}%)</span>}
             <div className="of-shape-head">{routeSummary(o.pattern) && <span className="small muted mono">{routeSummary(o.pattern)}</span>}<ShapeTags s={shapeOf(o)} /></div>
             {/* v0.20.1 how long the job runs, at a glance: the months ahead with its days filled in, then days and months. */}
             <DurationStrip now={g.now} first={offerDays(o)[0]} last={o.pattern.kind === 'base' ? offerDays(o)[1] : Math.max(o.start, o.end - 1)} className="of-dur" />

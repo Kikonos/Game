@@ -7,9 +7,11 @@ import { DAY } from '../core/time';
 import { newGame } from './testkit';
 
 describe('payers', () => {
-  it('governments are late in at least 70% of 1,000 invoices, 25–90 days', () => {
+  it('governments of higher-risk countries are late in at least 70% of 1,000 invoices, 25–90 days', () => {
     const g = newGame(5);
-    const gov = Object.values(g.clients).find((c) => c.kind === 'government')!;
+    // v0.25 by country risk: a low-risk state (the EU, the UK, North America ...) mostly pays on time.
+    const gov = Object.values(g.clients).find((c) => c.kind === 'government' && c.risk === 'high')!;
+    expect(gov, 'a higher-risk government in the game').toBeDefined();
     expect(gov.payReliability).toBe(0.2);
     let late = 0;
     for (let i = 0; i < 1000; i++) {

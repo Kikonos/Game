@@ -18,7 +18,7 @@ import { dailyDryLease, dailyFarRoute, dailyRepeats, dailySubIn, dailyWorldTour 
 export { acceptOffer, askingPrice, cancelByClient, cancelContract, cancelCost, cancelPenalty, contractProgress, counterOffer, declineOffer, isTenderOffer, leadDays, setPrice, type ContractProgress, type SignOpts } from './accept';
 export { paintQuote, paintTermsText, paintWindow, type PaintSlot } from './paintTerms';
 export { cabinQuote, cabinTarget, cabinTermsText, rollCabin, termsProduct } from './cabinTerms';
-export { billContractMonth, type BillingLine } from './billing';
+export { billContractMonth, brokerCut, type BillingLine } from './billing';
 export { feasibility, feasibilityAll, typeMisfit, marketFit, offerRestLine, type MarketFit, type CheckId, type CheckLevel, type FeasibilityCheck, type FeasibilityReport, type PositioningLeg } from './feasibility';
 export { fmtPrice, generateOffer, idleWindows, type IdleWindow, type OfferOpts } from './offers';
 export { maxPax, seatNeedText } from './plan';

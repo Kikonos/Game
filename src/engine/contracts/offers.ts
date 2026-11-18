@@ -28,7 +28,7 @@ import { acceptOffer, closeOffer, setPrice } from './accept';
 import { callReplyMin, isCallOffer, missedCall, REPLY_MIN } from './call';
 import { answerBy, counterBase, counterOdds, halfwayPrice, leftOf } from './counter';
 import { crewChains, feasibility, ulrNeed, type CheckId, type UlrNeed } from './feasibility';
-import { adhocGroupClients, clientPrefix, clientsOf, isMarketClient, isBigClub, isCruiseLine, isDiaspora, isGovernment, isMarineCrewing, isPilgrim, ministry, rivalFor } from './clients';
+import { adhocGroupClients, clientPrefix, clientsOf, isMarketClient, isBigClub, isCruiseLine, isDiaspora, isFederation, isGovernment, isMarineCrewing, isPilgrim, ministry, rivalFor } from './clients';
 import * as F from './flavor';
 import { paintTermsText, rollPaint, sideRng } from './paintTerms';
 import { cabinTarget, cabinTermsText, rollCabin } from './cabinTerms';
@@ -41,7 +41,7 @@ import { brokerIdOf, brokerName } from '../commercial/sales';
 import { offerHidden } from './filter';
 import { statsV016 } from '../core/stats016';
 import { rivalTakes, rollRivalBid } from './rivals';
-import { closedAirport, closedUntil, closurePlanned, inWarZone, permitEvent, setClosureOfferHook, warRiskLandings } from '../ops/world';
+import { closedAirport, closedUntil, closurePlanned, eventsOf, inWarZone, isLive, permitEvent, setClosureOfferHook, warRiskLandings } from '../ops/world';
 import { setClosurePlannedHook, setOpenFromHook } from './schedule';
 import { curfewOk, curfewShift } from '../core/curfew';
 import type { HajjDates } from '../../data/worldCalendar';
@@ -484,7 +484,8 @@ function seasonBase(ctx: Ctx): Draft | null {
     const n = wide ? int(g, 2, 4) : int(g, 4, 8);
     // v0.8 network airlines with a listed market fly their own cities (size, not sun); never a war zone.
     const net = !!AIRLINE_MARKETS[client.name];
-    const ok = (a: Airport) => inMarket(client, a);
+    // v0.25 a leisure airline's winter term flies to resorts open in winter (not Rhodes or Olbia in January).
+    const ok = (a: Airport) => inMarket(client, a) && (net || F.baseDestOpen(a.code, from, to));
     let pool = wide
       ? airportsWithin(base, 2500, 6500, (a) => a.size >= 3 && ok(a))
       : net ? airportsWithin(base, 400, 3200, (a) => a.size >= 3 && ok(a)) : airportsWithin(base, 400, 2200, (a) => a.tour >= 0.75 && ok(a));
@@ -645,9 +646,20 @@ export function roundTrip(g: GameState, a: string, b: string, start: Minute, bac
   return legs;
 }
 
+type AdhocVariant = NonNullable<OfferOpts['variant']>;
+/** v0.25 the ad-hoc kind a named client does (diaspora agencies fly families home, ship managers crew changes ...). Pure. */
+export function variantOf(c: Client): AdhocVariant {
+  return isDiaspora(c) ? 'diaspora' : isPilgrim(c) ? 'pilgrimage' : c.kind === 'music' ? 'music' : isMarineCrewing(c) ? 'oneway' : 'group';
+}
+/** A group trip suits any client some group lists (a diaspora agency also books incentive groups). Pure. */
+const fitsVariant = (g: GameState, c: Client, v: AdhocVariant) => variantOf(c) === v || (v === 'group' && F.ADHOC_GROUPS.some((x) => adhocGroupClients(g, x).some((y) => y.id === c.id)));
+
 function adhoc(ctx: Ctx): Draft | null {
   const { g, wide, o } = ctx;
-  const variant = o.variant ?? weightedPick(g, ['group', 'diaspora', 'pilgrimage', 'music', 'oneway'] as const, (v) =>
+  // v0.25 a client asked for by name (a lead, a visit, repeat work) gets the kind of trip it does: a diaspora charter for
+  // a diaspora agency, never for Shell, Siemens or Real Madrid.
+  const named = o.client ? g.clients[o.client] : undefined;
+  const variant = (named && !(o.variant && fitsVariant(g, named, o.variant)) ? variantOf(named) : o.variant) ?? weightedPick(g, ['group', 'diaspora', 'pilgrimage', 'music', 'oneway'] as const, (v) =>
     ({ group: 0.45, diaspora: 0.15, pilgrimage: 0.12, music: 0.1, oneway: 0.18 })[v])!;
   let client: Client | undefined;
   let legs: LegTemplate[] = [];
@@ -668,7 +680,7 @@ function adhoc(ctx: Ctx): Draft | null {
     if (!dest || back < 2) return null;
     legs = roundTrip(g, home, dest, s, back, pax);
     title = `Diaspora charter ${home}–${dest}`;
-    blurb = pick(g, F.DIASPORA_BLURBS)({ client: client.name, dest: city(dest), reason: pick(g, dz?.reasons ?? F.DIASPORA_REASONS), day: fmtDay(legs[0].dep), back });
+    blurb = pick(g, F.DIASPORA_BLURBS)({ client: client.name, dest: city(dest), reason: pick(g, F.diasporaReasonsAt(dz?.reasons ?? F.DIASPORA_REASONS, legs[0].dep)) ?? F.DIASPORA_ANY, day: fmtDay(legs[0].dep), back });
   } else if (variant === 'pilgrimage') {
     client = nearClient(ctx, clientsOf(g, ['agency'], (c) => isPilgrim(c) && !!AIRPORT_BY_CODE[c.base]));
     if (!client) return null;
@@ -725,7 +737,10 @@ function adhoc(ctx: Ctx): Draft | null {
     }
   } else {
     // Groups fit their clients (film crews for BBC Studios, never a trade fair for F1) and their aircraft size.
-    const groups = F.ADHOC_GROUPS.filter((x) => (!wide || x.wide !== false) && adhocGroupClients(g, x).length);
+    const groups0 = F.ADHOC_GROUPS.filter((x) => (!wide || x.wide !== false) && adhocGroupClients(g, x).length);
+    // v0.25 a named client: the groups it would really send (film crews for BBC Studios), any group as the fallback.
+    const mine = named ? groups0.filter((x) => adhocGroupClients(g, x).some((c) => c.id === named.id)) : [];
+    const groups = mine.length ? mine : groups0;
     if (!groups.length) return null;
     const group = pick(g, groups);
     client = nearClient(ctx, adhocGroupClients(g, group));
@@ -826,7 +841,9 @@ function sportsBase(ctx: Ctx): Draft | null {
   const client = nearClient(ctx, clientsOf(g, ['sports'], (c) => !!AIRPORT_BY_CODE[c.base] && (!wide || isBigClub(c))));
   if (!client) return null;
   const home = client.base;
-  const season = !wide && chance(g, 0.25);
+  // v0.25 a federation flies its national team to one away game at a time, abroad (no league away days for the FPF).
+  const fed = isFederation(client);
+  const season = !wide && chance(g, 0.25) && !fed;
   const trips = season ? int(g, 3, 8) : 1;
   const every = season ? int(g, 7, 14) : 0;
   const span = (trips - 1) * every * DAY + 2 * DAY;
@@ -850,14 +867,21 @@ function sportsBase(ctx: Ctx): Draft | null {
       risk: { disruption: 0.2, politics: 0, permit: 0 }, hook: hookFor(ctx),
     };
   }
-  // League games stay in the country; cup ties and European nights go abroad.
+  // League games stay in the country (v0.25 in cities with a top-flight club); cup ties and European nights go abroad.
   const ctry = AIRPORT_BY_CODE[home]?.country;
-  const domestic = airportsWithin(home, 250, 3500, (a) => a.country === ctry && a.size >= 2 && a.runwayM >= 2400);
-  const abroad = airportsWithin(home, 500, 3500, (a) => a.country !== ctry && a.continent === 'EU' && a.size >= 3 && a.runwayM >= 2400);
-  const league = domestic.length >= trips && chance(g, season ? 0.8 : 0.55);
+  const cities = F.LEAGUE_CITIES[ctry ?? ''];
+  const domestic = airportsWithin(home, 250, 3500, (a) => a.country === ctry && (cities ? cities.includes(a.code) : a.size >= 2) && a.runwayM >= 2400);
+  const rugby = /Rugby/.test(client.name);
+  const venues = rugby ? F.SIX_NATIONS : F.NATIONAL_VENUES;
+  const abroad = fed
+    ? airportsWithin(home, 300, 4000, (a) => a.country !== ctry && venues.includes(a.code) && a.runwayM >= 2400)
+    : airportsWithin(home, 500, 3500, (a) => a.country !== ctry && a.continent === 'EU' && a.size >= 3 && a.runwayM >= 2400);
+  const league = !fed && domestic.length >= trips && chance(g, season ? 0.8 : 0.55);
   const aways = o.airport ? [o.airport] : pickN(g, league ? domestic : abroad, trips, (a) => a.size).map((a) => a.code);
   if (aways.length < trips) return null;
-  const titles = league ? F.SPORT_TITLES_HOME.filter((t) => !t.startsWith('Short') || km(home, aways[0]) < 700) : F.SPORT_TITLES_ABROAD;
+  const titles = fed
+    ? rugby ? F.SPORT_TITLES_RUGBY : /Basketball/.test(client.name) ? F.SPORT_TITLES_BASKETBALL : F.SPORT_TITLES_NATIONAL
+    : league ? F.SPORT_TITLES_HOME.filter((t) => !t.startsWith('Short') || km(home, aways[0]) < 700) : F.SPORT_TITLES_ABROAD;
   for (let i = 0; i < trips; i++) {
     const match = s + DAY + i * every * DAY;
     legs.push({ from: home, to: aways[i], dep: atLocal(home, match - DAY, int(g, 22, 32) * 30), flightNo: '', pax });
@@ -869,7 +893,7 @@ function sportsBase(ctx: Ctx): Draft | null {
     title: season ? `${league ? 'League' : 'European'} away package: ${trips} trips` : `${pick(g, titles)} ${city(aways[0])}`,
     blurb: season
       ? `${client.name} want one operator for their next ${trips} away games (${listCities(aways)}), roughly every ${every} days. Out the day before, back after the match at 23:00 local. Two extra cabin crew.`
-      : `${client.name} play in ${city(aways[0])} on ${fmtDay(legs[1].dep)}. Out the day before, back straight after the match at 23:00 local; extra time can push it. Two extra cabin crew for the team service.`,
+      : `${fed ? `${client.name}: the national team plays` : `${client.name} play`} in ${city(aways[0])} on ${fmtDay(legs[1].dep)}. Out the day before, back straight after the match at 23:00 local; extra time can push it. Two extra cabin crew for the team service.`,
     pattern: { kind: 'legs', legs },
     req: { minSeats: pax, extraCabin: 2, approvals: [] },
     start: legs[0].dep, end: last.dep + 6 * 60,
@@ -887,12 +911,19 @@ function repatriation(ctx: Ctx): Draft | null {
   const client = (o.client && g.clients[o.client]?.kind === 'government' ? g.clients[o.client] : undefined) || ministry(g, 'Foreign Affairs');
   if (!client) return null;
   const home = g.company.homeBase;
-  const crisis = o.airport ?? pick(g, F.CRISIS_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home));
+  // v0.25 where its citizens really are in trouble: a live world event in that country (×4), the state's own ties
+  // (Portugal and Angola, France and Mali; ×3), and nearer before farther.
+  const live = new Set(eventsOf(g).filter((e) => isLive(g, e)).map((e) => e.country));
+  const ties = F.REPAT_TIES[client.country] ?? [];
+  const crisis = o.airport ?? weightedPick(g, F.CRISIS_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home), (c) =>
+    (live.has(AIRPORT_BY_CODE[c].country) ? 4 : 1) * (ties.includes(c) ? 3 : 1) / (1 + km(home, c) / 4000));
+  if (!crisis) return null;
   const n = o.rotations ?? (wide ? int(g, 1, 2) : int(g, 1, 3));
   const lead = o.start !== undefined ? o.start - g.now : int(g, 24, 72) * 60;
   // v0.8 pre-release: seats = passengers, so a widebody load is drawn where the seat ask was before the fix pack (250):
   // 240–265, within a two-class 767-300 (267) and every A330/A340, not 260–300 (most no longer fit the first widebody).
-  const pax = wide ? int(g, 240, 265) : int(g, 140, 175);
+  // v0.25 a small state has fewer citizens to bring home (Malta, Estonia).
+  const pax = Math.round((wide ? int(g, 240, 265) : int(g, 140, 175)) * (F.SMALL_STATES[client.country] ?? 1));
   // v0.8 fix pack: the real chain on the type the job is priced on (fuel stops included); no type reaches: no offer.
   const ref = referenceType({ minSeats: pax }, [[crisis, home]]);
   const est = ref ? route(ref, crisis, home) : null;
@@ -931,7 +962,7 @@ function repatriation(ctx: Ctx): Draft | null {
 export function titleFor(ctx: Ctx, arch: string, client: Client, x: Omit<F.TitleCtx, 'client' | 'brand' | 'fromCity' | 'toCity' | 'season' | 'month'> & { start: Minute }, fallback: string): string {
   const { g } = ctx;
   const tc: F.TitleCtx = {
-    ...x, client: client.name, brand: F.brandOf(client.name), fromCity: city(x.from), toCity: city(x.to), season: F.seasonOf(x.start, x.to, x.from), month: F.monthOf(x.start, x.from),
+    ...x, client: client.name, brand: F.brandOf(client.name), fromCity: city(x.from), toCity: city(x.to), season: F.seasonOf(x.start, x.to, x.from), month: F.monthOf(x.start, x.from), day: toDate(toLocal(x.from, x.start)).getUTCDate(),
     nation: x.nation ?? F.NATIONS[client.country],
   };
   return F.pickTitle(sideRng(g, `title:${g.seq}:${g.now}:${arch}`), F.TITLES[arch], tc, g.clients[client.id]?.lastTitle, fallback);
@@ -960,6 +991,13 @@ function tourSeries(ctx: Ctx): Draft | null {
   if (n < 3) return null;
   const s = o.start ?? pickStart(ctx, 30 * DAY, 120 * DAY, n * 7 * DAY);
   if (s === null) return null;
+  // v0.25 no beach series to Burgas in November or Rhodes in January: a summer-only resort is swapped for one open
+  // then (side RNG: the offer stream is unchanged).
+  if (!o.airport && !F.resortOpen(resort, s, s + (n - 1) * 7 * DAY)) {
+    const open = resorts.filter((c) => F.resortOpen(c, s, s + (n - 1) * 7 * DAY));
+    if (!open.length) return null;
+    resort = pick(sideRng(g, `open:${g.seq}:${g.now}`), open);
+  }
   // v0.7.2 winter programmes sometimes go to the snow (side RNG: the offer stream is unchanged).
   const mo = toDate(s).getUTCMonth();
   if (!o.airport && !wide && (mo === 11 || mo <= 2)) {
@@ -1007,7 +1045,10 @@ function troopRotation(ctx: Ctx): Draft | null {
   const home = g.company.homeBase;
   // v0.24 our own state's ministry flies to where its troops really serve (flavor.ts HOME_MISSIONS), now and then elsewhere.
   const own = !un && client.country === AIRPORT_BY_CODE[home]?.country ? (F.HOME_MISSIONS[client.country] ?? []).filter((c) => AIRPORT_BY_CODE[c] && c !== home) : [];
-  const pool = own.length && chance(sideRng(g, `tmh:${g.seq}:${g.now}`), 0.75) ? own : F.MISSION_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home);
+  // v0.25 an African Union mission (AUSSOM) flies African contingents: not a European ministry's, nor the UN's.
+  const african = !un && AIRPORT_BY_CODE[client.base]?.continent === 'AF';
+  const generic = F.MISSION_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home && (F.MISSION_NAMES[c]?.org !== 'AU' || african));
+  const pool = own.length && chance(sideRng(g, `tmh:${g.seq}:${g.now}`), 0.75) ? own : generic;
   const mission = o.airport ?? pick(g, pool);
   const n = o.rotations ?? int(g, 2, 4);
   let spanDays = o.days ?? int(g, 30, 90);

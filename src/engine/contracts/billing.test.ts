@@ -7,7 +7,7 @@ import { DAY, fromUTC, monthKey } from '../core/time';
 import type { Contract, GameState } from '../core/types';
 import { cancelLegs } from '../ops/flights';
 import { acceptOffer, billContractMonth, cancelContract, cancelCost, cancelPenalty, contractProgress } from '.';
-import { mghFor, mghRemaining, noteLostLegs, onFlightArrivedContracts } from './billing';
+import { brokerCut, mghFor, mghRemaining, noteLostLegs, onFlightArrivedContracts } from './billing';
 import { clientMoved, moveFlight } from '../ops/flights';
 import { v09Stats } from '../crew/dayPlan';
 import { feasibility } from './feasibility';
@@ -81,6 +81,19 @@ describe('billContractMonth', () => {
     const fee = c.product.kind === 'wet' ? c.product.cycleFee : 0;
     const gross = Math.round(200 * rate(c)) + Math.round(10 * fee);
     expect(sum(billContractMonth(g, c, may))).toBeCloseTo(gross * (1 - BAL.brokerCommission), -1);
+  });
+
+  // v0.25 the dialog said 5 % for every broker; ACS takes 4 %, and the invoice and the estimate use the broker's own rate.
+  it('a known broker bills at its own commission (ACS 4 %)', () => {
+    const c = fresh();
+    c.broker = 'Air Charter Service';
+    c.brokerId = 'acs';
+    expect(brokerCut(c)).toBeCloseTo(0.04, 6);
+    c.use[may] = { blockMin: 200 * 60, cycles: 80, shortCycles: 0 };
+    const gross = Math.round(200 * rate(c));
+    const lines = billContractMonth(g, c, may);
+    expect(sum(lines)).toBeCloseTo(gross * 0.96, -1);
+    expect(lines.some((l) => l.desc.includes('commission 4%'))).toBe(true);
   });
 });
 
@@ -305,8 +318,18 @@ describe('v0.12.1 Hajj phases (MGH inside the terms only)', () => {
     o.estValue = productValue(o.product, o.estBH, o.start, o.end, o.terms);
     const ids = Object.keys(g.fleet);
     expect(ids.length).toBeGreaterThan(0);
-    for (const id of ids) expect(feasibility(g, o.id, id).estRevenue).toBe(Math.round(o.estValue * (1 - (o.broker ? BAL.brokerCommission : 0))));
+    for (const id of ids) expect(feasibility(g, o.id, id).estRevenue).toBe(Math.round(o.estValue * (1 - brokerCut(o))));
     expect(o.estValue).toBeLessThan(productValue(o.product, o.estBH, o.start, o.end));
+  });
+  it('v0.25 an offer brought by ACS: the estimate takes 4 %, not the generic 5 %', () => {
+    const g = newGame(5);
+    const o = g.offers[devHajj(g)];
+    o.broker = 'Air Charter Service';
+    o.brokerId = 'acs';
+    if (o.product.kind === 'wet') o.product.mghPerMonth = 600;
+    o.estValue = productValue(o.product, o.estBH, o.start, o.end, o.terms);
+    const id = Object.keys(g.fleet)[0];
+    expect(feasibility(g, o.id, id).estRevenue).toBe(Math.round(o.estValue * 0.96));
   });
 });
 

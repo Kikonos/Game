@@ -33,6 +33,7 @@ import { closedAirport, closedUntil } from '../ops/world';
 import { netHooks } from '../core/netHooks';
 import { checkAirportOk } from '../ops/maintenance';
 import { emptyDay } from './schedule';
+import { brokerCut } from './billing';
 import { curfewOk } from '../core/curfew';
 import { pmCostX } from '../ops/pm';
 
@@ -83,6 +84,10 @@ export interface FeasibilityReport {
   estRevenue: number;
   estCost: number;
   estMargin: number;
+  /** v0.25 the lease and the crews' pay over the days the job ties the aircraft up (paid anyway, so left out of the
+   *  contribution above), and the profit after them: estMargin − estFixed. Absent on a dry lease out. */
+  estFixed?: number;
+  estProfit?: number;
   /** v0.5.1: paint-shop slot before the job (offers with client paint, paint on). */
   paint?: PaintSlot;
   /** v0.7.4: the client's reconfiguration window (offers with a cabin request, on, when the cabin must change). */
@@ -792,7 +797,7 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   rep.estBH = Math.round(bh * 10) / 10;
   const product = termsProduct(o, { paint: paintOn, cabin: cabinOn });
   // v0.12.1 Hajj MGH inside the phases only (o.terms), and a broker's cut on wet work too (the invoice takes it).
-  rep.estRevenue = Math.round((product.kind === 'wet' ? productValue(product, revBH + (product.positioningBillable ? posBH : 0), o.start, o.end, o.terms) : productValue(product, revBH, o.start, o.end)) * (1 - (o.broker ? BAL.brokerCommission : 0)));
+  rep.estRevenue = Math.round((product.kind === 'wet' ? productValue(product, revBH + (product.positioningBillable ? posBH : 0), o.start, o.end, o.terms) : productValue(product, revBH, o.start, o.end)) * (1 - brokerCut(o)));
   // v0.12.1 a world tour pays more for this aircraft's business seats (accept.ts at signing).
   rep.estRevenue = Math.round(rep.estRevenue * (1 + tourBizPct(o.archetype, cab.j)));
   // v0.9 §Y.2 fuel at cost: the client pays this aircraft's own burn on the revenue legs after flying.
@@ -844,8 +849,20 @@ export function feasibility(g: GameState, offerId: string, aircraftId: string, o
   if (!wet && rn.slips) cost += rn.slips.reduce((n, x) => n + slipCost(x), 0);
   rep.estCost = Math.round(cost);
   rep.estMargin = rep.estRevenue - rep.estCost;
+  // v0.25 fully loaded: the lease and the crew sets' pay (with on-costs) for each day the job ties the aircraft up
+  // (an ACMI deal at 76 % contribution can lose money once these are paid).
+  const tied = Math.max(1, Math.ceil((o.end - o.start) / DAY));
+  const lease = ac.ownership.kind === 'dryLeaseIn' ? ac.ownership.rentPerMonth / MONTH_DAYS : 0;
+  const wb = t.body === 'wide' ? 1 : 0;
+  const roles = complement(t.id, seats, { extraCabin: xc.cabin, augment: rn.need?.mode === 'aug2' ? 2 : rn.need?.mode === 'aug1' ? 1 : 0, restCabin: rn.need?.plan?.extraCabin ?? 0 });
+  const setPay = ((roles.reduce((n, r) => n + (BAL.salary[r]?.[wb] ?? 0), 0) + xc.pilot * BAL.salary.FO[wb]) * (1 + BAL.onCosts)) / MONTH_DAYS;
+  const sets = base && prog.base ? (o.pattern.kind === 'base' ? patternSets(o.pattern, t.id) : 2) : 1;
+  rep.estFixed = Math.round((lease + setPay * sets) * tied);
+  rep.estProfit = rep.estMargin - rep.estFixed;
   return rep;
 }
+
+const MONTH_DAYS = 30.44;
 
 /**
  * v0.12.1 the first stop of a held job (a world tour) where an A-check fits before `due`: a major airport or ours

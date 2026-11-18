@@ -11,19 +11,21 @@ import type { AdhocGroup } from './flavor';
 import { isWideJob } from './pricing';
 import { seedClientStars, seedPrestige } from './prestige';
 
-const EUROPE = new Set(['PT', 'ES', 'LT', 'LV', 'MT', 'DE', 'IE', 'SE', 'HR', 'FR', 'GB', 'CH', 'NO', 'IT', 'NL', 'BE', 'AT', 'DK', 'FI', 'PL', 'CZ', 'BG', 'EE', 'SK', 'RO', 'HU', 'IS', 'LU', 'GR', 'CY', 'RS']);
+import { riskPay, riskTier } from './payRisk';
+export { riskTier, seedRisk, type RiskTier } from './payRisk';
 
-/** Payment behaviour per kind (RESEARCH §4.3: commercial pays on time; governments 30–90 days late). */
-function behaviour(s: ClientSeed): Pick<Client, 'payReliability' | 'lateDays' | 'cleanSensitivity'> {
-  const eu = EUROPE.has(s.country);
+
+/** Payment behaviour per kind (RESEARCH §4.3: commercial pays on time; governments 30–90 days late; v0.25 by country risk). */
+function behaviour(s: Pick<ClientSeed, 'kind' | 'country' | 'role'>): Pick<Client, 'payReliability' | 'lateDays' | 'cleanSensitivity'> {
+  const low = riskTier(s.country) === 'low';
   switch (s.kind) {
     case 'airline':
-      return eu ? { payReliability: 0.92, lateDays: [3, 12], cleanSensitivity: 0.5 } : { payReliability: 0.7, lateDays: [7, 40], cleanSensitivity: 0.4 };
+      return { ...riskPay('airline', s.country), cleanSensitivity: low ? 0.5 : 0.4 };
     case 'tourOperator':
       return { payReliability: 0.85, lateDays: [5, 20], cleanSensitivity: 0.5 };
     case 'government':
-      // v0.6: governments mostly pay late (RESEARCH §4.3: 30–90 days).
-      return { payReliability: 0.2, lateDays: [25, 90], cleanSensitivity: 0.4 };
+      // v0.6: governments mostly pay late (RESEARCH §4.3: 30–90 days); v0.25 a low-risk state mostly on time.
+      return { ...riskPay('government', s.country), cleanSensitivity: 0.4 };
     case 'agency':
       return s.role === 'aid'
         ? { payReliability: 0.4, lateDays: [15, 60], cleanSensitivity: 0.8 }
@@ -51,7 +53,7 @@ for (const s of [...ALL_SEEDS, ...CLIENT_SEEDS_V014, ...CLIENT_SEEDS_V016]) {
 export function seedClients(g: GameState): void {
   for (const s of ALL_SEEDS) {
     if (!AIRPORT_BY_CODE[s.base]) continue;
-    const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0, prestige: seedPrestige(s, s.role), stars: seedClientStars(s) };
+    const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), risk: riskTier(s.country), relation: 0, prestige: seedPrestige(s, s.role), stars: seedClientStars(s) };
     g.clients[c.id] = c;
   }
   seedClientsV016(g);
@@ -72,7 +74,7 @@ export function seedClientsV016(g: GameState): void {
     if (have.has(s.name) || !AIRPORT_BY_CODE[s.base]) return;
     const id = `cx${i.toString(36)}`;
     if (g.clients[id]) return;
-    g.clients[id] = { id, name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0, jobs: 0, firstJob: null, lastJob: null, log: [], level: 'new', prestige: s.prestige ?? seedPrestige(s, s.role), stars: seedClientStars(s) };
+    g.clients[id] = { id, name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), risk: riskTier(s.country), relation: 0, jobs: 0, firstJob: null, lastJob: null, log: [], level: 'new', prestige: s.prestige ?? seedPrestige(s, s.role), stars: seedClientStars(s) };
   });
 }
 
@@ -86,7 +88,7 @@ export function seedMarketClients(g: GameState): void {
     if (have.has(s.name) || !AIRPORT_BY_CODE[s.base]) return;
     const id = `cm${i.toString(36)}`;
     if (g.clients[id]) return;
-    g.clients[id] = { id, name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0, jobs: 0, firstJob: null, lastJob: null, log: [], level: 'new', prestige: seedPrestige(s, s.role), stars: seedClientStars(s) };
+    g.clients[id] = { id, name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), risk: riskTier(s.country), relation: 0, jobs: 0, firstJob: null, lastJob: null, log: [], level: 'new', prestige: seedPrestige(s, s.role), stars: seedClientStars(s) };
   });
 }
 
@@ -95,7 +97,7 @@ export function loadClients(g: GameState): void {
   const have = new Set(Object.values(g.clients).map((c) => c.name));
   for (const s of ALL_SEEDS) {
     if (have.has(s.name) || !AIRPORT_BY_CODE[s.base]) continue;
-    const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0, prestige: seedPrestige(s, s.role), stars: seedClientStars(s) };
+    const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), risk: riskTier(s.country), relation: 0, prestige: seedPrestige(s, s.role), stars: seedClientStars(s) };
     g.clients[c.id] = c;
   }
   seedClientsV016(g);
@@ -111,7 +113,7 @@ export function ensureClient(g: GameState, name: string): Client | undefined {
   const s = CLIENT_SEEDS_V0121.find((x) => x.name === name);
   if (!s || !AIRPORT_BY_CODE[s.base]) return undefined;
   // As loadRelations sets them on a new game's clients: no jobs yet, a fresh log, a New client.
-  const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), relation: 0, jobs: 0, firstJob: null, lastJob: null, log: [], level: 'new', prestige: seedPrestige(s, s.role), stars: seedClientStars(s) };
+  const c: Client = { id: nextId(g, 'cl'), name: s.name, kind: s.kind, country: s.country, base: s.base, ...behaviour(s), risk: riskTier(s.country), relation: 0, jobs: 0, firstJob: null, lastJob: null, log: [], level: 'new', prestige: seedPrestige(s, s.role), stars: seedClientStars(s) };
   g.clients[c.id] = c;
   return c;
 }
@@ -190,6 +192,8 @@ export const isPilgrim = (c: Client) => ROLE_BY_NAME[c.name] === 'pilgrim';
 export const isCruiseLine = (c: Client) => SEED_BY_NAME[c.name]?.marine === 'cruise';
 /** Clubs big enough for a widebody pre-season tour abroad. */
 export const isBigClub = (c: Client) => SEED_BY_NAME[c.name]?.tier === 'big';
+/** v0.25 a national federation (the FPF, the RFU ...): national-team trips abroad, never league away days. Pure. */
+export const isFederation = (c: Client) => c.kind === 'sports' && /\b(Federation|Association|Union)\b/.test(c.name);
 
 /** Clients that would book this ad hoc group: any of its kinds plus its named clients (no ministries or specialists). */
 export function adhocGroupClients(g: GameState, group: AdhocGroup): Client[] {
@@ -205,8 +209,11 @@ export function rivalFleetText(r: Rival): string {
 }
 
 /** A rival that could have taken this offer: its fleet fits (family, else body), weighted towards the job's area; any rival as the fallback. */
-export function rivalFor(g: GameState, o: Pick<ContractOffer, 'requirements' | 'pin'>): Rival | undefined {
-  if (!g.rivals.length) return undefined;
+export function rivalFor(g: GameState, o: Pick<ContractOffer, 'requirements' | 'pin'> & { clientId?: string }): Rival | undefined {
+  // v0.25 never the client itself (a rival's own job lost to itself) and never a rival that has ceased trading.
+  const self = o.clientId ? g.clients[o.clientId]?.rivalId : undefined;
+  const rivals = g.rivals.filter((r) => r.id !== self && r.status !== 'ceased');
+  if (!rivals.length) return undefined;
   const req = o.requirements;
   const wide = isWideJob(req);
   const fits = (r: Rival) =>
@@ -214,8 +221,8 @@ export function rivalFor(g: GameState, o: Pick<ContractOffer, 'requirements' | '
       const t = typeOf(f.typeId);
       return req.families?.length ? req.families.includes(t.family) : (t.body === 'wide') === wide;
     });
-  const fit = g.rivals.filter(fits);
-  const pool = fit.length ? fit : g.rivals;
+  const fit = rivals.filter(fits);
+  const pool = fit.length ? fit : rivals;
   const ok = !!AIRPORT_BY_CODE[o.pin];
   return weightedPick(g, pool, (r) => (ok && AIRPORT_BY_CODE[r.base] ? 1 / (1 + distance(r.base, o.pin) / 1500) : 1));
 }
