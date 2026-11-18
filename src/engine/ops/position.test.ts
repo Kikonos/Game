@@ -251,3 +251,21 @@ describe('position: save, load, continue', () => {
     expect(quotePosition(h2, ac.id, 'LIS', { from: h2.now })).toEqual(quotePosition(g, ac.id, 'LIS', { from: g.now }));
   });
 });
+
+describe('v0.25 the quote prices the flight on to the next job', () => {
+  it('positioned to Tenerife a week before a Hamburg base: the quote adds the ferry on to Hamburg, less the one from Lisbon', () => {
+    const g = newGame(3);
+    const ac = leased(g);
+    const o = hamBase(g, g.now + 8 * DAY, 30);
+    const res = acceptOffer(g, o.id, [ac.id]);
+    if (!res.ok) throw new Error(res.error);
+    const q = quotePosition(g, ac.id, 'TFS', { from: g.now });
+    expect(q.ok).toBe(true);
+    expect(q.onward).toMatchObject({ to: 'HAM' });
+    expect(q.onward!.cost).toBeGreaterThan(0);
+    expect(q.onward!.text).toMatch(/^then about \+\$[\d.,]+K? for the flight on to Hamburg$/);
+    // To Hamburg itself: the LIS–HAM ferry is no longer flown.
+    const h = quotePosition(g, ac.id, 'HAM', { from: g.now });
+    expect(h.onward?.cost ?? 0).toBeLessThan(0);
+  });
+});

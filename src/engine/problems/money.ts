@@ -6,10 +6,18 @@ import { COST_CATS, statementTotals } from '../core/ledger';
 import { DAY, fmtDay, fmtMonth, monthKey, nextMonthStart } from '../core/time';
 import type { GameState, LedgerCat, MonthStatement } from '../core/types';
 import { cashForecast, cashSeries, daysOverdue, forecastItems, monthEndBill } from '../ops/finance';
-import { cashLowBefore, creditView } from '../finance';
+import { cashLowBefore, creditView, paidToUs } from '../finance';
 import { distressProblems, perActive } from '../finance/distress';
 import { usd } from '../ops/util';
 import { mkHurt, type ProblemCard, type TimelineSpec } from './types';
+
+/**
+ * v0.25 what open invoices will still bring in: a sold invoice only its last part (the bank advanced the rest and is
+ * paid by the client). Counted in full, the cash cards read $1.9M 'outstanding' where $0.4M was still to come. Pure.
+ */
+export function stillToCome(g: GameState): number {
+  return g.finance.receivables.filter((r) => r.paid === null).reduce((s, r) => s + paidToUs(r), 0);
+}
 
 export function cashLowCard(g: GameState): ProblemCard | null {
   // Round 4: below zero the red cashNegative card is the one cash problem (one event, one card).
@@ -46,7 +54,7 @@ export function cashLowCard(g: GameState): ProblemCard | null {
       { id: 'findWork', label: 'Find work', open: { tab: 'contracts' } },
       ...(decision ? [{ id: 'factor', label: 'Sell an invoice', open: { modal: 'decision' as const, id: decision.id } }] : []),
     ],
-    details: [`Cash now ${usd(g.company.cash)}`, `Month end ${fmtDay(monthEnd)}: fixed costs ${usd(bill.rent + bill.insurance + bill.overhead)}, salaries ${usd(bill.salaries + bill.heads)}`, `Outstanding invoices ${usd(g.finance.receivables.filter((r) => r.paid === null).reduce((s, r) => s + r.amount, 0))}`],
+    details: [`Cash now ${usd(g.company.cash)}`, `Month end ${fmtDay(monthEnd)}: fixed costs ${usd(bill.rent + bill.insurance + bill.overhead)}, salaries ${usd(bill.salaries + bill.heads)}`, `Still to come from invoices ${usd(stillToCome(g))}`],
     // v0.14.1 no `by` on the gauge (it prints a time of day only: '00:00' now the points are calendar days); the hurt
     // line has the date.
     visuals: { timeline, gauges: [{ id: 'cash', label: 'Cash', value: Math.max(0, g.company.cash), limit: Math.max(1, g.company.cash - low.cash), unit: 'usd', text: `${usd(g.company.cash)} now, ${usd(low.cash)} at the low`, tone: 'bad' }] },
@@ -179,7 +187,7 @@ export function creditHeadroomCard(g: GameState): ProblemCard | null {
       { id: 'finance', label: 'Finance', open: { tab: 'finance' }, primary: true },
       { id: 'findWork', label: 'Find work', open: { tab: 'contracts' } },
     ],
-    details: [`Drawn ${usd(v.line.drawn)} of ${usd(v.line.limit)}`, `Open invoices ${usd(g.finance.receivables.filter((r) => r.paid === null).reduce((s, r) => s + r.amount, 0))}: sell one to the bank from Finance › Receivables`],
+    details: [`Drawn ${usd(v.line.drawn)} of ${usd(v.line.limit)}`, `Still to come from invoices ${usd(stillToCome(g))}${g.finance.receivables.some((r) => r.paid === null && !r.factor) ? ': sell one to the bank from Finance › Receivables' : ''}`],
     visuals: {}, terms: [], by: monthEnd,
   };
 }
@@ -279,7 +287,7 @@ export function cashNegativeCard(g: GameState): ProblemCard | null {
   const rescueAt = since + BAL.rescueDays * DAY;
   const daysLeft = Math.max(0, Math.ceil((rescueAt - g.now) / DAY));
   const bill = monthEndBill(g, monthKey(g.now));
-  const owed = g.finance.receivables.filter((r) => r.paid === null).reduce((s, r) => s + r.amount, 0);
+  const owed = stillToCome(g);
   const again = (g.finance.rescues ?? 0) >= 1;
   // v0.16.3 under a restructuring plan the clock is stopped: the date that matters is the plan's end.
   const per = perActive(g) ? g.treasury!.distress!.per! : null;
@@ -287,7 +295,7 @@ export function cashNegativeCard(g: GameState): ProblemCard | null {
   return {
     subject: { kind: 'cashNegative', ref: { kind: 'cash', id: 'cash' } }, severity: 'red',
     title: `Cash is below zero (${usd(cash)})`, what: `Cash is below zero (${usd(cash)})`,
-    why: `Costs outran what came in: about ${usd(bill.total)} a month in rent, insurance and salaries before any flying${owed ? `; ${usd(owed)} of invoices are still unpaid` : ''}.`,
+    why: `Costs outran what came in: about ${usd(bill.total)} a month in rent, insurance and salaries before any flying${owed ? `; ${usd(owed)} from invoices is still to come` : ''}.`,
     hurt: mkHurt({ money: -cash, what: 'short', extra: per ? `the court protects the company until ${fmtDay(per.until)}; cash must be above zero by then` : again ? `the company fails after ${BAL.rescueDays} days in the red` : `in ${daysLeft} day${daysLeft === 1 ? '' : 's'} an investor offers a rescue for a quarter of the company` }),
     actions: [
       // v0.16.3 the ways out of debt (Finance › Get out of debt): a secured line, deferrals, an investor, a restructuring.
@@ -295,7 +303,7 @@ export function cashNegativeCard(g: GameState): ProblemCard | null {
       { id: 'findWork', label: 'Find work', open: { tab: 'contracts' } },
       ...(decision ? [{ id: 'factor', label: 'Sell an invoice', open: { modal: 'decision' as const, id: decision.id } }] : []),
     ],
-    details: [`Below zero since ${fmtDay(since)}`, `Fixed costs this month ${usd(bill.rent + bill.insurance + bill.overhead)}, salaries ${usd(bill.salaries + bill.heads)}`, `Outstanding invoices ${usd(owed)}`],
+    details: [`Below zero since ${fmtDay(since)}`, `Fixed costs this month ${usd(bill.rent + bill.insurance + bill.overhead)}, salaries ${usd(bill.salaries + bill.heads)}`, `Still to come from invoices ${usd(owed)}`],
     // The gauge carries no `by`: Gauge prints a time of day for it, and the hurt line already gives the date.
     visuals: { gauges: [{ id: 'cash', label: 'Days in the red', value: Math.min(BAL.rescueDays, Math.floor((g.now - since) / DAY)), limit: BAL.rescueDays, unit: 'hm', text: `${Math.floor((g.now - since) / DAY)} of ${BAL.rescueDays} days`, tone: 'bad' }] },
     terms: [], by: per ? per.until : rescueAt,

@@ -401,7 +401,7 @@ export default function Glance({ g, forecast }: { g: GameState; forecast: { t: n
           {path.trend3 !== null && (
             <div className="small muted row gap-4 gl-v-trend">
               {path.trend3 >= 0 ? <ArrowUpRight className="good" aria-hidden /> : <ArrowDownRight className="bad" aria-hidden />}
-              {path.trend3 >= 0 ? 'up' : 'down'} <b className="num">{money(Math.abs(path.trend3))}</b> in 3 months
+              {path.trend3 >= 0 ? 'up' : 'down'} <b className="num">{money(Math.abs(path.trend3))}</b> since {fmtDay(path.trendFrom!)}
             </div>
           )}
           {zero !== null && <div className={`small ${path.zeroAt ? 'bad' : 'good'}`}>{path.zeroAt ? `Below zero around ${fmtDay(zero)}` : `Back above zero around ${fmtDay(zero)}`}</div>}

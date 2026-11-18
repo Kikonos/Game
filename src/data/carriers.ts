@@ -49,6 +49,8 @@ const R = (iata: string, name: string, country: string, hubs: string[], markets?
 const EUROPE = [...new Set(AIRPORTS.filter((a) => a.continent === 'EU' && !a.enroute).map((a) => a.country))].sort();
 /** v0.7: the countries of our airports outside Europe (the Gulf and African super-connectors reach all of them). */
 const NON_EUROPE = [...new Set(AIRPORTS.filter((a) => a.continent !== 'EU' && !a.enroute).map((a) => a.country))].sort();
+/** v0.25: the countries of our African airports (Royal Air Maroc's reach). */
+const AFRICA = [...new Set(AIRPORTS.filter((a) => a.continent === 'AF' && !a.enroute).map((a) => a.country))].sort();
 /** v0.7: a closed network keeps only the airports in our list. */
 const net = (codes: string): string[] => codes.split(' ').filter((c) => !!AIRPORT_BY_CODE[c]);
 
@@ -113,6 +115,9 @@ export const CARRIERS: Carrier[] = [
   N('SK', 'SAS', 'DK', ['CPH', 'ARN', 'OSL'], ['SE', 'NO'], { reach: [...EUROPE, 'US', 'CA', 'JP', 'CN', 'KR', 'TH', 'IL'] }),
   N('AY', 'Finnair', 'FI', ['HEL'], undefined, { reach: [...EUROPE, 'JP', 'KR', 'CN', 'TH', 'SG', 'IN', 'US', 'IL', 'AE', 'QA'] }),
   N('FI', 'Icelandair', 'IS', ['KEF']),
+  // v0.25 Air Greenland: Copenhagen to Kangerlussuaq and Nuuk, Reykjavík to Nuuk, and between the two (crew tickets
+  // to Greenland were invented nonstops: TK Malta–Kangerlussuaq, BA Heathrow–Kangerlussuaq).
+  R('GL', 'Air Greenland', 'GL', ['GOH', 'SFJ'], undefined, { reach: [], routes: ['CPH-SFJ', 'CPH-GOH', 'KEF-GOH'] }),
   N('LO', 'LOT Polish Airlines', 'PL', ['WAW'], undefined, { reach: [...EUROPE, 'US', 'CA', 'KR', 'JP', 'IN', 'CN', 'IL', 'UZ', 'GE', 'AM', 'AZ', 'LK'] }),
   // v0.7 closed networks of the small flag carriers (their real current routes, our airports only).
   R('QS', 'Smartwings', 'CZ', ['PRG'], undefined, { dests: net('BCN CDG FCO LCA TLV ATH HER RHO CFU KGS CHQ ZTH AYT HRG SSH TFS LPA PMI AGP FAO SPU DBV BOJ VAR') }),
@@ -152,7 +157,9 @@ export const CARRIERS: Carrier[] = [
   L('V7', 'Volotea', 'ES', ['BOD', 'NTE', 'VCE'], ['ES', 'FR', 'IT', 'GR', 'HR', 'PT'], { avoid: [...HUBS_NO_LCC, 'LGW', 'ORY'] }),
   L('PC', 'Pegasus', 'TR', ['SAW', 'AYT', 'ADB', 'ESB'], ['TR', 'DE', 'NL', 'GB', 'FR', 'IT', 'ES', 'AT', 'CH', 'GE', 'AZ', 'IL', 'JO', 'SA', 'AE', 'EG'], { avoid: HUBS_NO_LCC }),
   // Africa
-  N('AT', 'Royal Air Maroc', 'MA', ['CMN']),
+  // v0.25 Royal Air Maroc's long haul is its real routes (New York, Washington, Miami, Boston, Montreal, São Paulo,
+  // Doha); within 6,000 km Europe, Africa and the Middle East. No Santiago or Los Angeles.
+  N('AT', 'Royal Air Maroc', 'MA', ['CMN'], undefined, { maxKm: 6_000, reach: [...EUROPE, ...AFRICA, 'SA', 'QA', 'EG', 'TR', 'IL', 'LB', 'JO'], routes: ['CMN-JFK', 'CMN-IAD', 'CMN-MIA', 'CMN-BOS', 'CMN-YUL', 'CMN-GRU', 'CMN-DOH'] }),
   R('TU', 'Tunisair', 'TN', ['TUN'], undefined, { dests: net('CDG ORY LYS MRS NCE FRA MUC DUS BRU AMS FCO MXP GVA ZRH VIE IST LHR ALG CMN CAI JED MED DSS ABJ BKO NKC TIP') }),
   R('AH', 'Air Algérie', 'DZ', ['ALG'], undefined, { dests: net('CDG ORY LYS MRS NCE TLS BOD FRA BRU LHR BCN ALC MAD FCO MXP IST TUN CAI DXB JED MED YUL PEK DSS ABJ BKO NIM NKC OUA') }),
   N('MS', 'EgyptAir', 'EG', ['CAI']),

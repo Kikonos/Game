@@ -25,6 +25,7 @@ import { crewName, flightCrewStatus, rerosterFrom, rosterHorizon } from '../crew
 import { settle } from '../sim';
 import { ferryCost, ferryCrewCost } from './delivery';
 import { groundGaps, isGrounded } from './maintenance';
+import { parkPerDay } from './parking';
 import { usd } from './util';
 
 export interface PositionLeg { from: string; to: string; std: Minute; sta: Minute; block: number; /** A night stop (crew rest) after this leg. */ night: boolean }
@@ -63,6 +64,11 @@ export interface PositionQuote {
   notes: string[];
   /** Worked out on a copy (crew and schedule checked); false: route, times and money only. */
   full: boolean;
+  /**
+   * v0.25 the empty legs the schedule then adds or drops (the flight on to the next work), priced as a ferry (fuel and
+   * fees): `cost` added less dropped, `text` the Cost row's tail ('then about +$5K for the flight on to Paris').
+   */
+  onward?: { cost: number; to: string; text: string };
 }
 
 export interface PositionOpts {
@@ -178,6 +184,8 @@ function baseQuote(g: GameState, p: Plan, to: string): PositionQuote {
   const crewCost = ferryCrewCost(g, home, p.at, days) + (to === home ? 0 : ferryCrewCost(g, home, to, p.at === home ? days : oneWay));
   const notes: string[] = [];
   if (legs[0].std > p.asked + 5) notes.push('Leaves later to stay clear of a night curfew.');
+  // v0.25 parking from the second day there (ops/parking.ts).
+  if (to !== home) notes.push(`Parking about ${usd(parkPerDay(p.ac.typeId, to))} a day there.`);
   return {
     ok: true, reason: null, from: p.at, to, legs, stops: legs.slice(0, -1).map((l) => l.to), earliest: p.earliest, depart: legs[0].std, arrive: legs[legs.length - 1].sta,
     block: legs.reduce((s, l) => s + l.block, 0), fuel, fees, crewCost, total: fuel + fees + crewCost, crew: null, notes, full: false,
@@ -288,7 +296,18 @@ function tryAt(g: GameState, p: Plan, to: string): Try {
   else if (to !== g.company.homeBase) notes.push(`${p.ac.reg} stays at ${city(to)} until it has work.`);
   if (gone.length) notes.push(`No longer flown: ${gone.map((f) => `${f.from}–${f.to} ${fmtDay(f.std)}`).join(', ')}.`);
   const out = legsOf(mine);
-  return { q: { ...q, legs: out, depart: out[0].std, arrive: out[out.length - 1].sta, crew, notes, full: true }, retry: null };
+  // v0.25 what the schedule's changes after the move cost (the quote left them out: Cost $11K, then a $5K ferry on).
+  const priced = (fl: Flight[]) => {
+    const c = ferryCost(p.ac.typeId, fl.map((f) => ({ block: f.sta - f.std })), g.market.fuelPrice);
+    return c.fuel + c.fees;
+  };
+  const net = (added.length ? priced(added) : 0) - (gone.length ? priced(gone) : 0);
+  const onTo = added.length ? added[added.length - 1].to : gone.length ? gone[gone.length - 1].to : null;
+  const onward = onTo && Math.abs(net) >= 500 ? {
+    cost: net, to: onTo,
+    text: net > 0 ? `then about +${usd(net)} for the flight on to ${city(onTo)}` : `then about ${usd(-net)} less on the empty flights after`,
+  } : undefined;
+  return { q: { ...q, legs: out, depart: out[0].std, arrive: out[out.length - 1].sta, crew, notes, full: true, ...(onward ? { onward } : {}) }, retry: null };
 }
 
 const memo = new WeakMap<GameState, Map<string, PositionQuote>>();

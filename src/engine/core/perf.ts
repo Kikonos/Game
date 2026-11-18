@@ -378,6 +378,15 @@ const etopsRoutes = new Map<string, SectorLeg[] | null>();
 export const ISOLATED = new Set(['SFJ', 'UAK', 'YFB', 'BDA']);
 
 /**
+ * v0.25 slot-coordinated hubs no ferry or fuel stop uses (a stand and a slot at Heathrow for a fuel stop: the ferry
+ * routes stopped at LHR and DCA), and the stops real ferry crews pick on the North Atlantic (Shannon, Keflavik,
+ * Iqaluit), counted this many minutes cheaper.
+ */
+const NO_TECH_STOP = new Set(['LHR', 'LGW', 'CDG', 'FRA', 'AMS', 'DCA']);
+const TECH_STOP_PICK = new Set(['SNN', 'KEF', 'YFB']);
+const TECH_STOP_BONUS = 20;
+
+/**
  * v0.11 the quickest chain of legs from → to in which every leg stays within the ETOPS cap (the 60-minute rule at
  * 0), each within the type's range and runways and at most `maxBlock` long, with fuel stops at proper airports or
  * the en-route fields (Keflavík, Kangerlussuaq, Iqaluit, Goose Bay…): the way real operators ferry a twin without
@@ -397,7 +406,7 @@ function searchRoute(typeId: string, from: string, to: string, cap: number, opts
   if (!AIRPORT_BY_CODE[from] || !AIRPORT_BY_CODE[to] || runwayFit(typeId, from) === 'no' || runwayFit(typeId, to) === 'no') return null;
   const t = typeOf(typeId);
   // Nodes: the start, the stops (proper airports and the en-route fields), the destination last.
-  const stops = AIRPORTS.filter((x) => x.code !== from && x.code !== to && !x.ice && (x.size >= 2 || x.enroute) && !opts.noStop.has(x.country) && runwayFit(typeId, x.code) === 'ok');
+  const stops = AIRPORTS.filter((x) => x.code !== from && x.code !== to && !x.ice && (x.size >= 2 || x.enroute) && !NO_TECH_STOP.has(x.code) && !opts.noStop.has(x.country) && runwayFit(typeId, x.code) === 'ok');
   const N: Airport[] = [AIRPORT_BY_CODE[from], ...stops, AIRPORT_BY_CODE[to]];
   const n = N.length;
   const T = n - 1;
@@ -430,7 +439,7 @@ function searchRoute(typeId: string, from: string, to: string, cap: number, opts
       if (d > reach[cur] - (ISOLATED.has(N[j].code) ? t.cruiseKt : 0)) continue;
       const blk = block(cur, j);
       if (blk > opts.maxBlock) continue;
-      const g1 = best[cur] + blk + (j === T ? 0 : TECH_STOP_MIN);
+      const g1 = best[cur] + blk + (j === T ? 0 : TECH_STOP_MIN - (TECH_STOP_PICK.has(N[j].code) ? TECH_STOP_BONUS : 0));
       if (g1 >= best[j]) continue;
       if (opts.ok && !opts.ok(N[cur].code, N[j].code)) continue;
       if (!withinEtops(typeId, N[cur].code, N[j].code, cap)) continue;

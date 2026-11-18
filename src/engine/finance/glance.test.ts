@@ -140,6 +140,8 @@ describe('v0.20 cash path', () => {
     expect(p.zeroAt).toBeNull();
     expect(p.backAt).toBe(now + 2 * 1440);
     expect(p.trend3).toBe(-3_443_000 - 3_183_000);
+    // v0.25 the change counts from the first day of the third closed month back: the card says 'since' that day.
+    expect(p.trendFrom).toBe(monthStart(MONTH - 1));
     const q = cashPath(hist, MONTH + 2, 500_000, now, [{ t: now + 1440, cash: 100_000 }, { t: now + 2 * 1440, cash: -50_000 }]);
     expect(q.zeroAt).toBe(now + 2 * 1440);
     expect(cashPath([], MONTH, 10, now, []).points).toEqual([{ t: now, cash: 10, ahead: false }]);

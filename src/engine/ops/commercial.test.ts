@@ -413,3 +413,26 @@ describe('deadhead carriers v0.7: the pair table', () => {
     // A full sweep of airport pairs (≈ 4 s alone): room under load.
   }, 30_000);
 });
+
+describe('v0.25 crew tickets to Greenland and Royal Air Maroc long haul', () => {
+  const T = 30 * 1440 + 9 * 60;
+  const route = (a: string, b: string) => itinerary(a, b, T, T + ticketBlock(a, b));
+  it('Malta–Kangerlussuaq goes through Copenhagen on Air Greenland, not an invented nonstop', () => {
+    const it = route('MLA', 'SFJ');
+    expect(it.length).toBeGreaterThan(1);
+    expect(it[it.length - 1]).toMatchObject({ from: 'CPH', to: 'SFJ', iata: 'GL' });
+    expect(it[0].from).toBe('MLA');
+    for (let i = 1; i < it.length; i++) expect(it[i].dep).toBeGreaterThanOrEqual(it[i - 1].arr);
+    expect(route('LHR', 'SFJ').filter((l) => l.to === 'SFJ').map((l) => l.iata)).toEqual(['GL']);
+    expect(route('LHR', 'SFJ').pop()).toMatchObject({ from: 'CPH', iata: 'GL' });
+    expect(route('LIS', 'GOH').pop()).toMatchObject({ to: 'GOH', iata: 'GL' });
+  });
+  it('Royal Air Maroc flies New York and São Paulo, never Santiago or Los Angeles', () => {
+    const at = CARRIER_BY_IATA.AT;
+    expect(directCarriers('CMN', 'JFK')).toContain(at);
+    expect(directCarriers('CMN', 'GRU')).toContain(at);
+    expect(directCarriers('CMN', 'SCL')).not.toContain(at);
+    expect(directCarriers('CMN', 'LAX')).not.toContain(at);
+    expect(directCarriers('CMN', 'DSS')).toContain(at);
+  });
+});

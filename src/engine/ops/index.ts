@@ -15,6 +15,7 @@ import { onFlightArr, onFlightDep, pruneFlights } from './flights';
 import { checkGoals, ladderGrant, syncGoals } from './goals';
 import { onMaintEnd, onMaintStart, planChecks, setMaintHooks, setRestFitHook } from './maintenance';
 import { dailyDelivery, loadEtopsFerries, onDeliveryArr, onDeliveryDep } from './delivery';
+import { dailyParking } from './parking';
 import { dailyLeases, onReturnEnd, onReturnStart, repairExitPaint } from './leaseReturn';
 import { dailyMarket, loadMarket, onDelivery, onLeaseEnd, refreshMarket } from './market';
 import { dailyPaint, normaliseLivery } from './paint';
@@ -153,6 +154,8 @@ function daily(g: GameState) {
   // v0.17 requests to lessors, deals, transitions, AOC variations, short-term aircraft (step 0: neutral).
   dailyLeasing(g);
   dailyDelivery(g);
+  // v0.25 parking for an aircraft left away from base a day or more.
+  dailyParking(g);
   dailyLeases(g);
   // v0.8 the lessee's hours and the monthly rent and reserves of dry leases out.
   dailyDryLeases(g);

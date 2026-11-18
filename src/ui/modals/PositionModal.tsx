@@ -46,7 +46,7 @@ function Plan({ q }: { q: PositionQuote }) {
         ['Leaves', both(first.std, first.from)],
         ['Lands', both(last.sta, last.to)],
         ['Block', `${fmtDuration(q.block, true)}${via ? ` · ${via}` : ''}`],
-        ['Cost', <>{money(q.total)} <span className="ps-sub">fuel {money(q.fuel)} · fees {money(q.fees)}{q.crewCost ? ` · crew travel ${money(q.crewCost)}` : ''}</span></>],
+        ['Cost', <>{money(q.total)}{q.onward ? `, ${q.onward.text}` : ''} <span className="ps-sub">fuel {money(q.fuel)} · fees {money(q.fees)}{q.crewCost ? ` · crew travel ${money(q.crewCost)}` : ''}</span></>],
         ...(q.crew ? [['Crew', <span className={tone}>{q.crew.text}</span>] as [string, React.ReactNode]] : []),
       ]} />
       {q.notes.map((n) => <span key={n} className="small muted">{n}</span>)}

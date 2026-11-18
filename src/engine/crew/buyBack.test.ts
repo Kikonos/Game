@@ -104,9 +104,14 @@ describe('v0.12.1 day-off buy-back', () => {
   it('Never: no day off is bought; Ask me: Crew Control offers "Ask … to work a day off" with its cost', () => {
     for (const mode of ['never', 'ask'] as const) {
       const { g, dutyId, flightId, here } = goma(mode);
-      autoRoster(g, {});
+      // v0.25 'Ask me' is asked before the roster runs: with Goma's tickets through Luanda nobody else is flown in
+      // tonight and the roster re-times the leg to the morning after the day off.
+      if (mode === 'never') autoRoster(g, {});
       for (const id of here) expect(g.crew[id].boughtOff, mode).toBeUndefined();
-      expect(crewOn(g, dutyId).some((id) => id && here.includes(id)), mode).toBe(false);
+      // v0.25 (crew tickets to Goma now connect at Luanda, none flown in sooner) the leg may wait for the morning after
+      // the day off and the pilots at Goma fly it then: never on the day off itself.
+      const rep = g.duties[dutyId].report;
+      for (const id of here) if (crewOn(g, dutyId).includes(id)) expect(g.crew[id].off, mode).not.toContain(dayIndex(g.crew[id].base, rep));
       if (mode === 'ask') {
         // Empty the seats again (the roster may have flown others in) to see the offer.
         const p = g.pairings[g.duties[dutyId].pairingId];

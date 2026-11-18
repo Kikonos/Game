@@ -3,7 +3,8 @@
 import { BAL } from '../core/balance';
 import { curfewOk } from '../core/curfew';
 import { addFlight, flightsOf, liveFlightsOf, ownFlightNo, removeFlights, retimeFlight, touchFlights } from '../core/entities';
-import { etopsCap, reportMinutes, TECH_STOP_MIN, typeOf } from '../core/perf';
+import { complement, etopsCap, reportMinutes, TECH_STOP_MIN, typeOf } from '../core/perf';
+import { distance } from '../core/geo';
 import { ticketBlock } from '../ops/commercial';
 import { safetyTrip } from '../core/safety';
 import { positioningFit, restBeforeJob, restedDeparture, type MoveLeg } from '../crew/duties';
@@ -14,7 +15,7 @@ import { DAY, dayStart } from '../core/time';
 import type { Contract, Flight, GameState, Minute } from '../core/types';
 import {
   anchorsOf, AWAY_GAP, baseDayOf, baseDays, baseDayStart, baseFlightNo, chainBackward, chainForward, CHARTER_SLACK, DEPLOY_LEAD, flownRotations, gapMoves,
-  HOME_HOP_MIN, isHold, isSoft, onwardPending, planLegs, route, type Anchor, type ChainLeg,
+  HOME_HOP_MIN, isHold, isSoft, onwardPending, planLegs, route, TRIP_GAP, type Anchor, type ChainLeg,
 } from './plan';
 
 const horizonEnd = (g: GameState) => dayStart(g.now) + BAL.scheduleHorizonDays * DAY;
@@ -210,7 +211,7 @@ export function extendBaseSchedules(g: GameState): void {
  * previous commitment and replaces soft positioning legs in that gap; [] when already there; null when it can't fit.
  * Used by B1 and by B3 (maintenance ferries, AOG swaps).
  */
-export function planPositioning(g: GameState, aircraftId: string, to: string, arriveBy: Minute, kind: 'positioning' | 'ferry', contractId: string | null): Flight[] | null {
+export function planPositioning(g: GameState, aircraftId: string, to: string, arriveBy: Minute, kind: 'positioning' | 'ferry', contractId: string | null, viaHome = false): Flight[] | null {
   const ac = g.fleet[aircraftId];
   if (!ac) return null;
   const turn = typeOf(ac.typeId).turnMin;
@@ -223,7 +224,14 @@ export function planPositioning(g: GameState, aircraftId: string, to: string, ar
   const earliest = openAfter(g, prev.to, prev.kind === 'start' ? prev.sta : prev.sta + turn, job);
   const cap = etopsCap(g.company.approvals, ac.typeId);
   const day = emptyDay(g, aircraftId);
-  const chain = chainBackward(ac.typeId, prev.to, to, crewFree(g, aircraftId, prev.to, earliest), arriveBy - turn, cap, day) ?? chainBackward(ac.typeId, prev.to, to, earliest, arriveBy - turn, cap, day);
+  // v0.25 (viaHome: a ferry to a check or paint shop away from base) a wait of AWAY_GAP or more at an outstation is
+  // spent at home: home first, then on to the shop (LZ-UFQ sat at Warsaw from 10 Mar to 11 Apr 2027, then flew to the
+  // paint shop at Budapest). Not from where the player put the aircraft, nor inside a held job.
+  const home = g.company.homeBase;
+  const hopOk = viaHome && prev.to !== home && to !== home && !parkedAt(g, aircraftId, prev, prev.to) && !(prev.contractId && isHold(g.contracts[prev.contractId]) && live(g, prev.contractId));
+  const free = crewFree(g, aircraftId, prev.to, earliest);
+  const hop = hopOk && arriveBy - turn - free >= AWAY_GAP ? gapMoves(ac.typeId, prev.to, to, free, arriveBy - turn, home, true, cap, day) : null;
+  const chain = (hop?.some((l) => l.to === home) && shutIn(g, hop, job) === null ? hop : null) ?? chainBackward(ac.typeId, prev.to, to, free, arriveBy - turn, cap, day) ?? chainBackward(ac.typeId, prev.to, to, earliest, arriveBy - turn, cap, day);
   if (!chain || shutIn(g, chain, job) !== null) return null;
   const stale = flightsOf(g, aircraftId).filter((f) => isSoft(g, f) && f.std >= prev!.std && f.std < arriveBy).map((f) => f.id);
   if (stale.length) removeFlights(g, stale);
@@ -686,7 +694,11 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     const inHold = !!b.contractId && isHold(g.contracts[b.contractId]) && (a.contractId === b.contractId || b.std <= g.now);
     // v0.23.3 nor from where the player positioned the aircraft: it waits there and flies to Y as late as possible.
     const parked = parkedAt(g, aircraftId, a, X);
-    const allowHop = a.kind !== 'maint' && b.kind !== 'maint' && !sameBase && !emptyNext && !inHold && !parked;
+    // v0.25 (k5t6, a weekly Helsinki–Palma series from Malta: 71 revenue hours a season against 68 empty) between two
+    // trips from the same outstation the hop home and back is flown only when it costs less than waiting there.
+    // A hop already planned stays (kept, its crew too): only a new plan weighs it (a loaded save keeps its schedule).
+    const hopBase = a.kind !== 'maint' && b.kind !== 'maint' && !sameBase && !emptyNext && !inHold && !parked;
+    const allowHop = hopBase && (X !== Y || homeHopPays(g, aircraftId, X, b.std - a.sta));
     // v0.14.1 (OPS-5) before a check at home after a long wait away, the aircraft goes home at once (only the out-and-
     // back hop stays barred around checks): CS-TCS sat 13.5 days at Prague, then a lone 01:50 ferry home to its C-check.
     // v0.16.4 (CS-TQM, player report) and before any commitment that starts at home, whatever it is: an empty ferry out
@@ -694,6 +706,11 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     // days at Hong Kong after the Hong Kong Airlines cover, its HKG–TAS–BUD–LIS planned for the eve of the ferry to
     // Abidjan, crewless. Going home is no out-and-back: the empty ferry after it is no reason to wait away.
     const homeFirst = a.kind !== 'maint' && Y === home && X !== home && !inHold && !parked;
+    // v0.25 and before a check or paint shop away from base after a long wait at another outstation: home first, then
+    // on to the shop (LZ-UFQ sat a month at Warsaw, 10 Mar to 11 Apr, then a ferry on to the paint shop at Budapest).
+    // The out-and-back hop around a check at home stays barred (Y === home is homeFirst; X === Y is no move).
+    const maintAway = b.kind === 'maint' && a.kind !== 'maint' && Y !== home && X !== home && X !== Y && !sameBase && !inHold && !parked;
+    const hopOk = hopBase || maintAway;
     const latest = b.std - turn;
     // v0.14.1 (CS-TTL, player report) an empty move into a job is timed for the crew who fly the job, not only for the
     // aircraft: as late as possible when one crew flies both in a day that needs no more than the job alone; otherwise,
@@ -771,11 +788,11 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     if (X === Y && !legs.length && !hop?.length) continue;
     // v0.12.1 kept only on time for Y, or when nothing on time can be planned (a late chain stays late, not re-made).
     // v0.14.1 (OPS-5) a move home before a check that waits AWAY_GAP or more at X is planned again (forward).
-    const idleAway = homeFirst && legs.length > 0 && legs[0].std - crewFree(g, aircraftId, X, earliest) >= AWAY_GAP && latest - earliest >= AWAY_GAP;
-    if (legs.length && chainOk(legs, X, Y, earliest) && chainSane(typeId, legs, X, Y, home, allowHop, cap, day) && (legs[legs.length - 1].sta <= latest || !onTimeMove(typeId, X, Y, ready, latest, home, allowHop, cap, day)) && !crewLate(legs) && !idleAway && !pull && (crewed(legs[0]) || !nobody(legs[0].std))) continue;
+    const idleAway = (homeFirst || maintAway) && legs.length > 0 && legs[0].std - crewFree(g, aircraftId, X, earliest) >= AWAY_GAP && latest - earliest >= AWAY_GAP;
+    if (legs.length && chainOk(legs, X, Y, earliest) && chainSane(typeId, legs, X, Y, home, hopOk, cap, day) && (legs[legs.length - 1].sta <= latest || !onTimeMove(typeId, X, Y, ready, latest, home, allowHop, cap, day)) && !crewLate(legs) && !idleAway && !pull && (crewed(legs[0]) || !nobody(legs[0].std))) continue;
     const nl = nudged(legs, X, Y, earliest, latest);
     replacing(legs);
-    if (nl && chainSane(typeId, legs, X, Y, home, allowHop, cap, day)) {
+    if (nl && chainSane(typeId, legs, X, Y, home, hopOk, cap, day)) {
       for (const l of nl) add([l], l.contractId);
       continue;
     }
@@ -794,7 +811,7 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     // Leave room to crew it when the window allows; a tight window keeps the earliest slot.
     const from = freeAt(earliest);
     // A long wait at an outstation is spent at home (home, then on to Y), not parked away for weeks.
-    const via = (allowHop || (homeFirst && b.std - leadFor(g, b, turn) - from >= AWAY_GAP)) && X !== home ? gapMoves(typeId, X, Y, from, b.std - leadFor(g, b, turn), home, true, cap, day) : null;
+    const via = (allowHop || ((homeFirst || maintAway) && b.std - leadFor(g, b, turn) - from >= AWAY_GAP)) && X !== home ? gapMoves(typeId, X, Y, from, b.std - leadFor(g, b, turn), home, true, cap, day) : null;
     if (via?.some((l) => l.to === home)) {
       const k = via.findIndex((l) => l.to === home) + 1;
       add(via.slice(0, k), flying(g, a.contractId) ? a.contractId : null);
@@ -871,6 +888,52 @@ export function relinkPositioning(g: GameState, aircraftId: string): Flight[] {
     if (hit && g.flights[f.id] && f.status === 'scheduled') farLateHook?.(g, f, hit[1]);
   }
   return created;
+}
+
+/** v0.25 the longest wait between two trips at one outstation that may be spent there (a weekly series' week). */
+export const HOP_WAIT_MAX = 8 * DAY;
+
+/**
+ * v0.25 a hop home and back from outstation X over a wait of `gapMin` costs less than waiting there: the hop's fuel,
+ * airport fees and maintenance against parking for the wait and the crew's airline tickets home and back. Pure.
+ */
+export function homeHopPays(g: GameState, aircraftId: string, X: string, gapMin: number): boolean {
+  const ac = g.fleet[aircraftId];
+  const home = g.company.homeBase;
+  if (!ac || X === home) return false;
+  // A longer wait is spent at home, where the aircraft can take other work.
+  if (gapMin > HOP_WAIT_MAX) return true;
+  const c = hopCosts(g, aircraftId, X, gapMin);
+  return !!c && c.hop <= c.wait;
+}
+
+/**
+ * v0.25 an idle stretch of `gapMin` at outstation `at` that the planner spends there because a hop home and back would
+ * cost more (the Schedule's idle sheet says 'Waits at Helsinki (cheaper than a ferry home)'). Pure.
+ */
+export function waitsAwayCheaper(g: GameState, aircraftId: string, at: string, gapMin: number): boolean {
+  if (at === g.company.homeBase || gapMin < TRIP_GAP || gapMin > HOP_WAIT_MAX) return false;
+  const c = hopCosts(g, aircraftId, at, gapMin);
+  return !!c && c.hop > c.wait;
+}
+
+/** v0.25 the two sides of homeHopPays in dollars (null: no route home and back). Pure. */
+export function hopCosts(g: GameState, aircraftId: string, X: string, gapMin: number): { hop: number; wait: number } | null {
+  const ac = g.fleet[aircraftId];
+  const home = g.company.homeBase;
+  if (!ac) return null;
+  const out = route(ac.typeId, X, home);
+  const back = route(ac.typeId, home, X);
+  if (!out?.length || !back?.length) return null;
+  const t = typeOf(ac.typeId);
+  const wide = t.body === 'wide' ? 1 : 0;
+  const legs = [...out, ...back];
+  const bh = legs.reduce((s, l) => s + l.block, 0) / 60;
+  const hop = bh * (t.fuelTBH * g.market.fuelPrice + t.maintBH) + legs.length * BAL.airportFees[wide];
+  const km = distance(home, X);
+  const crew = complement(ac.typeId, ac.cabin?.total ?? 0).length;
+  const wait = (Math.max(0, gapMin) / DAY) * BAL.delivery.parkPerDay[wide] + 2 * crew * BAL.deadheadTicket[km < 1_500 ? 0 : km < 4_000 ? 1 : 2];
+  return { hop: Math.round(hop), wait: Math.round(wait) };
 }
 
 /**

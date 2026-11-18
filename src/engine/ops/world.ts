@@ -278,8 +278,20 @@ const W = () => BAL.v08.world;
 const side = (g: GameState, key: string): RngHolder => ({ rng: hash(`${g.seed}:world:${key}`) | 0 });
 const homeCountry = (g: GameState) => AIRPORT_BY_CODE[g.company.homeBase]?.country ?? '';
 
+/**
+ * v0.25 days before the same template can start again, by kind (a template's own `cooldown` first): a hurricane at
+ * Punta Cana came back three weeks later. An airline that failed does not fail again for years (a rival's failure
+ * picks another rival).
+ */
+export const TPL_COOLDOWN: Record<WorldEventKind, number> = {
+  disaster: 540, coup: 180, war: 180, unrest: 180, airspace: 180, strike: 60, ash: 30, airlineFailure: 1825, engineCrisis: 365, recession: 730,
+};
+/** v0.25 a template that started this recently uses its 'again' text. */
+export const AGAIN_DAYS = 120;
+export const cooldownOf = (t: WorldEventTpl): number => t.cooldown ?? (t.entity === '{rival}' ? 60 : TPL_COOLDOWN[t.kind] ?? 60);
+
 /** Templates that may start now: not our home country's airspace, an airline failure never on a client we fly for. */
-function allowed(g: GameState, t: WorldEventTpl): boolean {
+export function allowed(g: GameState, t: WorldEventTpl): boolean {
   const z = t.zoneId ? ZONE_BY_ID[t.zoneId] : undefined;
   if (t.closeP && z && (z.countries.includes(homeCountry(g)) || inZone(z, g.company.homeBase))) return false;
   if (t.airportDays && t.at === g.company.homeBase) return false;
@@ -288,6 +300,11 @@ function allowed(g: GameState, t: WorldEventTpl): boolean {
   // v0.12.1 a world tour's remote stop: only while one of our tours is due there.
   if (t.ours && !callsAt(g, t.at)) return false;
   if (eventsOf(g).some((e) => isLive(g, e) && e.tpl === t.id)) return false;
+  // v0.25 one live event per zone: the Iraq war and the Iraq airspace closure overlapped ('reopened' while still shut).
+  if (t.zoneId && eventsOf(g).some((e) => isLive(g, e) && (e.zoneId ?? TPL_BY_ID[e.tpl]?.zoneId) === t.zoneId)) return false;
+  // v0.25 and not the same event again within its cooldown.
+  const last = g.world?.lastTpl?.[t.id];
+  if (last !== undefined && g.now - last < cooldownOf(t) * DAY) return false;
   if (t.kind === 'airlineFailure') {
     if (t.entity === '{rival}') return g.rivals.filter(isActive).length > 8;
     const cl = Object.values(g.clients).find((c) => c.name === t.entity);
@@ -388,7 +405,8 @@ export function startEvent(g: GameState, t: WorldEventTpl, r: RngHolder = side(g
   const fill = (s: string) => s.replace(/\{rival\}/g, rival?.name ?? 'A rival').replace(/\{until\}/g, fmtDay(untilAt));
   // The closure is rolled first so the text never promises one that didn't happen.
   const closed = !!(t.zoneId && t.closeP && chance(r, t.closeP));
-  const text = !closed && t.open ? t.open : t;
+  const t0 = w.lastTpl?.[t.id];
+  const text = !closed && t.open ? t.open : t.again && t0 !== undefined && g.now - t0 < AGAIN_DAYS * DAY ? t.again : t;
   const at = rival?.base ?? t.at;
   const e: WorldEvent = {
     id: nextId(g, 'we'), kind: t.kind, tpl: t.id, title: text.title, body: text.body, country: rival ? AIRPORT_BY_CODE[at]?.country ?? t.country : t.country, at,
@@ -406,6 +424,7 @@ export function startEvent(g: GameState, t: WorldEventTpl, r: RngHolder = side(g
   w.events.push(e);
   if (w.events.length > 40) w.events.splice(0, w.events.length - 40);
   (w.lastKind ??= {})[t.kind] = g.now;
+  (w.lastTpl ??= {})[t.id] = g.now;
   statsV08(g).worldEvents++;
   // Market: a demand shock, a fuel jump, a recession's slump.
   if (t.shock) addShock(g, { seg: t.shock.seg, delta: t.shock.delta, until: e.end, text: fill(t.shock.text), eventId: e.id });
@@ -1118,6 +1137,12 @@ export function whiteout(g: GameState, f: Flight): boolean {
 /** Load: the world block (none in older saves). */
 export function loadWorld(g: GameState): void {
   g.world ??= { events: [] };
+  // v0.25 the per-template cooldown: an older save's last starts come from the events it kept (a fresh game has none).
+  if (!g.world.lastTpl && g.world.events.length) {
+    const last: Record<string, Minute> = {};
+    for (const e of g.world.events) last[e.tpl] = Math.max(last[e.tpl] ?? -Infinity, e.start);
+    g.world.lastTpl = last;
+  }
 }
 
 /**
