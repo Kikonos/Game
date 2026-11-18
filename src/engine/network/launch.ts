@@ -684,8 +684,16 @@ export function businessCaseX(g: GameState, r: Route): number {
   return base ? est.p50 / base : 1;
 }
 
-/** The demand the study measures against (passengers a week both ways at the recommended plan, truth 1). */
+/**
+ * The demand the study measures against (passengers a week both ways at the recommended plan, truth 1): the one fixed
+ * when the study was done (v0.25), else as it reads today.
+ */
 export function studyBase(g: GameState, r: Route): number {
+  return r.study?.base ?? studyBaseNow(g, r);
+}
+
+/** The study's base as it reads today (the study's day, a stop changed at the case, an older save's repair). */
+export function studyBaseNow(g: GameState, r: Route): number {
   const m = marketOfRoute(r)!;
   const rec = searchPlan(g, r, 1);
   if (!rec) return 0;
@@ -1058,7 +1066,8 @@ export function stepLaunch(g: GameState, r: Route): void {
     const st = stage(r, 'study');
     if (st.due !== undefined && g.now >= st.due && r.study) {
       st.state = 'done';
-      const base = studyBase(g, r);
+      const base = studyBaseNow(g, r);
+      r.study.base = base;
       // v0.19.2 an unresearched (custom) pair: a little less accurate at every depth.
       const acc = studyAccuracy(r.study.depth, !!m.custom, g);
       const err = 1 + gaussian(netSide(g, `studyErr:${r.id}`)) * acc * 0.6;
@@ -1214,8 +1223,9 @@ export function devLaunchRoute(g: GameState, marketId: string, aircraftId?: stri
   const r = g.network!.routes[res.routeId];
   const m = marketOfRoute(r)!;
   r.study!.est = { p10: 200, p50: 300, p90: 400 };
-  const base = studyBase(g, r);
+  const base = studyBaseNow(g, r);
   r.study!.est = { p10: Math.round(base * 0.8), p50: Math.round(base), p90: Math.round(base * 1.2) };
+  r.study!.base = base;
   r.status = 'case';
   const p = caseDraft(g, r.id);
   if (!p) return 'no plan';

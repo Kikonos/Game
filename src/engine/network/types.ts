@@ -46,7 +46,12 @@ export interface RouteStudy {
    * v0.22 the estimate as the study gave it, for the market it was made on: kept once the stop is changed at the
    * business case (advice.ts setStop), so every re-reading starts from it (going back gives the same numbers).
    */
-  ref?: { marketId: string; custom?: import('../../data/routes').RouteMarket; model: RouteModel; est: { p10: number; p50: number; p90: number } };
+  ref?: { marketId: string; custom?: import('../../data/routes').RouteMarket; model: RouteModel; est: { p10: number; p50: number; p90: number }; base?: number };
+  /**
+   * v0.25 the demand the estimate is measured against (launch.studyBase), fixed the day the study was done: read again
+   * later it drifted with the season and the fleet (the cabin quote read 1,022 against the case's 373). Load ??= today's.
+   */
+  base?: number;
 }
 
 /** §E demand segments. */

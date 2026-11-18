@@ -6,7 +6,9 @@ import { DAY } from '../core/time';
 import { createGame } from '../newGame';
 import { hireHead, unlockHead } from '../ops/heads';
 import { businessCase, caseDraft, customId, fleetLayout, routeIdeas, startStudy, studyBase } from '.';
-import { fleetAcCostBH, project } from './launch';
+import { businessCaseX, fleetAcCostBH, project, studyBaseNow } from './launch';
+import { advanceTo } from '../sim';
+import { deserialize, serialize } from '../save';
 import { aircraftCostBH } from './pnl';
 import { customMarket } from './custom';
 import type { GameState } from '../core/types';
@@ -20,6 +22,7 @@ function toCase(g: GameState, marketId: string): string {
   r.study!.est = { p10: 200, p50: 300, p90: 400 };
   const b = studyBase(g, r);
   r.study!.est = { p10: Math.round(b * 0.8), p50: Math.round(b), p90: Math.round(b * 1.2) };
+  r.study!.base = b;
   r.study!.done = g.now;
   r.status = 'case';
   return id;
@@ -74,4 +77,27 @@ describe('v0.25 the case charges the aircraft time the route P&L will', () => {
     const p = project(g, r, d, g.now + 120 * DAY, 1);
     expect(p.parts.aircraft).toBe(Math.round(p.bh * avg));
   });
+});
+
+describe('v0.25 the study keeps the base it was measured against', () => {
+  it('done in play: the base is stored, and the case\'s demand view stays put 60 days on', () => {
+    const g = newGame('RIX', 9);
+    const id = startStudy(g, customId({ from: 'RIX', to: 'FRA' }), 'desk').routeId!;
+    const r = g.network!.routes[id];
+    for (let i = 0; i < 120 && r.status === 'study'; i++) advanceTo(g, g.now + DAY, new Set());
+    expect(r.status).toBe('case');
+    const base = r.study!.base!;
+    expect(base).toBeGreaterThan(0);
+    const x = businessCaseX(g, r);
+    expect(studyBase(g, r)).toBe(base);
+    advanceTo(g, g.now + 60 * DAY, new Set());
+    expect(r.study!.base).toBe(base);
+    expect(businessCaseX(g, r)).toBe(x);
+    // An older save (no base): fixed once on load, then kept.
+    delete r.study!.base;
+    const back = deserialize(serialize(g));
+    const rb = back.network!.routes[id];
+    expect(rb.study!.base).toBe(studyBaseNow(back, rb));
+    expect(deserialize(serialize(back)).network!.routes[id].study!.base).toBe(rb.study!.base);
+  }, 120_000);
 });

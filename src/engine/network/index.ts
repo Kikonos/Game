@@ -10,7 +10,7 @@ import { routeDisruptionCost, routeMonthCosts, routeResting } from './costs';
 import { cashOnly } from '../core/ledger';
 import { notOursCancel } from '../ops/latePolicy';
 import { bumpRoute } from './reputation';
-import { inaugural, stepAwareness, stepLaunch } from './launch';
+import { inaugural, stepAwareness, stepLaunch, studyBaseNow } from './launch';
 import { settleClosedContracts, stepRouteLife } from './lifecycle';
 import { closePnlMonth } from './pnl';
 import { fadeReputation } from './reputation';
@@ -63,6 +63,8 @@ export function loadNetwork(g: GameState): void {
     r.contractIds ??= [];
     // r3-fix a launch's own series (made before series rolled on, its end untouched) keeps flying past its first year.
     if (r.status !== 'closed' && !r.closing) for (const x of r.series) if (x.id === `${r.id}s1` && x.to - x.from === 365 * DAY) x.roll ??= true;
+    // v0.25 a study done before its base was kept: fixed once, as it reads now (it no longer drifts day by day).
+    if (r.study?.est && r.study.base === undefined && marketOfRoute(r)) r.study.base = studyBaseNow(g, r);
   }
   repairRouteCabins(g);
 }
