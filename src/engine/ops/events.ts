@@ -25,7 +25,7 @@ import { calledNow } from '../crew/standby';
 import { type IssueCode } from '../crew/rules';
 import { dhBlock, OUT_CONNECT, outTicket, segsOf } from '../crew/timeline';
 import { distance } from '../core/geo';
-import { applyHold, cancelCost, cancelLegs, clientMoved, crewBlocked, delayChain, delayOf, liveDay, liveOver, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, settleOverlaps, stationOf, subcharterCost, subcharterLegs, subHit, underClosure, unitOf, windowLegs, type SubHit } from './flights';
+import { applyHold, cancelCost, cancelLegs, clientMoved, crewBlocked, delayChain, delayOf, liveDay, liveOver, moveFlight, noticeText, pickRival, planHold, planRecovery, rivalFactor, settleOverlaps, stationOf, subcharterCost, subcharterLateChip, subcharterLegs, subHit, underClosure, unitOf, windowLegs, type SubHit } from './flights';
 import { excusedLate, latePenalty } from './latePolicy';
 import { setAogEnd } from './maintenance';
 import { ticketBlock } from './commercial';
@@ -212,7 +212,7 @@ export function aogDecision(g: GameState, ac: Aircraft, f: Flight, m: Maintenanc
     swap
       ? { id: 'swap', label: `Swap in ${swap.ac.reg}`, desc: swap.from === m.at ? `${swap.ac.reg} is here and free: it takes over the legs.` : `${swap.ac.reg} ferries ${swap.from}–${m.at} and takes over the legs.`, tone: 'good', chips: [swap.from === m.at ? 'No ferry' : `Ferry ${fmtDuration(blockMinutes(swap.ac.typeId, swap.from, m.at))}`, `First leg ${fmtTime(swap.moves[0]?.std ?? swap.arrive)} UTC`, legsChip(win)] }
       : { id: 'swap', label: 'Swap aircraft', desc: 'No other aircraft of this type is free to take over now.', tone: 'bad', chips: ['Unavailable'] },
-    { id: 'subcharter', label: `Sub-charter to ${rivalName(g, rivalId)}`, desc: `A rival flies the legs; we still bill the client. Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}.`, tone: 'warn', chips: [usd(-sub), `Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}`, legsChip(win)] },
+    { id: 'subcharter', label: `Sub-charter to ${rivalName(g, rivalId)}`, desc: `A rival flies the legs; we still bill the client. Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}.`, tone: 'warn', chips: [usd(-sub), ...subcharterLateChip(g, win, rivalId), `Hurts: ${subHit(g, win.filter(isRevenue)).text || 'nothing'}`, legsChip(win)] },
     { id: 'cancel', label: 'Cancel the legs', desc: 'Compensation to the client and a reliability hit.', tone: 'bad', chips: [usd(-pen), 'Reliability −3', legsChip(win)] },
   ];
   // The default is the cheapest way out. v0.15.1 the AOG team when what it saves in compensation and fares beats its
@@ -277,8 +277,9 @@ function resolveAog(g: GameState, d: Decision, opt: string): ActionResult {
       const win = windowLegs(g, ac, m.at, fix());
       const rival = str(d.data, 'rivalId');
       const out: { hit?: SubHit } = {};
+      const chip = subcharterLateChip(g, win, rival)[0];
       const n = subcharterLegs(g, win, rival, subcharterCost(g, win, num(d.data, 'factor') || 1.5), out);
-      return { ok: true, msg: `${rivalName(g, rival)} flies ${plural(n, 'leg')} for us.${noticeText(g, win.find(isRevenue), out.hit)}` };
+      return { ok: true, msg: `${rivalName(g, rival)} flies ${plural(n, 'leg')} for us${chip ? ` (${chip.toLowerCase()})` : ''}.${noticeText(g, win.find(isRevenue), out.hit)}` };
     }
     case 'cancel': {
       const win = windowLegs(g, ac, m.at, fix());

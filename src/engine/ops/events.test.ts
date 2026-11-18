@@ -12,7 +12,8 @@ import { acceptOffer } from '../contracts';
 import { addAircraft, hamBase, leased, legsOffer, newGame, owned, run } from '../contracts/testkit';
 import { advanceTo } from '../sim';
 import { aogDecision, canAsk, changeRequestFor, clientFeeFor, crewShortDecision, latePaymentDecision, moveForClient, onDecisionExpire, paceDecisions, permitDelayFor, rescueDecision, resolveDecision, seasonNudge } from './events';
-import { cancelCost, planHold, windowLegs } from './flights';
+import { cancelCost, planHold, SUB_LEAD, windowLegs } from './flights';
+import { isOurDelay } from './latePolicy';
 import { startAog } from './maintenance';
 import { isRevenue, stats, turnOf } from './util';
 
@@ -119,6 +120,26 @@ describe('AOG decision', () => {
     expect(g.company.reputation.reliable).toBeLessThan(rel);
     expect(rel - g.company.reputation.reliable).toBeLessThanOrEqual(BAL.v072.sub.capPerClient);
     expect(stats(g).subchartered - n0).toBe(win.length);
+  });
+
+  it('sub-charter at the gate: the rival needs time to get there, so the stranded leg leaves late, our delay (v0.25)', () => {
+    const { g, ac, m, d, f } = aog();
+    const win = windowLegs(g, ac, m.at, m.end + 30).filter(isRevenue);
+    const opt = d.options.find((o) => o.id === 'subcharter')!;
+    expect(opt.chips!.some((c) => /^First leg ~.* late$/.test(c))).toBe(true);
+    const std0 = f.std;
+    resolveDecision(g, d.id, 'subcharter');
+    expect(f.operatedBy).toBe(d.data!.rivalId);
+    expect(f.std).toBeGreaterThanOrEqual(g.now + SUB_LEAD);
+    expect(f.schedStd).toBe(std0);
+    expect(isOurDelay(f)).toBe(true);
+    // The rival's legs keep their order with a turn between them.
+    const sorted = [...win].sort((a, b) => a.std - b.std);
+    for (let i = 1; i < sorted.length; i++) expect(sorted[i].std).toBeGreaterThanOrEqual(sorted[i - 1].sta);
+    // It completes at its new arrival, counted late.
+    skip(g, f.sta + 5);
+    expect(f.status).toBe('done');
+    expect(f.atd).toBe(f.std);
   });
 
   it('cancel: compensation paid and reliability −3 or more', () => {

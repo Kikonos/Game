@@ -26,7 +26,7 @@ import { afterDiversion, applyCrewFix, crewControl, flightCrewStatus, removeCrew
 import { continuationFits, restedDeparture } from '../crew/duties';
 import { crewName } from '../crew/generate';
 import { emergencyFactor, OPS_LIVE, optionalFactor } from './director';
-import { applyHold, delayChain, delayOf, excuseGrowth, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLegs, unitOf, cancelLegs } from './flights';
+import { applyHold, delayChain, delayOf, excuseGrowth, pickRival, planRecovery, rivalFactor, settleOverlaps, subcharterCost, subcharterLateChip, subcharterLegs, unitOf, cancelLegs } from './flights';
 import { isSoft, localToUTC } from '../contracts/plan';
 import { relinkPositioning } from '../contracts/schedule';
 import { excusedLate, latePenalty } from './latePolicy';
@@ -1040,7 +1040,7 @@ function sickCall(g: GameState, dutyId: string): void {
   if (cabinOnly) opts.push({ id: 'minCrew', label: 'Fly one cabin crew short', desc: `Allowed when unforeseen, for this flight only (ORO.CC.205(c)): at most 50 passengers per cabin crew member, ${maxPax} today; a report goes to the authority.`, tone: offload ? 'warn' : 'good', chips: [offload ? `${offload} passengers offloaded` : 'No one offloaded', !offload ? 'On time' : isCharter(g, f) ? usd(-offload * (eu261(f.from, f.to) + 150)) : 'Client rebooks them: relation −2', 'Report filed'] });
   for (const x of sols) opts.push({ id: `fix:${x.id}`, label: x.id === 'callIn' ? 'Call in standby crew' : x.id === 'jet' ? 'Charter a jet with a replacement' : x.id === 'delay' ? 'Wait for a replacement' : 'Fly a replacement in', desc: x.desc, tone: 'good', chips: x.chips.slice(0, 3) });
   opts.push({ id: 'crewControl', label: 'Let crew control sort it', desc: 'The flight waits at the gate and Crew Control shows every way to fix it.', chips: ['Decide at the gate'] });
-  opts.push({ id: 'subcharter', label: 'Sub-charter the trip', desc: 'A rival flies these legs; we still bill the client.', tone: 'warn', chips: [usd(-subcharterCost(g, unitOf(g, ac, f), 1.5))] });
+  opts.push({ id: 'subcharter', label: 'Sub-charter the trip', desc: 'A rival flies these legs; we still bill the client.', tone: 'warn', chips: [usd(-subcharterCost(g, unitOf(g, ac, f), 1.5)), ...subcharterLateChip(g, unitOf(g, ac, f), '')] });
   const def = cabinOnly && !offload ? 'minCrew' : sol ? `fix:${sol.id}` : 'crewControl';
   raise(g, {
     kind: 'sickAway', title: `${crewName(c)} called in sick in ${city(f.from)}`,
