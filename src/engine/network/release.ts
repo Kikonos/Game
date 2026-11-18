@@ -87,9 +87,9 @@ export function coverRotations(g: GameState, rotIds: string[], reg: string, from
   if (touched.size) autoRoster(g, { aircraftIds: [...touched] });
   for (const [route, n] of byRoute) {
     const parts = [
-      n.swapped ? `${n.swapped} fly on another of our aircraft` : '',
-      n.subbed ? `${n.subbed} are sub-chartered` : '',
-      n.later ? `${n.later} wait for an aircraft: free one, or each is sub-chartered 3 days before departure` : '',
+      n.swapped ? `${n.swapped} ${n.swapped === 1 ? 'flies' : 'fly'} on another of our aircraft` : '',
+      n.subbed ? `${n.subbed} ${n.subbed === 1 ? 'is' : 'are'} sub-chartered` : '',
+      n.later ? `${n.later} ${n.later === 1 ? 'waits' : 'wait'} for an aircraft: free one, or ${n.later === 1 ? 'it is' : 'each is'} sub-chartered 3 days before departure` : '',
     ].filter(Boolean);
     const total = n.swapped + n.subbed + n.later;
     pushRouteNote(g, route, n.later ? 'warn' : 'info', `${reg} C-check: ${total} ${routeWord(route)} round trip${total === 1 ? '' : 's'} moved`,

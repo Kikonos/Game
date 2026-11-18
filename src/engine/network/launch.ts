@@ -855,7 +855,7 @@ function deviationNotes(g: GameState, r: Route, d: RoutePlan, start: Minute, x: 
   const cd = cabinFor(d.typeId, d.layout ?? 'two-class');
   const cr = cabinFor(rec.typeId, rec.layout ?? 'two-class');
   if (!cd.j && cr.j) out.push(`All economy: most government and business travellers go elsewhere (revenue ${Math.round(((b.rev - a.rev) / Math.max(1, a.rev)) * 100)} %).`);
-  if (cd.total < cr.total && b.spill > a.spill * 1.2) out.push(`A ${typeOf(d.typeId)?.short ?? 'smaller type'} turns away about ${Math.round((b.spill / Math.max(1, b.pax + b.spill)) * 100)} % of the demand at peak.`);
+  if (cd.total < cr.total && b.spill > a.spill * 1.2) out.push(`${typeOf(d.typeId) ? `${/^[AEIOU]/i.test(typeOf(d.typeId)!.short) ? 'An' : 'A'} ${typeOf(d.typeId)!.short}` : 'A smaller type'} turns away about ${Math.round((b.spill / Math.max(1, b.pax + b.spill)) * 100)} % of the demand at peak.`);
   if (cd.total > cr.total * 1.15) out.push(`A bigger aircraft: off-peak load ${Math.round(a.lfOff * 100)} % → ${Math.round(b.lfOff * 100)} %.`);
   if (d.fares !== rec.fares) out.push(d.fares === 'low' ? 'Low fares fill more seats for less money a seat.' : 'High fares earn more a seat; fewer people book.');
   if (Math.round(b.result) !== Math.round(a.result) && out.length) out.push(`Against the recommendation: ${b.result >= a.result ? '+' : '−'}${usd(Math.abs(b.result - a.result))} a year.`);

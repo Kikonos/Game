@@ -161,7 +161,8 @@ export function acmiCompare(g: GameState, routeId: string): string | null {
   const acmi = acmiNetBH(g, typeId);
   const name = typeOf(typeId)?.short ?? typeId;
   const usd = (v: number) => `${v < 0 ? '−' : ''}$${Math.abs(v).toLocaleString('en-US')}`;
-  return `Last 3 months: ${usd(per)} a block hour after direct costs. A ${name} on ACMI earns about ${usd(acmi)} (rate less maintenance).`;
+  // v0.25 "An A321", "A B738".
+  return `Last 3 months: ${usd(per)} a block hour after direct costs. ${/^[AEIOU]/i.test(name) ? 'An' : 'A'} ${name} on ACMI earns about ${usd(acmi)} (rate less maintenance).`;
 }
 
 /** UPDATE-0.19 additions 3 (b): the live numbers of a route flight and the next sector's bookings. */

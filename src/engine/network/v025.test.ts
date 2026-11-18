@@ -9,7 +9,7 @@ import { businessCase, caseDraft, customId, fleetLayout, routeIdeas, startStudy,
 import { businessCaseX, fleetAcCostBH, project, studyBaseNow } from './launch';
 import { advanceTo } from '../sim';
 import { deserialize, serialize } from '../save';
-import { aircraftCostBH, closePnlMonth, crewCostBH } from './pnl';
+import { acmiCompare, aircraftCostBH, closePnlMonth, crewCostBH } from './pnl';
 import { monthKey } from '../core/time';
 import { devLaunchRoute } from './launch';
 import { customMarket } from './custom';
@@ -120,5 +120,15 @@ describe('v0.25 the route P&L charges each aircraft its own hours', () => {
     expect(g.fleet.a1.ownership.kind).toBe('owned');
     expect(r.pnl[k].acTime).toBe(Math.round(6 * rate('a1') + 4 * rate('a2')));
     expect(r.pnl[k].acTime).toBeLessThan(Math.round(10 * rate('a2')) * 0.7);
+  });
+});
+
+describe('v0.25 wording', () => {
+  it('"An A320 on ACMI", not "A A320"', () => {
+    const g = newGame('LIS', 11);
+    const id = devLaunchRoute(g, customId({ from: 'LIS', to: 'FRA' }), 'a1');
+    const r = g.network!.routes[id];
+    r.pnl[monthKey(g.now) - 1] = { rev: 100_000, tickets: 0, cargo: 0, ancillary: 0, direct: 50_000, acTime: 0, result: 0, pax: 0, seats: 0, bh: 10, sectors: 4, onTime: 4, cargoKg: 0, launch: 0 };
+    expect(acmiCompare(g, id)).toMatch(/An A320 on ACMI/);
   });
 });

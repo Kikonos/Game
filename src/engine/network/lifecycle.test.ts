@@ -48,6 +48,10 @@ describe('v0.24.1 route lifecycle', () => {
     expect(b.flyCost).toBeGreaterThan(0);
     expect(b.saved).toBe(Math.round(q.refundCost - (b.flyCost - b.flyRev) - b.flyOverhead - b.laterCost));
     expect(b.saved).toBeGreaterThanOrEqual(q.all.saved);
+    // v0.25 the later ones' ticket money is kept apart from their cost to us; flying them all refunds none.
+    expect(b.laterRefund).toBeLessThanOrEqual(b.laterCost + q.subBack);
+    expect(b.later ? b.laterRefund > 0 : b.laterRefund === 0).toBe(true);
+    expect(q.all.laterRefund).toBe(0);
     expect(b.lastFlight).toBeGreaterThan(g.now);
     expect(q.all.lastFlight).toBeGreaterThanOrEqual(b.lastFlight!);
     expect(q.monthSuspended).toBeLessThan(q.monthNow);

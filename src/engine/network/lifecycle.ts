@@ -102,6 +102,8 @@ export interface WindQuote {
   laterPax: number;
   /** Refunding the later ones (their tickets and passenger costs). */
   laterCost: number;
+  /** v0.25 of `laterCost`, the ticket money paid back (the rest is the cost to us). */
+  laterRefund: number;
   /** Arrival of the last flight flown (or under way). */
   lastFlight?: Minute;
   /** Against close now (positive: this plan costs less). */
@@ -189,7 +191,7 @@ function planCut(g: GameState, rows: PlanRow[], underWayEnd: Minute, monthClosin
 }
 
 function windQuote(g: GameState, rows: PlanRow[], cut: number, underWayEnd: Minute, underWay: number, monthClosing: number, refundCost: number): WindQuote {
-  const w: WindQuote = { fly: 0, flyPax: 0, flyCost: 0, flyRev: 0, flyOverhead: 0, later: 0, laterPax: 0, laterCost: 0, saved: 0 };
+  const w: WindQuote = { fly: 0, flyPax: 0, flyCost: 0, flyRev: 0, flyOverhead: 0, later: 0, laterPax: 0, laterCost: 0, laterRefund: 0, saved: 0 };
   rows.forEach((x, i) => {
     if (i < cut) {
       w.fly++;
@@ -201,6 +203,7 @@ function windQuote(g: GameState, rows: PlanRow[], cut: number, underWayEnd: Minu
       w.later++;
       w.laterPax += x.pax;
       w.laterCost += x.refund + x.comp - x.subBack;
+      w.laterRefund += x.refund;
     }
   });
   if (underWay) w.lastFlight = Math.max(w.lastFlight ?? 0, underWayEnd);
@@ -215,7 +218,7 @@ const closingMonth = (r: Route) => overheadIn(r, r.status === 'suspended' ? 'sus
 /** Every number the four actions need (pure). */
 export function quoteRouteLife(g: GameState, routeId: string): RouteLifeQuote {
   const r = g.network?.routes[routeId];
-  const w0: WindQuote = { fly: 0, flyPax: 0, flyCost: 0, flyRev: 0, flyOverhead: 0, later: 0, laterPax: 0, laterCost: 0, saved: 0 };
+  const w0: WindQuote = { fly: 0, flyPax: 0, flyCost: 0, flyRev: 0, flyOverhead: 0, later: 0, laterPax: 0, laterCost: 0, laterRefund: 0, saved: 0 };
   const z: RouteLifeQuote = {
     ok: false, ahead: 0, booked: 0, empty: 0, underWay: 0, pax: 0, refunds: 0, comp: 0, subBack: 0, refundCost: 0, best: w0, all: w0,
     monthNow: 0, monthSuspended: 0, monthClosing: 0, monthLive: 0, slotsKeep: g.now, slotsRefund: g.now,
