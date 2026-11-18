@@ -24,7 +24,7 @@ import type { GameState, Ref } from '../../engine/core/types';
 import { slipsOfAircraft } from '../../engine/crew';
 import { commercialFlightsBetween, FLIGHT_TYPE_HINT, FLIGHT_TYPE_LABEL, worldEventPins, worldZones } from '../../engine/ops';
 import { store, useClock, useGame, useTheme } from '../store';
-import { useTouch } from '../useMedia';
+import { COMPACT_SHORT, useTouch } from '../useMedia';
 import { AircraftLayer, ArcsLayer, CommercialLayer, DiversionLayer, divMarks, HIT_R, type LiveShared, NightLayer, newShared, PathsLayer, PinsLayer, pinOffset, SlipArcsLayer, SlipMarksLayer, WeatherLayer, WX_OFF } from './LiveLayers';
 import { SpotterPanel } from './Spotter';
 import { SIL_COLOURS, silhouette } from './silhouettes';
@@ -33,7 +33,7 @@ import { wxMarks, type WxMark } from './weather';
 import { MapPanel, TypeKey } from './MapPanels';
 import { RouteCard, RouteLinesLayer, routeSectors } from '../screens/network/live';
 import { KEY_EVENT } from '../keymap';
-import { ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, fleetGroups, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, parseSlipId, pickNearest, placeEventPins, placeSlipMarks, selectedLegs, shortIndex, slipArcs, slipWindow, tourRoutes, upNextRows, upNextWhen } from './mapLogic';
+import { ALERT_CHIP, awaitingDelivery, chipInfo, commercialById, fleetGroups, fitCodes, onMap, fitFresh, isCommercialId, JET_PATH, mapAirports, offerPins, parseSlipId, pickNearest, placeEventPins, placeSlipMarks, selectedLegs, shortIndex, slipArcs, slipWindow, tourRoutes, upNextFolded, upNextRows, upNextWhen } from './mapLogic';
 import { EventPinsLayer, hatchUnit, ZoneGround, ZoneLabels } from './WorldLayer';
 import { type FocusAt, type MapAirport, type MapLayerCtx, type Pad, type View, WorldMap } from './WorldMap';
 import { HintNote } from '../components/ScreenHint';
@@ -244,13 +244,16 @@ function MapLegend() {
   );
 }
 
-/** Up Next fold: a per-viewer convenience (browser storage can be missing or blocked; defaults open). */
+/** Up Next fold: a per-viewer convenience (browser storage can be missing or blocked; defaults open). v0.25 a phone on
+ *  its side starts folded (the board covered a third of the map) until the player opens it ('0' remembers that). */
 const FOLD_KEY = 'bh:upNextCollapsed';
 const readFold = () => {
-  try { return localStorage.getItem(FOLD_KEY) === '1'; } catch { return false; }
+  let v: string | null = null;
+  try { v = localStorage.getItem(FOLD_KEY); } catch { /* not stored */ }
+  return upNextFolded(v, typeof window !== 'undefined' && !!window.matchMedia?.(COMPACT_SHORT).matches);
 };
 const writeFold = (v: boolean) => {
-  try { if (v) localStorage.setItem(FOLD_KEY, '1'); else localStorage.removeItem(FOLD_KEY); } catch { /* not stored */ }
+  try { localStorage.setItem(FOLD_KEY, v ? '1' : '0'); } catch { /* not stored */ }
 };
 
 /** Up Next rows (a departures board). */

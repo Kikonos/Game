@@ -774,3 +774,13 @@ describe('v0.25 Up Next dates fit their column', () => {
     expect(upNextWhen(fromUTC(2027, 12, 28, 12, 0), fromUTC(2028, 1, 9, 9, 0))).toBe('9 Jan 28 09:00');
   });
 });
+
+describe('v0.25 Up Next starts folded on a phone on its side', () => {
+  it('folded on a short screen until the player opens it; the stored choice wins', async () => {
+    const { upNextFolded } = await import('./mapLogic');
+    expect(upNextFolded(null, true)).toBe(true);
+    expect(upNextFolded(null, false)).toBe(false);
+    expect(upNextFolded('0', true)).toBe(false);
+    expect(upNextFolded('1', false)).toBe(true);
+  });
+});

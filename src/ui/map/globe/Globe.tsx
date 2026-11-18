@@ -13,6 +13,7 @@ import type { Flight, GameState, Ref } from '../../../engine/core/types';
 import { commercialFlightsBetween, commercialProgress, type CommercialFlight, type FlightType, flightType } from '../../../engine/ops';
 import { registerCaptureCanvas } from '../../bugShot';
 import { liveMinute, store } from '../../store';
+import { cssRect } from '../../device';
 import type { Theme } from '../../theme';
 import { isTouch } from '../../useMedia';
 import { airlineType } from '../airlineTypes';
@@ -1107,12 +1108,31 @@ export default function Globe(props: GlobeProps) {
           if (at) {
             const centre: [number, number] = [orbit.lon, orbit.lat];
             const horizon = (Math.acos(1 / orbit.dist) * 180) / Math.PI;
-            if (angleBetween(centre, at) > horizon * 0.55) flyTo({ ...aimAt(at, orbit.dist, h, p.panelOpen ? PANEL_W / 2 : 0), dist: orbit.dist });
+            // v0.25 (iPhone) also when it sits under the zoom buttons or the panel, measured on the page (the panel is
+            // narrower than PANEL_W on a phone, and the buttons move beside it): it lands in the middle of what is free.
+            const right = freeRight();
+            const v = vecOf(at[0], at[1], R_AP);
+            const q = facing(v, cv.pos, LABEL_COS) ? projectView(v, cv, w, h) : null;
+            const covered = !!q && q.x > right;
+            const shift = right < w - 1 ? (w - right) / 2 : p.panelOpen ? PANEL_W / 2 : 0;
+            if (angleBetween(centre, at) > horizon * 0.55 || covered) flyTo({ ...aimAt(at, orbit.dist, h, shift), dist: orbit.dist });
           }
         }
         dirty = true;
         kick();
       },
+    };
+    /** v0.25 the right edge (stage px) of the globe the selection panel and the zoom buttons leave free. */
+    const freeRight = (): number => {
+      const host = stage.closest('.ops-map');
+      if (!host) return w;
+      const sl = cssRect(stage).left;
+      let right = w;
+      for (const el of Array.from(host.querySelectorAll('.ops-panel, .map-zoom'))) {
+        const r = cssRect(el);
+        if (r.width > 0 && r.height > 0 && r.left - sl > w * 0.3) right = Math.min(right, r.left - sl - 8);
+      }
+      return right;
     };
     const selPos = (s: Ref | undefined): [number, number] | null => {
       if (!s) return null;

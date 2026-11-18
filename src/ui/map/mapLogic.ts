@@ -913,3 +913,6 @@ export function upNextWhen(now: Minute, t: Minute): string {
   if (d <= 6) return fmtWeekdayTime(t);
   return `${yearOf(t) === yearOf(now) ? fmtDayIn(t, now) : fmtDayShort(t)} ${fmtTime(t)}`;
 }
+
+/** v0.25 Up Next folded or open: what the player chose ('1' folded, '0' open), else folded on a phone on its side. Pure. */
+export const upNextFolded = (stored: string | null, short: boolean): boolean => (stored === '1' ? true : stored === '0' ? false : short);
