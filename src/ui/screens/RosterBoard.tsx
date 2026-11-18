@@ -6,7 +6,7 @@
 
 import { BoardingPasses } from '../components/BoardingPass';
 import { RankMark } from '../components/RankMark';
-import { BedDouble, CalendarDays, Check, ChevronDown, Rows3, Rows4 } from 'lucide-react';
+import { BedDouble, CalendarDays, Check, ChevronDown, Rows3, Rows4, SlidersHorizontal } from 'lucide-react';
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { KEY_EVENT } from '../keymap';
 import { flightsRev } from '../../engine/core/entities';
@@ -22,6 +22,7 @@ import { useRenderCount } from './common';
 import { seatLabel } from '../../engine/core/perf';
 import { CAL_KEY_CODE, CAL_KEY_LABEL, calKey, calLayer, calLegend, type CalKey } from './crewLogic';
 import { cssRect, toCss } from '../device';
+import { COMPACT_SHORT, useMedia } from '../useMedia';
 import {
   BACK_DAYS, BOARD_DAYS, blockCands, blockKeys, boardItems, calmCands, clientItems, groupAt, itemsSig, rowSig, boardLayout, dayCodes, dayWidth, dayWindow, edgeSpeed, fitText, HEAD_H, itemAt, LEFT_W,
   monthCell, moraleTone, NO_BOARD_FILTER, ROLE_PLURAL, ROW_H_BY, splitMark, verdictText, visibleRange, weekLabels, type BoardDensity, type BoardFilter, type BoardGroupBy, type BoardItem, type BoardZoom, type RankFilter,
@@ -69,6 +70,28 @@ function stored<T extends string>(key: string, ok: readonly T[], fallback: T): T
     return fallback;
   }
 }
+/** v0.25 a phone on its side (the board starts in compact rows there unless the player chose). */
+const isShortScreen = () => typeof window !== 'undefined' && !!window.matchMedia?.(COMPACT_SHORT).matches;
+
+/**
+ * v0.25 a phone on its side: scrolling the board down slides the screen head (tabs, Hire) away so the board gets
+ * its height; back at the board's top the head returns.
+ */
+function foldHead(board: HTMLElement) {
+  const main = board.closest('main');
+  if (!main) return;
+  const max = main.scrollHeight - main.clientHeight;
+  if (max <= 0) return;
+  const want = board.scrollTop > 12 ? max : 0;
+  // Asked once per change (not on every scroll event, which would restart the glide).
+  if (main.dataset.headFold === String(want) && Math.abs(main.scrollTop - want) > 1 && main.dataset.headFoldAt && performance.now() - Number(main.dataset.headFoldAt) < 600) return;
+  if (Math.abs(main.scrollTop - want) > 1) {
+    main.dataset.headFold = String(want);
+    main.dataset.headFoldAt = String(performance.now());
+    main.scrollTo({ top: want, behavior: 'smooth' });
+  }
+}
+
 function remember(key: string, v: string) {
   try {
     localStorage.setItem(key, v);
@@ -328,9 +351,19 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
   const now = useThrottledNow(1000);
   useRenderCount('board');
   const [f, setF] = useState<BoardFilter>(NO_BOARD_FILTER);
+  // v0.25 a phone on its side: the filters fold into one Filters pop-over and the colour key into its '?'.
+  const short = useMedia(COMPACT_SHORT);
+  const [filtOpen, setFiltOpen] = useState(false);
+  const filtRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (!filtOpen) return;
+    const off = (e: PointerEvent) => { if (!filtRef.current?.contains(e.target as Node)) setFiltOpen(false); };
+    document.addEventListener('pointerdown', off, true);
+    return () => document.removeEventListener('pointerdown', off, true);
+  }, [filtOpen]);
   const [zoom, setZoomS] = useState<BoardZoom>(() => stored(ZOOM_KEY, ['week', 'month'] as const, 'week'));
   const [scope, setScopeS] = useState<MoveScope>(() => stored(SCOPE_KEY, ['duty', 'trip'] as const, 'trip'));
-  const [density, setDensityS] = useState<BoardDensity>(() => stored(DENSITY_KEY, ['compact', 'comfortable'] as const, 'comfortable'));
+  const [density, setDensityS] = useState<BoardDensity>(() => stored(DENSITY_KEY, ['compact', 'comfortable'] as const, isShortScreen() ? 'compact' : 'comfortable'));
   const [groupBy, setGroupByS] = useState<BoardGroupBy>(() => stored(GROUP_KEY, ['base', 'deployment', 'rank'] as const, 'base'));
   const [fold, setFold] = useState<Set<string>>(storedFold);
   const [stick, setStick] = useState<string | null>(null);
@@ -831,35 +864,69 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
     return <span key={i} className={`rb-col ${wd === 0 || wd === 6 ? 'we' : ''}`} style={{ left: LEFT_W + i * dayW, width: dayW }} />;
   }), [d0, d1, from, dayW]);
 
+  const filterCtrls = (
+    <>
+      {bases.length > 1 && (
+        <select className="select" value={f.base} onChange={(e) => setF({ ...f, base: e.target.value })} aria-label="Base">
+          <option value="all">All bases</option>
+          {bases.map((x) => <option key={x} value={x}>{x}</option>)}
+        </select>
+      )}
+      <select className="select" value={f.rank} onChange={(e) => setF({ ...f, rank: e.target.value as RankFilter })} aria-label="Rank">
+        {RANKS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+      </select>
+      {families.length > 1 && (
+        <select className="select" value={f.family} onChange={(e) => setF({ ...f, family: e.target.value as BoardFilter['family'] })} aria-label="Type">
+          <option value="all">Any type</option>
+          {families.map((x) => <option key={x} value={x}>{familyLabel(x)}</option>)}
+        </select>
+      )}
+      <input className="input rb-search" value={f.q} placeholder="Name, base" onChange={(e) => setF({ ...f, q: e.target.value })} aria-label="Search crew" />
+      <select className="select rb-groupby" value={groupBy} onChange={(e) => setGroupBy(e.target.value as BoardGroupBy)} aria-label="Group by">
+        {(Object.keys(GROUP_LABEL) as BoardGroupBy[]).map((k) => <option key={k} value={k}>{GROUP_LABEL[k]}</option>)}
+      </select>
+      <button className="btn btn-icon rb-density" onClick={() => setDensity(density === 'compact' ? 'comfortable' : 'compact')} aria-label={density === 'compact' ? 'Comfortable rows' : 'Compact rows'} title={density === 'compact' ? 'Comfortable rows' : 'Compact rows'}>{density === 'compact' ? <Rows3 /> : <Rows4 />}</button>
+    </>
+  );
+  const nFilters = (f.base !== 'all' ? 1 : 0) + (f.rank !== 'all' ? 1 : 0) + (f.family !== 'all' ? 1 : 0) + (f.q.trim() ? 1 : 0);
+  const colourKey = (
+    <ColourLegend title="Roster board colours" align="left" items={[
+      { swatch: <span className="sc-cal-sw k-operating" aria-hidden />, label: 'A duty: flights with passengers (in the contract colour)' },
+      { swatch: <span className="sc-cal-sw k-positioning" aria-hidden />, label: 'Positioning or ferry: flying empty' },
+      { swatch: <span className="sc-cal-sw k-deadhead" aria-hidden />, label: 'Deadhead: positioning as a passenger on an airline or a private jet (Positioning on the person calendar)' },
+      { swatch: <span className="sc-cal-sw k-rest" aria-hidden />, label: 'Rest: the time off needed before the next duty' },
+      { swatch: <span className="sc-cal-sw k-off" aria-hidden />, label: 'OFF: day off (OFF DUB at the hotel), published 14 days ahead; a lock means a change costs morale' },
+      { swatch: <span className="sc-cal-sw k-standby" aria-hidden />, label: 'SBY E / SBY L: home standby, early 05–17 or late 12–24' },
+      { swatch: <span className="sc-cal-sw k-sbyHotel" aria-hidden />, label: 'SBY DUB: hotel standby at that station' },
+      { swatch: <span className="sc-cal-sw k-asby" aria-hidden />, label: 'ASBY: airport standby, ready at once' },
+      { swatch: <span className="sc-cal-sw k-res" aria-hidden />, label: 'RES: reserve, at least 10 h notice' },
+      { swatch: <span className="sc-cal-sw k-leave" aria-hidden />, label: 'LEAVE: annual leave' },
+      { swatch: <span className="rb-pub-sw" aria-hidden />, label: 'Thin line: end of the published roster' },
+      { swatch: 'ring-amber', label: 'Amber ring: legal but tight (one delay breaks it)' },
+      { swatch: 'ring-red', label: 'Red ring: cannot legally fly as rostered' },
+      { swatch: 'idle', label: 'Faint hatch: not rostered yet (the roster for each month comes out on the 15th before)' },
+      { swatch: <span className="rb-mark"><BedDouble aria-hidden />3P</span>, label: '3P / 4P: an augmented crew (1 CPT + 2 FO, or 2 CPT + 2 FO in pairs A and B), resting in turns in flight' },
+      { swatch: <span className="rb-mark">+1h</span>, label: '+1h: a planned extension (at most twice a week each)' },
+      { swatch: <span className="rb-mark">SPLIT</span>, label: 'SPLIT: a split duty, a long wait on the ground adds to the day' },
+    ]} gestures={['Tap a duty to change its crew.', 'Long-press a duty and drag it to someone else.']} />
+  );
+
   return (
     <div className="rb">
       <div className="rb-tools">
-        {bases.length > 1 && (
-          <select className="select" value={f.base} onChange={(e) => setF({ ...f, base: e.target.value })} aria-label="Base">
-            <option value="all">All bases</option>
-            {bases.map((x) => <option key={x} value={x}>{x}</option>)}
-          </select>
-        )}
-        <select className="select" value={f.rank} onChange={(e) => setF({ ...f, rank: e.target.value as RankFilter })} aria-label="Rank">
-          {RANKS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-        </select>
-        {families.length > 1 && (
-          <select className="select" value={f.family} onChange={(e) => setF({ ...f, family: e.target.value as BoardFilter['family'] })} aria-label="Type">
-            <option value="all">Any type</option>
-            {families.map((x) => <option key={x} value={x}>{familyLabel(x)}</option>)}
-          </select>
-        )}
-        <input className="input rb-search" value={f.q} placeholder="Name, base" onChange={(e) => setF({ ...f, q: e.target.value })} aria-label="Search crew" />
-        <select className="select rb-groupby" value={groupBy} onChange={(e) => setGroupBy(e.target.value as BoardGroupBy)} aria-label="Group by">
-          {(Object.keys(GROUP_LABEL) as BoardGroupBy[]).map((k) => <option key={k} value={k}>{GROUP_LABEL[k]}</option>)}
-        </select>
+        {short ? (
+          <span className="rb-filters" ref={filtRef}>
+            <button className={`btn rb-filters-btn ${nFilters ? 'btn-on' : ''}`} onClick={() => setFiltOpen(!filtOpen)} aria-expanded={filtOpen}><SlidersHorizontal /> Filters{nFilters ? ` ${nFilters}` : ''}</button>
+            {filtOpen && <div className="rb-filters-pop">{filterCtrls}</div>}
+          </span>
+        ) : filterCtrls}
         <span className="grow" />
-        <button className="btn btn-icon rb-density" onClick={() => setDensity(density === 'compact' ? 'comfortable' : 'compact')} aria-label={density === 'compact' ? 'Comfortable rows' : 'Compact rows'} title={density === 'compact' ? 'Comfortable rows' : 'Compact rows'}>{density === 'compact' ? <Rows3 /> : <Rows4 />}</button>
+        {short && colourKey}
         <Seg<BoardZoom> value={zoom} onChange={setZoom} options={[{ value: 'week', label: 'Week' }, { value: 'month', label: 'Month' }]} />
         <span className="row gap-4 rb-scope" title="What a drag moves: one duty or the whole trip"><span className="tiny dim nowrap rb-scope-t">Drag moves</span><Seg<MoveScope> value={scope} onChange={setScope} options={[{ value: 'duty', label: 'Duty' }, { value: 'trip', label: 'Trip' }]} /></span>
         <button className="btn rb-today" onClick={goToday} aria-label="Today" title="Today"><CalendarDays /> <span className="rb-today-t">Today</span></button>
       </div>
-      <div className={`rb-scroll ${drag ? 'dragging' : ''} z-${zoom} d-${density}`} ref={scroller} onScroll={() => { sync(); if (pop) setPop(null); }} onClick={onClick}>
+      <div className={`rb-scroll ${drag ? 'dragging' : ''} z-${zoom} d-${density}`} ref={scroller} onScroll={() => { sync(); if (pop) setPop(null); if (short && scroller.current) foldHead(scroller.current); }} onClick={onClick}>
         <div className="rb-canvas" style={{ width: W }}>
           <div className={`rb-head ${month ? 'with-sum' : ''}`} style={{ width: W }}>
             <div className="rb-corner small muted col">
@@ -891,31 +958,14 @@ function Board({ g, selecting, selected, onSelect }: RosterBoardProps) {
         </div>
         {!items.length && <div className="small muted sc-pad rb-empty">Nobody matches these filters.</div>}
       </div>
-      <div className="rb-foot">
+      {/* v0.25 a phone on its side: no colour strip (the '?' in the tools has it); the foot only while dragging. */}
+      {(!short || drag) && <div className="rb-foot">
         {/* v0.22 the '?' first: on a phone the foot scrolls sideways and the '?' was out of sight at its far end. */}
-        <ColourLegend title="Roster board colours" align="left" items={[
-          { swatch: <span className="sc-cal-sw k-operating" aria-hidden />, label: 'A duty: flights with passengers (in the contract colour)' },
-          { swatch: <span className="sc-cal-sw k-positioning" aria-hidden />, label: 'Positioning or ferry: flying empty' },
-          { swatch: <span className="sc-cal-sw k-deadhead" aria-hidden />, label: 'Deadhead: positioning as a passenger on an airline or a private jet (Positioning on the person calendar)' },
-          { swatch: <span className="sc-cal-sw k-rest" aria-hidden />, label: 'Rest: the time off needed before the next duty' },
-          { swatch: <span className="sc-cal-sw k-off" aria-hidden />, label: 'OFF: day off (OFF DUB at the hotel), published 14 days ahead; a lock means a change costs morale' },
-          { swatch: <span className="sc-cal-sw k-standby" aria-hidden />, label: 'SBY E / SBY L: home standby, early 05–17 or late 12–24' },
-          { swatch: <span className="sc-cal-sw k-sbyHotel" aria-hidden />, label: 'SBY DUB: hotel standby at that station' },
-          { swatch: <span className="sc-cal-sw k-asby" aria-hidden />, label: 'ASBY: airport standby, ready at once' },
-          { swatch: <span className="sc-cal-sw k-res" aria-hidden />, label: 'RES: reserve, at least 10 h notice' },
-          { swatch: <span className="sc-cal-sw k-leave" aria-hidden />, label: 'LEAVE: annual leave' },
-          { swatch: <span className="rb-pub-sw" aria-hidden />, label: 'Thin line: end of the published roster' },
-          { swatch: 'ring-amber', label: 'Amber ring: legal but tight (one delay breaks it)' },
-          { swatch: 'ring-red', label: 'Red ring: cannot legally fly as rostered' },
-          { swatch: 'idle', label: 'Faint hatch: not rostered yet (the roster for each month comes out on the 15th before)' },
-          { swatch: <span className="rb-mark"><BedDouble aria-hidden />3P</span>, label: '3P / 4P: an augmented crew (1 CPT + 2 FO, or 2 CPT + 2 FO in pairs A and B), resting in turns in flight' },
-          { swatch: <span className="rb-mark">+1h</span>, label: '+1h: a planned extension (at most twice a week each)' },
-          { swatch: <span className="rb-mark">SPLIT</span>, label: 'SPLIT: a split duty, a long wait on the ground adds to the day' },
-        ]} gestures={['Tap a duty to change its crew.', 'Long-press a duty and drag it to someone else.']} />
-        {legend.map((k) => <span key={k} className="row gap-4 tiny muted"><span className={`sc-cal-sw k-${k}`} aria-hidden />{BOARD_LEGEND[k] ?? CAL_KEY_LABEL[k]}</span>)}
+        {!short && colourKey}
+        {!short && legend.map((k) => <span key={k} className="row gap-4 tiny muted"><span className={`sc-cal-sw k-${k}`} aria-hidden />{BOARD_LEGEND[k] ?? CAL_KEY_LABEL[k]}</span>)}
         <span className="grow" />
         {drag && <span className="tiny dim">Drop on a green or amber row · red asks first · grey can’t take it</span>}
-      </div>
+      </div>}
       {pop && (
         <div className={`rb-pop k-${pop.key}${pop.pass ? ' has-pass' : ''}`} style={{ left: Math.min(pop.x, toCss(window.innerWidth) - (pop.pass ? 396 : 300)), top: Math.max(8, Math.min(pop.y + 12, toCss(window.innerHeight) - (pop.pass ? 300 : 140))) }} onClick={() => setPop(null)}>
           <div className="row gap-8"><span className={`sc-cal-sw k-${pop.key}`} aria-hidden /><b className="small">{pop.title}</b></div>

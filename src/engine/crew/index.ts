@@ -101,7 +101,7 @@ export {
   crewMonth, dayIndex, isOff, offBreak, planOffDays, planStandby, publishDayOf, publishedTo, rosterHorizon, rosterOutLine, rosterStats, standbyNow,
   type CrewMonthView, type OffBreak,
 } from './dayPlan';
-export { answerLeave, decideBy, leaveBalance, leaveDaysFor, leavePolicy, leaveVerdict, setLeavePolicy, type LeaveBalance, type LeaveVerdict } from './leave';
+export { answerLeave, capOf as leaveCap, decideBy, leaveBalance, leaveDaysFor, leavePolicy, leaveVerdict, setLeavePolicy, type LeaveBalance, type LeaveVerdict } from './leave';
 export { dutyNeed, restNeedLine, type ChainShape, type DutyNeed } from './duties';
 export {
   EXT_TABLE, extFdp, disruptiveKinds, FTL_TYPE, STANDBY, standbyAwakeOk, standbyCut, TZ_NIGHTS, tzNights, WOCL, cabinFdpCap,

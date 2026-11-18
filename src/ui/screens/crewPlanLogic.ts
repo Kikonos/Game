@@ -68,3 +68,10 @@ export function setsWhyLines(p: Pick<FamilyPlan, 'setsPerAircraft' | 'limiting'>
   const seats = `A captain can’t be planned as first officer; spare pursers fill cabin crew seats; dual-rated crew count once, in their home fleet.`;
   return [why, limit, seats];
 }
+
+/** v0.25 sets per aircraft as the player reads it: one decimal when it is not whole ('4.5'), else the whole number. Pure. */
+export function perAircraftText(setsNeeded: number, aircraft: number, fallback: number): string {
+  if (aircraft <= 0) return String(fallback);
+  const v = Math.round((setsNeeded / aircraft) * 10) / 10;
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}

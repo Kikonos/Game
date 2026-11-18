@@ -184,3 +184,20 @@
 .lv-row-toggles { display: flex; flex-wrap: wrap; gap: 8px; }
 .lv-toggle.on { background: rgba(var(--accent-rgb), 0.12); border-color: var(--accent); color: var(--accent); }
 .lv-slider.off { opacity: 0.45; }
+
+/* v0.25 the footer note's '?' twin: only a phone on its side shows it (the note itself hides there). */
+.lv-foot-help { display: none; }
+/* v0.25 a phone on its side: the panel gets half the width and its tools most of the height. One footer row
+   (the note behind '?', 'Use on all'), slimmer tabs, no CARD/MINI previews. */
+@media (max-height: 499.98px) {
+  .lv-editor { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .lv-preview { display: none; }
+  .lv-stage { min-height: 0; max-height: 62%; }
+  .lv-tabs button { min-height: 40px; font-size: 13px; }
+  .lv-body { padding: 10px 12px; gap: 12px; }
+  .lv-modal .lv-foot-note, .lv-foot-note { display: none; }
+  .lv-foot-help { display: inline-flex; align-self: center; margin-right: auto; }
+  .lv-foot { flex-wrap: nowrap; gap: 4px; padding: 6px 8px; }
+  .lv-foot .lv-btn { padding: 0 10px; font-size: 13px; }
+  .lv-foot .lv-long { display: none; }
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_KEYS, KEY_ACTIONS, actionOf, eventAction, isSaveCombo, keyLabel, keymapFrom, navTitle, normKey, rebind, resetKey, swapKeys, unbindable } from './keymap';
+import { DEFAULT_KEYS, KEY_ACTIONS, actionOf, eventAction, isSaveCombo, pauseYields, speedHint, keyLabel, keymapFrom, navTitle, normKey, rebind, resetKey, swapKeys, unbindable } from './keymap';
 import { settingsFrom } from './store';
 
 describe('v0.24.1 key bindings', () => {
@@ -83,5 +83,30 @@ describe('v0.24.1 key bindings', () => {
   it('nav tooltips name the live key', () => {
     expect(navTitle('Map', DEFAULT_KEYS, 'map')).toBe('Map (M)');
     expect(navTitle('Finance', swapKeys({ ...DEFAULT_KEYS }, 'tab.finance', '7'), 'finance')).toBe('Finance (7)');
+  });
+});
+
+describe('v0.25 pause key and dialog buttons', () => {
+  const el = (tagName: string, role: string | null = null, inDialog = false) => ({
+    tagName, getAttribute: (n: string) => (n === 'role' ? role : null), closest: (_s: string) => (inDialog ? {} : null),
+  });
+  it('Space on a focused button in an open dialog presses the button, not pause', () => {
+    expect(pauseYields('Space', true, el('BUTTON'))).toBe(true);
+    expect(pauseYields('Space', true, el('DIV', 'button'))).toBe(true);
+    expect(pauseYields('Space', false, el('BUTTON', null, true))).toBe(true);
+  });
+  it('pause still works outside dialogs, with nothing focused, or with another key', () => {
+    expect(pauseYields('Space', false, el('BUTTON'))).toBe(false);
+    expect(pauseYields('Space', true, el('BODY'))).toBe(false);
+    expect(pauseYields('Space', true, null)).toBe(false);
+    expect(pauseYields('p', true, el('BUTTON'))).toBe(false);
+  });
+});
+
+describe('v0.25 speed tooltip follows the bindings', () => {
+  it('shows the player\'s keys', () => {
+    expect(speedHint(DEFAULT_KEYS)).toBe('Space: pause · 1, 2, 4: speed');
+    expect(speedHint({ ...DEFAULT_KEYS, pause: 'p', speed3: '3' })).toBe('P: pause · 1, 2, 3: speed');
+    expect(speedHint({ ...DEFAULT_KEYS, pause: '' })).toBe('1, 2, 4: speed');
   });
 });

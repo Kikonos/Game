@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { CUES, cue, takeCueEvents } from '../engine/core/cues';
 import { sound } from './sound';
 import { store, TOAST_MS } from './store';
-import { LOG_MAX, logToast, pushStack, resumeAfterPause, shownToasts, stickyCue, toastMs, toastsFreeze, withoutOpenSubject, type ToastLogEntry } from './toastLogic';
+import { LOG_MAX, logToast, pushStack, resumeAfterPause, shownToasts, stickyCue, toastMs, toastsFreeze, withoutClosedOffers, withoutOpenSubject, type ToastLogEntry } from './toastLogic';
 
 describe('v0.9.1 every cue comes with its message', () => {
   it('each cue kind shows a toast naming it, and only then plays', () => {
@@ -171,5 +171,18 @@ describe('v0.24 pausing freezes the toasts', () => {
     expect(toastsFreeze(true, false, false)).toBe(false);
     expect(resumeAfterPause(200)).toBe(1000);
     expect(resumeAfterPause(4200)).toBe(4200);
+  });
+});
+
+describe('v0.25 offer toasts leave with their offer', () => {
+  it('drops New offer and Offer lapsing soon once the offer is no longer open; other offer news stays', () => {
+    const list = [
+      { id: 1, title: 'Offer lapsing soon: Stand-in at Budapest', ref: { kind: 'offer' as const, id: 'o1' } },
+      { id: 2, title: 'New offer: Summer peak', ref: { kind: 'offer' as const, id: 'o2' } },
+      { id: 3, title: 'Wizz Air went elsewhere: Stand-in at Budapest', ref: { kind: 'offer' as const, id: 'o1' } },
+      { id: 4, title: 'Offer lapsing soon: Ski charter', ref: { kind: 'offer' as const, id: 'o3' } },
+    ];
+    const open = new Set(['o3']);
+    expect(withoutClosedOffers(list, (id) => open.has(id)).map((t) => t.id)).toEqual([3, 4]);
   });
 });

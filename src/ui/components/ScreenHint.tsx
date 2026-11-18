@@ -5,7 +5,8 @@
 import { HelpCircle, Lightbulb } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import { PopBox, usePopover } from './Term';
-import { foldHint, HINT_SEEN_MS, hintMode, SCREEN_HINTS, type ScreenHintId } from '../screenHints';
+import { foldHint, HINT_SEEN_MS, HINT_SHORT, hintMode, SCREEN_HINTS, type ScreenHintId } from '../screenHints';
+import { useMedia } from '../useMedia';
 import { store, useStore } from '../store';
 
 const fold = (id: ScreenHintId) => {
@@ -16,7 +17,8 @@ const off = (id: ScreenHintId) => store.setSettings({ screenHintsSeen: [...store
 
 export function ScreenHint({ id, className }: { id: ScreenHintId; className?: string }) {
   const s = useStore();
-  const strip = hintMode(id, s.settings) === 'strip';
+  const short = useMedia(HINT_SHORT);
+  const strip = hintMode(id, s.settings, short) === 'strip';
   // Seen once: leaving the screen after the strip has shown a moment folds it into '?' for next time.
   useEffect(() => {
     if (!strip) return;
@@ -39,7 +41,8 @@ export function ScreenHint({ id, className }: { id: ScreenHintId; className?: st
 /** v0.12 the hint's text inside another '?' popover (Schedule and map colours) while it is folded; nothing otherwise. */
 export function HintNote({ id }: { id: ScreenHintId }) {
   const s = useStore();
-  if (hintMode(id, s.settings) !== 'fold') return null;
+  const short = useMedia(HINT_SHORT);
+  if (hintMode(id, s.settings, short) !== 'fold') return null;
   return (
     <div className="v12-hint-note small" data-hint-note={id}>
       <Lightbulb className="v9-hint-ico" aria-hidden />
@@ -54,7 +57,8 @@ export function HintButton({ id }: { id: ScreenHintId; align?: 'left' | 'right' 
   const s = useStore();
   const [open, toggle, close] = usePopover();
   const ref = useRef<HTMLButtonElement>(null);
-  if (hintMode(id, s.settings) !== 'fold') return null;
+  const short = useMedia(HINT_SHORT);
+  if (hintMode(id, s.settings, short) !== 'fold') return null;
   return (
     <span className="sc-pop-wrap v12-hint-wrap">
       <button ref={ref} className={`btn btn-icon v12-hint-btn ${open ? 'btn-on' : ''}`} onClick={toggle} aria-label="Tip for this screen" aria-expanded={open} data-hint-btn={id}><HelpCircle /></button>

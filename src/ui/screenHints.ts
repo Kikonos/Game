@@ -26,10 +26,14 @@ export const SCREEN_HINTS: Record<ScreenHintId, string> = {
 /** v0.12 how a screen's hint shows: the full strip (first time), folded into the '?' button, or not at all. */
 export type HintMode = 'strip' | 'fold' | 'off';
 
-/** v0.12 the hint's mode from the saved lists ('Don't show again' wins; seen once → folded). Pure. */
-export function hintMode(id: ScreenHintId, s: { screenHintsSeen: readonly string[]; screenHintsFolded?: readonly string[] }): HintMode {
+/** v0.25 a phone on its side: a hint strip would take a third of the screen, so it starts folded into its '?'. */
+export const HINT_SHORT = '(max-height: 430px)';
+
+/** v0.12 the hint's mode from the saved lists ('Don't show again' wins; seen once → folded). v0.25 `short` (a phone
+ *  on its side, HINT_SHORT): folded from the start. Pure. */
+export function hintMode(id: ScreenHintId, s: { screenHintsSeen: readonly string[]; screenHintsFolded?: readonly string[] }, short = false): HintMode {
   if (s.screenHintsSeen.includes(id)) return 'off';
-  if (s.screenHintsFolded?.includes(id)) return 'fold';
+  if (short || s.screenHintsFolded?.includes(id)) return 'fold';
   return 'strip';
 }
 

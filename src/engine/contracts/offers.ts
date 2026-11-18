@@ -1752,10 +1752,10 @@ export function lapseCues(g: GameState): void {
     s.add(o.id);
     if (first) continue;
     if (!o.seen && !Object.keys(g.fleet).some((id) => feasibility(g, o.id, id, { quick: true }).level !== 'no')) continue;
-    const left = o.expires - g.now;
+    // v0.25 the clock time only: a relative 'within 2 h 00 min' went stale while the note stayed up.
     pushMessage(g, {
       tone: 'warn', cat: 'commercial', title: `Offer lapsing soon: ${o.title}`,
-      body: `${g.clients[o.clientId]?.name ?? 'The client'} needs an answer within ${left >= 60 ? `${Math.floor(left / 60)} h ${String(left % 60).padStart(2, '0')} min` : `${left} min`} (by ${fmtTime(o.expires)} UTC).`,
+      body: `${g.clients[o.clientId]?.name ?? 'The client'} needs an answer by ${fmtTime(o.expires)} UTC.`,
       ref: { kind: 'offer', id: o.id }, cue: 'offerLapsing',
     });
   }

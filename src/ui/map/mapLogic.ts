@@ -6,7 +6,7 @@ import { flightsOf } from '../../engine/core/entities';
 import { haversine } from '../../engine/core/geo';
 import { isPilot } from '../../engine/core/perf';
 import { flightTimes } from '../../engine/core/query';
-import { DAY, fmtDayShort, fmtTime, fmtWeekdayTime } from '../../engine/core/time';
+import { DAY, fmtDayIn, fmtDayShort, fmtTime, fmtWeekdayTime, yearOf } from '../../engine/core/time';
 import type { AcRest, Aircraft, Archetype, ContractOffer, CrewMember, Flight, GameState, Minute, OohLimit, Ref, RestFacility, RestKind, WorldEventKind } from '../../engine/core/types';
 import { type CrewAlertKind, crewAway, LIMIT_NAME, shortFlights, type SlipView } from '../../engine/crew';
 import { clientCode, clientLivery, clientTitles, commercialFlightsBetween, type CommercialFlight, commercialItinerary, dryLeaseOf, type FlightType, flightType, liveryOf, type ResolvedLivery } from '../../engine/ops';
@@ -104,6 +104,10 @@ export function parkOffset(i: number, n: number): [number, number] {
   return [24 + col * PARK_GAP, (row - (rows - 1) / 2) * PARK_GAP];
 }
 
+/** v0.25 stands per row at one airport: up to 3 in a row; more make a compact block 3 wide (6 at Malta reached Crete
+ *  in rows of 5 at a regional zoom). Pure. */
+export const standsPerRow = (n: number): number => (n > 3 ? 3 : PARK_PER_ROW);
+
 /** v0.14 an aircraft's footprint on its stand (screen px): span `w` (at least its label's width), length `h`, and the
  *  depth of the labels under it (`lh`, default the layout's `labelH`). */
 export interface StandSize { w: number; h: number; lh?: number }
@@ -113,9 +117,9 @@ export interface StandSize { w: number; h: number; lh?: number }
  * (a 747 takes the room of two A320s), rows as deep as their longest aircraft plus `labelH` for the reg under it, the
  * block centred on the dot's height. Offsets of each aircraft's centre (screen px). Pure.
  */
-export function standOffsets(sizes: StandSize[], labelH: number, gap = 4, x0 = 13): [number, number][] {
+export function standOffsets(sizes: StandSize[], labelH: number, gap = 4, x0 = 13, perRow = standsPerRow(sizes.length)): [number, number][] {
   const rows: StandSize[][] = [];
-  for (let i = 0; i < sizes.length; i += PARK_PER_ROW) rows.push(sizes.slice(i, i + PARK_PER_ROW));
+  for (let i = 0; i < sizes.length; i += perRow) rows.push(sizes.slice(i, i + perRow));
   const lab = rows.map((r) => Math.max(...r.map((z) => z.lh ?? labelH)));
   const depth = rows.map((r, i) => Math.max(...r.map((z) => z.h)) + lab[i]);
   const total = depth.reduce((a, b) => a + b, 0) + gap * Math.max(0, rows.length - 1);
@@ -903,3 +907,16 @@ export function slipLine(g: GameState, v: SlipView, head = true): string {
   const line = parts.join(' · ');
   return head ? line : line.charAt(0).toUpperCase() + line.slice(1);
 }
+
+/**
+ * v0.25 Up Next's departure time further out than tomorrow, short enough for its column: 'Mon 09:00' within the
+ * week, '14 Feb 09:00' later in the year, '2 Jan 28 09:00' in the next one. Pure.
+ */
+export function upNextWhen(now: Minute, t: Minute): string {
+  const d = Math.floor(t / DAY) - Math.floor(now / DAY);
+  if (d <= 6) return fmtWeekdayTime(t);
+  return `${yearOf(t) === yearOf(now) ? fmtDayIn(t, now) : fmtDayShort(t)} ${fmtTime(t)}`;
+}
+
+/** v0.25 Up Next folded or open: what the player chose ('1' folded, '0' open), else folded on a phone on its side. Pure. */
+export const upNextFolded = (stored: string | null, short: boolean): boolean => (stored === '1' ? true : stored === '0' ? false : short);

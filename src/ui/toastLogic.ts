@@ -79,3 +79,14 @@ export function withoutOpenSubject<T extends { title: string; ref?: Ref }>(list:
   if (!open) return list;
   return list.filter((t) => !(open.title && t.title === `Decision: ${open.title}`) && !(open.ref && t.ref && t.ref.kind === open.ref.kind && t.ref.id === open.ref.id));
 }
+
+/** v0.25 toasts that ask for an answer to an offer ('New offer', 'Offer lapsing soon'). */
+const ASKS_OFFER = /^(New offer|Offer lapsing soon): /;
+
+/**
+ * v0.25 the stack without the toasts asking about an offer that is no longer open (accepted, declined, lapsed,
+ * gone to a rival): 'Offer lapsing soon' must not outlive its offer. Other offer news stays. Pure.
+ */
+export function withoutClosedOffers<T extends { title: string; ref?: Ref }>(list: T[], isOpen: (offerId: string) => boolean): T[] {
+  return list.filter((t) => !(t.ref?.kind === 'offer' && ASKS_OFFER.test(t.title) && !isOpen(t.ref.id)));
+}

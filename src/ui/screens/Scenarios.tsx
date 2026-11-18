@@ -1,7 +1,7 @@
 // v0.12 Scenarios mode: the list. One card per scenario (name, story, region, aircraft, goal, time limit, difficulty and
 // the best stars on this device); a tap starts it. Definitions: engine/scenario/defs.ts.
 
-import { ArrowLeft, Clock, MapPin, Plane, Play, Target } from 'lucide-react';
+import { ArrowLeft, Clock, MapPin, Plane, Play, Star, Target } from 'lucide-react';
 import { DIFFICULTY_LABEL } from '../../data/setups';
 import { DAY, fmtDayRange } from '../../engine/core/time';
 import { fmtValue, METRICS, SCENARIOS, scenarioStart } from '../../engine/scenario';
@@ -23,7 +23,7 @@ export function Scenarios() {
             <div className="upper dim">Block Hours · scenarios</div>
             <h2>Ten challenges. Up to three stars each. <Help title="Scenarios">Each scenario starts the same way every time. Best results stay on this device.</Help></h2>
           </div>
-          <div className="sc-total" aria-label={`${total} of ${SCENARIOS.length * 3} stars`}><Stars n={1} size={14} label="" /> {total} / {SCENARIOS.length * 3}</div>
+          <div className="sc-total" aria-label={`${total} of ${SCENARIOS.length * 3} stars`}><span className="sc-stars" aria-hidden><Star width={14} height={14} className={total > 0 ? 'on' : ''} /></span> {total} / {SCENARIOS.length * 3}</div>
         </div>
       </header>
       <div className="sc-list">

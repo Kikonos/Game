@@ -9,7 +9,7 @@ import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { flag } from '../../data/countries';
 import type { RatingFamily } from '../../data/acmiTypes';
 import { flightsRev } from '../../engine/core/entities';
-import { DAY, HOUR, fmtDate, fmtDay, fmtDayAt, fmtDayRange, fmtTime, monthKey, monthStart, toDate, joinDays } from '../../engine/core/time';
+import { DAY, HOUR, fmtDate, fmtDay, fmtDayAt, fmtDayRange, fmtTime, monthKey, monthStart, toDate, joinDays, toLocal } from '../../engine/core/time';
 import type { CrewMember, GameState } from '../../engine/core/types';
 import {
   crewCalendar, crewGauges, crewMonth, crewName, crewRev, pairOfCrew, crewStatusView, crewWindows, leaveBalance, LIMITS, moraleOf, publishDayOf, publishedTo, type CalBlock,
@@ -26,7 +26,7 @@ import { restNow } from '../components/problemLogic';
 import { Modal } from '../components/ui';
 import { money } from '../format';
 import { LimitBar } from '../screens/common';
-import { calLabel } from '../screens/crewLogic';
+import { calLabel, fmtDayRuns } from '../screens/crewLogic';
 import { ratingLine } from '../screens/crewPlanLogic';
 import { moraleTone } from '../screens/rosterBoardLogic';
 import { limitTone, ROLE_LABEL } from '../screens/screenLogic';
@@ -231,7 +231,7 @@ function Layover({ l, rests }: { l: LayoverT; rests: CalBlock[] }) {
   return (
     <div className="ps-layover small" role="note">
       <BedDouble aria-hidden />
-      <span className="grow"><b>Layover {l.at}</b> <span className="num">{when}</span> · <b className="num">{dur(gap)}</b>{l.sby.length ? <span> (hotel standby {l.sby.map((t) => fmtDayAt(l.at, t)).join(', ')})</span> : null}{r?.minRest ? <span className="dim"> · minimum rest {hm(r.minRest)}{r.restWhy ? ` (${r.restWhy})` : ''}</span> : null}</span>
+      <span className="grow"><b>Layover {l.at}</b> <span className="num">{when}</span> · <b className="num">{dur(gap)}</b>{l.sby.length ? <span> (hotel standby {fmtDayRuns(l.sby.map((t) => toLocal(l.at, t)))})</span> : null}{r?.minRest ? <span className="dim"> · minimum rest {hm(r.minRest)}{r.restWhy ? ` (${r.restWhy})` : ''}</span> : null}</span>
     </div>
   );
 }

@@ -10,6 +10,7 @@ import type { GameState, Livery, LiveryRef } from '../../engine/core/types';
 import { liveryOf, paintStatus, setAircraftLivery, setCompanyLivery, setFleetLivery } from '../../engine/ops';
 import { LiveryEditor } from '../components/livery/LiveryEditor';
 import { Modal } from '../components/ui';
+import { Help } from '../components/Help';
 import { store, useGame } from '../store';
 
 const DEFAULT_TYPES = ['a320ceo', 'b738', 'b763', 'b77w'];
@@ -68,7 +69,7 @@ function CompanyLivery() {
       <LiveryEditor
         value={lv} onChange={setLv} code={c.code} name={c.name} reg={Object.values(g.fleet)[0]?.reg ?? `${c.regPrefix}BHA`} acName={Object.values(g.fleet)[0]?.name} mode="company" types={previewTypes(fleetTypes(g))}
         onApplyAll={() => setAsk(true)} onSave={save} onCancel={close} resetTo={c.livery}
-        footer={<span className="lv-foot-note">Free and instant. Aircraft in client colours keep them.</span>}
+        footer={<FootNote text="Free and instant. Aircraft in client colours keep them." />}
       />
     </Sheet>
     {ask && (
@@ -112,9 +113,19 @@ function AircraftLivery({ aircraftId }: { aircraftId: string }) {
         value={value} onChange={(l) => setRef({ custom: l })} code={code} name={name} reg={ac.reg} acName={ac.name} mode="aircraft"
         types={previewTypes([artFor(ac.typeId, ac.variant)])} aircraft={{ ref, onRef: pickRef, locked: st.locked ? st.why ?? 'In client colours' : undefined }}
         onSave={st.locked ? undefined : save} onCancel={close}
-        footer={st.locked ? undefined : <span className="lv-foot-note">Free and instant.</span>}
+        footer={st.locked ? undefined : <FootNote text="Free and instant." />}
       />
     </Sheet>
+  );
+}
+
+/** v0.25 the footer line; a phone on its side shows it behind a '?' so Save and the rest keep one row. */
+function FootNote({ text }: { text: string }) {
+  return (
+    <>
+      <span className="lv-foot-note">{text}</span>
+      <Help className="lv-foot-help" title="Livery changes">{text}</Help>
+    </>
   );
 }
 

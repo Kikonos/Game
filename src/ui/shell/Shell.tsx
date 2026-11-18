@@ -30,7 +30,7 @@ import { useMedia, useTier } from '../useMedia';
 import { CLOCK_STEP, SPEEDS } from '../../engine/core/time';
 import type { PauseReason } from '../../engine/core/pause';
 import { ScreenHint } from '../components/ScreenHint';
-import { eventAction, isSaveCombo, KEY_EVENT, keyCapture, navTitle, type KeyAction } from '../keymap';
+import { eventAction, isSaveCombo, KEY_EVENT, keyCapture, navTitle, normKey, pauseYields, speedHint, type KeyAction } from '../keymap';
 import { deviceNow } from '../device';
 
 export const NAV: { tab: Tab; label: string; short: string; icon: ReactNode }[] = [
@@ -86,7 +86,7 @@ function SpeedControl() {
   const hover = useMedia('(hover: hover)');
   const blocked = s.blocked;
   const running = !s.paused && !blocked;
-  const hint = blocked ? 'Time is paused until you decide' : hover ? 'Space: pause · 1, 2, 4: speed' : undefined;
+  const hint = blocked ? 'Time is paused until you decide' : hover ? speedHint(s.settings.keys) || undefined : undefined;
   return (
     <div className={`speed ${blocked ? 'blocked' : ''}`} role="group" aria-label="Game speed" title={hint}>
       <button className={`sp-pause ${running ? '' : 'on'}`} onClick={() => s.togglePause()} aria-label={s.paused ? 'Resume' : 'Pause'} aria-pressed={!running}>
@@ -281,6 +281,8 @@ export function Shell() {
       // Held keys repeat only the zoom and the day steps.
       if (e.repeat && !(a === 'zoomIn' || a === 'zoomOut' || a === 'boardBack' || a === 'boardFwd')) return;
       if (a === 'pause') {
+        // v0.25 Space on a focused dialog button presses the button; it does not also pause or run the game.
+        if (pauseYields(normKey(e), !!store.modal, document.activeElement as HTMLElement | null)) return;
         e.preventDefault();
         (document.activeElement as HTMLElement | null)?.blur?.();
         store.togglePause();

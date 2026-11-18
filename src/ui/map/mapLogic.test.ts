@@ -97,9 +97,9 @@ describe('geometry helpers', () => {
         expect(pts[i][0] - sizes[i].w / 2).toBeGreaterThanOrEqual(12); // right of the airport dot
         for (let j = i + 1; j < pts.length; j++) expect(boxOverlapPx(box(i), box(j))).toBe(0);
       }
-      // rows of PARK_PER_ROW
+      // rows of PARK_PER_ROW; v0.25 more than 3 make a block 3 wide
       const rows = new Set(pts.map((p) => p[1].toFixed(2)));
-      expect(rows.size).toBe(Math.ceil(sizes.length / PARK_PER_ROW));
+      expect(rows.size).toBe(Math.ceil(sizes.length / (sizes.length > 3 ? 3 : PARK_PER_ROW)));
     }
     // the stand after a 747 sits further right than the one after an A320
     expect(standOffsets([b744, a320], lab)[1][0]).toBeGreaterThan(standOffsets([a320, a320], lab)[1][0] + 15);
@@ -763,3 +763,37 @@ function boxOverlapPx(a: { x: number; y: number; w: number; h: number }, b: { x:
   const oy = Math.min(a.y + a.h / 2, b.y + b.h / 2) - Math.max(a.y - a.h / 2, b.y - b.h / 2);
   return Math.max(0, ox) * Math.max(0, oy);
 }
+
+describe('v0.25 Up Next dates fit their column', () => {
+  it('weekday within the week, day and month later, short year across the new year', async () => {
+    const { upNextWhen } = await import('./mapLogic');
+    const { fromUTC } = await import('../../engine/core/time');
+    const now = fromUTC(2028, 2, 10, 12, 0);
+    expect(upNextWhen(now, fromUTC(2028, 2, 14, 9, 0))).toMatch(/^[A-Z][a-z]{2} 09:00$/);
+    expect(upNextWhen(now, fromUTC(2028, 2, 24, 9, 0))).toBe('24 Feb 09:00');
+    expect(upNextWhen(fromUTC(2027, 12, 28, 12, 0), fromUTC(2028, 1, 9, 9, 0))).toBe('9 Jan 28 09:00');
+  });
+});
+
+describe('v0.25 Up Next starts folded on a phone on its side', () => {
+  it('folded on a short screen until the player opens it; the stored choice wins', async () => {
+    const { upNextFolded } = await import('./mapLogic');
+    expect(upNextFolded(null, true)).toBe(true);
+    expect(upNextFolded(null, false)).toBe(false);
+    expect(upNextFolded('0', true)).toBe(false);
+    expect(upNextFolded('1', false)).toBe(true);
+  });
+});
+
+describe('v0.25 parked aircraft: a compact block', () => {
+  it('more than 3 at one airport stand 3 wide (6 make 2 rows of 3), up to 3 stay in one row', async () => {
+    const { standOffsets } = await import('./mapLogic');
+    const a320 = { w: 30, h: 30 };
+    const six = standOffsets(Array(6).fill(a320), 12);
+    expect(new Set(six.map((p) => p[0])).size).toBe(3);
+    expect(new Set(six.map((p) => p[1])).size).toBe(2);
+    const three = standOffsets(Array(3).fill(a320), 12);
+    expect(new Set(three.map((p) => p[1])).size).toBe(1);
+    expect(Math.max(...six.map((p) => p[0]))).toBe(Math.max(...three.map((p) => p[0])));
+  });
+});

@@ -5,7 +5,7 @@ import { store, useStore, type Toast } from '../store';
 import { useTouch } from '../useMedia';
 import { toCss } from '../device';
 import { openMessage } from '../screens/Inbox';
-import { shownToasts, withoutOpenSubject } from '../toastLogic';
+import { shownToasts, withoutClosedOffers, withoutOpenSubject } from '../toastLogic';
 
 /** v0.12.1 what a toast (or its log line) opens: its Inbox message's target, else its ref; nothing to open: false. */
 export function openToast(t: Pick<Toast, 'msgId' | 'ref' | 'title' | 'body'>): boolean {
@@ -30,7 +30,8 @@ export function Toasts() {
   const m = s.modal;
   const dec = !g ? undefined : m?.kind === 'decision' ? g.decisions.find((d) => d.id === m.decisionId) : !m && s.decisionOpen ? g.decisions[0] : undefined;
   const open = dec ? { title: dec.title, ref: dec.ref } : m?.kind === 'offer' || m?.kind === 'offerCall' ? { ref: { kind: 'offer' as const, id: m.offerId } } : m?.kind === 'crewControl' ? { ref: { kind: 'flight' as const, id: m.flightId } } : null;
-  const all = withoutOpenSubject(s.toasts, open);
+  // v0.25 a toast asking about an offer that is no longer open leaves the stack.
+  const all = withoutClosedOffers(withoutOpenSubject(s.toasts, open), (id) => g?.offers[id]?.status === 'open');
   const list = short ? shownToasts(all, 2) : all;
   // A dialog on the stage: one the player opened, the decision that opened by itself, or the game-over card.
   const dialog = !!m || !!dec || !!g?.gameOver;

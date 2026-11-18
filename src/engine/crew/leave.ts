@@ -145,7 +145,7 @@ function groupLoad(g: GameState, k0: number, k1: number, skip?: string): { load:
 }
 
 /** Most of a group of `size` that may be away at once (the share rounded, at least one). */
-const capOf = (share: number, size: number) => Math.max(1, Math.round(share * size));
+export const capOf = (share: number, size: number) => Math.max(1, Math.round(share * size));
 
 /** The rules on a request (or a block being chosen): the roster, the allowance, rotations, the peak months, the share away. */
 export function leaveVerdict(g: GameState, c: CrewMember, from: Minute, days: number, self?: LeaveRequest, ctx?: { load: Map<string, Int16Array>; size: Map<string, number>; k0: number }): LeaveVerdict {

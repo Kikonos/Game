@@ -13,6 +13,7 @@ import type { Flight, GameState, Ref } from '../../../engine/core/types';
 import { commercialFlightsBetween, commercialProgress, type CommercialFlight, type FlightType, flightType } from '../../../engine/ops';
 import { registerCaptureCanvas } from '../../bugShot';
 import { liveMinute, store } from '../../store';
+import { cssRect } from '../../device';
 import type { Theme } from '../../theme';
 import { isTouch } from '../../useMedia';
 import { airlineType } from '../airlineTypes';
@@ -166,6 +167,8 @@ export default function Globe(props: GlobeProps) {
   /** The loop's hooks for the buttons and the props effects. */
   const api = useRef<{ marks: (list: MarkEl[]) => void; kick: () => void; zoom: (f: number) => void; home: () => void; propsChanged: () => void } | null>(null);
   const marksRef = useRef<SVGSVGElement>(null);
+  // v0.25 the last marks list React drew: the layout effect runs before the mount effect sets api, so mount reads it.
+  const marksListRef = useRef<MarkEl[]>([]);
   const [fail, setFail] = useState<Error | null>(null);
   if (fail) throw fail;
 
@@ -303,7 +306,7 @@ export default function Globe(props: GlobeProps) {
     /** v0.24.1 the route lines' tracks (taps), and their screen points for the camera they were worked out for. */
     let routeTracks: { id: string; routes: string[]; pts: [number, number][] }[] = [];
     let routeScreen: { cv: CamView | null; lines: { id: string; pts: ([number, number] | null)[] }[] } = { cv: null, lines: [] };
-    let marks: MarkEl[] = [];
+    let marks: MarkEl[] = marksListRef.current;
     const markScreen = new Map<string, { x: number; y: number }>();
 
     const dropArc = (a: ArcObj) => {
@@ -1105,12 +1108,31 @@ export default function Globe(props: GlobeProps) {
           if (at) {
             const centre: [number, number] = [orbit.lon, orbit.lat];
             const horizon = (Math.acos(1 / orbit.dist) * 180) / Math.PI;
-            if (angleBetween(centre, at) > horizon * 0.55) flyTo({ ...aimAt(at, orbit.dist, h, p.panelOpen ? PANEL_W / 2 : 0), dist: orbit.dist });
+            // v0.25 (iPhone) also when it sits under the zoom buttons or the panel, measured on the page (the panel is
+            // narrower than PANEL_W on a phone, and the buttons move beside it): it lands in the middle of what is free.
+            const right = freeRight();
+            const v = vecOf(at[0], at[1], R_AP);
+            const q = facing(v, cv.pos, LABEL_COS) ? projectView(v, cv, w, h) : null;
+            const covered = !!q && q.x > right;
+            const shift = right < w - 1 ? (w - right) / 2 : p.panelOpen ? PANEL_W / 2 : 0;
+            if (angleBetween(centre, at) > horizon * 0.55 || covered) flyTo({ ...aimAt(at, orbit.dist, h, shift), dist: orbit.dist });
           }
         }
         dirty = true;
         kick();
       },
+    };
+    /** v0.25 the right edge (stage px) of the globe the selection panel and the zoom buttons leave free. */
+    const freeRight = (): number => {
+      const host = stage.closest('.ops-map');
+      if (!host) return w;
+      const sl = cssRect(stage).left;
+      let right = w;
+      for (const el of Array.from(host.querySelectorAll('.ops-panel, .map-zoom'))) {
+        const r = cssRect(el);
+        if (r.width > 0 && r.height > 0 && r.left - sl > w * 0.3) right = Math.min(right, r.left - sl - 8);
+      }
+      return right;
     };
     const selPos = (s: Ref | undefined): [number, number] | null => {
       if (!s) return null;
@@ -1209,6 +1231,7 @@ export default function Globe(props: GlobeProps) {
       const off = (el.dataset.off ?? '0,0').split(',').map(Number) as [number, number];
       list.push({ el, key: el.dataset.gm!, at: vecOf(lon, lat, R_AP), face: Number(el.dataset.face ?? LABEL_COS), off });
     }
+    marksListRef.current = list;
     api.current?.marks(list);
   });
   const selId = props.sel && props.sel.kind !== 'aircraft' ? props.sel.id : undefined;

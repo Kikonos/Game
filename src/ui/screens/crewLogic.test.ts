@@ -63,3 +63,16 @@ describe('crew calendar strip', () => {
     expect(calAt(b, 12 * HOUR)).toBe(rest);
   });
 });
+
+describe('v0.25 standby days as runs', () => {
+  it("'19, 22–27, 30 Jul 2027', across months and years, repeats and order ignored", async () => {
+    const { fmtDayRuns } = await import('./crewLogic');
+    const { fromUTC } = await import('../../engine/core/time');
+    const day = (y: number, m: number, d: number) => fromUTC(y, m, d, 10);
+    expect(fmtDayRuns([19, 22, 23, 24, 25, 26, 27, 30, 22].map((d) => day(2027, 7, d)))).toBe('19, 22–27, 30 Jul 2027');
+    expect(fmtDayRuns([day(2027, 6, 30), day(2027, 7, 1), day(2027, 7, 2)])).toBe('30 Jun–2 Jul 2027');
+    expect(fmtDayRuns([day(2027, 6, 28), day(2027, 7, 4)])).toBe('28 Jun, 4 Jul 2027');
+    expect(fmtDayRuns([day(2027, 12, 31), day(2028, 1, 1)])).toBe('31 Dec 2027–1 Jan 2028');
+    expect(fmtDayRuns([day(2027, 7, 5)])).toBe('5 Jul 2027');
+  });
+});
