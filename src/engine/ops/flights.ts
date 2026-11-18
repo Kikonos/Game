@@ -46,6 +46,7 @@ import { atGate, curfewAtGate, delayCard, RUSH_MAX, rollEnRoute } from './disrup
 import { clearOfCurfews, inCurfew } from '../core/curfew';
 import { delayOf, excusedLate, latePenalty } from './latePolicy';
 import { pmCostX, pmFactors } from './pm';
+import { countPax } from './milestones';
 
 /** v0.7.1: the problem ref and hurt snapshot of a message about legs lost or handed over (after the fact). */
 function penaltyMeta(g: GameState, rev: Flight[], money: number): Pick<Message, 'problem' | 'hurt'> {
@@ -1743,6 +1744,8 @@ export function onFlightArr(g: GameState, ev: SimEvent): void {
   if (f.block >= 16 * 60) s.ulrSectors++;
   if (isRevenue(f)) {
     s.legs++;
+    // v0.25 r2 passengers for the milestones (a leg without a count: 85 % of the cabin, the game's usual estimate).
+    countPax(g, f.pax ?? ac.cabin.total * 0.85);
     const onTime = g.now <= schedSta(f) + 15;
     if (onTime) s.onTime++;
     else s.delayed++;
