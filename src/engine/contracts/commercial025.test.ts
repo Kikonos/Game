@@ -6,8 +6,9 @@ import { generateOffer } from './offers';
 import { DAY, fromUTC, toDate } from '../core/time';
 import { baseDestOpen, possessive, TITLES, type TitleCtx, diasporaReasonsAt, DIASPORA_BY_CLIENT, DIASPORA_REASONS, LEAGUE_CITIES, resortOpen, SIX_NATIONS, SUMMER_ONLY } from './flavor';
 import { AIRPORT_BY_CODE } from '../../data/airports';
+import { rivalFor } from './clients';
 import { hajjDates } from '../../data/worldCalendar';
-import type { GameState } from '../core/types';
+import type { ContractOffer, GameState } from '../core/types';
 
 const byName = (g: GameState, n: string) => Object.values(g.clients).find((c) => c.name === n);
 
@@ -160,5 +161,44 @@ describe('v0.25 possessives', () => {
   it("Rainbow Tours' lead, not Rainbow Tours's", () => {
     expect(possessive('Rainbow Tours')).toBe("Rainbow Tours'");
     expect(possessive('Condor')).toBe("Condor's");
+  });
+});
+
+describe('v0.25 clients that fit the job', () => {
+  it('a rival never loses a job to itself, and a ceased rival takes none', () => {
+    const g = newGame(4);
+    const r0 = g.rivals[0];
+    const self = Object.values(g.clients).find((c) => c.rivalId === r0.id);
+    const req = { minSeats: 174 } as ContractOffer['requirements'];
+    for (let i = 0; i < 30; i++) {
+      if (self) expect(rivalFor(g, { pin: r0.base, requirements: req, clientId: self.id })?.id).not.toBe(r0.id);
+    }
+    const r1 = g.rivals[1];
+    r1.status = 'ceased';
+    for (let i = 0; i < 30; i++) expect(rivalFor(g, { pin: r1.base, requirements: req })?.id).not.toBe(r1.id);
+  });
+  it('a European defence ministry never rotates to an African Union mission', () => {
+    const g = newGame(8);
+    let n = 0;
+    for (let i = 0; i < 40; i++) {
+      const o = generateOffer(g, 'troopRotation', { window: false, start: g.now + (30 + i) * DAY });
+      if (!o || o.pattern.kind !== 'legs') continue;
+      n++;
+      if (AIRPORT_BY_CODE[g.clients[o.clientId].base]?.continent !== 'AF') expect(o.pattern.legs[0].to, o.title).not.toBe('MGQ');
+      delete g.offers[o.id];
+    }
+    expect(n).toBeGreaterThan(5);
+  });
+  it('Frontex sends no relief flights', () => {
+    const g = newGame(9);
+    let n = 0;
+    for (let i = 0; i < 40; i++) {
+      const o = generateOffer(g, 'humanitarian', { window: false, airport: 'JUB' });
+      if (!o) continue;
+      n++;
+      expect(g.clients[o.clientId].name).not.toMatch(/Frontex/);
+      delete g.offers[o.id];
+    }
+    expect(n).toBeGreaterThan(0);
   });
 });

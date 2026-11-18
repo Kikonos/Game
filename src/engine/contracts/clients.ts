@@ -207,8 +207,11 @@ export function rivalFleetText(r: Rival): string {
 }
 
 /** A rival that could have taken this offer: its fleet fits (family, else body), weighted towards the job's area; any rival as the fallback. */
-export function rivalFor(g: GameState, o: Pick<ContractOffer, 'requirements' | 'pin'>): Rival | undefined {
-  if (!g.rivals.length) return undefined;
+export function rivalFor(g: GameState, o: Pick<ContractOffer, 'requirements' | 'pin'> & { clientId?: string }): Rival | undefined {
+  // v0.25 never the client itself (a rival's own job lost to itself) and never a rival that has ceased trading.
+  const self = o.clientId ? g.clients[o.clientId]?.rivalId : undefined;
+  const rivals = g.rivals.filter((r) => r.id !== self && r.status !== 'ceased');
+  if (!rivals.length) return undefined;
   const req = o.requirements;
   const wide = isWideJob(req);
   const fits = (r: Rival) =>
@@ -216,8 +219,8 @@ export function rivalFor(g: GameState, o: Pick<ContractOffer, 'requirements' | '
       const t = typeOf(f.typeId);
       return req.families?.length ? req.families.includes(t.family) : (t.body === 'wide') === wide;
     });
-  const fit = g.rivals.filter(fits);
-  const pool = fit.length ? fit : g.rivals;
+  const fit = rivals.filter(fits);
+  const pool = fit.length ? fit : rivals;
   const ok = !!AIRPORT_BY_CODE[o.pin];
   return weightedPick(g, pool, (r) => (ok && AIRPORT_BY_CODE[r.base] ? 1 / (1 + distance(r.base, o.pin) / 1500) : 1));
 }

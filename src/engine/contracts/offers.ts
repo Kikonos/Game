@@ -1038,7 +1038,10 @@ function troopRotation(ctx: Ctx): Draft | null {
   const home = g.company.homeBase;
   // v0.24 our own state's ministry flies to where its troops really serve (flavor.ts HOME_MISSIONS), now and then elsewhere.
   const own = !un && client.country === AIRPORT_BY_CODE[home]?.country ? (F.HOME_MISSIONS[client.country] ?? []).filter((c) => AIRPORT_BY_CODE[c] && c !== home) : [];
-  const pool = own.length && chance(sideRng(g, `tmh:${g.seq}:${g.now}`), 0.75) ? own : F.MISSION_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home);
+  // v0.25 an African Union mission (AUSSOM) flies African contingents: not a European ministry's, nor the UN's.
+  const african = !un && AIRPORT_BY_CODE[client.base]?.continent === 'AF';
+  const generic = F.MISSION_AIRPORTS.filter((c) => AIRPORT_BY_CODE[c] && c !== home && (F.MISSION_NAMES[c]?.org !== 'AU' || african));
+  const pool = own.length && chance(sideRng(g, `tmh:${g.seq}:${g.now}`), 0.75) ? own : generic;
   const mission = o.airport ?? pick(g, pool);
   const n = o.rotations ?? int(g, 2, 4);
   let spanDays = o.days ?? int(g, 30, 90);
