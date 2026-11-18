@@ -173,3 +173,21 @@ export function navTitle(label: string, map: KeyMap, tab: Tab): string {
   const k = map[TAB_ACTION[tab]];
   return k ? `${label} (${keyLabel(k)})` : label;
 }
+
+/** The bits of the focused element the pause key looks at (an HTMLElement fits). */
+export interface FocusLike { tagName?: string; getAttribute?(n: string): string | null; closest?(sel: string): unknown }
+
+/**
+ * v0.25 True when the pause key must leave this press alone: Space (or Enter) pressed on a focused button, link or
+ * tab inside a dialog presses that control, and the game must not pause or run as well. Outside dialogs the pause
+ * key keeps working (the screen's last-clicked button is not "pressed again"). Pure.
+ */
+export function pauseYields(key: string, modalOpen: boolean, focused: FocusLike | null | undefined): boolean {
+  if (key !== 'Space' && key !== 'Enter') return false;
+  if (!focused || !focused.tagName) return false;
+  const tag = focused.tagName.toUpperCase();
+  const role = focused.getAttribute?.('role') ?? '';
+  const control = tag === 'BUTTON' || tag === 'A' || tag === 'SUMMARY' || role === 'button' || role === 'tab' || role === 'menuitem' || role === 'switch' || role === 'checkbox' || role === 'radio';
+  if (!control) return false;
+  return modalOpen || !!focused.closest?.('[role="dialog"], .modal');
+}
