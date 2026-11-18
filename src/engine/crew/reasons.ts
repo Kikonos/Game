@@ -84,7 +84,11 @@ export function rootReason(g: GameState, issues: LegalityIssue[], c: CrewMember,
     const sameNo = !!f && f.no === (subjectNo ?? subject);
     const today = !!f && Math.floor(f.std / DAY) === Math.floor(g.now / DAY);
     const which = f ? `${sameNo ? "another day's " : ''}${f.no} to ${city(f.to)}${!today && !sameNo ? ` on ${fmtDay(f.std)}` : ''}` : '';
-    set('busy', f ? `busy on ${which} until ${end !== undefined ? at(end, g.now) : fmtDay(q!.end)}` : `busy on another ${q?.tour ? 'tour' : 'trip'}${end !== undefined ? ` until ${at(end, g.now)}` : ''}`, end);
+    // v0.25 a set's base tour reads as the tour ('busy on V73062 until 2 Oct' named one leg of five weeks on station).
+    const dep = q?.tour && q.deploymentId ? g.deployments[q.deploymentId] : undefined;
+    const tourEnd = dep ? Math.max(end ?? -Infinity, q!.tour!.to <= dep.end ? q!.tour!.to : dep.end) : undefined;
+    if (dep && tourEnd !== undefined) set('busy', `busy on the ${city(dep.base)} tour until ${fmtDay(tourEnd)}`, tourEnd);
+    else set('busy', f ? `busy on ${which} until ${end !== undefined ? at(end, g.now) : fmtDay(q!.end)}` : `busy on another ${q?.tour ? 'tour' : 'trip'}${end !== undefined ? ` until ${at(end, g.now)}` : ''}`, end);
   }
   if (has('status')) {
     const s = statusCode(c, from, to);

@@ -891,12 +891,14 @@ export function reachFor(g: GameState, p: Pairing, d: Duty, c: CrewMember, depar
  * v0.12.1 what really keeps a crew member who could land in time from the trip, in plain words (the card read 'flown
  * in the same day their day would be too long, and after a night's rest they report too late' 83 h before the report).
  */
-function placeBlock(g: GameState, reasons: string[], report: Minute): string {
+export function placeBlock(g: GameState, reasons: string[], report: Minute): string {
   const t = reasons.find((x) => /FDP|Resting at|earliest arrival|rest at/i.test(x)) ?? reasons[0] ?? '';
   const resting = /Resting at \w{3} until ([^;]+);/.exec(t);
   if (resting) return `they rest until ${resting[1].trim()} first`;
-  const fdp = /FDP (\d+:\d\d)(?: > |, within 30 min of )(\d+:\d\d) max; rest at (\w{3}) needed landing by (.+)$/.exec(t);
-  if (fdp) return `flown in the same day their day would be too long (${fdp[1]}, limit ${fdp[2]}), and to rest in ${city(fdp[3])} first they had to land by ${fdp[4].trim()}`;
+  const fdp = /FDP (\d+:\d\d)( > |, within 30 min of )(\d+:\d\d) max; rest at (\w{3}) needed landing by (.+)$/.exec(t);
+  // v0.25 a day just under its limit reads as such ('12:35, limit 13:00' read as a breach): too close to plan on.
+  const how = fdp && fdp[2] !== ' > ' ? `${fdp[1]}, too close to the ${fdp[3]} limit` : fdp ? `${fdp[1]}, limit ${fdp[3]}` : '';
+  if (fdp) return `flown in the same day their day would be too long (${how}), and to rest in ${city(fdp[4])} first they had to land by ${fdp[5].trim()}`;
   return t ? t.charAt(0).toLowerCase() + t.slice(1).replace(/\.$/, '') : `nothing legal gets them there for the ${at(report, g.now)} report`;
 }
 
