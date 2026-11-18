@@ -7,10 +7,10 @@ import { CURRENT, WHATS_NEW, whatsNewToShow, type WhatsNewEntry } from '../../da
 import { Modal } from '../components/ui';
 import { store } from '../store';
 
-function Entry({ e, head }: { e: WhatsNewEntry; head: boolean }) {
+function Entry({ e, head, bare }: { e: WhatsNewEntry; head: boolean; bare?: boolean }) {
   return (
     <div className="col gap-12 wn-entry" data-version={e.version}>
-      {head ? <div className="wn-version"><b>{e.version}</b> <span className="muted">{e.name}</span></div> : <div className="small muted">{e.name}</div>}
+      {bare ? null : head ? <div className="wn-version"><b>{e.version}</b> <span className="muted">{e.name}</span></div> : <div className="small muted">{e.name}</div>}
       <div className="wn-head"><Sparkles className="accent" /> New features</div>
       <ul className="wn-list">
         {e.features.map((t, i) => <li key={i}>{t}</li>)}
@@ -35,6 +35,11 @@ function Entry({ e, head }: { e: WhatsNewEntry; head: boolean }) {
   );
 }
 
+const count = (e: WhatsNewEntry) => {
+  const n = e.features.length + (e.fixes?.length ?? 0) + e.improvements.length;
+  return `${n} change${n === 1 ? '' : 's'}`;
+};
+
 /** `all`: every version (Settings); else what is new since settings.seenWhatsNew (the update popup). One tap closes. */
 export function WhatsNewModal({ all }: { all?: boolean }) {
   const close = () => {
@@ -50,7 +55,13 @@ export function WhatsNewModal({ all }: { all?: boolean }) {
       <button className="btn btn-primary" onClick={close}>Got it</button>
     }>
       <div className="col gap-16">
-        {list.map((e) => <Entry key={e.version} e={e} head={head} />)}
+        {/* v0.25 r2: the newest version open, older ones folded to one line each (a tap opens one). */}
+        {list.map((e, i) => i === 0 ? <Entry key={e.version} e={e} head={head} /> : (
+          <details key={e.version} className="wn-fold" data-version={e.version}>
+            <summary><b>{e.version}</b> <span className="muted">{e.name}</span><span className="wn-count dim small">{count(e)}</span></summary>
+            <Entry e={e} head={false} bare />
+          </details>
+        ))}
       </div>
     </Modal>
   );

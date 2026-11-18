@@ -160,3 +160,12 @@ button.ld-node { cursor: pointer; font: inherit; }
 .ap-etops-ac:last-child { border-bottom: none; }
 .ap-etops-ac .num { text-align: right; }
 .ap-etops-advice { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; }
+/* v0.25 r2: older versions folded to one line each. */
+.wn-fold { border-top: 1px solid var(--border); padding-top: 8px; }
+.wn-fold > summary { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; font-size: 15px; list-style: none; }
+.wn-fold > summary::-webkit-details-marker { display: none; }
+.wn-fold > summary::before { content: '›'; display: inline-block; width: 12px; color: var(--text-2); transition: transform 0.15s; }
+.wn-fold[open] > summary::before { transform: rotate(90deg); }
+.wn-fold > summary .muted { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wn-fold > summary .wn-count { margin-left: auto; white-space: nowrap; }
+.wn-fold[open] > .wn-entry { padding: 4px 0 8px 20px; }
