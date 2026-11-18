@@ -328,6 +328,8 @@ export interface TitleCtx {
   /** Country adjective of the client ('Portuguese'). */
   nation?: string;
   type?: string;
+  /** v0.25 the day of the month it starts (half-term weeks). */
+  day?: number;
 }
 
 /** Short trade names of clients (the rest keep their name). */
@@ -423,6 +425,9 @@ export const NATIONS: Record<string, string> = {
 };
 
 type TitleFn = (x: TitleCtx) => string;
+const PEAK = ['June', 'July', 'August'];
+/** A British half-term start: February, the last week of May, or October. Pure. */
+const halfTerm = (x: TitleCtx) => x.month === 'February' || x.month === 'October' || (x.month === 'May' && (x.day ?? 0) >= 22);
 const when = (ok: (x: TitleCtx) => boolean, t: TitleFn): TitleFn => (x) => (ok(x) ? t(x) : '');
 
 export const TITLES: Partial<Record<string, TitleFn[]>> = {
@@ -431,7 +436,9 @@ export const TITLES: Partial<Record<string, TitleFn[]>> = {
     (x) => `Weekend rotation to ${x.toCity}`,
     (x) => `Flights to ${x.toCity}`,
     when((x) => x.season === 'winter' || x.season === 'autumn' || x.season === 'easter', (x) => `${SEASON_WORD[x.season]} sun to ${x.toCity}`),
-    when((x) => x.nation === 'British' && x.season !== 'christmas' && x.season !== 'ski', (x) => `Half-term charters ${x.fromCity}–${x.toCity}`),
+    // v0.25 half-term is a week in February, late May or October: a short programme starting then, never July's.
+    when((x) => x.nation === 'British' && x.season !== 'ski' && x.n <= 3 && halfTerm(x), (x) => `Half-term charters ${x.fromCity}–${x.toCity}`),
+    when((x) => x.nation === 'British' && (x.month === 'July' || x.month === 'August'), (x) => `School holidays to ${x.toCity}`),
     when((x) => x.season === 'easter', (x) => `Easter programme to ${x.toCity}`),
     when((x) => x.season === 'autumn', (x) => `Autumn sun: ${x.toCity}`),
     when((x) => x.season === 'ski', (x) => `Ski charters ${x.fromCity}–${x.toCity}`),
@@ -446,10 +453,11 @@ export const TITLES: Partial<Record<string, TitleFn[]>> = {
     (x) => `Brochure flights to ${x.toCity}`,
   ],
   seasonBase: [
-    when((x) => x.season === 'summer', (x) => `Summer peak at ${x.fromCity}`),
+    // v0.25 the summer peak is June to August (not a September or October start).
+    when((x) => PEAK.includes(x.month), (x) => `Summer peak at ${x.fromCity}`),
     (x) => `Extra capacity at ${x.fromCity}`,
     (x) => `${SEASON_WORD[x.season]} wet lease, ${x.fromCity}`,
-    when((x) => x.season === 'summer' || x.season === 'christmas' || x.season === 'easter', (x) => `Holiday peak cover at ${x.fromCity}`),
+    when((x) => PEAK.includes(x.month), (x) => `Holiday peak cover at ${x.fromCity}`),
     (x) => `Base deployment ${x.fromCity}`,
     when((x) => x.n >= 120, (x) => `Year-round capacity at ${x.fromCity}`),
     (x) => `${x.fromCity} wet lease`,

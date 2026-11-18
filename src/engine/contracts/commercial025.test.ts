@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { newGame } from './testkit';
 import { generateOffer } from './offers';
 import { DAY, fromUTC, toDate } from '../core/time';
-import { baseDestOpen, diasporaReasonsAt, DIASPORA_BY_CLIENT, DIASPORA_REASONS, LEAGUE_CITIES, resortOpen, SIX_NATIONS, SUMMER_ONLY } from './flavor';
+import { baseDestOpen, TITLES, type TitleCtx, diasporaReasonsAt, DIASPORA_BY_CLIENT, DIASPORA_REASONS, LEAGUE_CITIES, resortOpen, SIX_NATIONS, SUMMER_ONLY } from './flavor';
 import { AIRPORT_BY_CODE } from '../../data/airports';
 import { hajjDates } from '../../data/worldCalendar';
 import type { GameState } from '../core/types';
@@ -134,5 +134,24 @@ describe('v0.25 federations and league cities', () => {
       }
     }
     expect(n).toBeGreaterThan(0);
+  });
+});
+
+describe('v0.25 season titles', () => {
+  const ctx = (month: string, extra: Partial<TitleCtx> = {}): TitleCtx => ({
+    client: 'TUI UK & Ireland', brand: 'TUI', from: 'LGW', to: 'AYT', fromCity: 'London', toCity: 'Antalya', season: 'summer', month, n: 3, nation: 'British', ...extra,
+  });
+  const all = (arch: string, x: TitleCtx) => (TITLES[arch] ?? []).map((f) => f(x)).filter(Boolean);
+  it('no half-term in July; half-term in October or the last week of May, for a short programme', () => {
+    expect(all('tourSeries', ctx('July'))).not.toContainEqual(expect.stringMatching(/Half-term/));
+    expect(all('tourSeries', ctx('July'))).toContain('School holidays to Antalya');
+    expect(all('tourSeries', ctx('October', { season: 'autumn' }))).toContain('Half-term charters London–Antalya');
+    expect(all('tourSeries', ctx('May', { day: 25 }))).toContain('Half-term charters London–Antalya');
+    expect(all('tourSeries', ctx('May', { day: 5 }))).not.toContainEqual(expect.stringMatching(/Half-term/));
+    expect(all('tourSeries', ctx('October', { season: 'autumn', n: 8 }))).not.toContainEqual(expect.stringMatching(/Half-term/));
+  });
+  it('the summer peak is June to August', () => {
+    for (const m of ['September', 'October', 'May']) expect(all('seasonBase', ctx(m)).join('|')).not.toMatch(/Summer peak|Holiday peak/);
+    expect(all('seasonBase', ctx('July'))).toContain('Summer peak at London');
   });
 });

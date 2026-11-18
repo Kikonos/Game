@@ -955,7 +955,7 @@ function repatriation(ctx: Ctx): Draft | null {
 export function titleFor(ctx: Ctx, arch: string, client: Client, x: Omit<F.TitleCtx, 'client' | 'brand' | 'fromCity' | 'toCity' | 'season' | 'month'> & { start: Minute }, fallback: string): string {
   const { g } = ctx;
   const tc: F.TitleCtx = {
-    ...x, client: client.name, brand: F.brandOf(client.name), fromCity: city(x.from), toCity: city(x.to), season: F.seasonOf(x.start, x.to, x.from), month: F.monthOf(x.start, x.from),
+    ...x, client: client.name, brand: F.brandOf(client.name), fromCity: city(x.from), toCity: city(x.to), season: F.seasonOf(x.start, x.to, x.from), month: F.monthOf(x.start, x.from), day: toDate(toLocal(x.from, x.start)).getUTCDate(),
     nation: x.nation ?? F.NATIONS[client.country],
   };
   return F.pickTitle(sideRng(g, `title:${g.seq}:${g.now}:${arch}`), F.TITLES[arch], tc, g.clients[client.id]?.lastTitle, fallback);
