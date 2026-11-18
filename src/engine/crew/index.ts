@@ -327,11 +327,14 @@ function onDutyRelease(g: GameState, ev: SimEvent): void {
  * on record (the duty windows count it at its share, the calendar shows it), and the status set by an older build's
  * report comes back.
  */
-function reserveStoodBy(g: GameState, c: CrewMember, p: Pairing, d: Duty): void {
+export function reserveStoodBy(g: GameState, c: CrewMember, p: Pairing, d: Duty): void {
   const seg = dutySegs(g, c, p, d, null, null).find((x) => x.kind === 'duty');
   const from = seg?.start ?? d.report;
   const to = Math.min(g.now, seg?.end ?? d.release);
   if (to > from && !(c.standby ?? []).some((w) => w.from < to && w.to > from)) {
+    // v0.25 the free days before it end here: a recovery rest taken then goes on record first (dayPlan notes it at a
+    // standby's start; this window is written after the fact). Bot seed 7: a captain held at Incheon read 361 h.
+    noteRecovery(c, from, g);
     c.standby = [...(c.standby ?? []), { from, to, kind: 'hotel' as const, at: reserveStation(g, p, d) }].sort((a, b) => a.from - b.from);
   }
   if (c.status === 'onDuty') c.status = c.restUntil > g.now ? 'resting' : 'available';
