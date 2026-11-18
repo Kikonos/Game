@@ -56,17 +56,21 @@ export function ratingLine(ratings: RatingFamily[], home?: RatingFamily, fleetTy
 const familyOfType = (t: string): RatingFamily | null => (t.startsWith('a33') || t.startsWith('a34') ? 'A330/340' : null);
 
 /**
- * v0.14 the sets card's "i": three short lines: why N per aircraft, what limits the full crews, who fills which seats.
+ * v0.14 the sets card's "i": short lines: why N per aircraft, v0.25 r3 why standby keeps them needed in a quiet month,
+ * what limits the full crews, who fills which seats.
  */
-export function setsWhyLines(p: Pick<FamilyPlan, 'setsPerAircraft' | 'limiting'> & { augmented?: boolean }): [string, string, string] {
+export function setsWhyLines(p: Pick<FamilyPlan, 'setsPerAircraft' | 'limiting'> & { augmented?: boolean }): [string, string, string, string] {
   const n = p.setsPerAircraft;
   // v0.18.2 a detachment can need fewer than the 5 at home (its crews on station plus one in five).
   const why = n !== BAL.crewSetsPerAircraft
-    ? `${n} crews per aircraft: on a detachment, its crews on station plus one in five for leave and change-overs; at home, 5 or more for the flying.`
-    : `${n} crews per aircraft: everyone has 8–10 days off a month and 4 weeks’ leave, so it takes about ${n} to keep one aircraft flying.`;
+    ? `${n} crews per aircraft: on a detachment, its crews on station plus one in five for leave and change-overs; at home, at least 5, standby included.`
+    : `${n} crews per aircraft at home, even when it flies little: with 8–10 days off a month and 4 weeks’ leave, the other days are flying or standby.`;
+  // v0.25 r3 (FINAL2 F1) Planning short while Utilisation shows crew under 15 h: the home floor is standby cover. A bot
+  // round tried 3–4 sets for an aircraft with little planned: red crew alarms rose on the MLA runs (20 → 38, 17 → 27).
+  const standby = `Charters come at a few days’ notice, so crews stand by at home. Standby flies no hours: in a quiet month Utilisation shows many under 15 h, yet the sets are needed.`;
   const limit = `The role you have fewest of sets how many full crews you have${p.limiting ? `: here, ${ROLE_WORDS[p.limiting][1]}` : ''}.`;
   const seats = `A captain can’t be planned as first officer; spare pursers fill cabin crew seats; dual-rated crew count once, in their home fleet.`;
-  return [why, limit, seats];
+  return [why, standby, limit, seats];
 }
 
 /** v0.25 sets per aircraft as the player reads it: one decimal when it is not whole ('4.5'), else the whole number. Pure. */
