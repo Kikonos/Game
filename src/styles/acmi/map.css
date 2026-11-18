@@ -159,6 +159,13 @@ div.worldmap { overflow: clip; }
 .ops-ac[data-phase='airborne'].reg-up .reg { transform: translateY(var(--ru, -17px)); }
 .ops-ac.reg-up .tag, .ops-ac.reg-up .op-delivery-tag { transform: translateY(calc(var(--ty, 0px) - 15px)); }
 .ops-ac.reg-off .reg { opacity: 0; }
+/* v0.25 r2 zoomed out, a big block of parked aircraft folds into one icon with a count ('×6'); the others hide under it. */
+.ops-ac.stk-hid { display: none; }
+.ops-ac.stk-top .badge.stk { display: block; }
+.ops-ac.stk-top .reg { opacity: 0; }
+.ops-ac .badge.stk rect { fill: rgba(var(--halo-rgb), 0.9); stroke: var(--map-ring); stroke-width: 1.2; }
+.ops-ac .badge.stk text { fill: var(--c-mark-e6eeff); font: 600 11px var(--font-mono); text-anchor: middle; pointer-events: none; }
+.touch .ops-ac .badge.stk text { font-size: 12px; }
 
 /* An airport code our parked aircraft's reg / DELIVERY tag would sit on fades out (set by the live layer). */
 .ops-map .airports .ap-label { transition: opacity 0.3s ease; }
