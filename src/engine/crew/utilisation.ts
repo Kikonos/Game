@@ -9,7 +9,7 @@ import type { RatingFamily } from '../../data/acmiTypes';
 import { BAL } from '../core/balance';
 import { post } from '../core/ledger';
 import { pushMessage } from '../core/messages';
-import { isPilot, typeOf } from '../core/perf';
+import { isPilot } from '../core/perf';
 import { DAY, fmtDate, monthKey } from '../core/time';
 import type { ActionResult, CrewMember, GameState, Role } from '../core/types';
 import { hashUnit } from '../core/util';
@@ -46,8 +46,6 @@ export interface UtilPerson {
   away: boolean;
   /** At work with no trip or tour on the roster in the next 28 days (standby aside). */
   free: boolean;
-  /** v0.25 r2 on a detachment's tour now or in the next 28 days (guest seats aside). */
-  tour: boolean;
 }
 
 export interface UtilGroup {
@@ -106,7 +104,6 @@ export function crewUtilisation(g: GameState): Utilisation {
       id: c.id, name: crewName(c), role: c.role, family: homes.get(c.id) ?? c.ratings[0], base: c.base,
       month: (c.blockMonths?.[mk] ?? 0) / 60, d28, y12, away,
       free: !away && !measured.has(c.id) && !(ix.pairingsOf.get(c.id) ?? []).some((p) => p.status !== 'done' && p.status !== 'broken' && p.start < ahead && (p.tour && !guestOn(p, c.id) ? Math.max(p.end, p.tour.to) : p.end) > g.now),
-      tour: (ix.pairingsOf.get(c.id) ?? []).some((p) => !!p.tour && !guestOn(p, c.id) && p.status !== 'done' && p.status !== 'broken' && p.start < ahead && Math.max(p.end, p.tour.to) > g.now),
       idle: !away && g.now - c.hired >= 28 * DAY && d28 < UTIL_TYPICAL.idle28,
     });
   }
@@ -166,26 +163,12 @@ export function hireHold(g: GameState, family: RatingFamily, role: Role, u = cre
   const xs = u.people.filter((p) => p.family === family && p.role === role && !p.away);
   if (xs.length < 4) return null;
   const avg = xs.reduce((s, p) => s + p.d28, 0) / xs.length;
-  // Player bot round: crew on a detachment's tour who fly few block hours (a station set in winter) are not spare.
-  // v0.25 r2: crew at home with a trip or two on the roster are (was: idle only with nothing on the roster for 28 days,
-  // which the auto-roster's standby and trips never leave: the player's save showed 'Short: 19 cabin crew' and 'Hire'
-  // while 39 of 67 flew under 15 h in 28 days, and the hold line never came). Never while a flight of the family is
-  // short of crew in the next 28 days (the player-like bot ran the A320 family 51 cabin crew short with red alarms
-  // all winter while the hold said "not flying enough to need more").
-  const idle = xs.filter((p) => p.idle && !p.tour).length;
-  if (avg >= UTIL_TYPICAL.hold28 || idle < 2 || crewShortAhead(g, family)) return null;
+  // Player bot round: idle means free too (nothing on the roster for 28 days). Crew on tours and trips who fly few block
+  // hours (a station set in winter, days of positioning and standby) are not spare: the player-like bot ran the A320
+  // family 51 cabin crew short with red alarms all winter while the hold said "not flying enough to need more".
+  const idle = xs.filter((p) => p.idle && p.free).length;
+  if (avg >= UTIL_TYPICAL.hold28 || idle < 2) return null;
   return { why: `${familyName(family)} ${ROLE_WORDS[role][1]} flew ${Math.round(avg)} h on average in the last 28 days; ${idle} flew under ${UTIL_TYPICAL.idle28} h`, idle, avg };
-}
-
-/** v0.25 r2 a flight of the family flown by our crew is short of crew (an amber or red crew alarm) in the next 28 days. Pure. */
-function crewShortAhead(g: GameState, family: RatingFamily): boolean {
-  const end = g.now + 28 * DAY;
-  for (const f of Object.values(g.flights)) {
-    if (!f.crewAlert || f.status !== 'scheduled' || !f.aircraftId || f.std < g.now || f.std >= end) continue;
-    const ac = g.fleet[f.aircraftId];
-    if (ac && typeOf(ac.typeId).family === family) return true;
-  }
-  return false;
 }
 
 const ROLE_WORDS: Record<Role, [string, string]> = {

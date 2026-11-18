@@ -90,39 +90,15 @@ describe('v0.18.2 Crew › Utilisation', () => {
     expect(heldHires(g, 'A320').some((x) => x.role === 'CPT')).toBe(false);
   });
 
-  it('crew who fly few hours on a detachment\'s tour are not idle for the hold (player bot round)', () => {
+  it('crew who fly few hours but are rostered on trips or tours are not idle for the hold (player bot round)', () => {
     const g = fixtureGame();
     addCrew(g, { CPT: 6 });
     for (const c of Object.values(g.crew)) c.hired = g.now - 400 * DAY;
     expect(hireHold(g, 'A320', 'CPT')).not.toBeNull();
     const u = crewUtilisation(g);
-    // Every idle captain on a tour: nobody is spare, the round-up is not held.
-    for (const p of u.people) p.tour = true;
+    // Every idle captain rostered (not free): nobody is spare, the round-up is not held.
+    for (const p of u.people) p.free = false;
     expect(hireHold(g, 'A320', 'CPT', u)).toBeNull();
-  });
-
-  it('v0.25 r2 crew at home with a trip or two on the roster still count as idle (the auto-roster leaves nobody free)', () => {
-    const g = fixtureGame();
-    addCrew(g, { CPT: 6 });
-    for (const c of Object.values(g.crew)) c.hired = g.now - 400 * DAY;
-    const u = crewUtilisation(g);
-    for (const p of u.people) {
-      p.free = false;
-      p.tour = false;
-    }
-    expect(hireHold(g, 'A320', 'CPT', u)?.idle).toBeGreaterThanOrEqual(2);
-  });
-
-  it('v0.25 r2 no hold while a flight of the family is short of crew in the next 28 days', () => {
-    const g = fixtureGame();
-    addCrew(g, { CPT: 6 });
-    for (const c of Object.values(g.crew)) c.hired = g.now - 400 * DAY;
-    expect(hireHold(g, 'A320', 'CPT')).not.toBeNull();
-    const ac = Object.values(g.fleet)[0];
-    g.flights.fx = { id: 'fx', aircraftId: ac.id, status: 'scheduled', kind: 'charter', std: g.now + 3 * DAY, sta: g.now + 3 * DAY + 120, block: 120, from: 'LIS', to: 'FAO', crewAlert: 'red' } as unknown as (typeof g.flights)[string];
-    expect(hireHold(g, 'A320', 'CPT')).toBeNull();
-    g.flights.fx.std = g.now + 40 * DAY;
-    expect(hireHold(g, 'A320', 'CPT')).not.toBeNull();
   });
 
   it('unpaid leave: those who take it stay home without pay, voluntary', () => {
